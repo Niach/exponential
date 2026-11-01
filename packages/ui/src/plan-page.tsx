@@ -168,6 +168,8 @@ export function PlanPage({
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center gap-2">
             <StoryKindBadge kind="plan" />
+            {/* #EXP-1553: the phones' waiting dot after the chip (iOS, Android). */}
+            {waiting && <span aria-hidden className="size-1.5 rounded-full bg-yellow-400" />}
           </div>
           {counts && <div className="text-xs text-muted-foreground">{counts}</div>}
         </div>
@@ -224,7 +226,10 @@ export function PlanPage({
           <Button variant="ghost" size="icon-sm" aria-label={PLAN_PAGE_COPY.title} onClick={onBack ?? onClose}>
             <BackIcon />
           </Button>
-          <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">{PLAN_PAGE_COPY.title}</span>
+          {/* #EXP-1553: the natives' centred navigation title; the trailing
+              slot keeps its width without an outline so the title stays centred. */}
+          <span className="min-w-0 flex-1 truncate text-center text-[15px] font-semibold">{PLAN_PAGE_COPY.title}</span>
+          {!hasOutline && <span aria-hidden className="size-8 shrink-0" />}
           {hasOutline && (
             <Button
               variant="ghost"

@@ -3,33 +3,29 @@
 //! screen's Stories tab body ([`crate::story_tab::story_tab_body`]) over the
 //! specimen case's ring, the IDE's `wide` frame (the web specimen's card),
 //! no PR block, every story INLINE (#EXP-1462) behind THE kind badge
-//! (#EXP-1493): the surfaces come from the case's own cards, a plan = its
-//! counts line (+ its pictures). The pictures are placeholders: the
-//! thumbnail's muted fill alone (as web, iOS and Android draw them).
+//! (#EXP-1493): a plan = its counts line (+ its pictures). The pictures are
+//! placeholders: the thumbnail's muted fill alone (as web, iOS and Android
+//! draw them). #EXP-1553: like web's `StoryTabSpecimen` (no `surfaceFor`) no
+//! surface draws inline, so the card closes after "First draft".
 
 use gpui::{px, App, Div, ParentElement as _, Styled as _, Window};
 use gpui_component::{v_flex, ActiveTheme as _};
 use serde_json::Value;
 
-use domain::stories::{story_tab_specimen, Story, STORIES};
+use domain::stories::{story_tab_specimen, Story};
 
 use crate::markdown::ImageCache;
 
 pub(crate) const ID: &str = "story-tab";
 pub(crate) const OWNER: &str = "S-3";
 
-/// The specimen's card width (the wide thumbnails' room).
-const WIDTH: f32 = 800.;
+/// The specimen's card width (web's `StoryTabSpecimen` default).
+const WIDTH: f32 = 640.;
 
-/// A story's raw card from the specimen case's input.
-fn case_card(story: &Story, _cx: &App) -> Option<Value> {
-    let fixture: Value =
-        serde_json::from_str(include_str!("../../../../../../../packages/domain-contract/fixtures/stories.json")).ok()?;
-    fixture["tabCases"][STORIES.tab.specimen.case]["input"]["messages"]
-        .as_array()?
-        .iter()
-        .find(|message| message["id"].as_str() == Some(story.id.as_str()))
-        .map(|message| message["card"].clone())
+/// No story's raw card: web's specimen passes no `surfaceFor`, so the
+/// case's (empty) surface stories draw as their line alone.
+fn case_card(_story: &Story, _cx: &App) -> Option<Value> {
+    None
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {

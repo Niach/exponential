@@ -5571,13 +5571,14 @@
         },
         "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_SHOW_WORK": "1"
+          "EXP_DEV_SHOW_WORK": "1",
+          "EXP_DEV_SCROLL_TO": "comment-call-card"
         }
       },
       "notes": {
         "web": "The raw session view (`session`; EXP-1293: its feed always shows the work, no Show work toggle): `scrollToCommentCard` centres the agent's comment card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
-        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the transcript opens on its tail, where the demo feed's `exponential_comments_create` call draws the seeded `mcp` comment as its card. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the transcript scrolled (`EXP_DEV_SCROLL_TO`, #EXP-1553) to where the demo feed's `exponential_comments_create` call draws the seeded `mcp` comment as its card. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
     },
     {

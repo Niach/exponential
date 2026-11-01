@@ -61,7 +61,7 @@ export function ChatListSpecimen() {
   return (
     <div
       data-testid="chat-list-specimen"
-      className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4"
+      className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
       <ChatsHeader inboxUnread />
       {/* S-3 (stories.json specimen): Triage + Designer wear their rings,
@@ -101,7 +101,7 @@ export function ChatSelectionSpecimen() {
   return (
     <div
       data-testid="chat-selection-specimen"
-      className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4"
+      className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
       <ChatFilterChips value="all" counts={LIST.counts} onChange={noop} />
       <ChatList
@@ -111,8 +111,13 @@ export function ChatSelectionSpecimen() {
         selection={selected}
         onRowClick={toggle}
       />
-      <div className="flex justify-center pt-2">
-        <BulkBarCapsule count={COPY.selection.count.replace(`{n}`, String(selected.size))} onClear={noop} iconOnly>
+      <div className="flex pt-2">
+        <BulkBarCapsule
+          count={COPY.selection.count.replace(`{n}`, String(selected.size))}
+          onClear={noop}
+          iconOnly
+          className="w-full"
+        >
           {actions.map(({ action }) => {
             const Icon = CHAT_SELECTION_ICONS[action]
             return (
@@ -171,7 +176,12 @@ function DeleteConfirm() {
 
 export function ChatMenusSpecimen() {
   return (
-    <div data-testid="chat-menus-specimen" className="flex flex-wrap items-start gap-8">
+    // #EXP-1553: phones stack with half the gap, so the delete confirm shows
+    // whole (its buttons included) in the phone frame.
+    <div
+      data-testid="chat-menus-specimen"
+      className="flex flex-wrap items-start gap-8 max-md:gap-4"
+    >
       <div>
         {caption(`A live chat`)}
         <MenuPanel entries={LIVE} density="pointer" />
@@ -188,7 +198,7 @@ export function ChatMenusSpecimen() {
         {caption(`The agent menu (idle, member)`)}
         <MenuPanel entries={AGENT_IDLE} density="pointer" />
       </div>
-      <div className="w-[24rem]">
+      <div className="w-[24rem] max-w-full">
         {caption(`Phone: the long-press sheet`)}
         <MenuPanel entries={LIVE} look="sheet" density="touch" title="Spike: offline queue" />
       </div>
@@ -315,7 +325,8 @@ function Transcript({ layout }: { layout: `transcript` | `bubbles` }) {
       layout={layout}
       renderText={paragraph}
       attachmentSrc={() => ``}
-      messageCaption={() => `Dana Reyes · 21:02`}
+      // #EXP-1553: each person's line carries ITS OWN time (m3 = 09:02, as desktop).
+      messageCaption={(row) => `Dana Reyes · ${TIMES[row.id] ?? ``}`}
       messageTime={(row) => TIMES[row.id] ?? null}
       onSurfaceReply={() => {}}
       arrived={() => false}
@@ -391,7 +402,8 @@ function LockedTranscript({ layout }: { layout: `transcript` | `bubbles` }) {
       layout={layout}
       renderText={paragraph}
       attachmentSrc={() => ``}
-      messageCaption={() => `Dana Reyes · 21:02`}
+      // #EXP-1553: each person's line carries ITS OWN time (m3 = 09:02, as desktop).
+      messageCaption={(row) => `Dana Reyes · ${TIMES[row.id.replace(`l-`, ``)] ?? ``}`}
       messageTime={(row) => TIMES[row.id.replace(`l-`, ``)] ?? null}
       onSurfaceReply={() => {}}
       arrived={() => false}
@@ -411,7 +423,7 @@ export function SealedLockedSpecimen() {
           <div className="mb-3 text-xs text-muted-foreground">Web wide (transcript)</div>
           <LockedTranscript layout="transcript" />
         </div>
-        <div className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4">
+        <div className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0">
           <div className="text-xs text-muted-foreground">Chats list</div>
           <ChatList rows={LOCKED_LIST_ROWS} agentOf={() => `claude`} />
         </div>

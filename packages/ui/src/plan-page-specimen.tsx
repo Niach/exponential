@@ -32,6 +32,14 @@ const text = (markdown: string) => (
         <h1 key={at} className="text-xl font-semibold">
           {block.slice(2)}
         </h1>
+      ) : block.split(`\n`).every((line) => line.startsWith(`- `)) ? (
+        // #EXP-1553: a list block draws real bullets like the app's markdown
+        // (the natives' specimens), never literal hyphens.
+        <ul key={at} className="list-disc pl-5">
+          {block.split(`\n`).map((line, item) => (
+            <li key={item}>{line.slice(2)}</li>
+          ))}
+        </ul>
       ) : (
         <p key={at} className="whitespace-pre-wrap">
           {block}

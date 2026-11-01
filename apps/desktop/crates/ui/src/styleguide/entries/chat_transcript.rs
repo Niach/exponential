@@ -12,10 +12,9 @@
 //! ENTER frame a third of the way in (fade + rise + the primary hairline).
 
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use gpui::{div, px, AnyElement, App, Div, Entity, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
-use gpui_component::{v_flex, ActiveTheme as _};
+use gpui_component::v_flex;
 use serde_json::json;
 
 use domain::chats::{DividerKind, CHATS};
@@ -75,7 +74,7 @@ fn plan(id: &str, text: &str, decision: Option<&str>) -> SessionThreadRow {
     }
 }
 
-/// The web entry's rows, plus FEED-140's waiting plan.
+/// The web entry's rows (#EXP-1553: exactly web's `TRANSCRIPT_ROWS`).
 pub(crate) fn rows() -> Vec<(SessionThreadRow, &'static str)> {
     vec![
         (message("m1", "user", "Cold start is at 1.4 s on the Pixel 6a. Profile the launch path and cut the sync bootstrap out of it."), "21:02"),
@@ -94,7 +93,6 @@ pub(crate) fn rows() -> Vec<(SessionThreadRow, &'static str)> {
         (message("m3", "user", "Anything new overnight?"), "09:02"),
         (message("m4", "agent", "Three reports, all about the iPad sign-in. I linked them to #APP-19."), ""),
         (SessionThreadRow::Divider { id: "d2".into(), kind: DividerKind::New, at: String::new() }, "09:30"),
-        (plan("p-new", "# Plan\nShip the snapshot cache behind a flag, then measure on the Pixel 6a.", None), ""),
     ]
 }
 
@@ -116,23 +114,19 @@ pub(crate) fn paint(row: &SessionThreadRow, time: &str, images: &Entity<ImageCac
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let images = window.use_keyed_state("sg-chat-transcript-images", cx, |_, _| ImageCache::new(None)).clone();
-    let muted = cx.theme().muted_foreground;
     let rows: Vec<AnyElement> = rows().iter().map(|(row, time)| paint(row, time, &images, window, cx)).collect();
-    let third = crate::surface_card::enter_frame(Duration::from_millis(120), false);
     v_flex()
         // #EXP-1547: THE chat column's content box (the token inside the gutter).
         .w(px(crate::work_header::CHAT_COLUMN_W - 2. * crate::work_header::WORK_GUTTER))
         .gap_5()
         .children(rows)
-        .child(div().text_xs().text_color(muted).child("ENTER (a live arrival only): the frame a third of the way in"))
-        .child(crate::surface_card::surface_frame("sg-enter", Some("Launch path"), None, third, cx))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The specimen covers every new row kind and both plan states.
+    /// The specimen covers every new row kind and the superseded plan.
     #[test]
     fn the_rows_cover_the_new_kinds() {
         let rows = rows();
@@ -140,6 +134,5 @@ mod tests {
         assert!(rows.iter().any(|(row, _)| matches!(row, SessionThreadRow::Divider { kind: DividerKind::New, .. })));
         assert!(rows.iter().any(|(row, _)| matches!(row, SessionThreadRow::Divider { kind: DividerKind::Compact, .. })));
         assert!(rows.iter().any(|(row, _)| matches!(row, SessionThreadRow::Plan { decision: Some(d), .. } if d == "superseded")));
-        assert!(rows.iter().any(|(row, _)| matches!(row, SessionThreadRow::Plan { decision: None, .. })));
     }
 }

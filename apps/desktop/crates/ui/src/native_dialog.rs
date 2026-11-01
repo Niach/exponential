@@ -855,6 +855,13 @@ impl AlertSpec {
         self
     }
 
+    /// #EXP-1553: the bold question line over the description (web's
+    /// `DialogTitle`); the window title stays the alert's short name.
+    pub(crate) fn question(mut self, question: impl Into<SharedString>) -> Self {
+        self.question = Some(question.into());
+        self
+    }
+
     /// Total window height (the titlebar strip is part of it — EXP-287 kept
     /// this meaning so the existing per-alert overrides still read true).
     pub(crate) fn height(mut self, height: Pixels) -> Self {
@@ -957,6 +964,33 @@ pub(crate) fn alert_specimen(
     )
 }
 
+/// #EXP-1553: an alert drawn as web's prompt CARD (no window-title band):
+/// the question leads inside the card, then the body and the footer, on
+/// the dialog panel's rounded glass. For styleguide specimens whose web twin
+/// draws `PromptLayout` (the chat delete confirm).
+pub(crate) fn alert_card_specimen(
+    key: &'static str,
+    spec: AlertSpec,
+    window: &mut Window,
+    cx: &mut App,
+) -> gpui::Div {
+    let width = spec.width;
+    // The window's height less its title band: the body's fixed room.
+    let height = spec.height - crate::title_bar::TITLE_BAR_HEIGHT;
+    let view = window.use_keyed_state(key, cx, |_, _| AlertView { spec });
+    v_flex()
+        .w(width)
+        .h(height)
+        .flex_shrink_0()
+        .rounded(px(t::radius::XL))
+        .border_1()
+        .border_color(t::glass::STROKE_CARD.to_hsla())
+        .bg(t::glass::FILL_PANEL.to_hsla())
+        .shadow_2xl()
+        .text_color(cx.theme().foreground)
+        .child(div().size_full().p_1().child(view))
+}
+
 struct AlertView {
     spec: AlertSpec,
 }
@@ -1012,9 +1046,10 @@ impl Render for AlertView {
                     .overflow_y_scrollbar()
                     .gap_3()
                     .children(self.spec.question.clone().map(|question| {
+                        // #EXP-1553: web's dialog title (bold, a step up).
                         div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
+                            .text_base()
+                            .font_weight(FontWeight::SEMIBOLD)
                             .text_color(cx.theme().foreground)
                             .child(question)
                     }))

@@ -148,7 +148,7 @@ function AgentRoute() {
   const isMobile = useIsMobile()
   if (dev) {
     return (
-      <div className={`h-full min-h-0 overflow-y-auto p-6 ${TAB_BAR_CLEARANCE}`}>
+      <div className={`h-full min-h-0 overflow-y-auto p-6 max-md:p-4 ${TAB_BAR_CLEARANCE}`}>
         {dev === `trace` ? (
           <TraceSpecimen />
         ) : dev === `ask-dock` ? (

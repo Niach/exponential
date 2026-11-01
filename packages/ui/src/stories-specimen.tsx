@@ -247,7 +247,7 @@ export function StoryRingSpecimen() {
   return (
     <div
       data-testid="story-ring-specimen"
-      className="flex w-[24rem] max-w-full flex-col gap-4 rounded-3xl border border-glass-stroke-card bg-background p-4"
+      className="flex w-[24rem] max-w-full flex-col gap-4"
     >
       <StoryRingRow rings={STORY_RING_SPECIMEN} avatarFor={storySpecimenAvatar} onOpen={() => {}} />
       <div data-slot="story-ring-specimen-small" className="flex gap-3">

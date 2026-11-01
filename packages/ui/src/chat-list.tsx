@@ -365,7 +365,7 @@ function ChatRowText({
         <span className="flex min-w-0 items-baseline gap-2">
           <span
             className={cn(
-              `min-w-0 flex-1 truncate text-[15px] text-foreground`,
+              `min-w-0 flex-1 truncate text-[15px] text-foreground max-md:leading-snug`,
               unread ? `font-semibold` : `font-medium`
             )}
           >

@@ -146,7 +146,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
  * Threads tab `sg_threads` and the agent channel `sg_agent-channel`;
- * `sg_pr-row` = the issue page's pull-request row. S-3 retired `sg_guide`
+ * `sg_pr-row` = the capture-only PR row specimen (EXP-1553). S-3 retired `sg_guide`
  * and `sg_guide-section` with the Guide tab (stories replaced it).
  *
  * EXP-1296 (Threads v2) split the suite in two tests. [captureStyleguideScreenshots]
@@ -216,6 +216,8 @@ class StyleguideScreenshotsTest {
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
             // S-3: THE inter-session link line.
             "sg_session-xref",
+            // EXP-1553: THE PR row (a tree, a stack, an unlinked PR).
+            "sg_pr-row",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
             "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
             // #EXP-1388: the Chats multi-selection + the Archived entry.
@@ -576,17 +578,15 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
         flow.settle()
 
-        // --- sg_pr-row: THE pull-request row (EXP-1248/1291). An issue page
-        // lists its pull requests as rows; APP-14 owns the seed's real open
-        // PR. The detail body is a plain verticalScroll Column, so
-        // performScrollTo reaches the row.
+        // --- APP-14's issue page (the seed's real open PR), the way into
+        // its thread's Stories tab below. EXP-1553: `sg_pr-row` is the
+        // capture-only PR row specimen now (with the thread cards).
         composeRule.onNode(hasTestTag("issue-list"))
             .performScrollToNode(hasTestTag(GUIDE_ISSUE_ROW))
         composeRule.onNode(hasTestTag(GUIDE_ISSUE_ROW)).performClick()
         flow.waitFor(hasTestTag("issue-pr-row"), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasTestTag("issue-pr-row")).onFirst().performScrollTo()
         flow.settle()
-        flow.screenshot("sg_pr-row")
 
         // --- sg_thread-stories (stories.json STORIES TAB): APP-14's thread
         // (web's `$diffThreadId`) on its Stories tab, the strip's last,
@@ -1328,6 +1328,12 @@ class StyleguideScreenshotsTest {
         // kinds, by the real SessionXref.
         showThreadCards(ThreadCardsKind.SessionXref)
         flow.screenshot("sg_session-xref")
+
+        // --- sg_pr-row (EXP-1553): THE PR row in its two shapes (a tree with
+        // guides, a stack on its rail to master) + an unlinked PR — web's
+        // `pr-row` entry, by the real PrList / StackRail.
+        showThreadCards(ThreadCardsKind.PrRow)
+        flow.screenshot("sg_pr-row")
 
         // --- Thread 58cb32df (fixtures/chats.json): the Chats screen over
         // the phone tab bar, the tab bar's states, a chat's transcript as

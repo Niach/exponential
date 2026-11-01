@@ -76,7 +76,7 @@ export function SessionXrefSpecimen() {
     agent: withAgent ? agent : null,
   })
   return (
-    <div data-testid="session-xref-specimen" className="flex w-[22rem] max-w-full flex-col items-start gap-3 rounded-3xl border border-glass-stroke-card bg-background p-4">
+    <div data-testid="session-xref-specimen" className="flex w-[22rem] max-w-full flex-col items-start gap-3">
       {[
         row(`message`, `Triage`, true),
         row(`report`, `Fix the sign-in redirect`, false),

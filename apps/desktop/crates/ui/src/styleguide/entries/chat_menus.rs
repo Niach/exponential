@@ -23,10 +23,12 @@ enum Specimen {
 }
 
 fn specimens() -> Vec<(&'static str, Specimen)> {
+    // #EXP-1553: web's `ChatMenusSpecimen` set and captions, one for one
+    // (S-3: Delete only, live or ended; no Stop anywhere).
     vec![
-        // S-3: Delete only, live or ended (no Stop anywhere).
-        ("A chat", Specimen::Chat(thread_menu_entries("running", true, true))),
-        ("The agent menu (owner)", Specimen::Agent(agent_menu_entries(true, true))),
+        ("A live chat", Specimen::Chat(thread_menu_entries("running", true, true))),
+        ("An ended chat", Specimen::Chat(thread_menu_entries("ended", true, true))),
+        ("The agent menu (busy, owner)", Specimen::Agent(agent_menu_entries(true, true))),
         ("The agent menu (idle, member)", Specimen::Agent(agent_menu_entries(false, false))),
     ]
 }
@@ -70,13 +72,18 @@ impl Render for MenusDemo {
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let demo = window.use_keyed_state("sg-chat-menus", cx, MenusDemo::new);
-    let confirm = crate::native_dialog::alert_specimen(
+    // #EXP-1553: web's `DeleteConfirm`: its caption over the prompt card
+    // (the question inside it; no window-title band).
+    let confirm = crate::native_dialog::alert_card_specimen(
         "sg-chat-delete-confirm",
         crate::chat_actions::delete_alert(|_, _| true),
         window,
         cx,
     );
-    div().flex().flex_col().gap_8().child(demo).child(confirm)
+    let muted = cx.theme().muted_foreground;
+    div().flex().flex_col().gap_8().child(demo).child(
+        div().flex().flex_col().gap_2().child(div().text_xs().text_color(muted).child("The delete confirm")).child(confirm),
+    )
 }
 
 #[cfg(test)]
@@ -88,6 +95,7 @@ mod tests {
     fn the_specimens_are_the_fixture_entries() {
         let specimens = specimens();
         assert!(matches!(&specimens[0].1, Specimen::Chat(entries) if entries == &[ThreadMenuEntry::Delete]));
-        assert!(matches!(&specimens[1].1, Specimen::Agent(entries) if entries.len() == 3));
+        assert!(matches!(&specimens[1].1, Specimen::Chat(entries) if entries == &[ThreadMenuEntry::Delete]));
+        assert!(matches!(&specimens[2].1, Specimen::Agent(entries) if entries.len() == 3));
     }
 }

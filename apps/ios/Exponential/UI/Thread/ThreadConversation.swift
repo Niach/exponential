@@ -235,9 +235,11 @@ struct ThreadConversationView: View {
             if author == DomainContract.messageAuthorKindAgent {
                 item.time = at.flatMap(clock)
             } else if author != DomainContract.messageAuthorKindSystem {
-                let user = rows.user(id: authorId)
+                // EXP-1553 (chats.json TRANSCRIPT ×4): the time (+ queued)
+                // inside the bubble, bottom-right, no name (Android's
+                // `ChatBubble`, web's phone bubble).
                 item.caption = UserMessageCaption.text(
-                    name: user?.name ?? user?.email,
+                    name: nil,
                     at: at.flatMap { WireTimestamps.parse($0) },
                     queued: queued
                 )
@@ -457,7 +459,8 @@ struct ThreadConversationRow: View, Equatable {
                     context: markdownContext,
                     caption: caption,
                     onRemove: removable ? { onUnqueue(id) } : nil,
-                    leadingGap: ChatBubbleMetrics.personLeadingGap
+                    leadingGap: ChatBubbleMetrics.personLeadingGap,
+                    inBubbleCaption: true
                 )
                 .opacity(queued ? 0.7 : 1)
                 .accessibilityIdentifier("thread-message")
@@ -490,8 +493,7 @@ struct ThreadConversationRow: View, Equatable {
         case let .plan(card) where card.decision == "superseded":
             // FEED-140: a plan the agent replaced paints CLOSED and
             // collapsed to `copy.superseded`, never in the dock.
-            ThreadCardLine(icon: AppIcons.codingPlan, text: Chats.Copy.superseded)
-                .accessibilityIdentifier("thread-plan-superseded")
+            SupersededPlanCard()
         case .question, .plan:
             // FEED-140: a WAITING plan or question card is ALWAYS visible
             // inline at its place with its actions (Approve / answer),
@@ -1128,6 +1130,41 @@ struct ThreadCardAnswer {
     var feedback: String? = nil
     var answers: CardAnswers? = nil
     var surfaceData: CardJSON? = nil
+}
+
+/// FEED-140 (EXP-1553, web `PlanCard` parity ×4): a superseded plan = THE
+/// plan card CLOSED — the `Plan ready` header (plan glyph, primary) on THE
+/// card surface, its body collapsed to the muted `× Replaced by a newer
+/// plan` line, the whole card at 80% opacity.
+struct SupersededPlanCard: View {
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            AppIcon(AppIcons.codingPlan, size: 14)
+                .foregroundStyle(DesignTokens.Palette.primary)
+                .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(AskDock.Copy.planReady)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(DesignTokens.Palette.primary)
+                    .lineLimit(1)
+                HStack(alignment: .top, spacing: 6) {
+                    AppIcon(AppIcons.uiClose, size: 12)
+                        .padding(.top, 2)
+                    Text(Chats.Copy.superseded)
+                        .font(.caption)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(12)
+        .glassCard()
+        .opacity(0.8)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("thread-plan-superseded")
+    }
 }
 
 /// A thread's question or plan card IN THE TRANSCRIPT — THE session view's

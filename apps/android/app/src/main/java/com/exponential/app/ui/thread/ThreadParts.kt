@@ -94,6 +94,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -980,6 +981,10 @@ fun ThreadConversation(
     onOpenXref: ((sessionId: String) -> Unit)? = null,
     /** #EXP-1464: a Needs-you session row expands into its card (null = opens). */
     rowActions: ThreadRowActions? = null,
+    /** EXP-1553: THE transcript's wall clock (`HH:mm`), the one formatter
+     *  the bubbles' times ([meta]) and the divider pills share, so both read
+     *  the same zone; a host formatting its bubbles otherwise passes its own. */
+    clock: (wire: String) -> String? = ::clockTime,
 ) {
     // #EXP-1464 (thread-row-action.json): the expanded session rows (by row
     // id) and the sessions the viewer answered from one (client-held).
@@ -1122,7 +1127,7 @@ fun ThreadConversation(
                             }
                         }
                     }
-                    is SessionTree.ThreadRow.Divider -> TranscriptDivider(row.kind, clockTime(row.at))
+                    is SessionTree.ThreadRow.Divider -> TranscriptDivider(row.kind, clock(row.at))
                     is SessionTree.ThreadRow.Locked -> TranscriptDivider(LOCKED_DIVIDER_PREFIX + row.reason, null)
                     is SessionTree.ThreadRow.Surface -> AgentColumn {
                         SurfaceCard(
@@ -1476,29 +1481,38 @@ fun PlanPageOpenButton(onOpen: () -> Unit) {
     }
 }
 
-/** FEED-140: a superseded plan card, closed and collapsed to one line. */
+/** FEED-140 (EXP-1553, web's PlanCard parity): a superseded plan = THE
+ *  plan card CLOSED — the `Plan ready` header (plan glyph) on THE card
+ *  surface, its body collapsed to the muted `× Replaced by a newer plan`
+ *  line, the whole card at 80 % opacity. */
 @Composable
 fun SupersededPlanLine(modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(GlassTokens.CardRadius)
-    Row(
+    com.exponential.app.ui.session.AskCard(
+        plan = true,
+        heading = AskDock.Copy.PLAN_READY,
+        meta = null,
         modifier = modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(GlassTokens.CardFill, shape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .graphicsLayer { alpha = 0.8f }
             .testTag("thread-plan-superseded"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(ExpIcons.codingPlan, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
-        Text(
-            AskDock.Copy.SUPERSEDED,
-            style = MaterialTheme.typography.bodySmall,
-            color = Muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                ExpIcons.uiClose,
+                contentDescription = null,
+                tint = Muted,
+                modifier = Modifier.padding(top = 2.dp).size(14.dp),
+            )
+            Text(
+                AskDock.Copy.SUPERSEDED,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Normal),
+                color = Muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

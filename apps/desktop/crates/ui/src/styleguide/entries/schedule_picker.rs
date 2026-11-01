@@ -26,8 +26,9 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let minutes = window.use_keyed_state("sg-schedule-picker-minutes", cx, |window, cx| {
         SchedulePickerDemo::new(MINUTES_CRON, window, cx)
     });
+    // #EXP-1553: "Every few minutes" first, like iOS/Android.
     // The web island's `w-[24rem]`.
-    div().w(px(384.)).flex().flex_col().gap_6().child(demo).child(minutes)
+    div().w(px(384.)).flex().flex_col().gap_6().child(minutes).child(demo)
 }
 
 struct SchedulePickerDemo {

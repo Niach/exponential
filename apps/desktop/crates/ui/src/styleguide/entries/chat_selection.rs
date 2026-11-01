@@ -7,15 +7,18 @@
 //! cell, two selected on the flat `list_active` fill, their lead discs one
 //! notch stronger), over THE bar (the issue
 //! list's bulk bar: capsule, bare count, labeled buttons, the hairline before
-//! Delete) holding `chat_selection_actions` for those two.
+//! Delete) holding `chat_selection_actions` for those two. #EXP-1553: the
+//! whole list like web's specimen: the filter chips, the Agents section
+//! (`agentRowCases[0]`), then the Chats section with the rows above.
 
-use gpui::{px, App, Div, ParentElement as _, SharedString, Styled as _, Window};
+use gpui::{div, prelude::FluentBuilder as _, px, App, Div, IntoElement as _, ParentElement as _, SharedString, Styled as _, Window};
 use gpui_component::{v_flex, ActiveTheme as _};
 
-use domain::chats::{chat_selection_actions, ChatList, ChatListView, ChatSelectionRow};
+use domain::chats::{chat_selection_actions, ChatFilter, ChatList, ChatListView, ChatSelectionRow, CHATS};
 
 use crate::chat_list::{
-    chat_archived_row, chat_bar_label_min_width, chat_lead_disc, chat_row, chat_selectable, chat_selection_bar,
+    agent_chat_row, chat_archived_row, chat_bar_label_min_width, chat_filter_chips, chat_lead_disc, chat_row,
+    chat_section_header, chat_selectable, chat_selection_bar,
 };
 
 pub(crate) const ID: &str = "chat-selection";
@@ -61,18 +64,25 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let actions = chat_selection_actions(&selection_rows(&list, &selected), ChatListView::List);
     // The page's rule at the specimen's width.
     let labels = px(COLUMN_W) >= chat_bar_label_min_width(&actions.iter().map(|(action, _)| *action).collect::<Vec<_>>());
+    let (_, _, agent_rows) = super::chat_list::model();
     v_flex()
         .w(px(COLUMN_W))
         .py_4()
         .gap_4()
         .rounded_xl()
         .bg(cx.theme().background)
+        .child(div().px_4().child(chat_filter_chips(&list.counts, ChatFilter::All, None, cx)))
         // The list pane: the bar docks over its bottom like the page's.
         .child(
             v_flex()
                 .relative()
                 .w_full()
                 .pb(px(72.))
+                .when(!agent_rows.is_empty(), |pane| {
+                    pane.child(chat_section_header(&CHATS.copy.sections.agents, cx))
+                        .children(agent_rows.iter().map(|row| agent_chat_row(row, cx).into_any_element()))
+                        .child(chat_section_header(&CHATS.copy.sections.chats, cx))
+                })
                 .child(chat_selectable(
                     SharedString::from("chat-selection-archived"),
                     "",

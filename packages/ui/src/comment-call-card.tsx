@@ -23,8 +23,10 @@ export const COMMENT_CALL_COPY = {
 /** Three body lines at the chat markdown's 1.5 line height. */
 const CLAMP_CLASS = `max-h-[4.5em] overflow-hidden`
 // A clamp cuts mid-line when the body holds a heading or a list; the fade
-// makes the cut read as "there is more" instead of a clipped line.
-const CLAMP_FADE_CLASS = `[mask-image:linear-gradient(to_bottom,black_55%,transparent)]`
+// makes the cut read as "there is more" instead of a clipped line. #EXP-1553:
+// opaque to 80 %, the same fold on every platform (Android CLAMP_FADE_FROM,
+// iOS clampFadeFrom, desktop CLAMP_FADE_FROM).
+const CLAMP_FADE_CLASS = `[mask-image:linear-gradient(to_bottom,black_80%,transparent)]`
 
 export function CommentCallCard({
   issue,

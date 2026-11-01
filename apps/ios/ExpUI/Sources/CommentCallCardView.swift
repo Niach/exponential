@@ -32,8 +32,33 @@ public struct CommentCallCardView<Issue: View, Mark: View, Content: View>: View 
 
     @State private var expanded = false
     @State private var fullHeight: CGFloat = 0
-    /// Three body lines (web: 4.5em at the chat markdown's 1.5 line height).
-    @ScaledMetric(relativeTo: .subheadline) private var clampHeight: CGFloat = 63
+    /// Re-resolves `clampHeight` when the reader changes the text size.
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// The clamp holds exactly THREE WHOLE body lines (web `max-h-[4.5em]`:
+    /// 3 × the chat markdown's 1.5 line height). EXP-1553: derived from the
+    /// line the body ACTUALLY lays out on — the text view's top inset
+    /// (`MarkdownStyle.textInsetY`, 4pt: where line 1's box starts), then 3 ×
+    /// the transcript markdown's font (`Transcript.bodySize`, 14pt,
+    /// Dynamic-Type scaled) plus its leading up to the
+    /// `Transcript.bodyLineHeight` box (22pt, scaled), the same functions
+    /// `AgentMarkdownText`'s render resolves. 70pt at the default size: line
+    /// 3's descenders end ~5pt inside it (TextKit's leading trails each
+    /// line), like web's half-leading under its last line.
+    private var clampHeight: CGFloat {
+        _ = dynamicTypeSize
+        let size = DesignTokens.Transcript.bodySize
+        let font = MarkdownStyle.resolvedBodyFont(size)
+        let leading = MarkdownStyle.resolvedLineSpacing(
+            bodySize: size, lineHeight: DesignTokens.Transcript.bodyLineHeight
+        ) ?? 0
+        return MarkdownStyle.textInsetY + Self.clampLines * (font.lineHeight + leading)
+    }
+    /// The folded body's line count.
+    static var clampLines: CGFloat { 3 }
+    /// EXP-1553: a folded body FADES out instead of a hard cut — opaque to
+    /// 80 % of the clamp height, clear at 100 % (web `comment-call-card.tsx`'s
+    /// mask, Android `CommentCallCard.kt` `CLAMP_FADE_FROM`).
+    static var clampFadeFrom: CGFloat { 0.8 }
 
     public init(
         author: String?,
@@ -91,6 +116,24 @@ public struct CommentCallCardView<Issue: View, Mark: View, Content: View>: View 
         .accessibilityIdentifier("comment-call-card")
     }
 
+    /// The folded body's fade mask: only while it overflows and is folded.
+    @ViewBuilder
+    private var clampFade: some View {
+        if overflows, !expanded {
+            LinearGradient(
+                stops: [
+                    .init(color: .black, location: 0),
+                    .init(color: .black, location: Self.clampFadeFrom),
+                    .init(color: .clear, location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        } else {
+            Color.black
+        }
+    }
+
     private var commentBox: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
@@ -119,6 +162,7 @@ public struct CommentCallCardView<Issue: View, Mark: View, Content: View>: View 
                 })
                 .frame(maxHeight: expanded ? nil : clampHeight, alignment: .top)
                 .clipped()
+                .mask(clampFade)
             if overflows || expanded {
                 Button(expanded ? CommentCallCopy.showLess : CommentCallCopy.showMore) {
                     expanded.toggle()

@@ -638,18 +638,10 @@ final class StyleguideScreenshots: XCTestCase {
         _ = deviceSheet.waitForNonExistence(timeout: Wait.nav)
         settle(1)
 
-        // ── sg_pr-row: THE pull-request row (EXP-1248/1295) ──────────────────
-        // An issue page lists its pull requests as rows; APP-14 owns the
-        // seed's real open PR.
+        // EXP-1553: sg_pr-row is a specimen now (THE PrRow: ring lead, tree
+        // guides, the stack rail; `walkSpecimens`). Back on the board for the
+        // issue walk below.
         showBoard(app)
-        openIssue(app, title: Self.guideTitle)
-        let prRow = anyElement(app, identified: "issue-pr-row")
-        _ = scrollUntilVisible(app, prRow)
-        expect(prRow, within: Wait.sync, "APP-14's page drew no pull-request row")
-        snapshot("sg_pr-row", settle: 1)
-
-        // Issue → board.
-        goBack(app)
         settle(1)
 
         // ── sg_thread-replies: the quick replies (EXP-1211) ──────────────────
@@ -1008,7 +1000,7 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "device-readiness", "session-xref", "story-ring", "story-viewer",
-        "story-tab", "sealed-locked", "plan-page",
+        "story-tab", "sealed-locked", "plan-page", "pr-row",
     ]
 
     /// A scoped run that wants only specimens (`--views sealed-locked`)
@@ -1042,6 +1034,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "story-tab": snapshot("sg_story-tab", settle: 2)
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)
+            case "pr-row": snapshot("sg_pr-row", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }

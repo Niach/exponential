@@ -539,13 +539,14 @@ export function BulkBarDock({ children }: { children: ReactNode }) {
     // the bar half its width to the right on every phone selection.
     // EXP-698 r5: on phones the bar IS the tab bar now, so it copies the tab
     // bar's box exactly — pinned to `bottom-0` with the safe-area inset as its
-    // own PADDING, never as an offset. That is what makes the measured
+    // own PADDING, never as an offset. #EXP-1553: and it spans the width the
+    // way the natives' bottom bar does (`inset-x-4`, the capsule `w-full`). That is what makes the measured
     // `--bulkbar-h` (published here, spent by TAB_BAR_CLEARANCE) cover the
     // same footprint `--tabbar-h` does; an inset expressed as `bottom-…` would
     // sit outside the measured box and under-reserve the list's clearance.
     <div
       ref={publishBulkBarHeight}
-      className="md:contents max-md:fixed max-md:bottom-0 max-md:left-1/2 max-md:z-40 max-md:max-w-[calc(100vw-2rem)] max-md:-translate-x-1/2 max-md:pb-[max(1rem,env(safe-area-inset-bottom))]"
+      className="md:contents max-md:fixed max-md:inset-x-4 max-md:bottom-0 max-md:z-40 max-md:flex max-md:justify-center max-md:pb-[max(1rem,env(safe-area-inset-bottom))]"
     >
       {children}
     </div>

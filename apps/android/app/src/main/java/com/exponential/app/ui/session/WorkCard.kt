@@ -75,11 +75,16 @@ internal fun Modifier.threadCard(): Modifier {
         .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
 }
 
-/** The transcript's tool rung (the cards read one step below prose). */
+/** The transcript's tool rung (the cards read one step below prose).
+ *  EXP-1553: REGULAR weight, no label tracking (web / iOS): a row's title
+ *  (a folded `Review · Verify`, a script's tool group) is never bold; a
+ *  card's header asks for Medium itself. */
 @Composable
 internal fun threadCardTextStyle(): TextStyle = MaterialTheme.typography.labelMedium.copy(
     fontSize = DesignTokens.Transcript.ToolSize.sp,
     lineHeight = DesignTokens.Transcript.ToolLineHeight.sp,
+    fontWeight = FontWeight.Normal,
+    letterSpacing = 0.sp,
 )
 
 @Composable

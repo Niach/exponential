@@ -47,17 +47,18 @@ import com.exponential.app.domain.SchedulePicker
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.components.ChatMenuSheetFace
+import com.exponential.app.ui.components.GlassAlertAction
+import com.exponential.app.ui.components.GlassAlertFace
+import androidx.compose.ui.unit.sp
 import com.exponential.app.ui.components.ChatSelectionBar
 import com.exponential.app.ui.components.SelectionBarSlot
 import com.exponential.app.ui.components.BottomNavDefaults
 import androidx.compose.foundation.layout.navigationBarsPadding
-import com.exponential.app.ui.components.ChatLeadDisc
 import com.exponential.app.ui.components.ScheduleFieldsSpecimen
 import com.exponential.app.ui.components.agentMenuItems
 import com.exponential.app.ui.components.chatMenuItems
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.thread.ChatHeader
 import com.exponential.app.ui.thread.ThreadConversation
 import com.exponential.app.ui.thread.ThreadRowMeta
 import com.exponential.app.ui.threads.ChatsContent
@@ -248,7 +249,8 @@ fun chatSelectionSpecimenActions(): List<Chats.ChatSelectionEntry> = Chats.chatS
     },
 )
 
-/** THE Chats list in selection mode: the Archived entry first, listCases[0]
+/** THE Chats list in selection mode under the agent bubbles + the Agents
+ *  section (EXP-1553): the Archived entry first, listCases[0]
  *  with two rows selected (nothing shifts: the full-width tint + the select
  *  badge on the stronger disc), THE BAR (the bare count) in the tab bar's
  *  slot (shot `sg_chat-selection`). */
@@ -262,6 +264,11 @@ fun ChatSelectionSpecimenScreen() {
                     list = LIST.copy(archived = CHAT_SELECTION_ARCHIVED),
                     filter = Chats.ChatFilter.All,
                     bubbles = BUBBLES,
+                    // EXP-1553: the agent bubble row and the Agents section
+                    // stay while selecting (agents are never selectable).
+                    rings = STORY_RING_SPECIMEN,
+                    ringAvatar = ::storySpecimenAvatar,
+                    agentRows = ChatListSpecimen.AGENT_ROWS,
                     agentOf = { "claude" },
                     onSelectFilter = {},
                     onOpenChat = {},
@@ -447,54 +454,41 @@ private val TRANSCRIPT: List<SessionTree.ThreadRow> = listOf(
 
 private val TIMES = mapOf("m1" to "21:02", "m2" to "21:14", "m3" to "09:02", "m4" to "09:03")
 
-/** A chat's transcript as phone bubbles under THE chat header (shot `sg_chat-transcript`). */
+/** The specimen's wall clock: the bubbles' times above are the web entry's
+ *  UTC wall clock, so the divider pills format in the same zone (EXP-1553). */
+private fun specimenClock(wire: String): String? = runCatching {
+    java.time.Instant.parse(wire).atZone(java.time.ZoneOffset.UTC)
+        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+}.getOrNull()
+
+/** A chat's transcript as phone bubbles, bare (no header: the web entry's
+ *  picture; shot `sg_chat-transcript`). */
 @Composable
 fun ChatTranscriptSpecimenScreen() {
     AppBackground {
-        Box(Modifier.fillMaxSize().testTag(ChatTranscriptSpecimenTestId)) {
-            Scaffold(
-                containerColor = Color.Transparent,
-                topBar = {
-                    ChatHeader(
-                        title = "#APP-5 Reduce cold start below 800 ms",
-                        subtitle = "${Chats.Copy.PREVIEW_WORKING} · MacBook Pro",
-                        subtitleColor = com.exponential.app.ui.issue.NeedsInputAmber,
-                        lead = { ChatLeadDisc(Chats.ChatLead.Working, agent = "claude", size = 44.dp) },
-                        onBack = {},
-                        menu = chatMenuItems(
-                            Chats.threadMenuEntries("running", canSteer = true, canDelete = true),
-                            onDelete = {},
-                        ),
-                    )
-                },
-            ) { padding ->
-                ThreadConversation(
-                    rows = TRANSCRIPT,
-                    rootId = "r",
-                    meta = { row -> ThreadRowMeta(authorName = "Dana Reyes", time = TIMES[row.id].orEmpty()) },
-                    onOpenCard = {},
-                    onAnswer = { _, _, _ -> },
-                    onDecidePlan = { _, _, _ -> },
-                    canUnqueue = { false },
-                    onUnqueue = {},
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(
-                        start = 16.dp,
-                        end = 16.dp,
-                        top = padding.calculateTopPadding() + 12.dp,
-                        bottom = 24.dp,
-                    ),
-                    onSurfaceReply = {},
-                )
-            }
+        Box(Modifier.fillMaxSize().statusBarsPadding().testTag(ChatTranscriptSpecimenTestId)) {
+            ThreadConversation(
+                rows = TRANSCRIPT,
+                rootId = "r",
+                meta = { row -> ThreadRowMeta(authorName = "Dana Reyes", time = TIMES[row.id].orEmpty()) },
+                onOpenCard = {},
+                onAnswer = { _, _, _ -> },
+                onDecidePlan = { _, _, _ -> },
+                canUnqueue = { false },
+                onUnqueue = {},
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
+                onSurfaceReply = {},
+                clock = ::specimenClock,
+            )
         }
     }
 }
 
-/** THE chat menus as the phone's long-press sheets, in the web entry's
- *  order (chat-menus.tsx; iOS's faces line for line): a chat (S-3: Delete
- *  only, no Stop), the agent menu of an owner (Compact conversation · New
- *  conversation | Agent settings) (shot `sg_chat-menus`). */
+/** THE chat menus as the phone's long-press sheets, web's set and captions
+ *  (chat-specimens.tsx ChatMenusSpecimen, EXP-1553): a live chat, an ended
+ *  chat (S-3: Delete only), the agent menu of the busy owner and of an idle
+ *  member, then the delete confirm at rest (shot `sg_chat-menus`). */
 @Composable
 fun ChatMenusSpecimenScreen() {
     AppBackground {
@@ -507,9 +501,44 @@ fun ChatMenusSpecimenScreen() {
                 .testTag(ChatMenusSpecimenTestId),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.threadMenuEntries("running", true, true)) {})
-            ChatMenuSheetFace("Triage", agentMenuItems(Chats.agentMenuEntries(busy = true, isOwner = true)) {})
+            MenuCaptioned("A live chat") {
+                ChatMenuSheetFace("Spike: offline queue", chatMenuItems(Chats.threadMenuEntries("running", true, true)) {})
+            }
+            MenuCaptioned("An ended chat") {
+                ChatMenuSheetFace("#APP-16 Fix flaky scroll restore", chatMenuItems(Chats.threadMenuEntries("ended", true, true)) {})
+            }
+            MenuCaptioned("The agent menu (busy, owner)") {
+                ChatMenuSheetFace("Triage", agentMenuItems(Chats.agentMenuEntries(busy = true, isOwner = true)) {})
+            }
+            MenuCaptioned("The agent menu (idle, member)") {
+                // Web's specimen names no agent; every phone titles both agent
+                // menus with the same agent (iOS: Triage).
+                ChatMenuSheetFace("Triage", agentMenuItems(Chats.agentMenuEntries(busy = false, isOwner = false)) {})
+            }
+            MenuCaptioned("The delete confirm") {
+                GlassAlertFace(
+                    title = Chats.Copy.CONFIRM_DELETE_TITLE,
+                    body = Chats.Copy.CONFIRM_DELETE_BODY,
+                    trailing = listOf(
+                        GlassAlertAction("Cancel", onClick = {}),
+                        GlassAlertAction(Chats.Copy.MENU_DELETE, destructive = true, onClick = {}),
+                    ),
+                )
+            }
         }
+    }
+}
+
+/** A chat-menus specimen under web's caption (`text-xs` muted, 8dp above). */
+@Composable
+private fun MenuCaptioned(caption: String, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            caption,
+            style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+        )
+        content()
     }
 }
 
@@ -546,9 +575,8 @@ fun SchedulePickerSpecimenScreen() {
                 .testTag(SchedulePickerSpecimenTestId),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Caption("${SchedulePicker.Copy.REPEAT.getValue(SchedulePicker.REPEAT_MINUTES)} · ${SchedulePicker.scheduleSummary("*/10 * * * *", "Europe/Vienna")}")
+            // EXP-1553: no captions above the groups on any platform.
             ScheduleFieldsSpecimen(minutes) { minutes = it }
-            Caption(SchedulePicker.scheduleSummary("0 9 * * 1-5", "Europe/Vienna"))
             ScheduleFieldsSpecimen(weekly) { weekly = it }
         }
     }

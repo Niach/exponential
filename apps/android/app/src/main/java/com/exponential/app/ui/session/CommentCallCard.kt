@@ -37,6 +37,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.exponential.app.data.api.getCommentBodyText
 import com.exponential.app.data.db.AppEntity
 import com.exponential.app.data.db.CommentEntity
@@ -82,12 +83,17 @@ object CommentCallCopy {
     /** The body clamp: three lines (web `max-h-[4.5em]`). */
     const val CLAMP_LINES = 3
 
-    /** The clamped body's fade: opaque to [CLAMP_FADE_FROM], clear from
-     *  [CLAMP_FADE_TO] (web `mask-image` fades 55% → 100%; the bottom band
-     *  here is fully clear so the line the clamp crosses never shows as a cut
-     *  half-line, whatever the markdown's block spacing). */
-    const val CLAMP_FADE_FROM = 0.4f
-    const val CLAMP_FADE_TO = 0.85f
+    /** The clamp's height in ems of the body's font size: web
+     *  `max-h-[4.5em]` (three 20px lines of 14px text + 3px). */
+    const val CLAMP_EM = 4.5f
+
+    /** The clamped body's fade, measured over the clamped box: opaque to
+     *  [CLAMP_FADE_FROM], clear at [CLAMP_FADE_TO] — web's `mask-image`
+     *  (black 80% → transparent) exactly: ONE fold on every platform (web
+     *  comment-call-card.tsx, iOS clampFadeFrom, desktop CLAMP_FADE_FROM;
+     *  EXP-1553). */
+    const val CLAMP_FADE_FROM = 0.8f
+    const val CLAMP_FADE_TO = 1f
 }
 
 /** What the transcript knows about the run a comment call sits in: its agent
@@ -265,8 +271,9 @@ fun CommentCallCard(
             var expanded by remember { mutableStateOf(false) }
             var overflows by remember(body) { mutableStateOf(false) }
             val shape = RoundedCornerShape(8.dp)
-            val lineHeight = MaterialTheme.typography.bodyMedium.lineHeight
-            val clampPx = with(LocalDensity.current) { (lineHeight * CommentCallCopy.CLAMP_LINES).roundToPx() }
+            val clampPx = with(LocalDensity.current) {
+                (CommentCallBodyStyle.fontSize * CommentCallCopy.CLAMP_EM).roundToPx()
+            }
             Column(
                 modifier = Modifier
                     .padding(top = 10.dp)
@@ -322,7 +329,14 @@ fun CommentCallCard(
                             },
                         ),
                 ) {
-                    MarkdownView(body)
+                    // Web's `text-sm` (14/20) body, `code` in the chat
+                    // accent (coloured monospace), not the 17sp document measure.
+                    androidx.compose.runtime.CompositionLocalProvider(
+                        com.exponential.app.ui.markdown.LocalMarkdownBodyStyle provides CommentCallBodyStyle,
+                        com.exponential.app.ui.markdown.LocalInlineCodeStyle provides com.exponential.app.ui.markdown.MdStyle.Chat,
+                    ) {
+                        MarkdownView(body)
+                    }
                 }
                 if (overflows || expanded) {
                     Text(
@@ -352,3 +366,9 @@ private fun Modifier.clampFade(): Modifier =
             blendMode = BlendMode.DstIn,
         )
     }
+
+/** The comment body's measure: web `text-sm` (14px on a 20px line). */
+private val CommentCallBodyStyle = com.exponential.app.ui.markdown.MdStyle.body.copy(
+    fontSize = 14.sp,
+    lineHeight = 20.sp,
+)

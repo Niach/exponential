@@ -136,61 +136,109 @@ fun GlassAlert(
                 .padding(vertical = 24.dp)
                 .testTag("glass-alert-scrim"),
         ) {
-            val shape = RoundedCornerShape(GlassTokens.CardRadius)
-            Column(
-                // The buttons lay out 48dp tall (their touch target) around a
-                // 32dp paint: 8dp of gap + 8dp of target = 16dp to the title,
-                // 12dp of padding + 8dp of target = 20dp to the bottom edge.
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+            AlertCard(
+                title = title,
+                body = body,
+                trailing = trailing,
+                leading = leading,
+                busy = busy,
                 modifier = modifier
                     .padding(horizontal = 24.dp)
-                    .widthIn(max = 384.dp)
-                    .fillMaxWidth()
-                    .clip(shape)
-                    .background(DesignTokens.Glass.BackgroundBottom, shape)
-                    .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
                     // Taps on the card are not scrim taps.
-                    .clickable(interactionSource = noRipple, indication = null, onClick = {})
-                    .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 12.dp)
-                    .testTag("glass-alert"),
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        title,
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontSize = 17.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            letterSpacing = 0.sp,
-                        ),
-                        color = DesignTokens.Palette.Foreground,
-                    )
-                    if (!body.isNullOrBlank()) {
-                        Text(
-                            body,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = DesignTokens.Palette.MutedForeground,
-                        )
-                    }
-                }
-                if (content != null) {
-                    Column(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        modifier = Modifier
-                            .weight(1f, fill = false)
-                            .verticalScroll(rememberScrollState())
-                            .testTag("glass-alert-content"),
-                        content = content,
-                    )
-                }
-                AlertButtonRow(hasLeading = leading != null) {
-                    leading?.let { AlertQuietButton(if (busy) it.copy(enabled = false) else it) }
-                    trailing.forEachIndexed { index, action ->
-                        AlertButton(
-                            if (busy && !action.loading) action.copy(enabled = false) else action,
-                            if (index == defaultAction) Modifier.focusRequester(focus) else Modifier,
-                        )
-                    }
-                }
+                    .clickable(interactionSource = noRipple, indication = null, onClick = {}),
+                defaultModifier = { index -> if (index == defaultAction) Modifier.focusRequester(focus) else Modifier },
+                content = content,
+            )
+        }
+    }
+}
+
+/**
+ * EXP-1553: THE alert's card at rest, without the dialog and its scrim (the
+ * styleguide's static faces: chat-menus' delete confirm) — the same card
+ * [GlassAlert] raises.
+ */
+@Composable
+fun GlassAlertFace(
+    title: String,
+    trailing: List<GlassAlertAction>,
+    modifier: Modifier = Modifier,
+    body: String? = null,
+    leading: GlassAlertAction? = null,
+) {
+    AlertCard(
+        title = title,
+        body = body,
+        trailing = trailing,
+        leading = leading,
+        busy = false,
+        modifier = modifier,
+        defaultModifier = { Modifier },
+        content = null,
+    )
+}
+
+@Composable
+private fun AlertCard(
+    title: String,
+    body: String?,
+    trailing: List<GlassAlertAction>,
+    leading: GlassAlertAction?,
+    busy: Boolean,
+    modifier: Modifier,
+    defaultModifier: (Int) -> Modifier,
+    content: (@Composable ColumnScope.() -> Unit)?,
+) {
+    val shape = RoundedCornerShape(GlassTokens.CardRadius)
+    Column(
+        // The buttons lay out 48dp tall (their touch target) around a
+        // 32dp paint: 8dp of gap + 8dp of target = 16dp to the title,
+        // 12dp of padding + 8dp of target = 20dp to the bottom edge.
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = modifier
+            .widthIn(max = 384.dp)
+            .fillMaxWidth()
+            .clip(shape)
+            .background(DesignTokens.Glass.BackgroundBottom, shape)
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
+            .padding(start = 20.dp, end = 20.dp, top = 20.dp, bottom = 12.dp)
+            .testTag("glass-alert"),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.sp,
+                ),
+                color = DesignTokens.Palette.Foreground,
+            )
+            if (!body.isNullOrBlank()) {
+                Text(
+                    body,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = DesignTokens.Palette.MutedForeground,
+                )
+            }
+        }
+        if (content != null) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+                    .testTag("glass-alert-content"),
+                content = content,
+            )
+        }
+        AlertButtonRow(hasLeading = leading != null) {
+            leading?.let { AlertQuietButton(if (busy) it.copy(enabled = false) else it) }
+            trailing.forEachIndexed { index, action ->
+                AlertButton(
+                    if (busy && !action.loading) action.copy(enabled = false) else action,
+                    defaultModifier(index),
+                )
             }
         }
     }

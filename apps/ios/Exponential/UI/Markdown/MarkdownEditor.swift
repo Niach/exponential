@@ -748,7 +748,9 @@ struct BlockTextEditor: UIViewRepresentable {
         // EXP-1238: the safe area and the keyboard are the HOST scroll view's
         // business; a text view sized to its content must never inset itself.
         tv.contentInsetAdjustmentBehavior = .never
-        tv.textContainerInset = UIEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
+        tv.textContainerInset = UIEdgeInsets(
+            top: MarkdownStyle.textInsetY, left: 0, bottom: MarkdownStyle.textInsetY, right: 0
+        )
         tv.keyboardAppearance = .dark // app chrome is forced-dark
         tv.autocorrectionType = .default
         tv.autocapitalizationType = .sentences
