@@ -22,7 +22,7 @@ The rest of this spec turns that rule into the missing pieces:
 - an offline outbox;
 - the `exponential-apps` crate for Spezl and eDE.
 
-![Stunden, the time tracker that replaces stunden.xlsx (eUI mock, web)](apps/time-tracker.webp)
+![Stunden, one illustrative app built on the platform: a simple time tracker (eUI mock, web)](apps/time-tracker.webp)
 
 ---
 
@@ -34,7 +34,7 @@ Each group lists concrete apps, then the capabilities they need. The capability 
 
 | App | What it does | Needs |
 |---|---|---|
-| **Stunden** (time tracker, replaces `stunden.xlsx`) | Log hours per day with a note and issue refs. Monthly target per person. **Übertrag** = the carry-over from earlier months. Danny and Chris side by side. | C1 ownership, C2 on-behalf backfill (≈170 rows), C5 group-by member, C6 running sums, C7 mul/div + date maths, C13 spreadsheet import |
+| **Stunden** (time tracker, an example) | Log hours per day with a note and issue refs; totals per day, month and member. Any app-specific rule (a target, a balance) is the app's own records and expressions. | C1 ownership, C2 on-behalf backfill, C5 group-by member, C7 date maths, C13 spreadsheet import |
 | **CRM** | Contacts, companies, deals in stages, last touch, follow-up dates. Log a call from Claude Code. | C3 relations, C8 multi-screen nav, C9 record forms, C16 exposes, C18 schedules ("follow up due") |
 | **Inventory** | Items, locations, stock moves, a low-stock alert. Scan a QR code on the phone. | C3, C6 sums of moves, C18 event trigger, C24 offline writes (warehouse without wifi), `QrScanner` ✅ |
 | **On-call** | Weekly rotation, overrides, "who is on call now", hand-off note. | C7 date maths (week of year), C18 schedule (Monday rotation), C19 agent hand-off ("summarise the incidents of the week") |
@@ -45,7 +45,7 @@ Each group lists concrete apps, then the capabilities they need. The capability 
 | **Retros** | Went well / to improve / actions; actions become issues. | `exponential.issues.create` ✅ (granted), C9 forms |
 | **Hiring pipeline** | Candidates by stage, interview scorecards, files (CV). | C3, C4 (scorecards visible to the panel only), C20 files on records |
 | **Expenses** | Receipt photo, amount, category, monthly total. | C20 files, C5, approvals |
-| **Leave / vacation** | Requests, approval, remaining days per person, a team calendar. | C1, C5, C6 (days left = allowance − used + carry-over), C7 (workdays between dates), a calendar view (C29) |
+| **Leave / vacation** | Requests, approval, remaining days per person, a team calendar. | C1, C5, C6 (days left = allowance − used), C7 date maths over the app's own holiday records, a calendar view (C29) |
 
 ### 1.2 Personal tools
 
@@ -144,7 +144,7 @@ Needs: C21 public links, C28 templates gallery, C30 signed catalog. Signing is a
 
 ### 1.9 Import from spreadsheets
 
-Typical sources: `stunden.xlsx` (7 month sheets, two people side by side), a CRM export, a bank CSV.
+Typical sources: a timesheet workbook (one sheet per month), a CRM export, a bank CSV.
 
 Two paths:
 
@@ -162,8 +162,8 @@ Needs: C2, C13.
 | C3 | Relations between kinds and refs to issues and members | ❌ | 🆕 R5 |
 | C4 | Per-kind read/write policy (private, panel-only) | ❌ | 🆕 R3 |
 | C5 | Group-by on any field, avg/min/max/count, text search | 🟡 sum + month view only | 🆕 Q1 (approved 30.10 as "grouping and maths") |
-| C6 | Running sums and carry-over (sum before a date) | ❌ | 🆕 Q1 |
-| C7 | mul/div/round, date maths (add, diff, startOf, workdays) | ❌ | 🆕 Q2 |
+| C6 | Running sums and totals before a date | ❌ | 🆕 Q1 |
+| C7 | mul/div/round, date maths (add, diff, startOf, weekday) | ❌ | 🆕 Q2 |
 | C8 | Several screens per app with navigation and deep links | ❌ (the preview paints only the first template) | 🆕 U1 |
 | C9 | Forms and tables generated from a kind's schema | 🟡 the Data tab does it in Exponential's own UI (#VAPP-178); nothing in eUI | 🆕 U2 |
 | C10 | Field state machine (allowed transitions) | ❌ | 🆕 R6 |
@@ -275,7 +275,7 @@ Schemas are flat JSON Schema:
 | `updated_by` 🆕 | The last writer. |
 | `via_app_id` / `via_client_id` 🆕 | How the write arrived: UI, MCP client, automation, import. |
 
-Stunden's "Danny / Chris side by side" groups by `author`, not `created_by`. That way a backfill done by Danny for Chris still counts as Chris's hours.
+A per-member view groups by `author`, not `created_by`. That way a backfill an owner does for another member still counts as that member's records.
 
 ### 3.3 Richer schemas (🆕 R5/R6/R7)
 
@@ -305,7 +305,7 @@ Layers, all intersected:
 }
 ```
 
-The defaults are `member/member/author/author`. This is the time-tracker rule, and it is a breaking change for existing apps, so it ships as the `formatVersion 3` default while v2 packages keep `member`.
+The defaults are `member/member/author/author`. This is the common case, and it is a breaking change for existing apps, so it ships as the `formatVersion 3` default while v2 packages keep `member`.
 
 The server enforces the policy. The shape enforces `read: author` with a row filter on `author_id`: a private kind never syncs to other members' devices.
 
@@ -355,12 +355,11 @@ Today a binding is a URL (`exp:records?kind=entry&mine=1&by=date&sum=hours`). UR
     "sort": [["date", "desc"]],
     "limit": 500
   },
-  "carry": {                                 // Übertrag: everything before this month
+  "before": {                                // totals before this month
     "from": "entry",
     "where": [["date", "<", "${month.start}"]],
     "group": ["author"],
-    "aggregate": { "worked": ["sum", "hours"], "months": ["countDistinct", { "bucket": "date", "by": "month" }] },
-    "compute": { "balance": "worked - months * target.hours_per_month" }
+    "aggregate": { "total": ["sum", "hours"] }
   }
 }
 ```
@@ -371,7 +370,7 @@ Today a binding is a URL (`exp:records?kind=entry&mine=1&by=date&sum=hours`). UR
 | Sort / limit | ✅ (limit ≤ 500) | + several sort keys, a cursor |
 | Group-by | 🟡 only `by=<date>&month=` (per day of one month) | Any field, `author`, time buckets `day/week/month/quarter/year` in the team timezone |
 | Aggregates | 🟡 `sum` | `sum avg min max count countDistinct first last` |
-| Running values | ❌ | `running: {field: "sum"}` and `before: <date>` (carry-over), streaks |
+| Running values | ❌ | `running: {field: "sum"}` and `before: <date>` (totals up to a date), streaks |
 | Joins | ❌ | `expand: ["customer"]` follows refs (one level). There are no free joins. |
 | Sources | `exp:records`, `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments`, `exp:attachments`, `exp:devices` | The same query shape over every `exp:` source (group issues by status or week), + `exp:pullRequests`, `upstream:<server>/<tool>` (§6.3) |
 
@@ -392,7 +391,7 @@ To add, both as functions (`{"call": "mul", …}`) and as the compact string for
 |---|---|
 | Arithmetic | `mul div mod round floor ceil min max abs` |
 | Arrays | `sumOf avgOf minOf maxOf countOf groupOf sortBy` over a bound list |
-| Dates (team timezone) | `today now dateAdd(d, n, unit) dateDiff(a, b, unit) startOf(d, unit) endOf weekday isoWeek workdays(from, to, holidays?)` |
+| Dates (team timezone) | `today now dateAdd(d, n, unit) dateDiff(a, b, unit) startOf(d, unit) endOf weekday isoWeek` |
 | Durations | `hours(minutes)`, `formatDuration(h, "h:mm")` |
 | Text | `lower upper trim split join matches` |
 
@@ -402,12 +401,12 @@ The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <
 
 - Everything date-like is evaluated in the **team timezone**. `date` is a calendar day, not an instant.
 - Weeks are ISO and months are calendar months.
-- `workdays` counts Monday–Friday. Where public holidays come from is still open (§18).
+- The platform has no notion of working days, holidays or targets. An app that needs them keeps them as its own records (a `holiday` kind, a `target` kind) and combines them with `weekday`, `dateDiff` and the query.
 
 ### 4.4 Computed fields (🆕 Q3)
 
 ```jsonc
-"computed": { "overtime": "max(0, hours - 8)", "week": "isoWeek(date)" }
+"computed": { "minutes": "round(hours * 60)", "week": "isoWeek(date)" }
 ```
 
 Computed fields are evaluated on read by the same evaluator. They are never stored, so they never go stale. Queries can filter, sort and group on them.
@@ -445,7 +444,7 @@ Computed fields are evaluated on read by the same evaluator. They are never stor
 - ✅ Style `@media` conditions with breakpoint tokens, responsive props (`columns: {base: 2, md: 4}`), `Sidebar.collapseBelow`.
 - 🆕 U1 adds a `formFactor: phone | tablet | desktop | widget` style condition and an optional `screens[].phone` template override. Use it only when a layout truly differs (the time tracker's phone screen is a list of days, not a table).
 
-The two Stunden mocks above are the same package. The phone picks the `month.phone` override: StatTiles, a Meter split by project, Rows per day, one wide primary button.
+The two Stunden mocks above are the same package. The phone picks the `month.phone` override: Rows per day and one wide primary button.
 
 ---
 
@@ -601,11 +600,7 @@ The UI form is the `handoff` action: "Ask agent to follow up" in m5 admin.
 | CSV / xlsx import | ❌ | 🆕 X2. **Agent path** (now possible): the agent reads the file in a session and calls `records_upsert` with `author` (R2). **Dialog** (later): the file → pick a kind → map columns (auto-matched by name and type) → preview the issues → import in one transaction; idempotent by an optional `externalId`. |
 | JSON (records only) | 🟡 via `records_list` | Covered by `.app.json` |
 
-The `stunden.xlsx` migration is the acceptance test:
-
-- 7 month sheets, 2 people, ≈ 170 rows.
-- The sum bug on 31 October and the unlinked Übertrag cells disappear because the app computes both.
-- Accounting gets the month from an agent over MCP (`stunden__month_summary`), not from a file export.
+Example: importing a timesheet workbook (one sheet per month, two members) into the time-tracker app exercises the agent path end to end: on-behalf writes, then the totals computed by the query instead of by spreadsheet formulas. Reports leave over MCP (an exposed tool such as `stunden__month_summary`), not as a file export.
 
 ---
 
@@ -736,14 +731,14 @@ The web stays online-only. Issue and comment writes have their own NEW-13.
 
 They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android) with a fixture change first, per the repo rules. ★ = approved on 30.10 in thread 2db0b7d0 but never filed.
 
-**Phase 1: Records you can trust** (unblocks Stunden)
+**Phase 1: Records you can trust**
 
 - **R1 ★** Record ownership: `author_id`, the default policy `update/delete: author`, owners override. Server, shape, fixture `app-records.json`. (C1)
 - **R2 ★** On-behalf writes: `author` on `records_upsert`, `.app.json` import and the Data tab, owners only. Audit `created_by ≠ author`. (C2)
 - **R3** Per-kind policy (`read/create/update/delete`), with a shape row filter for `read: author`. `app_access` enforced in the UI, tRPC and shape. (C4)
 - **R4** Record history (`app_record_events`), a 10 s undo, the History drawer. (§3.5)
 
-**Phase 2: The query** (unblocks Übertrag and dashboards)
+**Phase 2: The query** (unblocks reports and dashboards)
 
 - **S1 ★** Move the records query out of `domain-contract` into eUI host records (TS + eui-core), with a pluggable `RecordStore`. The ×4 hand derivations become one. (C25)
 - **Q1 ★** The structured query: group-by on any field + time buckets, all aggregates, `before`/running sums, `in/between/or/search`, a cursor. Fixture `records-query.json` ×6. (C5, C6)
@@ -784,7 +779,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 7: Sharing**
 
 - **P1** Public links (`submit` / `view`). (C21)
-- **P2** Template gallery (Stunden, CRM, Leave, On-call, Standup as signed `.app.json` files in the repo). (C28)
+- **P2** Template gallery (Time tracker, CRM, Leave, On-call, Standup as signed `.app.json` files in the repo). (C28)
 - **P3** A signed catalog shared with Spezl (#YO-18). (C30)
 
 ```
@@ -797,7 +792,7 @@ R3 ─ O1 · S1 ─ S2 ─ S3 / S4 · U3
 R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 ```
 
-**Stunden can replace `stunden.xlsx` after R1, R2, S1, Q1 and Q2.** That is the first milestone.
+**First milestone: R1, R2, S1, Q1 and Q2.** Records with owners, on-behalf writes and one query evaluator on every platform: enough for real team tools such as the time-tracker example.
 
 ## 18. Decisions (Danny, 2026-11-01)
 
@@ -808,20 +803,4 @@ R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 5. **Public links:** in scope, Phase 7 (§9.4).
 6. **Cross-app reads stay**, with an opt-in `readableBy` on the target kind (§12.1).
 7. **Code lives behind an upstream MCP server;** #VAPP-101 stays cancelled for good (§13).
-
-### Still open: where "workdays" come from (§4.3)
-
-Some apps need to know which days count as working days:
-
-- Stunden's monthly target ("Soll") is the working days of the month × 8 h.
-- A leave request of 23.12.–2.1. costs 5 vacation days, not 11: weekends and public holidays (25./26.12., 1.1.) don't count.
-
-The `workdays(from, to)` expression needs a list of public holidays (in Austria: 1.1., 6.1., Easter Monday…), and maybe the team's own closing days.
-
-There are three ways to get it:
-
-- **a) A team setting:** a country (→ its public holidays) plus extra closing days, in Settings › General. Every app reads it.
-- **b) Every app keeps its own holiday records.**
-- **c) No holidays:** `workdays` counts Monday–Friday only, and apps that care set a fixed target instead (the Stunden template's `hours_per_month`, as today).
-
-Proposal: **c) now**, a) when the first leave app needs it.
+8. **No app-specific platform features.** The platform provides generic date/time maths and aggregates. Rules of one app (an hours target, working days, holidays) are that app's own records and expressions; there is no team holiday setting.
