@@ -99,6 +99,10 @@ pub struct Ede {
     pub input_method_state: smithay::wayland::input_method::InputMethodManagerState,
     pub text_input_state: smithay::wayland::text_input::TextInputManagerState,
     pub virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState,
+    /// ede-protocol: the control socket, its grants and clients.
+    pub ipc: crate::ipc::Ipc,
+    /// Where `reload_config` reads from; `None` in safe mode.
+    pub config_path: Option<std::path::PathBuf>,
 }
 
 /// Tries a client's dmabuf on the backend's renderer.
@@ -195,6 +199,8 @@ impl Ede {
             input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, |_| true),
             text_input_state: smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
             virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
+            ipc: crate::ipc::Ipc::default(),
+            config_path: None,
         }
     }
 
@@ -210,6 +216,12 @@ impl Ede {
             })
             .map_err(|e| std::io::Error::other(e.to_string()))?;
         self.socket_name = Some(name.clone());
+        if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
+            match self.ipc_listen(std::path::Path::new(&runtime), &name.to_string_lossy()) {
+                Ok(path) => tracing::info!("ede-protocol on {}", path.display()),
+                Err(e) => tracing::warn!("ede-protocol socket: {e}"),
+            }
+        }
         Ok(name)
     }
 
@@ -370,6 +382,9 @@ impl Ede {
             self.pending_x11_focus = window.as_ref().filter(|_| surface.is_none()).and_then(|w| w.x11_surface().cloned());
         }
         keyboard.set_focus(self, surface, serial);
+        if let Some(w) = &window {
+            self.window_event(ede_protocol::events::WINDOW_FOCUSED, w);
+        }
         for w in self.space.elements() {
             if let Some(t) = w.toplevel() {
                 t.send_pending_configure();
@@ -404,6 +419,7 @@ impl Ede {
             None => (0, 0).into(),
         };
         self.move_window(&window, loc, true);
+        self.window_event(ede_protocol::events::WINDOW_OPENED, &window);
         self.focus(Some(window));
     }
 
@@ -546,6 +562,11 @@ impl Ede {
     /// Asks the focused window to close (Alt+F4).
     pub fn close_focused(&mut self) {
         let Some(w) = self.focused_window() else { return };
+        self.close_window(&w);
+    }
+
+    /// Asks `w` to close (it may ask the person first).
+    pub fn close_window(&mut self, w: &Window) {
         if let Some(t) = w.toplevel() {
             t.send_close();
         }
