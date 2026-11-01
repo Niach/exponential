@@ -428,25 +428,32 @@ struct IssueDetailBottomBar: View {
 
     /// EXP-554 — upload on send, then link. Pending items stamp their
     /// `uploadedId` as they land, so a failure half-way keeps the strip and a
-    /// retry only uploads what is left. The comment is only cleared once
-    /// `comments.create` succeeds.
+    /// retry only uploads what is left. EXP-1543 (`composer-send.json`): the
+    /// field stays editable while the comment is out; once `comments.create`
+    /// succeeds `ComposerSend` decides what it keeps (text typed meanwhile
+    /// stays, only the sent picks leave); a failure leaves it as it is now.
     private func submit() async {
         guard !submitting else { return }
         submitting = true
         defer { submitting = false }
-        let md = composerEditor.currentMarkdown().trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !md.isEmpty || !pendingAttachments.isEmpty else { return }
+        // What Send saw: the UNTRIMMED markdown and the picks.
+        let sentMarkdown = composerEditor.currentMarkdown()
+        let sentEditor = composerEditor
+        let md = sentMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        var sentAttachments = pendingAttachments
+        guard !md.isEmpty || !sentAttachments.isEmpty else { return }
         attachmentError = nil
 
         var attachmentIds: [String] = []
-        if !pendingAttachments.isEmpty {
+        if !sentAttachments.isEmpty {
             let outcome = await CommentAttachmentUploads.uploadAll(
-                pendingAttachments,
+                sentAttachments,
                 accountId: accountId,
                 issueId: issue.id,
                 attachmentsApi: deps.attachmentsApi
             )
-            pendingAttachments = outcome.items
+            sentAttachments = outcome.items
+            pendingAttachments = CommentAttachmentUploads.restamp(pendingAttachments, from: outcome.items)
             if let failure = outcome.failure {
                 toaster.error(
                     FeedbackStates.Errors.title(verb: "upload", thing: "the attachments"),
@@ -459,17 +466,24 @@ struct IssueDetailBottomBar: View {
 
         // SLOP-4: `audience: reporter` ONLY off the pill, never on a reply.
         let toReporter = offersReporterReply && replyToReporter
+        let parentId = replyTarget?.parentId
         do {
             let result = try await deps.commentsApi.create(
                 accountId: accountId,
                 issueId: issue.id,
                 text: md,
                 attachmentIds: attachmentIds,
-                parentId: replyTarget?.parentId,
+                parentId: parentId,
                 audience: toReporter ? DomainContract.commentAudienceReporter : nil
             )
-            resetComposer()
-            collapse()
+            settleComposer(
+                sent: ComposerSend.Content(
+                    text: sentMarkdown,
+                    attachments: sentAttachments.map(\.id.uuidString)
+                ),
+                sentEditor: sentEditor,
+                parentId: parentId
+            )
             // true → emailed; false → saved, no transport; nil → a team
             // comment, nothing to say.
             switch result.reporterEmailed {
@@ -483,6 +497,34 @@ struct IssueDetailBottomBar: View {
                 description: error.userFacingMessage
             )
         }
+    }
+
+    /// EXP-1543: the comment is in — the CURRENT field keeps what
+    /// `ComposerSend` leaves. A field left exactly as sent resets (and folds
+    /// when nothing else is queued); one typed into meanwhile stays open.
+    private func settleComposer(sent: ComposerSend.Content, sentEditor: IssueEditorModel, parentId: String?) {
+        // A reset composer (another issue, a collapse) already let the draft go.
+        guard composerEditor === sentEditor else { return }
+        let after = ComposerSend.afterSend(
+            outcome: .sent,
+            sent: sent,
+            current: ComposerSend.Content(
+                text: composerEditor.currentMarkdown(),
+                attachments: pendingAttachments.map(\.id.uuidString)
+            )
+        )
+        let keep = Set(after.attachments)
+        let remaining = pendingAttachments.filter { keep.contains($0.id.uuidString) }
+        if after.text.isEmpty {
+            resetComposer()
+            pendingAttachments = remaining
+            if remaining.isEmpty { collapse() }
+        } else {
+            pendingAttachments = remaining
+            // The pill is per comment: a sent reply puts it back OFF.
+            replyToReporter = false
+        }
+        if replyTarget?.parentId == parentId { replyTarget = nil }
     }
 
     private func resolveIssueRef(_ identifier: String) -> String? {

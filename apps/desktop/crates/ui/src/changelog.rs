@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-comments-keep-typed-text",
+    date: "2026-11-01",
+    title: "Comments keep what you type while they send",
+    summary: "Text typed or files added while a comment is sending stay in the composer.",
+    body: r#"- **Keep typing**: the comment field stays editable while a comment sends, and only what went out clears.
+- **Leave anytime**: on Android, backing out of an issue no longer cancels a comment that is still sending."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_145: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-thread-dock-child-tasks",
     date: "2026-11-01",
     title: "A child's tasks in the thread",

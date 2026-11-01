@@ -23,9 +23,12 @@
 //! §4.1 un-gated: fire on a background thread, let the Electric echo
 //! re-render. The composer keeps its draft until the mutation SUCCEEDS
 //! (EXP-554 — an optimistic clear would eat the draft when an attachment
-//! upload fails halfway; the web keeps the draft on failure too).
+//! upload fails halfway; the web keeps the draft on failure too), and then
+//! clears only what went out (EXP-1543, `composer-send.json`).
 
 use std::collections::{HashMap, HashSet};
+
+use domain::composer_send::{ComposerContent, SendOutcome};
 use std::path::PathBuf;
 
 use gpui::prelude::FluentBuilder as _;
@@ -466,15 +469,52 @@ impl IssueTimeline {
         cx.notify();
     }
 
-    /// The bottom composer after a successful send: empty, no pending picks,
-    /// and the "Reply to reporter" pill back OFF (SLOP-4: per message, like
-    /// iOS/Android, so a follow-up note stays internal).
-    fn reset_composer_after_send(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.composer
-            .update(cx, |input, cx| input.set_value("", window, cx));
-        self.pending_attachments.clear();
-        self.reply_to_reporter = false;
-        self.sync_composer_placeholder(window, cx);
+    /// EXP-1543 (`composer-send.json`): a comment landed. The composer it
+    /// came from keeps what [`domain::composer_send::after_send`] leaves: the
+    /// text clears only if it still equals `sent.text`, only the sent picks
+    /// leave. The bottom composer's "Reply to reporter" pill goes back OFF
+    /// (SLOP-4: per message, like iOS/Android, so a follow-up stays
+    /// internal); a reply composer left empty closes. A composer that is gone
+    /// or was swapped for another (an issue switch, a closed reply) is left
+    /// alone.
+    fn settle_sent(
+        &mut self,
+        scope: PendingScope,
+        input: &Entity<TextareaState>,
+        sent: &ComposerContent,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let live = match scope {
+            PendingScope::Composer => self.composer == *input,
+            PendingScope::Reply => self.reply.as_ref().is_some_and(|reply| reply.input == *input),
+            PendingScope::Edit => false,
+        };
+        if !live {
+            return;
+        }
+        let text = input.read(cx).value().to_string();
+        let Some(pending) = self.pending_mut(scope) else {
+            return;
+        };
+        let current = ComposerContent {
+            text,
+            attachments: pending.iter().map(|item| item.key.to_string()).collect(),
+        };
+        let after = domain::composer_send::after_send(SendOutcome::Sent, sent, &current);
+        pending.retain(|item| after.attachments.contains(&item.key.to_string()));
+        let emptied = after.text.is_empty() && pending.is_empty();
+        if after.text != current.text {
+            input.update(cx, |input, cx| input.set_value(after.text, window, cx));
+        }
+        match scope {
+            PendingScope::Composer => {
+                self.reply_to_reporter = false;
+                self.sync_composer_placeholder(window, cx);
+            }
+            PendingScope::Reply if emptied => self.reply = None,
+            _ => {}
+        }
     }
 
     /// The bottom composer's placeholder follows the pill: the contract's
@@ -769,7 +809,13 @@ impl IssueTimeline {
         if submitting {
             return;
         }
-        let draft = input.read(cx).value().trim().to_string();
+        // EXP-1543: what Send saw (the UNTRIMMED text, the picks); the field
+        // stays editable while the comment is out.
+        let sent = ComposerContent {
+            text: input.read(cx).value().to_string(),
+            attachments: pending.iter().map(|item| item.key.to_string()).collect(),
+        };
+        let draft = sent.text.trim().to_string();
         // EXP-554: an attachment-only comment is legal (the server allows an
         // empty body when the id list is non-empty).
         if draft.is_empty() && pending.is_empty() {
@@ -797,6 +843,7 @@ impl IssueTimeline {
         // reply with a `parentId` anyway).
         let audience = (scope == PendingScope::Composer && self.reply_to_reporter)
             .then_some(domain::contract::COMMENT_AUDIENCE_REPORTER);
+        let reply_parent = parent_id.clone();
         cx.spawn_in(window, async move |this, cx| {
             let upload_issue = issue_id.clone();
             let (stamped, result) = cx
@@ -833,12 +880,11 @@ impl IssueTimeline {
                 this.stamp_uploaded(scope, &stamped);
                 match result {
                     Ok(reporter_emailed) => {
-                        match scope {
-                            PendingScope::Composer => {
-                                this.reset_composer_after_send(window, cx);
-                            }
-                            PendingScope::Reply => this.reply = None,
-                            PendingScope::Edit => {}
+                        // A switch to another issue already let the draft go.
+                        let same_reply = scope != PendingScope::Reply
+                            || this.reply.as_ref().map(|reply| &reply.parent_id) == reply_parent.as_ref();
+                        if this.issue_id.as_deref() == Some(issue_id.as_str()) && same_reply {
+                            this.settle_sent(scope, &input, &sent, window, cx);
                         }
                         // SLOP-4: the contract's delivery toasts — `true`
                         // sent, `false` saved without a mail transport, `None`
@@ -2339,9 +2385,54 @@ mod tests {
         });
         view.read_with(cx, |view, _| assert!(view.reply_to_reporter));
         cx.update(|window, cx| {
-            view.update(cx, |view, cx| view.reset_composer_after_send(window, cx));
+            view.update(cx, |view, cx| {
+                let composer = view.composer.clone();
+                let sent = ComposerContent { text: String::new(), attachments: Vec::new() };
+                view.settle_sent(PendingScope::Composer, &composer, &sent, window, cx);
+            });
         });
         view.read_with(cx, |view, _| assert!(!view.reply_to_reporter));
+    }
+
+    /// EXP-1543 (`composer-send.json`): a landed comment clears the bottom
+    /// composer only if it still holds exactly what was sent, and takes out
+    /// only the sent picks.
+    #[gpui::test]
+    async fn a_landed_comment_clears_only_what_it_sent(cx: &mut gpui::TestAppContext) {
+        cx.update(|cx| {
+            gpui_component::init(cx);
+            theme::init(cx);
+            let store = Store::open(cx, None, None);
+            cx.set_global(store);
+        });
+        let (view, cx) = cx.add_window_view(|window, cx| IssueTimeline::new(window, cx));
+        let pick = |key: u64| PendingCommentAttachment {
+            key,
+            path: PathBuf::from(format!("/tmp/{key}.txt")),
+            filename: format!("{key}.txt"),
+            content_type: "text/plain".to_string(),
+            is_image: false,
+            uploaded_id: None,
+            error: None,
+        };
+        let settle = |view: &Entity<IssueTimeline>, typed: &str, sent: &str, cx: &mut gpui::VisualTestContext| {
+            cx.update(|window, cx| {
+                view.update(cx, |view, cx| {
+                    let composer = view.composer.clone();
+                    composer.update(cx, |input, cx| input.set_value(typed.to_string(), window, cx));
+                    let sent = ComposerContent { text: sent.to_string(), attachments: vec!["1".to_string()] };
+                    view.settle_sent(PendingScope::Composer, &composer, &sent, window, cx);
+                });
+            });
+        };
+        cx.update(|_, cx| view.update(cx, |view, _| view.pending_attachments = vec![pick(1), pick(2)]));
+        settle(&view, "ship it and then the docs", "ship it", cx);
+        view.read_with(cx, |view, cx| {
+            assert_eq!(view.composer.read(cx).value().to_string(), "ship it and then the docs");
+            assert_eq!(view.pending_attachments.iter().map(|item| item.key).collect::<Vec<_>>(), vec![2]);
+        });
+        settle(&view, "ship it", "ship it", cx);
+        view.read_with(cx, |view, cx| assert_eq!(view.composer.read(cx).value().to_string(), ""));
     }
 
     /// The separator must vanish with the time — `relative_time` returns `""`

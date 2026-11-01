@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-comments-keep-typed-text`,
+    date: `2026-11-01`,
+    title: `Comments keep what you type while they send`,
+    summary: `Text typed or files added while a comment is sending stay in the composer.`,
+    body: `- **Keep typing**: the comment field stays editable while a comment sends, and only what went out clears.
+- **Leave anytime**: on Android, backing out of an issue no longer cancels a comment that is still sending.`,
+  },
+  {
     id: `2026-11-01-thread-dock-child-tasks`,
     date: `2026-11-01`,
     title: `A child's tasks in the thread`,

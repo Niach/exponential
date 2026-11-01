@@ -899,4 +899,15 @@ enum CommentAttachmentUploads {
         }
         return Outcome(items: result, failure: nil)
     }
+
+    /// EXP-1543: carry the upload stamps onto the picks STILL in the strip
+    /// (one removed meanwhile stays gone, one added meanwhile stays
+    /// unstamped), so a retry uploads only the rest.
+    static func restamp(
+        _ live: [PendingCommentAttachment],
+        from uploaded: [PendingCommentAttachment]
+    ) -> [PendingCommentAttachment] {
+        let stamps = Dictionary(uniqueKeysWithValues: uploaded.map { ($0.id, $0) })
+        return live.map { stamps[$0.id] ?? $0 }
+    }
 }
