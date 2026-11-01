@@ -14502,6 +14502,201 @@
       }
     ]
   },
+  "Motion\/autoplay=false" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/autoplay=true" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/direction=alternate" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/direction=forward" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/direction=reverse" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/example" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/fit=contain" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/fit=cover" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/fit=fill" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/loop=false" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/loop=true" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/play=false" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
+  "Motion\/play=true" : {
+    "height" : 48,
+    "nodes" : [
+      {
+        "component" : "Motion",
+        "frame" : [
+          0,
+          0,
+          48,
+          48
+        ],
+        "id" : "motion"
+      }
+    ]
+  },
   "NumberField\/disabled=false" : {
     "height" : 60,
     "nodes" : [
