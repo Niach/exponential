@@ -17,3 +17,7 @@
 - Zoom ind på billeder: alle billedfremvisere kan zoome og panorere
 - Claude forbliver logget ind som standard: et nyt login holder et år
 - Brede tabeller ruller sidelæns i stedet for at klemme kolonnerne
+- Merge-knappen viser din pull requests CI-tjek
+- En sessions arbejde gemmes løbende, så det fortsætter på enhver enhed
+- Bliv logget ind-logins viser deres 5-timers og ugentlige forbrug
+- Tider viser "lige nu" i stedet for "om 0 sekunder"

@@ -17,3 +17,7 @@
 - Zoom sulle immagini: ogni visualizzatore di immagini ingrandisce e sposta
 - Claude resta connesso per impostazione predefinita: un nuovo accesso dura un anno
 - Le tabelle larghe scorrono in orizzontale invece di comprimere le colonne
+- Il pulsante Merge mostra i controlli CI della tua pull request
+- Il lavoro di una sessione viene salvato man mano, così continua su qualsiasi dispositivo
+- Gli accessi permanenti mostrano l'uso di 5 ore e settimanale
+- Gli orari dicono «proprio ora» invece di «tra 0 secondi»

@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-keep-signed-in-usage",
+    date: "2026-11-01",
+    title: "Usage for Keep signed in logins",
+    summary: "Keep signed in Claude logins show their 5-hour and weekly usage on their device.",
+    body: r#"- **Usage windows**: a Keep signed in login shows its 5-hour and weekly usage like a browser login; Refresh reads it again."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_162: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-ci-checks",
     date: "2026-11-01",
     title: "CI checks on the Merge pill",

@@ -17,3 +17,7 @@
 - Zooma in på bilder: alla bildvisare zoomar och panorerar
 - Claude förblir inloggad som standard: en ny inloggning varar ett år
 - Breda tabeller rullar i sidled i stället för att klämma ihop kolumnerna
+- Merge-knappen visar din pull requests CI-kontroller
+- En sessions arbete sparas löpande, så det fortsätter på vilken enhet som helst
+- Förbli inloggad-inloggningar visar sin användning per 5 timmar och vecka
+- Tider visar "just nu" i stället för "om 0 sekunder"

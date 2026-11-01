@@ -17,3 +17,7 @@
 - Képek nagyítása: minden képmegjelenítő nagyít és görget
 - A Claude alapértelmezetten bejelentkezve marad: egy új bejelentkezés egy évig tart
 - A széles táblázatok oldalra görgethetők, ahelyett hogy összenyomnák az oszlopokat
+- A Merge gomb mutatja a pull request CI-ellenőrzéseit
+- A munkamenet munkája folyamatosan mentődik, így bármely eszközön folytatódik
+- A tartós bejelentkezések mutatják az 5 órás és heti használatukat
+- Az időpontok „épp most”-ot írnak „0 másodperc múlva” helyett

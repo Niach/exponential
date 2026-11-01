@@ -17,3 +17,7 @@
 - Zumiranje slika: svaki preglednik slika zumira i pomiče
 - Claude prema zadanim postavkama ostaje prijavljen: nova prijava traje godinu dana
 - Široke tablice pomiču se vodoravno umjesto da sabijaju stupce
+- Gumb Merge prikazuje CI provjere tvog pull requesta
+- Rad sesije sprema se usput, pa se nastavlja na bilo kojem uređaju
+- Trajne prijave prikazuju svoju 5-satnu i tjednu potrošnju
+- Vremena pišu „upravo sada” umjesto „za 0 sekundi”

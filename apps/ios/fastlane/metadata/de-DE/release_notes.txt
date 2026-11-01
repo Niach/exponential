@@ -17,3 +17,7 @@
 - In Bilder zoomen: jede Bildansicht zoomt und verschiebt
 - Claude bleibt standardmäßig angemeldet: eine neue Anmeldung hält ein Jahr
 - Breite Tabellen scrollen seitlich, statt ihre Spalten zu quetschen
+- Die Merge-Schaltfläche zeigt die CI-Checks deines Pull Requests
+- Die Arbeit einer Sitzung wird laufend gesichert, so geht sie auf jedem Gerät weiter
+- Dauerhaft angemeldete Logins zeigen ihre 5-Stunden- und Wochennutzung
+- Zeiten lauten „gerade eben“ statt „in 0 Sekunden“

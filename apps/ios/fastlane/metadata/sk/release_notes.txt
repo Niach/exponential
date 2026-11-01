@@ -17,3 +17,7 @@
 - Približovanie obrázkov: každý prehliadač obrázkov približuje a posúva
 - Claude zostáva predvolene prihlásený: nové prihlásenie vydrží rok
 - Široké tabuľky sa posúvajú do strán namiesto stláčania stĺpcov
+- Tlačidlo Merge ukazuje CI kontroly vášho pull requestu
+- Práca relácie sa priebežne ukladá, takže pokračuje na akomkoľvek zariadení
+- Trvalé prihlásenia ukazujú svoje 5-hodinové a týždenné využitie
+- Časy ukazujú „práve teraz“ namiesto „o 0 sekúnd“

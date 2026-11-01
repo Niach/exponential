@@ -17,3 +17,7 @@
 - Kuvien zoomaus: jokainen kuvankatselin zoomaa ja panoroi
 - Claude pysyy oletuksena kirjautuneena: uusi kirjautuminen kestää vuoden
 - Leveät taulukot vierivät sivuttain sarakkeiden puristamisen sijaan
+- Merge-painike näyttää pull requestisi CI-tarkistukset
+- Istunnon työ tallentuu jatkuvasti, joten se jatkuu millä tahansa laitteella
+- Pysy kirjautuneena -kirjautumiset näyttävät 5 tunnin ja viikon käytön
+- Ajat näyttävät "juuri nyt" eivätkä "0 sekunnin päästä"
