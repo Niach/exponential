@@ -25,7 +25,8 @@
     "./conformance/*": "./conformance/*",
     "./eval/*": "./eval/*",
     "./motion": "./src/motion/index.ts",
-    "./wasm/*": "./wasm/*"
+    "./wasm/*": "./wasm/*",
+    "./motion/server": "./src/motion/server.ts"
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",

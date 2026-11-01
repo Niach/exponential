@@ -330,6 +330,16 @@
       "auto",
       "always",
       "none"
+    ],
+    "motionDirection": [
+      "forward",
+      "reverse",
+      "alternate"
+    ],
+    "motionFit": [
+      "contain",
+      "cover",
+      "fill"
     ]
   },
   "defs": {
@@ -5410,6 +5420,174 @@
       },
       "example": {
         "component": "Gauge"
+      }
+    },
+    "Motion": {
+      "kind": "native",
+      "group": "media",
+      "lite": true,
+      "children": "none",
+      "description": "A vector animation (Lottie-compatible) drawn identically everywhere: loaders, success states, illustrated empty states, small explainers.",
+      "props": {
+        "layers": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "The animation, top layer first, in the composition's px (origin top-left). Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints every shape before it in its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path data}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* tokens (follow light/dark), #hex, or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on their first pose. No expressions."
+        },
+        "size": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "The composition [width, height] in px (required with layers); the box keeps its aspect."
+        },
+        "duration": {
+          "type": "number",
+          "description": "The composition's length in ms (required with layers)."
+        },
+        "fps": {
+          "type": "number",
+          "default": 60,
+          "description": "Frames per second of the composition."
+        },
+        "assets": {
+          "type": "object",
+          "description": "Precompositions {id: {layers}} referenced by precomp layers."
+        },
+        "markers": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Named segments [{name, time, duration}] in ms."
+        },
+        "lottie": {
+          "type": "object",
+          "description": "A Lottie JSON animation instead of layers (expressions are refused)."
+        },
+        "src": {
+          "type": "url",
+          "description": "An attached .json or .lottie file instead of layers (attachments only)."
+        },
+        "autoplay": {
+          "type": "boolean",
+          "default": true,
+          "description": "Plays when visible; false shows the poster."
+        },
+        "loop": {
+          "type": "boolean",
+          "default": true,
+          "description": "Repeats forever; false plays once and holds the last frame."
+        },
+        "plays": {
+          "type": "number",
+          "description": "Plays this many times, then holds (overrides loop)."
+        },
+        "direction": {
+          "type": "enum",
+          "enum": "motionDirection",
+          "default": "forward",
+          "description": "Forward, reverse, or back and forth."
+        },
+        "speed": {
+          "type": "number",
+          "default": 1,
+          "description": "Playback speed multiplier."
+        },
+        "segment": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          },
+          "description": "Plays only [from, to] ms of the composition."
+        },
+        "marker": {
+          "type": "string",
+          "description": "Plays only this marker's segment."
+        },
+        "progress": {
+          "type": "number",
+          "bindable": true,
+          "description": "Scrubs to this point (0–1) instead of playing; bind it to drive the animation from data."
+        },
+        "play": {
+          "type": "boolean",
+          "bindable": true,
+          "default": true,
+          "description": "Pauses the animation while false."
+        },
+        "poster": {
+          "type": "number",
+          "description": "The still frame (ms) shown before playing, off-screen and under reduced motion; defaults to the first."
+        },
+        "fit": {
+          "type": "enum",
+          "enum": "motionFit",
+          "default": "contain",
+          "description": "How the composition fills the box."
+        },
+        "slots": {
+          "type": "object",
+          "description": "Lottie slot overrides {slotId: value} (recolouring a Lottie file)."
+        },
+        "label": {
+          "type": "string",
+          "description": "What the animation shows, for screen readers; omit for decoration."
+        },
+        "style": {
+          "type": "style",
+          "description": "Extra Box styles for the box."
+        }
+      },
+      "example": {
+        "size": [
+          48,
+          48
+        ],
+        "duration": 1000,
+        "layers": [
+          {
+            "type": "shape",
+            "transform": {
+              "position": [
+                24,
+                24
+              ],
+              "rotation": {
+                "keys": [
+                  {
+                    "t": 0,
+                    "v": 0
+                  },
+                  {
+                    "t": 1000,
+                    "v": 360
+                  }
+                ]
+              }
+            },
+            "shapes": [
+              {
+                "type": "ellipse",
+                "size": [
+                  36,
+                  36
+                ]
+              },
+              {
+                "type": "trim",
+                "end": 70
+              },
+              {
+                "type": "stroke",
+                "color": "$color.primary",
+                "width": 4
+              }
+            ]
+          }
+        ]
       }
     }
   }

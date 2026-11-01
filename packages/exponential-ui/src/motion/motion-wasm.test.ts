@@ -5,7 +5,8 @@ import { describe, expect, it } from "bun:test"
 import { readFileSync } from "node:fs"
 import { motionSourceHash } from "../../scripts/motion-source-hash"
 import frames from "../../fixtures/motion-frames.json"
-import { motionPropsProblems, motionWasmSync } from "./index"
+import playback from "../../fixtures/motion-playback.json"
+import { motionPropsProblems, motionWasmSync } from "./server"
 
 const wasm = motionWasmSync()
 
@@ -28,6 +29,23 @@ describe(`motion wasm`, () => {
         const got = Array.from(player.sample(f.frame))
         expect(got.length).toBe(f.packed.length)
         got.forEach((v, i) => expect(Math.abs(v - f.packed[i]!)).toBeLessThanOrEqual(1e-4 * (1 + Math.abs(f.packed[i]!))))
+      }
+      player.free()
+    })
+  }
+})
+
+describe(`motion playback (fixtures/motion-playback.json)`, () => {
+  type P = { id: string; props: unknown; poster: number; progressHalf: number; ticks: { elapsedMs: number; frame: number; done: boolean }[] }
+  for (const c of (playback as unknown as { cases: P[] }).cases) {
+    it(c.id, () => {
+      const player = new wasm.MotionPlayer(JSON.stringify(playback.lottie), ``)
+      player.setPlayback(JSON.stringify(c.props))
+      expect(player.posterFrame()).toBeCloseTo(c.poster, 6)
+      expect(player.progressFrame(0.5)).toBeCloseTo(c.progressHalf, 6)
+      for (const t of c.ticks) {
+        expect(player.tick(t.elapsedMs)).toBeCloseTo(t.frame, 6)
+        expect(player.done(t.elapsedMs)).toBe(t.done)
       }
       player.free()
     })

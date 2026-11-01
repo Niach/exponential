@@ -329,6 +329,16 @@
       "auto",
       "always",
       "none"
+    ],
+    "motionDirection": [
+      "forward",
+      "reverse",
+      "alternate"
+    ],
+    "motionFit": [
+      "contain",
+      "cover",
+      "fill"
     ]
   },
   "defs": {
@@ -4090,6 +4100,103 @@
         },
         "catalogId": {
           "type": "string"
+        }
+      }
+    },
+    "Motion": {
+      "kind": "native",
+      "group": "media",
+      "lite": true,
+      "children": "none",
+      "props": {
+        "layers": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "size": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "duration": {
+          "type": "number"
+        },
+        "fps": {
+          "type": "number",
+          "default": 60
+        },
+        "assets": {
+          "type": "object"
+        },
+        "markers": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "lottie": {
+          "type": "object"
+        },
+        "src": {
+          "type": "url"
+        },
+        "autoplay": {
+          "type": "boolean",
+          "default": true
+        },
+        "loop": {
+          "type": "boolean",
+          "default": true
+        },
+        "plays": {
+          "type": "number"
+        },
+        "direction": {
+          "type": "enum",
+          "enum": "motionDirection",
+          "default": "forward"
+        },
+        "speed": {
+          "type": "number",
+          "default": 1
+        },
+        "segment": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "marker": {
+          "type": "string"
+        },
+        "progress": {
+          "type": "number",
+          "bindable": true
+        },
+        "play": {
+          "type": "boolean",
+          "bindable": true,
+          "default": true
+        },
+        "poster": {
+          "type": "number"
+        },
+        "fit": {
+          "type": "enum",
+          "enum": "motionFit",
+          "default": "contain"
+        },
+        "slots": {
+          "type": "object"
+        },
+        "label": {
+          "type": "string"
+        },
+        "style": {
+          "type": "style"
         }
       }
     }

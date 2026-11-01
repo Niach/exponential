@@ -27,6 +27,15 @@ export class MotionPlayer {
         wasm.motionplayer_addFont(this.__wbg_ptr, ptr0, len0, ptr1, len1);
     }
     /**
+     * Whether a finite loop count has played out at `elapsedMs`.
+     * @param {number} elapsed_ms
+     * @returns {boolean}
+     */
+    done(elapsed_ms) {
+        const ret = wasm.motionplayer_done(this.__wbg_ptr, elapsed_ms);
+        return ret !== 0;
+    }
+    /**
      * @returns {number}
      */
     frameRate() {
@@ -107,12 +116,47 @@ export class MotionPlayer {
         return ret;
     }
     /**
+     * The still frame (reduced motion, paused, before play).
+     * @returns {number}
+     */
+    posterFrame() {
+        const ret = wasm.motionplayer_posterFrame(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * The frame a bound progress (0–1) shows.
+     * @param {number} progress
+     * @returns {number}
+     */
+    progressFrame(progress) {
+        const ret = wasm.motionplayer_progressFrame(this.__wbg_ptr, progress);
+        return ret;
+    }
+    /**
      * Sample `frame` into the packed f32 encoding (a copy into JS memory).
      * @param {number} frame
      * @returns {Float32Array}
      */
     sample(frame) {
         const ret = wasm.motionplayer_sample(this.__wbg_ptr, frame);
+        return ret;
+    }
+    /**
+     * Set the playback props (JSON: autoplay, loop, direction, speed, segment, poster).
+     * @param {string} json
+     */
+    setPlayback(json) {
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.motionplayer_setPlayback(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * The frame `elapsedMs` after play started; NaN-free. `done()` tells a finished finite loop.
+     * @param {number} elapsed_ms
+     * @returns {number}
+     */
+    tick(elapsed_ms) {
+        const ret = wasm.motionplayer_tick(this.__wbg_ptr, elapsed_ms);
         return ret;
     }
     /**

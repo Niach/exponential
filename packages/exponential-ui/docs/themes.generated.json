@@ -3696,6 +3696,16 @@
         "label"
       ],
       "props": []
+    },
+    {
+      "name": "Motion",
+      "kind": "native",
+      "parts": [
+        "root"
+      ],
+      "props": [
+        "fit"
+      ]
     }
   ]
 }

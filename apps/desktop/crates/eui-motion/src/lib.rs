@@ -23,6 +23,7 @@ pub mod geom;
 mod import;
 pub mod model;
 pub mod modifiers;
+pub mod playback;
 #[cfg(feature = "raster")]
 pub mod raster;
 pub mod render;
@@ -106,6 +107,16 @@ impl Motion {
     /// file and no font registered with [`Motion::add_font`].
     pub fn needs_fonts(&self) -> bool {
         text::needs_fonts(&self.anim)
+    }
+
+    /// The composition's timeline (frame rate, range, markers) for [`playback`].
+    pub fn timeline(&self) -> playback::Timeline {
+        playback::Timeline {
+            frame_rate: self.anim.frame_rate,
+            in_point: self.anim.in_point,
+            out_point: self.anim.out_point,
+            markers: self.anim.markers.iter().map(|m| (m.name.clone(), m.time, m.duration)).collect(),
+        }
     }
 
     /// The imported model.

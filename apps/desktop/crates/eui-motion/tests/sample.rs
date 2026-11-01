@@ -46,3 +46,21 @@ fn packed_stream_is_versioned() {
     assert_eq!(&packed[..3], &[code::VERSION, 100.0, 50.0]);
     assert_eq!(packed[3], code::CLIP);
 }
+
+#[test]
+fn light_dark_colours_follow_the_mode() {
+    let doc = serde_json::json!({"size": [10, 10], "duration": 100, "layers": [{"type": "shape", "shapes": [
+        {"type": "rect", "position": [5, 5], "size": [10, 10]},
+        {"type": "fill", "color": {"light": "#000000", "dark": "#ffffff"}}]}]});
+    let lottie = serde_json::to_vec(&eui_motion::dialect::compile(&doc).unwrap()).unwrap();
+    let fill = |mode: &str| {
+        let mut slots = serde_json::Map::new();
+        slots.insert("$mode".into(), serde_json::json!(mode));
+        let m = Motion::load_with(&lottie, &eui_motion::Limits::default(), &slots).unwrap();
+        let mut list = DisplayList::default();
+        m.sample(0.0, &mut list);
+        list.ops.iter().find_map(|o| match o { Op::Fill { brush, .. } => Some(brush.clone()), _ => None }).unwrap()
+    };
+    assert_eq!(fill("light"), Brush::Solid { color: [0.0, 0.0, 0.0, 1.0] });
+    assert_eq!(fill("dark"), Brush::Solid { color: [1.0, 1.0, 1.0, 1.0] });
+}
