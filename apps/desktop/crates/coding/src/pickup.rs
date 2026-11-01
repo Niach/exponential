@@ -2051,9 +2051,11 @@ pub fn start_failure(error: &str) -> String {
 /// contention) never strands the row: the error is posted as the session's
 /// reply, the pending messages the attempt carried (`tried`) are consumed
 /// (the parent hears the failure and sends again), and the row is reported
-/// idle. No run record exists, so the NEXT message re-launches in full
-/// (prepare again: worktree + brief) through [`resume_session`]'s
-/// no-record leg.
+/// idle AND failed ([`start_failed_report`], EXP-1536): shown as failed,
+/// `Couldn't start` under Needs you, never Idle. No run record exists, so
+/// the NEXT message re-launches in full (prepare again: worktree + brief)
+/// through [`resume_session`]'s no-record leg, and that run's first report
+/// clears the flag.
 fn fail_start(session_id: &str, error: &str, tried: &[String], deps: &PickupDeps) {
     let reason = start_failure(error);
     log::warn!("pickup: session {session_id} failed to start: {error}");
@@ -2068,8 +2070,28 @@ fn fail_start(session_id: &str, error: &str, tried: &[String], deps: &PickupDeps
             consume_off_thread(deps, session_id, tried, || {});
         }
     }
-    if let Err(err) = crate::idle_session_on(&deps.coding.trpc, session_id, Some(&deps.device_id)) {
+    let report = start_failed_report(&deps.device_id, &crate::agent_accounts::now_iso());
+    if let Err(err) = session_device::report(&deps.coding.trpc, session_id, &report) {
         log::warn!("pickup: failed start of session {session_id} not reported: {err}");
+    }
+}
+
+/// EXP-1536 (FEED-168): [`fail_start`]'s report — idle, not busy, and
+/// blocked `start_failed` since `now` (RFC 3339), so the session reads
+/// `Couldn't start` under Needs you, never Idle. `handled`: the server says
+/// no wall and sends no push (the "Could not start" reply already reached
+/// the sender). Stamped with `device_id`: a stale host flags nothing.
+pub fn start_failed_report(device_id: &str, now: &str) -> session_device::SessionReport {
+    session_device::SessionReport {
+        blocked: Some(Some(session_device::BlockedInput {
+            kind: "start_failed".to_string(),
+            agent: String::new(),
+            window: String::new(),
+            resets_at: None,
+            since: now.to_string(),
+            handled: Some(true),
+        })),
+        ..crate::launcher::idle_report_on(Some(device_id))
     }
 }
 
@@ -4867,12 +4889,38 @@ mod tests {
         assert!(requests[1].contains(r#""messageIds":["m1","m2"]"#), "{}", requests[1]);
         assert!(requests[2].contains(r#""status":"idle""#), "{}", requests[2]);
         assert!(!requests[2].contains("ended"), "{}", requests[2]);
+        // EXP-1536: shown as failed, never idle.
+        assert!(requests[2].contains(r#""kind":"start_failed""#), "{}", requests[2]);
         drop(requests);
         // The consumed ids are the pickup's own now: never handed again.
         let pending = vec![message("m1", "sess-1", "t"), message("m3", "sess-1", "t")];
         let mut refs: Vec<&MessageRow> = pending.iter().collect();
         host.deps.live.take_owed(&mut refs, &[]);
         assert_eq!(refs.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec!["m3"]);
+    }
+
+    /// EXP-1536 (FEED-168): the failed start's report = idle, not busy, the
+    /// device named, and the handled `start_failed` flag (no wall said, no
+    /// push), so the row reads `Couldn't start` under Needs you.
+    #[test]
+    fn a_failed_start_reports_start_failed_never_plain_idle() {
+        let report = start_failed_report(DEV, "2026-11-01T10:00:00.000Z");
+        assert_eq!(
+            serde_json::to_value(&report).unwrap(),
+            serde_json::json!({
+                "deviceId": DEV,
+                "status": "idle",
+                "busy": false,
+                "blocked": {
+                    "kind": "start_failed",
+                    "agent": "",
+                    "window": "",
+                    "resetsAt": null,
+                    "since": "2026-11-01T10:00:00.000Z",
+                    "handled": true,
+                },
+            })
+        );
     }
 
     #[test]

@@ -65,6 +65,7 @@ pub mod inventory;
 pub mod launch_defaults_sync;
 pub mod launch_gate;
 pub mod launcher;
+pub mod leftover;
 pub use eagent::lockfile;
 pub mod managed_codex;
 // EXP-1099: the rotating log file + the heartbeat failure policy.

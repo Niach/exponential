@@ -1,5 +1,5 @@
 {
-  "$comment": "THE BUS (lib/sessions/bus.ts, trpc sessions.reply/report, lib/integrations/pr-sync.ts). Every transition of a session S is posted into its LISTENERS: its parent (whatever its status), then every LIVE session whose wakeOn names S, by id, each once. A line authored BY S (`authorSessionId` = S) and WAKING is pending input for its reader (the reader's device delivers it: that is the wake-up); a reader that has ended keeps the row, not waking. With no listener at all an event line lands on S itself, not waking (`session_claimed` excepted: it never falls back). WHAT WAKES: S's turn reply (agent-authored; a watching team agent conversation that is not S's parent hears no turns), S's question/plan (an `ask` mirror card naming the card row; askText, or the neutral askHidden line), S's wall (`session_blocked`, once: only when S was not blocked and the device does not handle it), S's PR (`pr_opened`, with the PR id), S's END (a `report` card: the summary, else S's last plain reply, else rules.report.fallback, clipped to report.max; a sealed summary or reply is never read). After its report nobody watches S (it leaves every wakeOn). Silent events (rules.assistantSilentEvents) skip an Assistant's conversation. PRIVACY: a listener whose readers may not see S (S private and the listener shared, or another member's) gets a NEUTRAL line for a reply, a report, a PR and an ask (copy.private* / askHidden). SEALED (EXP-1458): a sealed reply reaches listeners in S's own tree as a byte copy, listeners in another tree as the copy the device sealed for that tree (`copies[rootId]`), else the neutral line. A blank reply with no card is refused.",
+  "$comment": "THE BUS (lib/sessions/bus.ts, trpc sessions.reply/report, lib/integrations/pr-sync.ts). Every transition of a session S is posted into its LISTENERS: its parent (whatever its status), then every LIVE session whose wakeOn names S, by id, each once. A line authored BY S (`authorSessionId` = S) and WAKING is pending input for its reader (the reader's device delivers it: that is the wake-up); a reader that has ended keeps the row, not waking. With no listener at all an event line lands on S itself, not waking (`session_claimed` excepted: it never falls back). WHAT WAKES: S's turn reply (agent-authored; a watching team agent conversation that is not S's parent hears no turns), S's question/plan (an `ask` mirror card naming the card row; askText, or the neutral askHidden line), S's wall (`session_blocked`, once: only when S was not blocked and the device does not handle it; EXP-1536: a failed start, `start_failed`, is never said: its reply already woke the reader, and the device's next report without `blocked` clears it), S's PR (`pr_opened`, with the PR id), S's END (a `report` card: the summary, else S's last plain reply, else rules.report.fallback, clipped to report.max; a sealed summary or reply is never read). After its report nobody watches S (it leaves every wakeOn). Silent events (rules.assistantSilentEvents) skip an Assistant's conversation. PRIVACY: a listener whose readers may not see S (S private and the listener shared, or another member's) gets a NEUTRAL line for a reply, a report, a PR and an ask (copy.private* / askHidden). SEALED (EXP-1458): a sealed reply reaches listeners in S's own tree as a byte copy, listeners in another tree as the copy the device sealed for that tree (`copies[rootId]`), else the neutral line. A blank reply with no card is refused.",
   "cases": [
     {
       "name": "a child's turn reply wakes its parent as the child's own message",
@@ -756,6 +756,69 @@
         "sessions": {
           "c1": {
             "needsInput": true
+          }
+        }
+      }
+    },
+    {
+      "name": "EXP-1536: a failed start is never said as a wall; it is on a person until the relaunch reports",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1",
+            "status": "running",
+            "busy": false
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "status": "idle",
+              "busy": false,
+              "blocked": {
+                "kind": "start_failed"
+              }
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        },
+        {
+          "event": {
+            "kind": "device.report",
+            "at": 120000,
+            "data": {
+              "sessionId": "c1",
+              "deviceId": "d1",
+              "status": "running",
+              "busy": true
+            }
+          },
+          "effects": [],
+          "result": {
+            "sessionId": "c1"
+          }
+        }
+      ],
+      "expect": {
+        "sessions": {
+          "c1": {
+            "status": "running",
+            "busy": true,
+            "blocked": null,
+            "needsInput": false
           }
         }
       }

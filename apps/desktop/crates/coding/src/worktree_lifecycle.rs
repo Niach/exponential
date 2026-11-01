@@ -54,13 +54,13 @@ pub const BUILD_OUTPUT_DIRS: &[&str] = &[
     ".gradle",
 ];
 
-fn is_build_output_name(name: &str) -> bool {
+pub(crate) fn is_build_output_name(name: &str) -> bool {
     BUILD_OUTPUT_DIRS.contains(&name) || name.starts_with("target-")
 }
 
 /// Candidate build-output dirs under `worktree` (relative paths), never
 /// descending into a match, `.git`, or a symlink.
-fn candidates(worktree: &Path) -> Vec<PathBuf> {
+pub(crate) fn build_output_candidates(worktree: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let mut stack = vec![(PathBuf::new(), 0usize)];
     while let Some((rel, depth)) = stack.pop() {
@@ -94,7 +94,7 @@ fn candidates(worktree: &Path) -> Vec<PathBuf> {
 /// which `git ls-files` finds no tracked file. Anything git cannot vouch for
 /// stays. Returns the removed dirs (relative). Blocking.
 pub fn prune_build_output(worktree: &Path) -> Vec<PathBuf> {
-    let found = candidates(worktree);
+    let found = build_output_candidates(worktree);
     if found.is_empty() {
         return Vec::new();
     }

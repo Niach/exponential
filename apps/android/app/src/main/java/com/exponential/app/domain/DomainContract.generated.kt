@@ -26,7 +26,7 @@ object DomainContract {
     val prStateValues: List<String> = listOf("open", "closed", "merged", "draft")
     val sessionKindValues: List<String> = listOf("thread", "agent")
     val sessionStatusValues: List<String> = listOf("queued", "running", "idle", "ended")
-    val codingSessionBlockedKinds: List<String> = listOf("rate_limit", "device_offline", "unclaimed", "stuck", "restarted")
+    val codingSessionBlockedKinds: List<String> = listOf("rate_limit", "device_offline", "unclaimed", "stuck", "restarted", "start_failed")
     val codingSessionBlockedWindows: List<String> = listOf("session", "weekly", "model")
     val toolKindValues: List<String> = listOf("read", "edit", "delete", "move", "search", "execute", "think", "fetch", "switch_mode", "wait", "script", "other")
     val toolKindEditValues: List<String> = listOf("edit", "delete", "move")

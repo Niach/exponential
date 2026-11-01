@@ -539,6 +539,8 @@ class AgentUsagePresentationTest {
         assertEquals(null, label("restarted"))
         assertEquals("Not picked up", label("unclaimed"))
         assertEquals("Stuck", label("stuck"))
+        // EXP-1536: a failed start reads as failed, no countdown.
+        assertEquals("Couldn't start", label("start_failed"))
         assertEquals("Rate limited · resets in 2h", label("rate_limit"))
         assertEquals("Rate limited · resets in 2h", label(null))
         assertEquals("Blocked · resets in 2h", label("quota"))
@@ -549,7 +551,7 @@ class AgentUsagePresentationTest {
     fun onlyAUsageWallOffersTheAccountSwitch() {
         assertEquals(true, AgentUsagePresentation.isUsageWall(CodingSessionBlocked(kind = "rate_limit")))
         assertEquals(true, AgentUsagePresentation.isUsageWall(CodingSessionBlocked(kind = null)))
-        for (kind in listOf("device_offline", "unclaimed", "stuck")) {
+        for (kind in listOf("device_offline", "unclaimed", "stuck", "start_failed")) {
             assertEquals(false, AgentUsagePresentation.isUsageWall(CodingSessionBlocked(kind = kind)))
         }
         assertEquals(false, AgentUsagePresentation.isUsageWall(null))

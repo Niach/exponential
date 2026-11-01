@@ -8,7 +8,9 @@ import type { Envelope, Failure } from "@exp/ecore"
 
 export type Status = `queued` | `running` | `idle` | `ended`
 
-export type BlockedKind = `rate_limit` | `device_offline` | `unclaimed` | `stuck` | `restarted`
+/** EXP-1536: `start_failed` = the device could not start the run after the
+ *  claim (device-written, never said as a wall; its next report clears it). */
+export type BlockedKind = `rate_limit` | `device_offline` | `unclaimed` | `stuck` | `restarted` | `start_failed`
 
 /** Why a live session is held. `device_offline` and `restarted` are
  *  INTERRUPTIONS: `resume` = it was mid-turn (its device continues it),

@@ -153,6 +153,8 @@ object SessionTree {
             "rate_limit" to "Usage limit",
             "unclaimed" to "Not picked up",
             "stuck" to "Stuck",
+            // EXP-1536: a failed start reads as failed, never Idle.
+            "start_failed" to "Couldn't start",
         )
         /** EXP-1374 `banner.background`. */
         const val BANNER_BACKGROUND = "The turn is over; background tasks still run on its device."

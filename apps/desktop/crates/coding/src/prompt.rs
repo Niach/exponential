@@ -43,6 +43,21 @@ pub fn reclaimed_workspace_note(
     note
 }
 
+/// #FEED-169 (EXP-1536 A): the first thing a run hears when the branch it
+/// was meant to continue from (`wanted`, a moved session's or its parent's)
+/// is not on origin, so its worktree was cut from `picked` instead.
+pub fn base_fallback_note(wanted: &str, picked: &str) -> String {
+    if picked.starts_with(crate::run_cleanup::LEFTOVER_BRANCH_PREFIX) {
+        format!(
+            "Note: `{wanted}` was never pushed to origin, so this worktree starts from `origin/{picked}`, where its previous device parked the unpushed work. Check `git log` before you continue."
+        )
+    } else {
+        format!(
+            "Note: `{wanted}` was never pushed to origin (its previous device did not push it before the move), so this worktree starts from `origin/{picked}` and work that only existed there is not here. Tell the person in your first reply if the task depends on it."
+        )
+    }
+}
+
 /// EXP-935: what a resume that SWITCHES the account closes its first turn
 /// with. A switch carries no prompt of its own, so a native reload used to
 /// sit idle until a person typed — from the outside, switching the account
@@ -55,6 +70,16 @@ restart or re-plan finished work, and report when done.";
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// #FEED-169: the fallback says what was wanted and what it starts from.
+    #[test]
+    fn base_fallback_note_names_the_missing_branch_and_the_base() {
+        let note = base_fallback_note("exp/session-10272d04", "main");
+        assert!(note.contains("`exp/session-10272d04` was never pushed"), "{note}");
+        assert!(note.contains("`origin/main`"), "{note}");
+        let parked = base_fallback_note("exp/session-10272d04", "exp/leftover-10272d04");
+        assert!(parked.contains("parked the unpushed work"), "{parked}");
+    }
 
     #[test]
     fn reclaimed_workspace_note_names_the_branch_and_base() {

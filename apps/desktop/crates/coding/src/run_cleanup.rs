@@ -171,17 +171,12 @@ fn remove_locked(cleanup: &RunCleanup, live: &LiveHolders) -> CleanupOutcome {
             ))
         }
     }
-    let path = cleanup.worktree.to_string_lossy().into_owned();
-    let args: &[&str] = match dirty {
-        DirtyState::Clean => &["worktree", "remove", &path],
-        // Untracked-only debris goes with the worktree (git refuses it
-        // without --force).
-        _ => &["worktree", "remove", "--force", &path],
-    };
-    if let Err(err) = run_git(
-        Some(&cleanup.clone),
-        args,
-        None,
+    // Untracked-only debris goes with the worktree. EXP-1536 A (#FEED-171):
+    // build output first, `.git` last, long-path safe; a failure leaves a
+    // valid worktree.
+    if let Err(err) = crate::leftover::remove_worktree(
+        &cleanup.clone,
+        &cleanup.worktree,
         &format!("git worktree remove ({})", cleanup.branch),
     ) {
         return CleanupOutcome::Skipped(SkipReason::GitFailed(err.detail));
@@ -317,12 +312,10 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) ->
         }
     };
     // Everything worth keeping is on `origin` now; untracked debris goes
-    // with the worktree (git refuses it without --force).
-    let path = cleanup.worktree.to_string_lossy().into_owned();
-    if let Err(err) = run_git(
-        Some(&cleanup.clone),
-        &["worktree", "remove", "--force", &path],
-        None,
+    // with the worktree (EXP-1536 A: content first, `.git` last).
+    if let Err(err) = crate::leftover::remove_worktree(
+        &cleanup.clone,
+        &cleanup.worktree,
         &format!("git worktree remove ({})", cleanup.branch),
     ) {
         return FinishOutcome::Skipped(SkipReason::GitFailed(err.detail));
