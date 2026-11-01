@@ -307,6 +307,43 @@ final class SteerCarrierTests: XCTestCase {
         XCTAssertTrue(recorder.actives.isEmpty)
     }
 
+    /// #EXP-1531: the node's `peerDisconnected` for the joined device is an
+    /// eNet drop: the relay opens at once, not after the stale rule.
+    @MainActor
+    func testPeerDisconnectedFromTheJoinedDeviceOpensTheRelayAtOnce() async throws {
+        let enet = FakeEnet(endpoints: ["dev"])
+        enet.answer["dev"] = [[Self.reset, Self.narration("one", seq: 0), Self.synced]]
+        let tunnel = FakeTunnel()
+        tunnel.answer = [[Self.reset, Self.narration("one", seq: 0), Self.synced]]
+        let (feed, recorder) = feed(enet, tunnel, timings: .init(stallMs: 60_000, joinTimeoutMs: 1_000, retryMs: [60_000]))
+        feed.start()
+        try await waitUntil { recorder.actives == [.enet] }
+        enet.disconnect("dev")
+        try await waitUntil { recorder.actives == [.enet, .relay] }
+        XCTAssertEqual(tunnel.opens, 1)
+        XCTAssertTrue(recorder.signals.contains(.failure("closed")))
+        XCTAssertFalse(recorder.signals.contains(.closed))
+        feed.close()
+    }
+
+    /// #EXP-1531: the joined device's `path_kind` is connStats' `path`.
+    @MainActor
+    func testTheJoinedDevicesPathKindIsTheViewPath() async throws {
+        let enet = FakeEnet(endpoints: ["dev"])
+        enet.answer["dev"] = [[Self.reset, Self.synced]]
+        enet.path = "iroh_relay"
+        let (feed, recorder) = feed(enet, nil)
+        feed.start()
+        try await waitUntil { recorder.actives == [.enet] }
+        XCTAssertEqual(feed.enetPath, "iroh_relay")
+        let t0 = Date()
+        var stats = SteerViewStats(version: "1", openedAt: t0)
+        let settled = try XCTUnwrap(stats.active(.enet, enetPath: feed.enetPath, at: t0.addingTimeInterval(1)))
+        XCTAssertEqual(settled.data.path, "iroh_relay")
+        XCTAssertTrue(SteerConnStats.valid(try json(settled)))
+        feed.close()
+    }
+
     /// THE stabilisation test: eNet dies mid-stream, the view keeps streaming
     /// over the relay, eNet comes back and takes over, the relay closes.
     @MainActor
@@ -596,6 +633,21 @@ private final class FakeEnet: SteerEnetCarrier, @unchecked Sendable {
     func revive(_ peer: String) {
         lock.withLock { _ = _dead.remove(peer) }
     }
+
+    /// #EXP-1531: the node's `peerDisconnected` for `peer` (the links stay
+    /// open; the inbox ends them).
+    func disconnect(_ peer: String) {
+        lock.withLock { _ = _dead.insert(peer) }
+        inbox.peerDisconnected(peer)
+    }
+
+    var path: String? {
+        get { lock.withLock { _path } }
+        set { lock.withLock { _path = newValue } }
+    }
+    private var _path: String?
+
+    func pathKind(peer: String) async -> String? { path }
 }
 
 private final class FakeStatsSink: SteerConnStatsSink, @unchecked Sendable {

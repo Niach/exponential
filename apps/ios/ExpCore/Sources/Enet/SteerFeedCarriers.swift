@@ -53,6 +53,9 @@ public final class SteerFeedCarriers {
 
     public private(set) var state = SteerCarrier.State()
     public private(set) var finished = false
+    /// #EXP-1531 connStats: the node's `path_kind` for the joined device
+    /// (`direct` | `iroh_relay`), read once per eNet join; nil = unknown.
+    public private(set) var enetPath: String?
 
     private let accountId: String
     private let sessionId: String
@@ -243,15 +246,17 @@ public final class SteerFeedCarriers {
                 timeout: timeout,
                 onFirstFrame: firstFrame
             )
+            var path: String?
+            if case let .joined(link, _) = outcome { path = await enet.pathKind(peer: link.peer) }
             guard let self else {
                 if case let .joined(link, _) = outcome { link.close(sendLeave: true) }
                 return
             }
-            self.enetDialed(outcome, token: token)
+            self.enetDialed(outcome, token: token, path: path)
         }
     }
 
-    private func enetDialed(_ outcome: SteerEnetJoinOutcome, token: Int) {
+    private func enetDialed(_ outcome: SteerEnetJoinOutcome, token: Int, path: String? = nil) {
         guard !finished, token == enetToken else {
             // EXP-1487 / #EXP-1531: a dial superseded by a newer one sends no
             // `leave` (its `join` may already have landed and the device keys
@@ -266,6 +271,7 @@ public final class SteerFeedCarriers {
             stallTask?.cancel()
             enetAttempts = 0
             enetLink = link
+            enetPath = path
             let stream = link.stream { [weak self] in
                 Task { @MainActor in
                     guard let self, token == self.enetToken else { return }

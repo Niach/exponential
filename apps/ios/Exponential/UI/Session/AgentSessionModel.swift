@@ -1795,7 +1795,7 @@ final class AgentSessionModel {
         guard !stopped, generation == dialGeneration else { return }
         switch signal {
         case let .active(carrier):
-            if let settled = viewStats?.active(carrier) { recordStats([settled]) }
+            if let settled = viewStats?.active(carrier, enetPath: carriers?.enetPath) { recordStats([settled]) }
             if !connected { attachFeed(generation: generation) }
         case let .frames(frames):
             for frame in frames { enqueue(frame, generation: generation) }
