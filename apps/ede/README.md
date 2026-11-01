@@ -8,6 +8,7 @@ libraries, never the other way round.
 |---|---|
 | `ede-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=eDE`, Wayland hints for Firefox/Qt/Electron), `ede-compositor` on the seat, then `ede-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on eCore's `Capability`/`Grant`/`Failure`/`Envelope`. ePilot, eos-agent and the shell link it. |
+| `ede-ui` | The shell's eUI on disk (#NEW-107): documents and the theme in `~/.config/ede/ui`, validated by eui-core before they apply, hot reloaded, the last good version kept, every edit a git commit, undo = revert. The shell and ede-tools link it; `ede-ui` is its CLI. |
 | `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## Run it nested (Cinnamon/X11)
@@ -176,6 +177,57 @@ black screen, and `swaylock` from a VT (`WAYLAND_DISPLAY=wayland-1
 XDG_RUNTIME_DIR=/run/user/$UID swaylock`) takes over; a video in Firefox
 holds off the idle lock; fcitx5 or ibus types into a GTK app but not into a
 polkit prompt (`pkexec true`).
+
+## eUI on disk (ede-ui)
+
+`$XDG_CONFIG_HOME/ede/ui/` (default `~/.config/ede/ui/`) holds the shell:
+one eUI surface per `<name>.json` (lowercase, digits, `-`, `_`) and the look
+in `theme.json` (eUI's theme format; `extends` may name a built-in theme;
+none = `exponential`).
+
+```json
+{
+  "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+  "root": {"id": "panel", "component": "Box", "props": {"style": {"display": "flex"}},
+           "children": [{"id": "clock", "component": "Text", "props": {"text": {"path": "/time"}}}]},
+  "data": {"time": "12:00"}
+}
+```
+
+`root` is the nested authoring form; `components` (A2UI's flat
+`updateComponents` list, from the component `root`) works too; `catalogId`
+defaults to the core. eui-core's reducer validates every component, prop,
+style and token: one issue refuses the whole file and the last good version
+stays on screen (after a restart, the last committed one). The directory is
+a git repository (the git CLI; created on first open): every edit that
+applies is a commit, an edit through the API with its own message, a hand
+edit as `Edit <files>` once it validates; refused files are never committed.
+Undo reverts the newest commit as a new commit, so an undo is undoable too.
+
+```bash
+cargo run -p ede-ui -- check                    # what applies, what is refused and why
+cargo run -p ede-ui -- set panel panel.json     # validate, write, commit
+cargo run -p ede-ui -- undo                     # revert the newest edit
+cargo run -p ede-ui -- discard panel            # drop a broken hand edit
+cargo run -p ede-ui -- log
+cargo run -p ede-ui -- watch                    # hot reload, one JSON change per line
+```
+
+```rust
+let (ui, _) = ede_ui::Runtime::open(ede_ui::default_dir())?;
+let ui = std::sync::Arc::new(std::sync::Mutex::new(ui));
+let _w = ede_ui::watch(ui.clone(), |changes| for c in changes { println!("{}", c.kind()) })?;
+// ui.lock().document("panel").surface(theme) → an eui-core Surface to lay out and paint
+```
+
+Changes: `ui.applied`, `ui.rejected` (issues, whether a last good version
+stays), `ui.removed`, `theme.applied`, `theme.rejected`. The shell (#NEW-108)
+paints them; nothing draws yet, so there is nothing to see on hardware.
+Try it on the real machine (Danny): `ede-ui check` on a fresh account
+creates `~/.config/ede/ui` with one commit; run `ede-ui watch` in one
+terminal, edit `~/.config/ede/ui/panel.json` in an editor (gedit, vim: both
+save through a rename) and see `ui.applied`, break it and see `ui.rejected`
+with `"fallback": true`, then `ede-ui undo` and `git -C ~/.config/ede/ui log`.
 
 ## Tests
 
