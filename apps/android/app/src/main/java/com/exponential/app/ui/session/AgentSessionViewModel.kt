@@ -719,23 +719,36 @@ class AgentSessionViewModel @AssistedInject constructor(
                     issues,
                     session,
                 ) { tree, messages, links, linked, row ->
-                    val me = row ?: return@combine null
-                    val sessions = tree.map(SessionTree::session)
-                    val rootRow = sessions.firstOrNull { it.id == root } ?: SessionTree.session(me)
-                    val mine = sessions.firstOrNull { it.id == me.id } ?: SessionTree.session(me)
-                    val titles = SessionTree.sessionTitles(
-                        listOf(rootRow, mine).distinctBy { it.id },
-                        links.map(SessionTree::sessionIssue),
-                        linked.map { SessionTree.issue(it) },
-                        messages,
-                    )
-                    val title = titles.getValue(rootRow.id)
-                    val name = titles.getValue(mine.id)
-                    Header(threadTitle = title, sessionName = name)
-                }
+                    com.exponential.app.domain.perfTrace("AgentSessionViewModel.header") { headerOf(root, tree, messages, links, linked, row) }
+                    // EXP-1522: every message write re-derives the titles over
+                    // the whole tree's messages: off the main thread.
+                }.flowOn(kotlinx.coroutines.Dispatchers.Default)
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private fun headerOf(
+        root: String,
+        tree: List<SessionEntity>,
+        messages: List<SessionTree.Message>,
+        links: List<SessionIssueEntity>,
+        linked: List<com.exponential.app.data.db.IssueEntity>,
+        row: SessionEntity?,
+    ): Header? {
+        val me = row ?: return null
+        val sessions = tree.map(SessionTree::session)
+        val rootRow = sessions.firstOrNull { it.id == root } ?: SessionTree.session(me)
+        val mine = sessions.firstOrNull { it.id == me.id } ?: SessionTree.session(me)
+        val titles = SessionTree.sessionTitles(
+            listOf(rootRow, mine).distinctBy { it.id },
+            links.map(SessionTree::sessionIssue),
+            linked.map { SessionTree.issue(it) },
+            messages,
+        )
+        val title = titles.getValue(rootRow.id)
+        val name = titles.getValue(mine.id)
+        return Header(threadTitle = title, sessionName = name)
+    }
 
     /** S-3: the synced agent definitions by id (the origin link's mark). */
     val agentMarks: StateFlow<Map<String, com.exponential.app.data.db.AgentDefinitionEntity>> =
@@ -807,7 +820,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                 val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row.rootId, row.body, row.card)
                 QueuedMessage(id = row.id, text = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body)
             }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        // EXP-1522: opening a sealed body is native crypto: off the main thread.
+    }.flowOn(kotlinx.coroutines.Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The composer's typed text — held by the connection, so it survives a
      *  reconnect, a back-tap and a rotation alike. */
@@ -1109,8 +1123,10 @@ class AgentSessionViewModel @AssistedInject constructor(
             _sendRefusal.value = SlashCommands.COMMAND_WITH_ATTACHMENTS
             return
         }
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
+        // EXP-1522: on the store's scope, not the ViewModel's: backing out
+        // right after Send must not cancel the upload or the send.
+        store.launchDetached {
+            val accountId = auth.activeAccountId.value ?: return@launchDetached
             _sending.value = true
             _uploadError.value = null
             try {
@@ -1130,7 +1146,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                             t,
                             if (image.isImage) "The image could not be uploaded" else "The file could not be uploaded",
                         )
-                        return@launch
+                        return@launchDetached
                     }
                     ids += id
                 }
@@ -1142,10 +1158,11 @@ class AgentSessionViewModel @AssistedInject constructor(
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
                     _sendError.value = trpcErrorMessage(t, "")
-                    return@launch
+                    return@launchDetached
                 }
                 for (index in images.indices.reversed()) connection.removePendingImage(index)
-                connection.setDraft("")
+                // Only the text that went out: anything typed since stays.
+                if (connection.draft.value == text) connection.setDraft("")
             } finally {
                 _sending.value = false
             }

@@ -1,0 +1,196 @@
+package com.exponential.macrobenchmark
+
+import android.content.Intent
+import android.net.Uri
+import androidx.benchmark.macro.CompilationMode
+import androidx.benchmark.macro.ExperimentalMetricApi
+import androidx.benchmark.macro.FrameTimingMetric
+import androidx.benchmark.macro.MacrobenchmarkScope
+import androidx.benchmark.macro.StartupMode
+import androidx.benchmark.macro.TraceSectionMetric
+import androidx.benchmark.macro.junit4.MacrobenchmarkRule
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.Direction
+import androidx.test.uiautomator.UiObject2
+import androidx.test.uiautomator.Until
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/**
+ * EXP-1521 / EXP-1522 ("omega lag"): the two journeys Danny reported, as
+ * frame-timing Macrobenchmarks against the `benchmark` build type.
+ *
+ * - [transcriptScroll]: fling a long session transcript up and back down.
+ * - [sendThenBack]: type a message, send it and press back at once; the
+ *   frames until the previous screen settles must not freeze (the 2–3 s stall).
+ *
+ * The app must already be signed in to an instance where the thread named by
+ * the `threadId` instrumentation argument holds a session card titled
+ * `sessionTitle` whose device publishes a long feed (README.md: the
+ * screenshot seed + `SCREENSHOT_FEED_REPEAT=40 bun run screenshots:desktop`).
+ * Both journeys open the thread through the `exponential://session/<id>` deep
+ * link, then the session from its card.
+ */
+@RunWith(AndroidJUnit4::class)
+class SessionBenchmarks {
+    @get:Rule
+    val rule = MacrobenchmarkRule()
+
+    private val threadId: String
+        get() = InstrumentationRegistry.getArguments().getString("threadId") ?: DEFAULT_THREAD_ID
+
+    private val sessionTitle: String
+        get() = InstrumentationRegistry.getArguments().getString("sessionTitle") ?: DEFAULT_SESSION_TITLE
+
+    @Test
+    fun transcriptScroll() = rule.measureRepeated(
+        packageName = PACKAGE,
+        metrics = listOf(FrameTimingMetric()),
+        compilationMode = CompilationMode.Full(),
+        startupMode = StartupMode.WARM,
+        iterations = ITERATIONS,
+        setupBlock = { openSession() },
+    ) {
+        val feed = transcript().visibleBounds
+        // Fast swipes through the middle of the feed (clear of the header and
+        // the composer): up into the history, then back down.
+        val x = feed.centerX()
+        val top = feed.top + feed.height() / 4
+        val bottom = feed.top + feed.height() * 3 / 4
+        repeat(FLINGS) {
+            device.swipe(x, top, x, bottom, SWIPE_STEPS)
+            device.waitForIdle()
+        }
+        repeat(FLINGS) {
+            device.swipe(x, bottom, x, top, SWIPE_STEPS)
+            device.waitForIdle()
+        }
+    }
+
+    /**
+     * Cold-open the thread, then the session: the join replays the whole feed,
+     * which used to be folded on the main thread in one block (EXP-1522).
+     */
+    @OptIn(ExperimentalMetricApi::class)
+    @Test
+    fun openSession() = rule.measureRepeated(
+        packageName = PACKAGE,
+        metrics = listOf(
+            FrameTimingMetric(),
+            TraceSectionMetric("Choreographer#doFrame%", TraceSectionMetric.Mode.Max),
+            TraceSectionMetric("SteerConnection.commitStaging", TraceSectionMetric.Mode.Sum),
+            TraceSectionMetric("SteerConnection.frame", TraceSectionMetric.Mode.Sum),
+        ),
+        compilationMode = CompilationMode.Full(),
+        // Cold: a fresh connection joins and replays the whole feed.
+        startupMode = StartupMode.COLD,
+        iterations = ITERATIONS,
+        setupBlock = { pressHome() },
+    ) {
+        openThread()
+        openSessionCard()
+    }
+
+    @OptIn(ExperimentalMetricApi::class)
+    @Test
+    fun sendThenBack() = rule.measureRepeated(
+        packageName = PACKAGE,
+        metrics = listOf(
+            FrameTimingMetric(),
+            // The longest frame while backing out (the 2–3 s freeze lands here).
+            TraceSectionMetric("Choreographer#doFrame%", TraceSectionMetric.Mode.Max),
+            TraceSectionMetric("SteerConnection.commitStaging", TraceSectionMetric.Mode.Sum),
+            TraceSectionMetric("SteerConnection.frame", TraceSectionMetric.Mode.Sum),
+            TraceSectionMetric("ThreadsViewModel.groups", TraceSectionMetric.Mode.Sum),
+            TraceSectionMetric("AgentSessionViewModel.header", TraceSectionMetric.Mode.Sum),
+        ),
+        compilationMode = CompilationMode.Full(),
+        startupMode = StartupMode.WARM,
+        iterations = ITERATIONS,
+        setupBlock = { openSession() },
+    ) {
+        val field = composerField()
+        field.click()
+        field.text = "perf ${System.nanoTime() % 100_000}"
+        device.waitForIdle()
+        composerSubmit().click()
+        // Straight back, the way Danny does it: the first press may only close
+        // the keyboard, the second leaves the screen.
+        device.pressBack()
+        if (device.hasObject(By.res(FEED_TAG))) device.pressBack()
+        device.wait(Until.gone(By.res(FEED_TAG)), WAIT_MS)
+        device.waitForIdle()
+    }
+
+    private fun MacrobenchmarkScope.openSession() {
+        pressHome()
+        openThread()
+        openSessionCard()
+    }
+
+    private fun MacrobenchmarkScope.openThread() {
+        val intent = Intent(Intent.ACTION_VIEW, Uri.parse("exponential://session/$threadId"))
+            .setPackage(PACKAGE)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivityAndWait(intent)
+        check(device.wait(Until.hasObject(By.res(CONVERSATION_TAG)), WAIT_MS) == true) {
+            "thread `$threadId` did not open: is the app signed in?"
+        }
+        device.waitForIdle()
+    }
+
+    private fun MacrobenchmarkScope.openSessionCard() {
+        val conversation = device.wait(Until.findObject(By.res(CONVERSATION_TAG)), WAIT_MS)
+            ?: error("thread `$threadId` did not open: is the app signed in?")
+        conversation.setGestureMargin(device.displayWidth / 5)
+        var card = device.findObject(By.res(SESSION_CARD_TAG).hasDescendant(By.text(sessionTitle)))
+        var scrolls = 0
+        while (card == null && scrolls++ < MAX_CARD_SCROLLS) {
+            conversation.scroll(Direction.UP, 0.8f)
+            card = device.findObject(By.res(SESSION_CARD_TAG).hasDescendant(By.text(sessionTitle)))
+        }
+        (card ?: error("no session card `$sessionTitle` in thread `$threadId`")).click()
+        transcript()
+        // The join replay has landed once an agent bubble paints.
+        device.wait(Until.hasObject(By.res(BUBBLE_TAG)), WAIT_MS)
+        device.waitForIdle()
+    }
+
+    private fun MacrobenchmarkScope.transcript(): UiObject2 =
+        device.wait(Until.findObject(By.res(FEED_TAG)), WAIT_MS)
+            ?: error("transcript `$FEED_TAG` not found: is the app signed in and the session synced?")
+
+    /** The steer field (untagged: the EditText), behind its capsule when collapsed. */
+    private fun MacrobenchmarkScope.composerField(): UiObject2 {
+        device.findObject(By.clazz(EDIT_TEXT).pkg(PACKAGE))?.let { return it }
+        device.wait(Until.findObject(By.res(CAPSULE_TAG)), WAIT_MS)?.click()
+        return device.wait(Until.findObject(By.clazz(EDIT_TEXT).pkg(PACKAGE)), WAIT_MS)
+            ?: error("composer field not found")
+    }
+
+    private fun MacrobenchmarkScope.composerSubmit(): UiObject2 =
+        device.wait(Until.findObject(By.desc(SUBMIT_DESC).pkg(PACKAGE)), WAIT_MS)
+            ?: error("composer submit `$SUBMIT_DESC` not found")
+
+    private companion object {
+        const val PACKAGE = "at.exponential"
+        /** The screenshot seed's demo thread (`DEMO_THREAD_ID`) and its steered session. */
+        const val DEFAULT_THREAD_ID = "5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13"
+        const val DEFAULT_SESSION_TITLE = "Profile the launch path"
+        const val CONVERSATION_TAG = "thread-conversation"
+        const val SESSION_CARD_TAG = "session-card"
+        const val FEED_TAG = "agent-feed"
+        const val BUBBLE_TAG = "session-agent-bubble"
+        const val CAPSULE_TAG = "steer-composer-capsule"
+        const val EDIT_TEXT = "android.widget.EditText"
+        const val SUBMIT_DESC = "Send"
+        const val MAX_CARD_SCROLLS = 12
+        const val ITERATIONS = 5
+        const val FLINGS = 5
+        const val SWIPE_STEPS = 8
+        const val WAIT_MS = 15_000L
+    }
+}

@@ -478,7 +478,16 @@ function feedFrames(agentComment: AgentComment | null): Record<string, unknown>[
   let seq = 0
   let toolIndex = 0
   const now = Date.now()
-  const at = feedTimeline(FEED.length, now)
+  // EXP-1521/1522: SCREENSHOT_FEED_REPEAT=<n> serves the script n times over
+  // (a long transcript + a long join replay) for the Android Macrobenchmarks;
+  // only the last pass keeps the closing question.
+  const repeat = Math.max(1, Number(process.env.SCREENSHOT_FEED_REPEAT ?? `1`) || 1)
+  const entries = Array.from({ length: repeat }, (_, pass) =>
+    FEED.filter((entry) => pass === repeat - 1 || entry.kind !== `question`).map((entry) =>
+      pass === repeat - 1 || typeof entry.id !== `string` ? entry : { ...entry, id: `${entry.id}-r${pass}` }
+    )
+  ).flat()
+  const at = feedTimeline(entries.length, now)
   void restampDemoGuide(now)
   // EXP-877: a pending question hides the composer (EXP-820), so a capture of
   // the composer FOOTER (model picker, Plan mode, context ring) opts out of
@@ -487,7 +496,7 @@ function feedFrames(agentComment: AgentComment | null): Record<string, unknown>[
   // (`Writing ExitPlanMode… (54s)`) ends on a running turn instead of the ask.
   const writing = process.env.SCREENSHOT_FEED_WRITING === `1`
   const skipQuestion = writing || process.env.SCREENSHOT_FEED_NO_QUESTION === `1`
-  for (const [index, entry] of FEED.entries()) {
+  for (const [index, entry] of entries.entries()) {
     if (skipQuestion && entry.kind === `question`) continue
     // Without the seeded comment (an older seed) the call is left out rather
     // than published as a card naming a comment nobody can open.

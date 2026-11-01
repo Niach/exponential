@@ -301,7 +301,9 @@ class SessionsApi @Inject constructor(
             inputSerializer = SessionsSendInput.serializer(),
             outputSerializer = SessionsSendResult.serializer(),
         )
-        prepared.onSent(result)
+        // EXP-1522: a new tree's key is kept here (Keystore + a synchronous
+        // prefs commit): never on the caller's (main) thread.
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { prepared.onSent(result) }
         return result
     }
 

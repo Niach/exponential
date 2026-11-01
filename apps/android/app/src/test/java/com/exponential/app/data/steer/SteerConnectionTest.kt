@@ -10,6 +10,10 @@ import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.asCoroutineDispatcher
+import kotlinx.coroutines.CoroutineDispatcher
+import java.util.concurrent.Executors
+import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ReceiveChannel
@@ -133,6 +137,8 @@ class SteerConnectionTest {
         transport: FakeTransport,
         timings: SteerTimings = fastTimings,
         row: MutableStateFlow<SessionEntity?> = MutableStateFlow(null),
+        dispatcher: CoroutineDispatcher = Dispatchers.Unconfined,
+        foldDispatcher: CoroutineDispatcher? = null,
     ): SteerConnection {
         if (row.value == null) row.value = runningRow()
         return SteerConnection(
@@ -140,9 +146,10 @@ class SteerConnectionTest {
             transport = transport,
             sessionFlow = row,
             json = json,
-            dispatcher = Dispatchers.Unconfined,
+            dispatcher = dispatcher,
             nowMs = { System.currentTimeMillis() },
             timings = timings,
+            foldDispatcher = foldDispatcher,
         )
     }
 
@@ -522,6 +529,93 @@ class SteerConnectionTest {
             )
         } finally {
             connection.close()
+        }
+    }
+
+    /**
+     * EXP-1522: the app folds a committed replay on a background thread. The
+     * connection's own thread stays free meanwhile, frames that land during
+     * the fold still make the ONE committed swap, and the feed never empties.
+     */
+    @Test
+    fun anOffThreadFoldKeepsFramesThatLandWhileItRuns() = runBlocking {
+        val connectionThread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val foldThread = Executors.newSingleThreadExecutor()
+        val transport = FakeTransport()
+        val connection = connection(
+            transport,
+            stagingTimings.copy(replayMaxMs = 30_000),
+            dispatcher = connectionThread,
+            foldDispatcher = foldThread.asCoroutineDispatcher(),
+        )
+        try {
+            val socket = liveWithFeed(transport, connection)
+            val sizes = CopyOnWriteArrayList<Int>()
+            val watcher = launch(Dispatchers.Unconfined) {
+                connection.activity.collect { sizes += it.feed.size }
+            }
+            // Hold the fold thread: the commit's fold queues behind this.
+            val gate = CountDownLatch(1)
+            foldThread.execute { gate.await() }
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("replayed one"))
+            socket.emit("""{"t":"activity_synced"}""")
+            socket.emit(narration("live during the fold"))
+            delay(stagingTimings.replayQuietMs * 2)
+            // The old feed holds while the fold is parked.
+            assertEquals(listOf("original one"), connection.activity.value.feed.map { (it as com.exponential.app.domain.AgentFeedItem.Narration).text })
+            gate.countDown()
+            waitUntil("the committed replay") { connection.activity.value.feed.size == 2 }
+            delay(stagingTimings.replayQuietMs * 3)
+            watcher.cancel()
+            assertEquals(
+                listOf("replayed one", "live during the fold"),
+                connection.activity.value.feed.map { (it as com.exponential.app.domain.AgentFeedItem.Narration).text },
+            )
+            assertEquals(listOf(1, 2), sizes.toList())
+        } finally {
+            connection.close()
+            foldThread.shutdownNow()
+            connectionThread.close()
+        }
+    }
+
+    /** EXP-1522: a republish that restarts staging mid-fold drops the stale fold. */
+    @Test
+    fun aResetDuringAnOffThreadFoldDropsTheStaleFold() = runBlocking {
+        val connectionThread = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+        val foldThread = Executors.newSingleThreadExecutor()
+        val transport = FakeTransport()
+        val connection = connection(
+            transport,
+            stagingTimings.copy(replayMaxMs = 30_000),
+            dispatcher = connectionThread,
+            foldDispatcher = foldThread.asCoroutineDispatcher(),
+        )
+        try {
+            val socket = liveWithFeed(transport, connection)
+            val gate = CountDownLatch(1)
+            foldThread.execute { gate.await() }
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("abandoned"))
+            socket.emit("""{"t":"activity_synced"}""")
+            socket.emit("""{"t":"activity_reset"}""")
+            socket.emit(narration("restarted"))
+            socket.emit("""{"t":"activity_synced"}""")
+            delay(stagingTimings.replayQuietMs * 2)
+            gate.countDown()
+            waitUntil("the restarted replay") {
+                connection.activity.value.feed.map { (it as com.exponential.app.domain.AgentFeedItem.Narration).text } == listOf("restarted")
+            }
+            delay(stagingTimings.replayQuietMs * 3)
+            assertEquals(
+                listOf("restarted"),
+                connection.activity.value.feed.map { (it as com.exponential.app.domain.AgentFeedItem.Narration).text },
+            )
+        } finally {
+            connection.close()
+            foldThread.shutdownNow()
+            connectionThread.close()
         }
     }
 

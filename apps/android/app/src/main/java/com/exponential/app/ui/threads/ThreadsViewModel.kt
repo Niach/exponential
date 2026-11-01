@@ -31,6 +31,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
@@ -71,7 +74,13 @@ class ThreadsViewModel @Inject constructor(
 
     private val sessionRows = dbFlow.scopedQuery(emptyList()) { it.sessionDao().observeAll() }
 
+    // EXP-1522: the list's inputs are mapped OFF the main thread and SHARED.
+    // Six flows below read them; each used to re-run every query + mapping
+    // (digest JSON parsing included) on the main thread per database write,
+    // and a send writes a burst of rows right as the screen comes back.
     private val sessions = sessionRows.map { rows -> rows.map(SessionTree::session) }
+        .flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     private val inputs = combine(
         sessions,
@@ -95,6 +104,8 @@ class ThreadsViewModel @Inject constructor(
         // EXP-1323: the viewer's read marks (bold rows + the nav dot).
         dbFlow.scopedQuery(emptyList()) { it.sessionReadDao().observeAll() }.map { it.map(SessionTree::sessionRead) },
     ) { s, links, issues, messages, reads -> Inputs(s, links, issues, messages, reads) }
+        .flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     private data class Inputs(
         val sessions: List<SessionTree.Session>,
@@ -107,7 +118,7 @@ class ThreadsViewModel @Inject constructor(
     /** The grouped thread list of the ACTIVE team (chats.json: one team per
      *  phone screen); #EXP-1461: root rows only. */
     val groups: StateFlow<List<SessionTree.ThreadsListGroup>> = combine(inputs, activeTeam) { input, team ->
-        SessionTree.partitionThreads(
+        com.exponential.app.domain.perfTrace("ThreadsViewModel.groups") { SessionTree.partitionThreads(
             input.sessions,
             input.links,
             input.issues,
@@ -116,12 +127,13 @@ class ThreadsViewModel @Inject constructor(
             reads = input.reads,
             // NEW-1: Recent's 24 h window (read on every input change).
             now = SessionTree.nowIso(),
-        )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        ) }
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** #EXP-1388: the Chats nav dot (`chatsUnread`): an unread chat outside
      *  the viewer's archive (one that needs you counts anyway). */
     val unread: StateFlow<Boolean> = combine(groups, inputs) { g, input -> Chats.chatsUnread(g, input.reads) }
+        .flowOn(Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Each listed row's glyph + identifier, keyed by root session id. */
@@ -138,7 +150,7 @@ class ThreadsViewModel @Inject constructor(
             rows.associate { it.id to it.cli },
             devices.associate { it.deviceId to ThreadRowDevice(it.label, it.icon, it.kind == "server") },
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
      * EXP-1309 (web `threadRowWord` ×4): each listed row's ONE quiet word off
@@ -159,7 +171,7 @@ class ThreadsViewModel @Inject constructor(
                 teamPrs = byTeam[row.teamId].orEmpty(),
             )?.let { row.sessionId to it }
         }.toMap()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
      * NEW-41 (`threads-list.json`, web `rowLead`): each listed root's PR
@@ -175,7 +187,7 @@ class ThreadsViewModel @Inject constructor(
         g.flatMap { it.rows }.mapNotNull { row ->
             threadRowPrLead(byRoot[row.sessionId].orEmpty().map { it.state })?.let { row.sessionId to it }
         }.toMap()
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /**
      * The phone home's Running band (`composer-home.json`: phones keep their
@@ -191,7 +203,7 @@ class ThreadsViewModel @Inject constructor(
                 .flatMap { it.rows }
                 .filter { owner[it.sessionId] == me }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val agentDefinitions = dbFlow.scopedQuery(emptyList()) { it.agentDefinitionDao().observeAll() }
         .map { rows -> rows.map(SessionTree::agentDefinition) }
@@ -200,13 +212,13 @@ class ThreadsViewModel @Inject constructor(
      *  busy / needs-you off the viewer's own conversation session. */
     val agents: StateFlow<List<SessionTree.AgentRow>> = combine(agentDefinitions, sessions, auth.userId, activeTeam) { defs, s, me, team ->
         SessionTree.listAgents(defs, s, teamId = team, me = me)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** chats.json `agentBubbles`: the header's bubbles (ring = needs you /
      *  unread), the active team's agents in list order. */
     val bubbles: StateFlow<List<Chats.AgentBubble>> = combine(agents, inputs, auth.userId) { rows, input, me ->
         Chats.agentBubbles(rows, input.sessions, input.messages, input.reads, me)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _filter = MutableStateFlow(Chats.ChatFilter.All)
     /** The selected filter chip. */
@@ -260,7 +272,7 @@ class ThreadsViewModel @Inject constructor(
             // #EXP-1399 review: an ask mirror of a session I cannot see shows no text.
             visible = input.sessions.mapTo(HashSet()) { it.id },
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Chats.ChatList(emptyList(), Chats.ChatCounts(0, 0, 0)))
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Chats.ChatList(emptyList(), Chats.ChatCounts(0, 0, 0)))
 
     /** S-3 (chats.json `agentChatRows`): the AGENT rows pinned on top of the
      *  list, [agents] order (the viewer's Assistant first), under the chip;
@@ -282,7 +294,7 @@ class ThreadsViewModel @Inject constructor(
             now = SessionTree.nowIso(now),
             utcOffsetMinutes = Chats.deviceUtcOffsetMinutes(now),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** What a chat row's menu needs per root: its status, whether the
      *  viewer may steer it (shared, or the starter) and whether the viewer
@@ -298,7 +310,7 @@ class ThreadsViewModel @Inject constructor(
                 mine = me != null && row.userId == me,
             )
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** The viewer owns the active team (the agent menu's Agent settings). */
     val isOwner: StateFlow<Boolean> = combine(activeTeam, auth.userId) { team, me -> team to me }
@@ -391,7 +403,7 @@ class ThreadsViewModel @Inject constructor(
     /** NEW-2: the viewer's conversation session per agent id (a row opens it). */
     val conversations: StateFlow<Map<String, String>> = combine(sessions, auth.userId) { s, me ->
         SessionTree.conversations(s, me)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** The member teams, name order — the per-team bands. */
     val teams: StateFlow<List<TeamEntity>> = dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() }
@@ -400,12 +412,12 @@ class ThreadsViewModel @Inject constructor(
     /** EXP-1327: whether ANY thread runs (the tab's green dot, ×4). */
     val anyRunning: StateFlow<Boolean> = groups.map { list ->
         list.any { it.key == SessionTree.ThreadsGroupKey.Running && it.rows.isNotEmpty() }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** Whether ANY thread needs a person (the tab's amber dot). */
     val needsYou: StateFlow<Boolean> = groups.map { list ->
         list.any { it.key == SessionTree.ThreadsGroupKey.NeedsYou && it.rows.isNotEmpty() }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 }
 
 /** The thing every chat menu call names (`Couldn't stop the chat`). */

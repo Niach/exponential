@@ -353,6 +353,9 @@ describe(`coverage — Android`, () => {
     `io.github.takahirom.roborazzi:roborazzi`,
     `io.github.takahirom.roborazzi:roborazzi-compose`,
     `io.github.takahirom.roborazzi:roborazzi-junit-rule`,
+    // EXP-1521/1522: the `:macrobenchmark` test module (never in the app).
+    `androidx.benchmark:benchmark-macro-junit4`,
+    `androidx.test.uiautomator:uiautomator`,
   ]
 
   it(`every runtime library in the version catalogue is attributed`, () => {
