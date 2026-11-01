@@ -94,6 +94,7 @@ import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authentic
 import { Route as AuthenticatedAdminTeamsRouteImport } from './routes/_authenticated/admin/teams'
 import { Route as AuthenticatedAdminPerformanceRouteImport } from './routes/_authenticated/admin/performance'
 import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authenticated/admin/email'
+import { Route as AuthenticatedAdminConnectionsRouteImport } from './routes/_authenticated/admin/connections'
 import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
 import { Route as TTeamSlugThreadsIndexRouteImport } from './routes/t/$teamSlug/threads/index'
@@ -583,6 +584,12 @@ const AuthenticatedAdminEmailRoute = AuthenticatedAdminEmailRouteImport.update({
   path: '/email',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
+const AuthenticatedAdminConnectionsRoute =
+  AuthenticatedAdminConnectionsRouteImport.update({
+    id: '/connections',
+    path: '/connections',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
+  } as any)
 const AuthenticatedAdminConversionsRoute =
   AuthenticatedAdminConversionsRouteImport.update({
     id: '/conversions',
@@ -909,6 +916,7 @@ export interface FileRoutesByFullPath {
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
+  '/admin/connections': typeof AuthenticatedAdminConnectionsRoute
   '/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/admin/email': typeof AuthenticatedAdminEmailRoute
   '/admin/performance': typeof AuthenticatedAdminPerformanceRoute
@@ -1044,6 +1052,7 @@ export interface FileRoutesByTo {
   '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
+  '/admin/connections': typeof AuthenticatedAdminConnectionsRoute
   '/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/admin/email': typeof AuthenticatedAdminEmailRoute
   '/admin/performance': typeof AuthenticatedAdminPerformanceRoute
@@ -1184,6 +1193,7 @@ export interface FileRoutesById {
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
+  '/_authenticated/admin/connections': typeof AuthenticatedAdminConnectionsRoute
   '/_authenticated/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/_authenticated/admin/email': typeof AuthenticatedAdminEmailRoute
   '/_authenticated/admin/performance': typeof AuthenticatedAdminPerformanceRoute
@@ -1324,6 +1334,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/support/$token'
     | '/t/$teamSlug/settings'
+    | '/admin/connections'
     | '/admin/conversions'
     | '/admin/email'
     | '/admin/performance'
@@ -1459,6 +1470,7 @@ export interface FileRouteTypes {
     | '/integrations/github'
     | '/invite/$token'
     | '/support/$token'
+    | '/admin/connections'
     | '/admin/conversions'
     | '/admin/email'
     | '/admin/performance'
@@ -1598,6 +1610,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/support/$token'
     | '/t/$teamSlug/settings'
+    | '/_authenticated/admin/connections'
     | '/_authenticated/admin/conversions'
     | '/_authenticated/admin/email'
     | '/_authenticated/admin/performance'
@@ -2387,6 +2400,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminEmailRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/_authenticated/admin/connections': {
+      id: '/_authenticated/admin/connections'
+      path: '/connections'
+      fullPath: '/admin/connections'
+      preLoaderRoute: typeof AuthenticatedAdminConnectionsRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
     '/_authenticated/admin/conversions': {
       id: '/_authenticated/admin/conversions'
       path: '/conversions'
@@ -2755,6 +2775,7 @@ declare module '@tanstack/react-router' {
 }
 
 interface AuthenticatedAdminRouteRouteChildren {
+  AuthenticatedAdminConnectionsRoute: typeof AuthenticatedAdminConnectionsRoute
   AuthenticatedAdminConversionsRoute: typeof AuthenticatedAdminConversionsRoute
   AuthenticatedAdminEmailRoute: typeof AuthenticatedAdminEmailRoute
   AuthenticatedAdminPerformanceRoute: typeof AuthenticatedAdminPerformanceRoute
@@ -2767,6 +2788,7 @@ interface AuthenticatedAdminRouteRouteChildren {
 
 const AuthenticatedAdminRouteRouteChildren: AuthenticatedAdminRouteRouteChildren =
   {
+    AuthenticatedAdminConnectionsRoute: AuthenticatedAdminConnectionsRoute,
     AuthenticatedAdminConversionsRoute: AuthenticatedAdminConversionsRoute,
     AuthenticatedAdminEmailRoute: AuthenticatedAdminEmailRoute,
     AuthenticatedAdminPerformanceRoute: AuthenticatedAdminPerformanceRoute,

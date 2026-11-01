@@ -3263,6 +3263,40 @@ export const conversionEvents = pgTable(
   ]
 )
 
+// EXP-1530: P2P connection analytics (SERVER-ONLY, admin console; never
+// synced, no shape proxy). One row per accepted eCore envelope posted to
+// `connStats.record` (fixtures/steer-enet.json `connStats`). Privacy-safe by
+// construction: NO user, team, session or device column. `id` = the client's
+// envelope id (ON CONFLICT DO NOTHING makes a retried flush idempotent).
+// Rows older than `connStats.retentionDays` are deleted by the periodic sweep
+// (lib/steer-conn-stats.ts).
+export const steerConnectionEvents = pgTable(
+  `steer_connection_events`,
+  {
+    id: varchar({ length: 64 }).primaryKey(),
+    // The client's clock (envelope `at`); bucketing uses received_at.
+    at: timestamp({ withTimezone: true }).notNull(),
+    receivedAt: timestamp(`received_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    kind: varchar({ length: 32 }).notNull(),
+    phase: varchar({ length: 16 }).notNull(),
+    platform: varchar({ length: 16 }).notNull(),
+    version: varchar({ length: 64 }).notNull(),
+    outcome: varchar({ length: 16 }).notNull(),
+    path: varchar({ length: 32 }),
+    firstFrameMs: integer(`first_frame_ms`),
+    errorClass: varchar(`error_class`, { length: 32 }),
+    fallbacks: integer(),
+    reconnects: integer(),
+    durationMs: integer(`duration_ms`),
+    failures: jsonb().$type<Record<string, number>>(),
+  },
+  (table) => [
+    index(`idx_steer_connection_events_received`).on(table.receivedAt),
+  ]
+)
+
 // EXP-759: durable per-user client-platform ledger (SERVER-ONLY, admin
 // console; never synced — no shape proxy). Touched by lib/auth/resolve-bearer.ts
 // on every authenticated API request (in-process throttled): natives identify
@@ -3877,6 +3911,9 @@ export type UserNotificationPrefs = InferSelectModel<
 >
 export type EmailDelivery = InferSelectModel<typeof emailDeliveries>
 export type ConversionEvent = InferSelectModel<typeof conversionEvents>
+export type SteerConnectionEventRow = InferSelectModel<
+  typeof steerConnectionEvents
+>
 export type UserClientPlatformRow = InferSelectModel<typeof userClientPlatforms>
 export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
 export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>
