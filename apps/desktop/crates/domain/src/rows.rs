@@ -1455,6 +1455,11 @@ impl DeviceRow {
         Self::string_list(&self.unauthed_agents)
     }
 
+    /// Whether the machine advertises `cap` (a NULL column advertises none).
+    pub fn has_cap(&self, cap: &str) -> bool {
+        Self::string_list(&self.caps).iter().any(|item| item == cap)
+    }
+
     /// EXP-749: the machine's ACP-ready agents. A NULL/unparseable column
     /// folds to EMPTY: every build a client can reach advertises the list, so
     /// silence is "nothing here speaks ACP", not a licence to assume.

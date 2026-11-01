@@ -1312,6 +1312,7 @@ impl ChatScreenView {
                     settings: device.defaults.clone(),
                     accounts,
                     usage,
+                    computer_use_run: device.computer_use_run,
                 }
             });
         let Some(launch) = self.launch.as_mut() else {

@@ -640,6 +640,9 @@ pub(crate) struct RemoteDefaults {
     /// preview draws its bars off it (the active login's numbers ride here
     /// when its profile row carries none).
     pub(crate) usage: coding::agent_usage::AgentUsageMap,
+    /// composer-menu.json `conditions.computerUse`: the machine advertises
+    /// `computer-use-run`; without it the "+" menu has no Computer use row.
+    pub(crate) computer_use_run: bool,
 }
 
 /// The launch cluster's own state: which agent runs, its
@@ -1035,7 +1038,11 @@ impl LaunchOptionsSection {
             ultracode: self.agent.supports_ultracode().then_some(self.ultracode),
             mcp_servers,
             mcp_selected,
-            computer_use: Some(computer_use_shown(self.computer_use, self.computer_use_default(cx))),
+            computer_use: self
+                .remote
+                .as_ref()
+                .is_none_or(|remote| remote.computer_use_run)
+                .then(|| computer_use_shown(self.computer_use, self.computer_use_default(cx))),
         }
     }
 
