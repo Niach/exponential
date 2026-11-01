@@ -14,7 +14,7 @@
  */
 import { and, eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { sessions, teams } from "@/db/schema"
+import { conversations, messages, sessions, teams } from "@/db/schema"
 import { DEMO_SESSION_ID, DEMO_THREAD_IDS, TEAM_SLUG } from "../screenshot-demo"
 
 export interface LiveSessionSpec {
@@ -80,6 +80,63 @@ export async function assertDemoLiveSessions(now: number = Date.now()): Promise<
   }
 
   return written
+}
+
+// ── #EXP-1538 benches: a queued message on "Profile the launch path" ───────
+// The Dock benches (Android `reopenSessionDock` / `coldOpenSessionDock`, web
+// `dock:open-to-visible`) time open → the first Dock card. Since S-3 a
+// waiting plan or question is a story, not a Dock card, so the seeded session
+// holds none of its own; THE Queue rides the relay stream. A person's queued
+// message is a synced Dock source (dock.json LOCAL FIRST: it never waits on
+// the stream), so `SCREENSHOT_FEED_QUEUED=1` keeps one unconsumed message on
+// the session for the benches. Without the flag the row goes (captures show
+// no queue: the seed delivers every person's message).
+
+/** The bench's queued message (a fixed id, so the stub re-asserts one row). */
+export const DEMO_BENCH_QUEUED_ID = `b3e1c0de-5a7e-4d1b-9c38-2f6a1e0d4b77`
+export const DEMO_BENCH_QUEUED_TEXT = `Also re-measure on the Galaxy A54 once the PR is up`
+
+export function demoBenchQueued(): boolean {
+  return process.env.SCREENSHOT_FEED_QUEUED === `1`
+}
+
+/** Write (flag on) or remove (off) the bench's queued message. */
+export async function assertDemoBenchQueue(on: boolean = demoBenchQueued(), now: number = Date.now()): Promise<void> {
+  if (!on) {
+    await db.delete(messages).where(eq(messages.id, DEMO_BENCH_QUEUED_ID))
+    return
+  }
+  const [row] = await db
+    .select({
+      teamId: sessions.teamId,
+      rootId: sessions.rootId,
+      shared: sessions.shared,
+      userId: sessions.userId,
+      conversationId: conversations.id,
+    })
+    .from(sessions)
+    .innerJoin(conversations, eq(conversations.sessionId, sessions.id))
+    .where(eq(sessions.id, DEMO_SESSION_ID))
+    .limit(1)
+  if (!row) return
+  const at = new Date(now)
+  await db
+    .insert(messages)
+    .values({
+      id: DEMO_BENCH_QUEUED_ID,
+      conversationId: row.conversationId,
+      rootId: row.rootId,
+      teamId: row.teamId,
+      shared: row.shared,
+      ownerId: row.userId,
+      authorKind: `user`,
+      authorId: row.userId,
+      body: DEMO_BENCH_QUEUED_TEXT,
+      consumedAt: null,
+      createdAt: at,
+      updatedAt: at,
+    })
+    .onConflictDoUpdate({ target: messages.id, set: { consumedAt: null, updatedAt: at } })
 }
 
 // ── EXP-1324: the Trace + Queue tail of "Profile the launch path" ──────────
