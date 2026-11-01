@@ -77,12 +77,14 @@ impl PlanCardCopy {
     }
 }
 
-/// The styleguide entry's three captions ×4.
+/// The styleguide entry's captions ×4.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct PlanCardSpecimenCopy {
     pub pending: String,
     pub answered: String,
     pub approved: String,
+    /// #EXP-1561: a dismissed question and plan.
+    pub dismissed: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -174,6 +176,10 @@ pub struct PlanCardAnswerText {
     pub surface_data: String,
     pub question: String,
     pub joiner: String,
+    /// #EXP-1561: a dismissed question (`{question}`).
+    pub dismissed_question: String,
+    /// #EXP-1561: a dismissed plan.
+    pub dismissed_plan: String,
 }
 
 /// `fixtures/plan-card.json` minus its cases.
@@ -440,6 +446,14 @@ pub fn answer_text(card: &Value) -> String {
     let t = &PLAN_CARD.answer_text;
     let mut parts: Vec<String> = Vec::new();
     let is_plan = str_field(card, "kind") == Some("plan");
+    // #EXP-1561: a dismissed card answers only that it was dismissed.
+    if is_dismissed(card) {
+        return if is_plan {
+            t.dismissed_plan.clone()
+        } else {
+            t.dismissed_question.replace("{question}", str_field(card, "question").unwrap_or_default())
+        };
+    }
     if is_plan {
         if str_field(card, "decision") == Some("approved") {
             if card.get("fresh").and_then(Value::as_bool) == Some(true) {
@@ -488,6 +502,13 @@ pub fn answer_text(card: &Value) -> String {
         }
     }
     parts.join("\n\n")
+}
+
+/// #EXP-1561: a person dismissed the card (`dismissed: true`, or a plan's
+/// decision `dismissed`).
+pub fn is_dismissed(card: &Value) -> bool {
+    card.get("dismissed").and_then(Value::as_bool) == Some(true)
+        || (str_field(card, "kind") == Some("plan") && str_field(card, "decision") == Some("dismissed"))
 }
 
 /// JSON with object keys sorted at every depth, compact (one byte sequence

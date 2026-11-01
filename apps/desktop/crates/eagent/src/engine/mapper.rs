@@ -421,6 +421,9 @@ struct PermissionAsk {
     /// (option key, label) in published order — the answer's labels come
     /// from here so `question_resolved` reads like the card did.
     options: Vec<(String, String)>,
+    /// #EXP-1561: the option a DISMISSED card picks (the first
+    /// `reject_once`, else `reject_always`); `None` = the ask has no reject.
+    reject: Option<String>,
     answered: bool,
 }
 
@@ -1075,6 +1078,7 @@ impl Mapper {
                     .iter()
                     .map(|option| (option.key.clone(), option.label.clone()))
                     .collect(),
+                reject: reject_option(&request.options),
                 answered: false,
             },
         );
@@ -1826,6 +1830,12 @@ impl Mapper {
     /// anything else is the step's typed answer. `None` when nothing is open under `question_id` or the card
     /// says nothing the ask can take.
     pub fn card_answer(&self, question_id: &str, card: &Value) -> Option<CardAnswer> {
+        // #EXP-1561: a person DISMISSED the card (waiting-cards.json): the
+        // ask is declined so the agent never waits on it — a permission
+        // picks its reject option, an elicitation step takes the dismissed
+        // line as its typed answer (one with no free text is declined
+        // whole: [`Self::card_declines`]).
+        let dismissed = card_dismissed(card);
         let text = |key: &str| {
             card.get(key)
                 .and_then(Value::as_str)
@@ -1860,6 +1870,10 @@ impl Mapper {
         match self.questions.get(question_id)? {
             AskRef::Permission(id) => {
                 let ask = self.permissions.get(id)?;
+                if dismissed {
+                    let key = ask.reject.clone()?;
+                    return Some(CardAnswer { answer: remote(None, vec![key], None) });
+                }
                 let answer = match &answers {
                     Some(labels) => labels[0].clone(),
                     None => text("answer")?,
@@ -1878,6 +1892,15 @@ impl Mapper {
                 let ask = self.elicitations.get(ask_id)?;
                 let step = elicit_step_index(ask_id, question_id)
                     .and_then(|index| ask.steps.get(index))?;
+                if dismissed {
+                    if !step.options.iter().any(|option| option.free_text) {
+                        return None;
+                    }
+                    let typed = dismissed_question_answer(card);
+                    return Some(CardAnswer {
+                        answer: remote(Some(ask_id.clone()), vec![FREE_TEXT_KEY.to_string()], Some(typed)),
+                    });
+                }
                 let (answer, labels) = match answers {
                     Some(labels) => (labels.join(", "), Some(labels)),
                     None => (text("answer")?, None),
@@ -1919,6 +1942,22 @@ impl Mapper {
                 Some(CardAnswer { answer: remote(Some(ask_id.clone()), keys, typed) })
             }
         }
+    }
+
+    /// #EXP-1561: the elicitation a DISMISSED card declines whole (its step
+    /// takes no free text, so the dismissed line cannot be typed): the ask
+    /// id to withdraw ([`Self::withdraw_ask`]) and answer `Cancelled`.
+    /// `None` for any other card ([`Self::card_answer`] answers those).
+    pub fn card_declines(&self, question_id: &str, card: &Value) -> Option<String> {
+        if !card_dismissed(card) {
+            return None;
+        }
+        let AskRef::Elicitation(ask_id) = self.questions.get(question_id)? else {
+            return None;
+        };
+        let ask = self.elicitations.get(ask_id).filter(|ask| !ask.answered)?;
+        let step = elicit_step_index(ask_id, question_id).and_then(|index| ask.steps.get(index))?;
+        (!step.options.iter().any(|option| option.free_text)).then(|| ask_id.clone())
     }
 
     /// EXP-1292: the stepper `question_id` belongs to now waits only for its
@@ -3982,6 +4021,33 @@ fn is_user_question(options: &[PermissionOption]) -> bool {
                 | PermissionOptionKind::RejectAlways
         )
     })
+}
+
+/// #EXP-1561: the option a dismissed permission picks: the first
+/// `reject_once`, else the first `reject_always` (its key as published).
+fn reject_option(options: &[PermissionOption]) -> Option<String> {
+    [PermissionOptionKind::RejectOnce, PermissionOptionKind::RejectAlways]
+        .iter()
+        .find_map(|kind| options.iter().find(|option| option.kind == *kind))
+        .map(|option| wire::activity::truncate(&option.option_id.0, ID_MAX))
+}
+
+/// #EXP-1561: a person dismissed the card (`dismissed: true`, or a plan's
+/// decision `dismissed`; waiting-cards.json).
+fn card_dismissed(card: &Value) -> bool {
+    card.get("dismissed").and_then(Value::as_bool) == Some(true)
+        || card.get("decision").and_then(Value::as_str) == Some("dismissed")
+}
+
+/// #EXP-1561: `plan-card.json` `answerText.dismissedQuestion` (inlined:
+/// eAgent depends on no app crate; pinned to the fixture in the tests).
+const DISMISSED_QUESTION_ANSWER: &str =
+    "Dismissed: \"{question}\" no longer needs an answer. Don't wait for it; carry on.";
+
+/// The line a dismissed engine ask's step takes as its typed answer.
+fn dismissed_question_answer(card: &Value) -> String {
+    let question = card.get("question").and_then(Value::as_str).unwrap_or_default();
+    DISMISSED_QUESTION_ANSWER.replace("{question}", question)
 }
 
 /// Permission options in the order the four clients read best: allow first,
@@ -7095,6 +7161,72 @@ mod conversation_tests {
             .card_answer("tc-perm", &json!({"kind": "question", "answers": [], "answer": "Yes"}))
             .expect("an empty `answers` falls back to `answer`");
         assert_eq!(empty.answer.keys, vec!["allow".to_string()]);
+    }
+
+    /// #EXP-1561: a DISMISSED card declines the engine's ask: a permission
+    /// picks its reject option whatever the card says, an elicitation step
+    /// with free text types the dismissed line, one without is declined
+    /// whole ([`Mapper::card_declines`]).
+    #[test]
+    fn a_dismissed_card_declines_the_engine_ask() {
+        let mut mapper = live();
+        let mut out = MapOut::default();
+        mapper.on_permission(&permission("tc-perm", None, None), &mut out);
+        let card = json!({"kind": "question", "question": "Write src/main.rs", "dismissed": true});
+        let mapped = mapper.card_answer("tc-perm", &card).expect("the reject option");
+        assert_eq!(mapped.answer.keys, vec!["reject".to_string()]);
+        assert_eq!(mapped.answer.text, None);
+        assert_eq!(mapper.card_declines("tc-perm", &card), None, "a permission is answered, not withdrawn");
+
+        let request = CreateElicitationRequest::new(
+            ElicitationFormMode::new(
+                ElicitationSessionScope::new(SessionId::new("acp-1")),
+                ElicitationSchema::new()
+                    .property(
+                        "approach",
+                        ElicitationPropertySchema::String(
+                            StringPropertySchema::new()
+                                .title("Which approach?")
+                                .enum_values(vec!["rewrite".into(), "patch".into()]),
+                        ),
+                        false,
+                    )
+                    .property(
+                        "why",
+                        ElicitationPropertySchema::String(StringPropertySchema::new().title("Why?")),
+                        false,
+                    ),
+            ),
+            "Two questions",
+        );
+        mapper.on_elicitation("ask-1", &request, &mut out);
+        let choice = json!({"kind": "question", "question": "Which approach?", "dismissed": true});
+        assert!(mapper.card_answer("ask-1#0", &choice).is_none(), "no free text to type it in");
+        assert_eq!(mapper.card_declines("ask-1#0", &choice).as_deref(), Some("ask-1"));
+        assert_eq!(mapper.card_declines("ask-1#0", &json!({"kind": "question", "answer": "patch"})), None);
+
+        // A step with free text takes the dismissed line as its answer.
+        let first = mapper.card_answer("ask-1#0", &json!({"answer": "patch"})).unwrap();
+        let key = mapper.ask_key(&first.answer);
+        mapper.on_answer(&key, &first.answer, &mut MapOut::default());
+        let why = json!({"kind": "question", "question": "Why?", "dismissed": true});
+        let typed = mapper.card_answer("ask-1#1", &why).expect("free text");
+        assert_eq!(typed.answer.keys, vec![FREE_TEXT_KEY.to_string()]);
+        assert_eq!(
+            typed.answer.text.as_deref(),
+            Some("Dismissed: \"Why?\" no longer needs an answer. Don't wait for it; carry on.")
+        );
+        assert_eq!(mapper.card_declines("ask-1#1", &why), None);
+    }
+
+    /// #EXP-1561: the inlined dismissed line IS plan-card.json's.
+    #[test]
+    fn the_dismissed_answer_matches_the_fixture() {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../../../packages/domain-contract/fixtures/plan-card.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["answerText"]["dismissedQuestion"], DISMISSED_QUESTION_ANSWER);
     }
 
     /// Release train 2026-10-23 (compat cleanup round 37, C1): a multi-select

@@ -212,6 +212,9 @@ fn strip_spec(case: &Case, tabs: Vec<ThreadTab>, open: StripPick, prefix: &'stat
         on_pick: std::rc::Rc::new(|_, _, _| {}),
         // The web specimen's: Stories pinned right, its dot on.
         stories: Some(true),
+        // #EXP-1562: the case's WAITING cards as the strip's chips.
+        waiting: crate::waiting_cards::thread_waiting_cards(&case.view.rows),
+        on_waiting: Some(std::rc::Rc::new(|_, _, _| {})),
     }
 }
 

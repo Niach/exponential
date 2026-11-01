@@ -106,6 +106,8 @@ pub struct StoryTabCopy {
     pub superseded: String,
     pub changes: String,
     pub stack: String,
+    /// #EXP-1561: a dismissed question or plan.
+    pub dismissed: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -395,6 +397,7 @@ enum StoryResolution {
     Changed,
     Answered,
     Superseded,
+    Dismissed,
 }
 
 impl StoryResolution {
@@ -404,6 +407,7 @@ impl StoryResolution {
             StoryResolution::Changed => &STORIES.tab.copy.changed,
             StoryResolution::Answered => &STORIES.tab.copy.answered,
             StoryResolution::Superseded => &STORIES.tab.copy.superseded,
+            StoryResolution::Dismissed => &STORIES.tab.copy.dismissed,
         }
     }
 }
@@ -445,6 +449,10 @@ fn story_of<'a>(
     let resolution = match kind {
         _ if waiting => None,
         StoryKind::Result => None,
+        // #EXP-1561: a dismissed card names that outcome first.
+        _ if crate::plan_card::is_dismissed(card) || s(card, "decision").as_deref() == Some("dismissed") => {
+            Some(StoryResolution::Dismissed)
+        }
         StoryKind::Question => Some(StoryResolution::Answered),
         StoryKind::Plan => Some(match card.get("decision").and_then(Value::as_str) {
             Some("approved") => StoryResolution::Approved,
