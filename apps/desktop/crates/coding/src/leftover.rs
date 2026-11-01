@@ -606,7 +606,7 @@ mod tests {
         let mut perms = fs::metadata(long_path(&file)).unwrap().permissions();
         perms.set_readonly(true);
         fs::set_permissions(long_path(&file), perms).unwrap();
-        remove_worktree(&clone, &worktree, "git worktree remove (exp/A-1)").unwrap();
+        remove_worktree(&clone, &worktree, "git worktree remove (exp/A-1)", &verified(&worktree, true)).unwrap();
         assert!(!long_path(&worktree).exists(), "{}", worktree.display());
         let listed = git(&clone, &["worktree", "list", "--porcelain"]);
         assert!(!listed.contains("exp-A-1"), "{listed}");
