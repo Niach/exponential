@@ -1,0 +1,12 @@
+{
+  "$comment": "EXP-1604: Motion cases the web Canvas2D painter paints under 99 % of pixels within 2/255 of the raster reference (conformance/motion-parity.ts, headless Chromium). Every difference sits on anti-aliased edges (Skia's analytic coverage vs tiny-skia's 4x supersampling; dashes add the two engines' arc-length approximations) or, for the image, bilinear sampling half an output pixel out of phase with tiny-skia. `floor` = the share the case must keep (measured minus ~0.5 %). This list may only shrink.",
+  "gaps": {
+    "radial-gradient-highlight@0": { "floor": 0.97, "measured": 0.9739 },
+    "solid-and-image@0": { "floor": 0.965, "measured": 0.97 },
+    "star-polygon@0": { "floor": 0.975, "measured": 0.9829 },
+    "stroke-caps-joins@0": { "floor": 0.975, "measured": 0.9798 },
+    "stroke-dashes@0": { "floor": 0.965, "measured": 0.9721 },
+    "stroke-dashes@10": { "floor": 0.965, "measured": 0.9721 },
+    "trim-path@10": { "floor": 0.98, "measured": 0.9884 }
+  }
+}

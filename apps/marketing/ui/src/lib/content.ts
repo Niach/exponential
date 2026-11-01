@@ -158,6 +158,7 @@ export const GUIDE_CHECK: Record<string, string> = {
   apps: `react`,
   agents: `agent`,
   define: `define`,
+  motion: `react`,
   security: `react`,
 }
 

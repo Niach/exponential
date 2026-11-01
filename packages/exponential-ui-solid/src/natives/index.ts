@@ -1,5 +1,5 @@
 // FEED-128: the native component map (React's natives/index.ts): every
-// `kind: native` of the core catalog, the SAME 52 keys in React's order
+// `kind: native` of the core catalog, the SAME 53 keys in React's order
 // (`owners.ts` NATIVE_ORDER). Each natives file exports its own record;
 // a native no file paints yet is painted by `Pending` (natives.test.ts
 // gates the map against the catalog and the owners table).
@@ -20,6 +20,7 @@ import { NATIVES_DATES } from "./dates"
 import { NATIVES_FEEDBACK } from "./feedback"
 import { NATIVES_INPUTS } from "./inputs"
 import { NATIVES_MEDIA } from "./media"
+import { NATIVES_MOTION } from "./motion"
 import { NATIVES_NAV } from "./nav"
 import { NATIVES_OVERLAYS } from "./overlays"
 import { NATIVES_QR } from "./qr"
@@ -46,6 +47,7 @@ const PROVIDED: Record<string, Component<NativeProps>> = {
   ...NATIVES_FEEDBACK,
   ...NATIVES_INPUTS,
   ...NATIVES_MEDIA,
+  ...NATIVES_MOTION,
   ...NATIVES_NAV,
   ...NATIVES_OVERLAYS,
   ...NATIVES_QR,

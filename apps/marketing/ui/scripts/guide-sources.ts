@@ -23,7 +23,9 @@ function walk(dir: string, out: string[]): void {
 
 const files: string[] = []
 if (existsSync(GUIDES)) walk(GUIDES, files)
-const entries = files.map((f) => [relative(GUIDES, f), readFileSync(f, `utf8`)] as const)
+const entries: [string, string][] = files.map((f) => [relative(GUIDES, f), readFileSync(f, `utf8`)])
+// EXP-1604: the Motion dialect guide (the one models get) for the Motion guide page.
+entries.push([`eui:eval/motion/guide.md`, readFileSync(resolve(ROOT, `../../../packages/exponential-ui/eval/motion/guide.md`), `utf8`)])
 mkdirSync(join(ROOT, `src/generated`), { recursive: true })
 writeFileSync(
   OUT,
