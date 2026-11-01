@@ -1,6 +1,7 @@
 package com.exponential.app.ui.agent
 
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.ui.components.ComposerDraftSync
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.threads.ThreadsViewModel
 import com.exponential.app.ui.threads.ThreadListRow
@@ -372,16 +373,12 @@ fun AgentScreen(
     // string lives in the ViewModel (it has to survive the page), the caret
     // here, and the candidate rows mount as a sibling UNDER the card so a pick
     // splices against this very value.
-    var composerField by remember { mutableStateOf(TextFieldValue(draft, TextRange(draft.length))) }
+    // EXP-1520: local while typing, the draft adopted only on an outside
+    // rewrite (ComposerDraftSync), never the echo of its own keystrokes.
+    val draftSync = remember(viewModel) { ComposerDraftSync(viewModel.draft) }
+    var composerField by draftSync
     var composerArmed by remember { mutableStateOf(false) }
-    LaunchedEffect(draft) {
-        if (composerField.text != draft) {
-            val start = composerField.selection.start.coerceIn(0, draft.length)
-            val end = composerField.selection.end.coerceIn(0, draft.length)
-            composerField = TextFieldValue(draft, TextRange(start, end))
-            composerArmed = false
-        }
-    }
+    LaunchedEffect(draftSync) { draftSync.follow { composerArmed = false } }
     // NEW-2: the `/` menu of the launch composer = the team's prompts alone
     // (no session yet, so no builtins), the web `promptSlashName` prefix rule.
     val slashPrompts = remember(draft, actionsState) {
