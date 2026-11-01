@@ -109,6 +109,9 @@ class SealedWriter @Inject constructor(
      */
     suspend fun prepareAnswer(accountId: String, input: AnswerInput): AnswerInput = withContext(Dispatchers.IO) {
         val db = dbs.database(accountId)
+        // #EXP-1561: a dismiss carries no answer; the server stamps the clear
+        // fields beside a sealed card's envelope.
+        if (input.dismissed == true) return@withContext input
         val row = db.messageDao().getById(input.messageId) ?: return@withContext input
         val raw = row.card?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
         if (!SealedContent.isSealedCard(raw)) return@withContext input

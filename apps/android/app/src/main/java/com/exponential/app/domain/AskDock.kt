@@ -19,6 +19,8 @@ object AskDock {
         const val CANCEL = "Cancel"
         /** FEED-140: a waiting plan the agent replaced with a newer one. */
         const val SUPERSEDED = "Replaced by a newer plan"
+        /** #EXP-1561: a card a person dismissed (waiting-cards.json). */
+        const val DISMISSED = "Dismissed"
     }
 
     /** Icon CONCEPT names (icons.json). */
@@ -63,10 +65,15 @@ object AskDock {
     /** FEED-140: the decision of a plan a newer `plan` call replaced. */
     const val DECISION_SUPERSEDED = "superseded"
 
+    /** #EXP-1561: the decision of a plan a person dismissed (waiting-cards.json). */
+    const val DECISION_DISMISSED = "dismissed"
+
     /** The option a decided plan card names as its answer. */
     fun planDecisionLabel(decision: String, fresh: Boolean): String {
         // FEED-140: a plan the agent replaced with a newer one.
         if (decision == DECISION_SUPERSEDED) return Copy.SUPERSEDED
+        // #EXP-1561: a person dismissed it.
+        if (decision == DECISION_DISMISSED) return Copy.DISMISSED
         val wantsFresh = decision == "approved" && fresh
         return PLAN_OPTIONS.firstOrNull { it.decision == decision && it.fresh == wantsFresh }?.label ?: ""
     }

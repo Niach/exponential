@@ -34,6 +34,8 @@ object PlanCard {
         const val SPECIMEN_PENDING = "A plan waiting on you: pictures, a surface, two questions"
         const val SPECIMEN_ANSWERED = "A question answered with several picks"
         const val SPECIMEN_APPROVED = "An approved plan"
+        /** #EXP-1561: the dismissed question and plan lines. */
+        const val SPECIMEN_DISMISSED = "A question and a plan dismissed"
         const val ISSUE_DECISION = "Pick a decision"
         const val ISSUE_MISSING = "Answer every question to approve"
         const val ISSUE_MULTI = "This question takes one answer"

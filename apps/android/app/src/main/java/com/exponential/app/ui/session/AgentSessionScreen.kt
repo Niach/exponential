@@ -28,6 +28,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
@@ -49,6 +50,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -907,6 +909,10 @@ private fun RunFaceContent(
             settled,
         )
     }
+    // #EXP-1561 (waiting-cards.json DISMISS): THE answer path, dismissed alone.
+    val dismissToolCard: (String, (Boolean) -> Unit) -> Unit = { messageId, settled ->
+        viewModel.answerCard(AnswerInput.dismiss(messageId), "card", settled)
+    }
     // EXP-1398 (ask-dock.json `anchorCases`): EVERY session card draws inline
     // after the call that posted it (the rest at the head); a waiting one
     // ALSO sits in the Dock (FEED-140).
@@ -1116,7 +1122,11 @@ private fun RunFaceContent(
                                 animate = false,
                                 onReply = { text -> viewModel.sendCommand(text) },
                             )
-                            else -> ThreadAskCard(row, answerToolCard, decideToolPlan)
+                            else -> androidx.compose.runtime.CompositionLocalProvider(
+                                LocalCardDismiss provides dismissToolCard,
+                            ) {
+                                ThreadAskCard(row, answerToolCard, decideToolPlan)
+                            }
                         }
                     },
                 )
@@ -1750,6 +1760,25 @@ private fun ActivityFeed(
         }
     }
 
+    // #EXP-1562 (waiting-cards.json CHIPS): a waiting chip's pick centres
+    // that card (the main stream only: feed-header · load-earlier · the head
+    // cards · the rows, each row carrying the cards its calls posted).
+    val cardScroll = LocalCardScrollRequest.current
+    LaunchedEffect(cardScroll) {
+        val request = cardScroll ?: return@LaunchedEffect
+        if (focused != null) return@LaunchedEffect
+        val lead = 1 + (if (canLoadEarlier) 1 else 0)
+        val head = sessionCards.head.indexOfFirst { it.id == request.id }
+        val index = if (head >= 0) {
+            lead + head
+        } else {
+            val at = rows.indexOfFirst { row -> sessionCards.after(row).any { it.id == request.id } }
+            if (at < 0) return@LaunchedEffect
+            lead + sessionCards.head.size + at
+        }
+        onFollowChange(false)
+        listState.centreOnItem(index)
+    }
     // EXP-1162: the floating bottom band grew or shrank (a banner, the
     // queue, the keyboard's composer) — a follower stays on the true end.
     LaunchedEffect(bottomInset) {
@@ -3380,6 +3409,10 @@ internal fun AskCard(
     heading: String?,
     meta: String?,
     modifier: Modifier = Modifier,
+    /** #EXP-1561 (waiting-cards.json DISMISS): THE × at the top-right. */
+    onDismiss: (() -> Unit)? = null,
+    /** #EXP-1562: a header chip scrolled here: the focus ring, fading out. */
+    highlighted: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     // N-12: inside THE Dock's sheet the header is the sheet's own; the card
@@ -3389,10 +3422,24 @@ internal fun AskCard(
         return
     }
     val tint = if (plan) MaterialTheme.colorScheme.primary else DesignTokens.Semantic.Yellow
+    // #EXP-1562: the 2dp focus ring; lit fast, fading out slow (web 150 / 500 ms).
+    val ringAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (highlighted) 1f else 0f,
+        animationSpec = tween(if (highlighted) 150 else 500),
+        label = "card-highlight",
+    )
+    val ringShape = RoundedCornerShape(GlassTokens.CardRadius)
     Row(
         modifier = modifier
             .fillMaxWidth()
             .glassCard()
+            .then(
+                if (ringAlpha > 0f) {
+                    Modifier.border(2.dp, DesignTokens.Palette.Ring.copy(alpha = ringAlpha), ringShape)
+                } else {
+                    Modifier
+                },
+            )
             .padding(12.dp),
         verticalAlignment = Alignment.Top,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -3450,7 +3497,108 @@ internal fun AskCard(
             // The slot is this card's own: nothing inside inherits it.
             androidx.compose.runtime.CompositionLocalProvider(LocalAskCardTrailing provides null) { content() }
         }
+        if (onDismiss != null) CardDismissButton(onDismiss)
     }
+}
+
+/** #EXP-1561 (waiting-cards.json DISMISS): the card's ONE small ghost ×
+ *  (`icons.dismiss`, `copy.dismiss`, `testIds.dismiss`), the unqueue ×'s size;
+ *  a press dismisses at once. */
+@Composable
+internal fun CardDismissButton(onDismiss: () -> Unit) {
+    Box(
+        modifier = Modifier
+            .offset(x = 4.dp, y = (-4).dp)
+            .size(24.dp)
+            .clip(CircleShape)
+            .clickable(
+                role = Role.Button,
+                onClickLabel = com.exponential.app.domain.WaitingCards.Copy.DISMISS,
+                onClick = onDismiss,
+            )
+            .testTag(com.exponential.app.domain.WaitingCards.TestIds.DISMISS),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            ExpIcons.uiClose,
+            contentDescription = com.exponential.app.domain.WaitingCards.Copy.DISMISS,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            modifier = Modifier.size(12.dp),
+        )
+    }
+}
+
+/** #EXP-1561: a DISMISSED card = ONE quiet muted line in THE card frame
+ *  (`testIds.dismissed`): the kind icon, `copy.dismissed`, the card's title,
+ *  truncated; no body, no ×, no options (the superseded line's look). */
+@Composable
+internal fun DismissedCardLine(plan: Boolean, title: String, modifier: Modifier = Modifier) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    val tint = if (plan) MaterialTheme.colorScheme.primary else DesignTokens.Semantic.Yellow
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .glassCard()
+            .alpha(0.8f)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+            .testTag(com.exponential.app.domain.WaitingCards.TestIds.DISMISSED),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            if (plan) ExpIcons.codingPlan else ExpIcons.uiHelp,
+            contentDescription = null,
+            tint = tint,
+            modifier = Modifier.size(14.dp),
+        )
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                com.exponential.app.domain.WaitingCards.Copy.DISMISSED,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Medium),
+                color = muted,
+                maxLines = 1,
+            )
+            if (title.isNotEmpty()) {
+                Text(
+                    title,
+                    modifier = Modifier.weight(1f, fill = false),
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
+                    color = muted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+/** #EXP-1561: THE dismiss path a host offers its WAITING cards
+ *  (`sessions.answer({messageId, dismissed: true})`); null = no ×. */
+internal val LocalCardDismiss =
+    androidx.compose.runtime.compositionLocalOf<((messageId: String, settled: (Boolean) -> Unit) -> Unit)?> { null }
+
+/** #EXP-1562 (waiting-cards.json CHIPS): the card id a waiting chip scrolled
+ *  to; THE card with that id wears the focus ring (null = none). */
+internal val LocalCardHighlight = androidx.compose.runtime.compositionLocalOf<String?> { null }
+
+/** #EXP-1562: a waiting chip's pick: scroll the conversation to card [id]
+ *  ([nonce] = a fresh pick of the same card scrolls again). */
+data class CardScrollRequest(val id: String, val nonce: Int)
+
+/** #EXP-1562: the pending scroll request the conversation list consumes. */
+internal val LocalCardScrollRequest = androidx.compose.runtime.compositionLocalOf<CardScrollRequest?> { null }
+
+/** #EXP-1562: scroll item [index] to the CENTRE of the list's viewport. */
+internal suspend fun androidx.compose.foundation.lazy.LazyListState.centreOnItem(index: Int) {
+    animateScrollToItem(index)
+    val info = layoutInfo.visibleItemsInfo.firstOrNull { it.index == index } ?: return
+    val viewportCentre = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2
+    val delta = info.offset + info.size / 2 - viewportCentre
+    if (delta != 0) animateScrollBy(delta.toFloat())
 }
 
 // An interactive question (EXP-78): AskUserQuestion step / plan approval. While

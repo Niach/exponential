@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.AskDock
+import com.exponential.app.domain.WaitingCards
 import com.exponential.app.domain.Dock
 import com.exponential.app.ui.components.DockSheetBody
 import com.exponential.app.domain.ClosePr
@@ -427,6 +428,8 @@ fun ThreadScreen(
     val titleCollapse = remember { TitleCollapseState() }
     ProvideMarkdownToolbar {
         CompositionLocalProvider(
+            // #EXP-1561 (waiting-cards.json DISMISS): every waiting card's ×.
+            com.exponential.app.ui.session.LocalCardDismiss provides viewModel::dismissCard,
             LocalDetailHaze provides hazeState,
             LocalTitleCollapse provides titleCollapse,
             LocalIssueRefs provides issueRefHandler,
@@ -777,6 +780,27 @@ fun ThreadContent(
         }
     }
     var composerExpanded by rememberSaveable { mutableStateOf(false) }
+    // #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING cards
+    // (`threadPendingAsks`, Conversation order) as the phones' ONE button; a
+    // pick shows the Conversation, centres that card and rings it for
+    // `constants.highlightMs`.
+    val waitingChips = remember(view?.rows, agent != null) {
+        if (agent != null || view == null) {
+            emptyList()
+        } else {
+            WaitingCards.waitingChips(WaitingCards.inputs(AskDock.threadPendingAsks(view.rows) { null }), phone = true).chips
+        }
+    }
+    var cardScroll by remember { mutableStateOf<com.exponential.app.ui.session.CardScrollRequest?>(null) }
+    LaunchedEffect(cardScroll) {
+        if (cardScroll == null) return@LaunchedEffect
+        kotlinx.coroutines.delay(WaitingCards.Constants.HIGHLIGHT_MS)
+        cardScroll = null
+    }
+    val pickWaiting: (String) -> Unit = { id ->
+        if (pageKey != "conversation" && pageKey != "session:$mainSessionId") onSelectKey("conversation")
+        cardScroll = com.exponential.app.ui.session.CardScrollRequest(id, (cardScroll?.nonce ?: 0) + 1)
+    }
     Scaffold(
         modifier = modifier,
         containerColor = Color.Transparent,
@@ -809,6 +833,8 @@ fun ThreadContent(
                             onIssueMenu = onIssueMenu,
                             onOpenSession = { id -> openSessionHere(id) },
                             mainSessionId = mainSessionId,
+                            waiting = waitingChips,
+                            onPickWaiting = pickWaiting,
                         )
                     }
                 } else {
@@ -825,6 +851,10 @@ fun ThreadContent(
         }
         val topInset = padding.calculateTopPadding()
         val bottomInset = padding.calculateBottomPadding()
+        CompositionLocalProvider(
+            com.exponential.app.ui.session.LocalCardScrollRequest provides cardScroll,
+            com.exponential.app.ui.session.LocalCardHighlight provides cardScroll?.id,
+        ) {
         TabPager(
             pages = pages,
             selected = selected,
@@ -913,6 +943,7 @@ fun ThreadContent(
                 SessionTree.ThreadTab.Stories -> storiesPage?.invoke(padding)
                 SessionTree.ThreadTab.Add -> Unit
             }
+        }
         }
     }
 }

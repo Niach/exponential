@@ -101,6 +101,7 @@ class PlanCardTest {
                 "pending" to PlanCard.Copy.SPECIMEN_PENDING,
                 "answered" to PlanCard.Copy.SPECIMEN_ANSWERED,
                 "approved" to PlanCard.Copy.SPECIMEN_APPROVED,
+                "dismissed" to PlanCard.Copy.SPECIMEN_DISMISSED,
             ),
         )
         val issues = copy.getValue("answerIssues").jsonObject

@@ -256,8 +256,14 @@ data class AnswerInput(
     /** EXP-1459: the FULL card re-sealed with the answer (`{...clear, sealed}`);
      *  set by [SessionsApi.answer] alone, which then sends no plaintext answer. */
     val sealedCard: JsonObject? = null,
+    /** #EXP-1561 (waiting-cards.json DISMISS): `true` = dismiss the card;
+     *  sent ALONE (nothing else rides along); null = omitted. */
+    val dismissed: Boolean? = null,
 ) {
     companion object {
+        /** #EXP-1561: THE dismiss (`sessions.answer({messageId, dismissed: true})`). */
+        fun dismiss(messageId: String): AnswerInput = AnswerInput(messageId = messageId, dismissed = true)
+
         fun planAnswers(answers: Map<String, List<String>>): JsonObject =
             JsonObject(answers.mapValues { (_, labels) -> JsonArray(labels.map(::JsonPrimitive)) })
 
