@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "reac
 import { sendSessionMessage } from "@/lib/enet/send-sealed"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { SESSIONS_SEND_TEXT_MAX } from "@exp/db-schema/domain"
+import { composerTextAfterSend } from "@exp/domain-contract/composer-send"
 import {
   AttachmentFileTile,
   AttachmentThumb,
@@ -389,31 +390,41 @@ export function SessionComposer({
         return
       }
     }
+    // EXP-1537 (composer-send.json): the field stays editable while the
+    // send is in flight; a success clears only what went out.
+    const sentText = text
+    const sentFiles = files
+    const clearSent = () => {
+      const after = composerTextAfterSend(sentText, textRef.current)
+      textRef.current = after
+      setText(after)
+    }
     setSending(true)
     try {
       // A steer command the web runs itself (`/effort`): the draft clears
       // once it is applied; a failed one toasted and keeps the draft.
-      const dispatched = sessionId ? await dispatch(text) : null
+      const dispatched = sessionId ? await dispatch(sentText) : null
       if (dispatched !== null) {
-        if (dispatched === `sent`) setText(``)
+        if (dispatched === `sent`) clearSent()
         return
       }
       const attachmentIds: string[] = []
-      for (const entry of files) {
+      for (const entry of sentFiles) {
         const uploaded = await uploadTeamSessionImageFile(teamId, entry.file)
         attachmentIds.push(uploaded.id)
       }
       const result = await sendSessionMessage({
         teamId,
         ...(sessionId ? { sessionId } : appId ? { appId, deviceId } : { agentId }),
-        text: text.trim() || undefined,
+        text: sentText.trim() || undefined,
         attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
       })
-      for (const entry of files) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
-      setText(``)
+      for (const entry of sentFiles) if (entry.previewUrl) URL.revokeObjectURL(entry.previewUrl)
+      clearSent()
       // Sent: nothing of a Stop's text is left here to take back.
       heldRef.current = null
-      setFiles([])
+      const gone = new Set(sentFiles.map((entry) => entry.key))
+      setFiles((current) => current.filter((entry) => !gone.has(entry.key)))
       // A message to a live session writes only a `messages` row: free the
       // composer now, then wait (bounded) for that row to sync.
       setSending(false)

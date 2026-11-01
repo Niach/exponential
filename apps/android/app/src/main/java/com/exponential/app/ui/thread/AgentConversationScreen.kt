@@ -91,6 +91,7 @@ class AgentConversationViewModel @Inject constructor(
     private val sender: SessionSender,
     private val imagesApi: com.exponential.app.data.api.IssueImagesApi,
     private val promptsApi: com.exponential.app.data.api.PromptsApi,
+    private val store: com.exponential.app.data.steer.SteerConnectionStore,
 ) : ViewModel() {
 
     val agentId: String = savedStateHandle["agentId"] ?: ""
@@ -204,35 +205,48 @@ class AgentConversationViewModel @Inject constructor(
     }
 
     /** The first message: `sessions.send({agentId, text, attachmentIds})`
-     *  creates my DM (the pending files upload against the team first). */
-    fun send(text: String, onSent: () -> Unit) {
-        if ((text.isBlank() && _images.value.isEmpty()) || _sending.value) return
+     *  creates my DM (the pending files upload against the team first).
+     *  [text] = the field when Send was pressed; [onSent] gets it back once
+     *  the server took it (EXP-1537: the screen clears the field only if it
+     *  still holds that text). */
+    fun send(text: String, onSent: (sentText: String) -> Unit) {
+        val images = _images.value
+        if ((text.isBlank() && images.isEmpty()) || _sending.value) return
         val accountId = auth.activeAccountId.value ?: return
         _sending.value = true
-        viewModelScope.launch {
+        // EXP-1537: on the store's scope, not the ViewModel's: backing out
+        // right after Send must not cancel the uploads or the send.
+        store.launchDetached {
             try {
                 val teamId = agent.value?.teamId
-                var current = _images.value
+                var sent = images
                 if (teamId != null) {
-                    for ((index, image) in current.withIndex()) {
-                        if (image.uploadedId != null) continue
+                    sent = images.map { image ->
+                        if (image.uploadedId != null) return@map image
                         val uploaded = imagesApi.uploadTeamSessionImage(accountId, teamId, image.bytes, image.filename, image.contentType)
-                        current = current.mapIndexed { i, entry ->
-                            if (i == index) entry.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename) else entry
-                        }
-                        _images.value = current
+                        val stamped = image.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename)
+                        // By key: a pick added or removed meanwhile is left alone.
+                        _images.value = _images.value.map { if (it.key == image.key) stamped else it }
+                        stamped
                     }
                 }
                 val body = com.exponential.app.domain.AgentComposerPrompt.build(
                     text,
-                    current.uploadedImageIds(),
-                    current.uploadedSteerFiles(),
+                    sent.uploadedImageIds(),
+                    sent.uploadedSteerFiles(),
                 ).orEmpty()
                 val result = sender.send(
-                    SessionsSendInput.toAgent(agentId, body, current.mapNotNull { it.uploadedId }),
+                    SessionsSendInput.toAgent(agentId, body, sent.mapNotNull { it.uploadedId }),
                 )
-                onSent()
-                _images.value = emptyList()
+                onSent(text)
+                // Exactly the files that went out leave (composer-send.json).
+                _images.value = com.exponential.app.domain.ComposerSend.settle(
+                    com.exponential.app.domain.ComposerSend.Outcome.Sent,
+                    text,
+                    sent,
+                    text,
+                    _images.value,
+                ).attachments
                 _sent.value = result.sessionId
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
@@ -394,7 +408,14 @@ fun AgentConversationScreen(
                                 },
                             ),
                             onRemoveImage = viewModel::removeImage,
-                            onSend = { viewModel.send(field.text) { field = TextFieldValue("") } },
+                            // EXP-1537: the field clears only if it still
+                            // holds what went out (composer-send.json).
+                            onSend = {
+                                viewModel.send(field.text) { sentText ->
+                                    val next = com.exponential.app.domain.ComposerSend.textAfterSend(sentText, field.text)
+                                    if (next != field.text) field = TextFieldValue(next)
+                                }
+                            },
                             // The model is the agent's until the conversation runs.
                             model = null,
                             modelPickable = false,

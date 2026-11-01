@@ -71,6 +71,7 @@ use crate::action_run::{self, ActionRepoRow};
 use crate::chat_launch::{self, RepoState, StartSubject, SubjectKind};
 use crate::coding_flow::{self, CodingHub};
 use crate::composer_images::{self, PendingImages};
+use domain::composer_send::ComposerContent;
 use crate::device_readiness;
 use crate::icons::registry;
 use crate::picker::issue_picker::{self, IssueRow};
@@ -369,6 +370,9 @@ pub(crate) struct ChatScreenView {
     /// upload still running for that draft drops its result instead of
     /// starting the draft a second time.
     send_epoch: u64,
+    /// EXP-1537: the composer as the last Send found it (text untrimmed +
+    /// the strip's keys); a landed start takes out only that.
+    sent: ComposerContent,
     focus_handle: FocusHandle,
     /// EXP-923: the page's one scroll. It holds the composer and NOTHING
     /// else.
@@ -509,6 +513,7 @@ impl ChatScreenView {
             starting_generation: 0,
             late: None,
             send_epoch: 0,
+            sent: ComposerContent::default(),
             focus_handle: cx.focus_handle(),
             page_scroll: gpui::ScrollHandle::new(),
             chips_scroll: gpui::ScrollHandle::new(),
@@ -586,6 +591,7 @@ impl ChatScreenView {
             device,
             since: std::time::Instant::now(),
             generation,
+            sent: self.sent.clone(),
         });
         self.start_pending.start(cx);
         self.arm_deadline(generation, window, cx);
@@ -617,6 +623,7 @@ impl ChatScreenView {
             return;
         };
         let device = starting.device.clone();
+        let sent = starting.sent.clone();
         self.end_starting(generation, cx);
         let (title, description) = crate::feedback::starting_timeout_copy(&device);
         let toast = crate::toast::Toast::error(title)
@@ -627,6 +634,7 @@ impl ChatScreenView {
         if let Some(previous) = self.late.replace(LateStart {
             generation,
             draft,
+            sent,
             toast: Some(toast),
         }) {
             previous.dismiss_toast(cx);
@@ -655,17 +663,23 @@ impl ChatScreenView {
             .as_ref()
             .is_some_and(|starting| starting.generation == generation);
         let late = self.late.take_if(|late| late.generation == generation);
-        let open = if in_time {
+        let sent = self
+            .starting
+            .as_ref()
+            .filter(|starting| starting.generation == generation)
+            .map(|starting| starting.sent.clone());
+        let (open, sent) = if in_time {
             self.end_starting(generation, cx);
-            true
+            (true, sent.unwrap_or_default())
         } else if let Some(late) = late {
             late.dismiss_toast(cx);
-            self.starting.is_none() && self.input.read(cx).value().as_ref() == late.draft
+            let open = self.starting.is_none() && self.input.read(cx).value().as_ref() == late.draft;
+            (open, late.sent)
         } else {
-            false
+            (false, ComposerContent::default())
         };
         if open {
-            self.after_started(window, cx);
+            self.after_started(&sent, window, cx);
         }
         cx.notify();
         open
@@ -1547,6 +1561,9 @@ impl ChatScreenView {
             return;
         }
         let text = self.input.read(cx).value().to_string();
+        // EXP-1537: the field stays editable while the start is in flight;
+        // what lands takes out only what was sent (`composer_send`).
+        self.sent = self.images.content(text.clone());
         if self.images.is_empty() {
             self.start(text, Vec::new(), window, cx);
             return;
@@ -1559,6 +1576,14 @@ impl ChatScreenView {
             return;
         };
         let jobs = self.images.jobs();
+        let file_keys = composer_images::file_keys(&jobs);
+        // EXP-1537: the send as it stands now, for when the composer is gone
+        // by the time the uploads land (the start then goes out without it).
+        let detached = self.start_input(&text, Vec::new(), cx).ok().and_then(|(input, _)| {
+            let trpc = queries::trpc_client(cx)?;
+            let plan = crate::sealing::plan_send(&input, cx);
+            Some((input, plan, trpc))
+        });
         let epoch = self.send_epoch;
         self.sending = true;
         self.notice = None;
@@ -1572,7 +1597,7 @@ impl ChatScreenView {
                     })
                 })
                 .await;
-            let _ = this.update_in(cx, |this, window, cx| {
+            let alive = this.update_in(cx, |this, window, cx| {
                 this.sending = false;
                 // The draft this upload was for already landed (a late
                 // answer of its earlier send): it is consumed.
@@ -1580,9 +1605,9 @@ impl ChatScreenView {
                     cx.notify();
                     return;
                 }
-                match outcome {
+                match &outcome {
                     Ok(resolved) => {
-                        this.images.note_uploaded(&resolved);
+                        this.images.note_uploaded(resolved);
                         // The subject may have moved under the upload: the
                         // gate runs again. The uploads stay noted for the
                         // retry.
@@ -1593,8 +1618,10 @@ impl ChatScreenView {
                         }
                         // The embeds name the uploads; the send carries the
                         // text and the ids apart.
+                        // The picks as Send found them, like the detached
+                        // path below (composer-send.json).
                         let parsed = domain::image_message::parse_steer_message(
-                            &this.images.message(&text),
+                            &composer_images::uploaded_message(&text, &file_keys, resolved),
                         );
                         let mut attachment_ids = parsed.attachment_ids;
                         attachment_ids.extend(parsed.files.into_iter().map(|file| file.id));
@@ -1602,7 +1629,7 @@ impl ChatScreenView {
                     }
                     Err((resolved, error)) => {
                         // Keep what landed so a retry uploads only the rest.
-                        this.images.note_uploaded(&resolved);
+                        this.images.note_uploaded(resolved);
                         log::warn!("[ui] home composer upload failed: {error}");
                         // FEED-79: a failed upload is the error toast; Retry
                         // sends again (only the rest uploads).
@@ -1620,39 +1647,57 @@ impl ChatScreenView {
                 }
                 cx.notify();
             });
+            // EXP-1537: a send outlives its screen: the composer closed under
+            // the uploads, so the start goes out on its own.
+            if alive.is_ok() {
+                return;
+            }
+            let (Ok(resolved), Some((mut input, plan, trpc))) = (outcome, detached) else {
+                return;
+            };
+            let parsed = domain::image_message::parse_steer_message(&composer_images::uploaded_message(
+                &text, &file_keys, &resolved,
+            ));
+            let mut attachment_ids = parsed.attachment_ids;
+            attachment_ids.extend(parsed.files.into_iter().map(|file| file.id));
+            let text = parsed.text.trim();
+            input.text = (!text.is_empty()).then(|| text.to_string());
+            input.attachment_ids = Some(attachment_ids).filter(|ids| !ids.is_empty());
+            let result = cx
+                .background_executor()
+                .spawn(async move { crate::sealing::send_blocking(&trpc, &input, &plan) })
+                .await;
+            if let Err(err) = result {
+                let _ = cx.update(|_, cx| crate::action_error::failed_action_err("start", "the session", &err, cx));
+            }
         })
         .detach();
     }
 
-    /// EXP-1294: start the session — ONE `sessions.send` for a new root in
-    /// the ACTIVE team on the picked device, with the subject, the text, the
-    /// uploads and the options. The page lands on the root the send answers;
-    /// a dialog closes and lands its opener there.
-    fn start(
-        &mut self,
-        text: String,
+    /// The `sessions.send` a start makes: an agent picked in the row = ONE
+    /// send into the viewer's conversation with it (S-3), else a new root on
+    /// the picked device with the subject, the text, the uploads and the
+    /// options.
+    fn start_input(
+        &self,
+        text: &str,
         attachment_ids: Vec<String>,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        // EXP-1271: a start in flight keeps the send inert.
-        if self.starting.is_some() {
-            return;
-        }
+        cx: &App,
+    ) -> Result<(api::sessions::SendInput, StartRoute), StartBlocked> {
         let Some(team_id) = self.team_id.clone() else {
-            return;
+            return Err(StartBlocked::Silent);
         };
         // S-3: an agent picked in the row = ONE sessions.send({agentId})
         // into the viewer's conversation with it; EXP-1450: the chipped
         // issues are forwarded as its `issueIds` (web `buildSendInput`).
         if let Some(agent) = self.selected_agent(cx) {
             let issue_ids = forwarded_issue_ids(&self.subject);
-            self.send_to_agent(team_id, agent.id, text, attachment_ids, issue_ids, window, cx);
-            return;
+            let mut input = chat_launch::agent_send_input(&team_id, &agent.id, text, attachment_ids);
+            input.issue_ids = Some(issue_ids).filter(|ids| !ids.is_empty());
+            return Ok((input, StartRoute::Agent(agent.id)));
         }
         let Some(device_id) = self.selected_device().map(|device| device.device_id.clone()) else {
-            self.start_failed("Pick a device to start the session on.".into(), cx);
-            return;
+            return Err(StartBlocked::Failed("Pick a device to start the session on.".into()));
         };
         let subject = match &self.subject {
             Subject::None => StartSubject {
@@ -1672,7 +1717,7 @@ impl ChatScreenView {
             },
             Subject::Action(subject) => {
                 if self.selected_action().is_none() {
-                    return;
+                    return Err(StartBlocked::Silent);
                 }
                 StartSubject {
                     prompt_id: Some(subject.action_id.clone()),
@@ -1680,19 +1725,56 @@ impl ChatScreenView {
                 }
             }
         };
-        let Some(trpc) = queries::trpc_client(cx) else {
-            self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
-            return;
-        };
         let input = chat_launch::send_input(
             &team_id,
             &device_id,
             &self.options(cx),
             subject,
-            &text,
+            text,
             attachment_ids,
         );
+        Ok((input, StartRoute::Root))
+    }
+
+    /// EXP-1294: start the session — ONE `sessions.send` for a new root in
+    /// the ACTIVE team on the picked device ([`Self::start_input`]). The
+    /// page lands on the root the send answers; a dialog closes and lands
+    /// its opener there.
+    fn start(
+        &mut self,
+        text: String,
+        attachment_ids: Vec<String>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        // EXP-1271: a start in flight keeps the send inert.
+        if self.starting.is_some() {
+            return;
+        }
+        let (input, route) = match self.start_input(&text, attachment_ids, cx) {
+            Ok(start) => start,
+            Err(StartBlocked::Silent) => return,
+            Err(StartBlocked::Failed(message)) => {
+                self.start_failed(message, cx);
+                return;
+            }
+        };
+        let Some(trpc) = queries::trpc_client(cx) else {
+            match route {
+                StartRoute::Agent(_) => {
+                    self.message_failed(Some("Sign in and wait for sync before sending.".to_string()), cx)
+                }
+                StartRoute::Root => {
+                    self.start_failed("Sign in and wait for sync before starting a session.".into(), cx)
+                }
+            }
+            return;
+        };
         let plan = crate::sealing::plan_send(&input, cx);
+        if let StartRoute::Agent(agent_id) = route {
+            self.send_to_agent(agent_id, input, plan, trpc, window, cx);
+            return;
+        }
         let generation = self.begin_starting(window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -1746,21 +1828,13 @@ impl ChatScreenView {
     /// message` with Retry.
     fn send_to_agent(
         &mut self,
-        team_id: String,
         agent_id: String,
-        text: String,
-        attachment_ids: Vec<String>,
-        issue_ids: Vec<String>,
+        input: api::sessions::SendInput,
+        plan: crate::sealing::SendPlan,
+        trpc: api::TrpcClient,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        let Some(trpc) = queries::trpc_client(cx) else {
-            self.message_failed(Some("Sign in and wait for sync before sending.".to_string()), cx);
-            return;
-        };
-        let mut input = chat_launch::agent_send_input(&team_id, &agent_id, &text, attachment_ids);
-        input.issue_ids = Some(issue_ids).filter(|ids| !ids.is_empty());
-        let plan = crate::sealing::plan_send(&input, cx);
         let generation = self.begin_starting(window, cx);
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -1815,12 +1889,11 @@ impl ChatScreenView {
         cx.notify();
     }
 
-    /// The session is on its way: clear the draft, the images and the
-    /// subject; a dialog composer closes itself.
-    fn after_started(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.input
-            .update(cx, |input, cx| input.set_value("", window, cx));
-        self.images.clear();
+    /// The session is on its way: the draft settles against `sent`
+    /// (EXP-1537: text typed and files added meanwhile stay), the subject
+    /// clears; a dialog composer closes itself.
+    fn after_started(&mut self, sent: &ComposerContent, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        composer_images::settle_sent(&self.input, &mut self.images, sent, window, cx);
         self.send_epoch += 1;
         self.notice = None;
         self.clear_subject(cx);
@@ -3394,12 +3467,30 @@ fn clear_open_dialog(view_id: gpui::EntityId, cx: &mut App) {
     }
 }
 
+/// Where a start's `sessions.send` goes ([`ChatScreenView::start_input`]).
+enum StartRoute {
+    /// The viewer's conversation with this agent (S-3).
+    Agent(String),
+    /// A new root on the picked device.
+    Root,
+}
+
+/// Why [`ChatScreenView::start_input`] made no send.
+enum StartBlocked {
+    /// Nothing to start (no team, no prompt): the send stays inert.
+    Silent,
+    /// The start's error toast.
+    Failed(SharedString),
+}
+
 /// EXP-1271 — a start on its way (the composer's STARTING row): the device
 /// it went to, since when, and which start it is.
 struct Starting {
     device: String,
     since: std::time::Instant,
     generation: u64,
+    /// EXP-1537: the composer as Send found it (`composer_send`).
+    sent: ComposerContent,
 }
 
 /// Review #3 — a start whose deadline passed before its send answered: its
@@ -3408,6 +3499,8 @@ struct Starting {
 struct LateStart {
     generation: u64,
     draft: String,
+    /// EXP-1537: the composer as Send found it (`composer_send`).
+    sent: ComposerContent,
     toast: Option<crate::toast::ShownToast>,
 }
 

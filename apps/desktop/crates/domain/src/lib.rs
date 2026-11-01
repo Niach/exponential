@@ -123,6 +123,8 @@ pub mod client_version;
 pub mod coding_readiness;
 /// S-3: the New-chat composer's agent picker row (composer-home.json `agentRow`).
 pub mod composer_agent_row;
+// EXP-1537: what a send leaves in THE composer, fixture-locked ×4.
+pub mod composer_send;
 // EXP-1162: the detail chrome (title collapse + edge strips), fixture-locked ×4.
 pub mod detail_chrome;
 pub mod diff;
