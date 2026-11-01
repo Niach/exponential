@@ -27,11 +27,12 @@
 use crate::controls::PointerMenuButtonExt as _;
 use std::collections::HashMap;
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{div, px, IntoElement, ParentElement, Render, SharedString, Styled, Window};
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    v_flex, ActiveTheme as _, Disableable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Sizable as _,
 };
 
 use crate::surface::{
@@ -342,6 +343,14 @@ impl NotificationsPrefsPane {
     }
 }
 
+/// EXP-1557: a disabled settings row at half opacity, the WHOLE row (web
+/// `GlassToggleRow` `disabled && opacity-50`, the picker row's
+/// `disabled:opacity-50`), so a row the mail transport switches off reads
+/// off at a glance — not only its control.
+fn dim_disabled_row(row: gpui::Div) -> gpui::Div {
+    row.opacity(0.5)
+}
+
 impl Render for NotificationsPrefsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.ensure_loaded(cx);
@@ -380,7 +389,10 @@ impl Render for NotificationsPrefsPane {
                     }))
                     .into_any_element(),
                 cx,
-            ),
+            )
+            // EXP-1557: a disabled row dims WHOLE (web `GlassToggleRow`
+            // `disabled && opacity-50`), not just its switch.
+            .when(!transport || !have_prefs, dim_disabled_row),
         ];
         // The "no mail transport" notice = the shared alert ABOVE the group
         // (web `Alert`), the two env vars as inline code. Only once the
@@ -430,7 +442,8 @@ impl Render for NotificationsPrefsPane {
                             }))
                             .into_any_element(),
                         cx,
-                    ));
+                    )
+                    .when(types_disabled, dim_disabled_row));
                 }
 
                 // EXP-801: web's "Messages from teammates' agents" row —
@@ -468,6 +481,8 @@ impl Render for NotificationsPrefsPane {
                     Button::new("digest-select")
                         .ghost()
                         .cursor_pointer()
+                        // `text_sm` like the label (web picker row value).
+                        .small()
                         .h_auto()
                         .px_0()
                         .py_0()
@@ -502,7 +517,9 @@ impl Render for NotificationsPrefsPane {
                         })
                         .into_any_element(),
                     cx,
-                )];
+                )
+                // Web `PICKER_ROW_TRIGGER` `disabled:opacity-50`: the row.
+                .when(digest_disabled, dim_disabled_row)];
 
                 // EXP-369: the daily cadence's send time. Full hours only —
                 // the server's 10-minute sweep resolves send points at hour
@@ -515,6 +532,7 @@ impl Render for NotificationsPrefsPane {
                         Button::new("digest-hour-select")
                             .ghost()
                             .cursor_pointer()
+                            .small()
                             .h_auto()
                             .px_0()
                             .py_0()
@@ -543,7 +561,8 @@ impl Render for NotificationsPrefsPane {
                             })
                             .into_any_element(),
                         cx,
-                    ));
+                    )
+                    .when(digest_disabled, dim_disabled_row));
                 }
                 body = body.child(glass_group_rows(digest_rows));
             }

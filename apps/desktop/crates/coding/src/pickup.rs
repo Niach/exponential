@@ -477,7 +477,10 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         .copied()
         .filter(|m| is_pending_input(m))
         .map(|m| MessageRow {
-            body: Some(with_attachment_embeds(&input_text(m, input.sessions), &m.attachment_ids)),
+            body: Some(with_issue_brief(
+                &with_attachment_embeds(&input_text(m, input.sessions), &m.attachment_ids),
+                m.issue_brief.as_deref(),
+            )),
             ..m.clone()
         })
         .collect();
@@ -857,6 +860,20 @@ pub fn with_attachment_embeds(body: &str, attachment_ids: &[String]) -> String {
         return body.to_string();
     }
     domain::image_message::build_steer_image_message(body, &missing)
+}
+
+/// #EXP-1584 (`fixtures/session-brief.json` `deliveryCases`): `body` with
+/// the forwarded issues' section the server stamped on the message
+/// (`issue_brief`: identifier, title, description), after a blank line. A
+/// sealed body is opened by now, so a sealed chat's agent reads it the same.
+pub fn with_issue_brief(body: &str, issue_brief: Option<&str>) -> String {
+    let Some(brief) = issue_brief.map(str::trim).filter(|brief| !brief.is_empty()) else {
+        return body.to_string();
+    };
+    match body.trim_end() {
+        "" => brief.to_string(),
+        text => format!("{text}\n\n{brief}"),
+    }
 }
 
 fn message_order(a: &MessageRow, b: &MessageRow) -> std::cmp::Ordering {
@@ -3849,6 +3866,40 @@ mod tests {
         assert_eq!(bodies(messages), expected);
     }
 
+    /// #EXP-1584: Start coding with an agent picked forwards the issue into
+    /// its existing conversation: the message's `issue_brief` (identifier,
+    /// title, description) reaches the agent after the body, sealed or
+    /// plaintext, on a wake and a live delivery alike.
+    #[test]
+    fn forwarded_issues_reach_the_agent() {
+        use crate::sealing::{self, test_support};
+        let _serial = test_support::serial();
+        let fake = test_support::install_fake();
+        let row = SessionRow { root_id: Some("si".to_string()), ..session("si", "idle", DEV, "2026-10-01T00:00:00Z") };
+        fake.keyring.note_sessions(std::slice::from_ref(&row));
+        const BRIEF: &str = "## Issues\n\n- EXP-1584 Agent picks drop the issue\n\n### EXP-1584\n\nThe agent only got the prompt.";
+        let sealed = MessageRow {
+            body: Some(sealing::seal_body("si", "Please look.").unwrap()),
+            issue_brief: Some(BRIEF.to_string()),
+            ..message("fm1", "si", "2026-10-02T00:00:01Z")
+        };
+        let plain = MessageRow {
+            body: Some("Link #EXP-1584".to_string()),
+            issue_brief: Some(BRIEF.to_string()),
+            ..message("fm2", "si", "2026-10-02T00:00:02Z")
+        };
+        let rows = vec![sealed, plain];
+        let woke = Pass::new(vec![row.clone()], rows.clone()).run();
+        let live = Pass::new(vec![row], rows).live("si", LiveView::default()).run();
+        sealing::uninstall();
+        let expected = vec![format!("Please look.\n\n{BRIEF}"), format!("Link #EXP-1584\n\n{BRIEF}")];
+        let bodies = |messages: &[MessageRow]| messages.iter().map(|m| m.body.clone().unwrap_or_default()).collect::<Vec<_>>();
+        let [PickupAction::Resume { messages, .. }] = woke.as_slice() else { panic!("{woke:?}") };
+        assert_eq!(bodies(messages), expected);
+        let [PickupAction::Deliver { messages, .. }] = live.as_slice() else { panic!("{live:?}") };
+        assert_eq!(bodies(messages), expected);
+    }
+
     /// FEED-180 (`fixtures/session-brief.json`): a sealed first message's
     /// `sealedAttachments` follow its opened text into the Request.
     #[test]
@@ -3913,6 +3964,24 @@ mod tests {
         assert_eq!(reopened["questionId"], "q-1");
         assert_eq!(unknown, None, "a card this process never saw goes plaintext");
         assert_eq!(brief, format!("## Request\n\nSpeed it up\n\n## Note\n\n({})", sealing::LOCKED_TEXT));
+    }
+
+    /// #EXP-1584: a forwarded issue's section follows the body the agent
+    /// reads, exactly as `withIssueBrief` (fixtures `deliveryCases`).
+    #[test]
+    fn issue_brief_delivery_replays_the_fixture() {
+        let fx: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/session-brief.json")).unwrap();
+        let cases = fx["deliveryCases"].as_array().unwrap();
+        assert!(cases.len() >= 4);
+        for case in cases {
+            assert_eq!(
+                with_issue_brief(case["body"].as_str().unwrap(), case["issueBrief"].as_str()),
+                case["expected"].as_str().unwrap(),
+                "{}",
+                case["name"]
+            );
+        }
     }
 
     /// FEED-178: a sealed first message's opened text goes in as the

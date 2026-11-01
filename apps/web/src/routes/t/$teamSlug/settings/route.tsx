@@ -20,7 +20,6 @@ import {
   SETTINGS_LIST_SECTIONS,
   settingsRouteOf,
   settingsSectionLabel,
-  useSettingsPage,
 } from "@/routes/t/$teamSlug/settings/-shared"
 import { pageTitle } from "@/lib/page-title"
 
@@ -46,16 +45,9 @@ function SettingsLayout() {
 // slides out, the settings nav slides in — see TeamSidebar/SettingsSidebar),
 // so the page is the title over the section.
 function WideSettingsLayout() {
-  const { teamSlug } = Route.useParams()
-  const { team } = useSettingsPage(teamSlug)
   return (
     <div className={`mx-auto w-full max-w-4xl space-y-6 p-4 sm:p-6 ${TAB_BAR_CLEARANCE}`}>
-      <div>
-        <h1 className="text-2xl font-bold">Settings</h1>
-        <p className="text-sm text-muted-foreground">
-          Manage {team?.name ?? `your team`} and your account
-        </p>
-      </div>
+      <h1 className="text-2xl font-bold">Settings</h1>
       <Separator />
       <div className="min-w-0 flex-1">
         <Outlet />

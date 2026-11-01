@@ -1628,33 +1628,6 @@ pub(crate) const NO_AGENT_COPY: &str =
 pub(crate) const NO_AGENT_SIGNED_IN_COPY: &str =
     "No coding agent is signed in. Sign in to claude or codex (see Settings → Tools).";
 
-/// `Some(reason)` when the doctor has REPORTED and no agent CLI is usable —
-/// the shared gate for every Start-coding entry point (EXP-367: buttons
-/// disable with this tooltip, never hide). `None` while the probe is still
-/// running (never falsely block on a race) or before anything coding exists.
-pub(crate) fn no_agent_reason(cx: &App) -> Option<SharedString> {
-    let hub = CodingHub::global_ref(cx)?;
-    // Borrowed, not cloned: list screens ask per render (EXP-832).
-    let hub = hub.read(cx);
-    let report = hub.doctor.report.as_ref()?;
-    if report.any_agent_ok() {
-        return None;
-    }
-    // EXP-1196: the failing readiness row as the tooltip, when the block has
-    // one with a fix in reach (every agent simply missing keeps the copy).
-    if let Some(row) = hub.doctor.device.as_ref().and_then(|doctor| {
-        crate::device_readiness::no_agent_row(doctor, true)
-            .filter(|row| row.key != coding::device_doctor::KEY_GIT)
-    }) {
-        return Some(crate::device_readiness::summary(&row).into());
-    }
-    // Installed-but-signed-out (EXP-409) reads as "sign in", not "install".
-    if !report.unauthed_agents().is_empty() {
-        return Some(NO_AGENT_SIGNED_IN_COPY.into());
-    }
-    Some(NO_AGENT_COPY.into())
-}
-
 impl Render for StartCodingControl {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // Coding gates purely on repository presence: a repo-less board

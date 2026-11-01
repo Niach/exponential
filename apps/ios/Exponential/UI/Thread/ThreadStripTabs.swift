@@ -411,7 +411,25 @@ struct ChatHeaderTitle: View {
     var agentIcon: String?
     var agentColor: String?
     var cli: String?
+    /// The root's PR states: the lead's PR glyph while nothing works.
+    var prStates: [String] = []
     var mark: ThreadRowMark = .waiting
+
+    /// EXP-1552: THE chat lead ×4 (web `ChatLeadDisc`, Android
+    /// `chatLeadOf`, the Chats list's `ChatLeadMark`): the mark first, then
+    /// the root's PR glyph, else the bare chat glyph.
+    private var lead: Chats.ChatLead {
+        switch mark {
+        case .needsYou: .needsYou
+        case .working: .working
+        case .waiting:
+            switch SessionTree.threadRowLeadPr(prStates: prStates) {
+            case .open: .open
+            case .merged: .merged
+            case nil: .waiting
+            }
+        }
+    }
 
     var body: some View {
         HStack(spacing: 10) {
@@ -421,20 +439,7 @@ struct ChatHeaderTitle: View {
                     AppIcon(agentIcon, size: 18, weight: .medium)
                         .foregroundStyle(Color(hex: agentColor) ?? .white)
                 } else {
-                    switch mark {
-                    case .working:
-                        AgentWorkingMark(agent: cli).frame(width: 18, height: 18)
-                    case .needsYou:
-                        BeatingAgentMark(agent: cli, beating: false)
-                            .frame(width: 18, height: 18)
-                            .overlay(alignment: .topTrailing) {
-                                Circle().fill(DesignTokens.Semantic.yellow)
-                                    .frame(width: 7, height: 7)
-                                    .offset(x: 3, y: -3)
-                            }
-                    default:
-                        BeatingAgentMark(agent: cli, beating: false).frame(width: 18, height: 18)
-                    }
+                    ChatLeadMark(lead: lead, cli: cli, size: 18)
                 }
             }
             .frame(width: 36, height: 36)

@@ -1194,9 +1194,9 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
     let start_coding = {
         let ids = ids.clone();
         let list = list.clone();
-        // EXP-367: no agent CLI installed → disabled with the reason,
-        // never hidden (same copy as every Start-coding affordance).
-        let no_agent = crate::coding_flow::no_agent_reason(cx);
+        // EXP-1557 (web parity): never gated on THIS machine's agent CLIs:
+        // the composer picks the device (any online one) and judges
+        // readiness itself, so only an in-flight bulk op disables it.
         // The ONE emphasised control of the bar (web `Start coding` is
         // the primary button there too).
         with_label(
@@ -1210,8 +1210,8 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
             .icon(Icon::new(registry::ACTION_RUN)),
             "Start coding",
         )
-            .tooltip(no_agent.clone().unwrap_or_else(|| "Start coding".into()))
-            .disabled(busy || no_agent.is_some())
+            .tooltip("Start coding")
+            .disabled(busy)
             .on_click(move |_, window, cx| {
                 // EXP-825: the composer takes the selection over: the
                 // multiselect clears right away (web parity), and the seed

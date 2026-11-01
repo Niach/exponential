@@ -724,19 +724,18 @@
       },
       "desktop": {
         "drive": {
-          "kind": "dialog",
-          "value": "search"
+          "kind": "screen",
+          "value": "chat"
         },
         "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_TOOL": "board",
-          "EXP_DEV_SEARCH_QUERY": "APP"
+          "EXP_DEV_COMPOSER_TEXT": "Explain #APP"
         }
       },
       "notes": {
         "web": "The `#` typeahead itself: `typeIssueRef` types `Explain #` into the Agent composer and then `APP` (the seeded board's key), which lands in the list's own focused input, so the shot is the popover at the caret with every seeded issue, uncapped, under its bottom fade.",
         "web-mobile": "Inherits web: on phones the same `#` opens the list as a bottom sheet with its input focused.",
-        "desktop": "The ⌘K dialog IS the search list (`search_sheet.rs` on `picker::search_list`); the query `APP` matches every seeded identifier, so the shot shows the uncapped list scrolling under its bottom fade, which `search` (one hit) does not. No `EXP_DEV_*` value opens the `#` popover in an editor."
+        "desktop": "EXP-1557: the `#` typeahead itself, as web: `EXP_DEV_COMPOSER_TEXT=Explain #APP` types into the Agent composer once, so THE search list opens at the caret with `APP` (the seeded board's key) in its own input, every seeded issue uncapped under its bottom fade."
       }
     },
     {
@@ -782,7 +781,7 @@
       "web": {
         "route": "/t/$teamSlug/inbox?tab=my-issues",
         "anchor": {
-          "text": "My issues",
+          "text": "Push notification deep links",
           "timeoutMs": 30000
         },
         "settleMs": 1000
@@ -6588,7 +6587,7 @@
         "web": "The DEV-ONLY `?dev=device-readiness` on the Agent route (FEED-160): `@exp/ui` `DeviceReadinessSpecimen`, the natives' specimen line for line (the fixture's low-disk case from another device + the composer row); the full styleguide entry `device-readiness` draws every case. Live in Device settings and the composer.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_device-readiness: the fixture's low-disk case as a phone draws it (remote) + the composer row.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
-        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:device-readiness`: the IDE styleguide twin drawn full-window (every fixture case from the top).",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:device-readiness`: the IDE styleguide twin drawn full-window, the web specimen first (EXP-1557: the low-disk case from another device + the composer row), then every fixture case.",
         "web-mobile": "Inherits web: the phone frame draws the same specimen at full width."
       }
     },

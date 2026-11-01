@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1291/NEW-1: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept; NEW-2: a prompt run's body plus what was typed is already the text) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line. FEED-178: a SEALED first message the server cannot read: it composes with no text and returns the envelope as `sealedText`; the device opens it (waiting at a launch for its tree key, else the locked placeholder) and puts it in as the Request exactly as above (first section, trimmed; `empty` replaced; the same byte cut). FEED-180: that sealed message's attachments (the clear `attachment_ids`) come back as `sealedAttachments`, one line per attachment in their order, exactly the line a plaintext body gets appended (`![<filename>](/api/attachments/<id>)` for an accepted image type, `[<filename>](/api/attachments/<id>)` otherwise, `[`/`]` stripped from the filename), none for a plaintext message; the device appends them to the opened text, each after a blank line, before it becomes the Request. S-3 (owner 2026-10-28): plan mode is GONE (a plan is an `exponential_show {plan}` card, no gate): no Plan section.",
+  "$comment": "EXP-1291/NEW-1: the FIRST prompt of every new session is composed on the SERVER (`sessions.brief`, read by the device at pickup), so all four clients and every start path (composer, Start on an issue, an action, a trigger firing, an agent spawn, a follow-up child) produce byte-identical input. composeBrief(input) (TS reference packages/domain-contract/src/session-brief.ts; the server calls it, no client mirror needed beyond reading this spec) replays `cases`: sections in this order, each '## <heading>' + a blank line + its body, joined by a blank line, empty sections omitted: Request (the person's text, trimmed; image embed lines kept; NEW-2: a prompt run's body plus what was typed is already the text) · Issues (one '- <identifier> <title>' per issue in link order) · Parent (a child only: templates `parent` with {title} = the parent's title, {depth}/{maxDepth} = its depth and contract sessionsSend.treeMaxDepth, {branch} = the parent's branch; without a branch the `parentNoBranch` template). Nothing at all = `empty`. The result is cut at sessionsSend.briefMaxBytes UTF-8 bytes at the last newline that fits, ending in a '…' line. FEED-178: a SEALED first message the server cannot read: it composes with no text and returns the envelope as `sealedText`; the device opens it (waiting at a launch for its tree key, else the locked placeholder) and puts it in as the Request exactly as above (first section, trimmed; `empty` replaced; the same byte cut). FEED-180: that sealed message's attachments (the clear `attachment_ids`) come back as `sealedAttachments`, one line per attachment in their order, exactly the line a plaintext body gets appended (`![<filename>](/api/attachments/<id>)` for an accepted image type, `[<filename>](/api/attachments/<id>)` otherwise, `[`/`]` stripped from the filename), none for a plaintext message; the device appends them to the opened text, each after a blank line, before it becomes the Request. S-3 (owner 2026-10-28): plan mode is GONE (a plan is an `exponential_show {plan}` card, no gate): no Plan section. EXP-1584: an issue's DESCRIPTION rides in the Issues section: after the '- <identifier> <title>' lines (unchanged, the device parses them), one '### <identifier>' + a blank line + the trimmed description per issue that has one, link order, each after a blank line. ISSUE BRIEF (`issueBriefCases`): a message that FORWARDS issues (`sessions.send {issueIds}`: Start coding with an agent picked, an agent's forward) into a session already under way (an existing agent conversation, an idle or running thread; a queued session's brief already lists them) never reached the agent before: the server composes composeIssueBrief(issues) = that same Issues section ('## Issues' + a blank line + its body, the same byte cut; no issues = null) at send and stores it on the message as the clear `issue_brief` column (plaintext AND sealed alike: the server cannot add to a sealed body, so it never edits a body at all; clients draw the chips, never this column). The device appends it to the text the agent reads (`deliveryCases`: after the body (and its attachment lines) and a blank line; an empty body = the brief alone; a blank brief = the body untouched), on the desktop app and the CLI daemon. A forward with no text into a plaintext tree posts `Link #<identifier> …` (the manual-link text) so the agent still wakes.",
   "headings": {
     "request": "Request",
     "issues": "Issues",
@@ -69,6 +69,91 @@
         "text": "   "
       },
       "expected": "Wait for the next message."
+    },
+    {
+      "name": "Start on an issue with a description (EXP-1584)",
+      "input": {
+        "text": "Check this.",
+        "issues": [
+          {
+            "identifier": "EXP-1584",
+            "title": "Agent picks drop the issue",
+            "description": "  The agent only got the prompt.\n\n![shot](/api/attachments/abc)  "
+          },
+          {
+            "identifier": "EXP-1585",
+            "title": "No description",
+            "description": "   "
+          }
+        ]
+      },
+      "expected": "## Request\n\nCheck this.\n\n## Issues\n\n- EXP-1584 Agent picks drop the issue\n- EXP-1585 No description\n\n### EXP-1584\n\nThe agent only got the prompt.\n\n![shot](/api/attachments/abc)"
+    }
+  ],
+  "issueBriefCases": [
+    {
+      "name": "no issues",
+      "input": [],
+      "expected": null
+    },
+    {
+      "name": "one issue with a description",
+      "input": [
+        {
+          "identifier": "EXP-1584",
+          "title": "Agent picks drop the issue",
+          "description": "The agent only got the prompt."
+        }
+      ],
+      "expected": "## Issues\n\n- EXP-1584 Agent picks drop the issue\n\n### EXP-1584\n\nThe agent only got the prompt."
+    },
+    {
+      "name": "two issues, one without a description",
+      "input": [
+        {
+          "identifier": "EXP-12",
+          "title": "Login fails on Safari",
+          "description": null
+        },
+        {
+          "identifier": "EXP-13",
+          "title": "Session cookie expires early",
+          "description": "Expires after 5 min."
+        }
+      ],
+      "expected": "## Issues\n\n- EXP-12 Login fails on Safari\n- EXP-13 Session cookie expires early\n\n### EXP-13\n\nExpires after 5 min."
+    }
+  ],
+  "deliveryCases": [
+    {
+      "name": "a body and a brief",
+      "body": "Take a look please.",
+      "issueBrief": "## Issues\n\n- EXP-1584 Agent picks drop the issue",
+      "expected": "Take a look please.\n\n## Issues\n\n- EXP-1584 Agent picks drop the issue"
+    },
+    {
+      "name": "trailing whitespace on the body",
+      "body": "Take a look.\n\n",
+      "issueBrief": "## Issues\n\n- EXP-1 A",
+      "expected": "Take a look.\n\n## Issues\n\n- EXP-1 A"
+    },
+    {
+      "name": "an empty body",
+      "body": "",
+      "issueBrief": "## Issues\n\n- EXP-1 A",
+      "expected": "## Issues\n\n- EXP-1 A"
+    },
+    {
+      "name": "no brief",
+      "body": "Hello",
+      "issueBrief": null,
+      "expected": "Hello"
+    },
+    {
+      "name": "a blank brief",
+      "body": "Hello",
+      "issueBrief": "  ",
+      "expected": "Hello"
     }
   ]
 }

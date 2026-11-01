@@ -162,7 +162,7 @@ describe(`the session page`, () => {
     expect(screen.getByTestId(`session-title`).textContent).toBe(`Profile the launch path`)
     const composer = screen.getByTestId(`session-composer`)
     expect(composer.getAttribute(`data-session`)).toBe(`s2`)
-    expect(composer.textContent).toBe(`Reply…`)
+    expect(composer.textContent).toBe(`Type / for commands`)
   })
 
   // Thread 58cb32df (chats.json STOP): an agent's tree has no header Stop

@@ -380,19 +380,23 @@ impl StoragePane {
                 .into_any_element()
         };
 
-        // The owning issue as the ONE issue chip (EXP-316, EXP-885: it used
-        // to be a hand-rolled `#IDENT` capsule of its own) — clicking leaves
-        // Settings for the issue's detail screen. The column is narrow, so
-        // the chip carries the identifier and status only, no title.
-        // Unresolved identifiers (trashed board, not yet synced) stay a dash.
+        // The owning issue as the web cell's mono ACTION pill, `#IDENT`
+        // (web `<Pill mode="action" className="font-mono">#{identifier}`,
+        // EXP-1557: the status-glyph issue chip it wore read as a different
+        // component) — clicking leaves Settings for the issue's detail
+        // screen. Unresolved identifiers (trashed board, not yet synced)
+        // stay a dash.
         let issue_cell: AnyElement = match identifier {
             Some(identifier) => {
                 let issue_id = row.issue_id.clone();
-                let chip = crate::issue_chip::issue_chip(
+                crate::surface::glass_pill(
                     SharedString::from(format!("storage-issue-{}", row.id)),
-                    identifier,
-                    "",
+                    crate::surface::PillSize::Sm,
+                    crate::surface::PillMode::Action,
+                    cx,
                 )
+                .font_family(cx.theme().mono_font_family.clone())
+                .child(SharedString::from(format!("#{identifier}")))
                 .on_click(move |_, window, cx| {
                     crate::navigation::navigate(
                         window,
@@ -401,11 +405,7 @@ impl StoragePane {
                             issue_id: issue_id.clone(),
                         },
                     );
-                });
-                match crate::issue_chip::synced_issue_status(&row.issue_id, cx) {
-                    Some(status) => chip.status(status),
-                    None => chip,
-                }
+                })
                 .into_any_element()
             }
             None => div()
@@ -588,6 +588,12 @@ impl Render for StoragePane {
                     });
                 let rows = list.attachments.clone();
                 let total_bytes = list.total_bytes;
+                // EXP-878 / EXP-1557: draft files are private and never
+                // listed, but they are the team's bytes — the summary names
+                // them like web's "(incl. … in unsaved drafts)".
+                let drafts = (list.draft_bytes > 0).then(|| {
+                    format!(" (incl. {} in unsaved drafts)", format_bytes(list.draft_bytes))
+                });
                 let plural = if rows.len() == 1 { "" } else { "s" };
 
                 body = body.children(meter);
@@ -600,9 +606,10 @@ impl Render for StoragePane {
                         .text_sm()
                         .text_color(cx.theme().muted_foreground)
                         .child(SharedString::from(format!(
-                            "{} attachment{plural} · {}",
+                            "{} attachment{plural} · {}{}",
                             rows.len(),
-                            format_bytes(total_bytes)
+                            format_bytes(total_bytes),
+                            drafts.unwrap_or_default()
                         ))),
                 );
 

@@ -53,6 +53,7 @@ import {
   assertIssuesInTeam,
   forwardIssues,
   linkIssues,
+  manualLinkText,
   retakeHeldIssues,
   takeOverIssues,
 } from "@/lib/sessions/issues"
@@ -82,6 +83,7 @@ import type { Db, Tx } from "@/lib/sessions/tx"
 import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 import { attachmentLine } from "@/lib/sessions/attachment-lines"
 import { parseBodyEnvelope } from "@exp/domain-contract/sealed-content"
+import { composeIssueBrief } from "@exp/domain-contract/session-brief"
 import { isSealedBody, validSealedBody } from "@/lib/sessions/sealed"
 import { createTreeKeyInTx } from "@/lib/sessions/tree-keys"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
@@ -393,15 +395,20 @@ async function postSendMessage(
   input: SessionsSendInput,
   authorId: string,
   uploaderIds: string[],
-  from?: { sessionId: string; asSession: boolean } | null
+  from?: { sessionId: string; asSession: boolean } | null,
+  issueBrief?: { brief: string; identifiers: string[] } | null
 ): Promise<string | null> {
   // EXP-1458: the install named by `seal` is the CALLER's (a hosted run's
   // agent acts with its host's key, so the caller is the uploader set's
   // first entry, never the effective starter).
   const sealUserId = uploaderIds[0]!
-  const text = input.text ?? ``
+  let text = input.text ?? ``
   // EXP-1458: the tree's key arrives with its first sealed message.
   if (input.seal) await createTreeKeyInTx(tx, sealUserId, { ...input.seal, rootId: session.rootId })
+  // #EXP-1584: a bare forward into a plaintext tree still wakes the agent.
+  if (issueBrief && !text.trim() && !input.attachmentIds?.length && !(await treeIsSealed(tx, session.rootId))) {
+    text = manualLinkText(issueBrief.identifiers) ?? ``
+  }
   if (!text.trim() && !input.attachmentIds?.length) return null
   if (isSealedBody(text)) await assertSealedForTree(tx, session.rootId, text)
   else if (text.trim()) await assertNotPlainInSealedTree(tx, session.rootId, from?.sessionId)
@@ -437,7 +444,37 @@ async function postSendMessage(
     uploaderIds,
     body: text,
   })
+  // #EXP-1584: the forwarded issues ride in the clear beside the body.
+  if (issueBrief) await tx.update(messages).set({ issueBrief: issueBrief.brief }).where(eq(messages.id, messageId))
   return messageId
+}
+
+async function treeIsSealed(tx: Pick<Db, `select`>, rootId: string): Promise<boolean> {
+  const [root] = await tx.select({ sealEpoch: sessions.sealEpoch }).from(sessions).where(eq(sessions.id, rootId)).limit(1)
+  return root?.sealEpoch != null
+}
+
+/** #EXP-1584 (fixtures/session-brief.json `issueBriefCases`): the Issues
+ *  section of `issueIds` (input order) for a message forwarding them into
+ *  a session already under way: a queued session's brief lists them, a
+ *  running or idle one would never see them. */
+async function forwardedIssueBrief(
+  tx: Tx,
+  session: Pick<Session, `status`>,
+  issueIds: string[] | undefined
+): Promise<{ brief: string; identifiers: string[] } | null> {
+  if (!issueIds?.length || session.status === `queued`) return null
+  const rows = await tx
+    .select({ id: issues.id, identifier: issues.identifier, title: issues.title, description: issues.description })
+    .from(issues)
+    .where(inArray(issues.id, issueIds))
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  const ordered = [...new Set(issueIds)].flatMap((id) => {
+    const row = byId.get(id)
+    return row ? [row] : []
+  })
+  const brief = composeIssueBrief(ordered)
+  return brief ? { brief, identifiers: ordered.map((row) => row.identifier) } : null
 }
 
 /** Who a new session belongs to: the real person. A hosted run's agent acts
@@ -1142,7 +1179,8 @@ async function messageSession(
           addedBySessionId: caller?.id ?? null,
         })
       }
-      const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from)
+      const issueBrief = await forwardedIssueBrief(tx, target, input.issueIds)
+      const messageId = await postSendMessage(tx, target, input, userId, uploaderIds, from, issueBrief)
       // A PERSON's message into a worker = it takes its issues again.
       if (messageId && !from?.asSession) await retakeHeldIssues(tx, target, userId)
       await applyWakeOn(tx, caller, input)
@@ -1254,7 +1292,9 @@ async function messageAgent(
         addedBySessionId: caller?.id ?? null,
       })
     }
-    const messageId = await postSendMessage(tx, session, input, userId, uploaderIds, from)
+    // #EXP-1584: an existing conversation never reads a brief again.
+    const issueBrief = created ? null : await forwardedIssueBrief(tx, session, input.issueIds)
+    const messageId = await postSendMessage(tx, session, input, userId, uploaderIds, from, issueBrief)
     await applyWakeOn(tx, caller, input)
     await extras.within?.(tx, { sessionId: session.id, messageId, rootId: session.id })
     return { sessionId: session.id, messageId, status: session.status, txid, queued: created }
@@ -1372,7 +1412,9 @@ async function reviveRoot(
       addedBySessionId: caller?.id ?? null,
     })
   }
-  const messageId = await postSendMessage(tx, revived, input, userId, args.uploaderIds, args.from)
+  // #EXP-1584: a revived root resumes its run: no brief carries them.
+  const issueBrief = await forwardedIssueBrief(tx, revived, input.issueIds)
+  const messageId = await postSendMessage(tx, revived, input, userId, args.uploaderIds, args.from, issueBrief)
   // A PERSON's message into a worker = it takes its issues again.
   if (messageId && !args.from?.asSession) await retakeHeldIssues(tx, revived, userId)
   await args.extras.within?.(tx, { sessionId: revived.id, messageId, rootId: revived.id })

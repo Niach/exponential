@@ -1679,12 +1679,15 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
     // dialog's first frame, dropped with the window.
     let server_card: Rc<RefCell<Option<Entity<crate::device_setup::ServerCard>>>> =
         Rc::new(RefCell::new(None));
-    // P33: no subtitle (the cards say it). An alert window cannot follow
-    // its content, so the height is the two cards' own (the server card's
-    // code field included) plus the footer, not a 600px slab.
+    // P33: no subtitle (the cards say it). EXP-1557: the web dialog's
+    // shape: no footer (the ✕, Escape and the scrim close it), web's
+    // `max-w-lg`, and the two cards' own height (the body scrolls when the
+    // server card's code field grows it).
     let spec = AlertSpec::new("Add device", "", "Done")
         .without_cancel()
-        .height(px(500.))
+        .without_footer()
+        .width(px(512.))
+        .height(px(400.))
         .content(move |window, cx| {
         let card = server_card
             .borrow_mut()

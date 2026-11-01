@@ -40,7 +40,7 @@ struct AgentPrCard: View {
             HStack(spacing: 8) {
                 AppIcon(AppIcons.prOpen, size: AppIcon.Size.small, weight: .semibold)
                     .foregroundStyle(tint(pr.state))
-                Text("PR #\(pr.number)")
+                Text(verbatim: "PR #\(pr.number)")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)

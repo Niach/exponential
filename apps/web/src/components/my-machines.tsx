@@ -470,7 +470,7 @@ function DeviceCard({
                 title={`Your default device — preselected when you start a coding session.`}
                 aria-label="Default device"
               >
-                <DefaultIcon className="size-3 fill-current" />
+                <DefaultIcon className="size-3" />
               </span>
             )}
           </div>

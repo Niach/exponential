@@ -272,6 +272,7 @@ struct ThreadScreen: View {
                     agentIcon: rows.isAgent ? rows.agentIcon : nil,
                     agentColor: rows.isAgent ? rows.agentColor : nil,
                     cli: rows.root.cli,
+                    prStates: rows.pullRequests.map(\.state),
                     mark: SessionTree.threadRowMarkState(
                         needsYou: rows.sessions.contains { $0.needsInput && $0.status != DomainContract.sessionStatusEnded },
                         busy: rows.sessions.contains { $0.busy && $0.status != DomainContract.sessionStatusEnded }
@@ -280,6 +281,11 @@ struct ThreadScreen: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
+        // S-3 (session-thread.json): the thread PR's Merge pill, left of
+        // `…`, on every page while the PR is open. EXP-1552: THE primary
+        // pill ×4 (web `PullRequestMergePill`), its own chrome: iOS 26's
+        // shared glass would fold it into the `…` capsule.
+        .ownChromeToolbarItem(placement: .topBarTrailing, enabled: editor == nil) { headerMergePill }
         .toolbar {
             // EXP-1316: the title, ONE line, not tappable, the lock beside it.
             if let editor {
@@ -301,10 +307,6 @@ struct ThreadScreen: View {
                     )
                 }
             }
-            // S-3 (session-thread.json): the thread PR's Merge pill, left of
-            // `…`, on every page while the PR is open (the phones' bottom
-            // capsule left with the Guide tab).
-            ToolbarItem(placement: .topBarTrailing) { headerMergePill }
             ToolbarItem(placement: .topBarTrailing) {
                 if editor == nil, !chatMenuEntries.isEmpty {
                     Button { openChatMenu() } label: {

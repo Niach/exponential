@@ -2,7 +2,7 @@
 //! button, the switch, and the custom-variant alpha compensation they share
 //! with the pill.
 
-use gpui::{div, px, App, Div, ElementId, Hsla, InteractiveElement as _, ParentElement as _};
+use gpui::{div, px, App, Div, ElementId, Hsla, InteractiveElement as _, IntoElement as _, ParentElement as _};
 use gpui::{SharedString, Stateful, Styled};
 use gpui_component::{ActiveTheme as _, Icon, Sizable as _, Size};
 
@@ -229,15 +229,166 @@ pub fn text_button(
     }
 }
 
-/// EXP-862 — the ONE switch: gpui-component's `Switch` with the web's pointer
-/// cursor. gpui-component defaults every control to `cursor_default`; a toggle
-/// the user clicks points on hover on all four clients, and a dozen call sites
-/// each remembering to say so is how half of them forgot.
+/// EXP-862 — the ONE switch, with the web's pointer cursor. gpui-component
+/// defaults every control to `cursor_default`; a toggle the user clicks
+/// points on hover on all four clients, and a dozen call sites each
+/// remembering to say so is how half of them forgot.
+///
+/// EXP-1557: it is [`WebSwitch`] now, not gpui-component's `Switch` — that
+/// one paints ONE thumb token in both states, so the off switch wore a dark
+/// thumb on a dark track where every other client draws a white one.
 ///
 /// The IDE forbids constructing the upstream switch anywhere but here
 /// (`only_controls_constructs_switches`) — construct through this.
-pub fn web_switch(id: impl Into<ElementId>) -> gpui_component::switch::Switch {
-    gpui_component::switch::Switch::new(id).cursor_pointer()
+pub fn web_switch(id: impl Into<ElementId>) -> WebSwitch {
+    WebSwitch::new(id).cursor_pointer()
+}
+
+/// EXP-1557 — THE switch, the eUI `switch.ts` recipe (web `SWITCH_CLASSES`,
+/// dark): ON = a `primary` track under a `primary-foreground` (dark) thumb,
+/// OFF = a `glass-active` track under a `foreground` (white) thumb, disabled
+/// = the whole control at 50%. The behaviour (click, keyboard, focus, the
+/// accessibility role) is gpui-base's `Switch`, the same primitive
+/// gpui-component's switch is built on; geometry and the 150 ms thumb slide
+/// are gpui-component's (36×20 track, 16px thumb; 28×16 / 12px when small).
+#[derive(gpui::IntoElement)]
+pub struct WebSwitch {
+    id: ElementId,
+    style: gpui::StyleRefinement,
+    checked: bool,
+    disabled: bool,
+    size: Size,
+    on_click: Option<std::rc::Rc<dyn Fn(&bool, &mut gpui::Window, &mut App)>>,
+}
+
+impl WebSwitch {
+    fn new(id: impl Into<ElementId>) -> Self {
+        Self {
+            id: id.into(),
+            style: gpui::StyleRefinement::default(),
+            checked: false,
+            disabled: false,
+            size: Size::Medium,
+            on_click: None,
+        }
+    }
+
+    /// The checked state.
+    pub fn checked(mut self, checked: bool) -> Self {
+        self.checked = checked;
+        self
+    }
+
+    /// Called with the NEXT checked value when the user toggles it.
+    pub fn on_click(
+        mut self,
+        handler: impl Fn(&bool, &mut gpui::Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_click = Some(std::rc::Rc::new(handler));
+        self
+    }
+}
+
+impl Styled for WebSwitch {
+    fn style(&mut self) -> &mut gpui::StyleRefinement {
+        &mut self.style
+    }
+}
+
+impl gpui_component::Sizable for WebSwitch {
+    fn with_size(mut self, size: impl Into<Size>) -> Self {
+        self.size = size.into();
+        self
+    }
+}
+
+impl gpui_component::Disableable for WebSwitch {
+    fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+}
+
+impl gpui::RenderOnce for WebSwitch {
+    fn render(self, window: &mut gpui::Window, cx: &mut App) -> impl gpui::IntoElement {
+        use gpui::prelude::FluentBuilder as _;
+        use gpui::AnimationExt as _;
+        use gpui_component::StyledExt as _;
+
+        const SLIDE: std::time::Duration = std::time::Duration::from_millis(150);
+        let checked = self.checked;
+        // What the thumb last settled on: a change animates the slide.
+        let settled = window.use_keyed_state(self.id.clone(), cx, |_, _| checked);
+        let theme = cx.theme();
+        let (track, thumb) = if checked {
+            (theme.primary, theme.primary_foreground)
+        } else {
+            (Chrome::global(cx).fill_active, theme.foreground)
+        };
+        let (track_w, track_h, knob) = match self.size {
+            Size::XSmall | Size::Small => (px(28.), px(16.), px(12.)),
+            _ => (px(36.), px(20.), px(16.)),
+        };
+        let inset = px(2.);
+        let max_x = track_w - knob - inset * 2.;
+        let thumb_el = gpui_base::SwitchThumb::new(checked)
+            .disabled(self.disabled)
+            .rounded_full()
+            .size(knob)
+            .bg(thumb);
+        let thumb_el = if !self.disabled && *settled.read(cx) != checked {
+            let settle = settled.clone();
+            cx.spawn(async move |cx| {
+                cx.background_executor().timer(SLIDE).await;
+                _ = settle.update(cx, |state, _| *state = checked);
+            })
+            .detach();
+            thumb_el
+                .with_animation(
+                    ElementId::NamedInteger("move".into(), checked as u64),
+                    gpui::Animation::new(SLIDE),
+                    move |thumb, delta| {
+                        thumb.left(if checked { max_x * delta } else { max_x - max_x * delta })
+                    },
+                )
+                .into_any_element()
+        } else {
+            thumb_el
+                .left(if checked { max_x } else { px(0.) })
+                .into_any_element()
+        };
+        let on_click = self.on_click;
+        div()
+            .refine_style(&self.style)
+            .when(self.disabled, |this| this.opacity(0.5))
+            .child(
+                gpui_base::Switch::new(self.id.clone())
+                    .checked(checked)
+                    .disabled(self.disabled)
+                    .when_some(on_click, |this, on_click| {
+                        this.on_change(move |next, _, window, cx| {
+                            _ = settled.update(cx, |state, _| *state = checked);
+                            on_click(&next, window, cx);
+                        })
+                    })
+                    .h_flex()
+                    .items_start()
+                    .child(
+                        gpui_base::SwitchTrack::new((self.id.clone(), "track"))
+                            .checked(checked)
+                            .disabled(self.disabled)
+                            .w(track_w)
+                            .h(track_h)
+                            .rounded_full()
+                            .flex()
+                            .items_center()
+                            .border(inset)
+                            .border_color(gpui::transparent_black())
+                            .bg(track)
+                            .child(thumb_el),
+                    ),
+            )
+    }
 }
 
 #[cfg(test)]

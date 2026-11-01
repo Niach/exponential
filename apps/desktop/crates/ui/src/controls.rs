@@ -1161,6 +1161,14 @@ pub(crate) fn with_pointer_layer(menu: impl IntoElement) -> Div {
 /// deferred draw records the rem). Zed's `ui::WithRemSize`, minus the div.
 struct MenuRem(AnyElement);
 
+/// EXP-1557: lay `child` out at the web's 16px root, the [`MenuRem`] scope
+/// for a whole page — the settings detail column, whose `text_sm` rows,
+/// rem gaps and gpui-component controls read ~12% small at the IDE's 14px
+/// rem next to the web's same page.
+pub(crate) fn web_rem(child: impl IntoElement) -> impl IntoElement {
+    MenuRem(child.into_any_element())
+}
+
 impl MenuRem {
     const REM: f32 = t::typography::BASE_SIZE;
 }

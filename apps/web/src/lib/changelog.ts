@@ -33,6 +33,38 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Accounts**: logins show as Claude or Codex icons; an amber dot marks one that is signed out or at its limit, and hovering or tapping it shows the email, plan, usage limits and Sign in.`,
   },
   {
+    id: `2026-11-01-look-audit-fixes`,
+    date: `2026-11-01`,
+    title: `Settings and lists tidied up on every platform`,
+    summary: `My issues loads reliably on the web, and a few labels now read the same everywhere.`,
+    body: `- **My issues**: on the web, the list shows loading rows while it syncs instead of a brief "No issues".
+- **Settings**: the leftover "When a PR merges, end its sessions" switch and the page subtitle are gone.
+- **Same words everywhere**: the back button and image viewer say Stories, the phones' Account screen is titled Account, and iOS shows PR numbers without a thousands separator.`,
+  },
+  {
+    id: `2026-11-01-desktop-dialogs-in-window`,
+    date: `2026-11-01`,
+    title: `Desktop looks like the web app`,
+    summary: `Desktop dialogs open inside the window over a dimmed backdrop, and Settings matches the web page.`,
+    body: `- **Dialogs in the window**: Add device, Device settings, Join a team, Getting started, export, search and every confirm open over a dimmed backdrop; a click outside or Escape closes them.
+- **Settings**: the pages use the web app's type size, row style and switches.`,
+  },
+  {
+    id: `2026-11-01-agents-get-the-issue`,
+    date: `2026-11-01`,
+    title: `Agents get the issue you hand them`,
+    summary: `Start coding with an agent picked now gives it the issue's title and description.`,
+    body: `- **The whole issue**: an issue you send to an agent, or forward into a running session, reaches it with its identifier, title and description, in sealed chats too.
+- **No prompt needed**: sending just the issue wakes the agent.`,
+  },
+  {
+    id: `2026-11-01-sealed-agent-sends`,
+    date: `2026-11-01`,
+    title: `Agents seal their messages from the start`,
+    summary: `Agents started while a device was still coming online now seal their messages and card answers.`,
+    body: `- **No more refusals**: an agent started while its device was still coming online no longer gets "This chat is sealed" when it messages or answers a card.`,
+  },
+  {
     id: `2026-11-01-agent-signed-out`,
     date: `2026-11-01`,
     title: `Signed-out logins reach your inbox`,

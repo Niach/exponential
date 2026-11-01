@@ -30,6 +30,10 @@ net = ["dep:reqwest", "dep:tokio", "dep:tokio-tungstenite", "dep:futures-util"]
 eui-core = { path = "../eui-core", version = "0.3.0" }
 gpui.workspace = true
 gpui-component.workspace = true
+# EXP-1557: the switch's behaviour primitive (`gpui_base::Switch`) under
+# the web-coloured `controls::WebSwitch`; gpui-component's own base crate,
+# already in the lock at the same rev.
+gpui-base.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 # CSS-aligned break opportunities (UAX #14) for min-content and the

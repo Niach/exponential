@@ -107,6 +107,9 @@ class SessionBenchmarks {
     /**
      * Cold-open the thread, then the session: the join replays the whole feed,
      * which used to be folded on the main thread in one block (EXP-1522).
+     * [SessionOpenFrameMetric] reads the frames after the card's tap: the
+     * `Choreographer#doFrame%` Max is the cold process's first frame (EGL +
+     * shader bring-up), not the session's.
      */
     @OptIn(ExperimentalMetricApi::class)
     @Test
@@ -114,6 +117,7 @@ class SessionBenchmarks {
         packageName = PACKAGE,
         metrics = listOf(
             FrameTimingMetric(),
+            SessionOpenFrameMetric(),
             TraceSectionMetric("Choreographer#doFrame%", TraceSectionMetric.Mode.Max),
             TraceSectionMetric("SteerConnection.commitStaging", TraceSectionMetric.Mode.Sum),
             TraceSectionMetric("SteerConnection.frame", TraceSectionMetric.Mode.Sum),
@@ -239,9 +243,16 @@ class SessionBenchmarks {
                 y > bottom -> conversation.scroll(Direction.DOWN, 0.3f)
                 else -> break
             }
+            // A tap while the transcript still settles from the scroll
+            // only stops it (the card never opened: `agent-feed` not found).
+            device.waitForIdle()
             card = device.findObject(By.res(SESSION_CARD_TAG).hasDescendant(By.text(sessionTitle)))
         }
         (card ?: error("no session card `$sessionTitle` in thread `$threadId`")).click()
+        // One retry: the first tap can still land on a settling list.
+        if (device.wait(Until.hasObject(By.res(FEED_TAG)), WAIT_MS / 3) != true) {
+            device.findObject(By.res(SESSION_CARD_TAG).hasDescendant(By.text(sessionTitle)))?.click()
+        }
         transcript()
         // The join replay has landed once an agent bubble paints.
         device.wait(Until.hasObject(By.res(BUBBLE_TAG)), WAIT_MS)

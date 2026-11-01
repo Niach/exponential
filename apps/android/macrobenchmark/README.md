@@ -5,7 +5,7 @@ Frame timing for the journeys behind #EXP-1520..1522 ("omega lag"), measured aga
 | Test | Journey | Watch |
 |---|---|---|
 | `transcriptScroll` | fast swipes up and down a long live transcript | `frameDurationCpuMs`, `frameOverrunMs` |
-| `openSession` | cold open of the thread, then the session: the full join replay | `SteerConnection.commitStagingSumMs` (main thread), `Choreographer#doFrame%MaxMs` |
+| `openSession` | cold open of the thread, then the session: the full join replay | `sessionOpenFrameMaxMs`, `sessionOpenMainThreadMaxMs` (the frames after the card tap), `SteerConnection.commitStagingSumMs` |
 | `sendThenBack` | type, send, press back at once | `Choreographer#doFrame%MaxMs` (the old 2–3 s freeze), `frameDurationCpuMs` |
 | `typeWhileLive` | type 60 characters into a live session's composer while the agent's `turn` frames tick | fails if a character is lost or reordered; `frameDurationCpuMs` |
 | `reopenSessionDock` | back to the Conversation tab, then reopen the session's card (#EXP-1538) | `Dock.openToVisibleMaxMs`: open → the first Dock card |
@@ -44,3 +44,13 @@ Frame timing for the journeys behind #EXP-1520..1522 ("omega lag"), measured aga
    `-e threadId <root id> -e sessionTitle <card title>` points the journeys at another thread. The traces land in `/storage/emulated/0/Android/media/com.exponential.macrobenchmark/`.
 
 Compare numbers on the same device only. Emulator numbers are for before/after, not for absolute frame budgets.
+
+### Reading `openSession`
+
+`Choreographer#doFrame%MaxMs` there is the cold process's FIRST frame, not the session's: the window's EGL context and surface, plus every Skia shader compiled afresh (a cold start drops the shader cache). On an emulator without a host GPU (`hw.gpu.enabled=no`, the AVD default here) that frame is ~0.5 s of RenderThread `shader_compile` with the main thread asleep in `postAndWait`; with `-gpu host` it is ~0.2 s. No session code runs in it. `SessionOpenFrameMetric` reads only the frames after the card tap:
+
+- `sessionOpenFrameMaxMs`: the longest of them (wall; includes waiting on the RenderThread, i.e. the emulator's GL).
+- `sessionOpenMainThreadMaxMs`: the most main-thread CPU any one of them took: composition, layout, the feed fold.
+- `coldFirstFrameMs`: the first frame, for comparison.
+
+Run the emulator with a host GPU (`emulator -avd <avd> -gpu host`) for frame numbers; software GL turns every first-seen draw op into a 30–100 ms shader compile. A journey that fails with `agent-feed not found` sat on "No live transcript": the app's eNet node had not come up (logcat `EnetNodes`), so the session never joined the stub (#EXP-1590: after a cold restart the node can stay down ~80 s).

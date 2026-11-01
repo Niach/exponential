@@ -64,6 +64,8 @@ struct StoryViewer: View {
     @State private var scrollAtTop = true
     @State private var topHeight: CGFloat = 0
     @State private var footerHeight: CGFloat = 0
+    @State private var footerContentHeight: CGFloat = 0
+    @State private var viewerHeight: CGFloat = 0
 
     private static let space = "story-viewer"
     private static let tick: Double = 50
@@ -113,6 +115,7 @@ struct StoryViewer: View {
                 }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { viewerHeight = $0 }
         .preferredColorScheme(.dark)
         .coordinateSpace(name: Self.space)
         .accessibilityElement(children: .contain)
@@ -202,31 +205,39 @@ struct StoryViewer: View {
     private func footer(_ story: Stories.Story, _ shownFrame: Stories.Frame) -> some View {
         let filmstrip = shownFrame.kind == .gallery && story.pictures.count > 1
         if shownFrame.kind == .plan || filmstrip || shownFrame.footer == .choices || shownFrame.footer == .reply {
-            VStack(alignment: .leading, spacing: 12) {
-                if shownFrame.kind == .plan {
-                    planFooter(story)
-                } else {
-                    if filmstrip {
-                        StoryThumbnailStrip(
-                            count: story.pictures.count, current: picture, height: 52,
-                            onPick: { index in
-                                picture = index
-                                elapsed = 0
+            // #EXP-1523: never taller than `footerMaxFraction` of the viewer;
+            // a long one scrolls inside itself (a drag in it never steps).
+            let cap = viewerHeight > 0 ? viewerHeight * Stories.Viewer.footerMaxFraction : .infinity
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: 12) {
+                    if shownFrame.kind == .plan {
+                        planFooter(story)
+                    } else {
+                        if filmstrip {
+                            StoryThumbnailStrip(
+                                count: story.pictures.count, current: picture, height: 52,
+                                onPick: { index in
+                                    picture = index
+                                    elapsed = 0
+                                }
+                            ) { index in
+                                StoryPicture(picture: story.pictures[index], fill: true, cover: true)
                             }
-                        ) { index in
-                            StoryPicture(picture: story.pictures[index], fill: true, cover: true)
+                            .frame(maxWidth: .infinity)
                         }
-                        .frame(maxWidth: .infinity)
-                    }
-                    if shownFrame.footer != .none {
-                        StoryFooter(story: story, footer: shownFrame.footer, card: card(story.id), onAnswer: onAnswer)
-                            .id(story.id)
+                        if shownFrame.footer != .none {
+                            StoryFooter(story: story, footer: shownFrame.footer, card: card(story.id), onAnswer: onAnswer)
+                                .id(story.id)
+                        }
                     }
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 12)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerContentHeight = $0 }
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 12)
-            .padding(.bottom, 12)
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(height: min(footerContentHeight, cap))
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { footerHeight = $0 }
             .frame(maxWidth: .infinity)
             .background(alignment: .bottom) { StoryScrim(edge: .bottom).allowsHitTesting(false) }
