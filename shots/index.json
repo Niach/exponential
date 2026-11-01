@@ -3768,6 +3768,15 @@
         "sha256": "2a68febfd4d938bd0c1d246c31854df6291ec33bc647dc8a7af82d61e94e07b9"
       }
     },
+    "exponential-ui-zoomable-image": {
+      "android": {
+        "file": "shots/exponential-ui-zoomable-image/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 5554,
+        "sha256": "1a273e077614558c40d27a1dbb70e2e240c0d0c5b91d8c16598d8a4e7a4fb1a4"
+      }
+    },
     "feedback-states": {
       "android": {
         "file": "shots/feedback-states/android.webp",
