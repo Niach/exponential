@@ -368,8 +368,9 @@ struct AttachmentFileTile: View {
 /// The read side: a comment's linked attachments. Images render as LARGE
 /// inline tiles stacked vertically (EXP-723 activity redesign — a comment's
 /// screenshot is usually its point, and a 64pt crop showed none of it);
-/// everything else stays a chip. Both tap through to Quick Look over the same
-/// download-to-temp path the Files section uses; EXP-1003: a markdown chip
+/// everything else stays a chip. An image taps through to THE picture viewer
+/// (EXP-1586, zoomable, over the comment's images); a chip to Quick Look over
+/// the same download-to-temp path the Files section uses; EXP-1003: a markdown chip
 /// opens the in-app `AttachmentMarkdownPreviewSheet` instead, whose Download
 /// is the save route. Passing `onRemove` turns it
 /// into the edit-mode strip (an X on every tile — removals become permanent
@@ -383,6 +384,8 @@ struct CommentAttachmentsStrip: View {
 
     @State private var previewURL: URL?
     @State private var downloadingId: String?
+    /// EXP-1586: the open picture viewer, nil when closed.
+    @State private var viewer: PictureViewerSet?
     /// EXP-1003: the markdown chip shown in the in-app preview sheet.
     @State private var markdownPreview: AttachmentEntity?
 
@@ -418,6 +421,7 @@ struct CommentAttachmentsStrip: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .quickLookPreview($previewURL)
+            .pictureViewer($viewer)
             .sheet(item: $markdownPreview) { attachment in
                 AttachmentMarkdownPreviewSheet(attachment: attachment)
             }
@@ -464,14 +468,14 @@ struct CommentAttachmentsStrip: View {
     private func imageTile(_ attachment: AttachmentEntity) -> some View {
         ZStack(alignment: .topTrailing) {
             Button {
-                preview(attachment)
+                let items = images.map { PictureViewerItem(id: $0.id, src: $0.url, label: $0.filename) }
+                viewer = PictureViewerSet(items: items, start: images.firstIndex { $0.id == attachment.id } ?? 0)
             } label: {
                 LargeAttachmentImage(
                     attachment: attachment,
                     baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                     accountId: accountId,
-                    httpClient: deps.httpClient,
-                    isLoading: downloadingId == attachment.id
+                    httpClient: deps.httpClient
                 )
             }
             .buttonStyle(.plain)
@@ -592,7 +596,6 @@ private struct LargeAttachmentImage: View {
     let baseURL: URL?
     let accountId: String
     let httpClient: HTTPClient?
-    let isLoading: Bool
 
     @State private var image: UIImage?
 
@@ -612,11 +615,6 @@ private struct LargeAttachmentImage: View {
             } else {
                 Color.white.opacity(0.06)
                     .aspectRatio(aspectRatio, contentMode: .fit)
-            }
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: 480)

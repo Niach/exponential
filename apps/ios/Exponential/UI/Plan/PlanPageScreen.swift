@@ -1,7 +1,6 @@
 import ExpCore
 import ExpUI
 import GRDB
-import QuickLook
 import SwiftUI
 
 /// #EXP-1493 THE PLAN PAGE, phone form (fixtures/plan-page.json; web
@@ -11,8 +10,8 @@ import SwiftUI
 /// the kind badge + the h1 title + the counts line lead the column, then the
 /// blocks (`PlanPage.blocks`): prose through THE chat markdown renderer, a
 /// section = its h2 (the outline's anchor), a picture group = THE carousel.
-/// A press on a picture opens THE lightbox (Quick Look, `‹ i / n ›`) over
-/// every plan picture in document order. The outline opens in a bottom sheet
+/// A press on a picture opens THE lightbox (EXP-1586 THE picture viewer,
+/// zoomable, `‹ i / n ›`) over every plan picture in document order. The outline opens in a bottom sheet
 /// (THE eUI Drawer's phone form). The bottom = THE DockCard (dock.json, kind
 /// plan) opening THE Dock sheet (plan-card `stepper`); no composer.
 struct PlanPageScreen: View {
@@ -38,8 +37,7 @@ struct PlanPageScreen: View {
     @State private var outlineOpen = false
     @State private var busy = false
     @State private var sectionTops: [String: CGFloat] = [:]
-    @State private var lightbox: URL?
-    @State private var lightboxItems: [URL] = []
+    @State private var lightbox: PictureViewerSet?
 
     private static let space = "plan-document"
 
@@ -72,7 +70,7 @@ struct PlanPageScreen: View {
                 }
             }
         }
-        .quickLookPreview($lightbox, in: lightboxItems)
+        .pictureViewer($lightbox)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(PlanPage.TestIds.page)
         .task(id: messageId) { await observe() }
@@ -269,17 +267,12 @@ struct PlanPageScreen: View {
 
     private func openLightbox(at picture: PlanPage.Picture, plan: String) {
         let all = PlanPage.pictures(plan)
-        Task {
-            var urls: [URL] = []
-            var selected: URL?
-            for entry in all {
-                guard let url = await download(entry.src) else { continue }
-                urls.append(url)
-                if entry == picture, selected == nil { selected = url }
-            }
-            lightboxItems = urls
-            lightbox = selected ?? urls.first
+        let items = all.map { entry in
+            let id = Self.attachmentId(entry.src)
+            return PictureViewerItem(id: id.isEmpty ? entry.src : id, src: entry.src, label: entry.alt)
         }
+        guard !items.isEmpty else { return }
+        lightbox = PictureViewerSet(items: items, start: all.firstIndex(of: picture) ?? 0)
     }
 
     private func openLightbox(src: String, plan: String) {
@@ -288,24 +281,6 @@ struct PlanPageScreen: View {
         guard let picture = all.first(where: { $0.src == src }) ?? all.first(where: { Self.attachmentId($0.src) == id })
         else { return }
         openLightbox(at: picture, plan: plan)
-    }
-
-    private func download(_ src: String) async -> URL? {
-        let id = Self.attachmentId(src)
-        guard !id.isEmpty else { return nil }
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("attachments", isDirectory: true)
-            .appendingPathComponent(id, isDirectory: true)
-        let destination = directory.appendingPathComponent("\(id).png")
-        if FileManager.default.fileExists(atPath: destination.path) { return destination }
-        do {
-            let data = try await deps.attachmentsApi.download(accountId: accountId, relativeUrl: src)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try data.write(to: destination, options: .atomic)
-            return destination
-        } catch {
-            return nil
-        }
     }
 
     // MARK: - Data
