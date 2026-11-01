@@ -318,10 +318,12 @@ struct AppRecordFormSheet: View {
     }
 
     var body: some View {
-        GlassSheetChrome(title: title) {
+        // The header pill: labelled, a bare first trailing closure is ambiguous
+        // between headerTrailing and pinnedHeader.
+        GlassSheetChrome(title: title, headerTrailing: {
             GlassPill(AppRecords.DataTab.Copy.cancel, mode: .action { dismiss() })
                 .accessibilityIdentifier("app-data-cancel")
-        } content: {
+        }) {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(fields, id: \.name) { field in
                     fieldView(field)
