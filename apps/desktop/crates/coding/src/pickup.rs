@@ -969,6 +969,10 @@ pub fn input_text(message: &MessageRow, sessions: &[SessionRow]) -> String {
             .map(str::trim)
             .filter(|summary| !summary.is_empty())
             .unwrap_or(body);
+        // #FEED-158: a private run's neutral report carries the bare lead as its
+        // card summary and the read hint + session id in its body: read the body
+        // whenever it extends the summary, never the bare `A private chat finished.`
+        let summary = if body.len() > summary.len() && body.starts_with(summary) { body } else { summary };
         return format!("Report from {name} (session {from}, ended): {summary}");
     }
     format!("Message from {name} (session {from}): {body}")
@@ -4449,6 +4453,22 @@ mod tests {
         };
         assert_eq!(input_text(&asked, &sessions), "Message from Fix the cart (session c1): Which branch?");
         assert_eq!(input_text(&message("m1", "s1", "t"), &sessions), "body of m1");
+    }
+
+    #[test]
+    fn a_private_report_reads_with_its_hint_never_the_bare_lead() {
+        // #FEED-158 (packages/eagent incidents.json): the starter got only
+        // "A private chat finished." and took the run for empty.
+        let child = SessionRow { title: Some("MA-1418".to_string()), ..session("d02b2da4", "ended", DEV, "t") };
+        let mut hidden = report("r1", "s1", "d02b2da4", "A private chat finished.");
+        hidden.body = Some(
+            "A private chat finished.\nRead it with exponential_sessions({op: \"get\", id: \"d02b2da4\"}) if your account may see it."
+                .to_string(),
+        );
+        assert_eq!(
+            input_text(&hidden, &[child]),
+            "Report from MA-1418 (session d02b2da4, ended): A private chat finished.\nRead it with exponential_sessions({op: \"get\", id: \"d02b2da4\"}) if your account may see it."
+        );
     }
 
     #[test]

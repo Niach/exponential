@@ -503,6 +503,8 @@ struct SendData {
     shared: Option<bool>,
     text: Option<String>,
     sealed: Option<bool>,
+    /// #FEED-173: the issues a new thread starts on (its work when it has no text).
+    issue_ids: Option<Vec<String>>,
     /// The id a fresh thread or a continuation takes.
     fresh_id: Option<String>,
 }
@@ -517,6 +519,13 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
         caller_root.as_ref().filter(|root| tree_agent_id(root).is_some()).map(|root| root.device_id.clone())
     });
     let Some(device_id) = device_id else { return refuse(ErrorCode::Invalid, "Pick a device for the new session") };
+    // #FEED-173: a start with nothing to work on (no text, no issues) is refused, never an empty thread.
+    if js::trim(data.text.as_deref().unwrap_or("")).is_empty()
+        && data.sealed != Some(true)
+        && data.issue_ids.as_ref().is_none_or(Vec::is_empty)
+    {
+        return refuse(ErrorCode::Invalid, text(&["startNeedsWork"]));
+    }
     let id = data.id.clone().or_else(|| data.fresh_id.clone()).unwrap_or_default();
     let root = insert_session(
         ctx,
