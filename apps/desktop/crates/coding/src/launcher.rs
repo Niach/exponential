@@ -521,6 +521,25 @@ pub trait WorktreeProvider: Send + Sync {
             .map(|path| CreatedWorktree { path, note: None })
     }
 
+    /// EXP-1542 (#FEED-169): a MOVED session's branch as `origin` has it
+    /// once its old device handed it off ([`await_hand_off`]): a local
+    /// branch of it, fast-forwarded when this device's copy is behind
+    /// ([`crate::git_worktree::continue_branch`]), so the run carries the
+    /// latest work on. `false` = origin has no such branch (the base
+    /// fallback applies). The default trusts it is there.
+    #[allow(clippy::too_many_arguments)]
+    fn continue_branch(
+        &self,
+        _repos_root: &Path,
+        _full_name: &str,
+        _url: &TokenUrl,
+        _expires_at: Option<&str>,
+        _branch: &str,
+        _wait: std::time::Duration,
+    ) -> bool {
+        true
+    }
+
     /// FEED-170: the first of `candidates` (most wanted first, never empty)
     /// a child can cut from. The default trusts the first.
     fn pick_base(
@@ -533,6 +552,83 @@ pub trait WorktreeProvider: Send + Sync {
     ) -> String {
         candidates[0].clone()
     }
+}
+
+/// EXP-1542 (#FEED-169): how long a continuation waits for its branch to
+/// reach origin from the device it moved from ([`WorktreeProvider::continue_branch`]),
+/// and how often it looks.
+pub const CONTINUE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
+const CONTINUE_POLL: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// EXP-1542 (#FEED-169, review): the move a session continues when it came
+/// from ANOTHER device (`brief.moved`); `None` = it never moved, or moved
+/// from here.
+pub fn moved_here<'a>(brief: &'a SessionBrief, device_id: Option<&str>) -> Option<&'a api::session_device::SessionMove> {
+    brief.moved.as_ref().filter(|moved| Some(moved.from_device_id.as_str()) != device_id)
+}
+
+/// EXP-1542: how long after a move its continuation still waits for (and
+/// warns about) a missing hand-off; later launches and resumes of it go on
+/// at once (a source gone for good never costs every resume a wait).
+pub const HAND_OFF_FRESH: std::time::Duration = std::time::Duration::from_secs(15 * 60);
+
+/// EXP-1542: whether `moved` is recent enough to wait for
+/// ([`HAND_OFF_FRESH`]); an unreadable time counts as recent.
+pub fn hand_off_fresh(moved: &api::session_device::SessionMove, now_ms: i64) -> bool {
+    moved
+        .moved_at
+        .as_deref()
+        .and_then(domain::instant::parse_instant)
+        .is_none_or(|at| now_ms - at <= HAND_OFF_FRESH.as_millis() as i64)
+}
+
+/// EXP-1542 (#FEED-169, review): wait (up to `wait`, re-reading
+/// `sessions.moveState` every `poll`) until the move's SOURCE device
+/// reports its hand-off, so the worktree starts from the tip it pushed,
+/// never a stale one. Bounded: an offline source never hands off, and the
+/// state comes back still without `handed_off` (the run's first turn says
+/// so). Callers hold no launch gate while it waits.
+pub fn await_hand_off(
+    trpc: &api::trpc::TrpcClient,
+    session_id: &str,
+    moved: &api::session_device::SessionMove,
+    wait: std::time::Duration,
+    poll: std::time::Duration,
+) -> api::session_device::SessionMove {
+    let deadline = std::time::Instant::now() + wait;
+    let mut state = moved.clone();
+    if !hand_off_fresh(moved, chrono::Utc::now().timestamp_millis()) {
+        return state;
+    }
+    while state.handed_off.is_none() && std::time::Instant::now() + poll <= deadline {
+        std::thread::sleep(poll);
+        match api::session_device::move_state(trpc, session_id) {
+            Ok(Some(next)) => state = next,
+            Ok(None) => break,
+            Err(err) => log::info!("session {session_id}: move state not read: {err}"),
+        }
+    }
+    state
+}
+
+/// EXP-1542 (#FEED-169): where a moved session's worktree may start when
+/// origin has no `<branch>`: the branch its old device parked the work on
+/// (the reported one, then the moved row's `exp/leftover-<id8>`), most
+/// wanted first; the caller appends its usual bases.
+pub fn moved_base_candidates(moved: &api::session_device::SessionMove) -> Vec<String> {
+    let reported = moved.handed_off.as_ref().and_then(|handed| handed.leftover.clone());
+    let own = Some(format!(
+        "{}{}",
+        crate::run_cleanup::LEFTOVER_BRANCH_PREFIX,
+        crate::run_cleanup::session_id8(&moved.session_id)
+    ));
+    let mut candidates: Vec<String> = Vec::new();
+    for candidate in [reported, own].into_iter().flatten() {
+        if !candidate.trim().is_empty() && !candidates.contains(&candidate) {
+            candidates.push(candidate);
+        }
+    }
+    candidates
 }
 
 /// FEED-170 — where a child may cut its worktree from, most wanted first:
@@ -627,6 +723,23 @@ impl WorktreeProvider for GitWorktrees {
             restored => log::info!("auto-push: {branch} prepared in {}: {restored:?}", worktree.path.display()),
         }
         Ok(worktree)
+    }
+
+    fn continue_branch(
+        &self,
+        repos_root: &Path,
+        full_name: &str,
+        url: &TokenUrl,
+        expires_at: Option<&str>,
+        branch: &str,
+        wait: std::time::Duration,
+    ) -> bool {
+        let ready = ensure_clone(repos_root, full_name, url)
+            .and_then(|clone| git_credentials::ensure(&clone, url, expires_at).map(|_| clone));
+        match ready {
+            Ok(clone) => crate::git_worktree::continue_branch(&clone, branch, url, wait, CONTINUE_POLL),
+            Err(_) => false,
+        }
     }
 
     fn pick_base(
@@ -2034,6 +2147,11 @@ fn prepare_session(
             let url = minted.url.clone();
             let repos_root = deps.settings.repos_root_path();
             let clone = clone_path(&repos_root, url.full_name());
+            // EXP-1542 (#FEED-169, review): a session that MOVED here waits
+            // for its old device's hand-off (bounded), BEFORE it takes the
+            // clone's launch gate; a session that never moved never waits.
+            let moved = moved_here(&req.brief, deps.device_id.as_deref())
+                .map(|moved| await_hand_off(&deps.trpc, &session_id, moved, CONTINUE_WAIT, CONTINUE_POLL));
             launch_hold = Some(crate::launch_gate::hold(&clone));
             {
                 let mut branch = session_branch(row, own_issues, &deps.settings.branch_prefix, parent_branch);
@@ -2056,6 +2174,36 @@ fn prepare_session(
                     branch = session_own_branch(row);
                 }
                 crate::git_worktree::validate_branch_arg(&branch, "session")?;
+                // EXP-1542 (#FEED-169): a moved session carries on from the
+                // branch its old device handed off (origin's tip now); when
+                // origin has none, from where that device parked the work.
+                let mut moved_bases: Vec<String> = Vec::new();
+                if let Some(moved) = &moved {
+                    let continued = deps.worktrees.continue_branch(
+                        &repos_root,
+                        url.full_name(),
+                        &url,
+                        minted.expires_at.as_deref(),
+                        &branch,
+                        std::time::Duration::ZERO,
+                    );
+                    if !continued {
+                        log::info!("session {session_id}: {branch} is not on origin, trying its parked work");
+                        moved_bases = moved_base_candidates(moved);
+                    }
+                    match &moved.handed_off {
+                        None if hand_off_fresh(moved, chrono::Utc::now().timestamp_millis()) => {
+                            log::info!("session {session_id}: its old device did not hand {branch} off in time");
+                            workspace_notes.push(crate::prompt::hand_off_missing_note(&branch));
+                        }
+                        Some(handed) if continued && handed.outcome == "parked" => {
+                            if let Some(parked) = handed.leftover.as_deref() {
+                                workspace_notes.push(crate::prompt::hand_off_parked_note(&branch, parked));
+                            }
+                        }
+                        _ => {}
+                    }
+                }
                 // EXP-1292: a child works ON its parent's branch line — its
                 // worktree is cut from `origin/<parent branch>` (and its PR then
                 // stacks on the parent's); a root (no parent branch) cuts
@@ -2068,21 +2216,42 @@ fn prepare_session(
                         // never reached origin (a throwaway local checkout):
                         // the first base that exists on origin wins.
                         let candidates = child_base_candidates(row, parent, &minted.default_branch);
+                        let mut wanted = moved_bases.clone();
+                        wanted.extend(candidates.iter().filter(|c| !moved_bases.contains(c)).cloned());
                         let picked = deps.worktrees.pick_base(
                             &repos_root,
                             url.full_name(),
                             &url,
                             minted.expires_at.as_deref(),
-                            &candidates,
+                            &wanted,
                         );
                         // #FEED-169: a moved session's branch never reached
                         // origin; the run says what it starts from.
-                        if picked != candidates[0] {
+                        if moved_bases.contains(&picked) {
+                            workspace_notes.push(crate::prompt::base_fallback_note(&branch, &picked));
+                        } else if picked != candidates[0] {
                             log::info!(
                                 "session {session_id}: {} is not on origin, cutting from {picked}",
                                 candidates[0]
                             );
                             workspace_notes.push(crate::prompt::base_fallback_note(&candidates[0], &picked));
+                        }
+                        picked
+                    }
+                    // EXP-1542 (review): a moved ROOT (an ended thread revived
+                    // on this device) tries its parked work too.
+                    None if !moved_bases.is_empty() => {
+                        let mut wanted = moved_bases.clone();
+                        wanted.push(minted.default_branch.clone());
+                        let picked = deps.worktrees.pick_base(
+                            &repos_root,
+                            url.full_name(),
+                            &url,
+                            minted.expires_at.as_deref(),
+                            &wanted,
+                        );
+                        if moved_bases.contains(&picked) {
+                            workspace_notes.push(crate::prompt::base_fallback_note(&branch, &picked));
                         }
                         picked
                     }
@@ -2595,6 +2764,11 @@ fn prepare_resume(
         if default_branch.is_empty() {
             default_branch = minted.default_branch.clone();
         }
+        // EXP-1542 (review): a session that moved BACK here (its old run's
+        // worktree still stands) waits for the other device's hand-off too,
+        // outside the launch gate.
+        let moved = moved_here(&req.brief, deps.device_id.as_deref())
+            .map(|moved| await_hand_off(&deps.trpc, &session_id, moved, CONTINUE_WAIT, CONTINUE_POLL));
         launch_hold = Some(crate::launch_gate::hold(clone));
         // A reclaimed worktree is cut from the CURRENT base: the parent's
         // branch while the brief still names one, else the repo default (a
@@ -2638,6 +2812,34 @@ fn prepare_resume(
                 )?;
                 workspace_note = created.note;
                 let worktree = created.path;
+                // EXP-1542: the standing worktree catches up with what the
+                // other device handed off (a fast-forward of a clean tree,
+                // never a reset); else the first turn says it may be behind.
+                if let Some(moved) = &moved {
+                    let fetched = deps.worktrees.continue_branch(
+                        &deps.settings.repos_root_path(),
+                        url.full_name(),
+                        &url,
+                        minted.expires_at.as_deref(),
+                        branch,
+                        std::time::Duration::ZERO,
+                    );
+                    let caught_up = fetched && crate::git_worktree::fast_forward_worktree(&worktree, branch);
+                    let note = match &moved.handed_off {
+                        None if hand_off_fresh(moved, chrono::Utc::now().timestamp_millis()) => {
+                            Some(crate::prompt::hand_off_missing_note(branch))
+                        }
+                        None => None,
+                        Some(_) if fetched && !caught_up => Some(crate::prompt::hand_off_behind_note(branch)),
+                        Some(_) => None,
+                    };
+                    if let Some(note) = note {
+                        workspace_note = Some(match workspace_note.take() {
+                            Some(first) => format!("{first}\n\n{note}"),
+                            None => note,
+                        });
+                    }
+                }
                 // The worktree is the cwd wherever git put it (the layout
                 // path, normally — the same one the record names, so the
                 // agent's cwd-keyed transcript still resolves).
@@ -3514,6 +3716,66 @@ mod tests {
             account: None,
             computer_use: None,
         }
+    }
+
+    /// EXP-1542 (#FEED-169, review): a continuation waits only when it
+    /// MOVED here from another device, until that device reports its
+    /// hand-off (re-read off `sessions.moveState`), bounded: an offline
+    /// source leaves it un-handed after the wait. A moved session tries the
+    /// reported leftover, then its old row's `exp/leftover-<id8>`.
+    #[test]
+    fn a_moved_continuation_waits_for_its_source_hand_off_bounded() {
+        use api::session_device::{HandedOff, SessionMove};
+        let moved = SessionMove {
+            move_id: "mv-1".to_string(),
+            session_id: "1a2b3c4d-0000".to_string(),
+            from_device_id: "dev-a".to_string(),
+            ..SessionMove::default()
+        };
+        let brief = SessionBrief { moved: Some(moved.clone()), ..SessionBrief::default() };
+        assert!(moved_here(&brief, Some("dev-b")).is_some());
+        assert!(moved_here(&brief, Some("dev-a")).is_none(), "moved FROM here: no wait");
+        assert!(moved_here(&SessionBrief::default(), Some("dev-b")).is_none());
+
+        let ms = std::time::Duration::from_millis;
+        let pending = r#"{"result":{"data":{"moveId":"mv-1","sessionId":"1a2b3c4d-0000","fromDeviceId":"dev-a","handedOff":null}}}"#;
+        let handed = r#"{"result":{"data":{"moveId":"mv-1","sessionId":"1a2b3c4d-0000","fromDeviceId":"dev-a","handedOff":{"outcome":"parked","leftover":"exp/leftover-1a2b3c4d-2"}}}}"#;
+        let (base, requests) = crate::test_support::canned_server_recording(vec![
+            (200, pending.to_string()),
+            (200, handed.to_string()),
+        ]);
+        let trpc = TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        let state = await_hand_off(&trpc, "s-new", &moved, ms(5_000), ms(10));
+        assert_eq!(
+            state.handed_off,
+            Some(HandedOff { outcome: "parked".to_string(), leftover: Some("exp/leftover-1a2b3c4d-2".to_string()) })
+        );
+        assert_eq!(requests.lock().unwrap().len(), 2);
+        assert_eq!(
+            moved_base_candidates(&state),
+            vec!["exp/leftover-1a2b3c4d-2".to_string(), "exp/leftover-1a2b3c4d".to_string()]
+        );
+        // An offline source: the wait ends, still not handed off.
+        let (base, _requests) = crate::test_support::canned_server_recording(
+            (0..20).map(|_| (200, pending.to_string())).collect(),
+        );
+        let trpc = TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        let started = std::time::Instant::now();
+        let state = await_hand_off(&trpc, "s-new", &moved, ms(60), ms(20));
+        assert_eq!(state.handed_off, None);
+        assert!(started.elapsed() < ms(2_000));
+        assert!(crate::prompt::hand_off_missing_note("exp/session-1a2b3c4d").contains("may be missing its latest commits"));
+        // A move long past is never waited for again (a source gone for good).
+        let old = SessionMove { moved_at: Some("2020-01-01T00:00:00Z".to_string()), ..moved.clone() };
+        let at = domain::instant::parse_instant("2020-01-01T00:00:00Z").unwrap();
+        assert!(hand_off_fresh(&old, at + 60_000));
+        assert!(!hand_off_fresh(&old, at + 16 * 60_000));
+        let started = std::time::Instant::now();
+        let (base, requests) = crate::test_support::canned_server_recording(vec![]);
+        let trpc = TrpcClient::new(&base, Arc::new(api::StaticToken("t".into())));
+        assert_eq!(await_hand_off(&trpc, "s-new", &old, ms(5_000), ms(10)).handed_off, None);
+        assert!(started.elapsed() < ms(1_000));
+        assert!(requests.lock().unwrap().is_empty());
     }
 
     const BRIEF: &str = "Work on EXP-42: Fix login flicker.\n\n## Request\n\nThe login page flickers.";

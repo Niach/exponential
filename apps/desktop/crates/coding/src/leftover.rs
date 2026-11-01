@@ -585,6 +585,33 @@ mod tests {
         vec!["exp/A-1".to_string(), "main".to_string()]
     }
 
+    /// EXP-1542 (#FEED-171, DESKTOP-2K0CVDE): the REAL Windows run. A
+    /// worktree whose `node_modules` nests past `MAX_PATH` (300+ chars),
+    /// with a read-only file deep inside, is removed whole: content, then
+    /// `.git` and git's registration. Runs only on Windows (the
+    /// release suite's `desktop-windows` job).
+    #[cfg(windows)]
+    #[test]
+    fn windows_removes_a_worktree_with_paths_past_max_path() {
+        let root = temp_dir("winlong");
+        let (clone, worktree) = clone_with_worktree(&root.0);
+        let mut deep = worktree.join("node_modules");
+        while deep.as_os_str().len() < 320 {
+            deep = deep.join("node_modules").join("some-package-name");
+        }
+        assert!(deep.as_os_str().len() > 260, "{}", deep.display());
+        fs::create_dir_all(long_path(&deep)).unwrap();
+        let file = deep.join("index.js");
+        fs::write(long_path(&file), "module.exports = 1\n").unwrap();
+        let mut perms = fs::metadata(long_path(&file)).unwrap().permissions();
+        perms.set_readonly(true);
+        fs::set_permissions(long_path(&file), perms).unwrap();
+        remove_worktree(&clone, &worktree, "git worktree remove (exp/A-1)", &verified(&worktree, true)).unwrap();
+        assert!(!long_path(&worktree).exists(), "{}", worktree.display());
+        let listed = git(&clone, &["worktree", "list", "--porcelain"]);
+        assert!(!listed.contains("exp-A-1"), "{listed}");
+    }
+
     #[test]
     fn sha1_matches_git_blob_ids() {
         assert_eq!(blob_id(b""), "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391");

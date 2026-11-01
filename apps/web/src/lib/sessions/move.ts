@@ -1,12 +1,14 @@
 import { TRPCError } from "@trpc/server"
-import { and, eq } from "drizzle-orm"
+import { and, desc, eq, sql } from "drizzle-orm"
 import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
-import { devices, type Device, type Session } from "@/db/schema"
+import { devices, events, sessions, type Device, type Session } from "@/db/schema"
 import { carriedAccountOption, flattenAccounts } from "@/lib/accounts/account-option"
 import { sessionDeviceOwner } from "@/lib/sessions/host"
 import { effectiveCli, resolveSessionDevice } from "@/lib/sessions/send"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
+import { emitEventInTx } from "@/lib/events"
+import type { Tx } from "@/lib/sessions/tx"
 
 // NEW-1: moving a session to another device = `sessions.send({sessionId,
 // deviceId})`: a QUEUED row simply re-targets; a LIVE one ends here and
@@ -207,4 +209,155 @@ async function carriedProfile(
   const profile = source?.agentAccounts?.[agent]?.profiles?.find((entry) => entry?.id === profileId)
   if (!profile?.email) return undefined
   return carriedAccountOption(options, { agent: agent as `claude`, email: profile.email })
+}
+
+// ── EXP-1542 (#FEED-169): the hand-off of a moved session's branch ─────────
+// A move that leaves work behind on its SOURCE device (a live session's
+// relocation, an ended root revived on another device) is recorded as a
+// server-emitted `session.moved` event: ids only (the events shape syncs to
+// every member, #EXP-1409). The source device reads it off its synced
+// events (THE record that it is the source: never the moved line's text),
+// pushes the branch, then reports `sessions.handedOff`, which records ONE
+// `session.handed_off` event per move. The continuation's device reads
+// both through its brief (`moved`) and `sessions.moveState`, and waits for
+// the hand-off before it cuts its worktree. A queued row's re-target ran
+// nowhere: nothing to hand off, no record.
+
+export const SESSION_MOVED_EVENT = `session.moved`
+export const SESSION_HANDED_OFF_EVENT = `session.handed_off`
+
+export const handOffOutcomeValues = [`pushed`, `parked`, `none`] as const
+export type HandOffOutcome = (typeof handOffOutcomeValues)[number]
+
+export interface SessionMoveState {
+  /** The `session.moved` event's id. */
+  moveId: string
+  /** The row that moved (a relocation's ended row; a revived root itself). */
+  sessionId: string
+  continuationId: string
+  fromDeviceId: string
+  toDeviceId: string
+  movedAt: string
+  /** Null = the source device has not handed off yet. */
+  handedOff: { outcome: HandOffOutcome; leftover: string | null; at: string } | null
+}
+
+export async function recordMoveInTx(
+  tx: Tx,
+  move: { teamId: string; sessionId: string; continuationId: string; fromDeviceId: string; toDeviceId: string }
+): Promise<void> {
+  await emitEventInTx(tx, {
+    teamId: move.teamId,
+    name: SESSION_MOVED_EVENT,
+    payload: {
+      sessionId: move.sessionId,
+      continuationId: move.continuationId,
+      fromDeviceId: move.fromDeviceId,
+      toDeviceId: move.toDeviceId,
+    },
+    emittedBy: { server: true },
+  })
+}
+
+const str = (value: unknown): string | null => (typeof value === `string` && value ? value : null)
+
+/** The NEWEST move the continuation `sessionId` came from, and its hand-off. */
+export async function moveStateOf(session: Pick<Session, `id` | `teamId`>): Promise<SessionMoveState | null> {
+  const [moved] = await db
+    .select()
+    .from(events)
+    .where(
+      and(
+        eq(events.teamId, session.teamId),
+        eq(events.name, SESSION_MOVED_EVENT),
+        eq(events.emittedBy, `server`),
+        sql`${events.payload}->>'continuationId' = ${session.id}`
+      )
+    )
+    .orderBy(desc(events.createdAt))
+    .limit(1)
+  if (!moved) return null
+  const payload = moved.payload as Record<string, unknown>
+  const [sessionId, continuationId, fromDeviceId, toDeviceId] = [
+    str(payload.sessionId),
+    str(payload.continuationId),
+    str(payload.fromDeviceId),
+    str(payload.toDeviceId),
+  ]
+  if (!sessionId || !continuationId || !fromDeviceId || !toDeviceId) return null
+  const handed = await handOffOf(moved.teamId, moved.id)
+  return {
+    moveId: moved.id,
+    sessionId,
+    continuationId,
+    fromDeviceId,
+    toDeviceId,
+    movedAt: moved.createdAt.toISOString(),
+    handedOff: handed,
+  }
+}
+
+async function handOffOf(teamId: string, moveId: string): Promise<SessionMoveState[`handedOff`]> {
+  const [row] = await db
+    .select()
+    .from(events)
+    .where(
+      and(
+        eq(events.teamId, teamId),
+        eq(events.name, SESSION_HANDED_OFF_EVENT),
+        eq(events.emittedBy, `server`),
+        sql`${events.payload}->>'moveId' = ${moveId}`
+      )
+    )
+    .orderBy(events.createdAt)
+    .limit(1)
+  if (!row) return null
+  const payload = row.payload as Record<string, unknown>
+  const outcome = handOffOutcomeValues.find((value) => value === payload.outcome) ?? `none`
+  return { outcome, leftover: str(payload.leftover), at: row.createdAt.toISOString() }
+}
+
+/**
+ * The SOURCE device's hand-off report: only the account its device runs
+ * under (the move's `fromDeviceId` resolved like any session host) may
+ * report it. Idempotent: the first report is THE record; a repeat (a
+ * restarted daemon, the run's finish and the pickup both) returns it.
+ */
+export async function recordHandOff(
+  userId: string,
+  input: { moveId: string; outcome: HandOffOutcome; leftover?: string | null }
+): Promise<{ outcome: HandOffOutcome; leftover: string | null }> {
+  const [moved] = await db
+    .select()
+    .from(events)
+    .where(and(eq(events.id, input.moveId), eq(events.name, SESSION_MOVED_EVENT), eq(events.emittedBy, `server`)))
+    .limit(1)
+  const payload = (moved?.payload ?? {}) as Record<string, unknown>
+  const sessionId = str(payload.sessionId)
+  const fromDeviceId = str(payload.fromDeviceId)
+  if (!moved || !sessionId || !fromDeviceId) {
+    throw new TRPCError({ code: `NOT_FOUND`, message: `Move not found` })
+  }
+  const [session] = await db
+    .select({ userId: sessions.userId, teamId: sessions.teamId })
+    .from(sessions)
+    .where(eq(sessions.id, sessionId))
+    .limit(1)
+  if (!session || (await sessionDeviceOwner({ ...session, deviceId: fromDeviceId })) !== userId) {
+    throw new TRPCError({ code: `FORBIDDEN`, message: `Only the device the session moved from can hand it off` })
+  }
+  const leftover = input.outcome === `parked` ? (input.leftover ?? null) : null
+  return db.transaction(async (tx) => {
+    // One record per move, whoever reports first.
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`hand-off:${moved.id}`}))`)
+    const existing = await handOffOf(moved.teamId, moved.id)
+    if (existing) return { outcome: existing.outcome, leftover: existing.leftover }
+    await emitEventInTx(tx, {
+      teamId: moved.teamId,
+      name: SESSION_HANDED_OFF_EVENT,
+      payload: { moveId: moved.id, sessionId, fromDeviceId, outcome: input.outcome, ...(leftover ? { leftover } : {}) },
+      emittedBy: { server: true },
+    })
+    return { outcome: input.outcome, leftover }
+  })
 }

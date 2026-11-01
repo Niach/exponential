@@ -13,7 +13,8 @@ name: release-suite
 # Playwright e2e on the compose dev stack (`e2e`), the push-relay
 # image smoke build, marketing + styleguide builds + shots:check, the full
 # desktop cargo test + Rust licence inventory (+ the engine's macOS-only
-# confine cases on the Mac), the desktop fuzz targets (short
+# confine cases on the Mac, the coding crate's long-path removal on
+# Windows), the desktop fuzz targets (short
 # runs, NEW-88), Android unit tests + lint +
 # licence inventory, the iOS compile + suites (test-ios.yml) and the ExpCore
 # SwiftPM replay (ios-core.yml; informational on PRs), and every
@@ -419,6 +420,22 @@ jobs:
       - name: Cargo tests (engine confine, macOS)
         working-directory: apps/desktop
         run: cargo test --locked -p engine --lib adapters::confine
+
+  # EXP-1542 (#FEED-171): the Windows-only cases (leftover.rs's long-path
+  # worktree removal past MAX_PATH) never run on the Linux or Mac jobs.
+  desktop-windows:
+    needs: dedupe
+    if: needs.dedupe.outputs.run == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - name: Cargo tests (worktree removal, Windows long paths)
+        working-directory: apps/desktop
+        run: cargo test --locked -p coding --lib leftover::
 
   desktop-fuzz:
     needs: dedupe

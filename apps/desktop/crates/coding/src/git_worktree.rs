@@ -390,6 +390,74 @@ pub fn fetch_base(clone: &Path, default_branch: &str, url: &TokenUrl) -> Result<
     Ok(())
 }
 
+/// EXP-1542 (#FEED-169) — [`crate::launcher::WorktreeProvider::continue_branch`]:
+/// a moved session's branch as origin has it NOW (its old device handed it
+/// off). `origin` is fetched every `poll` until `wait` runs out; once it
+/// has the branch, a missing local branch is made of it (`git branch
+/// <branch> origin/<branch>`) and a local one that is BEHIND it (an
+/// ancestor: this device ran the session before) is fast-forwarded, so the
+/// worktree checks out the latest work instead of a stale tip. A local
+/// branch that diverged is never reset. `true` = the branch is local now.
+pub fn continue_branch(clone: &Path, branch: &str, url: &TokenUrl, wait: std::time::Duration, poll: std::time::Duration) -> bool {
+    if validate_branch_arg(branch, "continued branch").is_err() {
+        return false;
+    }
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        if fetch_base(clone, branch, url).is_ok() {
+            let tracking = format!("refs/remotes/origin/{branch}");
+            if !branch_exists(clone, branch, url) {
+                return run_git(Some(clone), &["branch", branch, &tracking], Some(url), &format!("git branch {branch}"))
+                    .is_ok()
+                    || branch_exists(clone, branch, url);
+            }
+            let local = format!("refs/heads/{branch}");
+            let behind = run_git(
+                Some(clone),
+                &["merge-base", "--is-ancestor", &local, &tracking],
+                None,
+                "git merge-base --is-ancestor",
+            )
+            .is_ok();
+            // `git branch -f` refuses a branch a worktree has checked out:
+            // that worktree keeps its own state.
+            if behind
+                && run_git(Some(clone), &["branch", "-f", branch, &tracking], None, &format!("git branch -f {branch}"))
+                    .is_err()
+            {
+                log::info!("{branch}: behind origin but checked out here, kept as it is");
+            }
+            return true;
+        }
+        if branch_exists(clone, branch, url) {
+            return true;
+        }
+        if std::time::Instant::now() + poll > deadline {
+            return false;
+        }
+        std::thread::sleep(poll);
+    }
+}
+
+/// EXP-1542: bring a standing worktree on `branch` up to
+/// `origin/<branch>` (fetched by [`continue_branch`]) by a FAST-FORWARD
+/// only, and only when no tracked file is changed: never a reset, never a
+/// merge commit. `true` = it is at (or ahead of) origin's tip now.
+pub fn fast_forward_worktree(worktree: &Path, branch: &str) -> bool {
+    if validate_branch_arg(branch, "fast-forwarded branch").is_err()
+        || worktree_head(worktree).as_deref() != Some(branch)
+    {
+        return false;
+    }
+    let tracking = format!("refs/remotes/origin/{branch}");
+    if run_git(Some(worktree), &["merge-base", "--is-ancestor", &tracking, "HEAD"], None, "git merge-base").is_ok() {
+        return true;
+    }
+    let clean = run_git(Some(worktree), &["status", "--porcelain", "--untracked-files=no"], None, "git status")
+        .is_ok_and(|out| out.trim().is_empty());
+    clean && run_git(Some(worktree), &["merge", "--ff-only", "--quiet", &tracking], None, "git merge --ff-only").is_ok()
+}
+
 /// FEED-170 — the first of `candidates` (never empty) that origin has: a
 /// fetch that succeeds proves the ref exists there. A row's branch can name
 /// a throwaway local checkout that was never pushed (`origin/verify`:
@@ -1026,7 +1094,7 @@ pub fn carried_branch(worktree: &Path, recorded: &str) -> Option<String> {
     worktree_head(worktree).filter(|head| head != recorded)
 }
 
-fn worktree_head(worktree: &Path) -> Option<String> {
+pub(crate) fn worktree_head(worktree: &Path) -> Option<String> {
     let head = run_git(
         Some(worktree),
         &["rev-parse", "--abbrev-ref", "HEAD"],
@@ -2375,6 +2443,72 @@ fatal: couldn't find remote ref nope\n";
         fs::create_dir_all(clone.parent().unwrap()).unwrap();
         git(&dir.0, &["clone", "--quiet", origin.to_str().unwrap(), clone.to_str().unwrap()]);
         (dir, clone, TokenUrl::new("acme/app", "ghs_dead"))
+    }
+
+    /// EXP-1542 (#FEED-169): a moved session's continuation finds the
+    /// branch its old device pushed and continues it (a local branch at
+    /// origin's tip, then the worktree checks it out, never `-b` from the
+    /// base); a branch that never arrives gives up after the wait; a
+    /// local branch is never reset.
+    #[test]
+    fn a_continuation_continues_the_branch_its_old_device_pushed() {
+        let (dir, clone, url) = leftover_clone("continue");
+        let origin = dir.0.join("origin-src");
+        git(&origin, &["checkout", "--quiet", "-b", "exp/session-10272d04"]);
+        fs::write(origin.join("moved.txt"), "work from the old device\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "moved work"]);
+        git(&origin, &["checkout", "--quiet", "main"]);
+        let zero = std::time::Duration::ZERO;
+        assert!(continue_branch(&clone, "exp/session-10272d04", &url, zero, zero));
+        let worktree = create_worktree(&clone, "exp/session-10272d04", "origin/main", &url).unwrap();
+        assert!(worktree.join("moved.txt").exists());
+        // Already local: kept as it is.
+        assert!(continue_branch(&clone, "exp/session-10272d04", &url, zero, zero));
+        // Never pushed: false once the wait runs out.
+        assert!(!continue_branch(&clone, "exp/session-ffffffff", &url, zero, zero));
+    }
+
+    /// EXP-1542 (review): a branch this device already has (it ran the
+    /// session before; it has a PR) is fast-forwarded to the tip the old
+    /// device just handed off, never left stale; a local branch that
+    /// DIVERGED from origin's is never reset.
+    #[test]
+    fn a_continuation_fast_forwards_a_stale_local_branch_never_a_diverged_one() {
+        let rev = |cwd: &Path, rev: &str| {
+            let out = Command::new("git").args(["rev-parse", rev]).current_dir(cwd).output().unwrap();
+            String::from_utf8(out.stdout).unwrap().trim().to_string()
+        };
+        let (dir, clone, url) = leftover_clone("continue-stale");
+        let origin = dir.0.join("origin-src");
+        let branch = "exp/session-5a1e0000";
+        git(&origin, &["checkout", "--quiet", "-b", branch]);
+        fs::write(origin.join("first.txt"), "first\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "first"]);
+        let zero = std::time::Duration::ZERO;
+        assert!(continue_branch(&clone, branch, &url, zero, zero));
+        // The old device hands off a newer tip.
+        fs::write(origin.join("second.txt"), "second\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "second"]);
+        let tip = rev(&origin, "HEAD");
+        assert!(continue_branch(&clone, branch, &url, zero, zero));
+        assert_eq!(rev(&clone, &format!("refs/heads/{branch}")), tip);
+        // A local commit of its own: diverged, kept.
+        let side = dir.0.join("side");
+        git(&clone, &["worktree", "add", "--quiet", side.to_str().unwrap(), branch]);
+        fs::write(side.join("local.txt"), "local\n").unwrap();
+        git(&side, &["add", "."]);
+        git(&side, &["commit", "--quiet", "-m", "local"]);
+        let local = rev(&side, "HEAD");
+        git(&clone, &["worktree", "remove", "--force", side.to_str().unwrap()]);
+        fs::write(origin.join("third.txt"), "third\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "third"]);
+        assert!(continue_branch(&clone, branch, &url, zero, zero));
+        assert_eq!(rev(&clone, &format!("refs/heads/{branch}")), local);
+        git(&origin, &["checkout", "--quiet", "main"]);
     }
 
     /// #FEED-168 / #FEED-171 (matflow, exp-MA-1430): a second run on an

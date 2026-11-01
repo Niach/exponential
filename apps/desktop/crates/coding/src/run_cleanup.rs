@@ -262,8 +262,30 @@ impl From<CleanupOutcome> for FinishOutcome {
 /// Same shields as [`remove_if_clean`]: the clone's launch gate, live
 /// holders, a missing worktree, malformed branch names.
 pub fn finish_worktree(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> FinishOutcome {
-    let outcome =
-        match crate::launch_gate::try_exclusive(&cleanup.clone, || finish_locked(cleanup, live, session_id8)) {
+    finish_worktree_with(cleanup, live, session_id8, false)
+}
+
+/// EXP-1542 (#FEED-169): [`finish_worktree`] for a session that MOVED to
+/// another device: its continuation there cuts from `origin/<branch>`, so
+/// the work (the WIP commit included) is pushed to the session's OWN
+/// branch first, a plain push (never forced), [`hand_off_head`]: a landed
+/// branch is never pushed back, a `HEAD` off the branch is parked. Only
+/// when the own push is refused does it fall back to
+/// `exp/leftover-<id8>`, which the new device tries next; any other push
+/// failure keeps the worktree.
+pub fn finish_moved_worktree(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> FinishOutcome {
+    finish_worktree_with(cleanup, live, session_id8, true)
+}
+
+fn finish_worktree_with(
+    cleanup: &RunCleanup,
+    live: &LiveHolders,
+    session_id8: &str,
+    push_own: bool,
+) -> FinishOutcome {
+    let outcome = match crate::launch_gate::try_exclusive(&cleanup.clone, || {
+        finish_locked(cleanup, live, session_id8, push_own)
+    }) {
             Some(outcome) => outcome,
             None => FinishOutcome::Skipped(SkipReason::GateHeld),
         };
@@ -272,7 +294,7 @@ pub fn finish_worktree(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &s
     outcome
 }
 
-fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> FinishOutcome {
+fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str, push_own: bool) -> FinishOutcome {
     if !cleanup.worktree.is_dir() {
         return FinishOutcome::Skipped(SkipReason::Missing);
     }
@@ -324,12 +346,21 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) ->
         branch: cleanup.branch.clone(),
         base_branch: Some(cleanup.base_branch.clone()),
     };
-    let leftover = if unpushed == 0 || head_landed(cleanup) {
+    // EXP-1542: a moved session's own branch carries the work on, HEAD
+    // checked ([`hand_off_head`]: never a landed branch pushed back, HEAD
+    // elsewhere parked).
+    let leftover = if push_own {
+        match hand_off_head(cleanup, &leftover) {
+            Ok(HandOff::Parked(parked)) => Some(parked),
+            Ok(_) => None,
+            Err(detail) => return FinishOutcome::Skipped(SkipReason::GitFailed(detail)),
+        }
+    } else if unpushed == 0 || head_landed(cleanup) {
         None
     } else if crate::auto_push::push_branch(&own).on_origin() {
         None
     } else {
-        match push_leftover(&cleanup.worktree, &leftover) {
+        match push_leftover(&cleanup.worktree, "HEAD", &leftover) {
             Ok(pushed) => Some(pushed),
             Err(detail) => return FinishOutcome::Skipped(SkipReason::GitFailed(detail)),
         }
@@ -381,6 +412,12 @@ fn unpushed_count(worktree: &Path) -> Option<usize> {
 /// Whether the worktree's `HEAD` work is contained in `origin/<base>` (a
 /// squash or cherry-pick counts).
 fn head_landed(cleanup: &RunCleanup) -> bool {
+    rev_landed(cleanup, "HEAD")
+}
+
+/// [`head_landed`] for any revision of the worktree (EXP-1542: the session
+/// branch's own ref when `HEAD` is elsewhere).
+fn rev_landed(cleanup: &RunCleanup, rev: &str) -> bool {
     let origin_base = format!("origin/{}", cleanup.base_branch);
     run_git(
         Some(&cleanup.clone),
@@ -389,8 +426,8 @@ fn head_landed(cleanup: &RunCleanup) -> bool {
         "git rev-parse origin base",
     )
     .is_ok()
-        && head_commit(&cleanup.worktree).is_some_and(|head| {
-            crate::prune::branch_landed(&cleanup.clone, &head, &origin_base, &Default::default())
+        && rev_commit(&cleanup.worktree, rev).is_some_and(|commit| {
+            crate::prune::branch_landed(&cleanup.clone, &commit, &origin_base, &Default::default())
         })
 }
 
@@ -402,21 +439,21 @@ pub(crate) fn nothing_to_park(cleanup: &RunCleanup) -> bool {
         && (unpushed_count(&cleanup.worktree) == Some(0) || head_landed(cleanup))
 }
 
-fn head_commit(worktree: &Path) -> Option<String> {
-    run_git(Some(worktree), &["rev-parse", "--verify", "HEAD"], None, "git rev-parse HEAD")
+fn rev_commit(worktree: &Path, rev: &str) -> Option<String> {
+    run_git(Some(worktree), &["rev-parse", "--verify", &format!("{rev}^{{commit}}")], None, "git rev-parse")
         .ok()
         .map(|out| out.trim().to_string())
         .filter(|sha| !sha.is_empty())
 }
 
-/// Push `HEAD` to `origin` as `name`, then `name-2` … when an unrelated
+/// Push `src` (`HEAD`, or a branch ref) to `origin` as `name`, then `name-2` … when an unrelated
 /// history holds the name (a plain push, never forced). The pushed name, or
 /// the failure detail.
-fn push_leftover(worktree: &Path, name: &str) -> Result<String, String> {
+fn push_leftover(worktree: &Path, src: &str, name: &str) -> Result<String, String> {
     let mut last = String::new();
     for attempt in 1..=LEFTOVER_SUFFIX_TRIES {
         let target = if attempt == 1 { name.to_string() } else { format!("{name}-{attempt}") };
-        let refspec = format!("HEAD:refs/heads/{target}");
+        let refspec = format!("{src}:refs/heads/{target}");
         match run_git(
             Some(worktree),
             &["push", "--no-verify", "origin", &refspec],
@@ -429,6 +466,211 @@ fn push_leftover(worktree: &Path, name: &str) -> Result<String, String> {
         }
     }
     Err(format!("every leftover branch name is taken: {last}"))
+}
+
+/// EXP-1542 (#FEED-169): push `src` (`HEAD`, or the session branch's own
+/// ref) to `origin/<branch>`, the session's own branch: a plain push (never
+/// forced), so a diverged origin branch is refused, never overwritten. The
+/// failure detail is logged and returned.
+fn push_session_branch(worktree: &Path, src: &str, branch: &str) -> Result<(), String> {
+    validate_branch_arg(branch, "moved session branch").map_err(|err| err.detail)?;
+    let refspec = format!("{src}:refs/heads/{branch}");
+    run_git(Some(worktree), &["push", "--no-verify", "origin", &refspec], None, &format!("git push origin {branch}"))
+        .map(|_| ())
+        .map_err(|err| {
+            log::warn!("moved session: {branch} not pushed, parking on a leftover branch: {}", err.detail);
+            err.detail
+        })
+}
+
+/// What a moved session's hand-off did ([`hand_off_moved_branch`],
+/// [`finish_moved_worktree`]); [`HandOff::outcome`] is what the server
+/// records (`sessions.handedOff`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HandOff {
+    /// The work is on `origin/<branch>` (pushed now, or already there).
+    Pushed,
+    /// (Some of) the work was parked on this branch: the own-branch push was
+    /// refused, or `HEAD` was not on the session's branch.
+    Parked(String),
+    /// Nothing to hand on (no worktree and nothing parked, the work already
+    /// landed, an unusable branch name): the continuation goes on without
+    /// waiting.
+    Nothing(String),
+    /// Not now (the launch gate, a live holder, a failed push or WIP
+    /// commit): the worktree stays as it was; the pickup tries again.
+    Retry(String),
+}
+
+impl HandOff {
+    /// `(outcome, leftover)` for `sessions.handedOff`; `None` = not done
+    /// yet ([`HandOff::Retry`]): nothing is reported.
+    pub fn outcome(&self) -> Option<(&'static str, Option<&str>)> {
+        match self {
+            Self::Pushed => Some(("pushed", None)),
+            Self::Parked(branch) => Some(("parked", Some(branch.as_str()))),
+            Self::Nothing(_) => Some(("none", None)),
+            Self::Retry(_) => None,
+        }
+    }
+}
+
+/// EXP-1542: hand a moved session's committed work on (the launch gate
+/// held, the WIP commit made). On the session's branch: a landed branch
+/// (merged, maybe deleted on origin) is never pushed back; else `HEAD` goes
+/// to `origin/<branch>`, or is parked on `leftover` when that is refused.
+/// Elsewhere (another branch, detached): the session branch's OWN ref goes
+/// to `origin/<branch>` (parked when refused) and `HEAD`'s unpushed commits
+/// are parked too; nothing is lost. `Err` = a push failed outright.
+fn hand_off_head(cleanup: &RunCleanup, leftover: &str) -> Result<HandOff, String> {
+    let worktree = &cleanup.worktree;
+    let branch = cleanup.branch.as_str();
+    if crate::git_worktree::worktree_head(worktree).as_deref() == Some(branch) {
+        if head_landed(cleanup) {
+            return Ok(HandOff::Nothing("landed".to_string()));
+        }
+        if push_session_branch(worktree, "HEAD", branch).is_ok() {
+            return Ok(HandOff::Pushed);
+        }
+        return push_leftover(worktree, "HEAD", leftover).map(HandOff::Parked);
+    }
+    log::warn!("moved session: the worktree is not on {branch}: pushing {branch} itself, parking HEAD");
+    let own = format!("refs/heads/{branch}");
+    let mut pushed = false;
+    let mut parked: Option<String> = None;
+    let own_exists =
+        run_git(Some(worktree), &["rev-parse", "--verify", "--quiet", &own], None, "git rev-parse branch").is_ok();
+    if own_exists && !rev_landed(cleanup, &own) {
+        if push_session_branch(worktree, &own, branch).is_ok() {
+            pushed = true;
+        } else {
+            parked = Some(push_leftover(worktree, &own, leftover)?);
+        }
+    }
+    if unpushed_count(worktree) != Some(0) && !head_landed(cleanup) {
+        let head = push_leftover(worktree, "HEAD", leftover)?;
+        parked.get_or_insert(head);
+    }
+    Ok(match parked {
+        Some(branch) => HandOff::Parked(branch),
+        None if pushed => HandOff::Pushed,
+        None => HandOff::Nothing("nothing to hand on".to_string()),
+    })
+}
+
+/// EXP-1542 (#FEED-169): the hand-off of a session that moved to another
+/// device while NO engine ran it here (an idle or ended session): its
+/// tracked changes become one WIP commit and its work goes to the session's
+/// own branch ([`hand_off_head`]), else `exp/leftover-<id8>`. The worktree
+/// is never removed here: the nightly sweep
+/// ([`crate::prune::sweep_stale_worktrees`]) finishes it. A worktree that
+/// is already gone (the run's finish removed it) hands on what that finish
+/// parked: the leftover branch when origin has it. Shielded like
+/// [`finish_worktree`]: the clone's launch gate, live holders.
+pub fn hand_off_moved_branch(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> HandOff {
+    let run = || {
+        let leftover = format!("{LEFTOVER_BRANCH_PREFIX}{session_id8}");
+        if session_id8.is_empty()
+            || !session_id8.chars().all(|c| c.is_ascii_alphanumeric())
+            || validate_branch_arg(&cleanup.branch, "hand-off").is_err()
+        {
+            return HandOff::Nothing("invalid branch".to_string());
+        }
+        if !cleanup.worktree.is_dir() {
+            return if cleanup.clone.is_dir() && origin_has_branch(&cleanup.clone, &leftover) {
+                HandOff::Parked(leftover)
+            } else {
+                HandOff::Nothing("no worktree".to_string())
+            };
+        }
+        if let Some(why) = live.holder_of(cleanup) {
+            return HandOff::Retry(why);
+        }
+        if let WipSave::Failed(detail) = save_tracked_wip_commit(&cleanup.worktree) {
+            return HandOff::Retry(detail);
+        }
+        hand_off_head(cleanup, &leftover).unwrap_or_else(HandOff::Retry)
+    };
+    crate::launch_gate::try_exclusive(&cleanup.clone, run)
+        .unwrap_or_else(|| HandOff::Retry("launch gate held".to_string()))
+}
+
+/// Whether `origin` has `refs/heads/<branch>` (`git ls-remote`).
+fn origin_has_branch(clone: &Path, branch: &str) -> bool {
+    run_git(
+        Some(clone),
+        &["ls-remote", "--exit-code", "--heads", "origin", &format!("refs/heads/{branch}")],
+        None,
+        "git ls-remote",
+    )
+    .is_ok()
+}
+
+/// EXP-1542: report a hand-off's terminal outcome for `move_id`
+/// (`sessions.handedOff`). `true` = recorded (or nothing to record yet:
+/// [`HandOff::Retry`] reports nothing and returns `false`).
+pub fn report_hand_off(trpc: &api::trpc::TrpcClient, move_id: &str, outcome: &HandOff) -> bool {
+    let Some((outcome, leftover)) = outcome.outcome() else {
+        return false;
+    };
+    match api::session_device::handed_off(trpc, move_id, outcome, leftover) {
+        Ok(()) => true,
+        Err(err) => {
+            log::warn!("hand-off of move {move_id} not reported: {err}");
+            false
+        }
+    }
+}
+
+/// EXP-1542 (review): a host whose ONE run just exited (the foreground
+/// `code`/`run`, which never runs the daemon's finish): a run marked moved
+/// hands its worktree on now ([`hand_off_moved_branch`], kept) and reports
+/// it when the move's record was known. Whatever is left unreported, the
+/// daemon's pass does once this process is gone
+/// (`coding::pickup::HandOffStep::Wait`). `None` = it never moved.
+pub fn hand_off_on_exit(
+    trpc: &api::trpc::TrpcClient,
+    session_id: &str,
+    cleanup: Option<&RunCleanup>,
+) -> Option<HandOff> {
+    let marked = take_moved(session_id)?;
+    let cleanup = cleanup?;
+    let outcome = hand_off_moved_branch(cleanup, &LiveHolders::default(), &session_id8(session_id));
+    log::info!("session {session_id} moved away: handed off {} on exit: {outcome:?}", cleanup.branch);
+    if let HandOff::Parked(parked) = &outcome {
+        post_leftover_note(trpc, session_id, parked);
+    }
+    if let Some(move_id) = marked {
+        report_hand_off(trpc, &move_id, &outcome);
+    }
+    Some(outcome)
+}
+
+/// EXP-1542: the sessions this process saw MOVE to another device while
+/// their engine ran here ([`mark_moved`]), with the move's id when the
+/// record had synced; their run's finish ([`finish_session_worktree`])
+/// hands the branch on and reports it.
+static MOVED: std::sync::Mutex<Vec<(String, Option<String>)>> = std::sync::Mutex::new(Vec::new());
+
+/// EXP-1542: `session_id` moved away (`coding::pickup` saw it): its run's
+/// finish hands the branch on (and reports `move_id`'s hand-off).
+pub fn mark_moved(session_id: &str, move_id: Option<&str>) {
+    let mut moved = MOVED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    match moved.iter_mut().find(|(id, _)| id == session_id) {
+        Some((_, known)) => {
+            if known.is_none() {
+                *known = move_id.map(str::to_string);
+            }
+        }
+        None => moved.push((session_id.to_string(), move_id.map(str::to_string))),
+    }
+}
+
+/// Whether `session_id` was [`mark_moved`] (with its move id), forgetting it.
+pub fn take_moved(session_id: &str) -> Option<Option<String>> {
+    let mut moved = MOVED.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let at = moved.iter().position(|(id, _)| id == session_id)?;
+    Some(moved.remove(at).1)
 }
 
 /// A push the remote REFUSED for the ref's existing history (as opposed to
@@ -470,9 +712,20 @@ pub fn finish_session_worktree(
     cleanup: &RunCleanup,
     live: &LiveHolders,
 ) -> FinishOutcome {
-    let outcome = finish_worktree(cleanup, live, &session_id8(session_id));
+    // EXP-1542: a moved session's branch goes to origin first, and the
+    // move's record hears it (the pickup reports a move it had no id for).
+    let moved = take_moved(session_id);
+    let outcome = if moved.is_some() {
+        finish_moved_worktree(cleanup, live, &session_id8(session_id))
+    } else {
+        finish_worktree(cleanup, live, &session_id8(session_id))
+    };
     if let FinishOutcome::Removed { leftover: Some(branch) } = &outcome {
         post_leftover_note(trpc, session_id, branch);
+    }
+    if let (Some(Some(move_id)), FinishOutcome::Removed { leftover }) = (&moved, &outcome) {
+        let handed = leftover.clone().map_or(HandOff::Pushed, HandOff::Parked);
+        report_hand_off(trpc, move_id, &handed);
     }
     outcome
 }
@@ -807,6 +1060,172 @@ mod tests {
         assert!(!cleanup.worktree.exists());
         assert_eq!(origin_log(&cleanup, &cleanup.branch), crate::wip_save::WIP_FINISH_COMMIT_MESSAGE);
         assert!(!origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// EXP-1542 (#FEED-169): a MOVED session's finish pushes its work (the
+    /// WIP commit included) to its OWN branch, so the continuation on the
+    /// new device cuts from `origin/<branch>`; no leftover branch.
+    #[test]
+    fn a_moved_finish_pushes_the_session_branch_itself() {
+        let (root, cleanup) = fixture("finish-moved");
+        commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
+        std::fs::write(cleanup.worktree.join("README.md"), "edited\n").unwrap();
+        assert_eq!(
+            finish_moved_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            FinishOutcome::Removed { leftover: None }
+        );
+        assert!(!cleanup.worktree.exists());
+        assert!(origin_has(&cleanup, "exp/chat-1a2b3c4d"));
+        assert!(!origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+        assert_eq!(origin_log(&cleanup, "exp/chat-1a2b3c4d"), crate::wip_save::WIP_FINISH_COMMIT_MESSAGE);
+        let files = run_git(
+            Some(&origin_of(&cleanup)),
+            &["ls-tree", "-r", "--name-only", "exp/chat-1a2b3c4d"],
+            None,
+            "ls-tree",
+        )
+        .unwrap();
+        assert!(files.contains("local.txt"), "{files}");
+        // EXP-1542 (review): an untouched (or merged) branch has landed:
+        // never pushed back (a merged branch deleted on origin stays gone);
+        // the continuation cuts from the base, which has it all.
+        let (root2, untouched) = fixture("finish-moved-untouched");
+        assert_eq!(
+            finish_moved_worktree(&untouched, &LiveHolders::default(), "1a2b3c4d"),
+            FinishOutcome::Removed { leftover: None }
+        );
+        assert!(!origin_has(&untouched, "exp/chat-1a2b3c4d"));
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&root2);
+    }
+
+    /// EXP-1542: a refused own-branch push (origin's branch diverged) is
+    /// never forced: the work is parked on `exp/leftover-<id8>` instead and
+    /// origin's branch keeps its history.
+    #[test]
+    fn a_moved_finish_whose_branch_push_is_refused_parks_a_leftover() {
+        let (root, cleanup) = fixture("finish-moved-refused");
+        git(&cleanup.clone, &["branch", "other", "main"]);
+        let other = root.join("other");
+        git(&cleanup.clone, &["worktree", "add", other.to_str().unwrap(), "other"]);
+        commit_in(&other, "theirs.txt", "theirs\n");
+        git(&other, &["push", "-q", "origin", "other:refs/heads/exp/chat-1a2b3c4d"]);
+        commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
+        assert_eq!(
+            finish_moved_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            FinishOutcome::Removed { leftover: Some("exp/leftover-1a2b3c4d".to_string()) }
+        );
+        assert_eq!(origin_log(&cleanup, "exp/chat-1a2b3c4d"), "add theirs.txt");
+        assert_eq!(origin_log(&cleanup, "exp/leftover-1a2b3c4d"), "add local.txt");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// EXP-1542: a moved session with no engine here: its worktree's work
+    /// is pushed to its own branch and the worktree KEPT (the sweep
+    /// finishes it); the moved mark routes a run's finish the same way.
+    #[test]
+    fn a_hand_off_pushes_the_branch_and_keeps_the_worktree() {
+        let (root, cleanup) = fixture("hand-off");
+        commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
+        std::fs::write(cleanup.worktree.join("README.md"), "edited\n").unwrap();
+        assert_eq!(hand_off_moved_branch(&cleanup, &LiveHolders::default(), "1a2b3c4d"), HandOff::Pushed);
+        assert!(cleanup.worktree.join("local.txt").exists());
+        assert!(branch_exists(&cleanup.clone, &cleanup.branch));
+        assert_eq!(origin_log(&cleanup, "exp/chat-1a2b3c4d"), crate::wip_save::WIP_FINISH_COMMIT_MESSAGE);
+        assert_eq!(HandOff::Pushed.outcome(), Some(("pushed", None)));
+        // A live holder shields it: not now, retried (nothing reported).
+        let held = LiveHolders { branches: vec![cleanup.branch.clone()], ..LiveHolders::default() };
+        let shielded = hand_off_moved_branch(&cleanup, &held, "1a2b3c4d");
+        assert!(matches!(shielded, HandOff::Retry(_)), "{shielded:?}");
+        assert_eq!(shielded.outcome(), None);
+        // The mark is taken once, with the move id it was given.
+        mark_moved("sess-moved-1", None);
+        mark_moved("sess-moved-1", Some("mv-1"));
+        assert_eq!(take_moved("sess-moved-1"), Some(Some("mv-1".to_string())));
+        assert_eq!(take_moved("sess-moved-1"), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// EXP-1542 (review): the foreground `code`/`run` host hands a moved
+    /// run's branch on as it exits (it never runs the daemon's finish) and
+    /// reports the move; an unmoved run does nothing.
+    #[test]
+    fn a_foreground_host_hands_a_moved_run_off_on_exit() {
+        let (root, cleanup) = fixture("hand-off-on-exit");
+        commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
+        let (base, requests) =
+            crate::test_support::canned_server_recording(vec![(200, r#"{"result":{"data":{"outcome":"pushed"}}}"#.to_string())]);
+        let trpc = api::trpc::TrpcClient::new(&base, std::sync::Arc::new(api::StaticToken("t".into())));
+        assert_eq!(hand_off_on_exit(&trpc, "1a2b3c4d-exit", Some(&cleanup)), None);
+        assert!(!origin_has(&cleanup, "exp/chat-1a2b3c4d"));
+        mark_moved("1a2b3c4d-exit", Some("mv-9"));
+        assert_eq!(hand_off_on_exit(&trpc, "1a2b3c4d-exit", Some(&cleanup)), Some(HandOff::Pushed));
+        assert_eq!(origin_log(&cleanup, "exp/chat-1a2b3c4d"), "add local.txt");
+        assert!(cleanup.worktree.exists());
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert!(requests[0].contains("sessions.handedOff"), "{}", requests[0]);
+        assert!(requests[0].contains(r#"{"moveId":"mv-9","outcome":"pushed"}"#), "{}", requests[0]);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// EXP-1542 (review): a worktree whose HEAD is NOT on the session's
+    /// branch (the agent checked out another one) never pushes that HEAD
+    /// as the session branch: the branch's OWN ref goes to origin and
+    /// HEAD's commits are parked on the leftover branch; nothing is lost,
+    /// in the finish and in the no-engine hand-off alike.
+    #[test]
+    fn a_moved_hand_off_off_its_branch_pushes_the_branch_ref_and_parks_head() {
+        for finish in [false, true] {
+            let (root, cleanup) = fixture(if finish { "moved-off-branch-finish" } else { "moved-off-branch" });
+            commit_in(&cleanup.worktree, "mine.txt", "on the session branch\n");
+            git(&cleanup.worktree, &["checkout", "-q", "-b", "side"]);
+            commit_in(&cleanup.worktree, "side.txt", "on another branch\n");
+            if finish {
+                assert_eq!(
+                    finish_moved_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+                    FinishOutcome::Removed { leftover: Some("exp/leftover-1a2b3c4d".to_string()) }
+                );
+            } else {
+                assert_eq!(
+                    hand_off_moved_branch(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+                    HandOff::Parked("exp/leftover-1a2b3c4d".to_string())
+                );
+            }
+            assert_eq!(origin_log(&cleanup, "exp/chat-1a2b3c4d"), "add mine.txt");
+            assert_eq!(origin_log(&cleanup, "exp/leftover-1a2b3c4d"), "add side.txt");
+            let _ = std::fs::remove_dir_all(&root);
+        }
+    }
+
+    /// EXP-1542 (review): a landed branch (merged; origin deleted it) is
+    /// never pushed back by a hand-off; a worktree the finish already
+    /// removed hands on what that finish parked on origin, else nothing.
+    #[test]
+    fn a_hand_off_never_revives_a_landed_branch_and_reads_a_removed_worktrees_leftover() {
+        let (root, cleanup) = fixture("hand-off-landed");
+        commit_in(&cleanup.worktree, "done.txt", "merged\n");
+        // The PR merged: main has the commit, the branch is gone on origin.
+        git(&cleanup.worktree, &["push", "-q", "origin", "HEAD:refs/heads/main"]);
+        git(&cleanup.clone, &["fetch", "-q", "origin"]);
+        assert!(matches!(
+            hand_off_moved_branch(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            HandOff::Nothing(_)
+        ));
+        assert!(!origin_has(&cleanup, "exp/chat-1a2b3c4d"));
+        // The finish removed the worktree (nothing parked): nothing to hand on.
+        git(&cleanup.clone, &["worktree", "remove", "--force", cleanup.worktree.to_str().unwrap()]);
+        assert!(matches!(
+            hand_off_moved_branch(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            HandOff::Nothing(_)
+        ));
+        // … or it parked the work: that leftover is the hand-off.
+        git(&cleanup.clone, &["push", "-q", "origin", "main:refs/heads/exp/leftover-1a2b3c4d"]);
+        assert_eq!(
+            hand_off_moved_branch(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
+            HandOff::Parked("exp/leftover-1a2b3c4d".to_string())
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

@@ -77,6 +77,43 @@ pub struct SessionBrief {
     /// link otherwise); the device appends them to the opened text.
     #[serde(default)]
     pub sealed_attachments: Vec<String>,
+    /// EXP-1542 (#FEED-169): the move this session continues (its old
+    /// device hands the branch on); `None` = it never moved, or an older
+    /// server.
+    #[serde(default)]
+    pub moved: Option<SessionMove>,
+}
+
+/// EXP-1542: a move's record (`sessions.brief` `moved`,
+/// `sessions.moveState`).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionMove {
+    pub move_id: String,
+    /// The row that moved (a relocation's ended row, or the revived root).
+    pub session_id: String,
+    #[serde(default)]
+    pub continuation_id: String,
+    pub from_device_id: String,
+    #[serde(default)]
+    pub to_device_id: String,
+    /// When the server recorded the move (ISO 8601).
+    #[serde(default)]
+    pub moved_at: Option<String>,
+    /// `None` = the source device has not handed off yet.
+    #[serde(default)]
+    pub handed_off: Option<HandedOff>,
+}
+
+/// EXP-1542: what the source device did with the moved session's work.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct HandedOff {
+    /// `pushed` (origin's branch is current) | `parked` (on `leftover`) |
+    /// `none` (nothing to hand on).
+    pub outcome: String,
+    #[serde(default)]
+    pub leftover: Option<String>,
 }
 
 impl SessionBrief {
@@ -98,6 +135,30 @@ struct SessionIdInput<'a> {
 /// `sessions.brief` — query.
 pub fn brief(trpc: &TrpcClient, session_id: &str) -> Result<SessionBrief, ApiError> {
     trpc.query_with_input("sessions.brief", &SessionIdInput { session_id })
+}
+
+/// EXP-1542 `sessions.moveState` — query: the move a continuation came
+/// from (re-read while it waits for the hand-off).
+pub fn move_state(trpc: &TrpcClient, session_id: &str) -> Result<Option<SessionMove>, ApiError> {
+    trpc.query_with_input("sessions.moveState", &SessionIdInput { session_id })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct HandedOffInput<'a> {
+    move_id: &'a str,
+    outcome: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    leftover: Option<&'a str>,
+}
+
+/// EXP-1542 `sessions.handedOff` — mutation: the SOURCE device of a move
+/// reports its hand-off (`pushed` | `parked` + `leftover` | `none`). Once
+/// per move server-side; a repeat is harmless.
+pub fn handed_off(trpc: &TrpcClient, move_id: &str, outcome: &str, leftover: Option<&str>) -> Result<(), ApiError> {
+    let _: serde::de::IgnoredAny =
+        trpc.mutation("sessions.handedOff", &HandedOffInput { move_id, outcome, leftover })?;
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -485,7 +546,7 @@ mod tests {
     fn brief_queries_with_the_session_id_and_decodes_the_layers() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"brief":"Work on EXP-1.","teamPrompt":"Be terse.","agentInstructions":null,"parentBranch":"exp/EXP-0","voicePolicy":true,"screenMemory":true,"sealedText":"exp-sealed:v1:1:AAAA","sealedAttachments":["![a.png](/api/attachments/a-1)"]}}}"#,
+            r#"{"result":{"data":{"brief":"Work on EXP-1.","teamPrompt":"Be terse.","agentInstructions":null,"parentBranch":"exp/EXP-0","voicePolicy":true,"screenMemory":true,"sealedText":"exp-sealed:v1:1:AAAA","sealedAttachments":["![a.png](/api/attachments/a-1)"],"moved":{"moveId":"mv-1","sessionId":"s-old","continuationId":"s-new","fromDeviceId":"dev-a","toDeviceId":"dev-b","movedAt":"2026-11-01T00:00:00.000Z","handedOff":{"outcome":"parked","leftover":"exp/leftover-1a2b3c4d","at":"2026-11-01T00:00:01.000Z"}}}}}"#,
         );
         let brief = brief(&client(&base), SESSION).unwrap();
         assert_eq!(
@@ -500,6 +561,19 @@ mod tests {
                 screen_memory: true,
                 sealed_text: Some("exp-sealed:v1:1:AAAA".to_string()),
                 sealed_attachments: vec!["![a.png](/api/attachments/a-1)".to_string()],
+                // EXP-1542: the move it continues, handed off.
+                moved: Some(SessionMove {
+                    move_id: "mv-1".to_string(),
+                    session_id: "s-old".to_string(),
+                    continuation_id: "s-new".to_string(),
+                    from_device_id: "dev-a".to_string(),
+                    to_device_id: "dev-b".to_string(),
+                    moved_at: Some("2026-11-01T00:00:00.000Z".to_string()),
+                    handed_off: Some(HandedOff {
+                        outcome: "parked".to_string(),
+                        leftover: Some("exp/leftover-1a2b3c4d".to_string()),
+                    }),
+                }),
             }
         );
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -527,6 +601,32 @@ mod tests {
             body_of(&request),
             format!(r#"{{"sessionId":"{SESSION}","deviceId":"dev-1","branch":"exp/EXP-1"}}"#)
         );
+    }
+
+    /// EXP-1542: the source device's hand-off report (a parked one names
+    /// its leftover; the rest omit it) and the continuation's re-read.
+    #[test]
+    fn hand_off_reports_and_move_state_reads() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"outcome":"parked","leftover":"exp/leftover-1"}}}"#);
+        handed_off(&client(&base), "mv-1", "parked", Some("exp/leftover-1")).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/sessions.handedOff HTTP/1.1"), "{request}");
+        assert_eq!(body_of(&request), r#"{"moveId":"mv-1","outcome":"parked","leftover":"exp/leftover-1"}"#);
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"outcome":"pushed","leftover":null}}}"#);
+        handed_off(&client(&base), "mv-1", "pushed", None).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert_eq!(body_of(&request), r#"{"moveId":"mv-1","outcome":"pushed"}"#);
+
+        let (base, _captured) = one_shot_server(200, r#"{"result":{"data":null}}"#);
+        assert_eq!(move_state(&client(&base), SESSION).unwrap(), None);
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"moveId":"mv-1","sessionId":"s-old","continuationId":"s-new","fromDeviceId":"dev-a","toDeviceId":"dev-b","movedAt":"t","handedOff":null}}}"#,
+        );
+        let state = move_state(&client(&base), SESSION).unwrap().unwrap();
+        assert_eq!((state.from_device_id.as_str(), state.handed_off), ("dev-a", None));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/trpc/sessions.moveState?input="), "{request}");
     }
 
     /// NEW-5: a brief from a server that still names a `handoff` decodes
