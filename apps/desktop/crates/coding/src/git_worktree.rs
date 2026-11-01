@@ -2405,6 +2405,30 @@ fatal: couldn't find remote ref nope\n";
         (dir, clone, TokenUrl::new("acme/app", "ghs_dead"))
     }
 
+    /// EXP-1542 (#FEED-169): a moved session's continuation finds the
+    /// branch its old device pushed and continues it (a local branch at
+    /// origin's tip, then the worktree checks it out, never `-b` from the
+    /// base); a branch that never arrives gives up after the wait; a
+    /// local branch is never reset.
+    #[test]
+    fn a_continuation_continues_the_branch_its_old_device_pushed() {
+        let (dir, clone, url) = leftover_clone("continue");
+        let origin = dir.0.join("origin-src");
+        git(&origin, &["checkout", "--quiet", "-b", "exp/session-10272d04"]);
+        fs::write(origin.join("moved.txt"), "work from the old device\n").unwrap();
+        git(&origin, &["add", "."]);
+        git(&origin, &["commit", "--quiet", "-m", "moved work"]);
+        git(&origin, &["checkout", "--quiet", "main"]);
+        let zero = std::time::Duration::ZERO;
+        assert!(continue_branch(&clone, "exp/session-10272d04", &url, zero, zero));
+        let worktree = create_worktree(&clone, "exp/session-10272d04", "origin/main", &url).unwrap();
+        assert!(worktree.join("moved.txt").exists());
+        // Already local: kept as it is.
+        assert!(continue_branch(&clone, "exp/session-10272d04", &url, zero, zero));
+        // Never pushed: false once the wait runs out.
+        assert!(!continue_branch(&clone, "exp/session-ffffffff", &url, zero, zero));
+    }
+
     /// #FEED-168 / #FEED-171 (matflow, exp-MA-1430): a second run on an
     /// issue whose first run's cleanup died after `.git` was gone (origin's
     /// files and a `node_modules` left) no longer fails with "already
