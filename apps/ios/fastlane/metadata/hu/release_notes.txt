@@ -21,3 +21,6 @@
 - A munkamenet munkája folyamatosan mentődik, így bármely eszközön folytatódik
 - A tartós bejelentkezések mutatják az 5 órás és heti használatukat
 - Az időpontok „épp most”-ot írnak „0 másodperc múlva” helyett
+- Egy offline eszközön várakozó munkamenet átkerül a másik gépedre
+- Egy soha el nem indult indítás „Nem sikerült elindítani” feliratot mutat tétlenség helyett
+- Több megszakadt munkamenet egyszerre folytatható

@@ -21,3 +21,6 @@
 - Praca sesji zapisuje się na bieżąco, więc trwa dalej na każdym urządzeniu
 - Stałe logowania pokazują zużycie 5-godzinne i tygodniowe
 - Czas pokazuje „przed chwilą” zamiast „za 0 sekund”
+- Sesja w kolejce na urządzeniu offline przenosi się na twój drugi komputer
+- Start, który nigdy się nie zaczął, pokazuje „Nie udało się uruchomić” zamiast czekać
+- Wznawianie kilku przerwanych sesji naraz działa

@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-sessions-move-machines",
+    date: "2026-11-02",
+    title: "Sessions move to your other machine",
+    summary: "A queued session on an offline device moves to your other machine, and a start that never began says Couldn't start.",
+    body: r#"- **Moves**: a queued session whose device is offline moves to its starter's other machine, and the device picker offers that machine.
+- **Picks up its work**: a moved session pushes its branch first, so the new device continues from its last commit.
+- **Couldn't start**: a start that never began, or hit a leftover worktree, says Couldn't start instead of sitting idle; leftover worktrees are cleaned up, Windows included.
+- **Resumes**: resuming several interrupted sessions at once no longer fails, and a failed resume shows as failed.
+- **Private chats**: a private session's end report reaches the person who started it.
+- **Just now**: a moment ago reads "just now", never "in 0 seconds"."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_163: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-keep-signed-in-usage",
     date: "2026-11-01",
     title: "Usage for Keep signed in logins",

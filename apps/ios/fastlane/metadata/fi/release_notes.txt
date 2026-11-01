@@ -21,3 +21,6 @@
 - Istunnon työ tallentuu jatkuvasti, joten se jatkuu millä tahansa laitteella
 - Pysy kirjautuneena -kirjautumiset näyttävät 5 tunnin ja viikon käytön
 - Ajat näyttävät "juuri nyt" eivätkä "0 sekunnin päästä"
+- Jonossa oleva istunto offline-laitteella siirtyy toiselle koneellesi
+- Käynnistys, joka ei koskaan alkanut, näyttää "Käynnistys epäonnistui" eikä jää odottamaan
+- Useiden keskeytyneiden istuntojen jatkaminen kerralla toimii

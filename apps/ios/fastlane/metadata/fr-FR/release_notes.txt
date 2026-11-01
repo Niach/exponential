@@ -21,3 +21,6 @@
 - Le travail d'une session est enregistré au fil de l'eau et continue sur n'importe quel appareil
 - Les connexions permanentes affichent leur usage sur 5 heures et sur la semaine
 - Les heures indiquent « à l'instant » au lieu de « dans 0 seconde »
+- Une session en attente sur un appareil hors ligne passe sur ton autre machine
+- Un démarrage qui n'a jamais commencé affiche « Démarrage impossible » au lieu de rester inactif
+- Reprendre plusieurs sessions interrompues à la fois fonctionne

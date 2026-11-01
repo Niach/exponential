@@ -21,3 +21,6 @@
 - Het werk van een sessie wordt onderweg bewaard, zodat het op elk apparaat verdergaat
 - Blijf ingelogd-logins tonen hun gebruik per 5 uur en per week
 - Tijden tonen "zojuist" in plaats van "over 0 seconden"
+- Een wachtende sessie op een offline apparaat verhuist naar je andere machine
+- Een start die nooit begon toont "Kon niet starten" in plaats van stil te staan
+- Meerdere onderbroken sessies tegelijk hervatten werkt

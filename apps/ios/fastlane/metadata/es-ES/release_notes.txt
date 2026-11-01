@@ -21,3 +21,6 @@
 - El trabajo de una sesión se guarda sobre la marcha, así continúa en cualquier dispositivo
 - Los inicios de sesión permanentes muestran su uso de 5 horas y semanal
 - Las horas dicen «ahora mismo» en lugar de «en 0 segundos»
+- Una sesión en cola en un dispositivo sin conexión pasa a tu otro equipo
+- Un inicio que nunca empezó dice «No se pudo iniciar» en lugar de quedarse inactivo
+- Reanudar varias sesiones interrumpidas a la vez funciona

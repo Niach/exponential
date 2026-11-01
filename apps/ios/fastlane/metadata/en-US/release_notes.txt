@@ -21,3 +21,6 @@
 - A session's work is saved as it goes, so it continues on any device
 - Keep signed in logins show their 5-hour and weekly usage
 - Times read "just now" instead of "in 0 seconds"
+- A queued session on an offline device moves to your other machine
+- A start that never began says "Couldn't start" instead of sitting idle
+- Resuming several interrupted sessions at once works

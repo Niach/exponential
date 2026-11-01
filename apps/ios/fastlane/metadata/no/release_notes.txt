@@ -21,3 +21,6 @@
 - En økts arbeid lagres underveis, så den fortsetter på hvilken som helst enhet
 - Forbli pålogget-pålogginger viser bruken for 5 timer og uke
 - Tider viser «akkurat nå» i stedet for «om 0 sekunder»
+- En ventende økt på en frakoblet enhet flytter til den andre maskinen din
+- En start som aldri begynte viser «Kunne ikke starte» i stedet for å stå stille
+- Å gjenoppta flere avbrutte økter samtidig fungerer

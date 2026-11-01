@@ -21,3 +21,6 @@
 - Die Arbeit einer Sitzung wird laufend gesichert, so geht sie auf jedem Gerät weiter
 - Dauerhaft angemeldete Logins zeigen ihre 5-Stunden- und Wochennutzung
 - Zeiten lauten „gerade eben“ statt „in 0 Sekunden“
+- Eine wartende Sitzung auf einem Offline-Gerät wechselt auf dein anderes Gerät
+- Ein Start, der nie begonnen hat, zeigt „Konnte nicht starten“ statt untätig zu warten
+- Mehrere unterbrochene Sitzungen lassen sich gleichzeitig fortsetzen
