@@ -352,19 +352,6 @@ function pickerRow(label: string, value: string): string {
   ].join(``)
 }
 
-function toggleRow(label: string, desc: string | undefined, on: boolean): string {
-  const text =
-    desc === undefined
-      ? `<span class="label">${escapeHtml(label)}</span>`
-      : `<span class="text"><span class="label">${escapeHtml(label)}</span><span class="desc">${escapeHtml(desc)}</span></span>`
-  return [
-    `<div class="cmp-row-shell">`,
-    text,
-    `<span class="cmp-switch${on ? ` on` : ``}"></span>`,
-    `</div>`,
-  ].join(``)
-}
-
 /**
  * The selection bar. `labelled` is the desktop arm (icon + text on every
  * button); the phone arm keeps only the glyphs, and only Start coding keeps
