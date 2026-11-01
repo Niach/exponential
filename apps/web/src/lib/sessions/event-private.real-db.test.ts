@@ -2,7 +2,19 @@
 import { afterAll, describe, expect, it, vi } from "vitest"
 import { and, asc, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { agents, boards, devices, events, messages, repositories, sessions, teamMembers, teams } from "@/db/schema"
+import {
+  agents,
+  boards,
+  devices,
+  events,
+  installs,
+  messages,
+  repositories,
+  sessionKeys,
+  sessions,
+  teamMembers,
+  teams,
+} from "@/db/schema"
 import { inRollback, probeRealDb } from "@/test/real-db"
 import { inSession, messageWithSession } from "@/lib/sessions/messages"
 
@@ -300,6 +312,31 @@ describe.skipIf(!ready.ok)(`#EXP-1409: moving an agent from a private device to 
     expect(JSON.stringify(await getSessionTree(w.mate, conversation, { messages: 100 }))).not.toContain(`xyz-123`)
     // Idempotent, and moving back changes nothing more.
     await inRollback(async (tx) => expect(await hidePrivateLinesInTx(tx, [conversation])).toBe(0))
+  })
+
+  it(`#FEED-177: a move from a shared device to a private one drops the teammates' tree-key wraps`, async () => {
+    const w = await world()
+    const agent = await w.agent(w.owner, w.teamDev, [])
+    const conversation = (await sendSession({ userId: w.owner, input: { agentId: agent.id, text: `hi` } })).sessionId
+    expect((await row(conversation)).shared).toBe(true)
+    const install = async (userId: string) =>
+      (
+        await db
+          .insert(installs)
+          .values({ userId, kind: `desktop`, endpointId: `ep-${crypto.randomUUID()}`, x25519Public: `x`.repeat(43) })
+          .returning({ id: installs.id })
+      )[0]!.id
+    const ownerInstall = await install(w.owner)
+    const mateInstall = await install(w.mate)
+    await db.update(sessions).set({ sealEpoch: 1, sealPublicKey: `k`.repeat(43) }).where(eq(sessions.id, conversation))
+    await db
+      .insert(sessionKeys)
+      .values([ownerInstall, mateInstall].map((installId) => ({ rootId: conversation, epoch: 1, installId, wrapped: `w` })))
+    await agentsRouter.createCaller(ctx(w.owner)).update({ id: agent.id, deviceId: w.ownerDev })
+    expect((await row(conversation)).shared).toBe(false)
+    expect((await db.select().from(sessionKeys).where(eq(sessionKeys.rootId, conversation))).map((k) => k.installId)).toEqual([
+      ownerInstall,
+    ])
   })
 
   it(`a move between private devices of the owner rewrites nothing`, async () => {

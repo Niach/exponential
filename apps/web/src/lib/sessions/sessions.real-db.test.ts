@@ -15,7 +15,9 @@ import {
   prompts,
   pullRequests,
   repositories,
+  installs,
   sessionIssues,
+  sessionKeys,
   sessions,
   teamMembers,
   teams,
@@ -1920,6 +1922,13 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     await caller(w.owner).claim({ sessionId: root.sessionId, deviceId: w.deviceId, branch: `exp/move` })
     return { ...w, target, sessionId: root.sessionId, firstMessageId: root.messageId! }
   }
+  const install = async (userId: string) =>
+    (
+      await db
+        .insert(installs)
+        .values({ userId, kind: `desktop`, endpointId: `ep-${crypto.randomUUID()}`, x25519Public: `x`.repeat(43) })
+        .returning({ id: installs.id })
+    )[0]!.id
   const systemBodies = async (sessionId: string) =>
     (
       await db
@@ -1967,21 +1976,49 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
       sharedTeamIds: [w.teamId],
       agentAccounts: signedIn(`ps`, `me@move.test`),
     })
+    const issueId = await w.issue(`Moving box`)
     const queued = await sendSession({
       userId: w.owner,
-      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `pa`, text: `not yet` },
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `pa`, issueIds: [issueId], text: `not yet` },
     })
     expect(await row(queued.sessionId)).toMatchObject({ shared: false, status: `queued` })
+    // The visibility mirrors copied at insert time (the messages shape and
+    // the linked issues filter on them) follow the root both ways.
+    const mirrors = async () => ({
+      messages: [
+        ...new Set((await db.select().from(messages).where(eq(messages.rootId, queued.sessionId))).map((m) => m.shared)),
+      ],
+      issues: (await db.select().from(sessionIssues).where(eq(sessionIssues.sessionId, queued.sessionId))).map(
+        (l) => l.shared
+      ),
+      conversations: (
+        await db.select().from(conversations).where(eq(conversations.sessionId, queued.sessionId))
+      ).map((c) => c.shared),
+    })
+    expect(await mirrors()).toEqual({ messages: [false], issues: [false], conversations: [false] })
     await db.update(devices).set({ lastSeenAt: new Date(Date.now() - 3_600_000) }).where(eq(devices.deviceId, w.deviceId))
     await sendSession({ userId: w.owner, input: { sessionId: queued.sessionId, deviceId: shared } })
     expect(await row(queued.sessionId)).toMatchObject({ deviceId: shared, shared: true, status: `queued`, account: `ps` })
+    expect(await mirrors()).toEqual({ messages: [true], issues: [true], conversations: [true] })
     // A teammate may steer it now, but never make it private again.
     await expect(
       sendSession({ userId: w.mate, input: { sessionId: queued.sessionId, deviceId: w.target } })
     ).rejects.toMatchObject({ message: MOVE_COPY.visibility })
-    // Its starter may (their own personal box).
+    // Its starter may (their own personal box): the tree's key keeps only
+    // its readers' wraps (the teammate's install loses its row).
+    const ownerInstall = await install(w.owner)
+    const mateInstall = await install(w.mate)
+    await db.update(sessions).set({ sealEpoch: 1, sealPublicKey: `k`.repeat(43) }).where(eq(sessions.id, queued.sessionId))
+    await db.insert(sessionKeys).values(
+      [ownerInstall, mateInstall].map((installId) => ({ rootId: queued.sessionId, epoch: 1, installId, wrapped: `w` }))
+    )
     await sendSession({ userId: w.owner, input: { sessionId: queued.sessionId, deviceId: w.target } })
     expect(await row(queued.sessionId)).toMatchObject({ deviceId: w.target, shared: false })
+    expect(await mirrors()).toEqual({ messages: [false], issues: [false], conversations: [false] })
+    expect(
+      (await db.select().from(sessionKeys).where(eq(sessionKeys.rootId, queued.sessionId))).map((k) => k.installId)
+    ).toEqual([ownerInstall])
+    await db.update(sessions).set({ sealEpoch: null, sealPublicKey: null }).where(eq(sessions.id, queued.sessionId))
 
     // A private root never lands on a teammate's shared box.
     const mateBox = `dev-ms-${id8()}`
