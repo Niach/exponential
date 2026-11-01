@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1586: the `ZoomableImage` native through the Solid painter (`zoom {scale, atFit}` and `tap` reach `xui-action`).
 - EXP-1493: the Carousel `counter` pill sits at the track's top-END corner (mirrored under RTL), through the Solid painter.
 
 ## 0.3.0 (2026-10-31)

@@ -286,7 +286,7 @@ export function TooltipNative({ node, props, rootProps, children }: NativeProps)
 // Menu (round 3: ONE native for press and context menus)
 // ---------------------------------------------------------------------------
 
-interface MenuItem {
+export interface MenuItem {
   label?: string
   value?: string
   kind?: `item` | `checkbox` | `separator` | `label` | `submenu`
@@ -363,7 +363,7 @@ type MenuNs = typeof MenuPrimitive | typeof ContextPrimitive
 /** The entries, shared by both openings. A submenu's `items` may be a
  *  binding (`{path}` to rows a host source feeds): the bind pass resolved it
  *  already, so it renders like a literal one. */
-function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, path, close }: { ns: MenuNs; items: MenuItem[]; rawItems: unknown; part: PartFn; overlay: string; emit: NativeProps[`emit`]; scope: string; path: string; close: () => void }) {
+export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, path, close }: { ns: MenuNs; items: MenuItem[]; rawItems: unknown; part: PartFn; overlay: string; emit: NativeProps[`emit`]; scope: string; path: string; close: () => void }) {
   const ctx = useSurfaceContext()
   const raws = objects<Record<string, unknown>>(rawItems)
   const N = ns as typeof MenuPrimitive

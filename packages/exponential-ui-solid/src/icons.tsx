@@ -38,6 +38,7 @@ import {
   Hand,
   Info,
   Loader,
+  Maximize2,
   Menu,
   Mic,
   MicOff,
@@ -114,6 +115,8 @@ export const FALLBACK_ICONS: Record<string, IconComponent> = {
   "ui-scan": ScanLine,
   "ui-qr-code": QrCode,
   "ui-hold": Hand,
+  // EXP-1586: the ZoomableImage pill's fit button.
+  "ui-fullscreen": Maximize2,
   "voice-level": AudioLines,
   "call-mute": Mic,
   "call-unmute": MicOff,
