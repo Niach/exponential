@@ -32,7 +32,7 @@ import { postAgentMessage } from "@/lib/sessions/messages"
 import type { Db, Tx } from "@/lib/sessions/tx"
 import { deleteObject } from "@/lib/storage"
 import { mintGuideUploadToken } from "@/lib/storage/guide-upload-token"
-import { headSession } from "@/lib/sessions/push-attribution"
+import { headPusher, headSession } from "@/lib/sessions/push-attribution"
 import {
   rollbackSessionImage,
   sessionAttachmentValues,
@@ -463,6 +463,7 @@ export async function tagGuideForMergedPullRequest(pr: {
   sessionId: string | null
   head: string
   url: string
+  repositoryId?: string | null
 }): Promise<boolean> {
   if (!pr.rootSessionId) return false
   let sessionId = pr.sessionId
@@ -474,13 +475,11 @@ export async function tagGuideForMergedPullRequest(pr: {
         continuedFromId: sessions.continuedFromId,
         status: sessions.status,
         branch: sessions.branch,
-        pushedBranch: sessions.pushedBranch,
-        pushedAt: sessions.pushedAt,
       })
       .from(sessions)
       .where(eq(sessions.rootId, pr.rootSessionId))
       .orderBy(asc(sessions.createdAt))
-    sessionId = headSession(tree, pr.head)
+    sessionId = headSession(tree, pr.head, await headPusher({ repositoryId: pr.repositoryId, branch: pr.head }))
   }
   if (!sessionId) return false
   return tagGuideForPullRequest({ sessionId, prUrl: pr.url })

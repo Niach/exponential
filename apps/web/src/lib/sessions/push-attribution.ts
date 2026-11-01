@@ -1,6 +1,6 @@
 import { and, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { repositories, sessions } from "@/db/schema"
+import { branchPushes, repositories, sessions } from "@/db/schema"
 import { soleHeadSession, type GuideTreeRow } from "@/lib/sessions/guide-entries"
 
 /** #EXP-1540: how long after it ended a session may still be credited with
@@ -32,20 +32,29 @@ export function pushAuthor(candidates: readonly PushCandidate[], now: Date): str
 }
 
 /** #EXP-1540: who a PR with no recorded session resolves to through its
- *  head: the session credited with the latest push of that branch, else the
+ *  head: `pusher` (the session credited with the head's latest push,
+ *  `headPusher`) while it is in this tree and still on that head, else the
  *  one lineage sitting on it (`soleHeadSession`), else nobody. */
 export function headSession(
-  tree: readonly (GuideTreeRow & { branch?: string | null; pushedBranch?: string | null; pushedAt?: Date | null })[],
-  head: string
+  tree: readonly (GuideTreeRow & { branch?: string | null })[],
+  head: string,
+  pusher?: string | null
 ): string | null {
   const name = head.trim()
-  let pusher: { id: string; at: number } | null = null
-  for (const row of tree) {
-    if (!row.pushedAt || row.pushedBranch?.trim() !== name) continue
-    const at = row.pushedAt.getTime()
-    if (!pusher || at > pusher.at) pusher = { id: row.id, at }
-  }
-  return pusher?.id ?? soleHeadSession(tree, name)
+  if (pusher && tree.some((row) => row.id === pusher && row.branch?.trim() === name)) return pusher
+  return soleHeadSession(tree, name)
+}
+
+/** #EXP-1540: the session credited with the latest push of `branch` in the
+ *  repository (`branch_pushes`); null when that push was nobody's, or the
+ *  branch was never pushed. */
+export async function headPusher(args: { repositoryId?: string | null; branch: string }): Promise<string | null> {
+  if (!args.repositoryId) return null
+  const [row] = await db
+    .select({ sessionId: branchPushes.sessionId })
+    .from(branchPushes)
+    .where(and(eq(branchPushes.repositoryId, args.repositoryId), eq(branchPushes.branch, args.branch.trim())))
+  return row?.sessionId ?? null
 }
 
 /** #EXP-1540: the repositories a `push` delivery is about: its full name,
@@ -84,13 +93,12 @@ export function pushTime(
   return undefined
 }
 
-/** #EXP-1540: credits a GitHub `push` of `branch` in `fullName` to its
- *  session (`pushAuthor`): `pushed_branch` + `pushed_at` (the push's own
- *  time `at`; only ever moves forward, so a redelivery or an out-of-order
- *  delivery never overwrites a newer credit), server-only. A push credited
- *  to nobody withdraws every older credit for that branch: the head's
- *  latest push is then nobody's, and `headSession` falls back. Returns the
- *  credited session, if any. */
+/** #EXP-1540: records a GitHub `push` of `branch` in `fullName` as that
+ *  branch's latest push (`branch_pushes`, per repository), credited to its
+ *  session (`pushAuthor`) or to nobody. A row only ever moves forward (the
+ *  push's own time `at`): a redelivered or late-delivered older push changes
+ *  nothing and credits nobody, so an uncredited newer push is never undone
+ *  by an older credited one. Returns the credited session, if any. */
 export async function attributePush(args: {
   fullName: string
   branch: string
@@ -102,10 +110,12 @@ export async function attributePush(args: {
 }): Promise<string | null> {
   const now = args.now ?? new Date()
   const at = args.at ?? now
-  const repos = pushedRepositoryIds(args)
+  const repoIds = (await pushedRepositoryIds(args)).map((row) => row.id)
+  if (repoIds.length === 0) return null
   const candidates = await db
     .select({
       id: sessions.id,
+      repositoryId: sessions.repositoryId,
       status: sessions.status,
       busy: sessions.busy,
       background: sessions.background,
@@ -115,7 +125,7 @@ export async function attributePush(args: {
     .where(
       and(
         eq(sessions.branch, args.branch),
-        inArray(sessions.repositoryId, repos),
+        inArray(sessions.repositoryId, repoIds),
         or(
           inArray(sessions.status, [`running`, `idle`]),
           and(
@@ -127,28 +137,22 @@ export async function attributePush(args: {
       )
     )
   const id = pushAuthor(candidates, now)
-  // Never the session's `updated_at` (the stuck clock, sync traffic):
-  // `update_updated_at` honours the transaction-local GUC (brief.ts).
-  return db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT set_config('exponential.preserve_timestamps', 'on', true)`)
-    if (!id) {
-      await tx
-        .update(sessions)
-        .set({ pushedBranch: null, pushedAt: null })
-        .where(
-          and(
-            eq(sessions.pushedBranch, args.branch),
-            inArray(sessions.repositoryId, pushedRepositoryIds(args)),
-            lt(sessions.pushedAt, at)
-          )
-        )
-      return null
-    }
-    const credited = await tx
-      .update(sessions)
-      .set({ pushedBranch: args.branch, pushedAt: at })
-      .where(and(eq(sessions.id, id), or(isNull(sessions.pushedAt), lt(sessions.pushedAt, at))))
-      .returning({ id: sessions.id })
-    return credited.length > 0 ? id : null
-  })
+  const author = candidates.find((row) => row.id === id)
+  const latest = await db
+    .insert(branchPushes)
+    .values(
+      repoIds.map((repositoryId) => ({
+        repositoryId,
+        branch: args.branch,
+        pushedAt: at,
+        sessionId: author?.repositoryId === repositoryId ? author.id : null,
+      }))
+    )
+    .onConflictDoUpdate({
+      target: [branchPushes.repositoryId, branchPushes.branch],
+      set: { pushedAt: sql`excluded.pushed_at`, sessionId: sql`excluded.session_id` },
+      setWhere: lt(branchPushes.pushedAt, sql`excluded.pushed_at`),
+    })
+    .returning({ sessionId: branchPushes.sessionId })
+  return id && latest.some((row) => row.sessionId === id) ? id : null
 }

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock(`@/db/connection`, () => ({ db: {} }))
 
@@ -43,34 +43,82 @@ describe(`pushAuthor`, () => {
 })
 
 describe(`headSession`, () => {
-  const at = (minutes: number) => new Date(now.getTime() + minutes * 60_000)
-
-  it(`the session that pushed the head wins over two lineages sitting on it`, () => {
+  it(`the session credited with the head's latest push wins over two lineages sitting on it`, () => {
     const tree = [
-      { id: `a`, parentId: `r`, status: `running`, branch: `exp/x`, pushedBranch: `exp/x`, pushedAt: at(1) },
-      { id: `b`, parentId: `r`, status: `running`, branch: `exp/x`, pushedBranch: `exp/x`, pushedAt: at(2) },
-      { id: `c`, parentId: `r`, status: `running`, branch: `exp/x` },
-    ]
-    expect(headSession(tree, `exp/x`)).toBe(`b`)
-  })
-
-  it(`a push of another branch never counts; then the one lineage on the head, else nobody`, () => {
-    const one = [
-      { id: `a`, parentId: null, status: `ended`, branch: `exp/x`, pushedBranch: `exp/y`, pushedAt: at(1) },
-      { id: `b`, parentId: null, continuedFromId: `a`, status: `running`, branch: `exp/x` },
-    ]
-    expect(headSession(one, `exp/x`)).toBe(`b`)
-    expect(headSession(one, `exp/y`)).toBe(`a`)
-    const two = [...one, { id: `c`, parentId: null, status: `running`, branch: `exp/x` }]
-    expect(headSession(two, `exp/x`)).toBeNull()
-  })
-
-  it(`a withdrawn credit (the newest push was nobody's) never names the earlier pusher`, () => {
-    const tree = [
-      { id: `a`, parentId: `r`, status: `running`, branch: `exp/x`, pushedBranch: null, pushedAt: null },
+      { id: `a`, parentId: `r`, status: `running`, branch: `exp/x` },
       { id: `b`, parentId: `r`, status: `running`, branch: `exp/x` },
     ]
-    expect(headSession(tree, `exp/x`)).toBeNull()
+    expect(headSession(tree, `exp/x`, `b`)).toBe(`b`)
+  })
+
+  it(`a pusher that left the head or is outside the tree never counts; then the one lineage on it, else nobody`, () => {
+    const one = [
+      { id: `a`, parentId: null, status: `ended`, branch: `exp/y` },
+      { id: `b`, parentId: null, continuedFromId: `a`, status: `running`, branch: `exp/x` },
+    ]
+    expect(headSession(one, `exp/x`, `a`)).toBe(`b`)
+    expect(headSession(one, `exp/x`, `elsewhere`)).toBe(`b`)
+    const two = [...one, { id: `c`, parentId: null, status: `running`, branch: `exp/x` }]
+    expect(headSession(two, `exp/x`, `a`)).toBeNull()
+    expect(headSession(two, `exp/x`, `c`)).toBe(`c`)
+  })
+
+  it(`the latest push was nobody's: no pusher, the fallback decides`, () => {
+    const tree = [
+      { id: `a`, parentId: `r`, status: `running`, branch: `exp/x` },
+      { id: `b`, parentId: `r`, status: `running`, branch: `exp/x` },
+    ]
+    expect(headSession(tree, `exp/x`, null)).toBeNull()
+  })
+})
+
+// #EXP-1540: the branch row only moves forward, so a late older push never
+// credits anyone (the rule `attributePush` writes in SQL).
+describe(`attributePush ordering`, () => {
+  const rows = new Map<string, { pushedAt: Date; sessionId: string | null }>()
+  const candidates: { id: string; repositoryId: string; status: string; busy: boolean; background: boolean; endedAt: null }[] = []
+  beforeEach(() => {
+    rows.clear()
+    candidates.length = 0
+  })
+  const chain = (result: unknown) => {
+    const it: Record<string, unknown> = {}
+    for (const key of [`from`, `where`]) it[key] = () => it
+    it.then = (resolve: (value: unknown) => unknown) => resolve(result)
+    return it
+  }
+  beforeAll(async () => {
+    const { db } = (await import(`@/db/connection`)) as unknown as { db: Record<string, unknown> }
+    let selects = 0
+    db.select = () => chain(selects++ % 2 === 0 ? [{ id: `repo` }] : candidates)
+    db.insert = () => ({
+      values: (values: { branch: string; pushedAt: Date; sessionId: string | null }[]) => ({
+        onConflictDoUpdate: () => ({
+          returning: async () =>
+            values.flatMap((value) => {
+              const prior = rows.get(value.branch)
+              if (prior && prior.pushedAt >= value.pushedAt) return []
+              rows.set(value.branch, { pushedAt: value.pushedAt, sessionId: value.sessionId })
+              return [{ sessionId: value.sessionId }]
+            }),
+        }),
+      }),
+    })
+  })
+
+  it(`a newer uncredited push, then an older credited one delivered late: nobody is credited`, async () => {
+    const { attributePush } = await import(`@/lib/sessions/push-attribution`)
+    const push = (at: Date) => attributePush({ fullName: `org/repo`, branch: `exp/x`, at, now })
+    candidates.push(
+      { id: `a`, repositoryId: `repo`, status: `running`, busy: false, background: false, endedAt: null },
+      { id: `b`, repositoryId: `repo`, status: `running`, busy: false, background: false, endedAt: null }
+    )
+    expect(await push(new Date(now.getTime() - 30_000))).toBeNull()
+    candidates[0]!.busy = true
+    expect(await push(new Date(now.getTime() - 60_000))).toBeNull()
+    expect(rows.get(`exp/x`)?.sessionId).toBeNull()
+    // A genuinely newer credited push still credits.
+    expect(await push(new Date(now.getTime() - 10_000))).toBe(`a`)
   })
 })
 

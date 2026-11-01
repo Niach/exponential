@@ -2082,12 +2082,6 @@ export const sessions = pgTable(
     // an MCP call by the session, a push to its branch. The stuck watchdog
     // measures from greatest(updated_at, last_activity_at).
     lastActivityAt: timestamp(`last_activity_at`, { withTimezone: true }),
-    // #EXP-1540 (SERVER-ONLY): the latest push this session is credited
-    // with (GitHub `push` webhook, `lib/sessions/push-attribution.ts`): the
-    // branch it pushed and when. A PR with no recorded session resolves its
-    // author through the session that pushed its head.
-    pushedBranch: varchar(`pushed_branch`, { length: 255 }),
-    pushedAt: timestamp(`pushed_at`, { withTimezone: true }),
     // EXP-1413 (SERVER-ONLY): a person's Stop interrupted a busy turn; set
     // until the session works again. The yolo automerge waits on it, so a
     // stopped turn's half-done work never merges.
@@ -2783,6 +2777,26 @@ export const pullRequestChecks = pgTable(
     unique(`uniq_pull_request_checks_name`).on(table.pullRequestId, table.name),
     index(`idx_pull_request_checks_team`).on(table.teamId),
   ]
+)
+
+// #EXP-1540 (SERVER-ONLY, no shape): the latest push of each branch (GitHub
+// `push` webhook, `lib/sessions/push-attribution.ts`), dated by its payload,
+// and the session credited with it (null = nobody). Only ever moves forward,
+// so a late-delivered older push never credits anyone. A PR with no recorded
+// session resolves its author through its head's row.
+export const branchPushes = pgTable(
+  `branch_pushes`,
+  {
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `cascade` }),
+    branch: varchar({ length: 255 }).notNull(),
+    pushedAt: timestamp(`pushed_at`, { withTimezone: true }).notNull(),
+    sessionId: uuid(`session_id`).references(() => sessions.id, {
+      onDelete: `set null`,
+    }),
+  },
+  (table) => [primaryKey({ columns: [table.repositoryId, table.branch] })]
 )
 
 // Which issues a PR closes (n ↔ n). Carries the issue's board mirrors.
@@ -3812,11 +3826,9 @@ export const selectSyncedSessionSchema = selectSessionSchema.omit({
   wakeOn: true,
   // EXP-1374: the stuck rule's clock, server-only.
   lastActivityAt: true,
-  // EXP-1413 / #EXP-1402 / #EXP-1540: server-only, outside the shape's columns.
+  // EXP-1413 / #EXP-1402: server-only, outside the shape's columns.
   stoppedAt: true,
   continuedFromId: true,
-  pushedBranch: true,
-  pushedAt: true,
 })
 
 // NEW-2: agents, events, prompts.

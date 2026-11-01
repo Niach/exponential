@@ -240,7 +240,7 @@ describe(`openPullRequest`, () => {
       body: `Fix the nav\n\n- #EXP-1 Nav\n- Fix the nav bar\n\n**web** · [web nav](https://exp.example/api/attachments/a1)${FOOTER}`,
       token: `tok`,
     })
-    expect(loadStoryPictures).toHaveBeenCalledWith(`root-1`, `sess-1`, { pullRequestId: null, head: `exp/chat-abcd1234` })
+    expect(loadStoryPictures).toHaveBeenCalledWith(`root-1`, `sess-1`, { pullRequestId: null, head: `exp/chat-abcd1234`, repositoryId: `repo-1` })
     expect(sync.recordPullRequestOpened).toHaveBeenCalledWith(
       expect.objectContaining({
         teamId: `team-1`,
