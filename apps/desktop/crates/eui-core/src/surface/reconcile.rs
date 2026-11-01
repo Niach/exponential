@@ -70,6 +70,8 @@ impl Surface {
         let (hairline, row_extent, menu_row) = (token("hairline", 1.0), token("row", crate::list::DEFAULT_ESTIMATED_ITEM_HEIGHT), token("buttonSm", 32.0));
         // VAPP-162: `$control.tabBar`, a vertical bar Segmented's item height.
         let tab_bar = token("tabBar", 56.0);
+        // EXP-1548: `$control.checkbox`, a Table's selection column.
+        let checkbox = token("checkbox", 16.0);
         let expand = self.expand_controls.unwrap_or(self.theme.is_some());
         let out = {
             let template = |id: &str| -> Option<UiNode> { templates.get(id).cloned().flatten() };
@@ -86,6 +88,7 @@ impl Surface {
                 row_extent,
                 menu_row,
                 tab_bar,
+                checkbox,
                 gap_px: &gap,
                 expand_controls: expand,
                 strings: &self.strings,

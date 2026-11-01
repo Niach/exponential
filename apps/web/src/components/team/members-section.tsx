@@ -193,8 +193,10 @@ export function TeamMembersSection({
                     }}
                   />
                   <div className="min-w-0">
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span className="truncate text-sm font-medium">
+                    {/* EXP-1554: the chips WRAP under the name on a phone
+                        rather than squeezing it to 'Han…'. */}
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+                      <span className="min-w-0 truncate text-sm font-medium">
                         {displayName}
                         {isSelf && (
                           <span className="text-muted-foreground"> (you)</span>

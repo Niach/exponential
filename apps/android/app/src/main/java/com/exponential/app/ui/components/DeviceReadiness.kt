@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -89,7 +90,9 @@ fun DeviceReadinessBlock(
                     }
                 },
             )
-            OptionGroup {
+            // EXP-1554: flat rows under the band (web `SETTINGS_LIST_CLASS`,
+            // web-mobile / iOS), never a bordered card per group.
+            Column(Modifier.fillMaxWidth()) {
                 // EXP-1320: the readiness rows are a list: no dividers.
                 group.rows.forEach { row ->
                     if (row.isSwitch) {
@@ -184,12 +187,15 @@ fun DeviceReadinessRow(
             color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
         )
+        // EXP-1554 (web parity): the detail sits right-aligned before the
+        // pill, amber on an `action` row (low disk), red on an `error` one.
         Text(
             row.detail.orEmpty(),
             style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+            color = detailColor(row.state),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End,
             modifier = Modifier.weight(1f),
         )
         val label = row.actionLabel
@@ -214,6 +220,14 @@ private fun glyphIcon(glyph: DoctorGlyph): ImageVector? = when (glyph) {
     DoctorGlyph.Dash -> ExpIcons.uiMinus
     DoctorGlyph.X -> ExpIcons.uiClose
     DoctorGlyph.None -> null
+}
+
+/** web `DETAIL_TONE`: action = amber, error = destructive, else muted. */
+@Composable
+private fun detailColor(state: String): Color = when (state) {
+    DeviceReadiness.STATE_ACTION -> DesignTokens.Semantic.Yellow
+    DeviceReadiness.STATE_ERROR -> DesignTokens.Semantic.Red
+    else -> MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
 }
 
 @Composable

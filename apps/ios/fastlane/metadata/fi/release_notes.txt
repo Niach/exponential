@@ -8,3 +8,9 @@
 - Live-istunnot jatkavat suoratoistoa päästä päähän salattuna, kun suora yhteys laitteeseen katkeaa
 - Teksti, jonka kirjoitat kommentin lähtiessä, jää kirjoituskenttään
 - Ketju näyttää käynnissä olevan aliistuntonsa tehtävät
+- Agentit saavat niille antamasi tehtävän: tunnisteen, otsikon ja kuvauksen
+- Ketjun otsikkorivi näyttää istunnon tilan ja Merge-painikkeen
+- Tarinoiden kuvatekstit eivät koskaan kasva katselinta suuremmiksi
+- Hylkää kysymys tai suunnitelma, johon et halua vastata; ketjun otsikkorivi näyttää, mikä vielä odottaa
+- Laitteet-sivu näyttää jokaisen laitteen korttina
+- Keskustelut, uuden keskustelun näkymä ja Asetukset näyttävät samalta kuin muissa sovelluksissa

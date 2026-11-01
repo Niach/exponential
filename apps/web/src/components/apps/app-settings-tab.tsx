@@ -211,7 +211,7 @@ export function AppSettingsTab({
             </Button>
           )}
           {canManage && (
-            <Button variant="destructive" size="sm" className="ml-auto" onClick={onDelete} data-testid="app-delete">
+            <Button variant="destructive" size="xs" onClick={onDelete} data-testid="app-delete">
               <UiDeleteIcon />
               {APPS_COPY.menu.delete}
             </Button>

@@ -21735,9 +21735,9 @@
       {
         "component" : "Box",
         "frame" : [
-          240,
+          256,
           0,
-          150,
+          134,
           20
         ],
         "id" : "sidebar.main"
@@ -21745,9 +21745,9 @@
       {
         "component" : "Text",
         "frame" : [
-          240,
+          256,
           0,
-          150,
+          134,
           20
         ],
         "id" : "sidebar-child"
@@ -26111,6 +26111,384 @@
       }
     ]
   },
+  "Table\/wide" : {
+    "height" : 196,
+    "nodes" : [
+      {
+        "component" : "Table",
+        "frame" : [
+          0,
+          0,
+          390,
+          196
+        ],
+        "id" : "table"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          816,
+          33
+        ],
+        "id" : "table.header",
+        "part" : "header"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          96,
+          32
+        ],
+        "id" : "table.headerCell.0",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          96,
+          0,
+          120,
+          32
+        ],
+        "id" : "table.headerCell.1",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          216,
+          0,
+          120,
+          32
+        ],
+        "id" : "table.headerCell.2",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          336,
+          0,
+          120,
+          32
+        ],
+        "id" : "table.headerCell.3",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          456,
+          0,
+          120,
+          32
+        ],
+        "id" : "table.headerCell.4",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          576,
+          0,
+          120,
+          32
+        ],
+        "id" : "table.headerCell.5",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          696,
+          0,
+          120,
+          32
+        ],
+        "id" : "table.headerCell.6",
+        "part" : "headerCell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          816,
+          163
+        ],
+        "id" : "table.body",
+        "part" : "body"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          33,
+          816,
+          81
+        ],
+        "id" : "table.row.a",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          33,
+          96,
+          80
+        ],
+        "id" : "table.cell.a.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          96,
+          33,
+          120,
+          80
+        ],
+        "id" : "table.cell.a.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          216,
+          33,
+          120,
+          80
+        ],
+        "id" : "table.cell.a.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          336,
+          33,
+          120,
+          80
+        ],
+        "id" : "table.cell.a.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          456,
+          33,
+          120,
+          80
+        ],
+        "id" : "table.cell.a.4",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          576,
+          33,
+          120,
+          80
+        ],
+        "id" : "table.cell.a.5",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          696,
+          33,
+          120,
+          80
+        ],
+        "id" : "table.cell.a.6",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          114,
+          816,
+          41
+        ],
+        "id" : "table.row.b",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          114,
+          96,
+          40
+        ],
+        "id" : "table.cell.b.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          96,
+          114,
+          120,
+          40
+        ],
+        "id" : "table.cell.b.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          216,
+          114,
+          120,
+          40
+        ],
+        "id" : "table.cell.b.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          336,
+          114,
+          120,
+          40
+        ],
+        "id" : "table.cell.b.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          456,
+          114,
+          120,
+          40
+        ],
+        "id" : "table.cell.b.4",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          576,
+          114,
+          120,
+          40
+        ],
+        "id" : "table.cell.b.5",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          696,
+          114,
+          120,
+          40
+        ],
+        "id" : "table.cell.b.6",
+        "part" : "cell"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          155,
+          816,
+          41
+        ],
+        "id" : "table.row.c",
+        "part" : "row"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          155,
+          96,
+          40
+        ],
+        "id" : "table.cell.c.0",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          96,
+          155,
+          120,
+          40
+        ],
+        "id" : "table.cell.c.1",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          216,
+          155,
+          120,
+          40
+        ],
+        "id" : "table.cell.c.2",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          336,
+          155,
+          120,
+          40
+        ],
+        "id" : "table.cell.c.3",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          456,
+          155,
+          120,
+          40
+        ],
+        "id" : "table.cell.c.4",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          576,
+          155,
+          120,
+          40
+        ],
+        "id" : "table.cell.c.5",
+        "part" : "cell"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          696,
+          155,
+          120,
+          40
+        ],
+        "id" : "table.cell.c.6",
+        "part" : "cell"
+      }
+    ]
+  },
   "Tabs\/addable=false" : {
     "height" : 72,
     "nodes" : [
@@ -26130,7 +26508,7 @@
         "frame" : [
           0,
           0,
-          70,
+          102,
           28
         ],
         "id" : "tabs.list",
@@ -26159,7 +26537,7 @@
         "frame" : [
           44,
           2,
-          24,
+          56,
           24
         ],
         "id" : "tabs.tab.1",
@@ -26208,7 +26586,7 @@
         "frame" : [
           0,
           0,
-          96,
+          128,
           28
         ],
         "id" : "tabs.list",
@@ -26237,7 +26615,7 @@
         "frame" : [
           44,
           2,
-          24,
+          56,
           24
         ],
         "id" : "tabs.tab.1",
@@ -26248,7 +26626,7 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          70,
+          102,
           2,
           24,
           24
@@ -26299,7 +26677,7 @@
         "frame" : [
           0,
           0,
-          106,
+          138,
           28
         ],
         "id" : "tabs.list",
@@ -26341,7 +26719,7 @@
         "frame" : [
           62,
           2,
-          24,
+          56,
           24
         ],
         "id" : "tabs.tab.1",
@@ -26352,7 +26730,7 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          88,
+          120,
           6,
           16,
           16
@@ -26403,7 +26781,7 @@
         "frame" : [
           0,
           0,
-          106,
+          138,
           28
         ],
         "id" : "tabs.list",
@@ -26446,7 +26824,7 @@
         "frame" : [
           62,
           2,
-          24,
+          56,
           24
         ],
         "id" : "tabs.tab.1",
@@ -26457,7 +26835,7 @@
         "bg" : "#00000000",
         "component" : "Button",
         "frame" : [
-          88,
+          120,
           6,
           16,
           16
@@ -26509,7 +26887,7 @@
         "frame" : [
           0,
           0,
-          70,
+          102,
           28
         ],
         "id" : "tabs.list",
@@ -26538,7 +26916,7 @@
         "frame" : [
           44,
           2,
-          24,
+          56,
           24
         ],
         "id" : "tabs.tab.1",
@@ -26587,7 +26965,7 @@
         "frame" : [
           0,
           0,
-          70,
+          102,
           28
         ],
         "id" : "tabs.list",
@@ -26616,7 +26994,7 @@
         "frame" : [
           44,
           2,
-          24,
+          56,
           24
         ],
         "id" : "tabs.tab.1",
@@ -26665,7 +27043,7 @@
         "frame" : [
           0,
           0,
-          70,
+          102,
           28
         ],
         "id" : "tabs.list",
@@ -26694,7 +27072,7 @@
         "frame" : [
           44,
           2,
-          24,
+          56,
           24
         ],
         "id" : "tabs.tab.1",

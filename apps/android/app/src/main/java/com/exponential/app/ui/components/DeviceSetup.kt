@@ -17,6 +17,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -194,10 +195,17 @@ private fun InstallCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlassPill(label = actionLabel, icon = actionIcon, onClick = onAction, enabled = onAction != null)
+        // EXP-1554: web's primary Download (white, the download glyph) with
+        // the outline "All platforms" beside it; a FlowRow wraps the second
+        // pill onto its own line on a narrow phone instead of truncating it.
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // Small pills (web's phone size) so both fit one row at 390dp.
+            GlassPill(label = actionLabel, icon = actionIcon, onClick = onAction, enabled = onAction != null, primary = true, size = PillSize.Sm)
             if (secondaryLabel != null && onSecondary != null) {
-                GlassPill(label = secondaryLabel, onClick = onSecondary)
+                GlassPill(label = secondaryLabel, onClick = onSecondary, size = PillSize.Sm)
             }
         }
     }

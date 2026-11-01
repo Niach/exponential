@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { MessageCard } from "@exp/db-schema/domain"
 import { generateTreeKey, sealCard } from "@exp/domain-contract/sealed-content"
+import waitingFixture from "@exp/domain-contract/fixtures/waiting-cards.json" with { type: "json" }
 import { answeredCard, type CardAnswerInput } from "./card-answer"
 
 // EXP-1316: `sessions.answer` and `sessions.resolveCard` stamp ONE shape.
@@ -212,6 +213,25 @@ describe(`answeredCard — EXP-1458 sealed cards`, () => {
   it(`a plaintext card refuses a sealedCard`, () => {
     expect(
       answeredCard({ kind: `question`, question: `Q`, options: [`A`] } as MessageCard, { sealedCard: answerOf({ kind: `question` }) })
+    ).toMatchObject({ ok: false, code: `BAD_REQUEST` })
+  })
+})
+
+// #EXP-1561 (fixtures/waiting-cards.json `dismissCases`): a dismiss is an
+// answer with nothing in it; the card says it was dismissed.
+describe(`answeredCard (dismissed)`, () => {
+  for (const entry of waitingFixture.dismissCases) {
+    it(entry.name, () => {
+      expect(answeredCard(entry.card as MessageCard, { dismissed: true })).toEqual({ ok: true, card: entry.expected })
+    })
+  }
+
+  it(`a dismiss carries no answer`, () => {
+    expect(
+      answeredCard({ kind: `question`, question: `Q`, options: [`A`] } as MessageCard, { dismissed: true, answer: `A` })
+    ).toMatchObject({ ok: false, code: `BAD_REQUEST` })
+    expect(
+      answeredCard({ kind: `plan`, plan: `1.` } as MessageCard, { dismissed: true, decision: `approved` })
     ).toMatchObject({ ok: false, code: `BAD_REQUEST` })
   })
 })

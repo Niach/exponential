@@ -177,7 +177,8 @@ struct TeamSetupView: View {
                 mode = .choice
             } label: {
                 HStack(spacing: 6) {
-                    AppIcon(AppIcons.uiChevronLeft, size: AppIcon.Size.small)
+                    // EXP-1554: web's '←', never a chevron.
+                    AppIcon(AppIcons.uiBack, size: AppIcon.Size.small)
                     Text(TeamSetupCopy.back)
                 }
                 .font(.subheadline.weight(.medium))
@@ -188,7 +189,11 @@ struct TeamSetupView: View {
             .buttonStyle(.plain)
             .disabled(busy)
 
-            GlassSubmitButton(primary, enabled: enabled, loading: loading, action: action)
+            Spacer(minLength: 0)
+
+            // EXP-1554: Back left, the compact primary right, one row (web).
+            GlassSubmitButton(primary, enabled: enabled, loading: loading, compact: true, action: action)
+                .fixedSize()
         }
         .padding(.top, 8)
     }

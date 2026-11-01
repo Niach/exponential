@@ -37,14 +37,7 @@
               {
                 "id": "c0-box",
                 "component": "Box",
-                "props": {
-                  "style": {
-                    "display": "flex",
-                    "flexDirection": "column",
-                    "gap": "$spacing.md",
-                    "padding": "$spacing.lg"
-                  }
-                },
+                "props": {},
                 "children": [
                   {
                     "id": "c0-t1",
@@ -62,7 +55,13 @@
                       "variant": "muted"
                     }
                   }
-                ]
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "gap": "$spacing.md",
+                  "padding": "$spacing.lg"
+                }
               }
             ]
           }
@@ -456,11 +455,41 @@
                 }
               },
               {
-                "id": "c1-separator",
-                "component": "Separator",
+                "id": "c1-bar",
+                "component": "Stack",
                 "props": {
-                  "orientation": "vertical"
-                }
+                  "direction": "horizontal",
+                  "gap": "md",
+                  "align": "center"
+                },
+                "children": [
+                  {
+                    "id": "c1-a",
+                    "component": "Text",
+                    "props": {
+                      "text": "Inbox",
+                      "variant": "body"
+                    }
+                  },
+                  {
+                    "id": "c1-separator",
+                    "component": "Separator",
+                    "props": {
+                      "orientation": "vertical"
+                    },
+                    "style": {
+                      "height": 20
+                    }
+                  },
+                  {
+                    "id": "c1-b",
+                    "component": "Text",
+                    "props": {
+                      "text": "Drafts",
+                      "variant": "body"
+                    }
+                  }
+                ]
               }
             ]
           }
@@ -557,7 +586,8 @@
                 "component": "List",
                 "props": {
                   "direction": "horizontal",
-                  "divided": true
+                  "divided": true,
+                  "gap": "lg"
                 },
                 "children": [
                   {
@@ -1583,7 +1613,7 @@
                     "component": "Row",
                     "props": {
                       "title": "Release 0.18",
-                      "meta": "4 runs",
+                      "meta": "4 steps",
                       "pressable": true
                     }
                   },
@@ -1632,7 +1662,7 @@
                     "component": "Row",
                     "props": {
                       "title": "Release 0.17",
-                      "meta": "3 runs",
+                      "meta": "3 steps",
                       "pressable": true
                     }
                   }
@@ -3388,8 +3418,8 @@
                       "value": "issue"
                     },
                     {
-                      "label": "Run",
-                      "value": "run"
+                      "label": "Session",
+                      "value": "session"
                     }
                   ],
                   "value": "issue"
@@ -3407,7 +3437,7 @@
                     "id": "c0-p2",
                     "component": "Text",
                     "props": {
-                      "text": "The run panel.",
+                      "text": "The session panel.",
                       "variant": "body"
                     }
                   }
@@ -7543,6 +7573,98 @@
                     }
                   ],
                   "density": "compact"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-table-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-table-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "wide · scrolls",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-wide",
+                "component": "Table",
+                "props": {
+                  "columns": [
+                    {
+                      "key": "issue",
+                      "label": "Issue",
+                      "width": 96
+                    },
+                    {
+                      "key": "title",
+                      "label": "Title"
+                    },
+                    {
+                      "key": "board",
+                      "label": "Board"
+                    },
+                    {
+                      "key": "assignee",
+                      "label": "Assignee"
+                    },
+                    {
+                      "key": "status",
+                      "label": "Status",
+                      "type": "badge"
+                    },
+                    {
+                      "key": "summary",
+                      "label": "Summary",
+                      "truncate": true
+                    },
+                    {
+                      "key": "estimate",
+                      "label": "Estimate",
+                      "type": "number",
+                      "align": "end"
+                    }
+                  ],
+                  "rows": [
+                    {
+                      "id": "a",
+                      "issue": "APP-9",
+                      "title": "Fix crash when uploading HEIC photos from the share sheet",
+                      "board": "Mobile",
+                      "assignee": "Alice Lindqvist",
+                      "status": "In progress",
+                      "summary": "The share extension hands over a file URL the uploader cannot read once the sheet closes",
+                      "estimate": 3
+                    },
+                    {
+                      "id": "b",
+                      "issue": "APP-21",
+                      "title": "Offline queue for issue edits",
+                      "board": "Sync",
+                      "assignee": "Bob Okafor",
+                      "status": "Todo",
+                      "summary": "Edits made without a connection are lost on relaunch",
+                      "estimate": 8
+                    },
+                    {
+                      "id": "c",
+                      "issue": "APP-18",
+                      "title": "Reduce cold start below 800 ms",
+                      "board": "Performance",
+                      "assignee": "Chen Wei",
+                      "status": "Done",
+                      "summary": "Defer the sync bootstrap until after the first frame",
+                      "estimate": 5
+                    }
+                  ]
                 }
               }
             ]

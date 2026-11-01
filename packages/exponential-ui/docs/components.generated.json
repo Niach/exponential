@@ -2103,8 +2103,8 @@
             "value": "issue"
           },
           {
-            "label": "Run",
-            "value": "run"
+            "label": "Session",
+            "value": "session"
           }
         ],
         "value": "issue"
@@ -4240,7 +4240,7 @@
       "group": "data",
       "lite": false,
       "specimenId": "exponential-ui-table",
-      "description": "A data table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "children": "none",
       "slots": [
         "*"
@@ -4344,7 +4344,7 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Keeps the header visible while the rows scroll."
+          "description": "Pins the header while rows scroll."
         }
       ],
       "accessibility": {

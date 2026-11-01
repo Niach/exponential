@@ -1,5 +1,7 @@
-// A-16: the Devices page row — which group a device sits in, whether it says
-// "No account", and what its attention card lists. Pure and byte-locked by
+// A-16 / EXP-1560: the Devices page card — which group a device sits in,
+// whether it says "No account", which logins wear the attention badge (and
+// what their preview says), the update line its ⋯ menu leads with, and how
+// many account icons show. Pure and byte-locked by
 // `fixtures/devices-list.json` (`cases`), which every mirror replays: desktop
 // `ui::machines` (`device_attention`), iOS `ExpCore/Sources/Domain/DevicesList.swift`,
 // Android `domain/DevicesList.kt`. The fixture's `$comment` holds the rules;
@@ -8,6 +10,23 @@
 import fixture from "../fixtures/devices-list.json" with { type: "json" }
 
 export const DEVICES_LIST_COPY = fixture.copy
+/** EXP-1560: the card grid's geometry (`fixture.card`), ×4. */
+export const DEVICE_CARD = fixture.card
+
+/** EXP-1560: grid columns for a section `width` px wide. */
+export function deviceCardColumns(width: number): number {
+  return Math.max(1, Math.floor((width + DEVICE_CARD.gap) / (DEVICE_CARD.minWidth + DEVICE_CARD.gap)))
+}
+
+/** EXP-1560: how many account icons a card shows, and whether the ⋯
+ *  "More accounts" button follows them (`fixture.accountIcons`). */
+export function deviceCardAccountIcons(
+  count: number,
+  expanded: boolean
+): { visible: number; more: boolean } {
+  if (expanded || count <= DEVICE_CARD.maxAccountIcons) return { visible: count, more: false }
+  return { visible: DEVICE_CARD.maxAccountIcons - 1, more: true }
+}
 
 export type DeviceLoginHealth = `ok` | `needs_relogin` | `signed_out` | `unknown`
 
@@ -17,6 +36,8 @@ export interface DeviceListLogin {
   /** `loginLabel` — the email, else the plan, else the fallback. */
   label: string
   health: DeviceLoginHealth
+  /** EXP-1560: a fresh usage window at ≥ 100%. */
+  limitHit?: boolean
 }
 
 export interface DeviceListInput {
@@ -44,6 +65,8 @@ export type DeviceAttentionItem =
       profileId: string
       text: string
       action: `sign_in` | null
+      /** EXP-1560: the preview's status line (`copy.status`). */
+      status: `needs_relogin` | `signed_out` | `limit`
     }
   | { kind: `update`; text: string; action: `update` | null }
   | { kind: `update_queued`; text: string; action: null }
@@ -69,8 +92,20 @@ export function deviceListRow(input: DeviceListInput): DeviceListRow {
         profileId: login.profileId,
         text: template.replace(`{label}`, login.label),
         action: canSignIn ? `sign_in` : null,
+        status: health,
       })
     }
+  }
+  for (const login of input.logins) {
+    if (!login.limitHit || login.health === `needs_relogin` || login.health === `signed_out`) continue
+    attention.push({
+      kind: `login`,
+      agent: login.agent,
+      profileId: login.profileId,
+      text: DEVICES_LIST_COPY.limitReached.replace(`{label}`, login.label),
+      action: null,
+      status: `limit`,
+    })
   }
   if (input.mine) {
     if (input.updateQueued) {

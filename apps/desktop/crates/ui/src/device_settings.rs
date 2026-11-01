@@ -1795,8 +1795,9 @@ impl DeviceSettingsView {
         if can_update_now {
             let confirm_label = label.clone();
             controls = controls.child(
+                // EXP-1554: web's neutral action Pill — `danger` is now THE
+                // filled destructive button, never a pill paint.
                 surface::glass_pill_button("device-update-now", surface::PillSize::Sm, cx)
-                    .danger()
                     .label("Update now…")
                     .tooltip("End this device's live sessions and restart it on the new version now.")
                     .on_click(cx.listener(move |this, _, window, cx| {

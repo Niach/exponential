@@ -22,11 +22,12 @@ import com.exponential.app.domain.ScriptCall
 import com.exponential.app.domain.ScriptCardInput
 import com.exponential.app.domain.ScriptCards
 import com.exponential.app.domain.SessionTree
-import com.exponential.app.domain.WorkCardInput
-import com.exponential.app.domain.WorkCardPhaseInput
-import com.exponential.app.domain.WorkCardTask
-import com.exponential.app.domain.WorkCardWorkflowAgent
-import com.exponential.app.domain.WorkCards
+import com.exponential.app.domain.WorkflowAgent
+import com.exponential.app.domain.WorkflowPhase
+import com.exponential.app.domain.WorkflowState
+import com.exponential.app.domain.WORKFLOW_STATUS_COMPLETED
+import com.exponential.app.domain.foldedPhases
+import com.exponential.app.domain.workCard
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.modelLabel
@@ -36,6 +37,13 @@ import com.exponential.app.ui.session.ScriptCardView
 import com.exponential.app.ui.session.WorkCardView
 import com.exponential.app.ui.thread.SessionCard
 import com.exponential.app.ui.components.SessionXref
+import com.exponential.app.ui.components.PrList
+import com.exponential.app.ui.components.PrListRow
+import com.exponential.app.ui.components.SectionHeader
+import com.exponential.app.ui.components.StackRail
+import com.exponential.app.ui.components.StackRailMember
+import com.exponential.app.ui.icons.ExpIcons
+import androidx.compose.material3.Icon
 import com.exponential.app.ui.thread.ThreadSuggestionActions
 import com.exponential.app.ui.thread.ThreadSuggestionsCard
 import com.exponential.app.ui.theme.AppBackground
@@ -53,15 +61,17 @@ enum class ThreadCardsKind(val testId: String) {
     PlanCard("plan-card-screen"),
     /** S-3: THE inter-session link line in its four kinds (shot sg_session-xref). */
     SessionXref("session-xref-screen"),
+    /** EXP-1553: THE PR row (web's `pr-row` entry, shot sg_pr-row). */
+    PrRow("pr-row-specimen"),
 }
 
 /**
  * EXP-1240 / EXP-1279 / EXP-1241 (EXP-1259 D12-D14): the styleguide's run
  * thread cards on Android, a capture-only screen (sg_work-card,
  * sg_script-card, sg_comment-call-card) drawing each card with its REAL
- * composable over the draft's (draft7) data: a workflow mid-review, a task
- * list and a subagent; a script with grouped calls and a failure; a comment
- * call with the clamped body.
+ * composable over the seeded demo feed's data the web + desktop pictures
+ * show (EXP-1553): the finished `cold-start-review` workflow, the 13-call
+ * script with its one failure, the seeded agent comment; no captions.
  */
 @Composable
 fun ThreadCardsScreen(kind: ThreadCardsKind) {
@@ -72,7 +82,8 @@ fun ThreadCardsScreen(kind: ThreadCardsKind) {
                     .fillMaxSize()
                     .statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 72.dp),
+                    // The PR list's bands run edge to edge, like the list's.
+                    .padding(horizontal = if (kind == ThreadCardsKind.PrRow) 0.dp else 16.dp, vertical = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 when (kind) {
@@ -82,6 +93,7 @@ fun ThreadCardsScreen(kind: ThreadCardsKind) {
                     ThreadCardsKind.Suggestions -> SuggestionsSpecimens()
                     ThreadCardsKind.PlanCard -> PlanCardSpecimens()
                     ThreadCardsKind.SessionXref -> SessionXrefSpecimens()
+                    ThreadCardsKind.PrRow -> PrRowSpecimens()
                 }
             }
         }
@@ -97,123 +109,144 @@ private fun Caption(text: String) {
     )
 }
 
-/** S-3 (styleguide entry `session-xref`): the four kinds — an agent's
- *  conversation (its mark) and plain sessions (the session glyph) — the
- *  last one with a name long enough to ellipsize. */
+/** S-3 (styleguide entry `session-xref`), EXP-1553: web's
+ *  `SessionXrefSpecimen` row for row, four compact rows, no captions: the
+ *  agent's conversation (its mark) and plain sessions (the session glyph). */
 @Composable
 private fun SessionXrefSpecimens() {
     val agent = com.exponential.app.data.db.AgentDefinitionEntity(
-        id = "a1",
+        id = "sg-agent",
         teamId = "t-team-1",
-        name = "Big Brother",
-        icon = "eye",
+        name = "Triage",
+        icon = "bot",
         color = "#8b5cf6",
     )
     androidx.compose.runtime.CompositionLocalProvider(
         com.exponential.app.ui.components.LocalAgentMarks provides mapOf(agent.id to agent),
     ) {
-        Caption("Message from")
-        SessionXref(SessionTree.SessionXref("message", "ac1", "Big Brother", "a1"), onOpen = {})
-        Caption("Report from")
-        SessionXref(SessionTree.SessionXref("report", "c1", "Batch 2", null), onOpen = {})
-        Caption("Started by")
-        SessionXref(SessionTree.SessionXref("started", "ac1", "Big Brother", "a1"), onOpen = {})
-        Caption("Reported to")
-        SessionXref(
-            SessionTree.SessionXref("reported", "t1", "Fix the checkout flow on the mobile web and the native apps", null),
-            onOpen = {},
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SessionXref(SessionTree.SessionXref("message", "sg-xref-message", "Triage", "sg-agent"), onOpen = {})
+            SessionXref(SessionTree.SessionXref("report", "sg-xref-report", "Fix the sign-in redirect", null), onOpen = {})
+            SessionXref(SessionTree.SessionXref("started", "sg-xref-started", "Triage", "sg-agent"), onOpen = {})
+            SessionXref(SessionTree.SessionXref("reported", "sg-xref-reported", "Ship the login flow", null), onOpen = {})
+        }
+    }
+}
+
+/** EXP-1553 `pr-row` (web's styleguide entry, iOS's PrRowSpecimens line for
+ *  line): THE PrRow in its two shapes — a PR TREE nested with tree guides, a
+ *  linear STACK on its rail down to `master` (the current member washed,
+ *  `stack` on the top row) — and an unlinked PR with the external-link glyph. */
+@Composable
+private fun PrRowSpecimens() {
+    val stack = listOf(
+        StackRailMember("100", "VAPP-100", "SwiftUI parity with the round-1/2 contract", current = true),
+        StackRailMember("98", "VAPP-98", "Exponential UI renderer hardening round 1"),
+        StackRailMember("93", "VAPP-93", "ui.exponential.at: the Exponential UI site"),
+        StackRailMember("91", "VAPP-91", "Exponential UI host API ×4"),
+    )
+    Column {
+        SectionHeader("Exponential")
+        PrList(
+            listOf(
+                PrListRow("1250", "opening tabs closes all at some point", "EXP-1250", onOpen = {}),
+                PrListRow("1252", "tabs per team on desktop", "EXP-1252", depth = 1, onOpen = {}),
+                PrListRow("1253", "inbox stepping reuses one tab", "EXP-1253", depth = 1, onOpen = {}),
+            ),
+        )
+        StackRail(members = stack, baseBranch = "master", word = "stack", onOpen = {}, onMergeThrough = {})
+    }
+    Column {
+        SectionHeader("Not linked to an issue")
+        PrList(
+            listOf(
+                PrListRow(
+                    "1013",
+                    "Dockerfiles: stub the exponential-ui workspace packages",
+                    "#1013",
+                    onOpen = {},
+                    trailing = {
+                        Icon(
+                            ExpIcons.uiExternalLink,
+                            contentDescription = null,
+                            modifier = Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        )
+                    },
+                ),
+            ),
         )
     }
 }
 
-@Composable
-private fun WorkCardSpecimens() {
-    Caption("Workflow")
-    WorkCardView(card = WorkCards.of(SampleWorkflow), onOpenLane = {})
-    Caption("Tasks")
-    WorkCardView(
-        card = WorkCards.of(
-            WorkCardInput.Tasks(
-                listOf("Survey", "Draft", "Fixtures").map { WorkCardTask(it, "completed") } +
-                    WorkCardTask("Wire the Review face", "in_progress") +
-                    listOf("Desktop", "iOS", "Android").map { WorkCardTask(it, "pending") },
-            ),
-        ),
-    )
-    Caption("Subagent")
-    WorkCardView(
-        card = WorkCards.of(
-            WorkCardInput.Subagent(title = "Survey UI code", state = "done", toolCalls = 127, elapsedMs = 600_000),
-        ),
-        onOpenSubagent = {},
-    )
-}
-
-private val SampleWorkflow = WorkCardInput.Workflow(
-    name = "exponential-ui-renderer-hardening",
-    status = "running",
-    elapsedMs = 4_320_000,
-    phases = listOf("Contract", "Implement", "Conformance", "Review", "Verify")
-        .mapIndexed { index, title -> WorkCardPhaseInput(index + 1, title) },
+/** EXP-1553: the seeded demo feed's workflow (apps/web/scripts/
+ *  screenshot-desktop.ts `wf-launch-review`), the one finished Work card the
+ *  web + desktop pictures show, its done phases folded. */
+private val DemoWorkflow = WorkflowState(
+    id = "wf-launch-review",
+    name = "cold-start-review",
+    description = "Review the cold-start diff",
+    status = WORKFLOW_STATUS_COMPLETED,
+    phases = listOf(WorkflowPhase(1, "Review"), WorkflowPhase(2, "Verify")),
     agents = listOf(
-        WorkCardWorkflowAgent(1, "contract", 1, "opus", "done", 600_000),
-        WorkCardWorkflowAgent(2, "impl:react", 2, "opus", "done", 1_200_000),
-        WorkCardWorkflowAgent(3, "impl:gpui", 2, "opus", "done", 1_500_000),
-        WorkCardWorkflowAgent(4, "conf:swift", 3, "opus", "done", 480_000),
-        WorkCardWorkflowAgent(5, "conf:compose", 3, "opus", "done", 300_000),
-        WorkCardWorkflowAgent(6, "review:catalog", 4, "claude-opus-5-5", "done", 509_000),
-        WorkCardWorkflowAgent(7, "fix:react", 4, "opus", "done", 1_900_000),
-        WorkCardWorkflowAgent(8, "recheck:core", 4, "opus", "done", 103_000),
-        WorkCardWorkflowAgent(9, "recheck:react", 4, "opus", "running"),
+        WorkflowAgent(1, "review:correctness", phaseIndex = 1, model = "opus", state = "done", durationMs = 41_000, toolCalls = 9),
+        WorkflowAgent(2, "review:performance", phaseIndex = 1, model = "opus", state = "done", durationMs = 52_000, toolCalls = 12),
+        WorkflowAgent(3, "verify:benchmarks", phaseIndex = 2, model = "sonnet", state = "done", durationMs = 64_000, toolCalls = 7),
     ),
+    summary = "No blocking findings; the A54 p90 sits 12 ms over target",
 )
 
 @Composable
-private fun ScriptCardSpecimens() {
-    val calls = List(55) { ScriptCall("exponential.exponential_issues_get", "EXP-${1253 + it}", ok = true, ms = 40) } +
-        List(11) { ScriptCall("exponential.exponential_issues_update", "EXT-${1 + it}", ok = true, ms = 60) } +
-        List(13) { ScriptCall("exponential.exponential_comments_create", "MKT-${6 + it}", ok = true, ms = 80) } +
-        List(18) { ScriptCall("exponential.exponential_issue_relations_add", "EXT-${15 + it}", ok = it != 3, ms = 70) } +
-        ScriptCall("computer.screenshot", ok = true, ms = 300)
-    Caption("Ran a script")
-    ScriptCardView(
-        card = ScriptCards.of(ScriptCardInput(running = false, count = calls.size, calls = calls, elapsedMs = 3_040)),
-        source = "const issues = await Promise.all(ids.map((id) => tools.exponential.exponential_issues_get({ id })))",
-    )
-    Caption("Running")
-    ScriptCardView(card = ScriptCards.of(ScriptCardInput(running = true)), running = true)
+private fun WorkCardSpecimens() {
+    val card = DemoWorkflow.workCard()
+    WorkCardView(card = card, foldedPhases = DemoWorkflow.foldedPhases(card), onOpenLane = {})
 }
 
-private val InProgress = IssueStatusResolver.builtinDefaults.first { it.builtinKey == IssueStatus.InProgress }
+/** EXP-1553: the demo feed's code-mode `exec` (13 calls, one failure). */
+private val DemoIds = listOf("APP-5", "APP-9", "APP-10", "APP-14", "APP-16", "APP-17")
 
 @Composable
+private fun ScriptCardSpecimens() {
+    val calls = DemoIds.mapIndexed { i, id -> ScriptCall("exponential.exponential_issues_get", id, ok = true, ms = 180L + i * 20) } +
+        DemoIds.mapIndexed { i, id -> ScriptCall("exponential.exponential_comments_list", id, ok = true, ms = 140L + i * 15) } +
+        ScriptCall("exponential.exponential_issues_pr_files", "APP-9", ok = false, ms = 95)
+    ScriptCardView(
+        card = ScriptCards.of(ScriptCardInput(running = false, count = 13, calls = calls, elapsedMs = 2_140)),
+        source = DEMO_SCRIPT_SOURCE,
+    )
+}
+
+private const val DEMO_SCRIPT_SOURCE = """const ids = ["APP-5", "APP-9", "APP-10", "APP-14", "APP-16", "APP-17"]
+const issues = await Promise.all(
+  ids.map((id) => tools.exponential.exponential_issues_get({ id }))
+)
+const threads = await Promise.all(
+  ids.map((issueId) => tools.exponential.exponential_comments_list({ issueId }))
+)
+const files = await tools.exponential.exponential_issues_pr_files({ issueId: "APP-9" })
+return issues.map((issue, i) => `${'$'}{issue.identifier} ${'$'}{threads[i].length} comments`)"""
+
+private val Backlog = IssueStatusResolver.builtinDefaults.first { it.builtinKey == IssueStatus.Backlog }
+
+/** EXP-1553: the seeded agent comment (seed-screenshots.ts
+ *  DEMO_AGENT_COMMENT_ID) on APP-10, posted 20 minutes ago over MCP. */
+@Composable
 private fun CommentCardSpecimens() {
-    Caption("Commented on")
     CommentCallCard(
         issue = {
             IssueChip(
-                identifier = "VAPP-84",
-                title = "Exponential UI: an open generative-UI SDK",
-                status = InProgress,
+                identifier = "APP-10",
+                title = "Migrate image cache to on-disk LRU",
+                status = Backlog,
             )
         },
-        author = "Danny",
-        caption = "via MCP · 2 minutes ago",
+        author = "Alex Carter",
+        caption = "via MCP · 20 minutes ago",
         mark = { AgentRunMark(agent = "claude", state = null, size = 14.dp, badgeSize = 0.dp, modifier = Modifier.size(14.dp)) },
-        body = "**Status 2026-10-08, evening**\n\n#VAPP-98 (renderer hardening) is open as PR #1007; the host API " +
-            "session #VAPP-91 is not based on the new contract yet, so I sent it a heads-up. The conformance " +
-            "lanes are green on React and gpui; Swift and Compose wait on the fixture bump.",
+        body = "From APP-5: the board snapshot cache now persists on `ON_STOP` (`BoardSnapshotCache.persistOnStop`), " +
+            "so the LRU can reuse its directory and eviction hook instead of opening a second one.\n\n" +
+            "Cold start after the change: **740 ms** p50 on the Pixel 6a.",
         onOpen = {},
-    )
-    Caption("Commenting on")
-    CommentCallCard(
-        issue = {
-            IssueChip(identifier = "VAPP-84", title = "Exponential UI", status = InProgress)
-        },
-        author = null,
-        caption = null,
-        body = null,
-        running = true,
     )
 }
 

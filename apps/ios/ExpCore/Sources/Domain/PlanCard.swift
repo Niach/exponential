@@ -49,6 +49,8 @@ public enum PlanCard {
             public static let pending = "A plan waiting on you: pictures, a surface, two questions"
             public static let answered = "A question answered with several picks"
             public static let approved = "An approved plan"
+            /// #EXP-1561: a question and a plan dismissed.
+            public static let dismissed = "A question and a plan dismissed"
         }
 
         /// `copy.answerIssues`, keyed by `AnswerIssue`.

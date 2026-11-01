@@ -465,6 +465,13 @@ class ThreadViewModel @Inject constructor(
             )
         }
 
+    /** #EXP-1561 (waiting-cards.json DISMISS): dismiss a waiting question or
+     *  plan card through THE answer path (`dismissed: true` alone). */
+    fun dismissCard(messageId: String, settled: (Boolean) -> Unit = {}) =
+        run("dismiss", "the card", settled = settled) { accountId ->
+            sessionsApi.answer(accountId, AnswerInput.dismiss(messageId))
+        }
+
     // ── EXP-1323: read marks, suggested tasks, the live tail ────────────────
 
     /** Stamp the viewer's read of the thread (its root); background, so a

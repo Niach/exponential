@@ -115,11 +115,15 @@ pub(crate) fn delete_alert_for(
     on_ok: impl Fn(&mut Window, &mut App) -> bool + 'static,
 ) -> crate::native_dialog::AlertSpec {
     let copy = &CHATS.copy;
+    // #EXP-1553: web's compact confirm: "Delete this chat?" bold over the
+    // body (the window keeps the short `Delete` name), no empty band.
     crate::native_dialog::AlertSpec::new(
-        domain::chats::chat_delete_title(count),
+        copy.menu.delete.clone(),
         copy.confirm_delete.body.clone(),
         copy.menu.delete.clone(),
     )
+    .question(domain::chats::chat_delete_title(count))
+    .height(gpui::px(204.))
     .ok_variant(gpui_component::button::ButtonVariant::Danger)
     .on_ok(on_ok)
 }

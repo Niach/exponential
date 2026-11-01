@@ -198,6 +198,8 @@ mod transcript_rows;
 mod tree_guides;
 // EXP-1294: the thread screen and the Threads page.
 mod thread_screen;
+// #EXP-1561 / #EXP-1562: a waiting card's ×, the dismissed line, the strip's waiting chips.
+mod waiting_cards;
 mod threads_view;
 mod work_card;
 mod script_card;

@@ -58,6 +58,86 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_158: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-dismiss-cards",
+    date: "2026-11-01",
+    title: "Dismiss a question or plan",
+    summary: "Close a question or plan card you don't want to answer; the thread header shows what's still waiting.",
+    body: r#"- **Dismiss**: every question and plan card has an ✕; the agent hears that you dismissed it and carries on.
+- **Waiting**: the thread header shows each question or plan still waiting; tap one to jump to it."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_157: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-wide-tables-scroll",
+    date: "2026-11-01",
+    title: "Wide tables scroll",
+    summary: "A table wider than its space scrolls sideways, and its cells wrap instead of cutting off.",
+    body: r#"- **Scroll sideways**: an app's table with more columns than fit keeps every column readable and scrolls horizontally.
+- **Wrapping cells**: long cell text wraps onto more lines; a column can still ask for one line with an ellipsis."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_156: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-smooth-long-plans-desktop",
+    date: "2026-11-01",
+    title: "Long plans scroll smoothly on desktop",
+    summary: "A thread with a very long plan card scrolls without lag in the desktop app.",
+    body: r#"- **Smooth scrolling**: the desktop app now lays out only the part of a long plan that is on screen, so scrolling past many sections, tables and pictures stays fluid.
+- **Same look**: plans look exactly as before."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_155: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-wider-chat-column",
+    date: "2026-11-01",
+    title: "A wider chat",
+    summary: "Chats are 100 px wider on desktop and web, and the reply box lines up with them.",
+    body: r#"- **More room**: plans and previews in a chat get 100 px more width in the desktop app and on web.
+- **One edge**: the reply box is exactly as wide as the conversation above it."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_154: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-composer-home-same-everywhere",
+    date: "2026-11-01",
+    title: "The new-chat screen looks the same everywhere",
+    summary: "Starting a chat looks the same on web, desktop, iPhone and Android.",
+    body: r#"- **Issue chips**: issues you attach wrap like on the web, long titles end in "…", and the ✕ always shows.
+- **The + menu**: the same rows on every platform, and Computer use only appears for a device that supports it.
+- **iPhone**: the composer is as tall as on the web, and a tap anywhere in it opens the keyboard."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_153: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-chats-look-the-same",
+    date: "2026-11-01",
+    title: "Chats look the same everywhere",
+    summary: "Message times, replaced plans, selection and story titles now match on every platform.",
+    body: r#"- **Message times**: on iOS your message's time now sits inside the bubble, like everywhere else.
+- **Replaced plans**: a plan a newer one replaced shows as the closed Plan ready card on every platform.
+- **Selecting chats**: on a phone browser, selecting chats shows the full-width bar the apps use.
+- **Story titles**: a story's kind badge sits above its title, which wraps to two lines instead of cutting off."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_152: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-device-cards",
+    date: "2026-11-01",
+    title: "Devices as cards",
+    summary: "The Devices page is a grid of cards, with each account as an icon you can hover or tap.",
+    body: r#"- **Cards**: every device is a card with its name, version and status, and a ⋯ menu for its update and settings.
+- **Accounts**: logins show as Claude or Codex icons; an amber dot marks one that is signed out or at its limit, and hovering or tapping it shows the email, plan, usage limits and Sign in."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_151: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-look-audit-fixes",
     date: "2026-11-01",

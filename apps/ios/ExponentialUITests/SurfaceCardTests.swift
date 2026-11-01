@@ -2,11 +2,10 @@ import XCTest
 
 /// Thread 58cb32df (chats.json SURFACE CARD): the inline preview on the
 /// styleguide's chat-transcript specimen — the real renderer paints it, a
-/// `reply` press hands its text out, "Replay the enter" re-mounts it as a
-/// LIVE arrival (the enter animation; the host screenshots it meanwhile).
+/// `reply` press hands its text out.
 final class SurfaceCardTests: XCTestCase {
     @MainActor
-    func testSurfaceReplyAndEnter() throws {
+    func testSurfaceReply() throws {
         continueAfterFailure = false
         let app = makeScreenshotApp()
         launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", "chat-transcript"])
@@ -17,11 +16,5 @@ final class SurfaceCardTests: XCTestCase {
         ship.tap()
         let echo = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "reply → Ship the snapshot")).firstMatch
         XCTAssertTrue(echo.waitForExistence(timeout: 5), "The reply press posted nothing")
-        // The enter: replay a few times so the host can photograph frames.
-        let replay = app.buttons["surface-replay-enter"].firstMatch
-        for _ in 0..<3 {
-            replay.tap()
-            Thread.sleep(forTimeInterval: 2)
-        }
     }
 }

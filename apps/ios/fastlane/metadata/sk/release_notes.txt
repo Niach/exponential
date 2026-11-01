@@ -8,3 +8,9 @@
 - Živé relácie pokračujú v streamovaní, šifrované end-to-end, keď priame spojenie so zariadením vypadne
 - Text napísaný počas odosielania komentára zostane v poli na písanie
 - Vlákno zobrazuje úlohy svojej bežiacej podriadenej relácie
+- Agenti dostanú úlohu, ktorú im odovzdáte: identifikátor, názov a popis
+- Hlavička vlákna ukazuje stav relácie a tlačidlo Merge
+- Popisy príbehov nikdy neprerastú prehliadač
+- Zatvorte otázku alebo plán, na ktorý nechcete odpovedať; hlavička vlákna ukazuje, čo ešte čaká
+- Stránka Zariadenia zobrazuje každé zariadenie ako kartu
+- Chaty, obrazovka nového chatu a Nastavenia vyzerajú rovnako ako v ostatných aplikáciách

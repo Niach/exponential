@@ -111,28 +111,13 @@ struct IssueThreadChip: View {
     let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 6) {
-                mark
-                    .frame(width: 12, height: 12)
-                Text(thread.title)
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(TextOpacity.primary))
-                    .lineLimit(1)
-                    .frame(maxWidth: IssueChipTokens.titleMaxWidth, alignment: .leading)
-            }
-            .padding(.horizontal, IssueChipTokens.horizontalPadding + 2)
-            .padding(.vertical, IssueChipTokens.verticalPadding + 1)
-            .background(
-                RoundedRectangle(cornerRadius: MarkdownStyle.chipCornerRadius, style: .continuous)
-                    .fill(Color(MarkdownStyle.chipBackground))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: MarkdownStyle.chipCornerRadius, style: .continuous)
-                    .strokeBorder(Color(MarkdownStyle.chipBorder), lineWidth: IssueChipTokens.borderWidth)
-            )
+        // EXP-1553 (web `Pill` + desktop `glass_pill` ×4): THE round glass
+        // pill, the agent's mark leading, never a square chip box.
+        GlassPill(thread.title, size: .sm, mode: .action(onTap)) {
+            mark
+                .frame(width: 12, height: 12)
         }
-        .buttonStyle(.plain)
+        .frame(maxWidth: IssueChipTokens.titleMaxWidth + 40, alignment: .leading)
         .accessibilityLabel(thread.title)
         .accessibilityIdentifier("issue-thread-chip")
     }

@@ -1,6 +1,7 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -129,6 +130,9 @@ fun AgentRunMark(
     badgeSize: Dp,
     modifier: Modifier = Modifier,
     ended: Boolean = state == SessionTree.SessionState.Done,
+    /** EXP-1560: the badge's ring in the surface's ground (the Devices card's
+     *  account icons); null = no ring. */
+    badgeRing: Color? = null,
 ) {
     val id = agent.orEmpty()
     if (ended) {
@@ -163,6 +167,13 @@ fun AgentRunMark(
                     .offset(x = badgeSize / 3, y = -(badgeSize / 3))
                     .size(badgeSize)
                     .background(badge, CircleShape)
+                    .then(
+                        if (badgeRing != null) {
+                            Modifier.border(1.5.dp, badgeRing, CircleShape)
+                        } else {
+                            Modifier
+                        },
+                    )
                     .testTag("run-mark-badge"),
             )
         }

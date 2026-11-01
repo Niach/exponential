@@ -143,6 +143,13 @@ final class StyleguideScreenshots: XCTestCase {
     /// sit in the same group, so one scroll reaches both.
     private static let bulkFirstTitle = "Localize the app in German and Spanish"
     private static let bulkSecondTitle = "Audit accessibility labels for VoiceOver"
+    /// EXP-1551: the two issues every client's `chat-issues` chips, in order
+    /// (web `demo-ids.ts` `CHAT_ISSUE_IDENTIFIERS`: `$issueA` APP-3, `$issueB`
+    /// APP-6).
+    private static let chatIssueTitles = [
+        "Dark mode contrast pass across settings",
+        "Push notification deep links open the wrong tab",
+    ]
     /// The device `bun run screenshots:desktop` registers for the demo user.
     private static let demoDeviceName = "Alex's MacBook Pro"
     /// The login that device announces for its agents (`screenshot-demo.ts`
@@ -490,26 +497,28 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.network,
             "No \(Self.demoDeviceName) row — is `bun run screenshots:desktop` running?"
         )
-        // A-16 (`devices-list.json`): nothing folds any more — a device is
-        // ONE line with its logins as chips, so the demo login is in frame
-        // straight away.
+        // EXP-1560 (`devices-list.json`): a device is ONE card in a grid,
+        // its logins as brand-mark icons (the email rides the icon's
+        // accessibility label), so the demo login is in frame straight away.
         expect(
             anyElement(app, containing: Self.demoAccountEmail),
             within: Wait.network,
-            "No \(Self.demoAccountEmail) login chip — is the stub device reporting agent accounts?"
+            "No \(Self.demoAccountEmail) login icon — is the stub device reporting agent accounts?"
         )
-        // A-16: the outdated demo desktop (the server's
-        // CLIENT_LATEST_VERSION_DESKTOP above its version) wears the attention
-        // icon; soft — an instance that advertises no latest build has none.
-        _ = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'device-attention-'"))
+        // EXP-1560 (the "Device card" entry): a login with an attention item
+        // wears the amber run-mark badge; soft — the demo logins may all be
+        // healthy. The outdated demo desktop's update line lives in its `⋯`.
+        _ = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier BEGINSWITH 'device-login-badge-'"))
             .firstMatch.waitForExistence(timeout: Wait.sync)
         // FEED-149: the demo user OWNS Acme, so the teammate's shared build
-        // server carries the owner's Remove in the gear's slot.
-        expect(
-            app.buttons["device-drop-share"].firstMatch,
-            within: Wait.sync,
-            "No Remove on the shared team device — is the demo user Acme's owner?"
+        // server's card carries a `⋯` (the owner's Remove from this team) —
+        // beside the demo user's own card's `⋯`.
+        let deviceActions = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'device-actions-'")
         )
+        expect(deviceActions.element(boundBy: 1), within: Wait.sync,
+               "No ⋯ on the shared team device — is the demo user Acme's owner?")
         snapshot("sg_agents", settle: 2)
 
         // ── sg_chat / sg_chat-issues: the home composer ─────────────────────
@@ -558,10 +567,24 @@ final class StyleguideScreenshots: XCTestCase {
         anyElement(app, identified: "agent-composer-menu-implement-issue").tap()
         let issuePicker = anyElement(app, identified: "agent-composer-issues-picker")
         expect(issuePicker, within: Wait.nav, "Issue picker did not open")
-        for title in [Self.bulkFirstTitle, Self.bulkSecondTitle] {
+        // EXP-1551: the same two issues web chips (APP-3 then APP-6), each
+        // filtered first so its row is on screen whatever the list's order.
+        let issueSearch = anyElement(app, identified: "agent-composer-submenu-search")
+        expect(issueSearch, within: Wait.nav, "The issue picker has no search input")
+        for title in Self.chatIssueTitles {
+            // Tap the trailing edge: the caret lands at the END, so the
+            // deletes clear the previous title whole (a centre tap leaves
+            // its head in the field).
+            issueSearch.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
+            clearText(of: issueSearch)
+            issueSearch.typeText(title)
             // EXP-1030: a picker row reads `IDENT Title` in ONE label (the ×4
-            // contract), so it is matched on the title as a fragment.
-            let row = anyElement(app, containing: title)
+            // contract), so it is matched on the title as a fragment, among
+            // the list's rows (never the input holding the same text).
+            let row = app.descendants(matching: .any)
+                .matching(identifier: "search-list-row")
+                .matching(NSPredicate(format: "label CONTAINS %@", title))
+                .firstMatch
             expect(row, within: Wait.sync, "Issue picker never listed \"\(title)\"")
             row.tap()
         }
@@ -613,15 +636,20 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
 
         // ── sg_machine-settings: the device settings sheet ───────────────────
-        // EXP-909: a device row carries ONE control, the settings gear, and
-        // only on own registered machines — which is why the relay stub is a
-        // prerequisite. One tap, no menu hop.
-        let machineSettings = app.buttons["machine-settings"].firstMatch
+        // EXP-1560: Device settings is the own card's `⋯` item, and only on
+        // own registered machines — which is why the relay stub is a
+        // prerequisite. The first card is the demo user's own device.
+        let ownActions = app.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH 'device-actions-'")
+        ).firstMatch
         expect(
-            machineSettings,
+            ownActions,
             within: Wait.sync,
-            "No device settings gear — the stub device must be the demo user's OWN, registered machine"
+            "No ⋯ on the device card — the stub device must be the demo user's OWN, registered machine"
         )
+        ownActions.tap()
+        let machineSettings = app.buttons["machine-settings"].firstMatch
+        expect(machineSettings, within: Wait.nav, "No Device settings in the card's ⋯ menu")
         machineSettings.tap()
         let deviceSheet = anyElement(app, identified: "device-settings-sheet")
         expect(deviceSheet, within: Wait.nav, "Device settings sheet did not open")
@@ -631,18 +659,10 @@ final class StyleguideScreenshots: XCTestCase {
         _ = deviceSheet.waitForNonExistence(timeout: Wait.nav)
         settle(1)
 
-        // ── sg_pr-row: THE pull-request row (EXP-1248/1295) ──────────────────
-        // An issue page lists its pull requests as rows; APP-14 owns the
-        // seed's real open PR.
+        // EXP-1553: sg_pr-row is a specimen now (THE PrRow: ring lead, tree
+        // guides, the stack rail; `walkSpecimens`). Back on the board for the
+        // issue walk below.
         showBoard(app)
-        openIssue(app, title: Self.guideTitle)
-        let prRow = anyElement(app, identified: "issue-pr-row")
-        _ = scrollUntilVisible(app, prRow)
-        expect(prRow, within: Wait.sync, "APP-14's page drew no pull-request row")
-        snapshot("sg_pr-row", settle: 1)
-
-        // Issue → board.
-        goBack(app)
         settle(1)
 
         // ── sg_thread-replies: the quick replies (EXP-1211) ──────────────────
@@ -910,7 +930,7 @@ final class StyleguideScreenshots: XCTestCase {
 
         // ── sg_feedback-states: the six feedback kinds (EXP-1275) ────────────
         // A capture-only screen over a signed-out relaunch: every kind drawn
-        // by its real primitive, the error toast raised on appear.
+        // by its real primitive in web's six numbered cards (EXP-1554).
         launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", "feedback-states"])
         expect(
             anyElement(app, identified: "feedback-states-screen"),
@@ -1001,7 +1021,7 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "device-readiness", "session-xref", "story-ring", "story-viewer",
-        "story-tab", "sealed-locked", "plan-page",
+        "story-tab", "sealed-locked", "plan-page", "pr-row",
     ]
 
     /// A scoped run that wants only specimens (`--views sealed-locked`)
@@ -1035,6 +1055,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "story-tab": snapshot("sg_story-tab", settle: 2)
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)
+            case "pr-row": snapshot("sg_pr-row", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
             }
         }

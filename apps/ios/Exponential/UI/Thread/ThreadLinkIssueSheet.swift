@@ -98,7 +98,8 @@ struct ThreadIssueSearchList: View {
             label: identifier.isEmpty ? issue.title : "\(identifier) \(issue.title)",
             icon: status.iconName,
             color: status.color,
-            keywords: [identifier, issue.title]
+            keywords: [identifier, issue.title],
+            identifier: identifier
         )
     }
 }

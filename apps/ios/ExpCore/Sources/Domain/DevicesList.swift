@@ -1,10 +1,12 @@
 import Foundation
 
-/// A-16: the Devices page row — which group a device sits in, whether it says
-/// "No account", and what its attention card lists. Pure, and byte-locked by
+/// A-16 / EXP-1560: the Devices page card — which group a device sits in,
+/// whether it says "No account", which logins wear the attention badge (and
+/// what their preview says), the update line its `⋯` menu leads with, and how
+/// many account icons show. Pure, and byte-locked by
 /// `packages/domain-contract/fixtures/devices-list.json` (`cases`), which
-/// every mirror replays: the TS reference `domain-contract/src/devices-list.ts`
-/// (`deviceListRow`), desktop `ui::machines` (`device_attention`), Android
+/// every mirror replays (`cases`, `accountIcons`): the TS reference
+/// `domain-contract/src/devices-list.ts` (`deviceListRow`), desktop `ui::machines` (`device_attention`), Android
 /// `domain/DevicesList.kt`. The fixture's `$comment` holds the rules.
 public enum DevicesList {
     /// The fixture's `copy`, byte-identical ×4.
@@ -15,13 +17,63 @@ public enum DevicesList {
         public static let noAccount = "No account"
         public static let checking = "Checking…"
         public static let addAccount = "Add account"
-        public static let attention = "Needs attention"
         public static let updateAvailable = "Update available · v{version}"
         public static let updateQueued = "Update queued: restarts within 10 minutes."
         public static let needsRelogin = "{label} · Needs re-login"
         public static let signedOut = "{label} · Signed out"
         public static let update = "Update"
         public static let signIn = "Sign in"
+        public static let limitReached = "{label} · Limit reached"
+        public static let deviceActions = "Device actions"
+        public static let settings = "Device settings"
+        public static let removeFromTeam = "Remove from this team"
+        public static let moreAccounts = "More accounts"
+
+        /// `copy.status`: the account preview's warning-tone status line.
+        public static func status(_ status: LoginStatus) -> String {
+            switch status {
+            case .needsRelogin: "Needs re-login"
+            case .signedOut: "Signed out"
+            case .limit: "Limit reached"
+            }
+        }
+    }
+
+    /// EXP-1560: the card grid's geometry (`fixture.card`), ×4.
+    public enum Card {
+        public static let minWidth: CGFloat = 256
+        public static let gap: CGFloat = 12
+        public static let padding: CGFloat = 12
+        public static let iconSize: CGFloat = 28
+        public static let markSize: CGFloat = 16
+        public static let maxAccountIcons = 5
+    }
+
+    /// EXP-1560 `deviceCardColumns`: grid columns for a section `width` wide.
+    public static func columns(width: CGFloat) -> Int {
+        max(1, Int(((width + Card.gap) / (Card.minWidth + Card.gap)).rounded(.down)))
+    }
+
+    /// EXP-1560 `deviceCardAccountIcons`: how many account icons a card
+    /// shows, and whether the `⋯` "More accounts" button follows them.
+    public struct AccountIcons: Equatable, Sendable {
+        public let visible: Int
+        public let more: Bool
+    }
+
+    public static func accountIcons(count: Int, expanded: Bool) -> AccountIcons {
+        if expanded || count <= Card.maxAccountIcons {
+            return AccountIcons(visible: count, more: false)
+        }
+        return AccountIcons(visible: Card.maxAccountIcons - 1, more: true)
+    }
+
+    /// EXP-1560 `limitHit`: a FRESH usage window at ≥ 100% (fresh = not
+    /// flagged stale and fetched within `AgentUsagePresentation.freshWindow`).
+    public static func limitHit(_ usage: AgentUsage?, now: Date = Date()) -> Bool {
+        guard let usage, usage.stale != true,
+              AgentUsagePresentation.isFresh(fetchedAt: usage.fetchedAt, now: now) else { return false }
+        return (usage.windows ?? []).contains { ($0.percent ?? 0) >= 100 }
     }
 
     /// One login PROFILE the device reported. An agent with no profile adds
@@ -33,21 +85,31 @@ public enum DevicesList {
         /// the fallback.
         public let label: String
         public let health: AgentAccountHealth
+        /// EXP-1560: a fresh usage window at ≥ 100% (`limitHit(_:now:)`).
+        public let limitHit: Bool
 
-        public init(agent: String, profileId: String, label: String, health: AgentAccountHealth) {
+        public init(
+            agent: String,
+            profileId: String,
+            label: String,
+            health: AgentAccountHealth,
+            limitHit: Bool = false
+        ) {
             self.agent = agent
             self.profileId = profileId
             self.label = label
             self.health = health
+            self.limitHit = limitHit
         }
 
         /// A login sub-row, as the Devices page derives it.
-        public init(_ row: AgentProfileUsageRow) {
+        public init(_ row: AgentProfileUsageRow, now: Date = Date()) {
             self.init(
                 agent: row.agent,
                 profileId: row.profileId,
                 label: AgentAccountsRows.loginLabel(row),
-                health: row.health
+                health: row.health,
+                limitHit: DevicesList.limitHit(row.usage, now: now)
             )
         }
     }
@@ -102,13 +164,20 @@ public enum DevicesList {
         case updateQueued = "update_queued"
     }
 
+    /// EXP-1560: a login item's preview status line (`copy.status`).
+    public enum LoginStatus: String, Equatable, Sendable {
+        case needsRelogin = "needs_relogin"
+        case signedOut = "signed_out"
+        case limit
+    }
+
     public enum ItemAction: String, Equatable, Sendable {
         case signIn = "sign_in"
         case update
     }
 
-    /// One line of the attention card: `text` left, its one `action` pill
-    /// right (nil = no pill).
+    /// One attention item: a login's badge (+ its preview's status line) or
+    /// the update line the card's `⋯` menu leads with.
     public struct AttentionItem: Equatable, Sendable, Identifiable {
         public let kind: ItemKind
         /// Login items only.
@@ -116,6 +185,8 @@ public enum DevicesList {
         public let profileId: String?
         public let text: String
         public let action: ItemAction?
+        /// Login items only (EXP-1560).
+        public let status: LoginStatus?
 
         public var id: String {
             "\(kind.rawValue):\(agent ?? ""):\(profileId ?? "")"
@@ -126,13 +197,15 @@ public enum DevicesList {
             agent: String? = nil,
             profileId: String? = nil,
             text: String,
-            action: ItemAction?
+            action: ItemAction?,
+            status: LoginStatus? = nil
         ) {
             self.kind = kind
             self.agent = agent
             self.profileId = profileId
             self.text = text
             self.action = action
+            self.status = status
         }
     }
 
@@ -143,24 +216,37 @@ public enum DevicesList {
     }
 
     /// `deviceListRow`: dead credentials first, then signed-out logins, then
-    /// the update line (own devices only).
+    /// every other login at its limit (never an action), then the update line
+    /// (own devices only).
     public static func row(_ input: Input) -> Row {
         var attention: [AttentionItem] = []
         let canSignIn = input.mine && input.online
-        let templates: [(AgentAccountHealth, String)] = [
-            (.needsRelogin, Copy.needsRelogin),
-            (.signedOut, Copy.signedOut),
+        let templates: [(AgentAccountHealth, String, LoginStatus)] = [
+            (.needsRelogin, Copy.needsRelogin, .needsRelogin),
+            (.signedOut, Copy.signedOut, .signedOut),
         ]
-        for (health, template) in templates {
+        for (health, template, status) in templates {
             for login in input.logins where login.health == health {
                 attention.append(AttentionItem(
                     kind: .login,
                     agent: login.agent,
                     profileId: login.profileId,
                     text: template.replacingOccurrences(of: "{label}", with: login.label),
-                    action: canSignIn ? .signIn : nil
+                    action: canSignIn ? .signIn : nil,
+                    status: status
                 ))
             }
+        }
+        for login in input.logins
+        where login.limitHit && login.health != .needsRelogin && login.health != .signedOut {
+            attention.append(AttentionItem(
+                kind: .login,
+                agent: login.agent,
+                profileId: login.profileId,
+                text: Copy.limitReached.replacingOccurrences(of: "{label}", with: login.label),
+                action: nil,
+                status: .limit
+            ))
         }
         if input.mine {
             if input.updateQueued {

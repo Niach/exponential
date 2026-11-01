@@ -1154,8 +1154,7 @@ private fun IssueThreadsRow(viewModel: IssueDetailViewModel, onOpen: (String) ->
 
 /**
  * EXP-1291 (draft 7): the muted `Threads` label, then one glass chip per
- * thread holding this issue — its title, led by the live dot (pulsing while
- * it works) while any session in it runs. Stateless for the capture.
+ * thread holding this issue — its title, led by the session mark. Stateless for the capture.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
@@ -1181,10 +1180,21 @@ fun IssueThreadsChips(threads: List<IssueDetailViewModel.IssueThread>, onOpen: (
                     thread.title,
                     size = com.exponential.app.ui.components.PillSize.Sm,
                     onClick = { onOpen(thread.rootId) },
-                    leading = if (thread.live) {
-                        { LiveDot(busy = thread.busy, size = 6.dp) }
-                    } else {
-                        null
+                    // EXP-1554: the session mark (web `ThreadChip`, iOS
+                    // IssueThreadsStrip): working while it works, the brand
+                    // mark at rest, dimmed once every session in it ended.
+                    leading = {
+                        com.exponential.app.ui.components.AgentRunMark(
+                            agent = thread.cli,
+                            state = if (thread.live && thread.busy) {
+                                com.exponential.app.domain.SessionTree.SessionState.Working
+                            } else {
+                                null
+                            },
+                            size = 14.dp,
+                            badgeSize = 0.dp,
+                            ended = !thread.live,
+                        )
                     },
                     modifier = Modifier.testTag("issue-thread-chip"),
                 )

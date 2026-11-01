@@ -27,6 +27,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,8 +89,11 @@ fun LoginScreen(
         retry = viewModel::loadConfig,
     )
 
-    if (state.successEmail != null) {
-        onLoggedIn()
+    // Once per success, never from the composition itself (#EXP-1597): a
+    // navigation fired during composition re-fired on every recomposition.
+    val loggedIn by rememberUpdatedState(onLoggedIn)
+    LaunchedEffect(state.successEmail) {
+        if (state.successEmail != null) loggedIn()
     }
 
     // The passkey path's browser handoff (EXP-857): a one-shot URL the
@@ -492,7 +496,7 @@ fun LoginScreen(
 
 // CredentialManager needs the hosting Activity (it shows a system sheet), and
 // LocalContext hands back a wrapper inside a ComponentActivity.
-private fun Context.findActivity(): Activity? {
+internal fun Context.findActivity(): Activity? {
     var ctx: Context = this
     while (ctx is ContextWrapper) {
         if (ctx is Activity) return ctx

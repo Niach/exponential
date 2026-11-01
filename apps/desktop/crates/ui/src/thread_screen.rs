@@ -82,8 +82,8 @@ pub(crate) const NEW_CHILD_WINDOW: Duration = Duration::from_secs(10);
 /// thread the composer just created.
 pub(crate) const MISSING_GRACE: Duration = Duration::from_secs(5);
 
-/// The conversation's reading column.
-pub(crate) const CONVERSATION_W: f32 = 760.;
+/// The conversation's reading column: THE chat column (#EXP-1547), the Dock's.
+pub(crate) const CONVERSATION_W: f32 = crate::work_header::CHAT_COLUMN_W;
 /// The header + strip's side inset.
 const HEADER_INSET: f32 = 44.;
 /// An issue chip title's ONE max width (then the ellipsis).
@@ -287,6 +287,13 @@ pub(crate) fn answer_card(input: api::sessions::AnswerInput, cx: &mut App) {
         }
     })
     .detach();
+}
+
+/// #EXP-1561 (waiting-cards.json DISMISS): THE answer path with
+/// `{messageId, dismissed: true}` and nothing else; once per card like an
+/// answer (a refusal re-opens it, the usual toast).
+pub(crate) fn dismiss_card(message_id: String, cx: &mut App) {
+    answer_card(api::sessions::AnswerInput { message_id, dismissed: Some(true), ..Default::default() }, cx);
 }
 
 /// `sessions.unqueue` — take back a message the device has not consumed.
@@ -911,6 +918,9 @@ pub(crate) struct ThreadText {
     /// FEED-140: the reader may answer the waiting cards, so the inline
     /// plan / question card carries its actions (besides THE Dock).
     answer: bool,
+    /// #EXP-1561: the reader may dismiss the waiting cards (their ×);
+    /// follows `answer` unless set on its own (the styleguide's specimen).
+    dismiss: bool,
 }
 
 impl ThreadText {
@@ -933,6 +943,7 @@ impl ThreadText {
             team_id: team_id.map(str::to_string),
             resolver,
             answer: false,
+            dismiss: false,
         }
     }
 
@@ -943,7 +954,18 @@ impl ThreadText {
     /// FEED-140: whether the inline cards answer (the reader may message).
     pub(crate) fn answering(mut self, answer: bool) -> Self {
         self.answer = answer;
+        self.dismiss = answer;
         self
+    }
+
+    /// #EXP-1561: the waiting cards carry their × (without their actions).
+    pub(crate) fn dismissing(mut self, dismiss: bool) -> Self {
+        self.dismiss = dismiss;
+        self
+    }
+
+    pub(crate) fn dismisses(&self) -> bool {
+        self.dismiss
     }
 
     pub(crate) fn answers(&self) -> bool {
@@ -1109,20 +1131,34 @@ pub(crate) fn chat_user_bubble(
                 .border_color(theme::tokens::glass::STROKE_STRONG.to_hsla())
                 .bg(theme::tokens::glass::FILL_ACTIVE.to_hsla())
                 .px_3()
-                .py_2()
+                .pt_2()
+                .pb_1()
                 .when(queued, |bubble| bubble.opacity(0.7))
-                .child(body),
+                .child(body)
+                // #EXP-1553: the time INSIDE, bottom-right (web
+                // `UserMessageBubble`, the phones, the agent bubble).
+                .when(!caption.is_empty(), |bubble| {
+                    bubble.child(
+                        h_flex()
+                            .w_full()
+                            .justify_end()
+                            .text_2xs()
+                            .text_color(muted)
+                            .child(SharedString::from(caption)),
+                    )
+                }),
         )
-        .child(
-            h_flex()
-                .gap_1()
-                .items_center()
-                .text_2xs()
-                .text_color(muted)
-                .when(!caption.is_empty(), |row| row.child(SharedString::from(caption)))
-                .when(queued, |row| row.child(SharedString::from(format!("· {QUEUED_WORD}"))))
-                .children(unqueue),
-        )
+        .when(queued || unqueue.is_some(), |column| {
+            column.child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .text_2xs()
+                    .text_color(muted)
+                    .when(queued, |row| row.child(SharedString::from(QUEUED_WORD)))
+                    .children(unqueue),
+            )
+        })
         .into_any_element()
 }
 
@@ -1263,13 +1299,15 @@ pub(crate) fn question_card(
     facts: crate::plan_card::QuestionFacts,
     answer: bool,
     meta: Option<AnyElement>,
+    dismiss: Option<AnyElement>,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
 ) -> AnyElement {
     let (content, controls) = crate::plan_card::question_parts(&facts, answer, images, window, cx);
     let column = card_column(question, content, controls, cx);
-    crate::steer_viewer::ask_card_chrome(false, None, label_meta(meta), None, column, cx)
+    let card = crate::steer_viewer::ask_card_chrome_with(false, None, label_meta(meta), None, dismiss, column, cx);
+    crate::waiting_cards::ringed(card, facts.message_id, cx)
         .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
         .into_any_element()
 }
@@ -1287,6 +1325,7 @@ pub(crate) fn plan_card(
     facts: crate::plan_card::PlanFacts,
     answer: bool,
     meta: Option<AnyElement>,
+    dismiss: Option<AnyElement>,
     images: &Entity<ImageCache>,
     window: &Window,
     cx: &mut App,
@@ -1318,7 +1357,16 @@ pub(crate) fn plan_card(
     }
     let (content, controls) = crate::plan_card::plan_parts(&facts, answer, images, window, cx);
     let column = card_column(plan, content, controls, cx);
-    crate::steer_viewer::ask_card_chrome(true, Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())), label_meta(meta), None, column, cx)
+    let card = crate::steer_viewer::ask_card_chrome_with(
+        true,
+        Some(SharedString::from(domain::ask_dock::ASK_DOCK.copy.plan_ready.clone())),
+        label_meta(meta),
+        None,
+        dismiss,
+        column,
+        cx,
+    );
+    crate::waiting_cards::ringed(card, facts.message_id, cx)
         .id(SharedString::from(format!("{}-{}", domain::plan_card::test_ids().card, facts.message_id)))
         .into_any_element()
 }
@@ -1414,6 +1462,24 @@ pub(crate) fn ask_row_card_with(
     window: &Window,
     cx: &mut App,
 ) -> Option<AnyElement> {
+    // #EXP-1561 (waiting-cards.json): a DISMISSED card = ONE quiet line.
+    match row {
+        SessionThreadRow::Plan { id, plan, decision, .. } if decision.as_deref() == Some("dismissed") => {
+            return Some(crate::waiting_cards::dismissed_card(true, plan, id, cx));
+        }
+        SessionThreadRow::Question { id, question, dismissed: Some(true), .. } => {
+            return Some(crate::waiting_cards::dismissed_card(false, question, id, cx));
+        }
+        _ => {}
+    }
+    // #EXP-1561: a WAITING card the reader may dismiss carries its × (not
+    // while its answer is on the way).
+    let waiting = matches!(
+        row,
+        SessionThreadRow::Plan { decision: None, .. } | SessionThreadRow::Question { answered: false, .. }
+    );
+    let dismiss = (waiting && text.dismisses() && !answering(row.id(), cx))
+        .then(|| crate::waiting_cards::dismiss_button(row.id(), cx));
     if let Some((id, plan, facts)) = plan_facts(row) {
         let markdown = message_markdown(
             SharedString::from(format!("thread-plan-{id}")),
@@ -1440,11 +1506,11 @@ pub(crate) fn ask_row_card_with(
             }
             _ => meta,
         };
-        return Some(plan_card(markdown, facts, text.answers(), meta, images, window, cx));
+        return Some(plan_card(markdown, facts, text.answers(), meta, dismiss, images, window, cx));
     }
     let (id, question, facts) = question_facts(row)?;
     let markdown = message_markdown(SharedString::from(format!("thread-question-{id}")), question, text, images);
-    Some(question_card(markdown, facts, text.answers(), meta, images, window, cx))
+    Some(question_card(markdown, facts, text.answers(), meta, dismiss, images, window, cx))
 }
 
 /// N-12: a waiting `question` / `plan` row's sheet (plan-card.json
@@ -2323,6 +2389,11 @@ pub(crate) struct ThreadStrip {
     /// after a divider, its green dot while a story is unseen; `None` = no
     /// Stories tab.
     pub(crate) stories: Option<bool>,
+    /// #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING
+    /// cards (Conversation order) and what a chip's press does; empty =
+    /// no chips.
+    pub(crate) waiting: Vec<domain::waiting_cards::WaitingCardInput>,
+    pub(crate) on_waiting: Option<crate::waiting_cards::OnWaitingPick>,
 }
 
 /// One row of the strip's group menu (#EXP-1433).
@@ -2562,6 +2633,11 @@ pub(crate) fn thread_strip(spec: ThreadStrip, _window: &Window, cx: &App) -> Any
                 .on_click(pick(StripPick::Conversation))
                 .into_any_element(),
         );
+    }
+    // #EXP-1562: the WAITING chips, right after Conversation (none = the
+    // first of the tablist), before the issue / group zone.
+    if let Some(on_waiting) = spec.on_waiting.clone() {
+        lead.extend(crate::waiting_cards::strip_chips(prefix, &spec.waiting, on_waiting, cx));
     }
 
     let middle: Option<AnyElement> = match (mode.mode, issues.first()) {
@@ -2879,6 +2955,9 @@ pub(crate) struct ThreadScreenView {
     /// of the tree, read for its Queue only (its per-session slots, seeded
     /// LOCAL FIRST from the last-known memo), while the Conversation shows.
     queue_feeds: HashMap<String, QueueFeed>,
+    /// #EXP-1562: a waiting chip's card to scroll to (and ring) once the
+    /// Conversation shows.
+    reveal: Option<String>,
     _missing_tick: Task<()>,
     _subscriptions: Vec<Subscription>,
 }
@@ -2965,6 +3044,7 @@ impl ThreadScreenView {
             main: None,
             _main_sub: None,
             queue_feeds: HashMap::new(),
+            reveal: None,
             _missing_tick: missing_tick,
             _subscriptions: subscriptions,
         };
@@ -3143,6 +3223,38 @@ impl ThreadScreenView {
         self.set_child(child, window, cx);
     }
 
+    /// #EXP-1562: a waiting chip: show the Conversation (another tab
+    /// open), then scroll its card to the centre and ring it
+    /// ([`Self::take_reveal`]).
+    fn select_waiting(&mut self, id: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let on_conversation = self.focus.is_none() && self.child == ThreadChildSel::Conversation;
+        if !on_conversation {
+            self.select_child(ThreadChildSel::Conversation, window, cx);
+        }
+        self.reveal = Some(id.to_string());
+        cx.notify();
+    }
+
+    /// #EXP-1562: the pending reveal, once the Conversation is the body:
+    /// THE list's row (the thread) or the ONE session's view (NEW-6).
+    fn take_reveal(&mut self, model: &ThreadModel, cx: &mut gpui::Context<Self>) {
+        if self.focus.is_some() || self.child != ThreadChildSel::Conversation {
+            return;
+        }
+        let Some(id) = self.reveal.take() else { return };
+        if let Some((_, view)) = self.main.clone() {
+            let inner = view.read(cx).inner().clone();
+            inner.update(cx, |inner, cx| inner.reveal_card(&id, cx));
+            return;
+        }
+        let row = self.conv.rows.iter().position(|&index| model.view.rows.get(index).is_some_and(|row| row.id() == id));
+        match row {
+            Some(ix) => crate::waiting_cards::reveal_in_list(&self.list, ix, &id, cx),
+            // Not in the list (yet): the ring alone.
+            None => crate::waiting_cards::highlight(&id, cx),
+        }
+    }
+
     // ── render ───────────────────────────────────────────────────────────
 
     fn menu_target(&self, chip: Option<(String, String)>) -> ThreadMenuTarget {
@@ -3241,6 +3353,13 @@ impl ThreadScreenView {
             ThreadStrip {
                 prefix: "thread",
                 stories: Some(stories_dot),
+                waiting: crate::waiting_cards::thread_waiting_cards(&model.view.rows),
+                on_waiting: Some({
+                    let this = cx.entity().downgrade();
+                    std::rc::Rc::new(move |id: &str, window: &mut Window, cx: &mut App| {
+                        let _ = this.update(cx, |this, cx| this.select_waiting(id, window, cx));
+                    })
+                }),
                 tabs: model.view.tabs.clone(),
                 issues,
                 clis,
@@ -3594,6 +3713,7 @@ impl ThreadScreenView {
             (None, None)
         };
         self.sync_list(model, may_message, cx);
+        self.take_reveal(model, cx);
         let band_height = if may_message { self.dock.read(cx).band_height() } else { 0. };
         let list = gpui::list(
             self.list.clone(),
@@ -3863,6 +3983,8 @@ impl Render for ThreadScreenView {
         // EXP-1316 (1b): a session open in place = its raw work under the
         // thread's own header + strip (no session header of its own).
         if let Some((_, view)) = self.focus.clone().or_else(|| self.main.clone()) {
+            // #EXP-1562: a chip's reveal on the ONE session's raw work.
+            self.take_reveal(&model, cx);
             let inner = view.read(cx).inner().clone();
             let scrolled = inner.read(cx).body_scrolled();
             return v_flex()

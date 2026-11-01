@@ -1053,6 +1053,7 @@ impl Render for AgentDetailPane {
                         .danger()
                         .cursor_pointer()
                         .web_sm()
+                        .icon(registry::UI_DELETE)
                         .label(field_label("delete"))
                         .on_click(move |_, window, cx| {
                             Self::open_delete_dialog(agent_id.clone(), window, cx)

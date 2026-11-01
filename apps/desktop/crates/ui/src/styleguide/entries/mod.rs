@@ -40,7 +40,7 @@ pub(crate) mod stack_merge_choice_dialog;
 pub(crate) mod draft_leave_dialog;
 pub(crate) mod readiness_checklist;
 pub(crate) mod device_readiness;
-// A-16: the Devices row + its attention card.
+// EXP-1560: the Devices card (was A-16's row + attention card).
 pub(crate) mod device_attention;
 pub(crate) mod results_guide;
 pub(crate) mod mcp_app_views;

@@ -56,7 +56,7 @@ export function BulkBarCapsule({
       // EXP-523: enter-only. Phone budget: the separators go, the gaps halve;
       // `overflow-x-auto` is the safety net, not the plan.
       className={cn(
-        `flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-enter-pop slide-in-from-bottom-1 max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto shadow-lg shadow-black/40`,
+        `flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-enter-pop slide-in-from-bottom-1 max-md:h-[52px] max-md:w-full max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto shadow-lg shadow-black/40`,
         wrap && `max-w-full flex-wrap justify-center max-md:h-auto`,
         className
       )}
@@ -73,6 +73,10 @@ export function BulkBarCapsule({
         <CloseIcon className="size-4" />
       </Button>
       <span className="shrink-0 px-1 text-sm font-semibold whitespace-nowrap">{count}</span>
+      {/* #EXP-1553: phones draw the natives' FULL-WIDTH bottom bar (iOS
+          `IssueListView` / chats selection, Android's): close + count at
+          the leading edge, the actions at the trailing one. */}
+      <span aria-hidden className={cn(`min-w-0 flex-1 md:hidden`, iconOnly && `md:block`)} />
       {!iconOnly && <Separator orientation="vertical" className="mx-1 h-4! max-md:hidden" />}
       {children}
     </div>

@@ -22,25 +22,28 @@
 // icon instead of being written inline. Online rows first, then the
 // "Offline" label over the dimmed rest.
 //
-// EXP-909 follow-up: a row carries ONE control ×4 — the settings gear, on the
-// caller's own REGISTERED devices, hidden until the row is hovered (always on
-// phones). No play button (the Agent page composer's device picker is the one
-// way to start a run), no ⋯ menu, no inline update controls, and no spacers
-// standing in for them. A team device row has no control at all, except for
-// a team OWNER (FEED-149): the same ghost control slot carries Remove, which
-// drops that member's share of the machine from this team (a leftover
-// duplicate, a squat, a box the team should not run on).
+// EXP-1560: the list became a GRID of device CARDS. A card = name + version
+// + status on top, its ⋯ overflow top-right (the update line, Update, Device
+// settings; on a team device only a team OWNER's Remove, FEED-149, which
+// drops that member's share of the machine from this team), and its logins
+// as brand-mark icons along the bottom — the attention badge sits ON the
+// login that needs it (the row's warning triangle and gear are gone). No play
+// button: the Agent page composer's device picker is the one way to start a
+// run.
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react"
-import { DEVICES_LIST_COPY, deviceListRow } from "@exp/domain-contract/devices-list"
+import {
+  DEVICE_CARD,
+  DEVICES_LIST_COPY,
+  deviceListRow,
+} from "@exp/domain-contract/devices-list"
 import {
   conceptIcon,
-  getDeviceIcon,
   Button,
-  DeviceAttention,
-  type DeviceAttentionLine,
+  GlassCard,
   Pill,
   GlassSectionHeader,
-  ListRow,
+  Menu,
+  type MenuEntry,
   Prompt,
   SkeletonRows,
 } from "@exp/ui"
@@ -63,8 +66,11 @@ import {
   DeviceStatusLine,
 } from "@/components/device-setup"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
-import { DeviceLoginChips, useDeviceLogins } from "@/components/device-logins"
-import { requestAgentLogin } from "@/components/agent-login-dialog"
+import {
+  DeviceAccountIcons,
+  loginLimitHit,
+  useDeviceLogins,
+} from "@/components/device-logins"
 import { Empty } from "@/components/empty"
 import { useAgentUsageRefresh } from "@/hooks/use-agent-usage-refresh"
 import {
@@ -77,9 +83,11 @@ import {
 // — concepts, never raw lucide glyphs (CLAUDE.md icon rule).
 const DefaultIcon = conceptIcon(`ui-device-default`)
 const AddIcon = conceptIcon(`ui-add`)
-// EXP-909 follow-up: the row's ONE control is the settings gear, ×4.
+// EXP-1560: the card's ⋯ overflow and its rows.
+const MoreIcon = conceptIcon(`ui-more`)
 const SettingsIcon = conceptIcon(`nav-settings`)
-// FEED-149: a team owner's Remove on a teammate's shared row (the device
+const UpdateIcon = conceptIcon(`ui-download`)
+// FEED-149: a team owner's Remove on a teammate's shared card (the device
 // settings' Remove glyph).
 const RemoveIcon = conceptIcon(`ui-delete`)
 
@@ -214,28 +222,14 @@ export function MyMachines({
         <DeviceGroups
           devices={mine}
           render={(device) => (
-            <DeviceRow
+            <DeviceCard
               key={device.deviceId}
               device={device}
               now={now}
               latestVersions={latestVersions}
               teamId={teamId}
-              trailing={
-                // EXP-909 follow-up: the ONE trailing control — a ghost
-                // settings gear on the caller's own REGISTERED devices,
-                // hover-revealed ≥md, always painted on phones.
-                device.registered ? (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
-                    aria-label={`Device settings for ${device.deviceLabel || device.deviceId}`}
-                    title="Device settings"
-                    onClick={() => setSettingsTargetId(device.deviceId)}
-                  >
-                    <SettingsIcon />
-                  </Button>
-                ) : null
+              onSettings={
+                device.registered ? () => setSettingsTargetId(device.deviceId) : undefined
               }
             />
           )}
@@ -254,7 +248,7 @@ export function MyMachines({
                 isTeamOwner && teamId && device.rowId && device.sharedTeamIds?.includes(teamId)
               )
               return (
-                <DeviceRow
+                <DeviceCard
                   // A legacy duplicate shares the same machine id (FEED-149).
                   key={device.rowId ?? device.deviceId}
                   device={device}
@@ -262,20 +256,7 @@ export function MyMachines({
                   latestVersions={latestVersions}
                   teamId={teamId}
                   readOnly
-                  trailing={
-                    removable ? (
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100 max-md:opacity-100"
-                        aria-label={`Remove ${device.deviceLabel || device.deviceId} from this team`}
-                        title="Remove from this team"
-                        onClick={() => setDropTarget(device)}
-                      >
-                        <RemoveIcon />
-                      </Button>
-                    ) : null
-                  }
+                  onRemoveFromTeam={removable ? () => setDropTarget(device) : undefined}
                 />
               )
             }}
@@ -323,8 +304,9 @@ export function MyMachines({
   )
 }
 
-/** A-16: online rows in the list's own order, then the muted "Offline" label
- *  over the offline ones. */
+/** EXP-1560: the online cards in the list's own order, then the muted
+ *  "Offline" label over a grid of the offline ones. Columns follow
+ *  `deviceCardColumns` (auto-fill at `card.minWidth`, `card.gap` apart). */
 function DeviceGroups({
   devices,
   render,
@@ -334,37 +316,51 @@ function DeviceGroups({
 }) {
   const online = devices.filter(deviceIsOnline)
   const offline = devices.filter((device) => !deviceIsOnline(device))
+  const grid = {
+    gridTemplateColumns: `repeat(auto-fill, minmax(${DEVICE_CARD.minWidth}px, 1fr))`,
+    gap: DEVICE_CARD.gap,
+  }
   return (
-    <div className="flex flex-col">
-      {online.map(render)}
+    <div className="flex flex-col pt-2">
+      {online.length > 0 && (
+        <div className="grid" style={grid} data-testid="device-grid">
+          {online.map(render)}
+        </div>
+      )}
       {offline.length > 0 && (
         <>
-          <div className="px-3 pt-3 pb-1 text-xs text-muted-foreground">
+          <div className="px-3 pt-3 pb-2 text-xs text-muted-foreground">
             {DEVICES_LIST_COPY.offline}
           </div>
-          {offline.map(render)}
+          <div className="grid" style={grid}>
+            {offline.map(render)}
+          </div>
         </>
       )}
     </div>
   )
 }
 
-/** A-16: ONE device line — glyph, name + status, the login chips, the
- *  attention icon, the trailing control. */
-function DeviceRow({
+/** EXP-1560: ONE device card — name + version + status, the ⋯ overflow, the
+ *  account icons. */
+function DeviceCard({
   device,
   now,
   latestVersions,
   teamId,
   readOnly = false,
-  trailing,
+  onSettings,
+  onRemoveFromTeam,
 }: {
   device: SteerDevice
   now: Date
   latestVersions: { desktop: string | null; cli: string | null } | null
   teamId?: string
   readOnly?: boolean
-  trailing: ReactNode
+  /** Own REGISTERED devices: the ⋯'s Device settings. */
+  onSettings?: () => void
+  /** FEED-149: a team owner's Remove on a teammate's shared card. */
+  onRemoveFromTeam?: () => void
 }) {
   const [updating, setUpdating] = useState(false)
   const online = deviceIsOnline(device)
@@ -372,7 +368,6 @@ function DeviceRow({
   // EXP-409: a device with nothing runnable greys out; EXP-1196: the doctor
   // report decides when the device sends one.
   const runnable = deviceReadyForRuns(device)
-  const KindIcon = getDeviceIcon(device)
   const latest =
     (device.kind === `server` ? latestVersions?.cli : latestVersions?.desktop) ?? null
   const outdated = deviceUpdateAvailable(device.version, latest)
@@ -392,6 +387,7 @@ function DeviceRow({
       profileId: login.profileId,
       label: loginLabel(login),
       health: login.health,
+      limitHit: loginLimitHit(login, now),
     })),
   })
   const requestUpdate = async () => {
@@ -405,87 +401,124 @@ function DeviceRow({
       setUpdating(false)
     }
   }
-  const attention: DeviceAttentionLine[] = row.attention.map((item) => ({
-    key: item.kind === `login` ? `${item.agent}:${item.profileId}` : item.kind,
-    text: item.text,
-    action:
-      item.action === `update`
-        ? {
-            label: DEVICES_LIST_COPY.update,
-            onSelect: () => void requestUpdate(),
-            // Requested and not yet applied: pending, never clicked twice.
-            busy: updating || device.updateRequested === true,
-          }
-        : item.kind === `login` && item.action === `sign_in`
-          ? {
-              label: DEVICES_LIST_COPY.signIn,
-              onSelect: () =>
-                requestAgentLogin({ device, agent: item.agent, profileId: item.profileId }),
-            }
-          : null,
-  }))
+  const update = row.attention.find((item) => item.kind !== `login`) ?? null
+  const label = device.deviceLabel || device.deviceId
+  const entries: MenuEntry[] = []
+  if (update) {
+    entries.push({ kind: `item`, id: `update-line`, label: update.text, disabled: true, onSelect: () => {} })
+    if (update.action === `update`) {
+      entries.push({
+        kind: `item`,
+        id: `update`,
+        label: DEVICES_LIST_COPY.update,
+        icon: UpdateIcon,
+        // Requested and not yet applied: pending, never clicked twice.
+        disabled: updating || device.updateRequested === true,
+        onSelect: () => void requestUpdate(),
+      })
+    }
+  }
+  if (onSettings) {
+    if (entries.length > 0) entries.push({ kind: `separator`, id: `sep` })
+    entries.push({ kind: `item`, id: `settings`, label: DEVICES_LIST_COPY.settings, icon: SettingsIcon, onSelect: onSettings })
+  }
+  if (onRemoveFromTeam) {
+    entries.push({
+      kind: `item`,
+      id: `remove`,
+      label: DEVICES_LIST_COPY.removeFromTeam,
+      icon: RemoveIcon,
+      destructive: true,
+      onSelect: onRemoveFromTeam,
+    })
+  }
   const shared = mine && (device.sharedTeamIds?.length ?? 0) > 0
   return (
-    <ListRow
+    <GlassCard
       data-testid={`device-row-${device.deviceId}`}
-      // `group` = the hover scope the trailing control fades in on.
       className={cn(
-        `group gap-3 max-md:flex-wrap`,
+        `flex min-w-0 flex-col justify-between gap-3`,
         !online && `opacity-60`,
         online && !runnable && `opacity-60`
       )}
+      style={{ padding: DEVICE_CARD.padding }}
     >
-      <KindIcon className="size-4 shrink-0 text-foreground/70" />
-      {/* FEED-15: name + version (+ star, Shared) on top, live/last-seen
-          state beneath. */}
-      <div className="w-60 min-w-0 shrink-0 max-md:flex-1">
-        <div className="flex min-w-0 items-baseline gap-1.5">
-          <span
-            className="min-w-0 truncate text-sm font-medium"
-            // EXP-525: a teammate's shared row keeps the attribution here.
-            title={!mine && device.owner ? `Shared by ${device.owner.name}` : undefined}
-          >
-            {device.deviceLabel || device.deviceId}
-          </span>
-          {device.version && (
+      <div className="flex min-w-0 items-start gap-2">
+        {/* FEED-15: name + version (+ star) on top, live/last-seen state and
+            the tags beneath. */}
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-baseline gap-1.5">
             <span
-              // Only my own machine's update is mine to act on.
-              className={`shrink-0 text-[10px] ${mine && outdated ? `text-amber-500` : `text-muted-foreground/60`}`}
-              title={mine && outdated ? `Update available: ${latest}` : undefined}
+              className="min-w-0 truncate text-sm font-medium"
+              // EXP-525: a teammate's shared card keeps the attribution here.
+              title={!mine && device.owner ? `Shared by ${device.owner.name}` : label}
             >
-              v{device.version}
+              {label}
             </span>
-          )}
-          {mine && device.isDefault && (
-            <span
-              className="shrink-0 text-muted-foreground"
-              title={`Your default device — preselected when you start a coding session.`}
-              aria-label="Default device"
-            >
-              {/* EXP-1557: the outline star iOS, Android and desktop draw. */}
-              <DefaultIcon className="size-3" />
-            </span>
-          )}
-          {shared && (
-            <span
-              className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
-              title={
-                teamId && device.sharedTeamIds?.includes(teamId)
-                  ? `Shared with this team — teammates can start coding sessions on this device.`
-                  : `Shared with other teams.`
-              }
-            >
-              Shared
-            </span>
-          )}
+            {device.version && (
+              <span
+                // Only my own machine's update is mine to act on.
+                className={`shrink-0 text-[10px] ${mine && outdated ? `text-amber-500` : `text-muted-foreground/60`}`}
+                title={mine && outdated ? `Update available: ${latest}` : undefined}
+              >
+                v{device.version}
+              </span>
+            )}
+            {mine && device.isDefault && (
+              <span
+                className="shrink-0 text-muted-foreground"
+                title={`Your default device — preselected when you start a coding session.`}
+                aria-label="Default device"
+              >
+                <DefaultIcon className="size-3" />
+              </span>
+            )}
+          </div>
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+            <DeviceStatusLine online={online} lastSeenAt={device.lastSeenAt} />
+            {shared && (
+              <span
+                className="shrink-0 rounded-sm border border-border/60 px-1 text-[10px] text-muted-foreground"
+                title={
+                  teamId && device.sharedTeamIds?.includes(teamId)
+                    ? `Shared with this team — teammates can start coding sessions on this device.`
+                    : `Shared with other teams.`
+                }
+              >
+                Shared
+              </span>
+            )}
+          </div>
         </div>
-        <DeviceStatusLine online={online} lastSeenAt={device.lastSeenAt} />
+        {entries.length > 0 ? (
+          <Menu
+            entries={entries}
+            align="end"
+            aria-label={`${DEVICES_LIST_COPY.deviceActions}: ${label}`}
+            trigger={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                className="-mt-1 -mr-1 size-7 shrink-0 text-muted-foreground"
+                aria-label={`${DEVICES_LIST_COPY.deviceActions}: ${label}`}
+                title={DEVICES_LIST_COPY.deviceActions}
+                data-testid={`device-menu-${device.deviceId}`}
+              >
+                <MoreIcon className="size-4" />
+              </Button>
+            }
+          />
+        ) : (
+          <span aria-hidden className="size-7 shrink-0" />
+        )}
       </div>
-      <div className="min-w-0 flex-1 max-md:order-last max-md:basis-full max-md:pl-7">
-        <DeviceLoginChips device={device} rows={logins} now={now} readOnly={readOnly} />
-      </div>
-      <DeviceAttention items={attention} label={DEVICES_LIST_COPY.attention} />
-      {trailing ?? <span aria-hidden className="size-8 shrink-0 max-md:hidden" />}
-    </ListRow>
+      <DeviceAccountIcons
+        device={device}
+        rows={logins}
+        attention={row.attention}
+        now={now}
+        readOnly={readOnly}
+      />
+    </GlassCard>
   )
 }

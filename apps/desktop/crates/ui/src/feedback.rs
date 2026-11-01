@@ -544,6 +544,12 @@ pub(crate) fn mark_static(size: f32, ground: Hsla, cx: &App) -> AnyElement {
     mark_canvas(size, cx.theme().foreground, ground, None).into_any_element()
 }
 
+/// The mark frozen at one `phase` of its loop (the styleguide's specimens,
+/// web `FeedbackMark phase`).
+pub(crate) fn mark_at(size: f32, phase: f64, ground: Hsla, cx: &App) -> AnyElement {
+    mark_canvas(size, cx.theme().foreground, ground, Some(phase)).into_any_element()
+}
+
 /// The STARTING row (composer + run status before the first turn): the
 /// mark, "Starting on <device>" and the elapsed seconds since `since`.
 pub(crate) fn starting_row(

@@ -979,6 +979,7 @@ pub fn ask_card_row(message: &MessageRow) -> Option<SessionThreadRow> {
             answers: string_list(card.get("answers")),
             surface_data: card.get("surfaceData").filter(|data| data.is_object()).cloned(),
             answered: message.answered_at.is_some(),
+            dismissed: (card.get("dismissed").and_then(Value::as_bool) == Some(true)).then_some(true),
         },
         Some(MESSAGE_CARD_KIND_PLAN) => SessionThreadRow::Plan {
             id: message.id.clone(),
@@ -1081,6 +1082,10 @@ pub enum SessionThreadRow {
         /// EXP-1280: the surface's data model as the person answered it.
         surface_data: Option<Value>,
         answered: bool,
+        /// #EXP-1561 (waiting-cards.json): a person dismissed it; present
+        /// only when true.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dismissed: Option<bool>,
     },
     Plan {
         id: String,

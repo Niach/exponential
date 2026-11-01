@@ -30,6 +30,9 @@ const SESSION_THREAD_JSON: &str =
 /// The fixture case the entry draws.
 const CASE_PREFIX: &str = "EXP-1280: a rich plan card";
 
+/// #EXP-1561: the dismissed question + plan case (the web specimen's).
+const DISMISSED_PREFIX: &str = "#EXP-1561: a dismissed question";
+
 /// A camelCase fixture row → the snake_case, keyed `MessageRow` (NEW-8).
 fn message(value: &Value) -> Option<MessageRow> {
     super::fixture_rows::message(value, "")
@@ -37,13 +40,22 @@ fn message(value: &Value) -> Option<MessageRow> {
 
 /// The case's card rows, in Conversation order.
 pub(crate) fn rows() -> Vec<SessionThreadRow> {
+    case_rows(CASE_PREFIX)
+}
+
+/// #EXP-1561: the dismissed question and plan, in Conversation order.
+pub(crate) fn dismissed_rows() -> Vec<SessionThreadRow> {
+    case_rows(DISMISSED_PREFIX)
+}
+
+fn case_rows(prefix: &str) -> Vec<SessionThreadRow> {
     let fixture: Value = serde_json::from_str(SESSION_THREAD_JSON).expect("session-thread.json parses");
     let case = fixture["cases"]
         .as_array()
         .into_iter()
         .flatten()
-        .find(|case| case["name"].as_str().is_some_and(|name| name.starts_with(CASE_PREFIX)))
-        .expect("the EXP-1280 case");
+        .find(|case| case["name"].as_str().is_some_and(|name| name.starts_with(prefix)))
+        .expect("the fixture case");
     case["input"]["messages"]
         .as_array()
         .into_iter()
@@ -114,9 +126,13 @@ fn caption(text: &str, cx: &App) -> Div {
     div().text_xs().text_color(cx.theme().muted_foreground).child(SharedString::from(text.to_string()))
 }
 
-fn demo(label: &str, row: &SessionThreadRow, images: &Entity<ImageCache>, window: &mut Window, cx: &mut App) -> Div {
-    let card = crate::thread_screen::ask_row_card(row, &ThreadText::default(), images, window, cx);
-    v_flex().w_full().gap_2().child(caption(label, cx)).children(card)
+fn demo(label: &str, rows: &[SessionThreadRow], images: &Entity<ImageCache>, window: &mut Window, cx: &mut App) -> Div {
+    // #EXP-1561: a waiting card carries its × (the web specimen's
+    // `onDismiss`); its decision stays in THE Dock.
+    let text = ThreadText::default().dismissing(true);
+    let cards: Vec<_> =
+        rows.iter().filter_map(|row| crate::thread_screen::ask_row_card(row, &text, images, window, cx)).collect();
+    v_flex().w_full().gap_2().child(caption(label, cx)).child(v_flex().w_full().gap_3().children(cards))
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
@@ -136,9 +152,11 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     };
     let mut column = v_flex().w(px(640.)).gap_10();
     for row in &rows {
-        column = column.child(demo(label(row), row, &images, window, cx));
+        column = column.child(demo(label(row), std::slice::from_ref(row), &images, window, cx));
     }
-    column
+    // #EXP-1561 (waiting-cards.json): a dismissed question and plan, one
+    // quiet line each.
+    column.child(demo(specimen.dismissed.as_str(), &dismissed_rows(), &images, window, cx))
 }
 
 #[cfg(test)]
@@ -163,6 +181,9 @@ mod tests {
         };
         assert_eq!(options[0].attachment_id.as_deref(), Some("att-3"));
         assert!(matches!(&rows[2], SessionThreadRow::Plan { decision: Some(_), .. }));
+        let dismissed = dismissed_rows();
+        assert!(matches!(&dismissed[0], SessionThreadRow::Question { dismissed: Some(true), .. }));
+        assert!(matches!(&dismissed[1], SessionThreadRow::Plan { decision: Some(d), .. } if d == "dismissed"));
     }
 
     /// The entry paints twice in a window (the fields and the surface view

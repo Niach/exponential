@@ -110,6 +110,11 @@ struct ThreadStripTabs: View {
     /// stories.json STORIES TAB: the Stories tab pinned right (nil = none,
     /// an app editor's chat); true = its dot (`storyTab(input).unseen`).
     var storiesDot: Bool?
+    /// #EXP-1562 (waiting-cards.json CHIPS): the waiting cards; phones draw
+    /// ONE button right after the Conversation tab while one waits.
+    var waiting: WaitingCards.Chips?
+    /// The waiting button's tap: the host presents THE Menu's sheet.
+    var onOpenWaiting: () -> Void = {}
 
     /// entity-chip.json `tab` size: every chip in the strip is one height —
     /// web `STRIP_TAB_CLASS` `h-8 rounded-md`: 32pt tall, the 10pt row radius
@@ -131,6 +136,9 @@ struct ThreadStripTabs: View {
             if tabs.contains(.conversation) {
                 pageTab(.conversation)
                     .fixedSize()
+            }
+            if let waiting, waiting.layout == .button {
+                waitingButton(waiting.count)
             }
             HStack(spacing: Self.gap) {
                 if let single = group.single {
@@ -189,6 +197,30 @@ struct ThreadStripTabs: View {
         .accessibilityLabel("\(single.identifier) \(issue(issueId)?.title ?? "")")
         .accessibilityAction(named: "More") { onIssueMenu(issueId) }
         .accessibilityIdentifier("thread-tab-\(single.identifier)")
+    }
+
+    /// #EXP-1562: THE waiting button — ONE icon-only chip, the question
+    /// tint's `ui-help` with the count muted beside it; a tap opens THE
+    /// Menu's sheet (`ThreadWaitingSheet`).
+    private func waitingButton(_ count: Int) -> some View {
+        ThreadStripTab(selected: false, bordered: true, fresh: false) {
+            HStack(spacing: ThreadStripMetrics.innerSpacing) {
+                AppIcon(
+                    AppIcons.conceptOrName(WaitingCards.Icons.waiting) ?? AppIcons.uiHelp,
+                    size: AppIcon.Size.small, weight: .medium
+                )
+                .foregroundStyle(WaitingCardTint.color(.question))
+                Text("\(count)")
+                    .font(ThreadStripMetrics.nameFont.monospacedDigit())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        }
+        .fixedSize()
+        .onTapGesture { onOpenWaiting() }
+        .accessibilityElement(children: .ignore)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityLabel(WaitingCards.waitingCountLabel(count))
+        .accessibilityIdentifier(WaitingCards.TestIds.button)
     }
 
     /// THE group tab: the `session-tree` glyph and the count (muted) at

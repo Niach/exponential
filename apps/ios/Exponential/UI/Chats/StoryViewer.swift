@@ -630,10 +630,16 @@ private struct StoryFooter: View {
                     onToggle: { draft.toggle("", label: $0, multi: card.multi, order: options.map(\.label)) },
                     onType: { draft.type("", text: $0, multi: card.multi) }
                 )
+                // EXP-1553 (web `Button` `disabled:opacity-50`, Android):
+                // a disabled Answer stays THE primary pill at half opacity,
+                // never the near-invisible glass on the black viewer.
+                let ready = issue == nil && !busy
                 GlassPill(
                     PlanCard.Copy.answer, size: .md, mode: .action { submit(draft.answer("")) },
-                    primary: true, enabled: issue == nil && !busy
+                    primary: true
                 )
+                .disabled(!ready)
+                .opacity(ready ? 1 : 0.5)
                 .accessibilityIdentifier("story-answer")
             }
         }

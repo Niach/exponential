@@ -211,7 +211,8 @@ export const rule = (selector: string, decls: [string, string][]): string =>
 export const STATE_SELECTORS: Record<string, string[]> = {
   hover: [`:hover`, `[data-xs~="hover"]`],
   pressed: [`:active`, `[data-xs~="pressed"]`],
-  focus: [`:focus-visible`, `[data-xs~="focus"]`],
+  // EXP-1556: a pointer-opened overlay's focus stays quiet (web/focus.ts).
+  focus: [`:focus-visible:not([data-xui-quiet-focus])`, `[data-xs~="focus"]`],
   disabled: [`:disabled`, `[data-disabled]`, `[aria-disabled="true"]`, `[data-xs~="disabled"]`],
   checked: [`[data-state="checked"]`, `[data-xs~="checked"]`],
   open: [`[data-state="open"]`, `[data-xs~="open"]`],

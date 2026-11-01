@@ -9401,6 +9401,7 @@
                   "display": "flex",
                   "flexDirection": "row",
                   "alignItems": "stretch",
+                  "gap": "$spacing.lg",
                   "width": "100%",
                   "minHeight": 160
                 },

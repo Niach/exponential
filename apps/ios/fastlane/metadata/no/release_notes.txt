@@ -8,3 +8,9 @@
 - Live-økter fortsetter å strømme, ende-til-ende-kryptert, når den direkte forbindelsen til enheten faller ut
 - Tekst du skriver mens en kommentar sendes, blir værende i skrivefeltet
 - En tråd viser oppgavene til den kjørende underøkten sin
+- Agenter får saken du gir dem: ID, tittel og beskrivelse
+- Trådens topptekst viser øktens status og en Merge-knapp
+- Historietekster blir aldri større enn visningen
+- Avvis et spørsmål eller en plan du ikke vil svare på; trådens topptekst viser hva som fortsatt venter
+- Enheter-siden viser hver enhet som et kort
+- Chatter, skjermen for ny chat og Innstillinger ser ut som i de andre appene

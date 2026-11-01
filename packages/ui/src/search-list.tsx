@@ -265,6 +265,9 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
         <CommandInput
           ref={inputRef}
           leading={leading}
+          // EXP-1554: the phone input row trails the muted count too
+          // (search-list.json INPUT row), as iOS and Android draw it.
+          trailing={showCount && query.trim() !== `` && !loading ? <ResultCount /> : null}
           variant="field"
           autoFocus={autoFocus}
           placeholder={placeholder ?? `Search`}

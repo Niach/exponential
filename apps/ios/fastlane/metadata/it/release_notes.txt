@@ -8,3 +8,9 @@
 - Le sessioni live continuano lo streaming, con crittografia end-to-end, quando la connessione diretta al dispositivo cade
 - Il testo che scrivi mentre un commento viene inviato resta nel compositore
 - Un thread mostra le attività della sua sessione figlia in esecuzione
+- Gli agenti ricevono la issue che gli affidi: identificativo, titolo e descrizione
+- L'intestazione del thread mostra lo stato della sessione e un pulsante Merge
+- Le didascalie delle storie non superano mai il visualizzatore
+- Chiudi una domanda o un piano a cui non vuoi rispondere; l'intestazione del thread mostra cosa è ancora in attesa
+- La pagina Dispositivi mostra ogni dispositivo come una scheda
+- Le chat, la schermata di nuova chat e le Impostazioni hanno lo stesso aspetto delle altre app

@@ -84,7 +84,11 @@ struct PromptSettingsPage: View {
     @State private var observation: Task<Void, Never>?
 
     @State private var name = ""
-    @State private var icon = ""
+    /// EXP-1554: web's default glyph (the first pickable icon, `code`), so
+    /// the picker never reads as an empty placeholder.
+    static let defaultIcon = AppIcons.pickable.first ?? ""
+
+    @State private var icon = PromptSettingsPage.defaultIcon
     @State private var bodyText = ""
     /// The body as `prompts.get` (or the last save) said it; nil = not loaded.
     @State private var loadedBody: String?
@@ -107,7 +111,7 @@ struct PromptSettingsPage: View {
     private var trimmedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
 
     private var baselineName: String { savedRow?.name ?? prompt?.name ?? "" }
-    private var baselineIcon: String { (savedRow != nil ? savedRow?.icon : prompt?.icon) ?? "" }
+    private var baselineIcon: String { (savedRow != nil ? savedRow?.icon : prompt?.icon) ?? Self.defaultIcon }
 
     private var patch: PromptPatch {
         var patch = PromptPatch()
@@ -151,22 +155,6 @@ struct PromptSettingsPage: View {
         .navigationTitle(creating ? TeamPromptsSection.newPrompt : (prompt?.name ?? TeamPromptsSection.title))
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if isOwner, creating || prompt != nil {
-                GlassSubmitButton(
-                    creating ? "Create prompt" : "Save changes",
-                    enabled: canSave,
-                    loading: saving
-                ) {
-                    save()
-                }
-                .accessibilityIdentifier("prompt-submit")
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("prompt-page")
         .task { await start() }
         .onDisappear {
             observation?.cancel()
@@ -196,6 +184,14 @@ struct PromptSettingsPage: View {
 
     private var form: some View {
         Form {
+            // EXP-1554: the "New prompt" band heads the create form ×4.
+            if creating {
+                Section {
+                    GlassSectionBand(TeamPromptsSection.newPrompt)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            }
             Section {
                 // Icon and name are ONE row on every client.
                 HStack(spacing: 12) {
@@ -248,6 +244,28 @@ struct PromptSettingsPage: View {
             }
             .listRowBackground(glassFormRowFill)
 
+            // EXP-1554: the submit sits under the body, compact and
+            // right-aligned (web's `justify-end`), never a pinned bar.
+            if isOwner, creating || prompt != nil {
+                Section {
+                    HStack {
+                        Spacer(minLength: 0)
+                        GlassSubmitButton(
+                            creating ? "Create prompt" : "Save changes",
+                            enabled: canSave,
+                            loading: saving,
+                            compact: true
+                        ) {
+                            save()
+                        }
+                        .fixedSize()
+                        .accessibilityIdentifier("prompt-submit")
+                    }
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+            }
+
             if isOwner, !creating, prompt != nil {
                 Section {
                     Button(role: .destructive) {
@@ -269,6 +287,8 @@ struct PromptSettingsPage: View {
         .scrollContentBackground(.hidden)
         .listSectionSpacing(8)
         .tint(DesignTokens.Palette.primary)
+        // EXP-1554: the page carries no id of its own; without the old pinned
+        // bar between them, SwiftUI folded a page id onto this Form.
         .accessibilityIdentifier("prompt-form")
     }
 
@@ -311,7 +331,7 @@ struct PromptSettingsPage: View {
                     if let row, !seeded {
                         seeded = true
                         name = row.name
-                        icon = row.icon ?? ""
+                        icon = row.icon ?? Self.defaultIcon
                     }
                 }
             } catch {

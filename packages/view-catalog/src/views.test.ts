@@ -86,7 +86,7 @@ const PINNED_RECIPES = [
   `expandFirstDiffFile`,
   `openGettingStarted`,
   `typeIssueRef`,
-  `openComposerMenuImplement`,
+  `openComposerMenuTemporary`,
   `typeSlashInComposer`,
   `typeSlashInSessionComposer`,
   `scrollToWorkCards`,

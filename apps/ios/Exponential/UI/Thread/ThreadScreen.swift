@@ -86,6 +86,12 @@ struct ThreadScreen: View {
     /// sheet has dismissed.
     @State private var groupOpen = false
     @State private var pendingGroupPick: ThreadStripGroupSheet.Pick?
+    /// #EXP-1562: the waiting button's Menu sheet, its pick (run once the
+    /// sheet has dismissed), the scroll it asks for and the lit card.
+    @State private var waitingOpen = false
+    @State private var pendingWaitingPick: String?
+    @State private var waitingFocus: WaitingFocus?
+    @State private var highlightId: String?
     /// The question / plan answer in flight.
     @State private var answeringId: String?
     /// N-12: THE Dock's open sheet (a card id).
@@ -234,6 +240,7 @@ struct ThreadScreen: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .environment(\.threadIssueOutlet, issueOutlet)
+                .environment(\.waitingFocus, waitingFocus)
                 // EXP-1316 (detail-chrome.json): THE detail chrome band on
                 // every tab — the nav row (‹ · title + lock · …) over the
                 // strip, content scrolling under its scrim + edge fade.
@@ -350,6 +357,7 @@ struct ThreadScreen: View {
             if let rows, let agentId = rows.root.agentId {
                 AgentSettingsPage(teamId: rows.root.teamId, agentId: agentId, isOwner: isOwner)
                     .environment(\.accountId, accountId)
+                    .bareBackButton()
             }
         }
         .task(id: rows?.root.teamId) { await resolveOwner() }
@@ -394,6 +402,12 @@ struct ThreadScreen: View {
                     pendingGroupPick = pick
                     groupOpen = false
                 }
+            }
+        }
+        .sheet(isPresented: $waitingOpen, onDismiss: runPendingWaitingPick) {
+            ThreadWaitingSheet(chips: waitingChips.chips) { id in
+                pendingWaitingPick = id
+                waitingOpen = false
             }
         }
         .sheet(isPresented: $linkSheetOpen) {
@@ -463,8 +477,30 @@ struct ThreadScreen: View {
                 UIApplication.endEditing()
                 groupOpen = true
             },
-            storiesDot: storyTab?.unseen ?? false
+            storiesDot: storyTab?.unseen ?? false,
+            waiting: waitingChips,
+            onOpenWaiting: {
+                UIApplication.endEditing()
+                waitingOpen = true
+            }
         )
+    }
+
+    /// #EXP-1562 (waiting-cards.json CHIPS): the Conversation's WAITING
+    /// cards (`threadPendingAsks`); a phone = ONE button.
+    private var waitingChips: WaitingCards.Chips {
+        let rows = model?.view?.rows ?? []
+        return WaitingCards.chips(AskDock.threadPendingAsks(rows, sessionName: { _ in nil }), phone: true)
+    }
+
+    /// #EXP-1562: a waiting row's pick shows the Conversation (if another
+    /// page is up), scrolls that card to centre and lights it.
+    private func runPendingWaitingPick() {
+        guard let id = pendingWaitingPick else { return }
+        pendingWaitingPick = nil
+        pendingPage = nil
+        if page != defaultPage { selectPage(.conversation) }
+        waitingFocus = WaitingFocus(id: id, at: Date())
     }
 
     /// stories.json STORIES TAB: every story the root's tree ever posted
@@ -561,6 +597,7 @@ struct ThreadScreen: View {
                             viewerId: deps.auth.userId,
                             answeringId: answeringId,
                             canAnswer: canEdit,
+                            highlightId: highlightId,
                             suggestions: suggestionActions,
                             // EXP-1323/1324: THE Queue + the status line off
                             // the live root, as the Conversation's last row.
@@ -600,6 +637,10 @@ struct ThreadScreen: View {
                     // chats.json FOLLOW ×4: `transcript.followSlack`.
                     slack: CGFloat(Chats.Transcript.followSlack),
                     repin: { scroller.scrollTo(Self.bottomId, anchor: .bottom) }
+                ))
+                // #EXP-1562: a waiting pick scrolls here and lights the card.
+                .modifier(WaitingFocusScroll(
+                    focus: waitingFocus, proxy: scroller, highlight: $highlightId, onScroll: { atBottom = false }
                 ))
                 .onAppear {
                     scroller.scrollTo(Self.bottomId, anchor: .bottom)
@@ -885,15 +926,21 @@ struct ThreadScreen: View {
         let accountId = accountId
         Task {
             do {
-                try await api.answer(
-                    accountId: accountId, messageId: card.messageId, answer: card.answer, decision: card.decision,
-                    fresh: card.fresh, feedback: card.feedback, answers: card.answers, surfaceData: card.surfaceData
-                )
+                if card.dismissed {
+                    try await api.dismissCard(accountId: accountId, messageId: card.messageId)
+                } else {
+                    try await api.answer(
+                        accountId: accountId, messageId: card.messageId, answer: card.answer, decision: card.decision,
+                        fresh: card.fresh, feedback: card.feedback, answers: card.answers, surfaceData: card.surfaceData
+                    )
+                }
             } catch {
                 toaster.error(
-                    FeedbackStates.Errors.title(
-                        verb: "answer", thing: card.decision == nil ? "the question" : "the plan"
-                    ),
+                    card.dismissed
+                        ? FeedbackStates.Errors.title(verb: "dismiss", thing: "the card")
+                        : FeedbackStates.Errors.title(
+                            verb: "answer", thing: card.decision == nil ? "the question" : "the plan"
+                        ),
                     description: error.userFacingMessage
                 )
             }

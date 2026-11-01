@@ -298,6 +298,8 @@ public struct AgentBubbleCircle: View {
     /// The ring's slot outside the gap (the widest ring the circle wears),
     /// so a ring change never resizes the disc.
     let ringSlot: CGFloat
+    /// The glyph's size; nil = the Chats bubble's share of the disc.
+    let glyphOverride: CGFloat?
 
     public init(
         glyph: Glyph,
@@ -305,7 +307,8 @@ public struct AgentBubbleCircle: View {
         ringGap: CGFloat = ChatListMetrics.bubbleRing,
         ringColor: Color,
         ringWidth: CGFloat,
-        ringSlot: CGFloat = 2
+        ringSlot: CGFloat = 2,
+        glyphSize: CGFloat? = nil
     ) {
         self.glyph = glyph
         self.size = size
@@ -313,11 +316,12 @@ public struct AgentBubbleCircle: View {
         self.ringColor = ringColor
         self.ringWidth = ringWidth
         self.ringSlot = ringSlot
+        self.glyphOverride = glyphSize
     }
 
     private var inner: CGFloat { size - 2 * ringGap - 2 * ringSlot }
     /// 26pt in the 66pt bubble, the same share at any size.
-    private var glyphSize: CGFloat { (inner * 26 / 56).rounded() }
+    private var glyphSize: CGFloat { glyphOverride ?? (inner * 26 / 56).rounded() }
 
     public var body: some View {
         ZStack {

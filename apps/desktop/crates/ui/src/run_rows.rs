@@ -63,20 +63,26 @@ pub(crate) fn run_mark(
         mark_badge_tone(state),
         |this, tone| {
             this.child(
-                div()
-                    .absolute()
+                mark_badge(tone, theme::tokens::BACKGROUND.to_hsla(), cx)
                     .top(gpui::px(-2.))
-                    .right(gpui::px(-2.))
-                    .size(gpui::px(RUN_BADGE_PX))
-                    .rounded_full()
-                    .bg(crate::work_card::session_tone_color(tone, cx))
-                    // The hairline keeps the dot readable over the glyph it
-                    // overlaps.
-                    .border_1()
-                    .border_color(theme::tokens::BACKGROUND.to_hsla()),
+                    .right(gpui::px(-2.)),
             )
         },
     )
+}
+
+/// EXP-1294 — the run mark's corner dot in `tone`, ringed in `ground` (the
+/// hairline keeps it readable over the glyph it overlaps). Absolute: the
+/// caller places it. EXP-1560: the Devices card's login icons wear the same
+/// dot (`needs_input` amber) on a login with an attention item.
+pub(crate) fn mark_badge(tone: &str, ground: gpui::Hsla, cx: &App) -> gpui::Div {
+    div()
+        .absolute()
+        .size(gpui::px(RUN_BADGE_PX))
+        .rounded_full()
+        .bg(crate::work_card::session_tone_color(tone, cx))
+        .border_1()
+        .border_color(ground)
 }
 
 /// EXP-1294 — everything ONE session row draws ([`run_row`]).

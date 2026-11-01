@@ -37,6 +37,8 @@ export const VOICE_CARD_OWNER_ONLY = `Only the member whose voice conversation t
 
 export const cardAnswerInput = z.object({
   messageId: uuid,
+  // #EXP-1561: dismiss instead of answering (waiting-cards.json DISMISS).
+  dismissed: z.literal(true).optional(),
   answer: z.string().max(MESSAGE_BODY_MAX).optional(),
   decision: z.enum([`approved`, `rejected`]).optional(),
   fresh: z.boolean().optional(),

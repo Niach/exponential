@@ -746,14 +746,16 @@ struct AppSettingsSheet: View {
                     })
                     .accessibilityIdentifier("app-export")
                 }
-                Spacer(minLength: 8)
                 if canManage {
-                    GlassPill(Apps.Copy.Menu.delete, icon: AppIcons.uiDelete, mode: .action {
+                    // EXP-1554: THE destructive button (web's filled red),
+                    // beside Export, left-aligned (web).
+                    DestructiveButton(Apps.Copy.Menu.delete) {
                         UIApplication.endEditing()
                         onAction(.delete)
-                    }, tint: DesignTokens.Palette.destructive)
+                    }
                     .accessibilityIdentifier("app-delete")
                 }
+                Spacer(minLength: 0)
             }
             .padding(.top, 4)
         }

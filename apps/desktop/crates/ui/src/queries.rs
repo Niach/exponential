@@ -1031,6 +1031,9 @@ pub(crate) struct LaunchDevice {
     pub(crate) is_own: bool,
     /// EXP-622: the caller's default machine (never a teammate's flag).
     pub(crate) is_default: bool,
+    /// composer-menu.json `conditions.computerUse`: the machine advertises
+    /// the per-run cap, so the "+" menu offers Computer use for it.
+    pub(crate) computer_use_run: bool,
 }
 
 /// The picker line for a candidate machine — web `launch-options-pane`
@@ -1147,6 +1150,7 @@ pub(crate) fn remote_launch_devices<'a>(
                 is_own: false,
                 // EXP-622: a teammate's flag is THEIR preference, never ours.
                 is_default: owned && row.is_default.unwrap_or(false),
+                computer_use_run: row.has_cap(coding::doctor::COMPUTER_USE_RUN_CAP),
                 device_id,
             })
         })
@@ -1406,6 +1410,8 @@ pub(crate) fn launch_devices(team_id: Option<&str>, cx: &mut App) -> Vec<LaunchD
             .as_ref()
             .and_then(|row| row.is_default)
             .unwrap_or(false),
+        // This build honours it (coding::doctor::RUN_CAPS).
+        computer_use_run: true,
         device_id: own_device_id.clone(),
     };
     let me = active_account(cx).map(|account| account.user_id).unwrap_or_default();
@@ -1964,6 +1970,7 @@ mod tests {
             defaults: coding::Settings::default(),
             is_own,
             is_default,
+            computer_use_run: true,
         }
     }
 

@@ -118,6 +118,9 @@ fun GlassPill(
     /** Names the pill for accessibility when the LABEL does not — the
      *  icon-only capsule, whose glyph is its whole meaning. */
     contentDescription: String? = null,
+    /** EXP-1551: the label ellipsizes under a width cap and [trailing] keeps
+     *  its room (PillView `shrinkLabel`); bounded parents only. */
+    shrinkLabel: Boolean = false,
 ) {
     // A DISABLED select pill is never lit: the active fill plus a quaternary
     // label rendered as a bright capsule with near-invisible text in it.
@@ -216,6 +219,7 @@ fun GlassPill(
             else -> null
         },
         trailing = trailing,
+        shrinkLabel = shrinkLabel,
     )
 }
 

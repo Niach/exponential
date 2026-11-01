@@ -31,6 +31,7 @@ import androidx.compose.ui.test.swipeUp
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import com.exponential.app.domain.DevicesList
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.AppExport
 import com.exponential.app.domain.AppRecords
@@ -145,7 +146,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * EXP-1295 retired `sg_chat-action` and `sg_action-create` (the builtin
  * actions and the action create sheet left the catalog), renamed the
  * Threads tab `sg_threads` and the agent channel `sg_agent-channel`;
- * `sg_pr-row` = the issue page's pull-request row. S-3 retired `sg_guide`
+ * `sg_pr-row` = the capture-only PR row specimen (EXP-1553). S-3 retired `sg_guide`
  * and `sg_guide-section` with the Guide tab (stories replaced it).
  *
  * EXP-1296 (Threads v2) split the suite in two tests. [captureStyleguideScreenshots]
@@ -215,6 +216,8 @@ class StyleguideScreenshotsTest {
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
             // S-3: THE inter-session link line.
             "sg_session-xref",
+            // EXP-1553: THE PR row (a tree, a stack, an unlinked PR).
+            "sg_pr-row",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
             "sg_chat-list", "sg_phone-tab-bar", "sg_phone-board-menu", "sg_phone-page-header", "sg_chat-transcript", "sg_chat-menus", "sg_schedule-picker",
             // #EXP-1388: the Chats multi-selection + the Archived entry.
@@ -296,6 +299,10 @@ class StyleguideScreenshotsTest {
         // the field's own text never matches the row's full title.
         private const val CHAT_FIRST_ISSUE_TITLE = "Dark mode contrast pass across settings"
         private const val CHAT_SECOND_ISSUE_TITLE = "Push notification deep links open the wrong tab"
+
+        // EXP-1551: the chips the shot must show, in pick order (web: APP-3
+        // then APP-6, `demoIds.issueA` / `issueB`).
+        private val CHAT_ISSUE_IDENTS = listOf("APP-3", "APP-6")
 
         // EXP-1309: the seed's session tree (seedSessionTree in
         // apps/web/scripts/seed-screenshots.ts). The private running root
@@ -575,17 +582,15 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
         flow.settle()
 
-        // --- sg_pr-row: THE pull-request row (EXP-1248/1291). An issue page
-        // lists its pull requests as rows; APP-14 owns the seed's real open
-        // PR. The detail body is a plain verticalScroll Column, so
-        // performScrollTo reaches the row.
+        // --- APP-14's issue page (the seed's real open PR), the way into
+        // its thread's Stories tab below. EXP-1553: `sg_pr-row` is the
+        // capture-only PR row specimen now (with the thread cards).
         composeRule.onNode(hasTestTag("issue-list"))
             .performScrollToNode(hasTestTag(GUIDE_ISSUE_ROW))
         composeRule.onNode(hasTestTag(GUIDE_ISSUE_ROW)).performClick()
         flow.waitFor(hasTestTag("issue-pr-row"), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasTestTag("issue-pr-row")).onFirst().performScrollTo()
         flow.settle()
-        flow.screenshot("sg_pr-row")
 
         // --- sg_thread-stories (stories.json STORIES TAB): APP-14's thread
         // (web's `$diffThreadId`) on its Stories tab, the strip's last,
@@ -661,11 +666,12 @@ class StyleguideScreenshotsTest {
         // accounts shot too.
         openDevices()
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), NETWORK_TIMEOUT)
-        // A-16: nothing folds — every device's logins ride its line as chips.
-        flow.waitFor(hasTestTag("device-login-chip"), NETWORK_TIMEOUT)
+        // EXP-1560: every device is a card, its logins brand-mark icons.
+        flow.waitFor(hasTestTag("device-login-icon"), NETWORK_TIMEOUT)
         // FEED-149: the demo user OWNS the demo team, so the seeded teammate's
-        // shared server ("Acme build server") carries the owner's Remove.
-        flow.waitFor(hasTestTag("device-remove-share-button"), NETWORK_TIMEOUT)
+        // shared server ("Acme build server") is listed (its ⋯ holds the
+        // owner's Remove).
+        flow.waitFor(hasText(DevicesList.Copy.TEAM), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agents")
 
@@ -741,7 +747,7 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_composer-menu")
         composeRule.onNode(hasTestTag(implementRow)).performClick()
         flow.waitFor(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
-        for (title in listOf(CHAT_FIRST_ISSUE_TITLE, CHAT_SECOND_ISSUE_TITLE)) {
+        listOf(CHAT_FIRST_ISSUE_TITLE, CHAT_SECOND_ISSUE_TITLE).forEachIndexed { index, title ->
             // A prefix query: the field's own text never matches the row's
             // full title, so the match below is the row.
             composeRule.onNode(hasTestTag(SearchList.INPUT_TEST_ID))
@@ -749,12 +755,30 @@ class StyleguideScreenshotsTest {
             val row = hasText(title, substring = true) and hasAnyAncestor(hasTestTag("agent-composer-issues-picker"))
             flow.waitFor(row, SYNC_TIMEOUT)
             composeRule.onAllNodes(row).onFirst().performClick()
+            // EXP-1551: the pick landed before the next query replaces the
+            // list (the footer counts the picks: "Implement 2 issues").
+            val picked = index + 1
+            val submit = hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID)
+            flow.waitFor(
+                hasText(ComposerMenu.implementButtonLabel(picked)) and (submit or hasAnyAncestor(submit)),
+                NAV_TIMEOUT,
+            )
         }
         Espresso.closeSoftKeyboard()
         flow.waitFor(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID)).performClick()
         flow.waitForGone(hasTestTag(ComposerMenu.MENU_TEST_ID), NAV_TIMEOUT)
         flow.waitFor(hasIssueChip(), NAV_TIMEOUT)
+        // Both chips, APP-3 then APP-6 (the headline wraps, so neither is
+        // scrolled off the edge).
+        CHAT_ISSUE_IDENTS.forEach { ident ->
+            flow.waitFor(hasTestTag("agent-composer-chip-issue-$ident"), NAV_TIMEOUT)
+        }
+        val chipLefts = CHAT_ISSUE_IDENTS.map { ident ->
+            composeRule.onNode(hasTestTag("agent-composer-chip-issue-$ident"))
+                .fetchSemanticsNode().boundsInRoot.let { it.top * 100_000f + it.left }
+        }
+        check(chipLefts == chipLefts.sorted()) { "chips out of pick order: $CHAT_ISSUE_IDENTS" }
         flow.settle()
         flow.screenshot("sg_chat-issues")
         // A tab now (Back would leave the app): the Team tab's Devices row
@@ -764,12 +788,12 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
         flow.settle(longer = true)
 
-        // --- Machine settings: own, registered machines only — the gear is
+        // --- Machine settings: own, registered machines only — the entry is
         // absent otherwise, which is why the relay stub is a prerequisite.
-        // EXP-909 follow-up: the gear IS the row's only control (the ⋯ menu
-        // and its "Device settings" entry are gone ×4), and Update and Remove
-        // are sections inside the sheet it opens.
-        composeRule.onAllNodes(hasTestTag("device-settings-button")).onFirst().performClick()
+        // EXP-1560: the card's ⋯ menu carries "Device settings".
+        composeRule.onAllNodes(hasTestTag("device-actions")).onFirst().performClick()
+        flow.waitFor(hasTestTag("device-settings-button"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("device-settings-button")).performClick()
         flow.waitFor(hasTestTag("device-settings-sheet"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_machine-settings")
@@ -972,7 +996,15 @@ class StyleguideScreenshotsTest {
         flow.settle()
         tapClearOfBar(coldStartRow)
         flow.waitFor(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION), NAV_TIMEOUT)
-        flow.waitFor(hasText(COLD_START_REPLY_FRAGMENT, substring = true), SYNC_TIMEOUT)
+        // #EXP-1561: the reply sits above the waiting question + plan cards
+        // (taller now that each carries its ×): swipe it in to prove the sync.
+        flow.waitForInList(
+            hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION),
+            hasText(COLD_START_REPLY_FRAGMENT, substring = true),
+            SYNC_TIMEOUT,
+        )
+        // ...and back to its end (the waiting cards) for the shot.
+        flow.scrollListToEnd(hasTestTag(SessionTree.ThreadCopy.TEST_ID_CONVERSATION))
         // S-3: the seeded question stays inline (the Dock takes no asks and
         // the Guide tab is gone; stories carry them).
         flow.waitFor(hasTestTag("plan-card"), SYNC_TIMEOUT)
@@ -1318,6 +1350,12 @@ class StyleguideScreenshotsTest {
         // kinds, by the real SessionXref.
         showThreadCards(ThreadCardsKind.SessionXref)
         flow.screenshot("sg_session-xref")
+
+        // --- sg_pr-row (EXP-1553): THE PR row in its two shapes (a tree with
+        // guides, a stack on its rail to master) + an unlinked PR — web's
+        // `pr-row` entry, by the real PrList / StackRail.
+        showThreadCards(ThreadCardsKind.PrRow)
+        flow.screenshot("sg_pr-row")
 
         // --- Thread 58cb32df (fixtures/chats.json): the Chats screen over
         // the phone tab bar, the tab bar's states, a chat's transcript as

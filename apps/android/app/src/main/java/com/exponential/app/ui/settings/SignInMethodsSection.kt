@@ -45,7 +45,10 @@ import com.exponential.app.data.api.SignInProviderDto
 import com.exponential.app.data.api.canRemovePasskey
 import com.exponential.app.data.api.canUnlink
 import com.exponential.app.domain.WireTimestamps
+import com.exponential.app.ui.auth.findActivity
 import com.exponential.app.ui.components.FieldError
+import com.exponential.app.ui.components.GlassPill
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SkeletonRows
@@ -69,7 +72,7 @@ import com.exponential.app.domain.Prompts
  * `PasskeysSection` twin). ONE list of every way into the account — the code to
  * the primary email (changeable), the instance's providers with Link/Unlink,
  * a password row while one is set — then the passkeys band. Natives list and
- * remove passkeys; creating one is web-only. Every call names [accountId]
+ * add (EXP-1554, the platform authenticator) and remove passkeys. Every call names [accountId]
  * (the screen may show a non-active account).
  */
 @Composable
@@ -119,7 +122,25 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
     val ready = (viewModel.methods as? SignInMethodsState.Ready)?.methods
     if (ready != null) {
         Column(Modifier.fillMaxWidth()) {
-            SectionHeader("Passkeys")
+            // EXP-1554: the band's Add passkey action, web's (an https
+            // instance only: `passkeyEnabled`).
+            SectionHeader(
+                "Passkeys",
+                trailing = if (ready.passkeyEnabled) {
+                    {
+                        GlassPill(
+                            "Add passkey",
+                            size = PillSize.Sm,
+                            enabled = !viewModel.addingPasskey,
+                            loading = viewModel.addingPasskey,
+                            onClick = { context.findActivity()?.let { viewModel.addPasskey(accountId, it) } },
+                            modifier = Modifier.testTag("passkey-add"),
+                        )
+                    }
+                } else {
+                    null
+                },
+            )
             if (ready.passkeys.isEmpty()) {
                 EmptyState(EmptyStateCopy.passkeys)
             } else {

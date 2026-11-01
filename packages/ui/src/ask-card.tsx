@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react"
+import { createContext, Fragment, useContext, useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react"
 import { ASK_DOCK_COPY } from "@exp/domain-contract/ask-dock"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
+import { WAITING_CARDS_COPY, WAITING_CARDS_TEST_IDS } from "@exp/domain-contract/waiting-cards"
 import { Button } from "./button"
 import { CheckboxMark } from "./checkbox"
 import { cn } from "./cn"
@@ -24,6 +25,11 @@ const HelpIcon = conceptIcon(`ui-help`)
 const LoadingIcon = conceptIcon(`ui-loading`)
 const CheckIcon = conceptIcon(`ui-check`)
 const CloseIcon = conceptIcon(`ui-close`)
+
+/** #EXP-1562 (waiting-cards.json): the card a header chip scrolled to;
+ *  THE card whose `data-card-id` matches wears the focus ring, fading out
+ *  when the host clears it (`constants.highlightMs`). */
+export const CardHighlightContext = createContext<string | null>(null)
 
 /** The generic ask card's own words ×web (hand-mirrored ×4 with the steer
  *  views). The plan / question card's copy lives in the fixtures:
@@ -78,6 +84,8 @@ export function AskCard({
   plan,
   label,
   meta,
+  onDismiss,
+  highlighted = false,
   children,
   className,
   ...rest
@@ -86,6 +94,11 @@ export function AskCard({
   label?: ReactNode
   /** A trailing note beside the label (the stepper's "k of n"). */
   meta?: ReactNode
+  /** #EXP-1561 (waiting-cards.json DISMISS): THE × at the top-right. */
+  onDismiss?: () => void
+  /** #EXP-1562: a header chip scrolled here: the focus ring, fading out
+   *  (else `CardHighlightContext` against `data-card-id`). */
+  highlighted?: boolean
   children: ReactNode
   className?: string
   "data-slot"?: string
@@ -93,9 +106,20 @@ export function AskCard({
   "data-decision"?: string
   "data-testid"?: string
   "data-kind"?: string
+  "data-card-id"?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, `children` | `className`>) {
+  const highlightId = useContext(CardHighlightContext)
+  const lit = highlighted || (highlightId !== null && rest[`data-card-id`] === highlightId)
   return (
-    <GlassCard className={cn(`p-3`, className)} {...rest}>
+    <GlassCard
+      className={cn(
+        `p-3 ring-0 ring-ring transition-[box-shadow] duration-500`,
+        lit && `ring-2 duration-150`,
+        className
+      )}
+      data-highlighted={lit || undefined}
+      {...rest}
+    >
       <div className="flex items-start gap-2">
         {plan ? (
           <PlanIcon className="mt-0.5 size-3.5 shrink-0 text-primary" />
@@ -120,8 +144,56 @@ export function AskCard({
           )}
           {children}
         </div>
+        {onDismiss && <AskDismissButton onClick={onDismiss} />}
       </div>
     </GlassCard>
+  )
+}
+
+/** #EXP-1561: THE card's × (a ghost icon button, the unqueue ×'s size). */
+export function AskDismissButton({ onClick }: { onClick: () => void }) {
+  // A native title, not THE Tooltip: the card renders in hosts without a
+  // TooltipProvider (the styleguide's islands, a story).
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon-xs"
+      aria-label={WAITING_CARDS_COPY.dismiss}
+      title={WAITING_CARDS_COPY.dismiss}
+      data-testid={WAITING_CARDS_TEST_IDS.dismiss}
+      className="-mt-0.5 -mr-1 shrink-0 text-muted-foreground hover:text-foreground"
+      onClick={onClick}
+    >
+      <CloseIcon className="size-3" />
+    </Button>
+  )
+}
+
+/** #EXP-1561: a DISMISSED card = ONE quiet muted line in THE card frame:
+ *  the kind icon, `Dismissed`, the card's title (truncated). */
+export function AskDismissedCard({
+  plan,
+  title,
+  "data-card-id": cardId,
+}: {
+  plan?: boolean
+  title: string
+  "data-card-id"?: string
+}) {
+  return (
+    <AskCard
+      plan={plan}
+      className="opacity-80"
+      data-testid={WAITING_CARDS_TEST_IDS.dismissed}
+      data-kind={plan ? `plan` : `question`}
+      data-card-id={cardId}
+    >
+      <div className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+        <span className="shrink-0 font-medium">{WAITING_CARDS_COPY.dismissed}</span>
+        {title && <span className="min-w-0 truncate">{title}</span>}
+      </div>
+    </AskCard>
   )
 }
 

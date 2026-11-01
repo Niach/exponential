@@ -276,7 +276,8 @@ fun StoryViewer(
                     fraction = progress,
                 )
                 StoryHeader(ring, story, avatar(ring), onOpen = { onOpenSession(story) }, onClose = onClose)
-                // THE kind badge leads the title line (#EXP-1493).
+                // THE kind badge on its own line ABOVE the title, the title
+                // semibold wrapping to at most 2 lines (stories.json, #EXP-1553).
                 Column(Modifier.fillMaxWidth().padding(horizontal = 2.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     StoryKindBadge(story.kind)
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -286,7 +287,7 @@ fun StoryViewer(
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurface,
-                                maxLines = 1,
+                                maxLines = 2,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.testTag("story-title"),
                             )

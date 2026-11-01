@@ -8,3 +8,9 @@
 - Live sessions keep streaming, end-to-end encrypted, when the direct connection to the device drops
 - Text you type while a comment is sending stays in the composer
 - A thread shows the tasks of its running child session
+- Agents get the issue you hand them: identifier, title and description
+- The thread header shows the session's status and a Merge button
+- Story captions never outgrow the viewer
+- Dismiss a question or plan you don't want to answer; the thread header shows what's still waiting
+- The Devices page shows each device as a card
+- Chats, the new-chat screen and Settings look the same as on the other apps

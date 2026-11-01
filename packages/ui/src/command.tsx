@@ -38,6 +38,7 @@ function Command({
 function CommandInput({
   className,
   leading,
+  trailing,
   variant = `inline`,
   clearLabel,
   ref,
@@ -47,6 +48,9 @@ function CommandInput({
    *  arrow (the phone search sheet) that must share the row without leaving
    *  the cmdk root, which owns the keyboard. */
   leading?: React.ReactNode
+  /** The `field` row's trailing slot, after the field (the search list's
+   *  muted result count, search-list.json). */
+  trailing?: React.ReactNode
   /** `inline` (default) = the bare popover row: glyph, text, a hairline
    *  under. `field` = the `SearchField` look around cmdk's own input — the
    *  glass box with the glyph inside and a trailing clear once there is
@@ -105,6 +109,7 @@ function CommandInput({
             </Button>
           )}
         </div>
+        {trailing}
       </div>
     )
   }

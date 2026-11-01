@@ -75,6 +75,9 @@ struct ServerDetailView: View {
                         SignInMethodsSection(accountId: accountId)
                     }
                     actionsSection
+                    if account?.token != nil {
+                        dangerZone
+                    }
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 8)
@@ -82,6 +85,9 @@ struct ServerDetailView: View {
             }
         }
         .navigationTitle("Account")
+        // Inline like every settings page: a large title pushed the bare
+        // back arrow to the trailing edge.
+        .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear { startObservingUser() }
         .task(id: accountId) { await loadTimezone() }
@@ -331,22 +337,6 @@ struct ServerDetailView: View {
                         )
                     }
                     .buttonStyle(.plain)
-
-                    GlassDivider()
-
-                    // App Store guideline 5.1.1(v): account deletion must be
-                    // initiable in-app, not via email.
-                    Button {
-                        showDeleteAccountConfirm = true
-                    } label: {
-                        actionRow(
-                            icon: AppIcons.uiDeleteAccount,
-                            title: deletingAccount ? "Deleting account…" : "Delete account",
-                            tint: .red
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(deletingAccount)
                 } else if let url = account?.instanceUrl {
                     Button {
                         deps.auth.setInstanceUrl(url)
@@ -375,6 +365,32 @@ struct ServerDetailView: View {
                     .buttonStyle(.plain)
                 }
             }
+            .glassSection()
+        }
+    }
+
+    /// EXP-1554: web's Danger zone, ×4: the danger band, then ONE row = the
+    /// muted consequence + THE destructive button trailing. App Store
+    /// guideline 5.1.1(v): account deletion must be initiable in-app.
+    private var dangerZone: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GlassSectionBand("Danger zone", danger: true)
+            HStack(spacing: 12) {
+                Text("Permanently delete your account and every team where you are the only member.")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                DestructiveButton(
+                    "Delete account",
+                    enabled: !deletingAccount,
+                    loading: deletingAccount
+                ) {
+                    showDeleteAccountConfirm = true
+                }
+                .accessibilityIdentifier("account-delete")
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
             .glassSection()
         }
     }

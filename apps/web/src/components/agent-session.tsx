@@ -58,7 +58,7 @@ import {
   AgentWorkingMark,
   SessionInlineResultTile,
   sessionResultPicture,
-  WORK_COLUMN_CLASS,
+  CHAT_COLUMN_CLASS,
   DETAIL_FADE_BOTTOM_CLASS,
   ExponentialLogo,
   ImagePreviewDialog,
@@ -234,7 +234,7 @@ const TASK_QUEUE_TEST_IDS = taskQueueSpec.testIds
 
 /** The centred reading column every transcript row sits in. EXP-1191: on
  *  md+ its gutter is the work column's, a phone keeps its 12. */
-const TRANSCRIPT_COLUMN = `${WORK_COLUMN_CLASS} px-3 md:px-5`
+const TRANSCRIPT_COLUMN = `${CHAT_COLUMN_CLASS} px-3 md:px-5`
 /** NEW-6: how long an idle session's connect may show placeholders. */
 const TRANSCRIPT_STALL_MS = 8_000
 /** N-12: the transcript's last row clears THE Dock's band by this much. */
@@ -422,6 +422,7 @@ export function AgentSessionView({
               attachmentSrc={attachmentUrl}
               onAnswer={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
               onDecide={canAnswerCards ? (rowId, input) => void answerCard(rowId, input) : undefined}
+              onDismiss={canAnswerCards ? (rowId) => void answerCard(rowId, { dismissed: true }) : undefined}
               onOpenPlan={(plan) => openPlan(plan.sessionId, plan.id)}
               pending={cardsPending}
               onSurfaceReply={sessionEnded ? undefined : replyFromSurface}

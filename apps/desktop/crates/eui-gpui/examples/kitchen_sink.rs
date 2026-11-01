@@ -3,7 +3,8 @@
 //! kitchen_sink`. Env: `XUI_THEME=neutral|exponential|playful|orange` (default
 //! `exponential`), `XUI_MODE=light|dark|system`, `XUI_LOCALE=<bcp47>` (`ar`
 //! paints RTL), `XUI_DENSITY=compact|comfortable`, `XUI_OPEN=1` (open every
-//! overlay), `XUI_SCROLL=<px>` (pre-scroll), `XUI_SIZE=<w>x<h>`.
+//! overlay), `XUI_SCROLL=<px>` (pre-scroll), `XUI_SIZE=<w>x<h>`,
+//! `XUI_SPECIMEN=<id>` (one `specimens.json` entry instead of the sink).
 
 use eui_core::surface::SurfaceSettings;
 use eui_core::theme::{Density, Mode, ModeSetting};
@@ -13,6 +14,7 @@ use gpui::{div, prelude::*, px, size, App, Bounds, Entity, ScrollHandle, Titleba
 use serde_json::{json, Value};
 
 const KITCHEN_SINK: &str = include_str!("../../../../../packages/exponential-ui/fixtures/kitchen-sink.json");
+const SPECIMENS: &str = include_str!("../../../../../packages/exponential-ui/fixtures/specimens.json");
 
 struct Shell {
     view: Entity<SurfaceView>,
@@ -81,7 +83,13 @@ fn main() {
                     v.set_data("/posts", Some(Value::Array(posts)), cx).expect("data");
                     // The fixture's root pins `direction: ltr`; an RTL locale
                     // lets the locale decide (the core's rule).
-                    let mut raw: Value = serde_json::from_str(KITCHEN_SINK).expect("the kitchen sink parses");
+                    let mut raw: Value = match env("XUI_SPECIMEN") {
+                        Some(id) => {
+                            let all: Value = serde_json::from_str(SPECIMENS).expect("the specimens parse");
+                            all["specimens"].as_array().and_then(|s| s.iter().find(|e| e["id"] == id.as_str())).map(|e| e["node"].clone()).expect("a specimen with that id")
+                        }
+                        None => serde_json::from_str(KITCHEN_SINK).expect("the kitchen sink parses"),
+                    };
                     if eui_core::locale::text_direction(&locale) == "rtl" {
                         if let Some(style) = raw.get_mut("style").and_then(Value::as_object_mut) {
                             style.remove("direction");

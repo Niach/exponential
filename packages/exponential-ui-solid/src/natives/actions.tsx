@@ -1,5 +1,5 @@
 // FEED-128 (React's natives/actions.tsx): Button, Link, Toggle. A Button is
-// OPTIMISTIC: it goes disabled (and `aria-busy`) the moment it is pressed
+// OPTIMISTIC: it goes inert (`aria-busy`, presses refused) the moment it is pressed
 // and stays so until the host's `onAction` promise settles. A `submit`
 // Button submits the enclosing Form (and shows loading while the Form is
 // `busy`).
@@ -62,7 +62,9 @@ export function ButtonNative(props: NativeProps): JSX.Element {
   const label = () => str(props.props.label)
   const icon = () => str(props.props.icon)
   const loading = () => bool(props.props.loading) || pending() || (submit() && form!.busy)
-  const disabled = () => bool(props.props.disabled) || loading()
+  // EXP-1556: loading refuses presses but keeps the idle look; only `disabled` dims.
+  const disabled = () => bool(props.props.disabled)
+  const inert = () => disabled() || loading()
   const iconOnly = () => props.props.size === `icon`
   const hasChild = () => props.node.children.length > 0
   const shown = createPendingShown(loading)
@@ -84,7 +86,7 @@ export function ButtonNative(props: NativeProps): JSX.Element {
   }
   // VAPP-162 (round-5 contract §9): `hold` = holdStart/holdEnd/holdCancel, never `press`.
   const hold = () => bool(props.props.hold)
-  const { held, handlers } = createHold(hold, disabled, (event) => props.emit(event))
+  const { held, handlers } = createHold(hold, inert, (event) => props.emit(event))
   const holdingLabel = () => str(props.props.holdingLabel)
   const paintedLabel = () => (held() && holdingLabel() ? holdingLabel() : shownLabel())
   const xs = () => [...(ctx.states ?? []), disabled() ? `disabled` : ``, pending() ? `pending` : ``, held() ? `pressed` : ``].filter(Boolean).join(` `) || undefined
@@ -111,7 +113,7 @@ export function ButtonNative(props: NativeProps): JSX.Element {
       onContextMenu={handlers.onContextMenu}
       onClick={(e) => {
         e.stopPropagation()
-        if (hold()) return
+        if (hold() || inert()) return
         track(props.emit(`press`))
         if (submit()) form!.submit()
       }}

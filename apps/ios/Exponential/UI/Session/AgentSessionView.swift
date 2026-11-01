@@ -179,6 +179,9 @@ struct AgentSessionView: View {
     /// EXP-1398: this session's cards (`AskDock.sessionCards`: the tool-posted
     /// plan / question cards above plus its `surface` cards), oldest first.
     @State private var sessionCards: [AskDock.SessionCard] = []
+    /// #EXP-1562: the thread header's waiting pick and the card it lit.
+    @Environment(\.waitingFocus) private var waitingFocus
+    @State private var highlightId: String?
     /// EXP-1398: the `surface` cards' rows, by message id.
     @State private var surfaceRows: [String: ThreadRow] = [:]
     /// S-3: the view's `origin` link (session-thread.json), its mark and
@@ -786,6 +789,11 @@ struct AgentSessionView: View {
                     slack: AgentSessionLayout.followSlack,
                     repin: { proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom) }
                 ))
+                // #EXP-1562: the thread header's waiting pick (an embedded
+                // session page) scrolls here and lights the card.
+                .modifier(WaitingFocusScroll(
+                    focus: waitingFocus, proxy: proxy, highlight: $highlightId, onScroll: { atBottom = false }
+                ))
                 .onAppear {
                     proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                     // Lazy rows can still be sizing on the first pass, landing
@@ -1111,6 +1119,8 @@ struct AgentSessionView: View {
                     markdownContext: markdownContext,
                     onSubmit: submitToolAnswer
                 )
+                .waitingHighlight(highlightId == id)
+                .id(id)
                 .padding(.top, DesignTokens.Transcript.gapBlock)
                 .accessibilityIdentifier("session-tool-card")
             }
@@ -1198,15 +1208,21 @@ struct AgentSessionView: View {
         let accountId = accountId
         Task {
             do {
-                try await api.answer(
-                    accountId: accountId, messageId: card.messageId, answer: card.answer, decision: card.decision,
-                    fresh: card.fresh, feedback: card.feedback, answers: card.answers, surfaceData: card.surfaceData
-                )
+                if card.dismissed {
+                    try await api.dismissCard(accountId: accountId, messageId: card.messageId)
+                } else {
+                    try await api.answer(
+                        accountId: accountId, messageId: card.messageId, answer: card.answer, decision: card.decision,
+                        fresh: card.fresh, feedback: card.feedback, answers: card.answers, surfaceData: card.surfaceData
+                    )
+                }
             } catch {
                 toaster.error(
-                    FeedbackStates.Errors.title(
-                        verb: "answer", thing: card.decision == nil ? "the question" : "the plan"
-                    ),
+                    card.dismissed
+                        ? FeedbackStates.Errors.title(verb: "dismiss", thing: "the card")
+                        : FeedbackStates.Errors.title(
+                            verb: "answer", thing: card.decision == nil ? "the question" : "the plan"
+                        ),
                     description: error.userFacingMessage
                 )
             }
@@ -1928,6 +1944,10 @@ struct UserMessageBubble: View {
     /// The free leading gap (a chat's bubbles: `ChatBubbleMetrics
     /// .personLeadingGap`, max 80% of the column).
     var leadingGap: CGFloat = 32
+    /// EXP-1553 (chats.json TRANSCRIPT ×4): a chat's bubble — the caption
+    /// (`HH:mm`, ` · queued`, the X) sits INSIDE the bubble bottom-right,
+    /// the 18pt chat radius; false = the caption under the bubble.
+    var inBubbleCaption = false
 
     @State private var expanded = false
 
@@ -1961,6 +1981,7 @@ struct UserMessageBubble: View {
         let clampable = isClampable(hasImages ? parsed.text : text)
         return HStack {
             Spacer(minLength: leadingGap)
+            BubbleColumn(spacing: 2) {
             VStack(alignment: .leading, spacing: 4) {
                 Group {
                     if !hasImages {
@@ -2020,18 +2041,79 @@ struct UserMessageBubble: View {
                     .padding(.top, parsed.text.isEmpty && parsed.attachmentIds.isEmpty ? 0 : 4)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+                if inBubbleCaption, (caption?.isEmpty == false) || onRemove != nil {
+                    BubbleCaptionLine(caption: caption, onRemove: onRemove)
+                }
+            }
+            .padding(.horizontal, inBubbleCaption ? 14 : 12)
+            .padding(.vertical, inBubbleCaption ? 10 : 8)
             // The sender's own bubble ×4 (web `UserMessageBubble`): the
             // glass active fill inside the strong hairline.
             .background(GlassTokens.fillActive)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .clipShape(RoundedRectangle(cornerRadius: radius))
             .overlay(
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: radius)
                     .stroke(GlassTokens.strokeStrong, lineWidth: GlassTokens.hairline)
             )
         }
-        .modifier(BubbleCaption(caption: caption, onRemove: onRemove))
+        .modifier(BubbleCaption(caption: inBubbleCaption ? nil : caption, onRemove: inBubbleCaption ? nil : onRemove))
+    }
+
+    private var radius: CGFloat { inBubbleCaption ? ChatBubbleMetrics.radius : 12 }
+}
+
+/// EXP-1553: the chat bubble's column — the body leading, the caption line
+/// trailing under it, the column as wide as the wider of the two (the bubble
+/// hugs its text; no full-width stretch).
+private struct BubbleColumn: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+        let width = sizes.map(\.width).max() ?? 0
+        let height = sizes.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, sizes.count - 1))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil))
+            // The last line (the caption) when there are two sits trailing.
+            let trailing = subviews.count > 1 && index == subviews.count - 1
+            let x = trailing ? bounds.maxX - size.width : bounds.minX
+            subview.place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(width: size.width, height: size.height))
+            y += size.height + spacing
+        }
+    }
+}
+
+/// The caption line itself: the muted text, then the `Remove from queue` X.
+private struct BubbleCaptionLine: View {
+    let caption: String?
+    var onRemove: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let caption, !caption.isEmpty {
+                Text(caption)
+                    .font(.caption2)
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .accessibilityIdentifier("user-message-caption")
+            }
+            if let onRemove {
+                Button(action: onRemove) {
+                    AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .frame(width: 22, height: 22)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(AgentFeed.queueRemoveLabel)
+                .accessibilityIdentifier("thread-queue-remove")
+            }
+        }
     }
 }
 
@@ -2045,26 +2127,8 @@ private struct BubbleCaption: ViewModifier {
         if (caption?.isEmpty == false) || onRemove != nil {
             VStack(alignment: .trailing, spacing: 4) {
                 content
-                HStack(spacing: 4) {
-                    if let caption, !caption.isEmpty {
-                        Text(caption)
-                            .font(.caption2)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .accessibilityIdentifier("user-message-caption")
-                    }
-                    if let onRemove {
-                        Button(action: onRemove) {
-                            AppIcon(AppIcons.uiClose, size: 10, weight: .semibold)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .frame(width: 22, height: 22)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel(AgentFeed.queueRemoveLabel)
-                        .accessibilityIdentifier("thread-queue-remove")
-                    }
-                }
-                .padding(.trailing, onRemove == nil ? 4 : 0)
+                BubbleCaptionLine(caption: caption, onRemove: onRemove)
+                    .padding(.trailing, onRemove == nil ? 4 : 0)
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         } else {

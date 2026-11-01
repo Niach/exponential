@@ -37,7 +37,7 @@ import {
   File,
   Hand,
   Info,
-  Loader,
+  LoaderCircle,
   Maximize2,
   Menu,
   Mic,
@@ -47,6 +47,7 @@ import {
   PhoneIncoming,
   PhoneOff,
   Play,
+  Pause,
   Plus,
   QrCode,
   ScanLine,
@@ -77,8 +78,9 @@ export const CHROME = {
   send: Send,
   stop: Square,
   play: Play,
+  pause: Pause,
   attach: Paperclip,
-  spinner: Loader,
+  spinner: LoaderCircle,
   placeholder: CircleDashed,
 } as const
 

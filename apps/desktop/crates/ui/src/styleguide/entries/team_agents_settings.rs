@@ -219,6 +219,7 @@ impl Render for AgentSettingsDemo {
                         .danger()
                         .cursor_pointer()
                         .web_sm()
+                        .icon(registry::UI_DELETE)
                         .label(label("delete")),
                 ),
             )

@@ -1230,7 +1230,8 @@ impl Render for GeneralPane {
                     "Permanently delete this team and all its data.",
                     Button::new("team-delete")
                         .danger()
-                        .web_sm()
+                        .web_xs()
+                        .icon(registry::UI_DELETE)
                         .label("Delete team")
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.open_delete_dialog(

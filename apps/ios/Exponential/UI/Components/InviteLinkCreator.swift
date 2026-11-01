@@ -18,9 +18,21 @@ import GRDB
 /// still gates the mint (`PRECONDITION_FAILED`, `isPlanLimitError`), and a
 /// transient failure must not hide a control the user is entitled to. The
 /// refusal itself is what flips the capacity to zero, silently.
+/// The creator's own card, unless a host card already frames it.
+private struct InviteCardChrome: ViewModifier {
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if enabled { content.glassCard() } else { content }
+    }
+}
+
 struct InviteLinkCreator: View {
     let accountId: String
     let teamId: String
+    /// EXP-1554: inside the wizard's step card (web): no card of its own,
+    /// and Generate is the small outline button with the link glyph.
+    var embedded: Bool = false
     /// Fired once a link exists — the wizard's trailing button swaps from
     /// "Skip for now" to "Continue" on it.
     var onMinted: () -> Void = {}
@@ -97,6 +109,15 @@ struct InviteLinkCreator: View {
                     )
                     Spacer(minLength: 0)
                 }
+            } else if embedded {
+                GlassPill(
+                    OnboardingCopy.inviteGenerate,
+                    icon: AppIcons.uiLink,
+                    mode: .action { Task { await generate() } },
+                    enabled: !generating
+                )
+                .fixedSize()
+                .accessibilityIdentifier("invite-generate")
             } else {
                 GlassSubmitButton(
                     OnboardingCopy.inviteGenerate,
@@ -108,9 +129,9 @@ struct InviteLinkCreator: View {
                 .accessibilityIdentifier("invite-generate")
             }
         }
-        .padding(16)
+        .padding(embedded ? 0 : 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        .modifier(InviteCardChrome(enabled: !embedded))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("invite-link-creator")
     }

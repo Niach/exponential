@@ -63,6 +63,8 @@ public enum AskDock {
         public static let cancel = "Cancel"
         /// FEED-140: a plan the agent replaced with a newer one.
         public static let superseded = "Replaced by a newer plan"
+        /// #EXP-1561: a person dismissed it (waiting-cards.json).
+        public static let dismissed = "Dismissed"
     }
 
     public enum Icons {
@@ -94,6 +96,8 @@ public enum AskDock {
     public static func planDecisionLabel(decision: String, fresh: Bool) -> String {
         // FEED-140: a plan the agent replaced with a newer one.
         if decision == "superseded" { return Copy.superseded }
+        // #EXP-1561: a person dismissed it (waiting-cards.json).
+        if decision == "dismissed" { return Copy.dismissed }
         let wantsFresh = decision == "approved" && fresh
         return planOptions.first { $0.decision == decision && $0.fresh == wantsFresh }?.label ?? ""
     }

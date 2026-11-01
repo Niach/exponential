@@ -120,7 +120,8 @@ describe(`the pending Button`, () => {
     const root = tree({ id: `b`, component: `Button`, props: { label: `Start`, loading: true, pendingLabel: `Starting` } } as unknown as NestedNode)
     const { container } = render(<ExponentialSurface root={root} theme="neutral" id="pb" />)
     const button = container.querySelector<HTMLButtonElement>(`[data-xui-id="b"]`)!
-    expect(button.disabled).toBe(true)
+    // EXP-1556: inert but not dimmed (only `disabled` dims).
+    expect(button.disabled).toBe(false)
     expect(button.getAttribute(`aria-busy`)).toBe(`true`)
     expect(button.textContent).toBe(`Start`)
     expect(button.querySelector(`.xui-Button-spinner`)).toBeNull()

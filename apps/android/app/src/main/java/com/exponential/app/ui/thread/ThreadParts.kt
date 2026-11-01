@@ -45,6 +45,8 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import com.exponential.app.domain.ThreadRowAction
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.session.LocalAskCardTrailing
+import com.exponential.app.ui.session.DismissedCardLine
+import com.exponential.app.ui.session.centreOnItem
 import com.exponential.app.ui.plan.LocalOpenPlanPage
 import com.exponential.app.domain.PlanPage
 import androidx.compose.ui.platform.LocalDensity
@@ -92,12 +94,14 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.AskDock
+import com.exponential.app.domain.WaitingCards
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.AgentFeedItem
 import com.exponential.app.domain.AnswerState
@@ -352,8 +356,16 @@ fun ThreadTabStrip(
     mainSessionId: String? = null,
     /** The styleguide's static paint: the group sheet held open. */
     groupSheetOpen: Boolean = false,
+    /** #EXP-1562 (waiting-cards.json CHIPS): the conversation's WAITING
+     *  cards (`waitingChips`, Conversation order); empty = no button. */
+    waiting: List<WaitingCards.Chip> = emptyList(),
+    /** A waiting row's pick (the card's id); null = no button. */
+    onPickWaiting: ((String) -> Unit)? = null,
+    /** The styleguide's static paint: the waiting sheet held open. */
+    waitingSheetOpen: Boolean = false,
 ) {
     var sheet by remember { mutableStateOf(groupSheetOpen) }
+    var waitingSheet by remember { mutableStateOf(waitingSheetOpen) }
     val items = remember(tabs, mainSessionId) { threadStripItems(tabs, mainSessionId) }
 
     Row(
@@ -379,6 +391,11 @@ fun ThreadTabStrip(
                 tint = if (conversationSelected) MaterialTheme.colorScheme.onSurface else Secondary,
                 modifier = Modifier.size(16.dp),
             )
+        }
+        // #EXP-1562: phones = ONE icon-only chip right after Conversation
+        // (the question tint, the count muted) while something waits.
+        if (waiting.isNotEmpty() && onPickWaiting != null) {
+            ThreadWaitingButton(count = waiting.size, onClick = { waitingSheet = true })
         }
         Row(
             modifier = Modifier.weight(1f).clipToBounds().testTag("thread-strip-zone"),
@@ -433,6 +450,16 @@ fun ThreadTabStrip(
         }
     }
 
+    if (waitingSheet && waiting.isNotEmpty() && onPickWaiting != null) {
+        ThreadWaitingSheet(
+            chips = waiting,
+            onPick = { id ->
+                waitingSheet = false
+                onPickWaiting(id)
+            },
+            onDismiss = { waitingSheet = false },
+        )
+    }
     if (sheet && items.mode.mode == SessionTree.StripMode.Group) {
         ThreadStripGroupSheet(
             items = items,
@@ -454,6 +481,87 @@ fun ThreadTabStrip(
 
 /** The strip's one gap. */
 private val StripGap = 4.dp
+
+/** #EXP-1562 (waiting-cards.json CHIPS `button`): THE strip chip box,
+ *  icon-only (`icons.waiting` in the question tint) + the count muted;
+ *  accessible name `copy.waitingCount`. */
+@Composable
+private fun ThreadWaitingButton(count: Int, onClick: () -> Unit) {
+    val name = WaitingCards.waitingCountLabel(count)
+    ThreadTab(
+        selected = false,
+        onClick = onClick,
+        onLongClick = null,
+        testTag = WaitingCards.TestIds.BUTTON,
+        chip = true,
+        modifier = Modifier.semantics { contentDescription = name },
+    ) {
+        Icon(
+            ExpIcons.uiHelp,
+            contentDescription = null,
+            tint = DesignTokens.Semantic.Yellow,
+            modifier = Modifier.size(14.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            "$count",
+            style = MaterialTheme.typography.labelMedium,
+            color = Muted,
+            maxLines = 1,
+            softWrap = false,
+        )
+    }
+}
+
+/** #EXP-1562: THE Menu (the phones' bottom sheet, the strip group's) titled
+ *  `copy.waiting`: one row per waiting card, Conversation order — the kind
+ *  icon tinted, the chip's label, `askDockLabel(kind)` muted. */
+@Composable
+internal fun ThreadWaitingSheet(
+    chips: List<WaitingCards.Chip>,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    GlassSheet(
+        title = WaitingCards.Copy.WAITING,
+        onDismiss = onDismiss,
+        modifier = Modifier.testTag(WaitingCards.TestIds.MENU),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState()),
+        ) {
+            chips.forEach { chip ->
+                Box(Modifier.testTag("${WaitingCards.TestIds.MENU}-row")) {
+                    GlassSheetRow(
+                        label = chip.label,
+                        onClick = { onPick(chip.id) },
+                        labelColor = MaterialTheme.colorScheme.onSurface,
+                        leading = {
+                            Icon(
+                                if (chip.kind == AskDock.Kind.Plan) ExpIcons.codingPlan else ExpIcons.uiHelp,
+                                contentDescription = null,
+                                tint = if (chip.kind == AskDock.Kind.Plan) MaterialTheme.colorScheme.primary else DesignTokens.Semantic.Yellow,
+                                modifier = Modifier.size(16.dp),
+                            )
+                        },
+                        trailing = {
+                            Text(
+                                AskDock.label(chip.kind),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Muted,
+                                maxLines = 1,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        },
+                    )
+                }
+            }
+            Spacer(Modifier.height(8.dp))
+        }
+    }
+}
 
 /** #EXP-1433: THE group tab — the strip chip box, the `session-tree` glyph
  *  and the count (muted) at rest; ACTIVE with the open item's label
@@ -873,6 +981,10 @@ fun ThreadConversation(
     onOpenXref: ((sessionId: String) -> Unit)? = null,
     /** #EXP-1464: a Needs-you session row expands into its card (null = opens). */
     rowActions: ThreadRowActions? = null,
+    /** EXP-1553: THE transcript's wall clock (`HH:mm`), the one formatter
+     *  the bubbles' times ([meta]) and the divider pills share, so both read
+     *  the same zone; a host formatting its bubbles otherwise passes its own. */
+    clock: (wire: String) -> String? = ::clockTime,
 ) {
     // #EXP-1464 (thread-row-action.json): the expanded session rows (by row
     // id) and the sessions the viewer answered from one (client-held).
@@ -950,6 +1062,16 @@ fun ThreadConversation(
     LaunchedEffect(painted.size, follow, jumpBottomInset) {
         if (follow && painted.isNotEmpty()) state.pinToEnd()
     }
+    // #EXP-1562 (waiting-cards.json CHIPS): a waiting chip's pick stops
+    // following and centres that card (its ring is the host's highlight).
+    val cardScroll = com.exponential.app.ui.session.LocalCardScrollRequest.current
+    LaunchedEffect(cardScroll) {
+        val request = cardScroll ?: return@LaunchedEffect
+        val at = painted.indexOfFirst { it.id == request.id }
+        if (at < 0) return@LaunchedEffect
+        follow = false
+        state.centreOnItem((if (origin != null) 1 else 0) + header + at)
+    }
     // EXP-760 ×4 (web `thread-markdown.tsx`): every conversation text chips
     // BARE identifiers too (`FB-8`; agents omit the `#`) when the screen
     // provides [LocalIssueRefs]. Display-only: the composer sits outside.
@@ -1005,7 +1127,7 @@ fun ThreadConversation(
                             }
                         }
                     }
-                    is SessionTree.ThreadRow.Divider -> TranscriptDivider(row.kind, clockTime(row.at))
+                    is SessionTree.ThreadRow.Divider -> TranscriptDivider(row.kind, clock(row.at))
                     is SessionTree.ThreadRow.Locked -> TranscriptDivider(LOCKED_DIVIDER_PREFIX + row.reason, null)
                     is SessionTree.ThreadRow.Surface -> AgentColumn {
                         SurfaceCard(
@@ -1302,6 +1424,15 @@ fun ThreadAskCard(row: SessionTree.ThreadRow, onAnswer: ThreadAnswer, onDecidePl
         SupersededPlanLine()
         return
     }
+    // #EXP-1561 (waiting-cards.json): a DISMISSED card = ONE quiet line.
+    if (row is SessionTree.ThreadRow.Plan && row.decision == AskDock.DECISION_DISMISSED) {
+        DismissedCardLine(plan = true, title = AskDock.askDockTitle(row.plan))
+        return
+    }
+    if (row is SessionTree.ThreadRow.Question && row.dismissed == true) {
+        DismissedCardLine(plan = false, title = AskDock.askDockTitle(row.question))
+        return
+    }
     Column(Modifier.testTag(if (row is SessionTree.ThreadRow.Plan) "thread-plan-card" else "thread-question-card")) {
         if (row is SessionTree.ThreadRow.Plan) {
             // #EXP-1493: THE plan page (plan-page.json `copy.openPlan`), the
@@ -1350,29 +1481,38 @@ fun PlanPageOpenButton(onOpen: () -> Unit) {
     }
 }
 
-/** FEED-140: a superseded plan card, closed and collapsed to one line. */
+/** FEED-140 (EXP-1553, web's PlanCard parity): a superseded plan = THE
+ *  plan card CLOSED — the `Plan ready` header (plan glyph) on THE card
+ *  surface, its body collapsed to the muted `× Replaced by a newer plan`
+ *  line, the whole card at 80 % opacity. */
 @Composable
 fun SupersededPlanLine(modifier: Modifier = Modifier) {
-    val shape = RoundedCornerShape(GlassTokens.CardRadius)
-    Row(
+    com.exponential.app.ui.session.AskCard(
+        plan = true,
+        heading = AskDock.Copy.PLAN_READY,
+        meta = null,
         modifier = modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(GlassTokens.CardFill, shape)
-            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .graphicsLayer { alpha = 0.8f }
             .testTag("thread-plan-superseded"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(ExpIcons.codingPlan, contentDescription = null, tint = Muted, modifier = Modifier.size(14.dp))
-        Text(
-            AskDock.Copy.SUPERSEDED,
-            style = MaterialTheme.typography.bodySmall,
-            color = Muted,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Row(
+            verticalAlignment = Alignment.Top,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(
+                ExpIcons.uiClose,
+                contentDescription = null,
+                tint = Muted,
+                modifier = Modifier.padding(top = 2.dp).size(14.dp),
+            )
+            Text(
+                AskDock.Copy.SUPERSEDED,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp, fontWeight = FontWeight.Normal),
+                color = Muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 

@@ -768,6 +768,7 @@ struct VoiceSettingsSpecimen: View {
                         // A preset path skips the push, so pin the pushed
                         // page's inline title (else a large one overlaps).
                         .navigationBarTitleDisplayMode(.inline)
+                        .bareBackButton()
                 }
         }
     }

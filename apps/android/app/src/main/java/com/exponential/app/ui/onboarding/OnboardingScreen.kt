@@ -42,7 +42,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.FailedActionToast
-import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassSubmitButton
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
@@ -55,6 +54,13 @@ import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.glassGroup
+import com.exponential.app.ui.components.GlassPill
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.font.FontWeight
 
 // First-run onboarding. EXP-725 made the four product steps identical on every
 // client (team -> board -> invite -> devices); the phones wrap them in a
@@ -226,6 +232,9 @@ fun OnboardingScreen(
 // once one is minted it reads Continue. At the seat cap InviteLinkCard renders
 // nothing at all and the step is just its header plus Skip (store policy —
 // no hint, no pointer at the web).
+// EXP-1554: web's step (`invite-step.tsx`) ×4: ONE card, the icon disc over
+// the title, then the small outline Generate and a small right-aligned Skip.
+// No subtitle.
 @Composable
 private fun InviteStep(teamId: String?, onContinue: () -> Unit) {
     var linkMinted by remember { mutableStateOf(false) }
@@ -233,39 +242,68 @@ private fun InviteStep(teamId: String?, onContinue: () -> Unit) {
         modifier = Modifier
             .widthIn(max = 460.dp)
             .fillMaxWidth()
+            .glassGroup()
             .testTag("onboarding-invite-step"),
-        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        StepCardHeader(icon = ExpIcons.uiInvite, title = OnboardingCopy.INVITE_TITLE)
+        HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            if (teamId != null) {
+                val inviteViewModel = hiltViewModel<InviteLinkViewModel>(key = "invite-link:$teamId")
+                LaunchedEffect(teamId) { inviteViewModel.bind(teamId) }
+                val inviteState by inviteViewModel.state.collectAsStateWithLifecycle()
+                LaunchedEffect(inviteState.inviteUrl) {
+                    if (inviteState.inviteUrl != null) linkMinted = true
+                }
+                InviteLinkCard(
+                    state = inviteState,
+                    onGenerate = inviteViewModel::generate,
+                    bare = true,
+                )
+            }
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                GlassPill(
+                    label = if (linkMinted) OnboardingCopy.CONTINUE else OnboardingCopy.SKIP,
+                    onClick = onContinue,
+                    primary = linkMinted,
+                    modifier = Modifier.testTag("onboarding-advance"),
+                )
+            }
+        }
+    }
+}
+
+/** Web `StepCard`'s header ×4: the 32dp icon disc over the step title, centred. */
+@Composable
+private fun StepCardHeader(icon: ImageVector, title: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        StepIconDisc(icon)
         Text(
-            OnboardingCopy.INVITE_TITLE,
-            style = MaterialTheme.typography.headlineSmall,
+            title,
+            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
             color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
         )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            OnboardingCopy.INVITE_SUBTITLE,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(28.dp))
-        if (teamId != null) {
-            val inviteViewModel = hiltViewModel<InviteLinkViewModel>(key = "invite-link:$teamId")
-            LaunchedEffect(teamId) { inviteViewModel.bind(teamId) }
-            val inviteState by inviteViewModel.state.collectAsStateWithLifecycle()
-            LaunchedEffect(inviteState.inviteUrl) {
-                if (inviteState.inviteUrl != null) linkMinted = true
-            }
-            InviteLinkCard(
-                state = inviteState,
-                onGenerate = inviteViewModel::generate,
-            )
-            Spacer(Modifier.height(28.dp))
-        }
-        // P6: Skip is the secondary (outline) button; only a minted link
-        // turns it into the primary Continue.
-        SkipOrContinueButton(done = linkMinted, onClick = onContinue)
+    }
+}
+
+/** Web `IconDisc` (tone primary): a 32dp circle in the primary at 15 % with
+ *  the 16dp glyph in the primary. */
+@Composable
+internal fun StepIconDisc(icon: ImageVector) {
+    val tone = MaterialTheme.colorScheme.primary
+    Box(
+        modifier = Modifier.size(32.dp).background(tone.copy(alpha = 0.15f), CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = null, tint = tone, modifier = Modifier.size(16.dp))
     }
 }
 
@@ -451,10 +489,13 @@ private fun DoneStep(onFinish: () -> Unit) {
  */
 @Composable
 internal fun SkipOrContinueButton(done: Boolean, onClick: () -> Unit) {
-    if (done) {
-        GlassSubmitButton(label = OnboardingCopy.CONTINUE, onClick = onClick)
-    } else {
-        GlassOAuthButton(label = OnboardingCopy.SKIP, onClick = onClick) {}
+    // EXP-1554: web's small right-aligned Skip/Continue, as on the invite step.
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+        GlassPill(
+            label = if (done) OnboardingCopy.CONTINUE else OnboardingCopy.SKIP,
+            onClick = onClick,
+            primary = done,
+        )
     }
 }
 

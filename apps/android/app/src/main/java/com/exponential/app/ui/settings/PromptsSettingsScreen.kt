@@ -17,10 +17,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -51,7 +49,6 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.OptionGroup
@@ -87,6 +84,10 @@ private const val NO_PROMPTS = "No prompts yet"
 // an input error under the field, never a round-trip refusal.
 private const val MAX_PROMPT_NAME = 255
 internal const val PROMPT_BODY_MAX_CHARS = 64 * 1024
+
+/** EXP-1554 (web `DEFAULT_ICON` = the first pickable glyph, `code`): a new
+ *  prompt, or one saved without an icon, reads as this glyph. */
+private val DEFAULT_PROMPT_ICON = ExpIcons.pickable.first()
 
 /** The Prompts band, embeddable (Team settings' section; the page below). */
 @Composable
@@ -198,20 +199,21 @@ fun PromptsSettingsScreen(
 @Stable
 internal class PromptFormState {
     var name by mutableStateOf("")
-    var icon by mutableStateOf("")
+    var icon by mutableStateOf(DEFAULT_PROMPT_ICON)
     var body by mutableStateOf("")
     var touched by mutableStateOf(false)
 
     fun seed(row: PromptDto) {
         name = row.name
-        icon = row.icon.orEmpty()
+        icon = row.icon?.takeIf { it.isNotEmpty() } ?: DEFAULT_PROMPT_ICON
         body = row.body
     }
 
     fun fields(): PromptFields = PromptFields(name = name.trim(), icon = icon.takeIf { it.isNotEmpty() }, body = body)
 
     fun differsFrom(row: PromptDto?): Boolean =
-        row == null || name.trim() != row.name || icon != row.icon.orEmpty() || body != row.body
+        row == null || name.trim() != row.name ||
+            icon != (row.icon?.takeIf { it.isNotEmpty() } ?: DEFAULT_PROMPT_ICON) || body != row.body
 
     /** Input errors under their fields (FEED-79). */
     fun nameError(creating: Boolean): String? =
@@ -286,6 +288,9 @@ fun PromptSettingsScreen(
                 .padding(16.dp)
                 .testTag("prompt-page"),
         ) {
+            // EXP-1554 (web `PromptSettingsPage`): the band heads the form,
+            // `New prompt` or the prompt's name.
+            SectionHeader(title)
             PromptForm(
                 form = form,
                 editable = editable,
@@ -297,27 +302,23 @@ fun PromptSettingsScreen(
             // A member reads the prompt: no Save, no Delete.
             if (isOwner) {
                 Spacer(Modifier.height(12.dp))
-                GlassSubmitButton(
-                    label = if (creating) CREATE_PROMPT_LABEL else SAVE_LABEL,
-                    enabled = canSubmit,
-                    onClick = {
-                        form.touched = true
-                        if (!form.valid) return@GlassSubmitButton
-                        if (creating) viewModel.create(form.fields(), onCreated) else viewModel.save(form.fields())
-                    },
-                    modifier = Modifier.testTag(if (creating) "prompt-create" else "prompt-save"),
-                    icon = if (state.saving) {
-                        {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = LocalContentColor.current,
-                            )
-                        }
-                    } else {
-                        null
-                    },
-                )
+                // EXP-1554 (web parity): the submit is compact, right-aligned
+                // under the body, never a full-width bar.
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    GlassPill(
+                        if (creating) CREATE_PROMPT_LABEL else SAVE_LABEL,
+                        primary = true,
+                        enabled = canSubmit,
+                        loading = state.saving,
+                        onClick = {
+                            form.touched = true
+                            if (form.valid) {
+                                if (creating) viewModel.create(form.fields(), onCreated) else viewModel.save(form.fields())
+                            }
+                        },
+                        modifier = Modifier.testTag(if (creating) "prompt-create" else "prompt-save"),
+                    )
+                }
                 if (!creating && row != null) {
                     Spacer(Modifier.height(12.dp))
                     GlassPill(
@@ -389,6 +390,9 @@ private fun PromptForm(
                     placeholder = "Name",
                     singleLine = true,
                     enabled = editable,
+                    // EXP-1554: the name types straight into the row (web
+                    // `BARE_FIELD_CLASS`), no nested input box.
+                    bordered = false,
                 )
             }
         }

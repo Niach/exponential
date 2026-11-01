@@ -63,7 +63,9 @@ struct AgentComposerCard: View {
                 onReturn: { handleReturn() },
                 onPasteImage: { image in ingestPastedImage(image) },
                 onIssueRefTap: onIssueRefTap,
-                minHeight: 44,
+                // Web's `min-h-20` (80pt with its 12pt top pad, spelled 6 + 6
+                // below), Android's two lines: a home card, not a chat line.
+                minHeight: 74,
                 maxHeight: 160,
                 // EXP-1276: the keyboard-down chevron above the keyboard.
                 showsDismissAccessory: true
@@ -388,26 +390,22 @@ struct AgentComposerHeadline: View {
     var body: some View {
         let issues = model.checkedOptions
         let subject = model.subject
-        HStack(alignment: .center, spacing: 8) {
+        // The verb and the chips WRAP like web's `flex flex-wrap items-center
+        // gap-x-2 gap-y-1.5`: a chip that would overflow drops to the next
+        // line, and a chip wider than the line truncates its title, so every
+        // chip's ✕ stays on screen.
+        FlowLayout(spacing: 8, lineSpacing: 6, centersLines: true) {
             if !model.headline.isEmpty {
                 Text(model.headline)
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.white)
-                    // The verb never shrinks under the chips: they scroll.
-                    .fixedSize(horizontal: true, vertical: false)
+                    .lineLimit(1)
                     .accessibilityIdentifier("agent-composer-headline-verb")
             }
             if subject != AgentComposerPrompt.Subject.none, subject != AgentComposerPrompt.Subject.agent {
-                // Several issue chips scroll sideways rather than wrapping —
-                // several issues must not push the field off the first screen.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        switch subject {
-                        case .prompt: promptChip
-                        default: ForEach(issues) { issueChip($0) }
-                        }
-                    }
-                    .padding(.vertical, 2)
+                switch subject {
+                case .prompt: promptChip
+                default: ForEach(issues) { issueChip($0) }
                 }
             }
         }

@@ -1574,6 +1574,13 @@ impl SteerSessionView {
                 match target {
                     // EXP-1324: the workflow's Work card rides its tool row.
                     "work-card" => self.workflow_of(item).is_some(),
+                    // #EXP-1553: the comment card = a settled comments_create
+                    // tool row (the gate `render_comment_call` draws on).
+                    "comment-call-card" => matches!(
+                        &item.kind,
+                        FeedKind::Tool { name, settled: true, failed: false, .. }
+                            if steer::exp_tool_row(name) == Some(COMMENTS_CREATE_ROW)
+                    ),
                     _ => matches!(
                         &item.kind,
                         FeedKind::Tool { name, .. } if steer::script_card::is_script_tool(name)
@@ -2269,6 +2276,50 @@ impl SteerSessionView {
     fn card_message_id(&self, card: &steer::feed::QuestionCard, cx: &App) -> Option<String> {
         let messages = crate::session_data::messages_of_session(&self.session_id, cx);
         card_row_id(&messages, &card.question_id)
+    }
+
+    /// #EXP-1561 (waiting-cards.json DISMISS): dismiss an engine ask's row
+    /// (`sessions.answer({messageId, dismissed: true})`); the card locks
+    /// like an answer, the device then declines the ask.
+    fn dismiss(&mut self, item_id: FeedItemId, cx: &mut gpui::Context<Self>) {
+        let Some(item) = self.feed.items().iter().find(|item| item.id == item_id) else { return };
+        let (Some(key), Some(card)) = (answer_key(item), item.question().cloned()) else { return };
+        if self.feed.is_answer_locked(&key) {
+            return;
+        }
+        let Some(message_id) = self.card_message_id(&card, cx) else { return };
+        let input = api::sessions::AnswerInput { message_id, dismissed: Some(true), ..Default::default() };
+        self.answer_via_server(&key, Vec::new(), Vec::new(), input, item_id, cx);
+    }
+
+    /// #EXP-1562: a waiting chip's card in this view (a tool-posted
+    /// Conversation card, or an engine ask's feed card by its row): its
+    /// list row scrolled to the centre and the card ringed.
+    pub(crate) fn reveal_card(&mut self, message_id: &str, cx: &mut gpui::Context<Self>) {
+        let items = self.feed.items();
+        let row_holding = |hit: &dyn Fn(&FeedItem) -> bool| {
+            self.rows
+                .iter()
+                .position(|spec| spec.item_indices().iter().filter_map(|&index| items.get(index)).any(|item| hit(item)))
+        };
+        let ix = match self.conv_cards.iter().position(|row| row.id() == message_id) {
+            Some(card) if self.conv_head().contains(&card) => Some(0),
+            Some(card) => match self.conv_tail().iter().position(|&tail| tail == card) {
+                Some(at) => Some(self.rows.len() + self.orphan_workflows.len() + at),
+                None => row_holding(&|item| self.conv_anchors.get(&item.id).is_some_and(|cards| cards.contains(&card))),
+            },
+            None => {
+                let messages = crate::session_data::messages_of_session(&self.session_id, cx);
+                row_holding(&|item| {
+                    item.question()
+                        .is_some_and(|card| card_row_id(&messages, &card.question_id).as_deref() == Some(message_id))
+                })
+            }
+        };
+        match ix {
+            Some(ix) => crate::waiting_cards::reveal_in_list(&self.list, ix, message_id, cx),
+            None => crate::waiting_cards::highlight(message_id, cx),
+        }
     }
 
     /// EXP-1294 — `sessions.answer` for a card's row. The card locks at once
@@ -4589,6 +4640,20 @@ pub(crate) fn ask_card_chrome(
     body: gpui::Div,
     cx: &App,
 ) -> gpui::Div {
+    ask_card_chrome_with(plan, heading, meta, back, None, body, cx)
+}
+
+/// [`ask_card_chrome`] with a `trailing` control at the TOP-RIGHT of the
+/// header row (#EXP-1561: a waiting card's ×, `crate::waiting_cards`).
+pub(crate) fn ask_card_chrome_with(
+    plan: bool,
+    heading: Option<SharedString>,
+    meta: Option<AnyElement>,
+    back: Option<AnyElement>,
+    trailing: Option<AnyElement>,
+    body: gpui::Div,
+    cx: &App,
+) -> gpui::Div {
     let accent = if plan {
         cx.theme().primary
     } else {
@@ -4651,7 +4716,8 @@ pub(crate) fn ask_card_chrome(
                             )
                         })
                         .child(body),
-                ),
+                )
+                .children(trailing),
         )
 }
 
@@ -5271,13 +5337,13 @@ impl SteerSessionView {
         }
         // EXP-877: the transcript column is the work column, narrowed by a
         // pane too small to hold it (`transcript_row` lays the row out at
-        // `flex_basis(WORK_COLUMN_W)` with `flex_shrink(1)`). The unmeasured
+        // `flex_basis(CHAT_COLUMN_W)` with `flex_shrink(1)`). The unmeasured
         // first frame takes the full column.
         let view = f32::from(self.view_width.get());
         let column = if view > 0. {
-            view.min(crate::work_header::WORK_COLUMN_W)
+            view.min(crate::work_header::CHAT_COLUMN_W)
         } else {
-            crate::work_header::WORK_COLUMN_W
+            crate::work_header::CHAT_COLUMN_W
         } - 2. * crate::work_header::WORK_GUTTER;
         let cap = px((column * USER_BUBBLE_MAX_FRACTION).max(USER_BUBBLE_MIN_W));
         // px_3 both sides + the 1px stroke each side.
@@ -5496,9 +5562,9 @@ impl SteerSessionView {
         // `pl_5` indent. The unmeasured first frame takes the full column.
         let view = f32::from(self.view_width.get());
         let column = if view > 0. {
-            view.min(crate::work_header::WORK_COLUMN_W)
+            view.min(crate::work_header::CHAT_COLUMN_W)
         } else {
-            crate::work_header::WORK_COLUMN_W
+            crate::work_header::CHAT_COLUMN_W
         } - 2. * crate::work_header::WORK_GUTTER;
         let height = results::session_result_tile_height_fitting_from(
             std::slice::from_ref(entry),
@@ -6840,7 +6906,28 @@ impl SteerSessionView {
             .min_w_0()
             .child(self.render_card_body(item.id, &card.text, card.plan_mode, window, cx))
             .child(self.render_prompt(item, active, false, false, window, cx));
-        ask_card(card.plan_mode, heading, None, body, cx)
+        // #EXP-1561: a WAITING engine ask the reader may answer carries THE
+        // × (its row dismissed, the device declines the ask); #EXP-1562: the
+        // card a waiting chip scrolled to wears the ring.
+        let waiting = !card.resolved && !self.is_answer_locked(item) && active.contains(&item.id) && self.answerable_run();
+        let highlighted = crate::waiting_cards::highlighted_id(cx).map(str::to_string);
+        let message_id = (waiting || highlighted.is_some()).then(|| self.card_message_id(card, cx)).flatten();
+        let dismiss = message_id.as_deref().filter(|_| waiting).map(|message_id| {
+            let item_id = item.id;
+            let this = cx.entity().downgrade();
+            crate::waiting_cards::dismiss_button_with(
+                message_id,
+                move |_, cx| {
+                    let _ = this.update(cx, |this, cx| this.dismiss(item_id, cx));
+                },
+                cx,
+            )
+        });
+        let card = ask_card_chrome_with(card.plan_mode, heading, None, None, dismiss, body, cx);
+        match message_id {
+            Some(message_id) => crate::waiting_cards::ringed(card, &message_id, cx).into_any_element(),
+            None => card.into_any_element(),
+        }
     }
 
     /// The interactive half of a card (EXP-788): the options as a numbered
@@ -8449,8 +8536,8 @@ fn body_text<E: Styled>(element: E) -> E {
 }
 
 /// EXP-787/EXP-927/EXP-1191 — the reading column every part of the
-/// conversation takes: the work column ([`crate::work_header::WORK_COLUMN_W`],
-/// the same measure as the run header, the issue body and the diff page)
+/// conversation takes: THE chat column ([`crate::work_header::CHAT_COLUMN_W`],
+/// #EXP-1547: the Dock band's measure, so the composer shares its edges)
 /// centred on the PANE exactly like [`crate::issue_detail::centered_column`],
 /// its content inset by [`crate::work_header::WORK_GUTTER`]. So transcript
 /// text, the user bubbles' right edge, tool / subagent cards, the working
@@ -8482,12 +8569,12 @@ pub(crate) fn narration_row(view: crate::markdown::MarkdownView, cx: &App) -> An
         .into_any_element()
 }
 
-/// One row in the centred work column (`WORK_COLUMN_W` inside the
+/// One row in the centred chat column (`CHAT_COLUMN_W` inside the
 /// `WORK_GUTTER`) — the transcript's rows and the session header.
 pub(crate) fn work_column_row(element: AnyElement) -> gpui::Div {
     h_flex().w_full().justify_center().child(
         div()
-            .flex_basis(px(crate::work_header::WORK_COLUMN_W))
+            .flex_basis(px(crate::work_header::CHAT_COLUMN_W))
             .flex_shrink(1.)
             .min_w_0()
             .px(px(crate::work_header::WORK_GUTTER))

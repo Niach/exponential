@@ -1,5 +1,7 @@
 package com.exponential.app.ui.styleguide
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,26 +16,27 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.ToastAction
+import com.exponential.app.domain.ToastItem
+import com.exponential.app.domain.ToastKind
 import com.exponential.app.ui.components.BlockingSurface
 import com.exponential.app.ui.components.FeedbackMark
+import com.exponential.app.ui.components.FieldError
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.InlineStatus
 import com.exponential.app.ui.components.InlineStatusState
 import com.exponential.app.ui.components.PendingPill
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.ToastHost
-import com.exponential.app.ui.components.Toaster
+import com.exponential.app.ui.components.ToastCard
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.GlassTokens
@@ -45,20 +48,13 @@ const val FeedbackStatesScreenTestId = "feedback-states-screen"
 /**
  * EXP-1275 (EXP-1259 D8): the styleguide's "Feedback states" section on
  * Android — a capture-only screen (sg_feedback-states) drawing every kind of
- * `feedback-states.json` with its REAL primitive: inline, pending,
- * placeholder, the mark (live + frozen frames), blocking (contained) and
- * errors (the toast raised on appear, the inline field line).
+ * `feedback-states.json` with its REAL primitive. EXP-1554: ONE layout ×4 =
+ * web's `FeedbackStatesSpecimen`, its six numbered cards ('1 · Inline' …) in
+ * the same order with the same samples, stacked in one column on the phone:
+ * the error toast is drawn IN its card (at rest), never raised over the screen.
  */
 @Composable
 fun FeedbackStatesScreen() {
-    val toaster = remember { Toaster() }
-    LaunchedEffect(Unit) {
-        toaster.error(
-            FeedbackStates.errorTitle("save", "the team prompt"),
-            "The server did not answer.",
-            ToastAction(FeedbackStates.RETRY) {},
-        )
-    }
     AppBackground {
         Box(modifier = Modifier.fillMaxSize().testTag(FeedbackStatesScreenTestId)) {
             Column(
@@ -66,91 +62,146 @@ fun FeedbackStatesScreen() {
                     .fillMaxSize()
                     .statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    // The top clears the error toast raised over the screen.
-                    .padding(start = 16.dp, end = 16.dp, top = 112.dp, bottom = 72.dp),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 72.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Kind("Inline") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                        InlineStatus(InlineStatusState.Saving)
-                        InlineStatus(InlineStatusState.Saved)
-                        InlineStatus(InlineStatusState.Idle, idleLabel = "Edited 2m ago")
-                    }
-                    SectionHeader("Running", loading = true)
+                Kind(1, "Inline") {
+                    Band("Team prompt") { InlineStatus(InlineStatusState.Saving) }
+                    Band("Team prompt") { InlineStatus(InlineStatusState.Saved) }
+                    SectionHeader(
+                        "MCP servers",
+                        loading = true,
+                        trailing = {
+                            Text(
+                                "3",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            )
+                        },
+                    )
                 }
-                Kind("Pending") {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PendingPill(label = "Start", pendingLabel = "Starting", pending = false, icon = ExpIcons.actionRun, onClick = {})
+                Kind(2, "Pending action") {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        PendingPill(label = "Start", pendingLabel = START_WORD, pending = false, icon = ExpIcons.uiSubmit, primary = true, onClick = {})
+                        PendingPill(label = "Start", pendingLabel = START_WORD, pending = true, icon = ExpIcons.uiSubmit, primary = true, onClick = {})
                         PendingPill(
-                            label = "Start",
-                            pendingLabel = FeedbackStates.PENDING_WORDS.getValue("start"),
+                            label = "Connect",
+                            pendingLabel = FeedbackStates.PENDING_WORDS.getValue("connect"),
                             pending = true,
-                            icon = ExpIcons.actionRun,
                             onClick = {},
                         )
                     }
                 }
-                Kind("Placeholder") { SkeletonRows() }
-                Kind("The mark") {
+                Kind(3, "Placeholder") { SkeletonRows() }
+                Kind(4, "The mark") {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        FeedbackMark(size = FeedbackStates.MARK_SIZE_STYLEGUIDE.dp)
-                        listOf(0.15f, 0.3f, 0.6f, 0.85f).forEach { phase ->
+                        // web MARK_PHASES: the mark frozen at four phases of its loop.
+                        listOf(0.08f, 0.2f, 0.32f, 0.5f).forEach { phase ->
                             FeedbackMark(size = FeedbackStates.MARK_SIZE_STYLEGUIDE.dp, phase = phase)
                         }
                     }
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                     ) {
-                        FeedbackMark(size = FeedbackStates.MARK_SIZE_STATUS.dp)
+                        FeedbackMark(size = FeedbackStates.MARK_SIZE_INLINE.dp, phase = 0.3f)
                         Text(
-                            FeedbackStates.startingLabel("Alex's MacBook Pro"),
+                            FeedbackStates.startingLabel("macbook"),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            "1.4 s",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )
                     }
                 }
-                Kind("Blocking") {
+                Kind(5, "Blocking") {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(160.dp)
-                            .clip(RoundedCornerShape(GlassTokens.GroupRadius)),
+                            .clip(RoundedCornerShape(GlassTokens.GroupRadius))
+                            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, RoundedCornerShape(GlassTokens.GroupRadius)),
                     ) {
-                        BlockingSurface(FeedbackStates.switchingTeam("Acme"))
+                        BlockingSurface(FeedbackStates.switchingTeam("Personal"))
                     }
                 }
-                Kind("Errors") {
-                    Text(
-                        "team@acme",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
+                Kind(6, "Errors") {
+                    ToastCard(
+                        item = ToastItem(
+                            id = "feedback-states-error",
+                            kind = ToastKind.Error,
+                            title = FeedbackStates.errorTitle("save", "the team prompt"),
+                            description = "Network error",
+                            action = ToastAction(FeedbackStates.RETRY) {},
+                        ),
+                        onDismiss = {},
+                        onExpandToggle = {},
                     )
-                    Text(
-                        "Enter a full email address",
-                        // `errors.inline.size`: the rose line under its field.
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        GlassTextField(value = "dennis@", onValueChange = {}, singleLine = true)
+                        // `errors.cases[4]`: invalid input stays under its field.
+                        FieldError("Enter a full email address")
+                    }
                 }
             }
-            ToastHost(toaster, Modifier.align(Alignment.TopCenter))
         }
     }
 }
 
-/** One kind: its muted label over its specimen. */
+private val START_WORD = FeedbackStates.PENDING_WORDS.getValue("start")
+
+/** One kind: web `Kind`, a bordered card titled '<n> · <title>' over its specimen. */
 @Composable
-private fun Kind(title: String, content: @Composable () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+private fun Kind(index: Int, title: String, content: @Composable () -> Unit) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(GlassTokens.Hairline, GlassTokens.StrokeCard, RoundedCornerShape(12.dp))
+            .padding(16.dp),
+    ) {
         Text(
-            title,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            "$index · $title",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         content()
+    }
+}
+
+/** web `Band`: a 40dp muted strip, its label left and its status right. */
+@Composable
+private fun Band(label: String, trailing: @Composable () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(40.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(GlassTokens.CardFill)
+            .padding(horizontal = 12.dp),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        trailing()
     }
 }

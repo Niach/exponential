@@ -305,6 +305,63 @@ class AuthApi @Inject constructor(
     }
 
     /**
+     * EXP-1554 Add passkey, step 1 (web `authClient.passkey.addPasskey`): the
+     * WebAuthn creation options for the signed-in [token]'s user, plus the
+     * Set-Cookie pairs carrying the signed challenge (replayed by hand on
+     * [verifyPasskeyRegistration], as on the login path). The server refuses
+     * a session older than a day (SESSION_NOT_FRESH): the message says so.
+     */
+    suspend fun passkeyRegistrationOptions(instanceUrl: String, token: String, name: String): Result<PasskeyOptions> {
+        val baseUrl = instanceUrl
+        return try {
+            val response = client.get("$baseUrl/api/auth/passkey/generate-register-options") {
+                header("Authorization", "Bearer $token")
+                parameter("name", name)
+            }
+            if (!response.status.isSuccess()) {
+                val message = authErrorMessage(response.bodyAsText())
+                    ?: "Couldn't start adding the passkey (HTTP ${response.status.value})"
+                return Result.failure(IllegalStateException(message))
+            }
+            Result.success(
+                PasskeyOptions(
+                    requestJson = response.bodyAsText(),
+                    cookies = AuthWire.setCookiePairs(response.headers.getAll("set-cookie").orEmpty()),
+                ),
+            )
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException(trpcErrorMessage(e, "Network error")))
+        }
+    }
+
+    /** EXP-1554 Add passkey, step 2: post the attestation CredentialManager produced. */
+    suspend fun verifyPasskeyRegistration(
+        instanceUrl: String,
+        token: String,
+        cookies: List<String>,
+        responseJson: String,
+        name: String,
+    ): Result<Unit> {
+        val baseUrl = instanceUrl
+        return try {
+            val response = client.post("$baseUrl/api/auth/passkey/verify-registration") {
+                contentType(ContentType.Application.Json)
+                header("Origin", baseUrl.trimEnd('/'))
+                header("Authorization", "Bearer $token")
+                if (cookies.isNotEmpty()) header("Cookie", AuthWire.cookieHeader(cookies))
+                setBody(AuthWire.passkeyRegisterBody(json, responseJson, name))
+            }
+            if (!response.status.isSuccess()) {
+                val message = authErrorMessage(response.bodyAsText())
+                return Result.failure(IllegalStateException(message ?: "Couldn't add the passkey (HTTP ${response.status.value})"))
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException(trpcErrorMessage(e, "Network error")))
+        }
+    }
+
+    /**
      * `POST /api/auth/sign-out` — best-effort server-side session revocation
      * (desktop login.rs parity). Without it a leaked bearer token would survive
      * local sign-out for the full 60-day sliding session expiry. Local sign-out

@@ -8,3 +8,9 @@
 - As sessões em direto continuam a transmitir, com encriptação ponto a ponto, quando a ligação direta ao dispositivo cai
 - O texto que escreves enquanto um comentário é enviado fica no editor
 - Um tópico mostra as tarefas da sua sessão filha em execução
+- Os agentes recebem o problema que lhes entrega: identificador, título e descrição
+- O cabeçalho do fio mostra o estado da sessão e um botão Merge
+- As legendas das histórias nunca excedem o visualizador
+- Dispense uma pergunta ou um plano a que não quer responder; o cabeçalho do fio mostra o que ainda aguarda
+- A página Dispositivos mostra cada dispositivo como um cartão
+- As conversas, o ecrã de nova conversa e as Definições têm o mesmo aspeto das outras apps

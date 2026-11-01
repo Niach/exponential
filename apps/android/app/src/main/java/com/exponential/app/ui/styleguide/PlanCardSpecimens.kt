@@ -11,6 +11,7 @@ import android.graphics.Color as AndroidColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import coil3.SingletonImageLoader
@@ -18,6 +19,7 @@ import coil3.asImage
 import coil3.memory.MemoryCache
 import com.exponential.app.domain.PlanCard
 import com.exponential.app.domain.SessionTree
+import com.exponential.app.ui.session.LocalCardDismiss
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.thread.PlanAskCard
 import com.exponential.app.ui.thread.ThreadAskCard
@@ -70,13 +72,29 @@ internal fun PlanCardSpecimens() {
         PlanCard.Copy.SPECIMEN_ANSWERED,
         PlanCard.Copy.SPECIMEN_APPROVED,
     )
-    rows.forEachIndexed { index, row ->
+    // #EXP-1561 (waiting-cards.json DISMISS): a WAITING card wears THE ×;
+    // the dismissed question and plan below are the quiet lines.
+    val dismissed = remember {
+        listOf(
+            message("n4", DISMISSED_QUESTION, "2026-10-13T10:05:00.000Z", "2026-10-13T10:05:00.000Z", "2026-10-13T10:05:00.000Z"),
+            message("n5", DISMISSED_PLAN, "2026-10-13T10:06:00.000Z", "2026-10-13T10:06:00.000Z", "2026-10-13T10:06:00.000Z"),
+        ).mapNotNull(SessionTree::askRow)
+    }
+    CompositionLocalProvider(LocalCardDismiss provides { _, _ -> }) {
+        rows.forEachIndexed { index, row ->
+            Text(
+                captions.getOrElse(index) { "" },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+            ThreadAskCard(row, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> })
+        }
         Text(
-            captions.getOrElse(index) { "" },
+            PlanCard.Copy.SPECIMEN_DISMISSED,
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
-        ThreadAskCard(row, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> })
+        dismissed.forEach { row -> ThreadAskCard(row, onAnswer = { _, _, _ -> }, onDecidePlan = { _, _, _ -> }) }
     }
 }
 
@@ -150,4 +168,13 @@ private val APPROVED_PLAN = """
  "answers":{"q":["Yes",7]},
  "questions":[{"id":"q","prompt":"Go?","multi":false,"custom":true,"options":[{"label":"Yes"}]}],
  "surface":{"nope":true}}
+""".trimIndent()
+
+// #EXP-1561: session-thread.json's dismissed case, verbatim.
+private val DISMISSED_QUESTION = """
+{"kind":"question","question":"Which first?","options":["Lazy-load","Skip"],"dismissed":true}
+""".trimIndent()
+
+private val DISMISSED_PLAN = """
+{"kind":"plan","plan":"1. One","decision":"dismissed","fresh":false,"dismissed":true}
 """.trimIndent()

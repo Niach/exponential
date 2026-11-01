@@ -382,9 +382,14 @@ fun AppNavHost() {
                     viewModel.setInstanceUrl(url)
                     navController.navigate("login") { popUpTo("instance") { inclusive = true } }
                 },
-                onLogin = {
-                    navController.navigate(AGENT_TAB_ROUTE) { popUpTo("login") { inclusive = true } }
-                },
+                // #EXP-1597: no navigation here. This graph has no Agent
+                // route: the token landing flips `needsAuth`, and the
+                // authenticated graph mounts on its own start (Agent or the
+                // onboarding wizard). AppViewModel.state is collected off the
+                // main thread (#1540), so the login screen's success can
+                // land a frame BEFORE the token does, and navigating to Agent
+                // from this graph threw IllegalArgumentException.
+                onLogin = {},
                 onChangeInstance = {
                     viewModel.clearInstance()
                     navController.navigate("instance") { popUpTo("login") { inclusive = true } }
@@ -1080,7 +1085,6 @@ private fun AuthenticatedNav(
         composable(Routes.AGENT_SETTINGS_PATTERN) {
             AgentSettingsScreen(
                 onBack = { navController.popBackStack() },
-                onOpenChannel = { id -> navController.navigate(Routes.thread(id)) },
                 onCreated = {},
                 onDeleted = { navController.popBackStack() },
             )
@@ -1088,7 +1092,6 @@ private fun AuthenticatedNav(
         composable(Routes.AGENT_NEW) {
             AgentSettingsScreen(
                 onBack = { navController.popBackStack() },
-                onOpenChannel = { id -> navController.navigate(Routes.thread(id)) },
                 // A created agent replaces the `new` page with its own.
                 onCreated = { id ->
                     val newId = navController.currentBackStackEntry?.destination?.id

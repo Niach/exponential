@@ -131,7 +131,8 @@ struct IssueRefSearchSheet: View {
             label: "\(candidate.identifier) \(candidate.title)",
             icon: candidate.status?.iconName,
             color: candidate.status?.color,
-            keywords: [candidate.identifier, candidate.title]
+            keywords: [candidate.identifier, candidate.title],
+            identifier: candidate.identifier
         )
     }
 }

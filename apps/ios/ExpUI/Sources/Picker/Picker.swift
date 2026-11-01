@@ -47,6 +47,10 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
     /// that sits on ALL of them `.all`, on only SOME of them `.some`. Set, it
     /// WINS over membership; absent, the state is derived from it.
     public let checked: PickerChecked?
+    /// EXP-1554 (search-list.json): an issue row's identifier, when `label`
+    /// is `IDENT Title`: the row draws it mono + muted with the title after
+    /// a gap. The label stays the contract's one line.
+    public let identifier: String?
 
     public init(
         value: Value,
@@ -56,7 +60,8 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
         description: String? = nil,
         disabled: Bool = false,
         keywords: [String] = [],
-        checked: PickerChecked? = nil
+        checked: PickerChecked? = nil,
+        identifier: String? = nil
     ) {
         self.value = value
         self.label = label
@@ -66,6 +71,14 @@ public struct PickerItem<Value: Hashable>: Identifiable, Sendable where Value: S
         self.disabled = disabled
         self.keywords = keywords
         self.checked = checked
+        self.identifier = identifier
+    }
+
+    /// The label split for an issue row: the identifier and the title after
+    /// it; nil when the label does not lead with `identifier`.
+    public var identifierSplit: (identifier: String, title: String)? {
+        guard let identifier, !identifier.isEmpty, label.hasPrefix(identifier + " ") else { return nil }
+        return (identifier, String(label.dropFirst(identifier.count + 1)))
     }
 
     /// How this row reads: its explicit `checked` when the caller set one,
@@ -876,12 +889,21 @@ public struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
             content.frame(maxWidth: .infinity, alignment: .leading)
         } else {
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.label)
-                    .font(.subheadline)
-                    .foregroundStyle(
-                        .white.opacity(item.disabled ? TextOpacity.quaternary : TextOpacity.primary)
-                    )
-                    .lineLimit(1)
+                HStack(spacing: 8) {
+                    if let split = item.identifierSplit {
+                        Text(split.identifier)
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    Text(item.identifierSplit?.title ?? item.label)
+                        .font(.subheadline)
+                        .foregroundStyle(
+                            .white.opacity(item.disabled ? TextOpacity.quaternary : TextOpacity.primary)
+                        )
+                        .lineLimit(1)
+                }
                 if let description = item.description, !description.isEmpty {
                     Text(description)
                         .font(.caption)

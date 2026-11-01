@@ -332,6 +332,11 @@ pub struct AnswerInput {
     /// `fresh`, never `answer` / `answers` / `feedback` / `surfaceData`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sealed_card: Option<serde_json::Value>,
+    /// #EXP-1561 (waiting-cards.json DISMISS): dismiss the card instead of
+    /// answering it; sent ALONE (with `message_id`), nothing else rides
+    /// along.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dismissed: Option<bool>,
 }
 
 /// Answer a question/plan card in place.

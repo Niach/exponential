@@ -3,6 +3,9 @@ package com.exponential.app
 import android.Manifest
 import android.os.Build
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeDown
+import androidx.compose.ui.test.swipeUp
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.ComposeTestRule
@@ -350,6 +353,30 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
     fun waitFor(matcher: SemanticsMatcher, timeoutMillis: Long) {
         pollUntil(timeoutMillis, "no node matching ${matcher.description}") {
             composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    /** #EXP-1561: swipe the lazy [list] back to its end (a drag at the end
+     *  re-arms its follow mode, which pins the newest row). */
+    fun scrollListToEnd(list: SemanticsMatcher, swipes: Int = 8) {
+        repeat(swipes) {
+            composeRule.onNode(list).performTouchInput { swipeUp() }
+            pump()
+        }
+    }
+
+    /**
+     * #EXP-1561: poll until [matcher] exists in the lazy [list], swiping it
+     * DOWN (towards older rows) between checks, so a row the list has not
+     * composed above the viewport still counts.
+     */
+    fun waitForInList(list: SemanticsMatcher, matcher: SemanticsMatcher, timeoutMillis: Long) {
+        pollUntil(timeoutMillis, "no node matching ${matcher.description} in ${list.description}") {
+            composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty() ||
+                run {
+                    composeRule.onNode(list).performTouchInput { swipeDown() }
+                    false
+                }
         }
     }
 

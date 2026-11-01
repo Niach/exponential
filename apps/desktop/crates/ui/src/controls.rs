@@ -842,7 +842,8 @@ pub(crate) struct PointerMenu<T: gpui_component::Selectable + IntoElement + 'sta
     /// selected (a submenu row = its submenu open), for a capture.
     dev_open: bool,
     /// #EXP-1535 (DEV-ONLY): how many rows down the dev open selects (1 =
-    /// the first row; separators are skipped like a keyboard Down).
+    /// the first row; separators are skipped like a keyboard Down; EXP-1551:
+    /// 0 = none, the menu at its root with no row lit).
     dev_steps: usize,
     /// N-6: the height the menu wants — the menu layer picks its side by it.
     wanted: Pixels,
@@ -888,9 +889,10 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
     }
 
     /// #EXP-1535 (DEV-ONLY): the dev open selects the `steps`-th row
-    /// instead of the first (in-window popover only).
+    /// instead of the first (in-window popover only). EXP-1551: `0` selects
+    /// nothing (either way), so the menu photographs at its root.
     pub(crate) fn dev_steps(mut self, steps: usize) -> Self {
-        self.dev_steps = steps.max(1);
+        self.dev_steps = steps;
         self
     }
 
@@ -960,7 +962,8 @@ struct PointerMenuState {
     menu: Option<gpui::Entity<gpui_component::menu::PopupMenu>>,
     /// EXP-1259: a dev open is waiting for the menu to select its first row.
     dev_select: bool,
-    /// #EXP-1535: how many Downs that dev select presses (0 = one).
+    /// #EXP-1535: how many Downs that dev select presses (`dev_select`
+    /// false = none).
     dev_steps: usize,
     /// N-6: where the trigger painted last, in window coordinates — the
     /// menu layer hangs the menu off it.
@@ -991,6 +994,8 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
         let open = crate::menu_window::is_open(&id, cx);
         let builder = self.builder.clone();
         let wanted = self.wanted;
+        // EXP-1551: `dev_steps(0)` = the root, no row lit.
+        let dev_select = self.dev_steps > 0;
         // EXP-1259's dev open, the layer way: once the trigger has painted,
         // open the layer as a press would, its first row selected.
         if self.dev_open {
@@ -1006,12 +1011,13 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
                 crate::menu_window::MenuAnchor { rect: measured, wanted },
                 builder.clone(),
                 id.clone(),
-                true,
+                dev_select,
                 move |window, cx| {
                     refused_state.update(cx, |state, _| {
                         state.layer_refused = true;
                         state.force_open = true;
-                        state.dev_select = true;
+                        state.dev_select = dev_select;
+                        state.dev_steps = 1;
                     });
                     window.refresh();
                 },
@@ -1062,7 +1068,7 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
         if self.dev_open {
             let steps = self.dev_steps;
             menu_state.update(cx, |state, _| {
-                state.dev_select = true;
+                state.dev_select = steps > 0;
                 state.dev_steps = steps;
             });
         }

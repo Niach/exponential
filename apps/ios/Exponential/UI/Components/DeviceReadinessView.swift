@@ -195,14 +195,18 @@ struct DeviceReadinessView: View {
                 .font(showsActions ? .subheadline : .caption)
                 .foregroundStyle(.white.opacity(showsActions ? TextOpacity.primary : TextOpacity.secondary))
                 .lineLimit(1)
+            Spacer(minLength: 8)
+            // EXP-1554 (web `DETAIL_TONE`): the detail sits right-aligned,
+            // amber on an `action` row (low disk), red on an `error`, muted
+            // otherwise.
             if let detail = row.detail {
                 Text(detail)
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .foregroundStyle(Self.detailColor(row.tone))
                     .lineLimit(1)
                     .truncationMode(.middle)
+                    .multilineTextAlignment(.trailing)
             }
-            Spacer(minLength: 8)
             if showsActions, let action = row.action, let label = row.actionLabel {
                 GlassPill(
                     label,
@@ -223,6 +227,14 @@ struct DeviceReadinessView: View {
         case .alert: AppIcons.uiWarning
         case .dash: AppIcons.uiMinus
         case .x: AppIcons.uiClose
+        }
+    }
+
+    private static func detailColor(_ tone: DeviceReadiness.Tone?) -> Color {
+        switch tone {
+        case .warning: DesignTokens.Semantic.yellow
+        case .destructive: DesignTokens.Semantic.red
+        case .success, .muted, nil: .white.opacity(TextOpacity.tertiary)
         }
     }
 

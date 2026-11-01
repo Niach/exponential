@@ -61,6 +61,9 @@ struct OnboardingView: View {
         ZStack {
             AppBackground()
 
+            // EXP-1554: every step sits centred vertically (web), scrolling
+            // only once it outgrows the screen.
+            GeometryReader { proxy in
             ScrollView {
                 VStack(spacing: 0) {
                     // EXP-523: steps push in from the trailing edge and leave
@@ -96,8 +99,9 @@ struct OnboardingView: View {
                 }
                 .padding(.horizontal, 32)
                 .padding(.vertical, 48)
-                .frame(maxWidth: .infinity)
+                .frame(maxWidth: .infinity, minHeight: proxy.size.height)
                 .animation(motion.standard, value: page)
+            }
             }
         }
         .task { await reconcileWithServer() }
@@ -182,13 +186,14 @@ struct OnboardingView: View {
     // MARK: - Step 3: Invite your teammates
 
     private var inviteStep: some View {
-        VStack(spacing: 0) {
-            stepHeader(OnboardingCopy.inviteTitle, OnboardingCopy.inviteSubtitle)
-
+        // EXP-1554: web's card: the icon disc over the title (no
+        // subtitle), the small outline Generate, a small right-aligned Skip.
+        OnboardingStepCard(icon: AppIcons.uiInvite, title: OnboardingCopy.inviteTitle) {
             if let teamId {
                 InviteLinkCreator(
                     accountId: deps.auth.activeAccountId ?? "",
                     teamId: teamId,
+                    embedded: true,
                     onMinted: { invitedSomeone = true }
                 )
             }
@@ -379,9 +384,22 @@ struct OnboardingStepHeader: View {
     let title: String
     /// Nil = the title alone (the devices step: no subtitle, EXP-1196).
     var subtitle: String? = nil
+    /// EXP-1554: the glyph disc over the title (web's step card header).
+    var icon: String? = nil
 
     var body: some View {
         VStack(spacing: 0) {
+            if let icon {
+                Circle()
+                    .fill(GlassTokens.fillCard)
+                    .frame(width: 40, height: 40)
+                    .overlay {
+                        AppIcon(icon, size: AppIcon.Size.medium)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    .accessibilityHidden(true)
+                Spacer().frame(height: 12)
+            }
             Text(title)
                 .font(.system(size: 24, weight: .bold))
                 .foregroundStyle(.white)
@@ -403,22 +421,43 @@ struct OnboardingStepHeader: View {
 
 /// The ONE trailing control the two skippable steps share: "Skip for now"
 /// as the SECONDARY (outline) button until the step was actually used, the
-/// primary "Continue" after (polish round ×4).
+/// primary "Continue" after (polish round ×4). EXP-1554: small and
+/// right-aligned at the card's foot (web), never full width.
 struct OnboardingAdvanceButton: View {
     let done: Bool
     let action: () -> Void
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: 20)
+        HStack {
+            Spacer(minLength: 0)
             if done {
-                GlassSubmitButton(OnboardingCopy.continueLabel, action: action)
+                GlassPill(OnboardingCopy.continueLabel, mode: .action(action), primary: true)
             } else {
-                GlassOAuthButton(OnboardingCopy.skip, action: action) {
-                    EmptyView()
-                }
+                GlassPill(OnboardingCopy.skip, mode: .action(action))
             }
         }
+        .padding(.top, 16)
+    }
+}
+
+/// EXP-1554: a wizard step as web's card: the icon disc + title header over
+/// a hairline, then the step's content.
+struct OnboardingStepCard<Content: View>: View {
+    let icon: String
+    let title: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(spacing: 0) {
+            OnboardingStepHeader(title: title, icon: icon)
+            GlassDivider()
+                .padding(.horizontal, -16)
+                .padding(.bottom, 16)
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .glassCard()
     }
 }
 

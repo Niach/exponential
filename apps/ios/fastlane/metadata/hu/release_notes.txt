@@ -8,3 +8,9 @@
 - Az élő munkamenetek végponttól végpontig titkosítva tovább streamelnek, ha megszakad a közvetlen kapcsolat az eszközzel
 - A megjegyzés küldése közben beírt szöveg a szerkesztőben marad
 - Egy szál megmutatja a futó gyermek-munkamenete feladatait
+- Az ügynökök megkapják az átadott feladatot: azonosítót, címet és leírást
+- A szál fejléce mutatja a munkamenet állapotát és egy Merge gombot
+- A történetek feliratai sosem nőnek túl a megjelenítőn
+- Zárj el egy kérdést vagy tervet, amire nem akarsz válaszolni; a szál fejléce mutatja, mi vár még
+- Az Eszközök oldal minden eszközt kártyaként mutat
+- A csevegések, az új csevegés képernyője és a Beállítások ugyanúgy néznek ki, mint a többi alkalmazásban

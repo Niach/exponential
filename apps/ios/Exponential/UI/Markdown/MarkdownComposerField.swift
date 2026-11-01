@@ -77,6 +77,14 @@ struct MarkdownComposerField: View {
                 onIssueRefTap: onIssueRefTap
             )
             .boundedEditorHeight(minHeight: minHeight, maxHeight: maxHeight)
+            // EXP-1551: a min height taller than one line leaves dead space
+            // under the text view; a tap there focuses the field like web's
+            // `min-h-20` textarea (EXP-655's catcher: BEHIND the UIKit view).
+            .background {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.focusEnd() }
+            }
             .onAppear {
                 if showsDismissAccessory, dismissRail == nil {
                     dismissRail = MarkdownToolbar(dismissOnly: true)

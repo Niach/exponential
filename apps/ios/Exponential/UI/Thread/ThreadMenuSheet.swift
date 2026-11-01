@@ -156,6 +156,55 @@ struct ThreadStripGroupSheet: View {
     }
 }
 
+/// #EXP-1562 (waiting-cards.json CHIPS): the waiting button's Menu — on
+/// phones THE bottom sheet, headed `copy.waiting`: THE MenuRow per waiting
+/// card in Conversation order (the kind icon tinted, the chip label, the
+/// kind's ask-dock label muted). A pick hands the card back; the host
+/// scrolls to it once the sheet has dismissed.
+struct ThreadWaitingSheet: View {
+    let chips: [WaitingCards.Chip]
+    let onPick: (String) -> Void
+
+    var body: some View {
+        GlassSheetChrome(title: WaitingCards.Copy.waiting) {
+            VStack(spacing: 0) {
+                ForEach(chips) { chip in
+                    GlassPickerSheetRow(
+                        item: PickerItem(
+                            value: chip.id,
+                            label: chip.label,
+                            icon: AppIcons.conceptOrName(chip.icon) ?? chip.icon,
+                            color: WaitingCardTint.color(chip.kind)
+                        ),
+                        checked: .none,
+                        style: .check,
+                        content: AnyView(HStack(spacing: 8) {
+                            Text(chip.label)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(TextOpacity.primary))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(AskDock.label(chip.kind))
+                                .font(.caption)
+                                .foregroundStyle(DesignTokens.Palette.mutedForeground)
+                                .lineLimit(1)
+                                .fixedSize()
+                        })
+                    ) {
+                        onPick(chip.id)
+                    }
+                    .accessibilityIdentifier("\(WaitingCards.TestIds.menu)-row")
+                }
+            }
+            .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
+            .padding(.bottom, 16)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(WaitingCards.TestIds.menu)
+        }
+    }
+}
+
 /// EXP-1334 / S-3: THE "+" of a session's composer and an agent chat's on a
 /// phone (composer-menu.json `surface` session | agent,
 /// `ComposerMenu.composerMenuLayout`, fixture-locked ×4) — the composer's

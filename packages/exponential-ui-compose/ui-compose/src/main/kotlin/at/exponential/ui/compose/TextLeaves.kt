@@ -77,7 +77,7 @@ internal fun TextPart(cx: LeafContext) {
         "Table" to "cell" -> when (cx.props.str("cellType")) {
             "boolean" -> BooleanCellLeaf(cx)
             "badge" -> if (cx.props.shownText("text").isEmpty()) TextLeaf(cx) else BadgeCellLeaf(cx)
-            else -> TextLeaf(cx)
+            else -> TextCellLeaf(cx)
         }
         "CodeBlock" to "code" -> if (cx.props["tokens"]?.array != null) CodeLineLeaf(cx) else TextLeaf(cx)
         else -> TextLeaf(cx)
@@ -200,6 +200,29 @@ internal fun HeaderCellLeaf(cx: LeafContext) {
             LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f), align = align)
             if (sortable) Box(Modifier.size(16.dp)) { if (icon.isNotEmpty()) IconOrGlyph(icon, if (icon.endsWith("up")) Glyph.ChevronUp else Glyph.ChevronDown, 16f, cx) }
         }
+    }
+}
+
+/**
+ * EXP-1548: a text Table cell: wraps (one line with an ellipsis in a
+ * `truncate` column), centred in the row like gpui and the web's
+ * `align-items: center`.
+ */
+@Composable
+internal fun TextCellLeaf(cx: LeafContext) {
+    val align = leafTextAlign(cx.style.textAlign ?: cx.props["align"]?.string, cx.rtl)
+    val lines = cx.node.lines
+    val text = cx.props.shownText("text")
+    if (text.isEmpty()) return
+    InnerBox(cx, Alignment.CenterStart) {
+        BasicText(
+            cx.shown(text),
+            modifier = Modifier.textSlack(textBias(align, cx.rtl)).fillMaxWidth(),
+            style = cx.composeTextStyle(align = align),
+            softWrap = lines != 1,
+            maxLines = lines ?: Int.MAX_VALUE,
+            overflow = if (lines != null) TextOverflow.Ellipsis else TextOverflow.Clip,
+        )
     }
 }
 

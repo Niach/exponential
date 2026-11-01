@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import android.app.Activity
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -37,6 +38,10 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.credentials.CreatePublicKeyCredentialRequest
+import androidx.credentials.CreatePublicKeyCredentialResponse
+import androidx.credentials.CredentialManager
+import androidx.credentials.exceptions.CreateCredentialCancellationException
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -53,6 +58,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.enet.EnetNodeManager
 import com.exponential.app.data.push.PushTokenManager
+import com.exponential.app.ui.components.DangerZoneSection
 import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.TopBarBackButton
@@ -71,8 +77,30 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import java.net.URI
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.domain.Prompts
+
+/** Web's name for a passkey made on an Android device (`suggestedPasskeyName`). */
+private const val PASSKEY_NAME = "Android phone"
+
+/**
+ * EXP-1554: the creation options' `rp.id` must be the host of the instance we
+ * asked (the login path's [com.exponential.app.ui.auth.passkeyRpIdMatchesInstance]
+ * rule, read from where creation options carry it).
+ */
+internal fun passkeyRpMatchesInstance(instanceUrl: String, requestJson: String): Boolean {
+    val host = runCatching { URI(instanceUrl).host }.getOrNull()?.trim()?.trimEnd('.')?.lowercase()
+        ?.takeIf { it.isNotEmpty() } ?: return false
+    val rpId = runCatching {
+        Json.parseToJsonElement(requestJson).jsonObject["rp"]?.jsonObject?.get("id")?.jsonPrimitive?.contentOrNull
+    }.getOrNull()?.trim()?.trimEnd('.')?.lowercase()?.takeIf { it.isNotEmpty() } ?: return false
+    return rpId == host
+}
 
 @HiltViewModel
 class ServerDetailViewModel @Inject constructor(
@@ -288,6 +316,48 @@ class ServerDetailViewModel @Inject constructor(
             usersApi.deletePasskey(accountId, id)
             loadMethods(accountId)
         }
+
+    /** EXP-1554: an Add passkey ceremony in flight; the band's pill spins. */
+    var addingPasskey by mutableStateOf(false)
+        private set
+
+    /**
+     * EXP-1554 Add passkey (web `PasskeysSection` handleAdd): the creation
+     * options for this account's session, the platform authenticator signs
+     * them, the attestation goes back. Named as web names an Android device.
+     * A dismissed system sheet is silent; every other failure is the failed
+     * action toast (FEED-79), the server's message (a stale session) as its
+     * description. Options for any rp but this instance are refused, the same
+     * guard as the login path ([passkeyRpIdMatchesInstance]).
+     */
+    fun addPasskey(accountId: String, activity: Activity) {
+        if (addingPasskey) return
+        val account = auth.accounts.value.firstOrNull { it.id == accountId } ?: return
+        val baseUrl = account.instanceUrl
+        val token = account.token ?: return
+        addingPasskey = true
+        viewModelScope.launch {
+            try {
+                val options = authApi.passkeyRegistrationOptions(baseUrl, token, PASSKEY_NAME).getOrThrow()
+                if (!passkeyRpMatchesInstance(baseUrl, options.requestJson)) {
+                    throw IllegalStateException("")
+                }
+                val responseJson = try {
+                    val result = CredentialManager.create(activity)
+                        .createCredential(activity, CreatePublicKeyCredentialRequest(options.requestJson))
+                    (result as? CreatePublicKeyCredentialResponse)?.registrationResponseJson
+                } catch (e: CreateCredentialCancellationException) {
+                    return@launch
+                } ?: throw IllegalStateException("")
+                authApi.verifyPasskeyRegistration(baseUrl, token, options.cookies, responseJson, PASSKEY_NAME).getOrThrow()
+                loadMethods(accountId)
+            } catch (e: Exception) {
+                failure = FailedAction("add", "the passkey", e.message?.takeIf { it.isNotBlank() })
+            } finally {
+                addingPasskey = false
+            }
+        }
+    }
 
     /** Web parity: the password row is "removed", a provider "unlinked". */
     private fun unlinkFailure(providerId: String): Pair<String, String> {
@@ -579,15 +649,6 @@ fun ServerDetailScreen(
                             onBack()
                         },
                     )
-                    // Store policy (Play "Delete account" / App Store
-                    // 5.1.1(v)): account deletion must be initiable in-app.
-                    ActionRow(
-                        icon = ExpIcons.uiDeleteAccount,
-                        title = if (viewModel.deletingAccount) "Deleting account…" else "Delete account",
-                        tint = MaterialTheme.colorScheme.error,
-                        enabled = !viewModel.deletingAccount,
-                        onClick = { showDeleteAccountConfirm = true },
-                    )
                 } else {
                     val url = account?.instanceUrl
                     ActionRow(
@@ -612,6 +673,20 @@ fun ServerDetailScreen(
                         onClick = { showRemoveConfirm = true },
                     )
                 }
+            }
+
+            // EXP-1554: web's Danger zone, THE destructive button trailing.
+            // Store policy (Play "Delete account" / App Store 5.1.1(v)):
+            // account deletion must be initiable in-app.
+            if (account?.token != null) {
+                DangerZoneSection(
+                    description = "Permanently delete your account and every team where you are the only member.",
+                    label = "Delete account",
+                    onClick = { showDeleteAccountConfirm = true },
+                    enabled = !viewModel.deletingAccount,
+                    loading = viewModel.deletingAccount,
+                    buttonModifier = Modifier.testTag("account-delete"),
+                )
             }
         }
     }

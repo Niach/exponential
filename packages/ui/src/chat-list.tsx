@@ -216,7 +216,6 @@ export function ChatFilterChips({
           selected={filter === value}
           data-testid={CHATS_TEST_IDS.chatFilter}
           data-filter={filter}
-          className="h-9 px-4"
           onClick={() => onChange(filter)}
         >
           {chatFilterLabel(filter, counts)}
@@ -356,7 +355,9 @@ function ChatRowText({
   return (
       <span
         className={cn(
-          `flex min-w-0 flex-1 flex-col gap-1 border-b border-glass-stroke py-3.5`,
+          // EXP-1554: the natives' row metrics (iOS 12pt vertical padding,
+          // 3pt between the lines).
+          `flex min-w-0 flex-1 flex-col gap-[3px] border-b border-glass-stroke py-3`,
           // Phones: no hairline inside the selected band (WhatsApp's).
           className
         )}
@@ -364,7 +365,7 @@ function ChatRowText({
         <span className="flex min-w-0 items-baseline gap-2">
           <span
             className={cn(
-              `min-w-0 flex-1 truncate text-[15px] text-foreground`,
+              `min-w-0 flex-1 truncate text-[15px] text-foreground max-md:leading-snug`,
               unread ? `font-semibold` : `font-medium`
             )}
           >
@@ -569,7 +570,7 @@ export function ChatArchivedRow({
       >
         <ArchiveIcon style={{ width: CHATS_SHELL.archivedGlyph, height: CHATS_SHELL.archivedGlyph }} />
       </span>
-      <span className="flex min-w-0 flex-1 items-center gap-2 self-stretch border-b border-glass-stroke py-3.5">
+      <span className="flex min-w-0 flex-1 items-center gap-2 self-stretch border-b border-glass-stroke py-3">
         <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-foreground">
           {CHATS_COPY.archived.entry}
         </span>

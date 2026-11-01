@@ -15,7 +15,7 @@ import { createPortal } from "react-dom"
 import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
 import { useSurfaceContext } from "../context"
-import { isBinding } from "@exponential_app/eui/web"
+import { isBinding, overlayOpenFocus } from "@exponential_app/eui/web"
 import { absolutePath } from "@exponential_app/eui/web"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -141,17 +141,7 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
           onEscapeKeyDown={dismissible ? undefined : (e) => e.preventDefault()}
           onPointerDownOutside={dismissible ? undefined : (e) => e.preventDefault()}
           onInteractOutside={dismissible ? undefined : (e) => e.preventDefault()}
-          onOpenAutoFocus={(e) => {
-            // A part marked `accessibility.autoFocus` (contract §6: the
-            // AlertDialog's cancel) takes the focus, else the cancel action.
-            const content = e.currentTarget as HTMLElement | null
-            const marked = content?.querySelector<HTMLElement>(`[data-xui-autofocus]`) ?? content?.querySelector<HTMLElement>(`[data-xui-part="AlertDialog/cancel"]`)
-            const target = marked && (marked.matches(`button,input,textarea,select,a[href],[tabindex]`) ? marked : marked.querySelector<HTMLElement>(`button,input,textarea,select,a[href],[tabindex]`))
-            if (target) {
-              e.preventDefault()
-              target.focus()
-            }
-          }}
+          onOpenAutoFocus={overlayOpenFocus}
           {...(description ? {} : { "aria-describedby": undefined })}
         >
           {kind === `Drawer` && (side === `bottom` || side === `top`) ? <div {...(part(`handle`) as Record<string, string>)} aria-hidden="true" {...drag.handlers} /> : null}

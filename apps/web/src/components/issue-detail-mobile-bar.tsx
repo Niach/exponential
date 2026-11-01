@@ -100,6 +100,9 @@ export function IssueDetailMobileBar({
             the properties card is the scroll region inside it (EXP-687). */}
         <SheetContent
           data-testid="issue-properties-sheet"
+          // EXP-1554: the natives only DIM the issue behind this sheet; the
+          // shared overlay's blur is dropped for it (styles.css).
+          data-scrim="dim"
           side="bottom"
           className="gap-0 p-2 pb-[max(1rem,env(safe-area-inset-bottom))]"
         >

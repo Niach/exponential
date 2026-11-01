@@ -39,6 +39,9 @@ interface Tokens {
   // EXP-1156: the draggable sidebar columns (web md+ and the IDE only; flat
   // px integers). Emitted for Rust alone — phones have no sidebar.
   sidebar: Record<string, number>
+  // #EXP-1547: the chat column (web md+ and the IDE only; flat px integers).
+  // Emitted for Rust alone — phones fill their width.
+  chat: Record<string, number>
   // Nested, unlike every group above: durations are integer milliseconds and
   // easings are 4-element CSS cubic-bezier control points [x1, y1, x2, y2]
   // (P0 = (0,0) and P3 = (1,1) implicit). The group's `$comment` lives one
@@ -710,6 +713,10 @@ function emitRust(): string {
     .filter(([k]) => !k.startsWith(`$`))
     .map(([k, v]) => `    ${rustF32(k, v)}`)
     .join(`\n`)
+  const chat = Object.entries(tokens.chat)
+    .filter(([k]) => !k.startsWith(`$`))
+    .map(([k, v]) => `    ${rustF32(k, v)}`)
+    .join(`\n`)
   const spacing = entries(tokens.spacing)
     .map(([k, v]) => `    ${rustF32(k, v)}`)
     .join(`\n`)
@@ -801,6 +808,12 @@ ${transcript}
 // per panel. Read through \`ui::resize_edge\`, which owns the clamp.
 pub mod sidebar {
 ${sidebar}
+}
+
+// The chat column (#EXP-1547), in px: the ONE box a chat's transcript and
+// its Dock band (the composer) centre in.
+pub mod chat {
+${chat}
 }
 
 // The shared spacing scale (SLOP-18), in px — padding, gaps and insets.

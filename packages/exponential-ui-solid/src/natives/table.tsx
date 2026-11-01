@@ -14,7 +14,7 @@
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, onMount, untrack, type Accessor, type Component, type JSX } from "solid-js"
 import { displayString, tableRowKeys, WINDOW_THRESHOLD, type UiNode } from "@exponential_app/eui"
-import { boundPath, getPointer, LITERAL_ROWS_ROOT, partClass, setPointer, sortRows, type TableColumn, type TableSort as Sort } from "@exponential_app/eui/web"
+import { boundPath, getPointer, LITERAL_ROWS_ROOT, partClass, setPointer, sortRows, tableMinWidth, tableTemplate, type TableColumn, type TableSort as Sort } from "@exponential_app/eui/web"
 import { InstanceContext, ScopeContext, SurfaceContext, deriveContext, useInstance, useSurfaceContext } from "../context"
 import { bindAttrs } from "../bind-attrs"
 import { WindowedList, type WindowedListHandle } from "../list"
@@ -126,8 +126,10 @@ export function TableNative(props: NativeProps): JSX.Element {
     const s = sort()
     return sortBound() ? rows().map((_, i) => i) : sortRows(rows(), s, columns().find((c) => c.key === s?.key), ctx.locale)
   })
-  // The checkbox column is as wide as the checkbox (round 2 §7).
-  const template = createMemo(() => [selectable() === `multiple` ? `var(--xui-control-checkbox, 16px)` : null, ...columns().map((c) => (c.width ? `${c.width}px` : `minmax(0, 1fr)`))].filter(Boolean).join(` `))
+  // The checkbox column is as wide as the checkbox (round 2 §7); EXP-1548:
+  // header and body never narrower than the columns, the root scrolls.
+  const template = createMemo(() => tableTemplate(columns(), selectable() === `multiple`))
+  const minWidth = createMemo(() => tableMinWidth(columns(), selectable() === `multiple`))
   const cycle = (c: TableColumn) => {
     const cur = untrack(sort)
     const next: Sort = cur?.key === c.key && cur.direction === `asc` ? { key: c.key, direction: `desc` } : { key: c.key, direction: `asc` }
@@ -303,9 +305,9 @@ export function TableNative(props: NativeProps): JSX.Element {
           {(c, ci) => {
             const kind = createMemo(() => c().type)
             return (
-              <div ref={(el) => bindAttrs(el, () => part.atWith(`cell`, `${key}.${ci}`, { align: c().align ?? `start` }))} role={interactive() ? `gridcell` : `cell`} data-type={c().type ?? `text`}>
+              <div ref={(el) => bindAttrs(el, () => part.atWith(`cell`, `${key}.${ci}`, { align: c().align ?? `start` }))} role={interactive() ? `gridcell` : `cell`} data-type={c().type ?? `text`} data-truncate={c().truncate ? `true` : undefined}>
                 {(() => {
-                  if (kind() !== `slot`) return formatted(c(), row())
+                  if (kind() !== `slot`) return c().truncate ? <span class="xui-table-text">{formatted(c(), row())}</span> : formatted(c(), row())
                   return untrack(() => {
                     const slot = createMemo(() => (c().slot ? props.node.slots?.[c().slot as string] : undefined))
                     return (
@@ -334,7 +336,7 @@ export function TableNative(props: NativeProps): JSX.Element {
       aria-label={caption() ? undefined : ((props.rootProps[`aria-label`] as string | undefined) ?? ctx.t(`table`))}
       data-windowed={windowed() ? `true` : undefined}
     >
-      <div role="rowgroup" {...part(`header`)} data-sticky={bool(props.props.stickyHeader) ? `true` : undefined}>
+      <div role="rowgroup" {...part(`header`)} data-sticky={bool(props.props.stickyHeader) ? `true` : undefined} style={css({ minWidth: minWidth() })}>
         <div role="row" aria-rowindex={1} class="xui-table-row" style={css({ gridTemplateColumns: template() })}>
           <Show when={selectable() === `multiple`}>
             <div role="columnheader" class="xui-table-check">
@@ -375,7 +377,7 @@ export function TableNative(props: NativeProps): JSX.Element {
           </Index>
         </div>
       </div>
-      <div role="rowgroup" {...part(`body`)} class={`${part(`body`).class as string} xui-table-body`} ref={bodyEl}>
+      <div role="rowgroup" {...part(`body`)} class={`${part(`body`).class as string} xui-table-body`} style={css({ minWidth: minWidth() })} ref={bodyEl}>
         <Show
           when={rows().length > 0}
           fallback={

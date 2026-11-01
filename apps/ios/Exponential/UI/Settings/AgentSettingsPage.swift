@@ -15,7 +15,8 @@ import SwiftUI
 // NEW-2: an agent is a DEFINITION row (`agents`), never a session. A new one
 // is ONE `agents.create`; after that the fields save through `agents.update`
 // — the triggers at once (a WHOLE-ARRAY write per add/edit/toggle/delete),
-// everything else on Save changes.
+// everything else INLINE (EXP-1554, like every platform: a pick saves at
+// once, the name after a short pause, the instructions on blur).
 
 /// The page's editable state, hoisted out of the views (`AgentSettingsForm`
 /// draws it).
@@ -55,7 +56,7 @@ final class AgentSettingsDraft {
     /// What the server last said, for the dirty check and the patch.
     private var baseline = Baseline()
 
-    private struct Baseline: Equatable {
+    struct Baseline: Equatable {
         var name = ""
         var icon = SessionTree.ListCopy.agentDefaultIcon
         var color = SessionTree.ListCopy.agentDefaultColor
@@ -98,9 +99,16 @@ final class AgentSettingsDraft {
         baseline.instructions = instructions.currentMarkdown()
     }
 
-    /// After a successful save: what was sent is the new baseline.
-    func snapshotBaseline() {
-        baseline = Baseline(
+    /// After a successful save: what was sent is the new baseline. An
+    /// inline save passes the snapshot it took BEFORE the request, so an
+    /// edit made while it flew stays dirty and saves next.
+    func snapshotBaseline(_ sent: Baseline? = nil) {
+        baseline = sent ?? currentSnapshot()
+    }
+
+    /// The fields as they stand, as a baseline.
+    func currentSnapshot() -> Baseline {
+        Baseline(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             icon: icon,
             color: color,
@@ -110,6 +118,13 @@ final class AgentSettingsDraft {
             model: model,
             instructions: instructionsLoaded ? instructions.currentMarkdown() : nil
         )
+    }
+
+    /// Every inline-saved scalar field, for the page's debounced autosave
+    /// (the instructions save on blur instead).
+    var autosaveKey: String {
+        [name, icon, color, deviceId ?? "", cli ?? "", account ?? "", model ?? ""]
+            .joined(separator: "\u{1}")
     }
 
     // MARK: - Validation
@@ -318,18 +333,20 @@ struct AgentSettingsPage: View {
                 onDelete: isOwner && agentId != nil ? { showDelete = true } : nil
             )
         }
+        // EXP-1554: only a NEW agent has a submit; an existing one saves
+        // inline (no Save changes bar on any platform).
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if isOwner {
-                GlassSubmitButton(
-                    agentId == nil ? "Create agent" : "Save changes",
-                    enabled: canSubmit,
-                    loading: draft.saving
-                ) {
+            if isOwner, agentId == nil {
+                GlassSubmitButton("Create agent", enabled: canSubmit, loading: draft.saving) {
                     Task { await save() }
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
             }
+        }
+        .task(id: draft.autosaveKey) { await autosave(after: .milliseconds(600)) }
+        .onChange(of: draft.instructions.focusedBlockId) { _, focused in
+            if focused == nil { Task { await autosave(after: nil) } }
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -469,6 +486,25 @@ struct AgentSettingsPage: View {
         }
     }
 
+    /// The inline save of an existing agent: whatever changed, once the
+    /// edit settles (`after`; a `.task(id:)` restart cancels the pause).
+    private func autosave(after pause: Duration?) async {
+        guard isOwner, agentId != nil, seeded else { return }
+        if let pause {
+            try? await Task.sleep(for: pause)
+            guard !Task.isCancelled else { return }
+        }
+        // A write already in flight: wait it out, then send what is left.
+        while draft.saving {
+            try? await Task.sleep(for: .milliseconds(100))
+            guard !Task.isCancelled else { return }
+        }
+        guard !draft.patch.isEmpty else { return }
+        // Its own task: the next keystroke restarting `.task(id:)` must not
+        // cancel a write already on the wire.
+        Task { await save() }
+    }
+
     private func save() async {
         draft.submitted = true
         guard draft.errors.isEmpty, let deviceId = draft.deviceId else { return }
@@ -478,8 +514,9 @@ struct AgentSettingsPage: View {
             if let agentId {
                 let patch = draft.patch
                 guard !patch.isEmpty else { return }
+                let sent = draft.currentSnapshot()
                 try await deps.agentsApi.update(accountId: accountId, id: agentId, patch: patch)
-                draft.snapshotBaseline()
+                draft.snapshotBaseline(sent)
             } else {
                 try await deps.agentsApi.create(
                     accountId: accountId,
@@ -573,17 +610,15 @@ struct AgentSettingsForm: View {
             .listRowBackground(glassFormRowFill)
 
             if let onDelete {
+                // EXP-1554: THE destructive button, under the form,
+                // left-aligned, on no card (web's placement).
                 Section {
-                    Button(action: onDelete) {
-                        Text(label("delete"))
-                            .foregroundStyle(DesignTokens.Palette.destructive)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("agent-delete")
+                    DestructiveButton(label("delete"), action: onDelete)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("agent-delete")
                 }
-                .listRowBackground(glassFormRowFill)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
             }
         }
         // EXP-603: the page's own background shows through the grouped list;

@@ -21,7 +21,7 @@ import { For, Show, createContext, createEffect, createMemo, createSignal, creat
 import { Dynamic } from "solid-js/web"
 import type { VirtualElement } from "@floating-ui/dom"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
-import { absolutePath, isBinding } from "@exponential_app/eui/web"
+import { absolutePath, isBinding, overlayOpenFocus } from "@exponential_app/eui/web"
 import { useSurfaceContext } from "../context"
 import { CloseOnSubmitContext } from "../form"
 import { IconGlyph } from "../icons"
@@ -116,17 +116,7 @@ function ModalNative(props: NativeProps & { kind: `Dialog` | `Drawer` }): JSX.El
     const scope = createFocusScope({
       trapped: () => true,
       loop: true,
-      onMountAutoFocus: (e) => {
-        // A part marked `accessibility.autoFocus` (contract §6: the
-        // AlertDialog's cancel) takes the focus, else the cancel action.
-        const content = e.currentTarget as HTMLElement | null
-        const marked = content?.querySelector<HTMLElement>(`[data-xui-autofocus]`) ?? content?.querySelector<HTMLElement>(`[data-xui-part="AlertDialog/cancel"]`)
-        const target = marked && (marked.matches(`button,input,textarea,select,a[href],[tabindex]`) ? marked : marked.querySelector<HTMLElement>(`button,input,textarea,select,a[href],[tabindex]`))
-        if (target) {
-          e.preventDefault()
-          target.focus()
-        }
-      },
+      onMountAutoFocus: overlayOpenFocus,
       onUnmountAutoFocus: (e) => {
         e.preventDefault()
         triggerEl?.focus()

@@ -2414,7 +2414,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle resumes; an ended thread resumes the row, an ended child continues as a sibling; answer = answer its open question/plan {answer|answers|decision}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it); appId = your app editor session. parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
+      description: `THE one call for sessions. sessionId = message it (idle resumes; an ended thread resumes the row, an ended child continues as a sibling; answer = answer its open question/plan {answer|answers|decision|dismissed}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it); appId = your app editor session. parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),

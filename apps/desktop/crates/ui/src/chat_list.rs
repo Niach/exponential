@@ -543,7 +543,8 @@ pub(crate) fn composer_agent_row(
     let spec = &*domain::composer_agent_row::COMPOSER_AGENT_ROW;
     let theme = cx.theme();
     let defaults = &domain::session_tree::THREADS_LIST.agent_defaults;
-    let glyph_size = 18.;
+    // Web `size-5` inside the 40 px bubble (composer-agent-row.tsx).
+    let glyph_size = 20.;
     let mut circles: Vec<AnyElement> = Vec::new();
     let mut option = |id: String, name: String, glyph: AnyElement| {
         let selected = state.selected == id;

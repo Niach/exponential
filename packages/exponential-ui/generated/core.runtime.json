@@ -567,6 +567,10 @@
         },
         "decimals": {
           "type": "number"
+        },
+        "truncate": {
+          "type": "boolean",
+          "default": false
         }
       }
     },

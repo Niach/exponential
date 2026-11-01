@@ -50,7 +50,6 @@ export function BoardChips({
           selected={chip === value}
           data-testid={CHATS_TEST_IDS.boardChip}
           data-chip={chip}
-          className="h-9 px-4"
           onClick={() => onChange(chip)}
         >
           {boardChipLabel(chip, counts)}
