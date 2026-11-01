@@ -45,6 +45,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.channels.ChannelResult
@@ -215,6 +216,9 @@ class SteerConnection internal constructor(
      *  because the framework class returns a constant 0 in JVM tests. */
     private val nowMs: () -> Long = { SystemClock.elapsedRealtime() },
     private val timings: SteerTimings = SteerTimings(),
+    /** EXP-1522: where a committed replay is folded (Default in the app);
+     *  null folds inline, which keeps the dial-loop tests deterministic. */
+    private val foldDispatcher: CoroutineDispatcher? = null,
 ) {
 
     /** The connection's own lifetime — outlives every screen that attaches. */
@@ -284,6 +288,9 @@ class SteerConnection internal constructor(
     /** Messages this client sent WHILE staging: the replay predates them, so
      *  they are re-appended after the fold or they'd vanish on commit. */
     private val stagedLocalEchoes = mutableListOf<String>()
+
+    /** EXP-1522: the off-thread replay fold in flight ([commitStaging]). */
+    private var commitJob: Job? = null
 
     /** Commit deadlines: [SteerTimings.replayQuietMs] since the last staged
      *  frame, and [SteerTimings.replayMaxMs] since the reset. */
@@ -889,7 +896,10 @@ class SteerConnection internal constructor(
         val live: Boolean = false,
     )
 
-    private fun handleControlFrame(raw: String): FrameResult? {
+    private fun handleControlFrame(raw: String): FrameResult? =
+        com.exponential.app.domain.perfTrace("SteerConnection.frame") { handleControlFrameTraced(raw) }
+
+    private fun handleControlFrameTraced(raw: String): FrameResult? {
         val obj = runCatching { json.parseToJsonElement(raw).jsonObject }.getOrNull() ?: return null
         return when ((obj["t"] as? JsonPrimitive)?.contentOrNull) {
             "activity" -> {
@@ -1004,6 +1014,8 @@ class SteerConnection internal constructor(
 
     /** Open (or restart) the staging buffer. The VISIBLE feed is untouched. */
     private fun beginStaging() {
+        commitJob?.cancel()
+        commitJob = null
         stageQuietJob?.cancel()
         stageQuietJob = null
         stageCapJob?.cancel()
@@ -1040,15 +1052,18 @@ class SteerConnection internal constructor(
      * awaiting their ack, whose cards came back in the replay — the tap that
      * locked them may be only milliseconds old.
      */
-    private fun commitStaging(why: String, markerFirstSeq: Long? = null) {
+    private fun commitStaging(why: String, markerFirstSeq: Long? = null) =
+        com.exponential.app.domain.perfTrace("SteerConnection.commitStaging") { commitStagingTraced(why, markerFirstSeq) }
+
+    private fun commitStagingTraced(why: String, markerFirstSeq: Long?) {
         val staged = stagedFrames ?: return
+        // EXP-1522: a fold is already running; it takes whatever was staged
+        // since, so this trigger has nothing left to do.
+        if (commitJob?.isActive == true) return
         stageQuietJob?.cancel()
         stageQuietJob = null
         stageCapJob?.cancel()
         stageCapJob = null
-        stagedFrames = null
-        val echoes = stagedLocalEchoes.toList()
-        stagedLocalEchoes.clear()
 
         val previous = _activity.value
         // EXP-783: everything this client holds BELOW the replay's oldest
@@ -1080,7 +1095,45 @@ class SteerConnection internal constructor(
                 nextEventId = retained.last().id + 1,
             )
         }
-        var next = staged.fold(seed) { state, (event, seq) ->
+        val dispatcher = foldDispatcher
+        if (dispatcher == null) {
+            finishCommit(why, seed, folded = 0)
+            return
+        }
+        // EXP-1522: a long replay (thousands of events, re-sent to every
+        // viewer each time the run resumes) froze the main thread for seconds
+        // when folded here. The burst so far is folded on [dispatcher]; staging
+        // stays open meanwhile, so frames, local echoes and answer taps keep
+        // landing where they always did, and [finishCommit] folds that short
+        // tail and swaps the result in on this thread. A restarted or dropped
+        // staging cancels the job (its result is stale).
+        val batch = staged.toList()
+        staged.clear()
+        commitJob = scope.launch {
+            val folded = withContext(dispatcher) { foldReplay(seed, batch) }
+            if (stagedFrames === staged) finishCommit(why, folded, folded = batch.size)
+        }
+    }
+
+    private fun foldReplay(seed: ActivityFeedState, frames: List<Pair<JsonObject, Long?>>): ActivityFeedState =
+        com.exponential.app.domain.perfTrace("SteerConnection.foldReplay") {
+            frames.fold(seed) { state, (event, seq) -> state.applyActivityEvent(event, { false }, seq) }
+        }
+
+    /** The commit's second half, on the connection's thread: the frames still
+     *  staged on top of [base], the carried echoes and locks, ONE write. */
+    private fun finishCommit(why: String, base: ActivityFeedState, folded: Int) {
+        val staged = stagedFrames ?: return
+        stageQuietJob?.cancel()
+        stageQuietJob = null
+        stageCapJob?.cancel()
+        stageCapJob = null
+        stagedFrames = null
+        commitJob = null
+        val echoes = stagedLocalEchoes.toList()
+        stagedLocalEchoes.clear()
+        val previous = _activity.value
+        var next = staged.fold(base) { state, (event, seq) ->
             state.applyActivityEvent(event, { false }, seq)
         }
         // The desktop may have published a message we echoed locally before the
@@ -1117,7 +1170,7 @@ class SteerConnection internal constructor(
         armCompactionTimeout(next.compacting)
         Log.i(
             TAG,
-            "[$sid] replay committed (why=$why frames=${staged.size} " +
+            "[$sid] replay committed (why=$why frames=${folded + staged.size} " +
                 "ms=${nowMs() - stageStartedAtMs})",
         )
     }
@@ -1127,6 +1180,8 @@ class SteerConnection internal constructor(
      *  the last complete picture beats a half-replayed one. */
     private fun discardStaging() {
         if (stagedFrames == null) return
+        commitJob?.cancel()
+        commitJob = null
         stageQuietJob?.cancel()
         stageQuietJob = null
         stageCapJob?.cancel()

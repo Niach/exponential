@@ -41,6 +41,14 @@ class SteerConnectionStore @Inject constructor(
     private val installsApi: InstallsApi,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /**
+     * EXP-1522: work that must outlive the screen that started it. A send
+     * the user backs out of right away used to die with its ViewModel
+     * (upload or `sessions.send` cancelled mid-flight, the draft never
+     * cleared); it finishes here instead.
+     */
+    fun launchDetached(block: suspend CoroutineScope.() -> Unit): Job = scope.launch(block = block)
     private val lock = Any()
     private val connections = mutableMapOf<String, SteerConnection>()
 
@@ -87,6 +95,8 @@ class SteerConnectionStore @Inject constructor(
                     json = json,
                     issueImagesApi = issueImagesApi,
                     auth = auth,
+                    // EXP-1522: a long replay folds off the main thread.
+                    foldDispatcher = Dispatchers.Default,
                 )
             }
             connection.refCount += 1

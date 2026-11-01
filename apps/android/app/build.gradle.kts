@@ -184,6 +184,16 @@ android {
             // client (registered for at.exponential) covers both.
             isDebuggable = true
         }
+        // EXP-1521/1522: what :macrobenchmark measures: the release build
+        // (R8, no debuggable), profileable from the shell and signed with the
+        // debug key so it installs next to nothing. Never shipped.
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isProfileable = true
+            ndk { debugSymbolLevel = "NONE" }
+        }
     }
 
     // VAPP-110: the app host's extension catalog (`extension.json`), byte for

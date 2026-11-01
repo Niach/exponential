@@ -1703,7 +1703,7 @@ fun ActivityFeedState.applyActivityEvent(
                 script = toolScript(event["script"]) ?: row.script,
                 settledAt = row.settledAt ?: event.long("at")?.takeIf { settles },
             )
-            withFeed(feed.toMutableList().also { it[at] = next })
+            withItemAt(at, next)
         }
     }
     // Diffs never enter the feed — the latest replaces the previous one behind
@@ -1860,7 +1860,7 @@ fun ActivityFeedState.applyActivityEvent(
                         ended = true,
                         durationMs = event.long("durationMs")?.takeIf { it >= 0L } ?: row.durationMs,
                     )
-                    withFeed(feed.toMutableList().also { it[at] = next })
+                    withItemAt(at, next)
                 }
             }
             event.str("state") == "started" -> {
@@ -2380,6 +2380,15 @@ private fun ActivityFeedState.append(item: AgentFeedItem): ActivityFeedState =
  *  resolution): the running weight is cheaper to re-derive than to track. */
 private fun ActivityFeedState.withFeed(next: List<AgentFeedItem>): ActivityFeedState =
     copy(feed = next, feedBytes = next.sumOf { feedItemBytes(it) }).trimmed()
+
+/** EXP-1522: one row replaced in place (a `tool_update`, a thought's end):
+ *  the running weight moves by that row's delta instead of re-summing the
+ *  whole feed, which made every update O(feed) and a long replay quadratic. */
+private fun ActivityFeedState.withItemAt(at: Int, item: AgentFeedItem): ActivityFeedState =
+    copy(
+        feed = feed.toMutableList().also { it[at] = item },
+        feedBytes = feedBytes - feedItemBytes(feed[at]) + feedItemBytes(item),
+    ).trimmed()
 
 /** EXP-783: evict from the OLDEST end only once the run exceeds
  *  [FEED_BYTE_CAP] or [FEED_ITEM_CAP], with the 90% hysteresis every client

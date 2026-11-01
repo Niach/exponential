@@ -8,6 +8,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -51,6 +56,7 @@ class MainActivity : ComponentActivity() {
     private val notificationPermission =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* ignored */ }
 
+    @OptIn(ExperimentalComposeUiApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must run before super.onCreate(): applies postSplashScreenTheme so the
         // activity leaves Theme.Exponential.Splash once the content view is set.
@@ -73,7 +79,12 @@ class MainActivity : ComponentActivity() {
         maybeRequestNotificationPermission()
         setContent {
             ExponentialTheme {
-                AppNavHost()
+                // EXP-1521/1522: the test tags double as resource ids, so the
+                // Macrobenchmarks (UiAutomator, another process) find the
+                // composer and the transcript by the tags the suites use.
+                Box(Modifier.semantics { testTagsAsResourceId = true }) {
+                    AppNavHost()
+                }
             }
         }
     }
