@@ -14,3 +14,6 @@
 - Écartez une question ou un plan auquel vous ne voulez pas répondre ; l'en-tête du fil montre ce qui attend encore
 - La page Appareils affiche chaque appareil sous forme de carte
 - Les discussions, l'écran de nouvelle discussion et les Réglages ressemblent aux autres apps
+- Zoomez sur les images : chaque visionneuse zoome et se déplace
+- Claude reste connecté par défaut : une nouvelle connexion dure un an
+- Les tableaux larges défilent horizontalement au lieu de comprimer leurs colonnes

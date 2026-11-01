@@ -14,3 +14,6 @@
 - Chiudi una domanda o un piano a cui non vuoi rispondere; l'intestazione del thread mostra cosa è ancora in attesa
 - La pagina Dispositivi mostra ogni dispositivo come una scheda
 - Le chat, la schermata di nuova chat e le Impostazioni hanno lo stesso aspetto delle altre app
+- Zoom sulle immagini: ogni visualizzatore di immagini ingrandisce e sposta
+- Claude resta connesso per impostazione predefinita: un nuovo accesso dura un anno
+- Le tabelle larghe scorrono in orizzontale invece di comprimere le colonne

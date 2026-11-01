@@ -14,3 +14,6 @@
 - Schließe eine Frage oder einen Plan, den du nicht beantworten willst; die Thread-Kopfzeile zeigt, was noch wartet
 - Die Geräteseite zeigt jedes Gerät als Karte
 - Chats, der Bildschirm für neue Chats und die Einstellungen sehen aus wie in den anderen Apps
+- In Bilder zoomen: jede Bildansicht zoomt und verschiebt
+- Claude bleibt standardmäßig angemeldet: eine neue Anmeldung hält ein Jahr
+- Breite Tabellen scrollen seitlich, statt ihre Spalten zu quetschen

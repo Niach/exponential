@@ -14,3 +14,6 @@
 - Avvis et spørsmål eller en plan du ikke vil svare på; trådens topptekst viser hva som fortsatt venter
 - Enheter-siden viser hver enhet som et kort
 - Chatter, skjermen for ny chat og Innstillinger ser ut som i de andre appene
+- Zoom inn på bilder: alle bildevisninger kan zoome og panorere
+- Claude forblir pålogget som standard: en ny pålogging varer et år
+- Brede tabeller ruller sidelengs i stedet for å klemme kolonnene

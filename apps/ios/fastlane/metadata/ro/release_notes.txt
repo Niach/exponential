@@ -14,3 +14,6 @@
 - Închide o întrebare sau un plan la care nu vrei să răspunzi; antetul firului arată ce mai așteaptă
 - Pagina Dispozitive afișează fiecare dispozitiv ca un card
 - Conversațiile, ecranul de conversație nouă și Setările arată la fel ca în celelalte aplicații
+- Mărește imaginile: fiecare vizualizator de imagini face zoom și deplasare
+- Claude rămâne conectat implicit: o nouă autentificare durează un an
+- Tabelele late se derulează lateral în loc să-și înghesuie coloanele
