@@ -28,6 +28,15 @@ public enum DevicesList {
         public static let settings = "Device settings"
         public static let removeFromTeam = "Remove from this team"
         public static let moreAccounts = "More accounts"
+        public static let renewSoon = "{label} · Keep signed in ends soon"
+        public static let switchPrompt = "{label} · Switch to Keep signed in"
+        public static let switchToKeepSignedIn = "Switch to Keep signed in"
+        public static let renewKeepSignedIn = "Renew Keep signed in"
+        public static let keepSignedInNote = "Keep signed in: lasts 1 year, no usage windows (Anthropic grants inference only). We remind you to renew."
+        public static let browserLoginNote = "Browser login: shows usage windows, but can sign out when its refresh rotates."
+        public static let useBrowserLogin = "Use browser login (Advanced)"
+        public static let useKeepSignedIn = "Use Keep signed in"
+        public static let longLivedRefused = "A long-lived login needs a Claude account on this machine."
 
         /// `copy.status`: the account preview's warning-tone status line.
         public static func status(_ status: LoginStatus) -> String {
@@ -35,6 +44,8 @@ public enum DevicesList {
             case .needsRelogin: "Needs re-login"
             case .signedOut: "Signed out"
             case .limit: "Limit reached"
+            case .renew: "Keep signed in ends soon"
+            case .switchPrompt: "Not kept signed in"
             }
         }
     }
@@ -47,6 +58,26 @@ public enum DevicesList {
         public static let iconSize: CGFloat = 28
         public static let markSize: CGFloat = 16
         public static let maxAccountIcons = 5
+    }
+
+    /// EXP-1612: the Keep signed in reminder window (`fixture.keepSignedIn`).
+    public enum KeepSignedIn {
+        public static let renewWithinDays = 30
+    }
+
+    /// EXP-1612 `keepSignedInDue`: a long-lived claude login due for renewal
+    /// at `now` — its token ends within `renewWithinDays` days, or already
+    /// ended. An unreadable stamp is due.
+    public static func keepSignedInDue(_ tokenExpiresAt: String, now: Date) -> Bool {
+        guard let expires = parseIso(tokenExpiresAt) else { return true }
+        return expires.timeIntervalSince(now) <= Double(KeepSignedIn.renewWithinDays) * 86_400
+    }
+
+    /// An ISO-8601 stamp, with or without fractional seconds.
+    public static func parseIso(_ value: String) -> Date? {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
     }
 
     /// EXP-1560 `deviceCardColumns`: grid columns for a section `width` wide.
@@ -87,19 +118,24 @@ public enum DevicesList {
         public let health: AgentAccountHealth
         /// EXP-1560: a fresh usage window at ≥ 100% (`limitHit(_:now:)`).
         public let limitHit: Bool
+        /// EXP-1612: when the profile's long-lived claude login ends (ISO);
+        /// nil = it holds none.
+        public let tokenExpiresAt: String?
 
         public init(
             agent: String,
             profileId: String,
             label: String,
             health: AgentAccountHealth,
-            limitHit: Bool = false
+            limitHit: Bool = false,
+            tokenExpiresAt: String? = nil
         ) {
             self.agent = agent
             self.profileId = profileId
             self.label = label
             self.health = health
             self.limitHit = limitHit
+            self.tokenExpiresAt = tokenExpiresAt
         }
 
         /// A login sub-row, as the Devices page derives it.
@@ -109,7 +145,8 @@ public enum DevicesList {
                 profileId: row.profileId,
                 label: AgentAccountsRows.loginLabel(row),
                 health: row.health,
-                limitHit: DevicesList.limitHit(row.usage, now: now)
+                limitHit: DevicesList.limitHit(row.usage, now: now),
+                tokenExpiresAt: row.tokenExpiresAt
             )
         }
     }
@@ -129,6 +166,8 @@ public enum DevicesList {
         /// The machine sent its accounts at least once.
         public let accountsReported: Bool
         public let logins: [Login]
+        /// EXP-1612: the clock the renewal reminder reads.
+        public let now: Date
 
         public init(
             online: Bool,
@@ -139,7 +178,8 @@ public enum DevicesList {
             latest: String?,
             updateQueued: Bool,
             accountsReported: Bool,
-            logins: [Login]
+            logins: [Login],
+            now: Date = Date()
         ) {
             self.online = online
             self.mine = mine
@@ -150,6 +190,7 @@ public enum DevicesList {
             self.updateQueued = updateQueued
             self.accountsReported = accountsReported
             self.logins = logins
+            self.now = now
         }
     }
 
@@ -169,10 +210,16 @@ public enum DevicesList {
         case needsRelogin = "needs_relogin"
         case signedOut = "signed_out"
         case limit
+        /// EXP-1612: the yearly renewal reminder.
+        case renew
+        /// EXP-1612: a claude login made before Keep signed in was the default.
+        case switchPrompt = "switch"
     }
 
     public enum ItemAction: String, Equatable, Sendable {
         case signIn = "sign_in"
+        /// EXP-1612: the long-lived sign-in on that profile.
+        case keepSignedIn = "keep_signed_in"
         case update
     }
 
@@ -216,8 +263,9 @@ public enum DevicesList {
     }
 
     /// `deviceListRow`: dead credentials first, then signed-out logins, then
-    /// every other login at its limit (never an action), then the update line
-    /// (own devices only).
+    /// every other login at its limit (never an action), then (own devices,
+    /// EXP-1612) every other claude login due for renewal, then every other
+    /// claude login without a token, then the update line (own devices only).
     public static func row(_ input: Input) -> Row {
         var attention: [AttentionItem] = []
         let canSignIn = input.mine && input.online
@@ -247,6 +295,35 @@ public enum DevicesList {
                 action: nil,
                 status: .limit
             ))
+        }
+        // EXP-1612: the yearly renewal reminder, then the switch prompt for a
+        // claude login made before Keep signed in became the default.
+        if input.mine {
+            func quiet(_ login: Login) -> Bool {
+                login.agent != "claude" || login.health == .needsRelogin
+                    || login.health == .signedOut || login.limitHit
+            }
+            let prompts: [(LoginStatus, String)] = [
+                (.renew, Copy.renewSoon),
+                (.switchPrompt, Copy.switchPrompt),
+            ]
+            for (status, template) in prompts {
+                for login in input.logins where !quiet(login) {
+                    let token = login.tokenExpiresAt.flatMap { $0.isEmpty ? nil : $0 }
+                    let due = status == .renew
+                        ? token.map { keepSignedInDue($0, now: input.now) } ?? false
+                        : token == nil
+                    guard due else { continue }
+                    attention.append(AttentionItem(
+                        kind: .login,
+                        agent: login.agent,
+                        profileId: login.profileId,
+                        text: template.replacingOccurrences(of: "{label}", with: login.label),
+                        action: canSignIn ? .keepSignedIn : nil,
+                        status: status
+                    ))
+                }
+            }
         }
         if input.mine {
             if input.updateQueued {

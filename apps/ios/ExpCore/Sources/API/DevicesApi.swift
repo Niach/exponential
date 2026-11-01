@@ -204,8 +204,8 @@ private struct CreateCommandInput: Encodable {
     /// duplicate apart.
     let profileId: String?
     /// EXP-1533 `agent_login`: mint a one-year `claude setup-token` login for
-    /// `profileId` instead of a browser login (claude only; the server
-    /// refuses it without a profile). Nil is omitted.
+    /// `profileId` instead of a browser login (claude only; EXP-1612: the
+    /// default, an Add without a profile included). Nil is omitted.
     let longLived: Bool?
 
     enum CodingKeys: String, CodingKey {
