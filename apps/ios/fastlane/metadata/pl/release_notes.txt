@@ -17,3 +17,7 @@
 - Powiększanie obrazów: każda przeglądarka obrazów powiększa i przesuwa
 - Claude domyślnie pozostaje zalogowany: nowe logowanie trwa rok
 - Szerokie tabele przewijają się w bok zamiast ściskać kolumny
+- Przycisk Merge pokazuje testy CI twojego pull requesta
+- Praca sesji zapisuje się na bieżąco, więc trwa dalej na każdym urządzeniu
+- Stałe logowania pokazują zużycie 5-godzinne i tygodniowe
+- Czas pokazuje „przed chwilą” zamiast „za 0 sekund”

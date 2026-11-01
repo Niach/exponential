@@ -17,3 +17,7 @@
 - Zoom into pictures: every picture viewer zooms and pans
 - Claude stays signed in by default: a new login lasts a year
 - Wide tables scroll sideways instead of squeezing their columns
+- The Merge button shows your pull request's CI checks
+- A session's work is saved as it goes, so it continues on any device
+- Keep signed in logins show their 5-hour and weekly usage
+- Times read "just now" instead of "in 0 seconds"

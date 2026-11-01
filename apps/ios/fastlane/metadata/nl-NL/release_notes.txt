@@ -17,3 +17,7 @@
 - Inzoomen op afbeeldingen: elke afbeeldingsviewer zoomt en schuift
 - Claude blijft standaard ingelogd: een nieuwe login houdt een jaar
 - Brede tabellen scrollen zijwaarts in plaats van hun kolommen samen te persen
+- De Merge-knop toont de CI-checks van je pull request
+- Het werk van een sessie wordt onderweg bewaard, zodat het op elk apparaat verdergaat
+- Blijf ingelogd-logins tonen hun gebruik per 5 uur en per week
+- Tijden tonen "zojuist" in plaats van "over 0 seconden"

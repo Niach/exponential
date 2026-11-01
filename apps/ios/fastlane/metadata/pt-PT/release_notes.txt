@@ -17,3 +17,7 @@
 - Ampliar imagens: todos os visualizadores de imagens fazem zoom e deslocam
 - O Claude mantém a sessão iniciada por predefinição: um novo início de sessão dura um ano
 - As tabelas largas deslocam-se na horizontal em vez de comprimir as colunas
+- O botão Merge mostra as verificações de CI do teu pull request
+- O trabalho de uma sessão é guardado à medida que avança, por isso continua em qualquer dispositivo
+- Os inícios de sessão permanentes mostram a utilização de 5 horas e semanal
+- As horas dizem «agora mesmo» em vez de «dentro de 0 segundos»

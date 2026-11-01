@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-keep-signed-in-usage`,
+    date: `2026-11-01`,
+    title: `Usage for Keep signed in logins`,
+    summary: `Keep signed in Claude logins show their 5-hour and weekly usage on their device.`,
+    body: `- **Usage windows**: a Keep signed in login shows its 5-hour and weekly usage like a browser login; Refresh reads it again.`,
+  },
+  {
     id: `2026-11-01-ci-checks`,
     date: `2026-11-01`,
     title: `CI checks on the Merge pill`,

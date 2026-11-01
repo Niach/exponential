@@ -17,3 +17,7 @@
 - Zoomez sur les images : chaque visionneuse zoome et se déplace
 - Claude reste connecté par défaut : une nouvelle connexion dure un an
 - Les tableaux larges défilent horizontalement au lieu de comprimer leurs colonnes
+- Le bouton Merge affiche les vérifications CI de ta pull request
+- Le travail d'une session est enregistré au fil de l'eau et continue sur n'importe quel appareil
+- Les connexions permanentes affichent leur usage sur 5 heures et sur la semaine
+- Les heures indiquent « à l'instant » au lieu de « dans 0 seconde »

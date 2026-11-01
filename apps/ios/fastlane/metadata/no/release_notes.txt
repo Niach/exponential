@@ -17,3 +17,7 @@
 - Zoom inn på bilder: alle bildevisninger kan zoome og panorere
 - Claude forblir pålogget som standard: en ny pålogging varer et år
 - Brede tabeller ruller sidelengs i stedet for å klemme kolonnene
+- Merge-knappen viser CI-sjekkene til pull requesten din
+- En økts arbeid lagres underveis, så den fortsetter på hvilken som helst enhet
+- Forbli pålogget-pålogginger viser bruken for 5 timer og uke
+- Tider viser «akkurat nå» i stedet for «om 0 sekunder»

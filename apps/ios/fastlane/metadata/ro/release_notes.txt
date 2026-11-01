@@ -17,3 +17,7 @@
 - Mărește imaginile: fiecare vizualizator de imagini face zoom și deplasare
 - Claude rămâne conectat implicit: o nouă autentificare durează un an
 - Tabelele late se derulează lateral în loc să-și înghesuie coloanele
+- Butonul Merge arată verificările CI ale pull request-ului tău
+- Munca unei sesiuni se salvează pe parcurs, așa că continuă pe orice dispozitiv
+- Autentificările permanente își arată utilizarea pe 5 ore și pe săptămână
+- Orele arată „chiar acum” în loc de „peste 0 secunde”
