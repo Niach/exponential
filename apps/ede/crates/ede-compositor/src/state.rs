@@ -103,6 +103,8 @@ pub struct Ede {
     pub ipc: crate::ipc::Ipc,
     /// Where `reload_config` reads from; `None` in safe mode.
     pub config_path: Option<std::path::PathBuf>,
+    /// Agent spaces: offscreen desktops with their own output and seat.
+    pub spaces: crate::spaces::Spaces,
 }
 
 /// Tries a client's dmabuf on the backend's renderer.
@@ -132,7 +134,7 @@ impl Ede {
 
         let compositor_state = CompositorState::new::<Self>(&dh);
         let xdg_shell_state = XdgShellState::new::<Self>(&dh);
-        let layer_shell_state = WlrLayerShellState::new::<Self>(&dh);
+        let layer_shell_state = WlrLayerShellState::new_with_filter::<Self, _>(&dh, crate::spaces::desktop_client);
         let shm_state = ShmState::new::<Self>(&dh, vec![]);
         let output_manager_state = OutputManagerState::new_with_xdg_output::<Self>(&dh);
         let data_device_state = DataDeviceState::new::<Self>(&dh);
@@ -191,16 +193,17 @@ impl Ede {
             xdisplay: None,
             #[cfg(feature = "xwayland")]
             pending_x11_focus: None,
-            session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, |_| true),
+            session_lock_state: smithay::wayland::session_lock::SessionLockManagerState::new::<Self, _>(&dh, crate::spaces::desktop_client),
             lock: crate::lock::LockState::default(),
             idle_notifier,
             idle_inhibit_state: smithay::wayland::idle_inhibit::IdleInhibitManagerState::new::<Self>(&dh),
             idle: crate::idle::Idle::default(),
-            input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, |_| true),
+            input_method_state: smithay::wayland::input_method::InputMethodManagerState::new::<Self, _>(&dh, crate::spaces::desktop_client),
             text_input_state: smithay::wayland::text_input::TextInputManagerState::new::<Self>(&dh),
-            virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, |_| true),
+            virtual_keyboard_state: smithay::wayland::virtual_keyboard::VirtualKeyboardManagerState::new::<Self, _>(&dh, crate::spaces::desktop_client),
             ipc: crate::ipc::Ipc::default(),
             config_path: None,
+            spaces: crate::spaces::Spaces::default(),
         }
     }
 
@@ -319,8 +322,15 @@ impl Ede {
         self.space.output_under(p).next().or_else(|| self.space.outputs().next()).cloned()
     }
 
+    /// The window of `surface`: on the desktop, unmapped, or in an agent
+    /// space.
     pub fn window_for_surface(&self, surface: &WlSurface) -> Option<Window> {
-        self.space.elements().chain(self.unmapped.iter()).find(|w| w.wl_surface().is_some_and(|s| *s == *surface)).cloned()
+        self.space
+            .elements()
+            .chain(self.unmapped.iter())
+            .chain(self.spaces.list.iter().flat_map(|a| a.space.elements()))
+            .find(|w| w.wl_surface().is_some_and(|s| *s == *surface))
+            .cloned()
     }
 
     /// The topmost surface under `pos`: overlay/top layers, then windows, then
@@ -410,6 +420,11 @@ impl Ede {
     /// First buffer arrived: pick a spot on the pointer's output and map.
     pub fn place_new_window(&mut self, window: Window) {
         self.unmapped.retain(|w| w != &window);
+        if let Some(space) = self.window_client_space(&window) {
+            // An agent space's client never maps on the desktop.
+            self.place_in_space(&space, window);
+            return;
+        }
         let pointer = self.seat.get_pointer().unwrap().current_location();
         let loc = match self.output_at(pointer).and_then(|o| self.work_area(&o)) {
             Some(area) => {
@@ -425,7 +440,7 @@ impl Ede {
 
     /// Gives `window` the geometry `rect` with the xdg states of `tile`
     /// (`None` = floating), on either shell.
-    fn configure_window(&self, window: &Window, rect: Option<Rect>, tile: Option<Tile>, fullscreen: bool) {
+    pub(crate) fn configure_window(&self, window: &Window, rect: Option<Rect>, tile: Option<Tile>, fullscreen: bool) {
         if let Some(t) = window.toplevel() {
             t.with_pending_state(|s| {
                 s.size = rect.map(|r| r.size);
@@ -496,6 +511,12 @@ impl Ede {
     /// Fullscreen covers the whole output, panel included, and the output
     /// then draws only that window (games, video).
     pub fn set_fullscreen(&mut self, window: &Window, on: bool) {
+        if self.window_client_space(window).is_some() {
+            if on {
+                self.space_fill(window, true);
+            }
+            return;
+        }
         let mut st = window_state(window);
         if on == st.fullscreen.is_some() {
             return;
@@ -598,6 +619,8 @@ fn tile_edges(tile: Tile) -> Vec<xdg_toplevel::State> {
 #[derive(Default)]
 pub struct ClientState {
     pub compositor_state: CompositorClientState,
+    /// Connected through an agent space's socket: lives in that space.
+    pub space: Option<ede_protocol::SpaceId>,
 }
 
 impl ClientData for ClientState {

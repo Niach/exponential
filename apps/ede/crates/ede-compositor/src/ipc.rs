@@ -14,11 +14,11 @@ use std::{
 
 use ede_protocol::{
     events, take_frames, write_frame, Call, Capability, CaptureInfo, CaptureTarget, Envelope, ErrorCode, Failure, Grant, Hello, InputEvent, Message,
-    OutputInfo, Request, SessionId, Token, WindowId, WindowInfo, EVENT_SOURCE, PROTOCOL_VERSION,
+    Launched, OutputInfo, Request, SessionId, SpaceId, Token, WindowId, WindowInfo, EVENT_SOURCE, PROTOCOL_VERSION,
 };
 use smithay::{
     backend::input::{ButtonState, KeyState},
-    desktop::Window,
+    desktop::{Space, Window},
     reexports::calloop::{generic::Generic, Interest, Mode, PostAction},
 };
 
@@ -90,6 +90,12 @@ impl Ipc {
     fn grant(&self, token: &Token) -> Option<&Grant> {
         self.grants.iter().find(|g| &g.token == token)
     }
+
+    /// Sessions holding at least one unexpired grant.
+    pub fn live_sessions(&self) -> Vec<SessionId> {
+        let now = now_ms();
+        self.grants.iter().filter(|g| g.expires_at.is_none_or(|e| now < e)).map(|g| g.session_id.clone()).collect()
+    }
 }
 
 impl Ede {
@@ -107,6 +113,7 @@ impl Ede {
         let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&token_file)?;
         f.write_all(self.ipc.root_grant().token.as_str().as_bytes())?;
         self.ipc.paths = vec![socket.clone(), token_file];
+        self.set_spaces_dir(runtime_dir, wayland_display);
 
         listener.set_nonblocking(true)?;
         self.loop_handle
@@ -279,6 +286,19 @@ impl Ede {
                         }
                         crate::backend::capture_window(&w)
                     }
+                    CaptureTarget::Space { space, window } => {
+                        let agent = self.owned_space(&grant, &space, now)?;
+                        match window {
+                            None => crate::backend::capture_space(self, agent),
+                            Some(id) => {
+                                let w = agent.window(&id).ok_or_else(|| fail(ErrorCode::NotFound, "no such window in the space"))?;
+                                if !self.may_capture(&w) {
+                                    return Err(fail(ErrorCode::Forbidden, "a protected window is never captured"));
+                                }
+                                crate::backend::capture_window(&w)
+                            }
+                        }
+                    }
                 }
                 .map_err(|e| fail(ErrorCode::Internal, &e))?;
                 let info = CaptureInfo { width: frame.width, height: frame.height, stride: frame.width * 4, format: "argb8888".into() };
@@ -328,9 +348,55 @@ impl Ede {
                     return Err(fail(ErrorCode::Forbidden, "the root grant lives as long as the compositor"));
                 }
                 self.ipc.grants.retain(|g| g.token != token);
+                self.close_orphan_spaces();
+                json(serde_json::Value::Null)
+            }
+            Request::CreateSpace { session_id, width, height, fps, limits } => {
+                let owner = session_id.unwrap_or_else(|| grant.session_id.clone());
+                if owner != grant.session_id && !grant.admits(Capability::System, now) {
+                    return Err(fail(ErrorCode::Forbidden, "a space for another session needs the system capability"));
+                }
+                let id = self.create_space(owner, (width, height), fps, limits)?;
+                json(serde_json::to_value(self.space_info(self.spaces.get(&id).unwrap())).unwrap())
+            }
+            Request::DestroySpace { space } => {
+                self.owned_space(&grant, &space, now)?;
+                self.destroy_space(&space);
+                json(serde_json::Value::Null)
+            }
+            Request::ListSpaces => {
+                let all = grant.admits(Capability::System, now);
+                let infos: Vec<_> = self.spaces.list.iter().filter(|a| all || a.session_id == grant.session_id).map(|a| self.space_info(a)).collect();
+                json(serde_json::to_value(infos).unwrap())
+            }
+            Request::Launch { space, argv, env } => {
+                self.owned_space(&grant, &space, now)?;
+                let pid = self.space_launch(&space, &argv, &env)?;
+                json(serde_json::to_value(Launched { pid }).unwrap())
+            }
+            Request::SpaceInput { space, event } => {
+                self.owned_space(&grant, &space, now)?;
+                self.space_input(&space, event, now as u32).map_err(|_| fail(ErrorCode::Forbidden, "a protected surface is never driven"))?;
+                json(serde_json::Value::Null)
+            }
+            Request::EndSession { session_id } => {
+                if session_id.as_str() == ROOT_SESSION {
+                    return Err(fail(ErrorCode::Forbidden, "the shell's session lives as long as the compositor"));
+                }
+                self.ipc.grants.retain(|g| g.session_id != session_id);
+                self.close_session_spaces(&session_id);
                 json(serde_json::Value::Null)
             }
         }
+    }
+
+    /// A space the grant may use: its own session's, or any with `system`.
+    /// Another session's space is "not found", like one that never was.
+    fn owned_space(&self, grant: &Grant, id: &SpaceId, now: i64) -> Result<&crate::spaces::AgentSpace, Failure> {
+        self.spaces
+            .get(id)
+            .filter(|a| a.session_id == grant.session_id || grant.admits(Capability::System, now))
+            .ok_or_else(|| fail(ErrorCode::NotFound, "no such space"))
     }
 
     fn window_by_id(&self, id: &WindowId) -> Result<Window, Failure> {
@@ -338,12 +404,20 @@ impl Ede {
     }
 
     pub fn window_infos(&self) -> Vec<WindowInfo> {
-        let focused = self.focused_window();
-        self.space
+        let focus = self.seat.get_keyboard().and_then(|k| k.current_focus());
+        self.window_infos_in(&self.space, focus)
+    }
+
+    /// The windows of `space` (the desktop's or an agent's), `focus` = its
+    /// seat's keyboard focus.
+    pub fn window_infos_in(&self, space: &Space<Window>, focus: Option<smithay::reexports::wayland_server::protocol::wl_surface::WlSurface>) -> Vec<WindowInfo> {
+        use smithay::wayland::seat::WaylandFocus;
+        let focused = focus.and_then(|f| space.elements().find(|w| w.wl_surface().is_some_and(|s| *s == f)).cloned());
+        space
             .elements()
             .filter(|w| w.x11_surface().is_none_or(|x| !x.is_override_redirect()))
             .filter_map(|w| {
-                let g = self.space.element_geometry(w)?;
+                let g = space.element_geometry(w)?;
                 let protected = self.is_protected_window(w);
                 let (title, app_id) = window_title(w);
                 Some(WindowInfo {
@@ -376,7 +450,11 @@ impl Ede {
     pub fn window_event(&mut self, kind: &str, window: &Window) {
         if self.ipc.clients.iter().any(|c| c.subscribed) {
             let (_, app_id) = window_title(window);
-            self.emit(kind, serde_json::json!({ "window": window_id(window), "appId": app_id }));
+            let mut data = serde_json::json!({ "window": window_id(window), "appId": app_id });
+            if let Some(space) = self.window_client_space(window) {
+                data["space"] = serde_json::json!(space);
+            }
+            self.emit(kind, data);
         }
     }
 

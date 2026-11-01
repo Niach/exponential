@@ -170,6 +170,13 @@ impl Harness {
         ours
     }
 
+    /// A client connected into agent space `space`, as through its socket.
+    pub fn connect_space(&self, space: ede_protocol::SpaceId) -> UnixStream {
+        let (ours, theirs) = UnixStream::pair().expect("socketpair");
+        self.with(move |state| state.insert_space_client(&space, theirs).map(|_| ())).expect("no such space");
+        ours
+    }
+
     /// An `ede-protocol` connection with the root grant (every capability).
     pub fn ipc(&self) -> ede_protocol::Client {
         let (ours, theirs) = UnixStream::pair().expect("socketpair");

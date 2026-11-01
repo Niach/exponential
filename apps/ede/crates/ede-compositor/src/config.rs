@@ -21,6 +21,29 @@ pub struct Config {
     pub lock: Lock,
     pub idle: Idle,
     pub protected: Protected,
+    pub spaces: Spaces,
+}
+
+/// Agent spaces (#NEW-110): the defaults `create_space` falls back to.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Spaces {
+    /// At most this many spaces at once.
+    pub max: usize,
+    /// Frames per second offered to a space's apps (capped at 30).
+    pub fps: u32,
+    /// CPU time per space, 100 = one core.
+    pub cpu_percent: u32,
+    pub memory_mb: u64,
+    /// Contain a space's processes in a systemd user slice with the limits;
+    /// `false` (or no user systemd) = process groups, no limits.
+    pub cgroup: bool,
+}
+
+impl Default for Spaces {
+    fn default() -> Self {
+        Self { max: 8, fps: 15, cpu_percent: 100, memory_mb: 2048, cgroup: true }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -90,6 +113,7 @@ impl Default for Config {
             lock: Lock::default(),
             idle: Idle::default(),
             protected: Protected::default(),
+            spaces: Spaces::default(),
         }
     }
 }
@@ -190,6 +214,8 @@ mod tests {
         assert!(cfg.lock.on_suspend);
         assert_eq!(cfg.idle.lock_after, 0);
         assert_eq!(cfg.protected.app_ids, ["org.example.Bank"]);
+        let cfg = Config::parse("[spaces]\nfps = 5\ncgroup = false\n").unwrap();
+        assert_eq!((cfg.spaces.fps, cfg.spaces.cgroup, cfg.spaces.max), (5, false, 8));
     }
 
     #[test]

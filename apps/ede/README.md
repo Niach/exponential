@@ -8,7 +8,7 @@ libraries, never the other way round.
 |---|---|
 | `ede-session` | What the login screen starts: the session environment (`XDG_CURRENT_DESKTOP=eDE`, Wayland hints for Firefox/Qt/Electron), `ede-compositor` on the seat, then `ede-session.target` (XDG autostart via systemd's generator, polkit agent, gnome-keyring). Restarts a crashed compositor; three quick crashes in a row (also across logins) bring it back in safe mode. |
 | `ede-protocol` | The control plane (#NEW-104): wire types, framing and a blocking `Client` for the compositor's socket, on eCore's `Capability`/`Grant`/`Failure`/`Envelope`. ePilot, eos-agent and the shell link it. |
-| `ede-compositor` | smithay compositor: floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
+| `ede-compositor` | smithay compositor: agent spaces (offscreen, own seat + cgroup), floating windows with magnetic edges and edge tiling, fullscreen, xdg-shell, wlr-layer-shell, Xwayland (X11 apps and games), linux-dmabuf, drm-syncobj explicit sync (udev), ext-session-lock, idle notify/inhibit, input methods (input-method-v2, text-input-v3, virtual keyboard), protected surfaces, damage-tracked rendering, `~/.config/ede/compositor.toml`. Backends: `winit` (nested, development), `udev` (the real session: DRM/KMS, libinput, hotplug; feature `udev`) and `headless` (CI). |
 
 ## Run it nested (Cinnamon/X11)
 
@@ -102,20 +102,72 @@ first; each op needs the eCore capability it names:
 | `focus_window`, `close_window`, `move_window` | `ui` |
 | `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
 | `input` (key, pointer motion, button; refused on protected surfaces and the lock) | `input:person` |
-| `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
+| `reload_config`, `lock`, `mint_grant`, `revoke_grant`, `end_session` | `system` |
+| `create_space`, `destroy_space`, `list_spaces`, `launch`, `space_input`, `capture` of a space (events: `space.created/destroyed`) | `space` |
 
 The compositor writes the root token (every capability) to
 `$XDG_RUNTIME_DIR/ede/<wayland-N>.token` (0600) for the shell; `mint_grant`
 hands narrower, expiring grants to agents (never more than the minting grant
 holds, never outliving it). Any process of the same user can read the token
 file, so the boundary is between the shell and the agents it mints for (an
-agent sandbox does not see `$XDG_RUNTIME_DIR/ede`). Agent spaces and window
-lending come with their own issues; captures are drawn in software for now.
+agent sandbox does not see `$XDG_RUNTIME_DIR/ede`). Window lending comes
+with its own issue; captures are drawn in software for now.
 
 ```rust
 let mut ede = ede_protocol::Client::connect_env()?;   // $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
 for w in ede.windows()? { println!("{} {:?}", w.id, w.title); }
 ```
+
+## Agent spaces
+
+One offscreen desktop per agent session (#NEW-110), for ePilot in the
+background (#NEW-111) and lending (#NEW-113):
+
+- a virtual output `space:<id>` that no monitor ever shows (only
+  `capture` of the space sees it) and its own `wl_seat` `space:<id>`: its
+  focus, input and clipboard never touch the person's;
+- its own Wayland socket, `$XDG_RUNTIME_DIR/ede/<wayland-N>-spaces/<id>.wayland`
+  (`wayland_display` in the reply; an absolute `WAYLAND_DISPLAY`). Its
+  clients see only the space's output and seat, never layer-shell, the
+  session lock, input methods or virtual keyboards;
+- frame callbacks from its own clock, `fps` (default 15, at most 30);
+- every surface keeps its own buffer: a window capture of a covered window
+  is whole (`{"kind": "space", "space": "s1", "window": "w3"}`);
+- `launch` starts an app there (only the space's socket, `DISPLAY` unset)
+  inside `ede-space-<pid>_<id>.slice` with `CPUQuota`/`MemoryMax` from the
+  call or `[spaces]` (`isolation: "systemd"`); without a user systemd it
+  falls back to a process group per launch and no limits
+  (`isolation: "process_group"`, logged);
+- it belongs to a session and closes with it: `destroy_space`,
+  `end_session`, or when the session's last grant is revoked or expires.
+  Closing disconnects its clients, stops the slice and kills the groups.
+
+A `space` grant sees and drives only its own session's spaces (another's
+answer `not_found`); `system` sees all and creates spaces for others.
+Protected apps stay black and undriven inside a space too.
+
+```rust
+let space = ede.create_space(1280, 800, None)?;
+ede.launch(space.id.clone(), vec!["foot".into()])?;
+ede.space_input(space.id.clone(), InputEvent::Key { key: 30, pressed: true })?;
+let shot = ede.capture(CaptureTarget::Space { space: space.id, window: None })?;
+```
+
+Limits: X11-only apps do not run in a space yet (no Xwayland per space);
+single-instance apps (Firefox, D-Bus activated GNOME apps) hand off to an
+instance already on the desktop unless started with their own profile
+(`firefox --new-instance -P agent`); the session bus is shared.
+
+Check on the real machine (Danny): in the eDE session, `ede-compositor`'s
+token is in `$XDG_RUNTIME_DIR/ede/wayland-N.token`. With a small client
+(`ede_protocol::Client::connect_env()`): create a space, `launch` `foot`
+or `gnome-text-editor` into it, and confirm nothing appears on any monitor,
+the cursor and keyboard focus on the desktop do not move while
+`space_input` types into it, a `capture` of the space shows the app, and
+`systemctl --user status 'ede-space-*'` shows the slice with its
+`CPUQuota`/`MemoryMax` (`systemd-cgtop` while it works). Copy in the space
+app, paste on the desktop: the person's clipboard is unchanged. Then
+`destroy_space`: the app exits and the slice is gone.
 
 ## Config
 
@@ -144,6 +196,13 @@ lock_after = 600      # seconds without input; 0 = never
 
 [protected]
 app_ids = ["org.example.Bank"]   # on top of the built-in list
+
+[spaces]              # agent spaces: the defaults create_space falls back to
+max = 8
+fps = 15              # at most 30
+cpu_percent = 100     # 100 = one core
+memory_mb = 2048
+cgroup = true         # false = process groups, no limits
 ```
 
 ## Lock, idle, input methods, protected surfaces

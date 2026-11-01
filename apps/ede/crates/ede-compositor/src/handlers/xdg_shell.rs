@@ -41,6 +41,7 @@ impl XdgShellHandler for Ede {
     fn toplevel_destroyed(&mut self, surface: ToplevelSurface) {
         let wl = surface.wl_surface().clone();
         self.unmapped.retain(|w| w.toplevel().is_some_and(|t| t.wl_surface() != &wl));
+        self.space_window_destroyed(&wl);
         let gone = self.space.elements().find(|w| w.toplevel().is_some_and(|t| t.wl_surface() == &wl)).cloned();
         if let Some(window) = gone {
             let had_focus = self.focused_window().as_ref() == Some(&window);
@@ -103,6 +104,7 @@ impl XdgShellHandler for Ede {
 
     fn maximize_request(&mut self, surface: ToplevelSurface) {
         match self.window_for_surface(surface.wl_surface()) {
+            Some(window) if self.agent_space_of(&window).is_some() => self.space_fill(&window, false),
             Some(window) if self.space.element_location(&window).is_some() => self.tile(&window, Tile::Maximized),
             // Not mapped yet: it opens maximized once its first buffer arrives.
             _ => {
@@ -122,6 +124,7 @@ impl XdgShellHandler for Ede {
 
     fn fullscreen_request(&mut self, surface: ToplevelSurface, _output: Option<wl_output::WlOutput>) {
         match self.window_for_surface(surface.wl_surface()) {
+            Some(window) if self.agent_space_of(&window).is_some() => self.space_fill(&window, true),
             Some(window) if self.space.element_location(&window).is_some() => self.set_fullscreen(&window, true),
             // Not mapped yet: it opens fullscreen once its first buffer arrives.
             _ => {
@@ -169,7 +172,10 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
             // Bounds = the work area of the pointer's output, so the client
             // never opens bigger than the screen.
             let pointer = state.seat.get_pointer().unwrap().current_location();
-            let bounds = state.output_at(pointer).and_then(|o| state.work_area(&o)).map(|a| a.size);
+            let bounds = match state.surface_space(surface) {
+                Some(id) => state.spaces.get(&id).map(|a| a.size.into()),
+                None => state.output_at(pointer).and_then(|o| state.work_area(&o)).map(|a| a.size),
+            };
             toplevel.with_pending_state(|s| s.bounds = bounds);
             toplevel.send_configure();
         } else if with_renderer_surface_state(surface, |s| s.buffer().is_some()).unwrap_or(false) {
@@ -179,7 +185,9 @@ pub fn handle_commit(state: &mut Ede, surface: &WlSurface) {
                 (s.states.contains(xdg_toplevel::State::Maximized), full)
             });
             state.place_new_window(window.clone());
-            if wants_max {
+            if wants_max && state.agent_space_of(&window).is_some() {
+                state.space_fill(&window, false);
+            } else if wants_max {
                 state.tile(&window, Tile::Maximized);
             }
             if wants_full {

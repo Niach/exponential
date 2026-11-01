@@ -35,6 +35,7 @@ toml.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 bitflags = "2"
+libc = "0.2"
 xcursor = { version = "0.3", optional = true }
 
 [dev-dependencies]

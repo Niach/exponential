@@ -200,6 +200,35 @@ pub fn capture_output(state: &Ede, output: &Output) -> Result<headless::Frame, S
     draw_output(&mut renderer, state, output, true)
 }
 
+/// An agent space as its apps drew it (protected windows black), in
+/// software. Never on any monitor: this is the only way to see it.
+pub fn capture_space(state: &Ede, agent: &crate::spaces::AgentSpace) -> Result<headless::Frame, String> {
+    use smithay::backend::renderer::element::{solid::SolidColorRenderElement, AsRenderElements, Id, Kind};
+    use smithay::backend::renderer::utils::CommitCounter;
+    let mut renderer = smithay::backend::renderer::pixman::PixmanRenderer::new().map_err(|e| e.to_string())?;
+    let clear = state.config.background_rgba().unwrap_or([0.04, 0.04, 0.04, 1.0]);
+    draw_offscreen(&mut renderer, agent.size, clear, |renderer| {
+        let mut elements = Vec::new();
+        for w in agent.space.elements().rev() {
+            let Some(loc) = agent.space.element_location(w) else { continue };
+            let loc = loc - w.geometry().loc;
+            if state.is_protected_window(w) {
+                let mut bbox = w.bbox();
+                bbox.loc += loc;
+                let geo = bbox.to_physical_precise_round(1.0);
+                elements.push(OutputElements::Solid(SolidColorRenderElement::new(Id::new(), geo, CommitCounter::default(), [0.0, 0.0, 0.0, 1.0], Kind::Unspecified)));
+                continue;
+            }
+            elements.extend(
+                AsRenderElements::<_>::render_elements::<WaylandSurfaceRenderElement<_>>(w, renderer, loc.to_physical_precise_round(1.0), 1.0.into(), 1.0)
+                    .into_iter()
+                    .map(OutputElements::Surface),
+            );
+        }
+        elements
+    })
+}
+
 /// One window alone (popups included) at its own size, on transparent black.
 /// The caller checks it may be captured.
 pub fn capture_window(window: &smithay::desktop::Window) -> Result<headless::Frame, String> {

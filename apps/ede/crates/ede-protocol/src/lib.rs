@@ -12,6 +12,17 @@
 //! `$XDG_RUNTIME_DIR/ede/<wayland-N>.token` (0600) for the shell; whoever
 //! holds `system` mints narrower, expiring grants for agents with
 //! [`Request::MintGrant`]. A grant never mints more than it holds.
+//!
+//! Agent spaces (#NEW-110, capability `space`): one offscreen desktop per
+//! agent session, with its own virtual output (never scanned out), its own
+//! `wl_seat` (input and clipboard), a capped frame rate and a cgroup.
+//! [`Request::CreateSpace`] answers a [`SpaceInfo`] whose `wayland_display`
+//! is the socket its apps connect to; [`Request::Launch`] starts one there,
+//! [`Request::SpaceInput`] and [`CaptureTarget::Space`] drive and see it
+//! without touching the person's seat or screen. A space belongs to a
+//! session and closes with it: [`Request::DestroySpace`],
+//! [`Request::EndSession`], or when the session's last grant is revoked or
+//! expires.
 
 use std::{
     collections::VecDeque,
@@ -20,7 +31,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, Token, WindowId};
+pub use ecore::{Capability, Envelope, ErrorCode, Failure, Grant, RunId, SessionId, SpaceId, Token, WindowId};
 use serde::{Deserialize, Serialize};
 
 pub const PROTOCOL_VERSION: u32 = 1;
@@ -37,6 +48,8 @@ pub mod events {
     pub const SESSION_LOCKED: &str = "session.locked";
     pub const SESSION_UNLOCKED: &str = "session.unlocked";
     pub const CONFIG_RELOADED: &str = "config.reloaded";
+    pub const SPACE_CREATED: &str = "space.created";
+    pub const SPACE_DESTROYED: &str = "space.destroyed";
 }
 
 /// The socket and token file of the compositor serving `wayland_display`.
@@ -87,6 +100,36 @@ pub enum Request {
         expires_at: Option<i64>,
     },
     RevokeGrant { token: Token },
+    /// An agent space for `session_id` (default: the caller's session;
+    /// another session's needs `system`).
+    CreateSpace {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<SessionId>,
+        width: i32,
+        height: i32,
+        /// Frames per second its apps are offered (default 15, at most 30).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        fps: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limits: Option<SpaceLimits>,
+    },
+    DestroySpace { space: SpaceId },
+    /// The caller's session's spaces (every space with `system`).
+    ListSpaces,
+    /// Starts `argv` inside `space`: its Wayland socket, its cgroup, never
+    /// the person's displays. Replies [`Launched`].
+    Launch {
+        space: SpaceId,
+        argv: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        env: Vec<(String, String)>,
+    },
+    /// Input on the space's own seat; pointer positions are space-local.
+    /// Protected surfaces refuse it.
+    SpaceInput { space: SpaceId, event: InputEvent },
+    /// Revokes every grant of `session_id` and closes its spaces (the
+    /// Exponential session ended).
+    EndSession { session_id: SessionId },
 }
 
 impl Request {
@@ -95,7 +138,12 @@ impl Request {
         match self {
             Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::Subscribe => None,
             Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } => Some(Capability::Ui),
+            Request::Capture { target: CaptureTarget::Space { .. } } => Some(Capability::Space),
             Request::Capture { .. } => Some(Capability::Capture),
+            Request::CreateSpace { .. } | Request::DestroySpace { .. } | Request::ListSpaces | Request::Launch { .. } | Request::SpaceInput { .. } => {
+                Some(Capability::Space)
+            }
+            Request::EndSession { .. } => Some(Capability::System),
             Request::Input { .. } => Some(Capability::InputPerson),
             Request::ReloadConfig | Request::Lock | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
         }
@@ -107,6 +155,13 @@ impl Request {
 pub enum CaptureTarget {
     Output { name: String },
     Window { window: WindowId },
+    /// An agent space's output, or one of its windows alone (covered
+    /// windows capture whole: every surface keeps its own buffer).
+    Space {
+        space: SpaceId,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        window: Option<WindowId>,
+    },
 }
 
 /// Input in global logical coordinates; keys and buttons are evdev codes.
@@ -159,6 +214,46 @@ pub struct OutputInfo {
     pub width: i32,
     pub height: i32,
     pub scale: f64,
+}
+
+/// Resource limits of a space's cgroup.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpaceLimits {
+    /// CPU time, 100 = one core.
+    pub cpu_percent: u32,
+    pub memory_mb: u64,
+}
+
+/// How a space's processes are contained.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Isolation {
+    /// A transient systemd user slice (`ede-space-<id>.slice`) with the
+    /// limits; closing the space stops it.
+    Systemd,
+    /// No user systemd: one process group per launch, no limits, killed
+    /// when the space closes.
+    ProcessGroup,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SpaceInfo {
+    pub id: SpaceId,
+    pub session_id: SessionId,
+    pub width: i32,
+    pub height: i32,
+    pub fps: u32,
+    /// The space's Wayland socket (an absolute `WAYLAND_DISPLAY`).
+    pub wayland_display: String,
+    pub limits: SpaceLimits,
+    pub isolation: Isolation,
+    /// Its windows, back to front, in space-local coordinates.
+    pub windows: Vec<WindowInfo>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Launched {
+    pub pid: u32,
 }
 
 /// A capture reply; the pixels follow as the next frame.
@@ -336,6 +431,26 @@ impl Client {
         self.call_as(Request::MintGrant { session_id, run_id: None, capabilities, expires_at })
     }
 
+    pub fn create_space(&mut self, width: i32, height: i32, fps: Option<u32>) -> Result<SpaceInfo, Error> {
+        self.call_as(Request::CreateSpace { session_id: None, width, height, fps, limits: None })
+    }
+
+    pub fn spaces(&mut self) -> Result<Vec<SpaceInfo>, Error> {
+        self.call_as(Request::ListSpaces)
+    }
+
+    pub fn destroy_space(&mut self, space: SpaceId) -> Result<(), Error> {
+        self.call(Request::DestroySpace { space }).map(|_| ())
+    }
+
+    pub fn launch(&mut self, space: SpaceId, argv: Vec<String>) -> Result<Launched, Error> {
+        self.call_as(Request::Launch { space, argv, env: vec![] })
+    }
+
+    pub fn space_input(&mut self, space: SpaceId, event: InputEvent) -> Result<(), Error> {
+        self.call(Request::SpaceInput { space, event }).map(|_| ())
+    }
+
     pub fn subscribe(&mut self) -> Result<(), Error> {
         self.call(Request::Subscribe).map(|_| ())
     }
@@ -377,6 +492,18 @@ mod tests {
         assert_eq!(Request::Input { event: InputEvent::PointerMotion { x: 0.0, y: 0.0 } }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::Lock.capability(), Some(Capability::System));
         assert_eq!(Request::ListWindows.capability(), None);
+        let space = SpaceId::new("s1").unwrap();
+        assert_eq!(Request::Capture { target: CaptureTarget::Space { space: space.clone(), window: None } }.capability(), Some(Capability::Space));
+        assert_eq!(Request::SpaceInput { space, event: InputEvent::Key { key: 1, pressed: true } }.capability(), Some(Capability::Space));
+        assert_eq!(Request::EndSession { session_id: SessionId::new("a").unwrap() }.capability(), Some(Capability::System));
+    }
+
+    #[test]
+    fn space_ops_are_flat_json() {
+        let call: Call = serde_json::from_str(r#"{"id":2,"op":"create_space","width":1280,"height":720}"#).unwrap();
+        assert_eq!(call.request, Request::CreateSpace { session_id: None, width: 1280, height: 720, fps: None, limits: None });
+        let capture = Call { id: 3, request: Request::Capture { target: CaptureTarget::Space { space: SpaceId::new("s1").unwrap(), window: None } } };
+        assert_eq!(serde_json::to_value(&capture).unwrap(), serde_json::json!({"id": 3, "op": "capture", "target": {"kind": "space", "space": "s1"}}));
     }
 
     #[test]

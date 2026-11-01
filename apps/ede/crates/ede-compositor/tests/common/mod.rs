@@ -7,7 +7,10 @@ use std::{io::Write, os::fd::AsFd, os::unix::net::UnixStream};
 
 use wayland_client::{
     delegate_noop,
-    protocol::{wl_buffer, wl_compositor, wl_keyboard, wl_output, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface},
+    protocol::{
+        wl_buffer, wl_callback, wl_compositor, wl_data_device, wl_data_device_manager, wl_data_offer, wl_data_source, wl_keyboard, wl_output, wl_pointer,
+        wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface,
+    },
     Connection, Dispatch, EventQueue, QueueHandle, WEnum,
 };
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1};
@@ -43,6 +46,15 @@ pub struct Client {
     /// keyboard to upload.
     pub keymap: Option<(u32, std::os::fd::OwnedFd, u32)>,
     pub virtual_keyboard_manager: Option<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1>,
+    /// `wl_seat.name` / `wl_output.name` of every seat and output we see.
+    pub seat_names: Vec<String>,
+    pub output_names: Vec<String>,
+    /// Frame callbacks done.
+    pub frames: u32,
+    pub data_device_manager: Option<wl_data_device_manager::WlDataDeviceManager>,
+    /// The serial of the last keyboard enter (for set_selection).
+    pub enter_serial: Option<u32>,
+    pub pointer_focus: Option<wl_surface::WlSurface>,
 }
 
 #[derive(Default, Debug, Clone)]
@@ -229,6 +241,42 @@ impl Session {
         inhibitor
     }
 
+    /// Frame callbacks `surface` receives in `duration` when it asks for
+    /// the next one as soon as the last is done.
+    pub fn count_frames(&mut self, surface: &wl_surface::WlSurface, duration: std::time::Duration) -> u32 {
+        let start = self.state.frames;
+        let deadline = std::time::Instant::now() + duration;
+        let mut asked = start;
+        while std::time::Instant::now() < deadline {
+            if self.state.frames == asked {
+                surface.frame(&self.qh, ());
+                surface.commit();
+                asked += 1;
+            }
+            self.roundtrip();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        self.state.frames - start
+    }
+
+    /// Takes the clipboard on our seat with a `text/plain` source.
+    pub fn set_selection(&mut self) -> wl_data_source::WlDataSource {
+        let manager = self.state.data_device_manager.clone().expect("data device manager advertised");
+        let seat = self.state.seat.clone().expect("seat advertised");
+        let device = manager.get_data_device(&seat, &self.qh, ());
+        let source = manager.create_data_source(&self.qh, ());
+        source.offer("text/plain".into());
+        device.set_selection(Some(&source), self.state.enter_serial.expect("keyboard focus first"));
+        self.roundtrip();
+        source
+    }
+
+    pub fn pointer(&mut self) -> wl_pointer::WlPointer {
+        let pointer = self.state.seat.as_ref().expect("seat advertised").get_pointer(&self.qh, ());
+        self.roundtrip();
+        pointer
+    }
+
     fn buffer(&mut self, w: i32, h: i32, argb: u32) -> wl_buffer::WlBuffer {
         let mut file = tempfile::tempfile().expect("shm file");
         let bytes: Vec<u8> = std::iter::repeat_n(argb.to_le_bytes(), (w * h) as usize).flatten().collect();
@@ -249,6 +297,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Client {
                 "zwp_idle_inhibit_manager_v1" => state.idle_inhibit_manager = Some(registry.bind(name, 1, qh, ())),
                 "zwp_virtual_keyboard_manager_v1" => state.virtual_keyboard_manager = Some(registry.bind(name, 1, qh, ())),
                 "wl_seat" => state.seat = Some(registry.bind(name, version.min(7), qh, ())),
+                "wl_data_device_manager" => state.data_device_manager = Some(registry.bind(name, version.min(3), qh, ())),
                 "wl_compositor" => state.compositor = Some(registry.bind(name, version.min(5), qh, ())),
                 "wl_shm" => state.shm = Some(registry.bind(name, 1, qh, ())),
                 "xdg_wm_base" => state.wm_base = Some(registry.bind(name, version.min(5), qh, ())),
@@ -343,7 +392,10 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
     fn event(state: &mut Self, _: &wl_keyboard::WlKeyboard, event: wl_keyboard::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
         match event {
             wl_keyboard::Event::Keymap { format: WEnum::Value(format), fd, size } => state.keymap = Some((format as u32, fd, size)),
-            wl_keyboard::Event::Enter { surface, .. } => state.keyboard_focus = Some(surface),
+            wl_keyboard::Event::Enter { surface, serial, .. } => {
+                state.keyboard_focus = Some(surface);
+                state.enter_serial = Some(serial);
+            }
             wl_keyboard::Event::Leave { .. } => state.keyboard_focus = None,
             wl_keyboard::Event::Key { key, state: WEnum::Value(wl_keyboard::KeyState::Pressed), .. } => state.keys.push(key),
             _ => {}
@@ -351,7 +403,50 @@ impl Dispatch<wl_keyboard::WlKeyboard, ()> for Client {
     }
 }
 
-delegate_noop!(Client: ignore wl_seat::WlSeat);
+impl Dispatch<wl_seat::WlSeat, ()> for Client {
+    fn event(state: &mut Self, _: &wl_seat::WlSeat, event: wl_seat::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_seat::Event::Name { name } = event {
+            state.seat_names.push(name);
+        }
+    }
+}
+
+impl Dispatch<wl_output::WlOutput, ()> for Client {
+    fn event(state: &mut Self, _: &wl_output::WlOutput, event: wl_output::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_output::Event::Name { name } = event {
+            state.output_names.push(name);
+        }
+    }
+}
+
+impl Dispatch<wl_callback::WlCallback, ()> for Client {
+    fn event(state: &mut Self, _: &wl_callback::WlCallback, event: wl_callback::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        if let wl_callback::Event::Done { .. } = event {
+            state.frames += 1;
+        }
+    }
+}
+
+impl Dispatch<wl_pointer::WlPointer, ()> for Client {
+    fn event(state: &mut Self, _: &wl_pointer::WlPointer, event: wl_pointer::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {
+        match event {
+            wl_pointer::Event::Enter { surface, .. } => state.pointer_focus = Some(surface),
+            wl_pointer::Event::Leave { .. } => state.pointer_focus = None,
+            _ => {}
+        }
+    }
+}
+
+delegate_noop!(Client: ignore wl_data_device_manager::WlDataDeviceManager);
+impl Dispatch<wl_data_device::WlDataDevice, ()> for Client {
+    fn event(_: &mut Self, _: &wl_data_device::WlDataDevice, _: wl_data_device::Event, _: &(), _: &Connection, _: &QueueHandle<Self>) {}
+
+    wayland_client::event_created_child!(Client, wl_data_device::WlDataDevice, [
+        wl_data_device::EVT_DATA_OFFER_OPCODE => (wl_data_offer::WlDataOffer, ()),
+    ]);
+}
+delegate_noop!(Client: ignore wl_data_source::WlDataSource);
+delegate_noop!(Client: ignore wl_data_offer::WlDataOffer);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1);
 delegate_noop!(Client: ignore zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1);
 delegate_noop!(Client: ignore ext_session_lock_manager_v1::ExtSessionLockManagerV1);
@@ -362,6 +457,5 @@ delegate_noop!(Client: ignore wl_surface::WlSurface);
 delegate_noop!(Client: ignore wl_shm::WlShm);
 delegate_noop!(Client: ignore wl_shm_pool::WlShmPool);
 delegate_noop!(Client: ignore wl_buffer::WlBuffer);
-delegate_noop!(Client: ignore wl_output::WlOutput);
 delegate_noop!(Client: ignore zwlr_layer_shell_v1::ZwlrLayerShellV1);
 

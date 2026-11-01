@@ -4,7 +4,8 @@
 //! xdg-shell, wlr-layer-shell, damage-tracked rendering, and a config file.
 //! ext-session-lock, idle notify/inhibit, input methods, and protected
 //! surfaces that are never captured, lent or driven. `ede-protocol`, the
-//! control socket with capability tokens ([`ipc`]).
+//! control socket with capability tokens ([`ipc`]), and agent spaces:
+//! offscreen desktops with their own output, seat and cgroup ([`spaces`]).
 //! Backends: `winit` (nested, for development), `udev` (the real session:
 //! DRM/KMS + libinput, feature `udev`) and `headless` (CI).
 
@@ -20,6 +21,7 @@ pub mod layout;
 pub mod lock;
 pub mod logind;
 pub mod protected;
+pub mod spaces;
 pub mod state;
 
 pub use config::Config;
