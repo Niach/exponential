@@ -270,6 +270,10 @@ fn write_credential(
         return Ok(());
     }
 
+    let io_err = |what: &str, e: std::io::Error| GitError {
+        op: "install git credentials".to_string(),
+        detail: format!("{what}: {e}"),
+    };
     let git_dir = clone.join(".git");
     if !git_dir.is_dir() {
         return Err(GitError {
@@ -277,20 +281,54 @@ fn write_credential(
             detail: format!("{} is not a git clone", clone.display()),
         });
     }
-    // Unique tmp name (concurrent writers must not share one), atomic rename.
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let tmp = git_dir.join(format!(
-        "exp-git-credentials.tmp-{}-{nanos}",
-        std::process::id()
-    ));
-    let io_err = |what: &str, e: std::io::Error| GitError {
-        op: "install git credentials".to_string(),
-        detail: format!("{what}: {e}"),
-    };
-    {
+    write_atomic(&git_dir, &file, url.credential_file_contents().as_bytes())
+        .map_err(|e| io_err("write credentials", e))?;
+    // Sidecar AFTER the file: a crash between the two leaves the sidecar
+    // older than the file — the next writer just rewrites (safe), whereas the
+    // reverse order could make a fresh sidecar shield a stale file.
+    match expires_at {
+        Some(raw) => write_atomic(&git_dir, &sidecar, raw.as_bytes())
+            .map_err(|e| io_err("write expiry", e))?,
+        None => {
+            let _ = std::fs::remove_file(&sidecar);
+        }
+    }
+    Ok(())
+}
+
+/// Prefix of [`write_atomic`]'s temp files (`<name>.tmp-<pid>-<seq>-<nanos>`).
+const TMP_MARKER: &str = ".tmp-";
+
+/// A temp file older than this is a crashed writer's leftover, swept by the
+/// next [`write_atomic`] (a live writer holds its own for milliseconds).
+const STALE_TMP_AGE: Duration = Duration::from_secs(10 * 60);
+
+/// Process-wide sequence: two writers of ONE process (several sessions
+/// resumed at once, FEED-183) never pick the same temp name, whatever the
+/// clock's resolution (macOS: microseconds).
+static TMP_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// #FEED-183: replace `target` (in `dir`) with `contents` atomically and
+/// idempotently: written to a fresh owner-only (0600) temp file, then
+/// renamed over whatever is there (a leftover from an interrupted run
+/// included). Every writer has its own temp name (pid + process sequence +
+/// clock); a name that still exists (a crashed run's leftover, a recycled
+/// pid) is skipped for the next one, never an error. Concurrent writers each
+/// land a complete file; the last rename wins.
+fn write_atomic(dir: &Path, target: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let name = target
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    sweep_stale_tmps(dir, &name);
+    let mut last = None;
+    for _ in 0..16 {
+        let seq = TMP_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let tmp = dir.join(format!("{name}{TMP_MARKER}{}-{seq}-{nanos}", std::process::id()));
         let mut options = std::fs::OpenOptions::new();
         options.write(true).create_new(true);
         #[cfg(unix)]
@@ -298,27 +336,46 @@ fn write_credential(
             use std::os::unix::fs::OpenOptionsExt;
             options.mode(0o600); // token material — owner-only from birth
         }
-        let mut handle = options.open(&tmp).map_err(|e| io_err("create", e))?;
-        handle
-            .write_all(url.credential_file_contents().as_bytes())
-            .map_err(|e| io_err("write", e))?;
-    }
-    if let Err(e) = std::fs::rename(&tmp, &file) {
-        let _ = std::fs::remove_file(&tmp);
-        return Err(io_err("rename", e));
-    }
-    // Sidecar AFTER the file: a crash between the two leaves the sidecar
-    // older than the file — the next writer just rewrites (safe), whereas the
-    // reverse order could make a fresh sidecar shield a stale file.
-    match expires_at {
-        Some(raw) => {
-            std::fs::write(&sidecar, raw).map_err(|e| io_err("write expiry", e))?
+        let mut handle = match options.open(&tmp) {
+            Ok(handle) => handle,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                last = Some(e);
+                continue;
+            }
+            Err(e) => return Err(e),
+        };
+        let written = handle.write_all(contents).and_then(|()| handle.sync_all());
+        drop(handle);
+        let landed = written.and_then(|()| std::fs::rename(&tmp, target));
+        if landed.is_err() {
+            let _ = std::fs::remove_file(&tmp);
         }
-        None => {
-            let _ = std::fs::remove_file(&sidecar);
+        return landed;
+    }
+    Err(last.unwrap_or_else(|| std::io::Error::other("no free temp name")))
+}
+
+/// Best-effort: remove `<name>.tmp-*` files in `dir` older than
+/// [`STALE_TMP_AGE`] — what an interrupted writer left behind.
+fn sweep_stale_tmps(dir: &Path, name: &str) {
+    let prefix = format!("{name}{TMP_MARKER}");
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if !entry.file_name().to_string_lossy().starts_with(&prefix) {
+            continue;
+        }
+        let stale = entry
+            .metadata()
+            .and_then(|meta| meta.modified())
+            .ok()
+            .and_then(|modified| modified.elapsed().ok())
+            .is_some_and(|age| age > STALE_TMP_AGE);
+        if stale {
+            let _ = std::fs::remove_file(entry.path());
         }
     }
-    Ok(())
 }
 
 fn file_has_credential(file: &Path) -> bool {
@@ -544,6 +601,97 @@ mod tests {
 
         let content = fs::read_to_string(credential_file(&clone)).unwrap();
         assert!(content.contains("password=ghs_fresh456"), "not restored: {content}");
+    }
+
+    /// #FEED-183: an interrupted install leaves a credential file (wrong
+    /// perms, half-written) and temp files behind; the resume's install
+    /// replaces the file atomically (0600), sweeps the stale temps and
+    /// never fails on them.
+    #[test]
+    fn a_resume_after_an_interrupted_install_succeeds_over_its_leftovers() {
+        let dir = temp_dir("leftover");
+        let clone = seed_clone_with_token_remote(&dir.0);
+        let git_dir = clone.join(".git");
+        fs::write(credential_file(&clone), "username=x-access-token\npass").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(credential_file(&clone), fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        let stale_tmps = [
+            git_dir.join(format!("exp-git-credentials.tmp-{}-1", std::process::id())),
+            git_dir.join(format!("exp-git-credentials.tmp-{}-0-1", std::process::id())),
+            git_dir.join("exp-git-credentials.expires-at.tmp-1-0-1"),
+        ];
+        let old = std::time::SystemTime::now() - Duration::from_secs(3600);
+        for tmp in &stale_tmps {
+            fs::write(tmp, "password=ghs_half").unwrap();
+            fs::File::options().write(true).open(tmp).unwrap().set_modified(old).unwrap();
+        }
+        // A concurrent writer's fresh temp is never touched.
+        let live_tmp = git_dir.join("exp-git-credentials.tmp-1-0-2");
+        fs::write(&live_tmp, "x").unwrap();
+
+        let url = TokenUrl::new("acme/web", "ghs_resumed");
+        ensure(&clone, &url, Some("2099-01-01T00:00:00.000Z")).unwrap();
+        // Idempotent: again, same token, and once more with a newer one.
+        ensure(&clone, &url, Some("2099-01-01T00:00:00.000Z")).unwrap();
+        ensure(&clone, &TokenUrl::new("acme/web", "ghs_newer"), Some("2099-02-01T00:00:00.000Z")).unwrap();
+
+        let content = fs::read_to_string(credential_file(&clone)).unwrap();
+        assert_eq!(content, "username=x-access-token\npassword=ghs_newer\n");
+        assert_eq!(fs::read_to_string(expiry_sidecar(&clone)).unwrap(), "2099-02-01T00:00:00.000Z");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(credential_file(&clone)).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "a replaced leftover is owner-only");
+        }
+        for tmp in &stale_tmps {
+            assert!(!tmp.exists(), "stale temp not swept: {}", tmp.display());
+        }
+        assert!(live_tmp.exists(), "a live writer's temp was swept");
+    }
+
+    /// #FEED-183: several sessions of one process resuming at once (the
+    /// reporter's three interrupted children) install the same clone's
+    /// credentials concurrently: every install succeeds, the file is one
+    /// complete token, and no temp file is left behind.
+    #[test]
+    fn concurrent_installs_on_one_clone_all_succeed() {
+        let dir = temp_dir("concurrent");
+        let clone = seed_clone_with_token_remote(&dir.0);
+        let git_dir = clone.join(".git");
+        let results: Vec<Result<(), GitError>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = (0..16)
+                .map(|i| {
+                    let clone = &clone;
+                    scope.spawn(move || {
+                        write_credential(
+                            clone,
+                            &TokenUrl::new("acme/web", &format!("ghs_tok{i}")),
+                            Some(&format!("2099-01-{:02}T00:00:00.000Z", i + 1)),
+                        )
+                    })
+                })
+                .collect();
+            handles.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        for result in results {
+            result.unwrap();
+        }
+        let content = fs::read_to_string(credential_file(&clone)).unwrap();
+        assert!(
+            content.starts_with("username=x-access-token\npassword=ghs_tok") && content.ends_with('\n'),
+            "{content}"
+        );
+        let leftovers: Vec<_> = fs::read_dir(&git_dir)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(TMP_MARKER))
+            .collect();
+        assert!(leftovers.is_empty(), "{leftovers:?}");
     }
 
     /// `git credential fill` for `url` run inside `cwd`, with `home` as the
