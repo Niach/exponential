@@ -183,8 +183,12 @@ object AccountOptions {
     private fun optionEmail(row: AgentProfileUsageRow): String =
         AgentAccountsRows.accountName(row.email, row.plan)
 
-    private fun optionLimits(row: AgentProfileUsageRow): AccountLimits? {
-        val windows = row.usage?.windows.orEmpty()
+    private fun optionLimits(row: AgentProfileUsageRow): AccountLimits? = limitsOf(row.usage)
+
+    /** #EXP-1535: the same fractions off one login's own usage report (a
+     *  session's account rows read [SessionAccountOption.usage]). */
+    fun limitsOf(usage: AgentUsage?): AccountLimits? {
+        val windows = usage?.windows.orEmpty()
         if (windows.isEmpty()) return null
         val model = windows.firstOrNull { it.key.startsWith(MODEL_WINDOW_PREFIX) }
         return AccountLimits(

@@ -53,6 +53,8 @@ data class AccountPickerOption(
     val healthNote: String? = null,
     /** EXP-992: the window fractions (0-1); null until a probe landed. */
     val limits: AccountLimits? = null,
+    /** #EXP-1535: a session's switch refuses this login (rendered, never pickable). */
+    val disabled: Boolean = false,
 )
 
 fun accountPickerItems(options: List<AccountPickerOption>): List<PickerItem<String>> =
@@ -64,6 +66,7 @@ fun accountPickerItems(options: List<AccountPickerOption>): List<PickerItem<Stri
             // email (the menu row's shape), because the second line is the
             // bars'.
             description = option.healthNote,
+            disabled = option.disabled,
             keywords = listOf(option.email, option.agent),
         )
     }

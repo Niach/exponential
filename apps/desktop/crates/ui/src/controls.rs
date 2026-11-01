@@ -654,11 +654,15 @@ pub(crate) fn pointer_check_item(
 /// whose hover shows THE EXP-992 usage preview (the account picker's
 /// `render_account_limits` bars) in THE hover card to its right
 /// ([`side_hover_card`], web `AccountOptionRow`); a login with no `limits` shows
-/// none. `id` keys the hover (one per row).
+/// none. `id` keys the hover (one per row). #EXP-1535: `hint` = the account
+/// picker's health hint (`Health::badge_label`, `picker::account_picker`'s
+/// muted description), muted after the login.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn pointer_account_item(
     id: impl Into<SharedString>,
     icon: impl Fn() -> Icon + 'static,
     label: impl Into<SharedString>,
+    hint: Option<&'static str>,
     checked: bool,
     limits: Option<coding::AccountLimits>,
     on_select: impl Fn(&mut Window, &mut App) + 'static,
@@ -682,6 +686,13 @@ pub(crate) fn pointer_account_item(
                     .items_center()
                     .child(icon().size(px(t::menu::pointer::ICON_SIZE)).flex_shrink_0())
                     .child(div().flex_1().min_w_0().truncate().child(label.clone()))
+                    .children(hint.map(|hint| {
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(cx.theme().muted_foreground)
+                            .child(hint)
+                    }))
                     .children(checked.then(|| {
                         Icon::new(crate::icons::registry::UI_CHECK)
                             .size(px(14.))
@@ -830,6 +841,9 @@ pub(crate) struct PointerMenu<T: gpui_component::Selectable + IntoElement + 'sta
     /// EXP-1259 (DEV-ONLY): open on this render, with the first row
     /// selected (a submenu row = its submenu open), for a capture.
     dev_open: bool,
+    /// #EXP-1535 (DEV-ONLY): how many rows down the dev open selects (1 =
+    /// the first row; separators are skipped like a keyboard Down).
+    dev_steps: usize,
     /// N-6: the height the menu wants — the menu layer picks its side by it.
     wanted: Pixels,
 }
@@ -851,6 +865,7 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
             anchor: Anchor::TopLeft,
             builder: std::rc::Rc::new(builder),
             dev_open: false,
+            dev_steps: 1,
             wanted: px(crate::menu_window::DEFAULT_WANTED_HEIGHT),
         }
     }
@@ -869,6 +884,13 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
     /// `true` for one render only; the popover keeps itself open after.
     pub(crate) fn dev_open(mut self, open: bool) -> Self {
         self.dev_open = open;
+        self
+    }
+
+    /// #EXP-1535 (DEV-ONLY): the dev open selects the `steps`-th row
+    /// instead of the first (in-window popover only).
+    pub(crate) fn dev_steps(mut self, steps: usize) -> Self {
+        self.dev_steps = steps.max(1);
         self
     }
 
@@ -938,6 +960,8 @@ struct PointerMenuState {
     menu: Option<gpui::Entity<gpui_component::menu::PopupMenu>>,
     /// EXP-1259: a dev open is waiting for the menu to select its first row.
     dev_select: bool,
+    /// #EXP-1535: how many Downs that dev select presses (0 = one).
+    dev_steps: usize,
     /// N-6: where the trigger painted last, in window coordinates — the
     /// menu layer hangs the menu off it.
     trigger_bounds: gpui::Bounds<Pixels>,
@@ -1036,7 +1060,11 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
         let menu_state =
             window.use_keyed_state(state_id.clone(), cx, |_, _| PointerMenuState::default());
         if self.dev_open {
-            menu_state.update(cx, |state, _| state.dev_select = true);
+            let steps = self.dev_steps;
+            menu_state.update(cx, |state, _| {
+                state.dev_select = true;
+                state.dev_steps = steps;
+            });
         }
         // N-6: in a dialog window the menu opens in a menu layer over the
         // window, so it can overhang the dialog's edges. The in-window
@@ -1067,9 +1095,9 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
                     let menu = gpui_component::menu::PopupMenu::build(window, cx, move |menu, window, cx| {
                         builder(menu, window, cx)
                     });
-                    let dev_select = menu_state.update(cx, |state, _| {
+                    let (dev_select, dev_steps) = menu_state.update(cx, |state, _| {
                         state.menu = Some(menu.clone());
-                        std::mem::take(&mut state.dev_select)
+                        (std::mem::take(&mut state.dev_select), std::mem::take(&mut state.dev_steps).max(1))
                     });
                     menu.focus_handle(cx).focus(window, cx);
                     if dev_select {
@@ -1077,7 +1105,9 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
                         // context: Down from nothing selects row 0.
                         let handle = menu.focus_handle(cx);
                         window.on_next_frame(move |window, cx| {
-                            handle.dispatch_action(&gpui_base::actions::SelectDown, window, cx);
+                            for _ in 0..dev_steps {
+                                handle.dispatch_action(&gpui_base::actions::SelectDown, window, cx);
+                            }
                         });
                     }
                     let popover_state = cx.entity();

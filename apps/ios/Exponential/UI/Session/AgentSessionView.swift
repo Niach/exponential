@@ -1707,7 +1707,9 @@ struct AgentSessionView: View {
                         model.draftEditor.insertTextAtCaret(body)
                         focusComposer()
                     }
-                }
+                },
+                // #EXP-1535: the "+" Account page = the usage wall's switch.
+                account: model.composerAccountMenu
             ),
             attach: $attach,
             // EXP-1295: a message is a `messages` row, so sending never waits

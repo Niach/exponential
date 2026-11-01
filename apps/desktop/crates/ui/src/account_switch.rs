@@ -87,6 +87,30 @@ pub(crate) struct SwitchTarget {
     pub blocked: Option<String>,
 }
 
+impl SwitchTarget {
+    /// #EXP-1535: whether the composer's Account › row may be picked — never
+    /// the login the run is already on (web `REASON_ALREADY`), never one the
+    /// switch refuses (the run's own refusal or the login's).
+    pub(crate) fn pickable(&self) -> bool {
+        !self.current && self.blocked.is_none()
+    }
+}
+
+/// #EXP-1535 (composer-menu.json `conditions.account`): a session's or an
+/// agent chat's "+" offers Account › while the session is live (its row
+/// synced, not ended), its device is online and the viewer
+/// `canSteerSession`. A refusal past that (not claude, busy, a broken login)
+/// DISABLES rows; it never hides the submenu.
+pub(crate) fn composer_offers_account(live: bool, device_online: bool, can_steer: bool) -> bool {
+    live && device_online && can_steer
+}
+
+/// #EXP-1535: the session composer's Account › value — the login the run
+/// is on (its caption), else none.
+pub(crate) fn current_caption(targets: &[SwitchTarget]) -> Option<String> {
+    targets.iter().find(|target| target.current).map(|target| target.caption.clone())
+}
+
 /// EXP-909 — WHICH of the host's logins the run is ON, in the order a client
 /// can know it (web `activeAccountIndex`, mirrored ×4):
 ///
@@ -544,6 +568,38 @@ mod tests {
     /// The three rules, each as its own refusal: claude-only, between turns
     /// only, and something to switch TO — plus the host fact (offline), in
     /// the ×4 refusal order.
+    /// #EXP-1535: the composer's Account › is offered on a live, online,
+    /// steerable session; its rows are THE switch targets, the current login
+    /// checked but never pickable, every refusal disabling its row.
+    #[test]
+    fn the_composer_account_rows_are_the_switch_targets() {
+        assert!(composer_offers_account(true, true, true));
+        assert!(!composer_offers_account(false, true, true), "an ended session");
+        assert!(!composer_offers_account(true, false, true), "an offline device");
+        assert!(!composer_offers_account(true, true, false), "a viewer who cannot steer");
+
+        let rows = vec![
+            row(HOME, true, Health::Ok),
+            row("0a1b2c3d", true, Health::Ok),
+            row("badc0ffe", true, Health::NeedsRelogin),
+        ];
+        let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, Some(HOME), None, false);
+        assert_eq!(current_caption(&targets).as_deref(), Some("4e5f6a7b@acme.test"));
+        let pickable: Vec<bool> = targets.iter().map(SwitchTarget::pickable).collect();
+        assert_eq!(pickable, vec![false, true, false], "current, healthy, needs re-login");
+
+        // A run-level refusal (busy; codex) disables EVERY row, never hides one.
+        let codex: Vec<AgentProfileUsageRow> =
+            rows.iter().cloned().map(|row| AgentProfileUsageRow { agent: "codex".into(), ..row }).collect();
+        for targets in [
+            switch_targets(&rows, "dev-1", CodingAgent::Claude, Some(HOME), None, true),
+            switch_targets(&codex, "dev-1", CodingAgent::Codex, Some(HOME), None, false),
+        ] {
+            assert_eq!(targets.len(), 3);
+            assert!(targets.iter().all(|target| !target.pickable()));
+        }
+    }
+
     #[test]
     fn switch_targets_enforce_the_three_rules() {
         let rows = vec![

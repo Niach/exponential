@@ -31,6 +31,9 @@ const mocks = vi.hoisted(() => ({
   dismissReplies: vi.fn(),
   promptGet: vi.fn(),
   prompts: [] as { id: string; name: string; icon: string | null; sortOrder: number }[],
+  // #EXP-1535: THE session account switch (its own tests pin the rules).
+  accountSwitch: null as unknown,
+  switchTo: vi.fn(),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -59,6 +62,18 @@ vi.mock(`@/lib/collections`, () => ({
   sessionCollection: {
     utils: { awaitTxId: (...args: unknown[]) => mocks.awaitTxId(...args) as Promise<void> },
   },
+}))
+vi.mock(`@/components/session-account-switch`, () => ({
+  useSessionAccountSwitch: () =>
+    mocks.accountSwitch ?? {
+      canSteer: false,
+      deviceOnline: false,
+      blocked: null,
+      switching: false,
+      options: [],
+      value: null,
+      switchTo: mocks.switchTo,
+    },
 }))
 vi.mock(`@/hooks/use-mcp-servers`, () => ({
   useMcpServers: () => ({ servers: [] }),
@@ -276,6 +291,38 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     expect(click).not.toHaveBeenCalled()
     expect(rowIds()).toEqual([`add-file`, `implement-issue`, `model`])
     click.mockRestore()
+  })
+
+  // #EXP-1535: Account › while the device is online and the viewer steers
+  // the session; a pick = THE session account switch.
+  it(`Account › offers the session's logins and a pick runs the account switch`, () => {
+    mocks.accountSwitch = {
+      canSteer: true,
+      deviceOnline: true,
+      blocked: null,
+      switching: false,
+      options: [
+        { key: `claude:a`, agent: `claude`, email: `a@example.com` },
+        { key: `claude:b`, agent: `claude`, email: `b@example.com` },
+      ],
+      value: `claude:a`,
+      switchTo: mocks.switchTo,
+    }
+    try {
+      renderComposer()
+      openPlus()
+      expect(rowIds()).toEqual([`add-file`, `implement-issue`, `account`, `model`])
+      expect(screen.getByTestId(`agent-composer-menu-account`).textContent).toContain(`a@example.com`)
+      act(() => {
+        fireEvent.click(screen.getByTestId(`agent-composer-menu-account`))
+      })
+      act(() => {
+        fireEvent.click(screen.getByText(`b@example.com`))
+      })
+      expect(mocks.switchTo).toHaveBeenCalledWith(`claude:b`)
+    } finally {
+      mocks.accountSwitch = null
+    }
   })
 
   // #EXP-1434: Prompts › while the team has one; a pick inserts the body

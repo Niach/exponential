@@ -489,6 +489,37 @@ final class AgentSessionModel {
         }
     }
 
+    /// #EXP-1535 (composer-menu.json `account`): the "+" Account page of
+    /// this session's composer — THE usage wall's switch above as the
+    /// AccountPicker rows — while the row is live, its device online and the
+    /// viewer steers it; nil = no row. A run-level refusal disables every
+    /// row, a login's own refusal its row; the page is never hidden for them.
+    var composerAccountMenu: SessionComposerFooter.AccountMenu? {
+        guard let session, session.isLive, hostDevice.online == true,
+              SessionAccountSwitch.canSteer(
+                  shared: session.shared, userId: session.userId, currentUserId: currentUserId
+              )
+        else { return nil }
+        let options = accountSwitchOptions
+        // No login reported for the session's agent = no row (web, desktop).
+        guard !options.isEmpty else { return nil }
+        let blocked = accountSwitchBlocked
+        return SessionComposerFooter.AccountMenu(
+            options: options.map(\.account),
+            current: options.first(where: \.current)?.account,
+            disabledKeys: Set(
+                options.filter { blocked != nil || $0.blockedReason != nil }.map(\.account.key)
+            ),
+            onPick: { [weak self] key in
+                guard let self, self.accountSwitchBlocked == nil,
+                      let picked = options.first(where: { $0.account.key == key }),
+                      picked.blockedReason == nil
+                else { return }
+                Task { await self.switchAccount(to: picked.account) }
+            }
+        )
+    }
+
     // MARK: EXP-1252 — move the session to another device
 
     /// The launch composer's machines for the session's team (own +
