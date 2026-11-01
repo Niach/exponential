@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1586: `ZoomableImage` (media): a picture that zooms (trackpad pinch, ⌘/ctrl+wheel, double-tap/click, keys + − 0 1) and pans (drag with momentum, plain wheel), with THE zoom pill (− / percent Menu / + / fit, auto-hiding). The maths is `src/zoom.ts` (ported by the Rust core's `zoom`, the FFI's `zoom_json`), locked by `fixtures/zoom.json`; the spec is `catalog/style.json` `zoomableImage`; the web gesture controller + classes are `src/web/primitives/zoomable-image.ts`. Strings `zoomIn`, `zoomOut`, `zoomToFit`, `zoomLevel`, `zoomFit`; builtin icons `ZoomableImage.zoomOut|zoomIn|fit`. Prompt budget 8,131 (a named exception, +97 tokens).
 - EXP-1493: the Carousel `counter` pill moves to the track's top-END corner (mirrored under RTL), off the page's own heading: `CAROUSEL_CLASSES.counter` = `end-2`, the base CSS `inset-inline-end` (round-6 contract §3).
 
 ## 0.3.0 (2026-10-31)
