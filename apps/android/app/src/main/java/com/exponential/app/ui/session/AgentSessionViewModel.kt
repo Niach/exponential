@@ -522,6 +522,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                 }
             }
         }
+        // EXP-1521: filtering + sorting every issue is off the main thread.
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
@@ -596,6 +598,37 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     val activity: StateFlow<ActivityFeedState> = connection.activity
 
+    /**
+     * EXP-1521: the composer's slice of [activity]. A working agent re-sends
+     * its `turn` slot every couple of seconds (the clock, the tokens,
+     * "Writing…"); read whole, every tick recomposed the composer, its field
+     * included, which on a phone was a micro-stall mid-word. This emits only
+     * when the composer's own inputs change.
+     */
+    data class ComposerActivity(val turnState: String, val compacting: Boolean, val asking: Boolean)
+
+    val composerActivity: StateFlow<ComposerActivity> = activity
+        .map(::composerActivityOf)
+        .distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), composerActivityOf(activity.value))
+
+    /** EXP-1521: the Dock's slice of [activity] (same reason as [composerActivity]). */
+    data class DockActivity(
+        val feed: List<com.exponential.app.domain.AgentFeedItem>,
+        val queue: List<QueuedMessage>,
+        val taskList: List<com.exponential.app.domain.TaskListEntry>,
+        val backgroundTasks: List<com.exponential.app.domain.BackgroundTask>,
+        val rateLimit: com.exponential.app.domain.SessionRateLimitState?,
+        val turnState: String,
+        val compacting: com.exponential.app.domain.CompactionState?,
+    )
+
+    val dockActivity: StateFlow<DockActivity> = activity
+        .map(::dockActivityOf)
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), dockActivityOf(activity.value))
+
     /** EXP-773: an ENDED run's transcript is fetched from the machine that ran
      *  it — this is that fetch's status. Null on a live run. */
     val history: StateFlow<HistoryState?> = connection.history
@@ -640,6 +673,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             messages.filter { it.authorKind == DomainContract.messageAuthorKindAgent }.maxOfOrNull { it.createdAt }
         }
         .distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
@@ -651,6 +685,8 @@ class AgentSessionViewModel @AssistedInject constructor(
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
         .map { rows -> SessionTree.composerReplies(codingSessionId, rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
+        // EXP-1521: per-message card JSON parsing, off the main thread.
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _replyPending = MutableStateFlow(false)
@@ -1341,6 +1377,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
         .map { rows -> SessionTree.sessionCardRows(rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The plan / question rows of [sessionCards] (the dock's sources). */
@@ -1443,4 +1480,20 @@ internal fun AgentSessionViewModel.ConfigurePicks.dropSettledBy(row: SessionEnti
         ultracode = row.ultracode,
         computerUse = row.computerUse,
     ),
+)
+
+internal fun composerActivityOf(state: ActivityFeedState) = AgentSessionViewModel.ComposerActivity(
+    turnState = state.turnState,
+    compacting = state.compacting != null,
+    asking = com.exponential.app.domain.activeQuestionIds(state.feed).isNotEmpty(),
+)
+
+internal fun dockActivityOf(state: ActivityFeedState) = AgentSessionViewModel.DockActivity(
+    feed = state.feed,
+    queue = state.queue,
+    taskList = state.taskList,
+    backgroundTasks = state.backgroundTasks,
+    rateLimit = state.rateLimit,
+    turnState = state.turnState,
+    compacting = state.compacting,
 )

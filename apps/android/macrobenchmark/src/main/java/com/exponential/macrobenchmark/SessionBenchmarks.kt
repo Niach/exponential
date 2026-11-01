@@ -71,6 +71,40 @@ class SessionBenchmarks {
     }
 
     /**
+     * Type steadily into the composer of a LIVE session for ~10 s (Danny's
+     * "micro-lag every few seconds"): the agent's periodic `turn` frames
+     * must not recompose the field, and every character must land.
+     */
+    @Test
+    fun typeWhileLive() = rule.measureRepeated(
+        packageName = PACKAGE,
+        metrics = listOf(FrameTimingMetric()),
+        compilationMode = CompilationMode.Full(),
+        startupMode = StartupMode.WARM,
+        iterations = ITERATIONS,
+        setupBlock = { openSession() },
+    ) {
+        val field = composerField()
+        field.click()
+        val typed = StringBuilder()
+        repeat(TYPED_CHARS) { i ->
+            val c = 'a' + (i % 26)
+            device.executeShellCommand("input text $c")
+            typed.append(c)
+        }
+        // The IME commits asynchronously: give the last keystroke a moment.
+        var landed = ""
+        val until = System.currentTimeMillis() + 3_000
+        while (System.currentTimeMillis() < until) {
+            landed = composerField().text.orEmpty()
+            if (landed.endsWith(typed.toString())) break
+            Thread.sleep(100)
+        }
+        check(landed.endsWith(typed.toString())) { "the composer lost or reordered characters: `$landed`" }
+        field.text = ""
+    }
+
+    /**
      * Cold-open the thread, then the session: the join replays the whole feed,
      * which used to be folded on the main thread in one block (EXP-1522).
      */
@@ -188,6 +222,7 @@ class SessionBenchmarks {
         const val EDIT_TEXT = "android.widget.EditText"
         const val SUBMIT_DESC = "Send"
         const val MAX_CARD_SCROLLS = 12
+        const val TYPED_CHARS = 60
         const val ITERATIONS = 5
         const val FLINGS = 5
         const val SWIPE_STEPS = 8

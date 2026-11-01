@@ -7,6 +7,7 @@ Frame timing for the journeys behind #EXP-1520..1522 ("omega lag"), measured aga
 | `transcriptScroll` | fast swipes up and down a long live transcript | `frameDurationCpuMs`, `frameOverrunMs` |
 | `openSession` | cold open of the thread, then the session: the full join replay | `SteerConnection.commitStagingSumMs` (main thread), `Choreographer#doFrame%MaxMs` |
 | `sendThenBack` | type, send, press back at once | `Choreographer#doFrame%MaxMs` (the old 2–3 s freeze), `frameDurationCpuMs` |
+| `typeWhileLive` | type 60 characters into a live session's composer while the agent's `turn` frames tick | fails if a character is lost or reordered; `frameDurationCpuMs` |
 
 ## Setup (local stack + emulator)
 
@@ -14,10 +15,10 @@ Frame timing for the journeys behind #EXP-1520..1522 ("omega lag"), measured aga
 
    ```bash
    bun run seed:screenshots --shared-dev-db
-   SCREENSHOT_FEED_REPEAT=40 SCREENSHOT_FEED_NO_QUESTION=1 bun run screenshots:desktop
+   SCREENSHOT_FEED_REPEAT=40 SCREENSHOT_FEED_NO_QUESTION=1 SCREENSHOT_FEED_TURN_TICKS=3600 bun run screenshots:desktop
    ```
 
-   Leave the stub running: its eNet node serves the 40× scripted feed for the demo session.
+   Leave the stub running: its eNet node serves the 40× scripted feed for the demo session, then one live `turn` tick per second (a working agent's clock, tokens and "Writing…").
 2. Web server: the emulator must be a trusted origin. Run vite with `BETTER_AUTH_TRUSTED_ORIGINS` including `http://10.0.2.2:<port>`.
 3. Build and install the app:
 
