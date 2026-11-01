@@ -32,10 +32,11 @@ export const DOCK_CARD_CLASSES = {
   icon: `mt-0.5 size-3.5 shrink-0`,
   text: `min-w-0 flex-1`,
   header: `mb-1 flex items-center gap-2`,
-  /** The label keeps its words; the caption gives way first (iOS
-   *  `layoutPriority`, Android the caption's `weight(fill = false)`). */
-  label: `truncate text-xs font-medium`,
-  caption: `min-w-0 shrink-[999] truncate text-xs text-muted-foreground`,
+  /** The label never shrinks (a weighted shrink still clipped "Plan
+   *  ready" by a pixel on phones); the caption takes only the leftover
+   *  width (iOS `layoutPriority`, Android the caption's `weight(fill = false)`). */
+  label: `max-w-full shrink-0 truncate text-xs font-medium`,
+  caption: `min-w-0 flex-1 basis-0 truncate text-xs text-muted-foreground`,
   meta: `ml-auto shrink-0 text-xs text-muted-foreground`,
   row: `flex min-w-0 items-center gap-2`,
   title: `min-w-0 flex-1 truncate text-sm text-foreground/90`,
