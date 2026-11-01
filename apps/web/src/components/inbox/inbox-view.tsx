@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { Link, useNavigate, useParams } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import { Bell } from "lucide-react"
 import { Button, conceptIcon, ListRow, LiveDot } from "@exp/ui"
@@ -91,6 +91,8 @@ type MessageGroup = {
   teamName: string | null
   /** Where a click lands, when the row names a run in a synced team. */
   session: { teamSlug: string; sessionId: string } | null
+  /** #EXP-1534: an `agent_signed_out` row opens its device's settings. */
+  deviceId: string | null
   items: [Notification]
   unread: number
 }
@@ -187,6 +189,20 @@ export function InboxView({
     const messages: MessageGroup[] = []
     for (const n of (notifications ?? []) as Notification[]) {
       if (!n.issueId) {
+        if (n.type === `agent_signed_out`) {
+          // #EXP-1534: the viewer's own device, in every team's stream.
+          const target = inboxRowTarget(n)
+          messages.push({
+            kind: `message`,
+            teamId: null,
+            teamName: null,
+            session: null,
+            deviceId: target.kind === `device` ? target.deviceId : null,
+            items: [n],
+            unread: n.readAt ? 0 : 1,
+          })
+          continue
+        }
         if (n.type === `agent_message` || n.type === `session_blocked`) {
           if (teamId && n.teamId !== teamId) continue
           const team = n.teamId ? teamMap.get(n.teamId) : undefined
@@ -200,6 +216,7 @@ export function InboxView({
                 ? { teamSlug: team.slug, sessionId: target.sessionId }
                 : null
             })(),
+            deviceId: null,
             items: [n],
             unread: n.readAt ? 0 : 1,
           })
@@ -244,6 +261,7 @@ export function InboxView({
   // One mutation per group, not one per row (REV-48): the server-side
   // by-issue clear also catches rows the client hasn't synced yet.
   const navigate = useNavigate()
+  const { teamSlug: routeTeamSlug } = useParams({ strict: false }) as { teamSlug?: string }
   const { data: auth } = useSession()
   const viewerId = auth?.user?.id ?? null
   // #EXP-1493 (plan-page.json WAYS IN): a session waiting on a plan opens
@@ -344,6 +362,14 @@ export function InboxView({
                   onClick={() => {
                     void markGroupRead(g)
                     if (g.session) openSession(g.session)
+                    const slug = routeTeamSlug ?? teams?.[0]?.slug
+                    if (g.deviceId && slug) {
+                      void navigate({
+                        to: `/t/$teamSlug/devices`,
+                        params: { teamSlug: slug },
+                        search: { device: g.deviceId },
+                      })
+                    }
                   }}
                 >
                   <RowGlyph icon={MessageIcon} compact={compact} />

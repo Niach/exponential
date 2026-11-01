@@ -61,6 +61,13 @@ export function useWebInstall(userId: string | undefined) {
         // EXP-1459: this tab also answers pending tree-key wraps.
         setKeyLeader(true)
         let bridge: ReturnType<typeof serveSteerBridge> | undefined
+        // EXP-1531: back online / visible again = the network may have changed.
+        const onOnline = () => install.networkChange()
+        const onVisible = () => {
+          if (document.visibilityState === `visible`) install.networkChange()
+        }
+        window.addEventListener(`online`, onOnline)
+        document.addEventListener(`visibilitychange`, onVisible)
         try {
           await install.start()
           if (install.running && typeof BroadcastChannel !== `undefined`) {
@@ -70,6 +77,8 @@ export function useWebInstall(userId: string | undefined) {
           // Hold the lock until this effect ends.
           await new Promise<void>((resolve) => abort.signal.addEventListener(`abort`, () => resolve()))
         } finally {
+          window.removeEventListener(`online`, onOnline)
+          document.removeEventListener(`visibilitychange`, onVisible)
           if (bridge) {
             setLocalSteerCarrier(undefined)
             bridge.stop()

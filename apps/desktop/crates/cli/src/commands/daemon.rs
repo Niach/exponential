@@ -1426,6 +1426,8 @@ fn dial_control(
         // EXP-1472: a new install may be waiting for its tree keys.
         coding::sealing::wake_holder();
     });
+    // P2P analytics (`connStats`): the feeds this daemon serves, its views.
+    steer::conn_stats::install(runtime.handle(), Arc::clone(&ctx.trpc) as _, "cli");
     let control_api: Arc<dyn ControlApi> = Arc::new(TrpcControlApi(Arc::clone(&ctx.trpc)));
     Some(steer::spawn_control_channel(
         runtime,

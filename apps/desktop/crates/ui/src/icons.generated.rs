@@ -602,6 +602,8 @@ pub const NAV_TERMINAL: ExpIcon = ExpIcon::SquareTerminal;
 pub const NAV_THREADS: ExpIcon = ExpIcon::ListTree;
 /// Registry concept `notification-agent-message` -> Lucide `bot`.
 pub const NOTIFICATION_AGENT_MESSAGE: ExpIcon = ExpIcon::Bot;
+/// Registry concept `notification-agent-signed-out` -> Lucide `log-out`.
+pub const NOTIFICATION_AGENT_SIGNED_OUT: ExpIcon = ExpIcon::LogOut;
 /// Registry concept `notification-issue-assigned` -> Lucide `user-plus`.
 pub const NOTIFICATION_ISSUE_ASSIGNED: ExpIcon = ExpIcon::UserPlus;
 /// Registry concept `notification-issue-comment` -> Lucide `message-square`.
@@ -1106,6 +1108,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "nav-terminal" => NAV_TERMINAL,
         "nav-threads" => NAV_THREADS,
         "notification-agent-message" => NOTIFICATION_AGENT_MESSAGE,
+        "notification-agent-signed-out" => NOTIFICATION_AGENT_SIGNED_OUT,
         "notification-issue-assigned" => NOTIFICATION_ISSUE_ASSIGNED,
         "notification-issue-comment" => NOTIFICATION_ISSUE_COMMENT,
         "notification-issue-created" => NOTIFICATION_ISSUE_CREATED,

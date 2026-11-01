@@ -608,6 +608,11 @@ pub struct Notification {
     /// a row whose run has since been pruned.
     #[serde(default)]
     pub session_id: Option<String>,
+    /// #EXP-1534: set on team-less `agent_signed_out` rows (the devices row
+    /// that lost a login) so the inbox row opens its settings; NULL
+    /// everywhere else, and once the device is removed.
+    #[serde(default)]
+    pub device_id: Option<String>,
     /// `notification_type` wire value — typed enum lands with the Phase-3
     /// inbox (§4.7); Phase 2 carries the raw string.
     #[serde(default, rename = "type")]
@@ -2192,6 +2197,33 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(n.session_id, None);
+    }
+
+    #[test]
+    fn notification_device_id_hydrates_and_degrades_to_none() {
+        // #EXP-1534: a team-less agent_signed_out row names its device.
+        let n: Notification = serde_json::from_value(json!({
+            "id": "n-1",
+            "user_id": "u-1",
+            "issue_id": null,
+            "team_id": null,
+            "device_id": "d-1",
+            "type": "agent_signed_out",
+            "title": "Claude Code account a@b.dev is signed out on mint",
+            "body": null
+        }))
+        .unwrap();
+        assert_eq!(n.device_id.as_deref(), Some("d-1"));
+        assert_eq!(n.team_id, None);
+
+        // A removed device (or a pre-column row) degrades to None.
+        let n: Notification = serde_json::from_value(json!({
+            "id": "n-2",
+            "user_id": "u-1",
+            "type": "agent_signed_out"
+        }))
+        .unwrap();
+        assert_eq!(n.device_id, None);
     }
 
     #[test]

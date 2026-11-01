@@ -5,3 +5,6 @@
 - As respostas rápidas acima do campo de texto leem-se melhor
 - As apps têm os separadores Chat, Dados, Versões e Definições no editor
 - Definições › MCP é uma página para os seus servidores MCP, ferramentas de apps e atividade
+- As sessões em direto continuam a transmitir, com encriptação ponto a ponto, quando a ligação direta ao dispositivo cai
+- O texto que escreves enquanto um comentário é enviado fica no editor
+- Um tópico mostra as tarefas da sua sessão filha em execução

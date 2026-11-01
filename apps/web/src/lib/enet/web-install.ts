@@ -16,8 +16,15 @@ import { forgetIdentity, loadOrCreateIdentity, type IdentityStore } from "./iden
 export const ENET_RELAY_URL = `https://relay.exponential.at`
 export const ALLOWLIST_REFRESH_MS = 10 * 60 * 1000
 
-/** One node event (crates/exponential-net-wasm `event_js`); only chat is read. */
-export type EnetEvent = { kind: `chat`; from: string; id: Uint8Array; timestampMs: number; body: Uint8Array } | { kind: string }
+/** One node event (crates/exponential-net-wasm `event_js`); chat and
+ *  peerDisconnected (EXP-1531: the LAST connection to `peer` closed) are read. */
+export type EnetEvent =
+  | { kind: `chat`; from: string; id: Uint8Array; timestampMs: number; body: Uint8Array }
+  | { kind: `peerDisconnected`; peer: string }
+  | { kind: string }
+
+/** EXP-1531: how a peer is reached right now. */
+export type EnetPathKind = `direct` | `iroh_relay`
 
 /** The slice of a running exponential-net-wasm `WasmNode` this module uses. */
 export type EnetNode = {
@@ -31,6 +38,12 @@ export type EnetNode = {
   /** Resolves once the peer acknowledged the message. */
   sendChat: (to: string, body: Uint8Array) => Promise<unknown>
   shutdown: () => Promise<void>
+  // EXP-1531: optional, an older wasm build lacks them.
+  /** undefined = no open connection to `id`. */
+  pathKind?: (id: string) => EnetPathKind | undefined
+  isConnected?: (id: string) => boolean
+  /** The network may have changed (online, tab visible): iroh re-probes. */
+  networkChange?: () => Promise<void>
 }
 
 export type ChatListener = (from: string, body: Uint8Array) => void
@@ -62,6 +75,7 @@ export class WebInstall {
   private allowed = new Set<string>()
   private pins = new Map<string, number>()
   private chatListeners = new Set<ChatListener>()
+  private goneListeners = new Set<(peer: string) => void>()
   private timer: ReturnType<typeof setInterval> | undefined
   private refreshing: Promise<void> = Promise.resolve()
   private stopped = false
@@ -92,6 +106,11 @@ export class WebInstall {
     this.node = node
     for (const id of this.pins.keys()) this.allowPeer(node, id)
     node.onEvent((event) => {
+      if (event.kind === `peerDisconnected`) {
+        const { peer } = event as Extract<EnetEvent, { kind: `peerDisconnected` }>
+        for (const listener of this.goneListeners) listener(peer)
+        return
+      }
       if (event.kind !== `chat`) return
       const { from, body } = event as Extract<EnetEvent, { kind: `chat` }>
       for (const listener of this.chatListeners) listener(from, body)
@@ -118,6 +137,28 @@ export class WebInstall {
   onChat(listener: ChatListener): () => void {
     this.chatListeners.add(listener)
     return () => void this.chatListeners.delete(listener)
+  }
+
+  /** EXP-1531: the last connection to a peer closed (hung up or timed out). */
+  onPeerDisconnected(listener: (peer: string) => void): () => void {
+    this.goneListeners.add(listener)
+    return () => void this.goneListeners.delete(listener)
+  }
+
+  /** EXP-1531: how `id` is reached now; null = no open connection (or an old build). */
+  pathKind(id: string): EnetPathKind | null {
+    if (!this.node || this.stopped) return null
+    try {
+      return this.node.pathKind?.(id) ?? null
+    } catch {
+      return null
+    }
+  }
+
+  /** EXP-1531: `online` / tab visible again: let iroh re-probe the network. */
+  networkChange(): void {
+    if (!this.node || this.stopped) return
+    void this.node.networkChange?.().catch(() => {})
   }
 
   async sendChat(to: string, body: Uint8Array): Promise<void> {

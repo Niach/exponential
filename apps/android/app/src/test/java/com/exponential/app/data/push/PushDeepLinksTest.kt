@@ -85,6 +85,43 @@ class PushDeepLinksTest {
         )
     }
 
+    /**
+     * #EXP-1534: a lost agent login (team-less) routes to its device's
+     * settings; with the device removed since, it lands in the inbox.
+     */
+    @Test
+    fun `an agent signed out push targets the device`() {
+        assertEquals(
+            PushDeepLinks.Target.Device("dev-row-1"),
+            PushDeepLinks.target(
+                type = PushDeepLinks.TYPE_AGENT_SIGNED_OUT,
+                issueId = null,
+                deviceId = "dev-row-1",
+            ),
+        )
+        assertEquals(
+            "exponential://device/dev-row-1?userId=user-1",
+            PushDeepLinks.uri(PushDeepLinks.Target.Device("dev-row-1"), "user-1"),
+        )
+        assertEquals(
+            PushDeepLinks.Target.Inbox,
+            PushDeepLinks.target(
+                type = PushDeepLinks.TYPE_AGENT_SIGNED_OUT,
+                issueId = null,
+                deviceId = null,
+            ),
+        )
+        // A device id on any other type is ignored.
+        assertEquals(
+            PushDeepLinks.Target.Inbox,
+            PushDeepLinks.target(
+                type = PushDeepLinks.TYPE_SESSION_BLOCKED,
+                issueId = null,
+                deviceId = "dev-row-1",
+            ),
+        )
+    }
+
     /** #EXP-1456: an Assistant's decision (or an @mention) carries its
      *  session and opens it, the same as a wall. */
     @Test

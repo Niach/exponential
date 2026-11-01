@@ -963,12 +963,23 @@ public protocol EnetNodeProtocol: AnyObject, Sendable {
     func hangUp(call: UInt64) throws 
     
     /**
+     * Whether any connection to `peer` is open.
+     */
+    func isConnected(peer: String) throws  -> Bool
+    
+    /**
      * Subscribes to a space (32 bytes): its records arrive as
      * `EnetEvent.Record`, and its state is pulled from neighbours.
      */
     func joinSpace(space: Data, bootstrap: [String]) async throws 
     
     func leaveSpace(space: Data) throws 
+    
+    /**
+     * Call on app foreground and on network regained: iroh re-probes the
+     * network and migrates its paths (mobile OSes do not tell native code).
+     */
+    func networkChange() async 
     
     /**
      * The next event; `None` once the node is shut down.
@@ -979,6 +990,12 @@ public protocol EnetNodeProtocol: AnyObject, Sendable {
      * Waits until the home relay is connected (no-op without relays).
      */
     func online(timeoutMs: UInt64) async throws 
+    
+    /**
+     * How `peer` is reached right now: `direct` | `iroh_relay` (the
+     * connStats `path` values), `None` = no open connection.
+     */
+    func pathKind(peer: String) throws  -> String?
     
     func putRecord(space: Data, key: String, value: Data) async throws  -> EnetRecord
     
@@ -1254,6 +1271,18 @@ open func hangUp(call: UInt64)throws   {try rustCallWithError(FfiConverterTypeEn
 }
     
     /**
+     * Whether any connection to `peer` is open.
+     */
+open func isConnected(peer: String)throws  -> Bool  {
+    return try  FfiConverterBool.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_method_enetnode_is_connected(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(peer),$0
+    )
+})
+}
+    
+    /**
      * Subscribes to a space (32 bytes): its records arrive as
      * `EnetEvent.Record`, and its state is pulled from neighbours.
      */
@@ -1280,6 +1309,28 @@ open func leaveSpace(space: Data)throws   {try rustCallWithError(FfiConverterTyp
         FfiConverterData.lower(space),$0
     )
 }
+}
+    
+    /**
+     * Call on app foreground and on network regained: iroh re-probes the
+     * network and migrates its paths (mobile OSes do not tell native code).
+     */
+open func networkChange()async   {
+    return
+        try!  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_exponential_net_ffi_fn_method_enetnode_network_change(
+                    self.uniffiCloneHandle()
+                    
+                )
+            },
+            pollFunc: ffi_exponential_net_ffi_rust_future_poll_void,
+            completeFunc: ffi_exponential_net_ffi_rust_future_complete_void,
+            freeFunc: ffi_exponential_net_ffi_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: nil
+            
+        )
 }
     
     /**
@@ -1321,6 +1372,19 @@ open func online(timeoutMs: UInt64)async throws   {
             liftFunc: { $0 },
             errorHandler: FfiConverterTypeEnetError_lift
         )
+}
+    
+    /**
+     * How `peer` is reached right now: `direct` | `iroh_relay` (the
+     * connStats `path` values), `None` = no open connection.
+     */
+open func pathKind(peer: String)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeEnetError_lift) {
+    uniffi_exponential_net_ffi_fn_method_enetnode_path_kind(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(peer),$0
+    )
+})
 }
     
 open func putRecord(space: Data, key: String, value: Data)async throws  -> EnetRecord  {
@@ -2408,6 +2472,13 @@ public enum EnetEvent: Equatable, Hashable {
     )
     case peerRefused(peer: String, alpn: String
     )
+    /**
+     * EXP-1531: the last open connection to `peer` closed (hung up, idle
+     * timeout, network change): a viewer joined to it treats its feed as
+     * dropped now instead of waiting out its stale timer.
+     */
+    case peerDisconnected(peer: String
+    )
 
 
 
@@ -2448,6 +2519,9 @@ public struct FfiConverterTypeEnetEvent: FfiConverterRustBuffer {
         )
         
         case 7: return .peerRefused(peer: try FfiConverterString.read(from: &buf), alpn: try FfiConverterString.read(from: &buf)
+        )
+        
+        case 8: return .peerDisconnected(peer: try FfiConverterString.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -2497,6 +2571,11 @@ public struct FfiConverterTypeEnetEvent: FfiConverterRustBuffer {
             writeInt(&buf, Int32(7))
             FfiConverterString.write(peer, into: &buf)
             FfiConverterString.write(alpn, into: &buf)
+            
+        
+        case let .peerDisconnected(peer):
+            writeInt(&buf, Int32(8))
+            FfiConverterString.write(peer, into: &buf)
             
         }
     }
@@ -3168,16 +3247,25 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_net_ffi_checksum_method_enetnode_hang_up() != 26095) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_is_connected() != 18373) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_net_ffi_checksum_method_enetnode_join_space() != 41913) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_method_enetnode_leave_space() != 39121) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_network_change() != 29978) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_net_ffi_checksum_method_enetnode_next_event() != 21141) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_method_enetnode_online() != 35855) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_net_ffi_checksum_method_enetnode_path_kind() != 45610) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_net_ffi_checksum_method_enetnode_put_record() != 1575) {

@@ -36,13 +36,14 @@ class InboxRouteTest {
             val expected = when (e.str("kind")) {
                 "issue" -> InboxRoute.RowTarget.Issue(e.str("issueId")!!, results = e["face"].orNullStr() == "results")
                 "session" -> InboxRoute.RowTarget.Session(e.str("sessionId")!!)
+                "device" -> InboxRoute.RowTarget.Device(e.str("deviceId")!!)
                 "none" -> InboxRoute.RowTarget.None
                 else -> error("unknown kind in ${case.str("name")}")
             }
             assertEquals(
                 case.str("name"),
                 expected,
-                InboxRoute.inboxRowTarget(row.str("type"), row.str("issueId"), row.str("sessionId")),
+                InboxRoute.inboxRowTarget(row.str("type"), row.str("issueId"), row.str("sessionId"), row.str("deviceId")),
             )
         }
     }

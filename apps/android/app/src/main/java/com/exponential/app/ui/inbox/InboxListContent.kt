@@ -65,6 +65,9 @@ fun InboxListContent(
     modifier: Modifier = Modifier,
     // EXP-980: a blocked-run row opens the run it is about.
     onOpenSession: (String) -> Unit = {},
+    // #EXP-1534: an agent_signed_out row opens its device's settings
+    // (the `devices` row id).
+    onOpenDevice: (String) -> Unit = {},
     // EXP-933: an issue row whose latest notification is an agent's message
     // opens the issue on its Results face.
     onOpenIssueGuide: (String) -> Unit = onOpenIssue,
@@ -115,6 +118,18 @@ fun InboxListContent(
                     ) {
                         viewModel.markMessageRead(entry.notification)
                         entry.sessionId?.let(onOpenSession)
+                    }
+                    // A lost agent login (#EXP-1534): the wall's row, team-less;
+                    // marks read and opens the device's settings, unless the
+                    // device has been removed.
+                    is InboxEntry.Device -> MessageInboxRow(
+                        icon = ExpIcons.notificationAgentSignedOut,
+                        notification = entry.notification,
+                        teamName = null,
+                        unread = entry.unread,
+                    ) {
+                        viewModel.markMessageRead(entry.notification)
+                        entry.deviceId?.let(onOpenDevice)
                     }
                 }
             }
@@ -290,5 +305,6 @@ private fun notificationTypeIcon(type: String): ImageVector = when (type) {
     DomainContract.notificationTypeReporterReply -> ExpIcons.notificationReporterReply
     DomainContract.notificationTypeAgentMessage -> ExpIcons.notificationAgentMessage
     DomainContract.notificationTypeSessionBlocked -> ExpIcons.notificationSessionBlocked
+    DomainContract.notificationTypeAgentSignedOut -> ExpIcons.notificationAgentSignedOut
     else -> ExpIcons.navNotifications
 }

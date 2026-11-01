@@ -1031,6 +1031,29 @@ final class SyncApplyTests: XCTestCase {
         XCTAssertEqual(stored?.type, "agent_message")
     }
 
+    // #EXP-1534: an `agent_signed_out` row is team-less AND issue-less and
+    // carries `device_id` (the devices row its tap opens); it must round-trip
+    // off the wire into the v89 column.
+    func testAgentSignedOutNotificationPersistsDeviceId() async throws {
+        let json = #"""
+            {"id":"n-so","user_id":"u1","issue_id":null,"team_id":null,"session_id":null,
+             "device_id":"d-mint","type":"agent_signed_out",
+             "title":"Claude Code account a@b.dev is signed out on mint","body":null,
+             "read_at":null,"pushed_at":null,
+             "created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}
+            """#
+        let notification = try JSONDecoder().decode(NotificationEntity.self, from: Data(json.utf8))
+        let message = ShapeMessage<NotificationEntity>.insert(
+            key: #""public"."notifications"/"n-so""#, value: notification
+        )
+        try await applyBatch(messages: [message], name: "notifications", table: "notifications", pool: pool)
+        let stored = try await pool.read { try NotificationEntity.fetchOne($0, key: "n-so") }
+        XCTAssertEqual(stored?.deviceId, "d-mint")
+        XCTAssertNil(stored?.teamId)
+        XCTAssertNil(stored?.issueId)
+        XCTAssertEqual(stored?.type, "agent_signed_out")
+    }
+
     // SLOP-4: a reporter's reply (author NULL, source reporter, audience
     // reporter) must persist — the v61 rebuild relaxed `author_id` and added
     // `audience` — and read back through the entity's flags.

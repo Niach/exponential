@@ -2622,6 +2622,10 @@ fn notification_type_icon(kind: Option<&str>) -> Icon {
         Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED) => {
             Icon::new(registry::NOTIFICATION_SESSION_BLOCKED)
         }
+        // #EXP-1534: one of the viewer's devices lost an agent login.
+        Some(domain::contract::NOTIFICATION_TYPE_AGENT_SIGNED_OUT) => {
+            Icon::new(registry::NOTIFICATION_AGENT_SIGNED_OUT)
+        }
         _ => Icon::new(registry::NAV_NOTIFICATIONS),
     }
 }
@@ -3051,7 +3055,9 @@ impl ListPanel {
     /// One blocked-session row (EXP-980): the waiting glyph and the title
     /// ("EXP-12 hit a rate limit"), the team name when synced. Click marks it
     /// read and opens the session — a pruned one (`session_id` NULL) only
-    /// marks read. ONE line, like every compact inbox row.
+    /// marks read. ONE line, like every compact inbox row. #EXP-1534: a
+    /// team-less `agent_signed_out` row is this row with its own glyph; its
+    /// click opens the device's settings on the Devices page.
     fn inbox_session_row(
         &self,
         entry: &queries::SessionInboxEntry,
@@ -3063,7 +3069,12 @@ impl ListPanel {
         } else {
             Vec::new()
         };
-        // #EXP-1456: the screen the session opens as (inbox-route.json).
+        // #EXP-1456: the screen the session opens as (inbox-route.json);
+        // #EXP-1534: a signed-out login opens its device's settings.
+        let device_id = match entry.target() {
+            domain::inbox_route::InboxRowTarget::Device { device_id } => Some(device_id),
+            _ => None,
+        };
         let target = entry
             .session_id()
             .map(|id| crate::plan_page::screen_for_session(&id, cx));
@@ -3074,8 +3085,7 @@ impl ListPanel {
         });
         let sentence: SharedString = entry.item.title.clone().unwrap_or_default().into();
         let team_name: Option<SharedString> = entry.team_name.clone().map(Into::into);
-        let type_icon =
-            notification_type_icon(Some(domain::contract::NOTIFICATION_TYPE_SESSION_BLOCKED));
+        let type_icon = notification_type_icon(entry.item.kind.as_deref());
         inbox_line_row(
             SharedString::from(format!("mini-inbox-session-{}", entry.item.id)),
             type_icon,
@@ -3092,6 +3102,11 @@ impl ListPanel {
             // (a switch would swap the whole strip away mid-step). A
             // pruned session leads nowhere.
             mark_group_read(&unread_ids, cx);
+            if let Some(device_id) = device_id.clone() {
+                this.open_from_list(Screen::Devices, window, cx);
+                crate::device_settings::open(window, cx, device_id);
+                return;
+            }
             let Some(screen) = target.clone() else {
                 return;
             };

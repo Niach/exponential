@@ -384,7 +384,7 @@ function usePictureSize(
 }
 
 /** A press on these never steps (the tap thirds skip them). */
-const INTERACTIVE = `button, a, input, textarea, select, label, [role="button"], [role="slider"], [role="radio"], [role="checkbox"], [role="switch"], [role="option"], [contenteditable="true"], [data-slot="story-footer"]`
+const INTERACTIVE = `button, a, input, textarea, select, label, [role="button"], [role="slider"], [role="radio"], [role="checkbox"], [role="switch"], [role="option"], [contenteditable="true"], [data-slot="story-footer"], [data-slot="story-footer-band"]`
 
 /** A floating band's scrim (`viewer.scrimHeight`): near-opaque behind the
  *  band's text, fading out over the extra `STORY_SCRIM_FADE` px past it,
@@ -512,6 +512,11 @@ export function StoryViewerPanel({
   }
   const swipeFrom = useRef<{ x: number; y: number } | null>(null)
   const onTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    // #EXP-1523: a drag in the footer scrolls it, never steps or closes.
+    if ((event.target as HTMLElement).closest(`[data-slot="story-footer-band"]`)) {
+      swipeFrom.current = null
+      return
+    }
     const touch = event.touches[0]
     swipeFrom.current = touch ? { x: touch.clientX, y: touch.clientY } : null
   }
@@ -725,9 +730,15 @@ function StoryFrameView({
       {frame.footer !== `none` && (
         <div
           className="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex flex-col justify-end"
-          style={storyScrim(`top`)}
+          // #EXP-1523: the footer's content stays within `footerMaxFraction`
+          // of the viewer and scrolls inside itself past it.
+          style={{ ...storyScrim(`top`), maxHeight: `calc(${STORY_VIEWER.footerMaxFraction * 100}% + ${STORY_SCRIM_FADE}px)` }}
         >
-          <div ref={footerRef} className="pointer-events-auto cursor-auto px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <div
+            ref={footerRef}
+            data-slot="story-footer-band"
+            className="pointer-events-auto min-h-0 cursor-auto overflow-y-auto overscroll-contain px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))]"
+          >
             {frame.footer === `open` ? (
               <StoryPlanFooter story={story} attachmentSrc={attachmentSrc} onOpenPlan={onOpenPlan} />
             ) : (

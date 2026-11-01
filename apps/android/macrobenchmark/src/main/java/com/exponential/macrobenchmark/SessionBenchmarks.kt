@@ -107,6 +107,9 @@ class SessionBenchmarks {
     /**
      * Cold-open the thread, then the session: the join replays the whole feed,
      * which used to be folded on the main thread in one block (EXP-1522).
+     * [SessionOpenFrameMetric] reads the frames after the card's tap: the
+     * `Choreographer#doFrame%` Max is the cold process's first frame (EGL +
+     * shader bring-up), not the session's.
      */
     @OptIn(ExperimentalMetricApi::class)
     @Test
@@ -114,6 +117,7 @@ class SessionBenchmarks {
         packageName = PACKAGE,
         metrics = listOf(
             FrameTimingMetric(),
+            SessionOpenFrameMetric(),
             TraceSectionMetric("Choreographer#doFrame%", TraceSectionMetric.Mode.Max),
             TraceSectionMetric("SteerConnection.commitStaging", TraceSectionMetric.Mode.Sum),
             TraceSectionMetric("SteerConnection.frame", TraceSectionMetric.Mode.Sum),
@@ -144,7 +148,10 @@ class SessionBenchmarks {
         iterations = ITERATIONS,
         setupBlock = {
             openSession()
-            device.pressBack()
+            // On a phone the session is a page of its thread's pager: Back
+            // leaves the thread, the Conversation tab returns to it.
+            device.wait(Until.findObject(By.res(CONVERSATION_TAB_TAG)), WAIT_MS)?.click()
+                ?: error("no Conversation tab")
             device.wait(Until.gone(By.res(FEED_TAG)), WAIT_MS)
             device.waitForIdle()
         },
@@ -221,13 +228,31 @@ class SessionBenchmarks {
         val conversation = device.wait(Until.findObject(By.res(CONVERSATION_TAG)), WAIT_MS)
             ?: error("thread `$threadId` did not open: is the app signed in?")
         conversation.setGestureMargin(device.displayWidth / 5)
+        // The card must sit in the middle third: the transcript scrolls under
+        // the floating header band and the composer band, and a card found
+        // under either takes no tap.
+        val top = device.displayHeight / 3
+        val bottom = device.displayHeight * 2 / 3
         var card = device.findObject(By.res(SESSION_CARD_TAG).hasDescendant(By.text(sessionTitle)))
         var scrolls = 0
-        while (card == null && scrolls++ < MAX_CARD_SCROLLS) {
-            conversation.scroll(Direction.UP, 0.8f)
+        while (scrolls++ < MAX_CARD_SCROLLS) {
+            val y = card?.visibleBounds?.centerY()
+            when {
+                y == null -> conversation.scroll(Direction.UP, 0.8f)
+                y < top -> conversation.scroll(Direction.UP, 0.3f)
+                y > bottom -> conversation.scroll(Direction.DOWN, 0.3f)
+                else -> break
+            }
+            // A tap while the transcript still settles from the scroll
+            // only stops it (the card never opened: `agent-feed` not found).
+            device.waitForIdle()
             card = device.findObject(By.res(SESSION_CARD_TAG).hasDescendant(By.text(sessionTitle)))
         }
         (card ?: error("no session card `$sessionTitle` in thread `$threadId`")).click()
+        // One retry: the first tap can still land on a settling list.
+        if (device.wait(Until.hasObject(By.res(FEED_TAG)), WAIT_MS / 3) != true) {
+            device.findObject(By.res(SESSION_CARD_TAG).hasDescendant(By.text(sessionTitle)))?.click()
+        }
         transcript()
         // The join replay has landed once an agent bubble paints.
         device.wait(Until.hasObject(By.res(BUBBLE_TAG)), WAIT_MS)
@@ -256,6 +281,7 @@ class SessionBenchmarks {
         const val DEFAULT_THREAD_ID = "5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13"
         const val DEFAULT_SESSION_TITLE = "Profile the launch path"
         const val CONVERSATION_TAG = "thread-conversation"
+        const val CONVERSATION_TAB_TAG = "thread-tab-conversation"
         const val SESSION_CARD_TAG = "session-card"
         const val FEED_TAG = "agent-feed"
         const val BUBBLE_TAG = "session-agent-bubble"

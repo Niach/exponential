@@ -5,3 +5,6 @@
 - Las respuestas rápidas sobre el campo de texto se leen mejor
 - Las apps tienen pestañas Chat, Datos, Versiones y Ajustes en el editor
 - Ajustes › MCP es una sola página para tus servidores MCP, herramientas de apps y actividad
+- Las sesiones en directo siguen transmitiendo, con cifrado de extremo a extremo, cuando se cae la conexión directa con el dispositivo
+- El texto que escribes mientras se envía un comentario se queda en el editor
+- Un hilo muestra las tareas de su sesión secundaria en curso

@@ -5,3 +5,6 @@
 - Snelle antwoorden boven het invoerveld zijn beter leesbaar
 - Apps krijgen de tabbladen Chat, Data, Versies en Instellingen in de editor
 - Instellingen › MCP is één pagina voor je MCP-servers, app-tools en activiteit
+- Live-sessies blijven streamen, end-to-end versleuteld, als de directe verbinding met het apparaat wegvalt
+- Tekst die je typt terwijl een opmerking wordt verzonden, blijft in het invoerveld
+- Een thread toont de taken van zijn lopende subsessie

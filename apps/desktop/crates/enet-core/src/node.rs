@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use iroh::{
     address_lookup::MemoryLookup,
-    endpoint::{presets, AfterHandshakeOutcome, Connection, EndpointHooks, Side},
+    endpoint::{presets, AfterHandshakeOutcome, Connection, EndpointHooks, QuicTransportConfig, Side},
     protocol::Router,
     Endpoint, EndpointAddr, EndpointId, RelayMode,
 };
@@ -19,6 +19,7 @@ use crate::{
     error::{NetError, Result},
     event::Event,
     identity::Identity,
+    links::{Links, PathKind},
     records::{self, Record, SpaceId, SyncProtocol, GOSSIP_ALPN, GOSSIP_MAX_MESSAGE, RECORDS_SYNC_ALPN},
     ticket::Ticket,
 };
@@ -34,6 +35,7 @@ pub(crate) struct Shared {
     pub(crate) chat: chat::ChatState,
     pub(crate) calls: call::CallState,
     pub(crate) records: records::RecordsState,
+    pub(crate) links: Links,
     events: mpsc::UnboundedSender<Event>,
 }
 
@@ -83,7 +85,24 @@ impl Shared {
 #[derive(Debug)]
 struct AccessHook {
     access: Access,
+    links: Links,
     events: mpsc::UnboundedSender<Event>,
+}
+
+/// EXP-1531: how often an idle connection proves it is alive (iroh's default
+/// is 5 s)...
+pub const KEEP_ALIVE: std::time::Duration = std::time::Duration::from_secs(2);
+/// ...and how long without a packet before it counts as dead (QUIC's default
+/// is 30 s, during which a send into a vanished peer waited out its ack and
+/// the viewer its stale timer). The peers negotiate the smaller of the two
+/// sides' values, so an older install gets the fast detection too.
+pub const IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+
+fn transport_config() -> QuicTransportConfig {
+    QuicTransportConfig::builder()
+        .keep_alive_interval(KEEP_ALIVE)
+        .max_idle_timeout(Some(IDLE_TIMEOUT.try_into().expect("idle timeout in range")))
+        .build()
 }
 
 /// The QUIC application error code an access refusal closes with.
@@ -121,6 +140,7 @@ impl EndpointHooks for AccessHook {
             }
             self.access.admitted(conn);
         }
+        self.links.track(conn, self.events.clone());
         AfterHandshakeOutcome::Accept
     }
 }
@@ -161,12 +181,14 @@ impl Node {
         }
         let (tx, rx) = mpsc::unbounded_channel();
         let lookup = MemoryLookup::new();
+        let links = Links::default();
         #[allow(unused_mut)]
         let mut builder = Endpoint::builder(presets::Minimal)
             .secret_key(identity.secret_key().clone())
             .relay_mode(relay_mode)
             .address_lookup(lookup.clone())
-            .hooks(AccessHook { access: access.clone(), events: tx.clone() });
+            .transport_config(transport_config())
+            .hooks(AccessHook { access: access.clone(), links: links.clone(), events: tx.clone() });
         #[cfg(not(wasm_browser))]
         if let Some(addr) = config.bind_addr {
             builder = builder.bind_addr(addr).map_err(|e| NetError::Bind(e.to_string()))?;
@@ -184,6 +206,7 @@ impl Node {
             chat: Default::default(),
             calls: Default::default(),
             records: Default::default(),
+            links,
             events: tx,
         });
         let weak = Arc::downgrade(&shared);
@@ -239,11 +262,50 @@ impl Node {
         self.events.lock().expect("events lock").take()
     }
 
+    // --- links (EXP-1531) ---------------------------------------------
+
+    /// Whether any connection to `peer` is open right now.
+    pub fn is_connected(&self, peer: &EndpointId) -> bool {
+        self.shared.links.connected(peer)
+    }
+    /// The path `peer` is reached on right now (direct beats relayed);
+    /// `None` = no open connection.
+    pub fn path_kind(&self, peer: &EndpointId) -> Option<PathKind> {
+        self.shared.links.path(peer)
+    }
+    /// Closes every connection to `peer`, both directions (the peer sees
+    /// them close; `PeerDisconnected` follows here). The next send dials
+    /// afresh. Returns how many were open.
+    pub fn disconnect(&self, peer: &EndpointId) -> usize {
+        self.shared.links.close(peer)
+    }
+    /// The app came back (foreground, network up, wake from sleep): tells
+    /// iroh to re-probe its network and migrate its paths (Android reports
+    /// no network change to native code; a suspended iOS app misses it).
+    /// Connections that died while suspended close on their idle timeout
+    /// and raise `PeerDisconnected`.
+    pub async fn network_change(&self) {
+        self.shared.endpoint.network_change().await;
+    }
+
+    /// Diagnostics: the connection id our cached chat link to `peer` runs
+    /// on (`None` = no live link). Stable while the link is reused.
+    #[doc(hidden)]
+    pub fn chat_link_id(&self, peer: &EndpointId) -> Option<usize> {
+        self.shared.chat.dialed_id(peer)
+    }
+
     // --- chat ----------------------------------------------------------
 
     /// Sends a message and waits for the peer's acknowledgement.
     pub async fn send_chat(&self, peer: EndpointId, body: Vec<u8>) -> Result<ChatMessage> {
         chat::send(&self.shared, peer, body).await
+    }
+
+    /// The path our chat link to `peer` runs on right now (`None` = no
+    /// live link yet).
+    pub fn chat_path(&self, peer: &EndpointId) -> Option<chat::ChatPath> {
+        self.shared.chat.path(peer)
     }
 
     // --- files ---------------------------------------------------------

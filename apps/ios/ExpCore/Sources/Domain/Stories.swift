@@ -93,6 +93,9 @@ public enum Stories {
         public static let insetX: Double = 96
         public static let insetY: Double = 48
         public static let minWidth: Double = 360
+        /// #EXP-1523: the footer's content is at most this share of the
+        /// viewer's height and scrolls inside itself past it.
+        public static let footerMaxFraction: Double = 0.6
     }
 
     /// #EXP-1461 THE STORY ROW's geometry (`row`).

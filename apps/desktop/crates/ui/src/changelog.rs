@@ -58,6 +58,27 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_148: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-sealed-agent-sends",
+    date: "2026-11-01",
+    title: "Agents seal their messages from the start",
+    summary: "Agents started while a device was still coming online now seal their messages and card answers.",
+    body: r#"- **No more refusals**: an agent started while its device was still coming online no longer gets "This chat is sealed" when it messages or answers a card."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_147: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-agent-signed-out",
+    date: "2026-11-01",
+    title: "Signed-out logins reach your inbox",
+    summary: "When one of your devices loses an agent login, you get one notification that opens that device's settings.",
+    body: r#"- **Once per login**: one inbox row and push when a login signs out; the next only after it was signed in again.
+- **Straight to the fix**: tapping it opens the device's settings to sign in again."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_146: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-comments-keep-typed-text",
     date: "2026-11-01",

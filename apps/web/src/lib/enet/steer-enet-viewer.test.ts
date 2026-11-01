@@ -14,8 +14,13 @@ function fakeCarrier(devices: Record<string, (frames: SteerFrame[], session: str
   const listeners = new Set<(from: string, body: Uint8Array) => void>()
   const sent: Array<{ to: string; session: string; frames: SteerFrame[] }> = []
   const allowed = new Map<string, number>()
+  const goneListeners = new Set<(peer: string) => void>()
+  const forgot: string[] = []
   const deliver = (from: string, body: Uint8Array) => {
     for (const listener of [...listeners]) listener(from, body)
+  }
+  const peerGone = (peer: string) => {
+    for (const listener of [...goneListeners]) listener(peer)
   }
   const carrier: SteerCarrier = {
     send: async (to, body) => {
@@ -35,8 +40,14 @@ function fakeCarrier(devices: Record<string, (frames: SteerFrame[], session: str
       listeners.add(listener)
       return () => void listeners.delete(listener)
     },
+    onPeerGone: (listener) => {
+      goneListeners.add(listener)
+      return () => void goneListeners.delete(listener)
+    },
+    forget: (to, session) => void forgot.push(`${to} ${session}`),
+    pathKind: (id) => (id === `d1` ? `iroh_relay` : null),
   }
-  return { carrier, sent, allowed, deliver, listeners }
+  return { carrier, sent, allowed, deliver, listeners, peerGone, goneListeners, forgot }
 }
 
 const REPLAY: SteerFrame[] = [
@@ -273,6 +284,26 @@ describe(`a joined feed`, () => {
     const { view } = await joined({ d1: (frames) => (++joins > 1 ? `mute` : live(frames)) })
     await vi.advanceTimersByTimeAsync(fixture.staleMs + fixture.joinTimeoutMs + 1)
     expect(view.closes).toEqual([CLOSE_ENET_LOST])
+  })
+
+  // EXP-1531: the node saw the device's last connection close.
+  it(`the joined device disconnecting loses the feed at once; another peer's does not`, async () => {
+    const { socket, view, peerGone, sent, allowed, goneListeners, forgot } = await joined()
+    expect(socket.pathKind()).toBe(`iroh_relay`)
+    peerGone(`d2`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(view.closes).toEqual([])
+    expect(socket.readyState).toBe(1)
+    peerGone(`d1`)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(view.closes).toEqual([CLOSE_ENET_LOST])
+    expect(socket.readyState).toBe(3)
+    // Ended like a failed send: no leave to a dead peer, the pin and the
+    // join count go.
+    expect(sent).toHaveLength(0)
+    expect(allowed.get(`d1`)).toBe(0)
+    expect(forgot).toEqual([`d1 ${SESSION}`])
+    expect(goneListeners.size).toBe(0)
   })
 
   it(`a failed send loses the feed`, async () => {

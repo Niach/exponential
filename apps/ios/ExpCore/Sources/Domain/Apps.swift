@@ -125,6 +125,11 @@ public enum Apps {
         public static let versionRestore = "app-version-restore"
         // VAPP-178: the Data tab's body.
         public static let data = "app-editor-data"
+        // VAPP-179: the Preview toolbar (web ≥ md + desktop only; phones
+        // have none, the ids stay in step with the fixture).
+        public static let previewToolbar = "app-preview-toolbar"
+        public static let previewFrame = "app-preview-frame"
+        public static let previewTemplate = "app-preview-template"
     }
 
     /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and
@@ -322,22 +327,24 @@ public enum Apps {
         return lines.joined(separator: "\n")
     }
 
-    /// The first template id of a package's JSON text (the editor renders
-    /// it); nil = not a package or no template. "First" = the key's order in
-    /// the TEXT, as the TS `Object.keys` of the parsed synced row.
-    public static func firstTemplateId(packageJSON: String) -> String? {
+    /// VAPP-179: the preview's template ids, sorted (web `previewTemplates`;
+    /// a JSON layer, Postgres JSONB included, does not keep the declared
+    /// order).
+    public static func previewTemplates(packageJSON: String) -> [String] {
         guard let data = packageJSON.data(using: .utf8),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let templates = object["templates"] as? [String: Any],
-              !templates.isEmpty,
-              let section = packageJSON.range(of: "\"templates\"")
-        else { return nil }
-        let tail = packageJSON[section.upperBound...]
-        return templates.keys.min { a, b in
-            let ia = tail.range(of: "\"\(a)\"")?.lowerBound ?? tail.endIndex
-            let ib = tail.range(of: "\"\(b)\"")?.lowerBound ?? tail.endIndex
-            return ia != ib ? ia < ib : a < b
-        }
+              let templates = object["templates"] as? [String: Any]
+        else { return [] }
+        return templates.keys.sorted()
+    }
+
+    /// The template the preview shows: the picked one while the package has
+    /// it, else the first (web `previewTemplate`, `templateCases`); nil = not
+    /// a package or no template. Phones have no picker: they pass nil.
+    public static func previewTemplate(packageJSON: String, picked: String? = nil) -> String? {
+        let list = previewTemplates(packageJSON: packageJSON)
+        if let picked, list.contains(picked) { return picked }
+        return list.first
     }
 }
 

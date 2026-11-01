@@ -227,7 +227,7 @@ impl SealingTransform {
     /// tRPC `sessions.sendTarget {agentId|appId}`: the conversation root a
     /// send to an agent / app lands in, its key and an app's brief.
     fn send_target(&self, args: &Map<String, Value>) -> Result<SendTarget, SealError> {
-        sealing::service().ok_or(SealError::NoService)?;
+        sealing::sealer()?;
         let Some(trpc) = &self.trpc else {
             return Err(SealError::NoKey("no tRPC client to look its chat up".into()));
         };
@@ -244,7 +244,7 @@ impl SealingTransform {
     /// A fresh tree key for a new thread, wrapped for this install (its
     /// other readers get theirs through `pending`).
     fn new_root_seal(&self) -> Result<NewRootSeal, SealError> {
-        let service = sealing::service().ok_or(SealError::NoService)?;
+        let service = sealing::sealer()?;
         let (Some(install_id), Some(public)) = (service.install_id(), service.install_public()) else {
             return Err(SealError::NoKey("this install cannot wrap a tree key yet".into()));
         };
@@ -277,11 +277,17 @@ impl SealingTransform {
             // A plaintext card: the server answers it as before.
             return Ok(args);
         };
+        // #FEED-184: a sealed card takes a sealed answer only: wait for a
+        // coming key holder, and never send the plaintext answer the server
+        // refuses anyway.
+        if let Err(err) = sealing::sealer() {
+            unsealed("an answer", &err)?;
+            return Ok(args);
+        }
         let root = self.root_for(target).unwrap_or(tree_root);
         let opened = open_card_value(&root, card);
         if opened.0 != OpenStatus::Opened {
-            log::warn!("gateway: the card to answer could not be opened ({}); the answer goes as given", opened.0.as_str());
-            return Ok(args);
+            return Err(refused("an answer", &format!("the sealed card could not be opened on this device ({})", opened.0.as_str())));
         }
         let answered = answered_card(&opened.1, answer)?;
         let sealed = match self.seal_card(&root, &answered) {
@@ -716,7 +722,10 @@ fn refused(what: &str, err: &dyn std::fmt::Display) -> String {
 
 /// Why a session's root is unknown: no key holder at all, or a lookup miss.
 fn no_root() -> SealError {
-    if sealing::service().is_some() { SealError::UnknownRoot } else { SealError::NoService }
+    match sealing::sealer() {
+        Ok(_) => SealError::UnknownRoot,
+        Err(err) => err,
+    }
 }
 
 fn card_kind(message: &Value) -> Option<&str> {
@@ -1991,6 +2000,123 @@ mod tests {
         assert!(server.calls.lock().unwrap().iter().any(|(t, _)| t == "trpc:sessions.escalateTarget"));
         codemode::revoke("root-1");
         sealing::uninstall();
+    }
+
+    /// #FEED-184, end to end through the gateway's HTTP: an agent on device
+    /// A (a team agent, launched while A's key holder was still coming)
+    /// sends text to, and answers the open question card in, a SEALED
+    /// thread it started that runs on device B. Device B holds the tree
+    /// secret; A holds it too (its starter's wrap) once its holder runs.
+    /// Nothing reaches the server in clear, and B opens both.
+    #[test]
+    fn an_agent_on_device_a_messages_and_answers_a_sealed_thread_on_device_b() {
+        let _serial = serial();
+        sealing::uninstall();
+        sealing::set_service_wait(std::time::Duration::from_secs(10));
+        // Device B's tree key for the thread (root-b, child child-b).
+        let tree = enet_core::sealed::generate_tree_key();
+        let question = enet_core::sealed::seal_card(
+            &tree.public,
+            1,
+            &json!({ "kind": "question", "question": "Ship 0.14.96 now?", "options": ["Yes", "No"], "multi": false, "custom": true }),
+        )
+        .unwrap();
+        let answer: Answer = Arc::new(move |tool, args| match tool {
+            SESSIONS_TOOL if args["op"] == "get" => json!({
+                "root": { "id": "root-b" },
+                "children": [{ "id": "child-b" }],
+                "messages": [{ "id": "q-b", "sessionId": "child-b", "card": question, "answeredAt": null }],
+            }),
+            _ => json!({ "sessionId": args["sessionId"], "messageId": "m-b", "status": "running", "deliverTo": null }),
+        });
+        let server = fake_server(answer, json!({}));
+        // Device A: eNet started, the install not registered yet.
+        sealing::expect_service(true);
+        let grant = gateway(&server, "agent-a", "agent-a");
+
+        // A's key holder comes up while the send waits for it.
+        let holder = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let fake = Arc::new(crate::sealing::test_support::FakeService::default());
+            fake.keyring.insert_secret("root-b", 1, tree.secret);
+            fake.keyring.set_current("root-b", 1, tree.public);
+            fake.roots.lock().unwrap().insert("child-b".into(), "root-b".into());
+            fake.roots.lock().unwrap().insert("root-b".into(), "root-b".into());
+            sealing::install(fake);
+        });
+        let out = call(&grant, SEND_TOOL, json!({ "sessionId": "child-b", "text": "PING-184 from the Assistant" }));
+        holder.join().unwrap();
+        assert!(out.get("error").is_none(), "{out}");
+        let sent = calls_of(&server, SEND_TOOL).pop().unwrap();
+        let text = sent["text"].as_str().unwrap();
+        assert!(text.starts_with(SEALED_BODY_PREFIX), "{text}");
+        let opened_on_b = enet_core::sealed::open_body(text, &|_| Some(tree.secret));
+        assert_eq!(opened_on_b.text.as_deref(), Some("PING-184 from the Assistant"));
+
+        // The open question card of the thread: answered, re-sealed whole.
+        let out = call(&grant, SEND_TOOL, json!({ "sessionId": "child-b", "answer": { "answers": ["Yes"] } }));
+        assert!(out.get("error").is_none(), "{out}");
+        let sent = calls_of(&server, SEND_TOOL).pop().unwrap();
+        assert_eq!(sent["answer"]["messageId"], "q-b");
+        assert!(sent["answer"].get("answers").is_none() && sent["answer"].get("answer").is_none(), "{sent}");
+        let card = enet_core::sealed::open_card(&sent["answer"]["sealedCard"], &|_| Some(tree.secret)).card;
+        assert_eq!(card["answer"], "Yes");
+        assert_eq!(card["question"], "Ship 0.14.96 now?");
+        for (tool, args) in server.calls.lock().unwrap().iter() {
+            let args = args.to_string();
+            assert!(!args.contains("PING-184") && !args.contains("\"Yes\""), "{tool} went out in clear: {args}");
+        }
+
+        codemode::revoke("agent-a");
+        sealing::uninstall();
+        sealing::expect_service(false);
+        sealing::set_service_wait(sealing::SERVICE_WAIT);
+    }
+
+    /// #FEED-184: a key holder that is coming but never runs refuses the
+    /// send and the answer (nothing in clear); none coming at all keeps the
+    /// plaintext a keyless process may send.
+    #[test]
+    fn a_coming_key_holder_that_never_runs_refuses_instead_of_sending_in_clear() {
+        let _serial = serial();
+        sealing::uninstall();
+        sealing::set_service_wait(std::time::Duration::from_millis(400));
+        let sealed_card = enet_core::sealed::seal_card(
+            &enet_core::sealed::generate_tree_key().public,
+            1,
+            &json!({ "kind": "question", "question": "Q?", "options": ["A"], "custom": true }),
+        )
+        .unwrap();
+        let answer: Answer = Arc::new(move |tool, args| match tool {
+            SESSIONS_TOOL if args["op"] == "get" => json!({
+                "root": { "id": "root-b" },
+                "messages": [{ "id": "q-b", "sessionId": "child-b", "card": sealed_card, "answeredAt": null }],
+            }),
+            _ => json!({ "sessionId": "child-b", "messageId": "m", "status": "running" }),
+        });
+        let server = fake_server(answer, json!({}));
+        sealing::expect_service(true);
+        let grant = gateway(&server, "agent-a", "agent-a");
+        let out = call(&grant, SEND_TOOL, json!({ "sessionId": "child-b", "text": "CLEAR-184" }));
+        assert!(out["error"].as_str().is_some_and(|e| e.contains("not running yet")), "{out}");
+        let out = call(&grant, SEND_TOOL, json!({ "sessionId": "child-b", "answer": { "answers": ["A"] } }));
+        assert!(out["error"].as_str().is_some_and(|e| e.contains("not running yet")), "{out}");
+        assert!(calls_of(&server, SEND_TOOL).is_empty());
+
+        // A holder that runs but cannot open the card: refused too.
+        let fake = install_fake();
+        fake.roots.lock().unwrap().insert("child-b".into(), "root-b".into());
+        let out = call(&grant, SEND_TOOL, json!({ "sessionId": "child-b", "answer": { "answers": ["A"] } }));
+        assert!(out["error"].as_str().is_some_and(|e| e.contains("could not be opened")), "{out}");
+        assert!(calls_of(&server, SEND_TOOL).is_empty());
+        sealing::uninstall();
+
+        // No key holder will ever come (eNet off): plaintext as ever.
+        sealing::expect_service(false);
+        call(&grant, SEND_TOOL, json!({ "sessionId": "child-b", "text": "PLAIN-OK" }));
+        assert_eq!(calls_of(&server, SEND_TOOL).pop().unwrap()["text"], "PLAIN-OK");
+        codemode::revoke("agent-a");
+        sealing::set_service_wait(sealing::SERVICE_WAIT);
     }
 
     #[test]

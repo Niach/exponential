@@ -106,6 +106,62 @@ pub fn mint_control_ticket(trpc: &TrpcClient) -> Result<MintTicketResult, ApiErr
     mint(trpc, &MintInput::Control)
 }
 
+/// P2P fallback (`steer-enet.json` `fallback`): `steer.tunnelTicket`'s
+/// answer. `Unavailable` = no relay leg for this session right now (the
+/// caller may not view it, or its device is offline / older on the relay).
+#[derive(Clone, Debug, PartialEq)]
+pub enum TunnelTicketResult {
+    Disabled,
+    Unavailable,
+    Ticket(MintedTicket),
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum TunnelWire {
+    Ticket { ticket: String, url: String },
+    // Non-strict: `{disabled: true}`, `{unavailable: true}`, or any other
+    // shape a newer server sends = no tunnel.
+    Other(serde_json::Value),
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct TunnelInput<'a> {
+    session_id: &'a str,
+}
+
+/// `steer.tunnelTicket({sessionId})` — the sealed relay tunnel's ticket
+/// (role `tunnel`, 60 s connect window: dial `url` as-is, at once).
+pub fn tunnel_ticket(trpc: &TrpcClient, session_id: &str) -> Result<TunnelTicketResult, ApiError> {
+    let wire: TunnelWire = trpc.mutation("steer.tunnelTicket", &TunnelInput { session_id })?;
+    Ok(match wire {
+        TunnelWire::Ticket { ticket, url } => TunnelTicketResult::Ticket(MintedTicket { ticket, url }),
+        TunnelWire::Other(value) if value.get("disabled").and_then(|v| v.as_bool()) == Some(true) => {
+            TunnelTicketResult::Disabled
+        }
+        TunnelWire::Other(_) => TunnelTicketResult::Unavailable,
+    })
+}
+
+#[derive(Deserialize)]
+struct RecordedWire {
+    #[serde(default)]
+    accepted: u32,
+}
+
+#[derive(Serialize)]
+struct RecordInput<'a> {
+    events: &'a [serde_json::Value],
+}
+
+/// `connStats.record({events})` (<= 50 eCore envelopes, `steer-enet.json`
+/// `connStats`) → how many the server accepted.
+pub fn record_conn_stats(trpc: &TrpcClient, events: &[serde_json::Value]) -> Result<u32, ApiError> {
+    let wire: RecordedWire = trpc.mutation("connStats.record", &RecordInput { events })?;
+    Ok(wire.accepted)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -116,6 +172,36 @@ mod tests {
 
     fn client(base: &str) -> TrpcClient {
         TrpcClient::new(base, Arc::new(StaticToken("tok".to_string())))
+    }
+
+    #[test]
+    fn tunnel_ticket_decodes_every_answer() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"ticket":"t.k","url":"wss://relay/ws?ticket=t.k"}}}"#,
+        );
+        let result = tunnel_ticket(&client(&base), "s1").unwrap();
+        assert_eq!(
+            result,
+            TunnelTicketResult::Ticket(MintedTicket { ticket: "t.k".into(), url: "wss://relay/ws?ticket=t.k".into() })
+        );
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/steer.tunnelTicket HTTP/1.1"));
+        assert!(request.contains(r#"{"sessionId":"s1"}"#));
+        let (base, _) = one_shot_server(200, r#"{"result":{"data":{"disabled":true}}}"#);
+        assert_eq!(tunnel_ticket(&client(&base), "s1").unwrap(), TunnelTicketResult::Disabled);
+        let (base, _) = one_shot_server(200, r#"{"result":{"data":{"unavailable":true}}}"#);
+        assert_eq!(tunnel_ticket(&client(&base), "s1").unwrap(), TunnelTicketResult::Unavailable);
+    }
+
+    #[test]
+    fn conn_stats_record_posts_the_events() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"accepted":1}}}"#);
+        let events = vec![serde_json::json!({"v": 1, "id": "e1"})];
+        assert_eq!(record_conn_stats(&client(&base), &events).unwrap(), 1);
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("POST /api/trpc/connStats.record HTTP/1.1"));
+        assert!(request.contains(r#"{"events":[{"id":"e1","v":1}]}"#) || request.contains(r#""events":["#));
     }
 
     #[test]

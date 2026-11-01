@@ -11,11 +11,15 @@
 // joins per (device, session) across tabs and forwards a `leave` only when
 // the last tab leaves; a second tab's `join` restarts the feed for all of
 // them, which each store takes as a re-join (staged, one commit).
+// EXP-1531: joins are counted per SOCKET (`${tab}:${sub}`), not per tab, so a
+// superseded socket's leave never ends a newer socket's feed in the same tab;
+// a lost feed only `forget`s its count (no leave goes out). The node's
+// `peerDisconnected` and each peer's path ride the bridge like chat does.
 // No node tab answering within WHO_TIMEOUT_MS = no carrier = no feed.
 
 import { encodeSteerEnvelope, parseSteerEnvelope, STEER_ENET_SEND_TIMEOUT_MS } from "@exp/domain-contract/steer-enet"
 import type { SteerCarrier } from "./steer-enet-viewer"
-import type { ChatListener } from "./web-install"
+import type { ChatListener, EnetPathKind } from "./web-install"
 
 export const STEER_BRIDGE_CHANNEL = `exp-enet-steer`
 export const WHO_TIMEOUT_MS = 500
@@ -33,18 +37,23 @@ export type BridgeChannel = {
 export type BridgeMessage =
   | { op: `who` }
   | { op: `here` }
-  | { op: `send`; tab: string; req: number; to: string; body: Uint8Array }
+  | { op: `send`; tab: string; req: number; to: string; body: Uint8Array; sub?: string }
+  | { op: `forget`; tab: string; to: string; sessionId: string; sub: string }
   | { op: `sent`; tab: string; req: number; error?: string }
   | { op: `allow`; tab: string; pin: number; id: string }
   | { op: `release`; tab: string; pin: number }
   | { op: `gone`; tab: string }
-  | { op: `chat`; from: string; body: Uint8Array }
+  | { op: `chat`; from: string; body: Uint8Array; path?: EnetPathKind }
+  | { op: `peerGone`; peer: string }
 
 /** What the router needs from the running node (WebInstall). */
 export type SteerNode = {
   onChat: (listener: ChatListener) => () => void
   sendChat: (to: string, body: Uint8Array) => Promise<void>
   pin: (id: string) => () => void
+  /** EXP-1531 (optional: fakes and older nodes lack them). */
+  onPeerDisconnected?: (listener: (peer: string) => void) => () => void
+  pathKind?: (id: string) => EnetPathKind | null
 }
 
 /** The node tab's view of every tab's steer joins. */
@@ -54,20 +63,22 @@ export class SteerRouter {
 
   constructor(private readonly node: SteerNode) {}
 
-  /** `tab`'s chat message; a steer `leave` another tab still needs is held back. */
-  async send(tab: string, to: string, body: Uint8Array): Promise<void> {
+  /** `tab`'s chat message (from its socket `sub`); a steer `leave` another
+   *  socket (of any tab) still needs is held back. */
+  async send(tab: string, to: string, body: Uint8Array, sub = ``): Promise<void> {
     const envelope = parseSteerEnvelope(body)
     if (!envelope) return this.node.sendChat(to, body)
     const key = `${to} ${envelope.sessionId}`
+    const member = `${tab}:${sub}`
     const frames = envelope.frames.filter((frame) => {
       if (frame.t === `join`) {
-        const tabs = this.joins.get(key) ?? new Set<string>()
-        tabs.add(tab)
-        this.joins.set(key, tabs)
+        const subs = this.joins.get(key) ?? new Set<string>()
+        subs.add(member)
+        this.joins.set(key, subs)
       } else if (frame.t === `leave`) {
-        const tabs = this.joins.get(key)
-        tabs?.delete(tab)
-        if (tabs && tabs.size > 0) return false
+        const subs = this.joins.get(key)
+        subs?.delete(member)
+        if (subs && subs.size > 0) return false
         this.joins.delete(key)
       }
       return true
@@ -77,6 +88,14 @@ export class SteerRouter {
       to,
       frames.length === envelope.frames.length ? body : encodeSteerEnvelope(envelope.sessionId, frames)
     )
+  }
+
+  /** A lost feed's socket stops counting; no leave goes out (the feed is gone). */
+  forget(tab: string, to: string, sessionId: string, sub: string) {
+    const key = `${to} ${sessionId}`
+    const subs = this.joins.get(key)
+    subs?.delete(`${tab}:${sub}`)
+    if (subs?.size === 0) this.joins.delete(key)
   }
 
   allow(tab: string, pin: number | string, id: string): () => void {
@@ -100,8 +119,14 @@ export class SteerRouter {
       release()
       this.pins.delete(key)
     }
-    for (const [key, tabs] of this.joins) {
-      if (!tabs.delete(tab) || tabs.size > 0) continue
+    for (const [key, subs] of this.joins) {
+      let had = false
+      for (const member of subs) {
+        if (!member.startsWith(`${tab}:`)) continue
+        subs.delete(member)
+        had = true
+      }
+      if (!had || subs.size > 0) continue
       this.joins.delete(key)
       const [to, sessionId] = key.split(` `) as [string, string]
       void this.node.sendChat(to, encodeSteerEnvelope(sessionId, [{ t: `leave` }])).catch(() => {})
@@ -111,9 +136,12 @@ export class SteerRouter {
   carrier(tab: string = SELF): SteerCarrier {
     let pins = 0
     return {
-      send: (to, body) => this.send(tab, to, body),
+      send: (to, body, sub) => this.send(tab, to, body, sub),
+      forget: (to, sessionId, sub) => this.forget(tab, to, sessionId, sub),
       allow: (id) => this.allow(tab, `l${++pins}`, id),
       subscribe: (listener) => this.node.onChat(listener),
+      onPeerGone: (listener) => this.node.onPeerDisconnected?.(listener) ?? (() => {}),
+      pathKind: (id) => this.node.pathKind?.(id) ?? null,
     }
   }
 }
@@ -122,18 +150,21 @@ export class SteerRouter {
 export function serveSteerBridge(node: SteerNode, channel: BridgeChannel) {
   const router = new SteerRouter(node)
   const offChat = node.onChat((from, body) => {
-    if (parseSteerEnvelope(body)) channel.postMessage({ op: `chat`, from, body })
+    if (parseSteerEnvelope(body)) channel.postMessage({ op: `chat`, from, body, path: node.pathKind?.(from) ?? undefined })
   })
+  const offGone = node.onPeerDisconnected?.((peer) => channel.postMessage({ op: `peerGone`, peer }))
   channel.onmessage = ({ data }) => {
     switch (data.op) {
       case `who`:
         return channel.postMessage({ op: `here` })
       case `send`:
-        return void router.send(data.tab, data.to, data.body).then(
+        return void router.send(data.tab, data.to, data.body, data.sub).then(
           () => channel.postMessage({ op: `sent`, tab: data.tab, req: data.req }),
           (error: unknown) =>
             channel.postMessage({ op: `sent`, tab: data.tab, req: data.req, error: String(error) })
         )
+      case `forget`:
+        return router.forget(data.tab, data.to, data.sessionId, data.sub)
       case `allow`:
         return void router.allow(data.tab, data.pin, data.id)
       case `release`:
@@ -147,6 +178,7 @@ export function serveSteerBridge(node: SteerNode, channel: BridgeChannel) {
     carrier: router.carrier(),
     stop() {
       offChat()
+      offGone?.()
       router.dropTab(SELF)
       channel.onmessage = null
       channel.close()
@@ -158,6 +190,9 @@ export function serveSteerBridge(node: SteerNode, channel: BridgeChannel) {
 export class SteerBridgeClient {
   readonly tab = `t${Math.random().toString(36).slice(2)}`
   private listeners = new Set<ChatListener>()
+  private goneListeners = new Set<(peer: string) => void>()
+  /** The node tab's last word on each peer's path (EXP-1531). */
+  private paths = new Map<string, EnetPathKind>()
   private waiting = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private heard: Array<() => void> = []
   private req = 0
@@ -173,7 +208,11 @@ export class SteerBridgeClient {
         this.heard = []
         for (const resolve of heard) resolve()
       } else if (data.op === `chat`) {
+        if (data.path) this.paths.set(data.from, data.path)
         for (const listener of this.listeners) listener(data.from, data.body)
+      } else if (data.op === `peerGone`) {
+        this.paths.delete(data.peer)
+        for (const listener of [...this.goneListeners]) listener(data.peer)
       } else if (data.op === `sent` && data.tab === this.tab) {
         const pending = this.waiting.get(data.req)
         this.waiting.delete(data.req)
@@ -195,7 +234,8 @@ export class SteerBridgeClient {
     })
     if (!answered) return undefined
     return {
-      send: (to, body) => this.send(to, body),
+      send: (to, body, sub) => this.send(to, body, sub),
+      forget: (to, sessionId, sub) => this.channel.postMessage({ op: `forget`, tab: this.tab, to, sessionId, sub }),
       allow: (id) => {
         const pin = ++this.pins
         this.channel.postMessage({ op: `allow`, tab: this.tab, pin, id })
@@ -205,7 +245,17 @@ export class SteerBridgeClient {
         this.listeners.add(listener)
         return () => void this.listeners.delete(listener)
       },
+      onPeerGone: (listener) => {
+        this.goneListeners.add(listener)
+        return () => void this.goneListeners.delete(listener)
+      },
+      pathKind: (id) => this.pathKind(id),
     }
+  }
+
+  /** The path the node tab last reported for `id` (null = none / gone). */
+  pathKind(id: string): EnetPathKind | null {
+    return this.paths.get(id) ?? null
   }
 
   /** This tab is going away (pagehide). */
@@ -213,7 +263,7 @@ export class SteerBridgeClient {
     this.channel.postMessage({ op: `gone`, tab: this.tab })
   }
 
-  private send(to: string, body: Uint8Array): Promise<void> {
+  private send(to: string, body: Uint8Array, sub?: string): Promise<void> {
     const req = ++this.req
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -230,7 +280,7 @@ export class SteerBridgeClient {
           reject(error)
         },
       })
-      this.channel.postMessage({ op: `send`, tab: this.tab, req, to, body })
+      this.channel.postMessage({ op: `send`, tab: this.tab, req, to, body, sub })
     })
   }
 }
@@ -255,4 +305,11 @@ export function currentSteerCarrier(): Promise<SteerCarrier | undefined> {
     globalThis.addEventListener?.(`pagehide`, () => bridge.gone())
   }
   return client.carrier()
+}
+
+/** EXP-1531 (connStats): how this browser's node reaches `endpointId` right
+ *  now; null = no open connection, no node, or an older wasm build. */
+export function enetPathKind(endpointId: string): EnetPathKind | null {
+  if (local) return local.pathKind?.(endpointId) ?? null
+  return client?.pathKind(endpointId) ?? null
 }

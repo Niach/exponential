@@ -96,6 +96,9 @@ object Stories {
         const val INSET_Y = 48f
         /** ... and its least width (a tall picture letterboxed on black). */
         const val MIN_WIDTH = 360f
+        /** #EXP-1523: the footer's content is at most this share of the
+         *  viewer's height and scrolls inside itself past it. */
+        const val FOOTER_MAX_FRACTION = 0.6f
     }
 
     /** THE STORY ROW of the chats header (#EXP-1461, `row`, dp). */

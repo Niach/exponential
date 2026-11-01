@@ -35,6 +35,21 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Everywhere**: chat pictures, stories, the plan page and attachments, on the web, desktop, iOS and Android; iOS Results no longer open in Quick Look.`,
   },
   {
+    id: `2026-11-01-sealed-agent-sends`,
+    date: `2026-11-01`,
+    title: `Agents seal their messages from the start`,
+    summary: `Agents started while a device was still coming online now seal their messages and card answers.`,
+    body: `- **No more refusals**: an agent started while its device was still coming online no longer gets "This chat is sealed" when it messages or answers a card.`,
+  },
+  {
+    id: `2026-11-01-agent-signed-out`,
+    date: `2026-11-01`,
+    title: `Signed-out logins reach your inbox`,
+    summary: `When one of your devices loses an agent login, you get one notification that opens that device's settings.`,
+    body: `- **Once per login**: one inbox row and push when a login signs out; the next only after it was signed in again.
+- **Straight to the fix**: tapping it opens the device's settings to sign in again.`,
+  },
+  {
     id: `2026-11-01-comments-keep-typed-text`,
     date: `2026-11-01`,
     title: `Comments keep what you type while they send`,

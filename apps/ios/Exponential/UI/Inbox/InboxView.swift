@@ -57,7 +57,8 @@ struct InboxListContent: View {
                         case .blockedRun(let entry):
                             // A blocked session (EXP-980) opens the SESSION. A
                             // row whose session has been pruned has nowhere to
-                            // go, so it only marks itself read.
+                            // go, so it only marks itself read. #EXP-1534: a
+                            // signed-out login opens its device's settings.
                             sessionRowButton(entry.target, markRead: { viewModel.markBlockedRunRead(entry) }) {
                                 blockedRunRow(entry)
                             }
@@ -75,7 +76,9 @@ struct InboxListContent: View {
     /// #EXP-1456 (inbox-route.json): an issue-less row's tap marks it read
     /// first, then opens its session by `InboxRoute.sessionTarget` (the
     /// viewer's own agent conversation = the agent's page, a thread = the
-    /// thread, else the session); no target = only mark read.
+    /// thread, else the session); #EXP-1534: a device target opens the
+    /// Devices page with that device's settings open; no target = only mark
+    /// read.
     private func sessionRowButton<Label: View>(
         _ target: InboxRoute.RowTarget,
         markRead: @escaping () -> Void,
@@ -83,8 +86,13 @@ struct InboxListContent: View {
     ) -> some View {
         Button {
             markRead()
-            if case let .session(sessionId) = target {
+            switch target {
+            case let .session(sessionId):
                 pushRoute(AppRoute.openingInbox(sessionId, accountId: accountId, deps: deps))
+            case let .device(deviceRowId):
+                deps.deepLinkBus.navigateToDevice(deviceRowId, accountId: accountId)
+            case .issue, .none:
+                break
             }
         } label: {
             label()
@@ -203,12 +211,13 @@ struct InboxListContent: View {
     /// One blocked run (EXP-980): the hourglass badge, the sentence
     /// ("EXP-12 hit a rate limit") as the headline, the team name when the
     /// user is in more than one team, the body ("Rate limited · resets in 2h")
-    /// underneath. Same anatomy as the agent-message row.
+    /// underneath. Same anatomy as the agent-message row. #EXP-1534: a
+    /// signed-out login is this row too, with its own concept icon.
     private func blockedRunRow(_ entry: InboxViewModel.BlockedRunEntry) -> some View {
         let unread = entry.unread > 0
         let n = entry.notification
         return HStack(alignment: .top, spacing: 10) {
-            AppIcon(AppIcons.notificationSessionBlocked, size: AppIcon.Size.small)
+            AppIcon(typeIcon(n.type), size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .frame(width: 28, height: 28)
                 .background(Color.white.opacity(0.08), in: Circle())
@@ -298,6 +307,8 @@ struct InboxListContent: View {
             return AppIcons.notificationAgentMessage
         case DomainContract.notificationTypeSessionBlocked:
             return AppIcons.notificationSessionBlocked
+        case DomainContract.notificationTypeAgentSignedOut:
+            return AppIcons.notificationAgentSignedOut
         default:
             return AppIcons.navNotifications
         }

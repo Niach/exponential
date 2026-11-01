@@ -48,7 +48,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     // #EXP-1463: a surface frame = the fixed frame (`story_viewer_size`
     // without a picture) in the 1440 × 900 capture window.
     let size = domain::stories::story_viewer_size(None, (1440., 900.));
-    let panel = story_panel(ring, &frames, 0, 0, 0., avatar, content, PanelHandlers::default(), cx)
+    let panel = story_panel(ring, &frames, 0, 0, 0., size.height as f32, avatar, content, PanelHandlers::default(), cx)
         .w(px(size.width as f32))
         .h(px(size.height as f32))
         .rounded(px(spec.radius))

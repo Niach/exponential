@@ -998,7 +998,7 @@ fn mcp_url(base_url: &str) -> String {
 
 /// EXP-1458: where a launched session's agent reaches Exponential's MCP —
 /// `(base URL, bearer)` with `{base}/api/mcp` the endpoint. While this
-/// process seals (a [`crate::sealing::service`] is installed) that is the
+/// process seals (a [`crate::sealing::service`] is installed or expected) that is the
 /// device's loopback MCP GATEWAY (`codemode::gateway_grant`): the agent
 /// holds a per-run gateway token and the real `expu_` key stays in the
 /// grant, which forwards every call upstream through
@@ -1026,7 +1026,11 @@ fn gateway_allowed_here() -> bool {
 
 fn mcp_route(deps: &CodingDeps, row: &SessionRow, personal_key: &str) -> (String, String) {
     let direct = || (deps.trpc.base_url().to_string(), personal_key.to_string());
-    if crate::sealing::service().is_none() || !gateway_allowed_here() {
+    // #FEED-184: a key holder still COMING counts: an agent launched before
+    // the install registered (a boot while offline) is wired through the
+    // gateway too, which waits for the holder; wired directly it would send
+    // in clear for the whole life of its process.
+    if !crate::sealing::service_expected() || !gateway_allowed_here() {
         return direct();
     }
     let upstream = codemode::Upstream {
@@ -3997,6 +4001,24 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(prepared.spawn.env.contains(&(MCP_TOKEN_ENV.to_string(), "expu_seeded".to_string())));
+
+        // #FEED-184: a key holder still COMING (a boot while offline: the
+        // agent launches before the install registers) is the gateway too,
+        // never the direct wiring that would send in clear for good.
+        let (base, _captured) = canned_server_recording(repo_calls());
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&worktree));
+        deps.settings.claude_path = acp_ready_claude_stub(&dir.0).to_string_lossy().into_owned();
+        crate::sealing::expect_service(true);
+        GATEWAY_IN_TEST.with(|on| on.set(true));
+        let prepared = ready(launch(session_request(row("sess-gw3", Some("repo-happy")), &["EXP-42"]), &deps));
+        GATEWAY_IN_TEST.with(|on| on.set(false));
+        crate::sealing::expect_service(false);
+        match &prepared.acp.mcp {
+            AgentMcp::ClaudeInline { url, .. } => assert!(url.ends_with("/gateway/api/mcp"), "{url}"),
+            other => panic!("{other:?}"),
+        }
+        assert!(!prepared.spawn.env.iter().any(|(_, v)| v == "expu_seeded"), "{:?}", prepared.spawn.env);
+        codemode::revoke("sess-gw3");
     }
 
     #[cfg(unix)]

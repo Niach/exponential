@@ -2332,9 +2332,14 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
     /// EXP-980: the run a `session_blocked` row is about — the inbox row's tap
     /// target. NULL once the run has been pruned (the row still renders).
     public let sessionId: String?
+    /// #EXP-1534: the devices ROW an `agent_signed_out` row is about — its
+    /// tap opens that device's settings. NULL on every other type and once
+    /// the device is removed (the row still renders).
+    public let deviceId: String?
     // notification_type: issue_assigned|issue_comment|issue_status_changed|
     //                    issue_mention|issue_created|pr_opened|pr_merged|
-    //                    reporter_reply|agent_message|session_blocked
+    //                    reporter_reply|agent_message|session_blocked|
+    //                    agent_signed_out
     public let type: String
     public let title: String
     public let body: String?
@@ -2349,6 +2354,7 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
         issueId: String?,
         teamId: String? = nil,
         sessionId: String? = nil,
+        deviceId: String? = nil,
         type: String,
         title: String,
         body: String?,
@@ -2362,6 +2368,7 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
         self.issueId = issueId
         self.teamId = teamId
         self.sessionId = sessionId
+        self.deviceId = deviceId
         self.type = type
         self.title = title
         self.body = body
@@ -2377,6 +2384,7 @@ public struct NotificationEntity: Codable, FetchableRecord, PersistableRecord, I
         case issueId = "issue_id"
         case teamId = "team_id"
         case sessionId = "session_id"
+        case deviceId = "device_id"
         case readAt = "read_at"
         case pushedAt = "pushed_at"
         case createdAt = "created_at"

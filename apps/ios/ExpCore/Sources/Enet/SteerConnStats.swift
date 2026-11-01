@@ -116,11 +116,12 @@ public struct SteerViewStats: Sendable {
         self.openedAt = openedAt
     }
 
-    /// The `path` of a carrier (eNet reports no direct/relayed split here:
-    /// it counts as `direct`).
-    public static func path(_ carrier: SteerCarrier.Active) -> String? {
+    /// The `path` of a carrier. eNet's is the node's `path_kind` for the
+    /// joined device (#EXP-1531: `direct` | `iroh_relay`), `direct` when
+    /// the node does not know.
+    public static func path(_ carrier: SteerCarrier.Active, enetPath: String? = nil) -> String? {
         switch carrier {
-        case .enet: "direct"
+        case .enet: enetPath == "iroh_relay" ? "iroh_relay" : "direct"
         case .relay: "server_fallback"
         case .none: nil
         }
@@ -128,8 +129,8 @@ public struct SteerViewStats: Sendable {
 
     /// A carrier became active. The first one is the first frame (and the
     /// settle); every later one is a feed restart.
-    public mutating func active(_ carrier: SteerCarrier.Active, at: Date = Date()) -> SteerConnEvent? {
-        guard let path = Self.path(carrier) else { return nil }
+    public mutating func active(_ carrier: SteerCarrier.Active, enetPath: String? = nil, at: Date = Date()) -> SteerConnEvent? {
+        guard let path = Self.path(carrier, enetPath: enetPath) else { return nil }
         if firstFrameMs != nil {
             reconnects += 1
             return nil

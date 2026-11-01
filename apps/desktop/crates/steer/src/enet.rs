@@ -431,6 +431,9 @@ impl InstallNode {
             team_entries: Mutex::new(HashMap::new()),
             stored: Mutex::new(None),
         });
+        // #FEED-184: a key holder is coming; sessions launched before it
+        // runs still seal (they wait for it) instead of going out in clear.
+        coding::sealing::expect_service(true);
         runtime.spawn(run(Arc::clone(&inner)));
         InstallNode { inner }
     }
@@ -487,6 +490,7 @@ impl InstallNode {
     /// VAPP-43: serve STORED REPLAY joins off `stored` (the host's data dir
     /// and its synced `sessions` rows).
     pub fn serve_stored(&self, stored: crate::enet_steer::StoredJournals) {
+        crate::enet_steer::set_tunnel_stored(stored.clone());
         *lock(&self.inner.stored) = Some(stored);
     }
 
@@ -514,6 +518,7 @@ impl InstallNode {
     /// next sign-in of the account reuses it).
     pub fn stop(&self) {
         self.inner.stopped.store(true, Ordering::SeqCst);
+        coding::sealing::expect_service(false);
         if let Some(holder) = lock(&self.inner.holder).take() {
             holder.stop();
         }
@@ -598,6 +603,15 @@ async fn register(inner: &Arc<Inner>, identity: &Identity) -> Registered {
 }
 
 async fn run(inner: Arc<Inner>) {
+    run_node(&inner).await;
+    // No key holder comes from a node that is gone (stopped, or never up).
+    if lock(&inner.holder).is_none() {
+        coding::sealing::expect_service(false);
+    }
+}
+
+async fn run_node(inner: &Arc<Inner>) {
+    let inner = Arc::clone(inner);
     let path = inner.spec.identity_path.clone();
     let mut fresh_mints = 0;
     let (node, identity, mut registered) = loop {
@@ -642,10 +656,16 @@ async fn run(inner: Arc<Inner>) {
         if matches!(registered, Registered::Later) {
             registered = register(&inner, &identity).await;
         }
+        if matches!(registered, Registered::Never) {
+            // Refused for good: no key holder ever comes in this process.
+            coding::sealing::expect_service(false);
+        }
         if matches!(registered, Registered::Yes) {
             start_holder(&inner, &identity);
-            if let Some(holder) = lock(&inner.holder).as_ref() {
-                holder.set_direct_sender(direct_sender(&inner));
+            match lock(&inner.holder).as_ref() {
+                Some(holder) => holder.set_direct_sender(direct_sender(&inner)),
+                // No key API on this registry: no holder will come.
+                None => coding::sealing::expect_service(false),
             }
         }
         let allowed = refresh_allowlist(&inner, &node, relay.as_ref()).await;
@@ -832,6 +852,14 @@ async fn log_events(inner: Arc<Inner>, mut events: tokio::sync::mpsc::UnboundedR
     while let Some(event) = events.recv().await {
         match event {
             Event::Chat { from, message } => receive_chat(&inner, &from, &message.body),
+            // EXP-1531: a dead link drops its feeds now, not at a timeout.
+            Event::PeerDisconnected { peer } => {
+                let node = lock(&inner.node).clone();
+                if let Some(node) = node {
+                    let closed = crate::enet_steer::peer_disconnected(&node, peer);
+                    log::info!("enet: link to {} closed ({closed} viewer subscriptions dropped)", endpoint_hex(&peer));
+                }
+            }
             Event::PeerRefused { peer, .. } => {
                 log::info!("enet: refused {}", endpoint_hex(&peer));
                 // Maybe a teammate's install registered after our last

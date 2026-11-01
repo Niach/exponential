@@ -10,6 +10,12 @@
 //! likely because it restarted under the same identity (a reloaded browser
 //! tab). Our cached link to it is then dead without a close, so it is closed
 //! on that dial and the next send reconnects instead of waiting out the ack.
+//!
+//! EXP-1531: only a peer that dials us AGAIN counts (it already had a live
+//! inbound link to us, so it lost its own): a peer's FIRST dial is its first
+//! message our way, and steer talks both ways on two links. Closing our link
+//! on every first dial made alternating directions reconnect on each turn
+//! (a ping-pong that also re-sent messages caught mid-ack).
 
 use std::{
     collections::HashMap,
@@ -76,23 +82,61 @@ pub(crate) struct ChatState {
     /// The connection under each peer's cached link, reachable while a send
     /// holds the slot (the slot's lock can be held for a whole ack wait).
     dialed: Mutex<HashMap<EndpointId, WeakConnectionHandle>>,
+    /// The connections each peer dialed us on (its own outbound links).
+    accepted: Mutex<HashMap<EndpointId, Vec<WeakConnectionHandle>>>,
 }
 
 /// The close code of a link dropped because the peer dialed us afresh.
 const PEER_REDIALED_CODE: u32 = 0;
 
 impl ChatState {
+    /// The id of the connection our cached link to `peer` runs on.
+    pub(crate) fn dialed_id(&self, peer: &EndpointId) -> Option<usize> {
+        let dialed = self.dialed.lock().expect("chat lock");
+        let conn = dialed.get(peer)?.upgrade()?;
+        conn.close_reason().is_none().then(|| conn.stable_id())
+    }
+
     fn slot(&self, peer: EndpointId) -> Slot {
         self.links.lock().expect("chat lock").entry(peer).or_default().clone()
     }
 
-    /// The peer dialed us: close our link to it, a send waiting on it fails
-    /// at once and reconnects.
+    /// Records `conn` (dialed by its peer); `true` = the peer already had
+    /// another inbound link open to us, so this dial replaces a link it lost.
+    fn accepted(&self, conn: &Connection) -> bool {
+        let mut accepted = self.accepted.lock().expect("chat lock");
+        let list = accepted.entry(conn.remote_id()).or_default();
+        list.retain(|weak| weak.upgrade().is_some_and(|c| c.close_reason().is_none()));
+        let redial = list.iter().any(|weak| weak.upgrade().is_some_and(|c| c.stable_id() != conn.stable_id()));
+        list.push(conn.weak_handle());
+        redial
+    }
+
+    /// The peer dialed us again: close our link to it, a send waiting on it
+    /// fails at once and reconnects.
     fn peer_redialed(&self, peer: &EndpointId) {
         let dialed = self.dialed.lock().expect("chat lock").remove(peer);
         if let Some(conn) = dialed.and_then(|weak| weak.upgrade()) {
             conn.close(PEER_REDIALED_CODE.into(), b"peer redialed");
         }
+    }
+}
+
+/// The carrier under a peer's chat link (P2P analytics, `steer-enet.json`
+/// `connStats.paths`): a direct IP path or one through an iroh relay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatPath {
+    Direct,
+    Relay,
+}
+
+impl ChatState {
+    /// The selected path of our cached link to `peer`; `None` = no live link.
+    pub(crate) fn path(&self, peer: &EndpointId) -> Option<ChatPath> {
+        let conn = self.dialed.lock().expect("chat lock").get(peer)?.upgrade()?;
+        let paths = conn.paths();
+        let selected = paths.iter().find(|path| path.is_selected())?;
+        Some(if selected.is_relay() { ChatPath::Relay } else { ChatPath::Direct })
     }
 }
 
@@ -109,7 +153,9 @@ pub(crate) async fn send(shared: &Shared, peer: EndpointId, body: Vec<u8>) -> Re
     for attempt in 0..2 {
         // Out of the slot while in flight: a send cancelled mid-exchange (a
         // caller's timeout) drops the link instead of leaving it cached.
-        let mut l = match link.take() {
+        // EXP-1531: a link whose connection already closed (idle timeout,
+        // peer hung up) is skipped without spending the retry on it.
+        let mut l = match link.take().filter(|l| l._conn.close_reason().is_none()) {
             Some(l) => l,
             None => {
                 let conn = shared.connect(peer, CHAT_ALPN).await?;
@@ -161,7 +207,9 @@ impl ProtocolHandler for ChatProtocol {
     async fn accept(&self, conn: Connection) -> Result<(), AcceptError> {
         let from = conn.remote_id();
         if let Some(shared) = self.shared.upgrade() {
-            shared.chat.peer_redialed(&from);
+            if shared.chat.accepted(&conn) {
+                shared.chat.peer_redialed(&from);
+            }
         }
         loop {
             let (mut send, mut recv) = match conn.accept_bi().await {

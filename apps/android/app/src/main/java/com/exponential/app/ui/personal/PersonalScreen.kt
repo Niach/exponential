@@ -39,6 +39,8 @@ fun PersonalScreen(
     onBack: () -> Unit = {},
     // EXP-980: a blocked-run inbox row opens the run it is about.
     onOpenSession: (String) -> Unit = {},
+    // #EXP-1534: an agent_signed_out row opens its device's settings.
+    onOpenDevice: (String) -> Unit = {},
     // EXP-933: an agent message's issue row opens that issue's Results face.
     onOpenIssueGuide: (String) -> Unit = onOpenIssue,
     inboxViewModel: InboxViewModel = hiltViewModel(),
@@ -75,6 +77,7 @@ fun PersonalScreen(
             InboxListContent(
                 onOpenIssue = onOpenIssue,
                 onOpenSession = onOpenSession,
+                onOpenDevice = onOpenDevice,
                 onOpenIssueGuide = onOpenIssueGuide,
                 viewModel = inboxViewModel,
                 modifier = Modifier.weight(1f).fillMaxWidth(),

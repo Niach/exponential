@@ -1,6 +1,7 @@
 // #EXP-1456: where an inbox row (and its push) opens ×4. An issue row opens
 // its issue; an issue-less row naming a session opens that session (an
-// agent's question or plan, a mention, a wall); `sessionTarget` is the
+// agent's question or plan, a mention, a wall); #EXP-1534: an `agent_signed_out`
+// row opens its device's settings; `sessionTarget` is the
 // session entity ref's rule. fixtures/inbox-route.json; mirrors: desktop
 // `domain::inbox_route`, iOS `InboxRoute.swift`, Android `domain/InboxRoute.kt`.
 
@@ -8,11 +9,14 @@ export interface InboxRouteRow {
   type: string
   issueId: string | null
   sessionId: string | null
+  /** #EXP-1534: the devices row an `agent_signed_out` row is about. */
+  deviceId?: string | null
 }
 
 export type InboxRowTarget =
   | { kind: `issue`; issueId: string; face: `results` | null }
   | { kind: `session`; sessionId: string }
+  | { kind: `device`; deviceId: string }
   | { kind: `none` }
 
 /** The issue-less types an inbox lists. */
@@ -28,6 +32,9 @@ export function inboxRowTarget(row: InboxRouteRow): InboxRowTarget {
   }
   if (SESSION_ROW_TYPES.has(row.type) && row.sessionId) {
     return { kind: `session`, sessionId: row.sessionId }
+  }
+  if (row.type === `agent_signed_out` && row.deviceId) {
+    return { kind: `device`, deviceId: row.deviceId }
   }
   return { kind: `none` }
 }

@@ -1495,6 +1495,15 @@ export const devices = pgTable(
     // `launch_defaults_updated_at` only, or every usage refresh would nudge
     // the fleet.
     agentUsage: jsonb(`agent_usage`).$type<DeviceAgentUsageMap>(),
+    // #EXP-1534: the logins (`agentSignOutKey`: agent + profile) whose
+    // healthy → signed_out/needs_relogin move already notified the owner;
+    // a key leaves only when that login reads `ok` again, so a re-register
+    // or a repeated heartbeat never notifies twice. Server-only, outside
+    // the shape allowlist.
+    agentSignOutNotified: jsonb(`agent_sign_out_notified`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     agentUsageAt: timestamp(`agent_usage_at`, { withTimezone: true }),
     // EXP-1196: the device's readiness report (DeviceDoctor above), written
     // on register + heartbeat. NULL = not reported yet: clients render
@@ -1781,6 +1790,12 @@ export const notifications = pgTable(
     sessionId: uuid(`session_id`).references(() => sessions.id, {
       onDelete: `set null`,
     }),
+    // #EXP-1534: the device an `agent_signed_out` row is about (the inbox
+    // row and its push open that device's settings ×4). Synced; SET NULL
+    // keeps the delivered row when the device is removed.
+    deviceId: uuid(`device_id`).references(() => devices.id, {
+      onDelete: `set null`,
+    }),
     type: notificationTypeEnum().notNull(),
     title: varchar({ length: 500 }).notNull(),
     body: text(),
@@ -1820,6 +1835,10 @@ export const notifications = pgTable(
     index(`idx_notifications_session`)
       .on(table.sessionId)
       .where(sql`session_id IS NOT NULL`),
+    // #EXP-1534: the device_id SET NULL fires per removed device.
+    index(`idx_notifications_device`)
+      .on(table.deviceId)
+      .where(sql`device_id IS NOT NULL`),
   ]
 )
 
