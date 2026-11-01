@@ -27,7 +27,7 @@ shots/            COMMITTED webp store, <view>/<platform>.webp + index.json
 docs/             third-party-licences.md + licences/     selfhost/  pull-an-image compose + INSTALL.md
 ```
 
-Workspace names `@exp/<dir>`; `apps/desktop` = Cargo (shared `CARGO_TARGET_DIR`).
+Workspace names `@exp/<dir>`; `apps/desktop` = Cargo (shared `CARGO_TARGET_DIR`). Shared libs are named `e<lib>` (eui, etalk, enet, epilot, emcp, eagent, ecore; the planned apps runtime = `eapps`, tag `eapps-v*`, not `exponential-apps`).
 
 ## Commands
 
