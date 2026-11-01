@@ -260,12 +260,18 @@ pub fn cleanup_staging() {
 /// deadline here; callers set their own per request, and TCP keepalive probes
 /// kill a silently-dead peer rather than leaving a transfer hanging.
 ///
-/// Built per call — the updater makes two requests in a session, so there is
-/// nothing to pool.
+/// Release assets are plain `github.com/<repo>/releases/download/<tag>/<name>`
+/// URLs (never api.github.com, so no API rate limit applies) that 302 to
+/// `release-assets.githubusercontent.com`; the redirect policy is pinned
+/// explicitly so a default change can never strand the download on the 302.
+///
+/// Built per call — the updater makes a handful of requests in a session, so
+/// there is nothing to pool.
 fn client() -> Result<reqwest::blocking::Client> {
     reqwest::blocking::Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .tcp_keepalive(Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::limited(10))
         .build()
         .context("build updater HTTP client")
 }
@@ -275,30 +281,121 @@ fn client() -> Result<reqwest::blocking::Client> {
 /// hang the updater thread for the life of the process.
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(60 * 60);
 
-/// Fetch a small text asset (SHA256SUMS.txt) into memory.
-pub fn fetch_text(url: &str) -> Result<String> {
-    let response = client()?
-        .get(url)
-        .timeout(Duration::from_secs(30))
-        .header("User-Agent", USER_AGENT)
-        .send()
-        .with_context(|| format!("GET {url}"))?
-        .error_for_status()
-        .with_context(|| format!("GET {url}"))?;
-    response.text().context("read body")
+/// Attempts per request. A laptop waking from sleep or a flapping Wi-Fi gives
+/// "Could not resolve host" / "operation timed out" for a minute (the 0.14.91
+/// failure: one connect timeout to github.com failed the whole update), so
+/// transient failures retry with backoff instead of surfacing at once.
+const ATTEMPTS: u32 = 4;
+
+/// Backoff before retry `n` (1-based): 2s, 4s, 8s — ~14s in total, inside what
+/// a person watching the banner tolerates. Tests shrink it to milliseconds.
+fn backoff(retry: u32) -> Duration {
+    let unit = if cfg!(test) { Duration::from_millis(5) } else { Duration::from_secs(1) };
+    unit * 2u32.pow(retry.min(5))
 }
 
-/// Fetch a small asset as raw bytes (signatures cover bytes, not decoded text).
-pub fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
-    let response = client()?
+/// One failed attempt: the error, and whether trying again can help.
+struct Attempt {
+    error: anyhow::Error,
+    transient: bool,
+}
+
+/// Retry policy by HTTP status: rate limits and server errors pass, a 404 or
+/// 403 (wrong tag, missing asset) never will.
+fn transient_status(status: reqwest::StatusCode) -> bool {
+    status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status == reqwest::StatusCode::REQUEST_TIMEOUT
+        || status.is_server_error()
+}
+
+/// The innermost cause of a transport error ("operation timed out", "dns
+/// error: …") — reqwest's top-level message repeats the URL we already print.
+fn transport_cause(err: &reqwest::Error) -> String {
+    let mut cause: &dyn std::error::Error = err;
+    while let Some(next) = cause.source() {
+        cause = next;
+    }
+    let kind = if err.is_connect() {
+        "connect failed"
+    } else if err.is_timeout() {
+        "timed out"
+    } else {
+        "request failed"
+    };
+    let inner = cause.to_string();
+    if inner == err.to_string() { kind.to_string() } else { format!("{kind}: {inner}") }
+}
+
+/// Send one GET; a non-2xx answer becomes an error carrying the status AND
+/// the start of the body (GitHub explains a 403/429 there), so the banner
+/// shows the real reason instead of a bare step name.
+fn get_once(url: &str, timeout: Duration) -> Result<reqwest::blocking::Response, Attempt> {
+    let client = client().map_err(|error| Attempt { error, transient: false })?;
+    let response = client
         .get(url)
-        .timeout(Duration::from_secs(30))
+        .timeout(timeout)
         .header("User-Agent", USER_AGENT)
         .send()
-        .with_context(|| format!("GET {url}"))?
-        .error_for_status()
-        .with_context(|| format!("GET {url}"))?;
-    Ok(response.bytes().context("read body")?.to_vec())
+        .map_err(|err| Attempt {
+            error: anyhow::anyhow!("GET {url}: {}", transport_cause(&err)),
+            transient: true,
+        })?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(response);
+    }
+    let body = response.text().unwrap_or_default();
+    let body = body.split_whitespace().collect::<Vec<_>>().join(" ");
+    let snippet: String = body.chars().take(200).collect();
+    let error = if snippet.is_empty() {
+        anyhow::anyhow!("GET {url}: HTTP {status}")
+    } else {
+        anyhow::anyhow!("GET {url}: HTTP {status}: {snippet}")
+    };
+    Err(Attempt { error, transient: transient_status(status) })
+}
+
+/// Run `attempt` up to [`ATTEMPTS`] times, backing off between transient
+/// failures. The last error says how many tries it took.
+fn with_retries<T>(mut attempt: impl FnMut() -> Result<T, Attempt>) -> Result<T> {
+    let mut tries = 0;
+    loop {
+        tries += 1;
+        match attempt() {
+            Ok(value) => return Ok(value),
+            Err(Attempt { error, transient }) if transient && tries < ATTEMPTS => {
+                log::warn!("[updater] attempt {tries}/{ATTEMPTS} failed, retrying: {error:#}");
+                std::thread::sleep(backoff(tries));
+            }
+            Err(Attempt { error, transient }) => {
+                return Err(if transient && tries > 1 {
+                    error.context(format!("gave up after {tries} attempts"))
+                } else {
+                    error
+                });
+            }
+        }
+    }
+}
+
+/// Fetch a small asset as raw bytes (signatures cover bytes, not decoded
+/// text), retrying transient failures.
+pub fn fetch_bytes(url: &str) -> Result<Vec<u8>> {
+    with_retries(|| {
+        let response = get_once(url, Duration::from_secs(30))?;
+        response
+            .bytes()
+            .map(|bytes| bytes.to_vec())
+            .map_err(|err| Attempt {
+                error: anyhow::anyhow!("GET {url}: read body: {}", transport_cause(&err)),
+                transient: true,
+            })
+    })
+}
+
+/// Fetch a small text asset (the CLI's release list) into memory.
+pub fn fetch_text(url: &str) -> Result<String> {
+    String::from_utf8(fetch_bytes(url)?).with_context(|| format!("GET {url}: body is not UTF-8"))
 }
 
 /// Fetch `SHA256SUMS.txt` and, when this build pins a key ([`pinned_pubkey`]),
@@ -315,10 +412,11 @@ pub fn fetch_verified_sums_with(
     sig_url: Option<&str>,
     pubkey: Option<&str>,
 ) -> Result<String> {
-    let sums = fetch_bytes(sums_url).with_context(|| format!("fetch {SUMS_ASSET}"))?;
+    // No extra context: each error already names the URL, i.e. the asset.
+    let sums = fetch_bytes(sums_url)?;
     let signature = match (pubkey, sig_url) {
         (Some(_), Some(url)) => {
-            let bytes = fetch_bytes(url).with_context(|| format!("fetch {SIG_ASSET}"))?;
+            let bytes = fetch_bytes(url)?;
             Some(String::from_utf8(bytes).with_context(|| format!("{SIG_ASSET} is not UTF-8"))?)
         }
         _ => None,
@@ -353,45 +451,14 @@ pub fn verify_sums_signature(sums: &[u8], signature: Option<&str>, pubkey: Optio
 
 /// Stream `url` to `dest`, reporting `(received, total)` after each chunk.
 /// Writes `<dest>.part` and renames on success so `dest` is never partial.
+/// A transient failure (connect, mid-stream drop, 5xx) restarts the download
+/// from zero; the progress callback simply sees the count reset.
 pub fn download(url: &str, dest: &Path, mut progress: impl FnMut(u64, Option<u64>)) -> Result<()> {
     if let Some(parent) = dest.parent() {
         fs::create_dir_all(parent).context("create staging dir")?;
     }
     let part = dest.with_extension("part");
-
-    let mut response = client()?
-        .get(url)
-        .timeout(DOWNLOAD_TIMEOUT)
-        .header("User-Agent", USER_AGENT)
-        .send()
-        .with_context(|| format!("GET {url}"))?
-        .error_for_status()
-        .with_context(|| format!("GET {url}"))?;
-    let total = response.content_length();
-
-    let reader = &mut response;
-    let result = (|| -> Result<()> {
-        let mut file = fs::File::create(&part).context("create download file")?;
-        let mut received = 0u64;
-        let mut buf = [0u8; 64 * 1024];
-        loop {
-            let n = reader.read(&mut buf).context("read download stream")?;
-            if n == 0 {
-                break;
-            }
-            file.write_all(&buf[..n]).context("write download file")?;
-            received += n as u64;
-            progress(received, total);
-        }
-        if let Some(total) = total {
-            if received != total {
-                bail!("download truncated: {received} of {total} bytes");
-            }
-        }
-        file.sync_all().ok();
-        Ok(())
-    })();
-
+    let result = with_retries(|| download_once(url, &part, &mut progress));
     match result {
         Ok(()) => {
             fs::rename(&part, dest).context("finalize download")?;
@@ -402,6 +469,42 @@ pub fn download(url: &str, dest: &Path, mut progress: impl FnMut(u64, Option<u64
             Err(err)
         }
     }
+}
+
+/// One attempt of [`download`] into `part`.
+fn download_once(
+    url: &str,
+    part: &Path,
+    progress: &mut impl FnMut(u64, Option<u64>),
+) -> Result<(), Attempt> {
+    let local = |error: anyhow::Error| Attempt { error, transient: false };
+    let mut response = get_once(url, DOWNLOAD_TIMEOUT)?;
+    let total = response.content_length();
+    let mut file = fs::File::create(part).context("create download file").map_err(local)?;
+    let mut received = 0u64;
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = response.read(&mut buf).map_err(|err| Attempt {
+            error: anyhow::anyhow!("GET {url}: read download stream: {err}"),
+            transient: true,
+        })?;
+        if n == 0 {
+            break;
+        }
+        file.write_all(&buf[..n]).context("write download file").map_err(local)?;
+        received += n as u64;
+        progress(received, total);
+    }
+    if let Some(total) = total {
+        if received != total {
+            return Err(Attempt {
+                error: anyhow::anyhow!("GET {url}: download truncated: {received} of {total} bytes"),
+                transient: true,
+            });
+        }
+    }
+    file.sync_all().ok();
+    Ok(())
 }
 
 /// Verify `file` against its `SHA256SUMS.txt` entry (`<hex>  <name>` lines,
@@ -714,6 +817,107 @@ GHJpf48YDEFXRQjHAQHezyTTT8wpq3juYC4VXTRKRxyi99FM7TCJNCj5A6gIBfJiSY92kVbKmmXWuZrL
         let (base, server) = serve(vec![("/sums", FEED_SUMS.into())], 1);
         assert_eq!(fetch_verified_sums_with(&format!("{base}/sums"), None, None).unwrap(), FEED_SUMS);
         server.join().unwrap();
+    }
+
+    /// Answer connection `i` with `script[i]` (a raw HTTP response; `None` =
+    /// drop the connection unanswered), returning the request lines seen.
+    fn serve_script(script: Vec<Option<String>>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        use std::io::Write as _;
+        use std::net::TcpListener;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let mut seen = Vec::new();
+            for reply in script {
+                let (mut stream, _) = listener.accept().unwrap();
+                let mut buf = [0u8; 4096];
+                let n = std::io::Read::read(&mut stream, &mut buf).unwrap_or(0);
+                let request = String::from_utf8_lossy(&buf[..n]).to_string();
+                seen.push(request.lines().next().unwrap_or_default().to_string());
+                if let Some(reply) = reply {
+                    stream.write_all(reply.as_bytes()).unwrap();
+                }
+            }
+            seen
+        });
+        (base, server)
+    }
+
+    fn reply(status: &str, headers: &str, body: &str) -> Option<String> {
+        Some(format!(
+            "HTTP/1.1 {status}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        ))
+    }
+
+    /// The 0.14.91 failure: the first try never gets an answer (here: a
+    /// dropped connection, there: a connect timeout), the next a 503, and the
+    /// asset then sits behind GitHub's 302 to release-assets — the fetch must
+    /// ride all three out and still verify the signature strictly.
+    #[test]
+    fn fetch_retries_transient_failures_and_follows_redirects() {
+        let (base, server) = serve_script(vec![
+            None,
+            reply("503 Service Unavailable", "", "upstream hiccup"),
+            reply("302 Found", "Location: /release-assets/sums\r\n", ""),
+            reply("200 OK", "", FEED_SUMS),
+            reply("200 OK", "", FEED_SIG),
+        ]);
+        let sums = fetch_verified_sums_with(
+            &format!("{base}/download/sums"),
+            Some(&format!("{base}/download/sig")),
+            Some(FEED_PUBKEY),
+        )
+        .unwrap();
+        assert_eq!(sums, FEED_SUMS);
+        let seen = server.join().unwrap();
+        assert_eq!(seen[2], "GET /download/sums HTTP/1.1");
+        assert_eq!(seen[3], "GET /release-assets/sums HTTP/1.1");
+    }
+
+    /// A permanent answer (404: wrong tag or asset name) is not retried, and
+    /// the error carries the status and the body — what the banner shows.
+    #[test]
+    fn fetch_reports_status_and_body_without_retrying_a_404() {
+        let (base, server) = serve_script(vec![reply("404 Not Found", "", "Not Found")]);
+        let err = fetch_bytes(&format!("{base}/download/sums")).unwrap_err();
+        assert_eq!(server.join().unwrap().len(), 1);
+        let message = format!("{err:#}");
+        assert!(message.contains("HTTP 404 Not Found: Not Found"), "{message}");
+    }
+
+    /// Transient failures that never clear give up after [`ATTEMPTS`] and say so.
+    #[test]
+    fn fetch_gives_up_after_the_attempt_budget() {
+        let script = (0..ATTEMPTS)
+            .map(|_| reply("429 Too Many Requests", "", "{\"message\":\"API rate limit exceeded\"}"))
+            .collect();
+        let (base, server) = serve_script(script);
+        let err = fetch_text(&format!("{base}/releases")).unwrap_err();
+        assert_eq!(server.join().unwrap().len(), ATTEMPTS as usize);
+        let message = format!("{err:#}");
+        assert!(message.contains(&format!("gave up after {ATTEMPTS} attempts")), "{message}");
+        assert!(message.contains("HTTP 429 Too Many Requests"), "{message}");
+        assert!(message.contains("API rate limit exceeded"), "{message}");
+    }
+
+    /// A download cut short mid-stream restarts and lands the full file.
+    #[test]
+    fn download_restarts_after_a_truncated_stream() {
+        let body = "x".repeat(10_000);
+        let truncated = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            body.len(),
+            &body[..100]
+        );
+        let (base, server) = serve_script(vec![Some(truncated), reply("200 OK", "", &body)]);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("asset.bin");
+        download(&format!("{base}/asset"), &dest, |_, _| {}).unwrap();
+        assert_eq!(server.join().unwrap().len(), 2);
+        assert_eq!(fs::read_to_string(&dest).unwrap(), body);
+        assert!(!dest.with_extension("part").exists());
     }
 
     #[test]
