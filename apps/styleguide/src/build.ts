@@ -15,6 +15,8 @@ import { compileUiCss } from "@exp/ui/island"
 import { MCP_APPS_CSS_SOURCE } from "./entries/mcp-app-views.tsx"
 
 import { COMPONENTS } from "./components.tsx"
+import { ENTRIES } from "./entries/index.ts"
+import { bundleMotionIslands } from "./motion-islands.ts"
 import { renderHtml } from "./render.ts"
 import { manualPairs, missingPairs, readGallery, storeDir } from "./store.ts"
 
@@ -36,7 +38,7 @@ async function build(): Promise<void> {
   mkdirSync(distDir, { recursive: true })
   writeFileSync(
     path.join(distDir, `index.html`),
-    renderHtml(data, COMPONENTS, uiCss),
+    renderHtml(data, COMPONENTS, uiCss, ENTRIES, await bundleMotionIslands()),
     `utf8`
   )
 
