@@ -47,6 +47,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 // The Devices tab's model: the caller's machines (EXP-403 registry) plus the
 // signed-in user's OWN coding sessions — running (synced coding_sessions shape
@@ -106,7 +108,7 @@ class AgentsViewModel @Inject constructor(
     // shared with ANY member team (the synced rows are exactly those).
     val devices: StateFlow<List<SteerDevice>?> =
         steerDeviceFlow(dbFlow, flowOf(null), auth.userId, allTeams = true)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * FEED-149: the team a team owner's Remove drops a teammate's share from —
@@ -128,7 +130,7 @@ class AgentsViewModel @Inject constructor(
                     }
                 }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Informational CLIENT_LATEST_VERSION_* values behind the "update
     // available" hint on a machine row; both null until the first list lands.
@@ -160,7 +162,7 @@ class AgentsViewModel @Inject constructor(
                 device.deviceId to AgentAccountsRows.deviceLoginRows(device)
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // Refreshes in flight, keyed by LOGIN row: the usage stamp it carried when
     // the command was queued — the device's re-report MOVES it, and that is
@@ -170,7 +172,7 @@ class AgentsViewModel @Inject constructor(
     private val _refreshingAccounts = MutableStateFlow<Map<String, RefreshMark>>(emptyMap())
     val refreshingAccounts: StateFlow<Set<String>> = _refreshingAccounts
         .map { it.keys }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
     // EXP-817: when the page's OWN refresh last tried each login.
     private val autoAttempts = mutableMapOf<String, Long>()
@@ -291,7 +293,7 @@ class AgentsViewModel @Inject constructor(
 
     val state: StateFlow<AgentsState> = _steerEnabled
         .map { AgentsState(steerEnabled = it) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AgentsState())
 
     /**
      * EXP-1186: the member teams, name order — the Agent page bands its live
@@ -299,7 +301,7 @@ class AgentsViewModel @Inject constructor(
      */
     val teams: StateFlow<List<TeamEntity>> =
         dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // The account steer.config was last resolved for. steer.config is
     // env-derived and static per INSTANCE, so a team switch must not re-run it

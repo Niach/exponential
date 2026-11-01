@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 /** What THE plan page draws: the plan card ([card] raw, [row] as THE thread
  *  row the Dock sheet answers), the asking session's name; [loading] until
@@ -68,7 +70,7 @@ class PlanPageViewModel @Inject constructor(
             sessionName = session?.title,
             loading = false,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlanPageState(sessionId, messageId))
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PlanPageState(sessionId, messageId))
 
     private val _failure = MutableStateFlow<FailedAction?>(null)
     /** A refused decision, raised once as the fixture's toast. */

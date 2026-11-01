@@ -33,6 +33,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.serialization.json.Json
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 // The launcher's LOOKUP data (EXP-257, renamed from StartCodingSheetViewModel
 // in EXP-825 when the three-tab sheet became the Agent page composer): the
@@ -119,7 +121,7 @@ class AgentLaunchDataViewModel @Inject constructor(
      */
     val teamId: StateFlow<String?> =
         routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
-            .stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
 
     private val scope = combine(auth.activeAccountId, teamId) { accountId, teamId ->
         accountId to teamId
@@ -139,7 +141,7 @@ class AgentLaunchDataViewModel @Inject constructor(
                 SheetActionsState(actions = rows.map { it.toPromptDto() })
             }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SheetActionsState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SheetActionsState())
 
     /**
      * NEW-3: the team's agents (`listAgents`: rail order, icon + colour +
@@ -163,7 +165,7 @@ class AgentLaunchDataViewModel @Inject constructor(
                     }
                 }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * The synced worktree inventory (EXP-481) behind the composer's "Resume
@@ -172,7 +174,7 @@ class AgentLaunchDataViewModel @Inject constructor(
      */
     val deviceWorktrees: StateFlow<List<DeviceWorktreeEntity>> =
         dbFlow.scopedQuery(emptyList<DeviceWorktreeEntity>()) { it.deviceWorktreeDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * The synced device rows (EXP-481) — resolves a picked machine's ROW id
@@ -181,7 +183,7 @@ class AgentLaunchDataViewModel @Inject constructor(
      */
     val deviceRows: StateFlow<List<DeviceEntity>> =
         dbFlow.scopedQuery(emptyList<DeviceEntity>()) { it.deviceDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The team repo registry — options for `repo`-typed inputs (failure = empty). */
     val repos: StateFlow<List<TeamRepo>> = scope.flatMapLatest { (accountId, teamId) ->
@@ -199,7 +201,7 @@ class AgentLaunchDataViewModel @Inject constructor(
                 )
             }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Live, team-scoped boards — options for `board`-typed inputs. */
     val boardOptions: StateFlow<List<StartBoardOption>> = combine(
@@ -222,7 +224,7 @@ class AgentLaunchDataViewModel @Inject constructor(
                     )
                 }
         }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * Live, team-scoped OPEN pull requests (`pull_requests` + the issues they
@@ -235,7 +237,7 @@ class AgentLaunchDataViewModel @Inject constructor(
         teamId,
     ) { prs, links, issues, teamId ->
         if (teamId == null) emptyList() else buildPullRequestOptions(prs, links, issues, teamId)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 }
 
 /**

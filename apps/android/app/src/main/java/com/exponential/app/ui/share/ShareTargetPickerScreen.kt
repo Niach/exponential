@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 data class TeamBoards(val team: TeamEntity, val boards: List<BoardEntity>)
 
@@ -56,5 +58,5 @@ class ShareTargetPickerViewModel @Inject constructor(
             recentBoardId = accountId?.let { selection.lastBoard(it) },
             isLoading = false,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShareTargetState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ShareTargetState())
 }

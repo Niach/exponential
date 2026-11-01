@@ -71,6 +71,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 /**
  * NEW-7 (web `routes/t/$teamSlug/agents/$agentId.tsx`): a team agent's page
@@ -98,14 +100,14 @@ class AgentConversationViewModel @Inject constructor(
     /** The synced definition row (name, icon, colour); null while loading or gone. */
     val agent: StateFlow<AgentDefinitionEntity?> =
         dbFlow.scopedQuery<AgentDefinitionEntity?>(null) { it.agentDefinitionDao().observeById(agentId) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** My conversation session with the agent, once it exists. */
     val conversationId: StateFlow<String?> = combine(
         dbFlow.scopedQuery(emptyList()) { it.sessionDao().observeAll() }.map { rows -> rows.map(SessionTree::session) },
         auth.userId,
     ) { sessions, me -> SessionTree.conversations(sessions, me)[agentId] }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** #EXP-1434 (composer-menu.json `prompts`, surface `agent`): the "+"
      *  menu's Prompts › rows = the agent's team's prompts in the `/` menu's
@@ -124,7 +126,7 @@ class AgentConversationViewModel @Inject constructor(
                 }
             }
             .map { rows -> rows.map { com.exponential.app.domain.SlashPrompt(it.id, it.name, it.icon) } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _promptFailure = MutableStateFlow<FailedAction?>(null)
     /** A picked prompt whose body could not load, raised once. */

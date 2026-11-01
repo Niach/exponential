@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -160,7 +161,7 @@ private fun PrRow(
 @Composable
 internal fun PulsingDot(size: androidx.compose.ui.unit.Dp = 8.dp) {
     val transition = rememberInfiniteTransition(label = "coding-now")
-    val alpha by transition.animateFloat(
+    val alpha = transition.animateFloat(
         initialValue = 1f,
         targetValue = 0.25f,
         animationSpec = infiniteRepeatable(
@@ -172,8 +173,9 @@ internal fun PulsingDot(size: androidx.compose.ui.unit.Dp = 8.dp) {
     Box(
         modifier = Modifier
             .size(size)
+            .graphicsLayer { this.alpha = alpha.value }
             .clip(CircleShape)
-            .background(LiveGreen.copy(alpha = alpha)),
+            .background(LiveGreen),
     )
 }
 

@@ -30,8 +30,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.shareIn
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -72,7 +72,15 @@ class ThreadsViewModel @Inject constructor(
 
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
+    // One shared query per table: the list, rowMeta, the nav dots and the
+    // PR rows all read these, so they must not each re-run them (and the
+    // digest parsing) on every sync tick.
     private val sessionRows = dbFlow.scopedQuery(emptyList()) { it.sessionDao().observeAll() }
+        .flowOn(Dispatchers.Default)
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
+
+    private val pullRequestRows = dbFlow.scopedQuery(emptyList()) { it.pullRequestDao().observeAll() }
+        .shareIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), replay = 1)
 
     // EXP-1522: the list's inputs are mapped OFF the main thread and SHARED.
     // Six flows below read them; each used to re-run every query + mapping
@@ -159,7 +167,7 @@ class ThreadsViewModel @Inject constructor(
      */
     val words: StateFlow<Map<String, SessionTree.ThreadRowWord>> = combine(
         groups,
-        dbFlow.scopedQuery(emptyList()) { it.pullRequestDao().observeAll() },
+        pullRequestRows,
     ) { g, prs ->
         val byRoot = prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId }
         val byTeam = prs.groupBy { it.teamId }
@@ -181,7 +189,7 @@ class ThreadsViewModel @Inject constructor(
      */
     val prLeads: StateFlow<Map<String, ThreadRowPrLead>> = combine(
         groups,
-        dbFlow.scopedQuery(emptyList()) { it.pullRequestDao().observeAll() },
+        pullRequestRows,
     ) { g, prs ->
         val byRoot = prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId }
         g.flatMap { it.rows }.mapNotNull { row ->
@@ -246,7 +254,7 @@ class ThreadsViewModel @Inject constructor(
 
     /** Each root's PR states (the lead's open / merged glyph). */
     private val prStates: Flow<Map<String, List<String>>> =
-        dbFlow.scopedQuery(emptyList()) { it.pullRequestDao().observeAll() }.map { prs ->
+        pullRequestRows.map { prs ->
             prs.filter { it.rootSessionId != null }.groupBy { it.rootSessionId!! }.mapValues { (_, rows) -> rows.map { it.state } }
         }
 
@@ -322,7 +330,7 @@ class ThreadsViewModel @Inject constructor(
                     .map { members -> members.any { it.userId == me && it.role == "owner" } }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     // ── the menus' calls (chats.json MENUS) ─────────────────────────────────
 
@@ -407,7 +415,7 @@ class ThreadsViewModel @Inject constructor(
 
     /** The member teams, name order — the per-team bands. */
     val teams: StateFlow<List<TeamEntity>> = dbFlow.scopedQuery(emptyList()) { it.teamDao().observeAll() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** EXP-1327: whether ANY thread runs (the tab's green dot, ×4). */
     val anyRunning: StateFlow<Boolean> = groups.map { list ->

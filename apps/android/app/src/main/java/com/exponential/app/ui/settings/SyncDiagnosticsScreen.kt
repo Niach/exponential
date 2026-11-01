@@ -50,6 +50,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -62,7 +64,7 @@ class SyncDiagnosticsViewModel @Inject constructor(
     val shapes: StateFlow<List<SyncStats.ShapeStatus>> =
         combine(auth.activeAccountId, stats.state) { accountId, all ->
             all[accountId]?.values?.sortedBy { it.shape } ?: emptyList()
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

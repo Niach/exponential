@@ -30,6 +30,8 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 /** A ring's avatar (stories.json AVATARS): an agent's icon in its colour,
  *  else ([color] null, a chat's root) the chat row's bare brand mark of the
@@ -210,7 +212,7 @@ class StoriesViewModel @Inject constructor(
                 reads = input.reads,
             ),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StoriesState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StoriesState())
 
     private val tabs = HashMap<String, StateFlow<StoryTabState>>()
 
@@ -228,7 +230,7 @@ class StoriesViewModel @Inject constructor(
                 rootId = rootId,
             )
             StoryTabState(ring = ring, draw = input.draw(listOfNotNull(ring)), loading = false)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StoryTabState())
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), StoryTabState())
     }
 
     private val _failure = MutableStateFlow<FailedAction?>(null)

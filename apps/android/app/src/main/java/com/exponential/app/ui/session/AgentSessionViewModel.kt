@@ -88,6 +88,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 
 // EXP-554: the steer composer's own PendingSteerImage became the shared
 // `PendingAttachment` (domain/PendingAttachment.kt), which the comment
@@ -208,7 +209,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                     }
                 }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** EXP-656: when our own `devices` shape last completed a poll — presence
      *  derived from an unrefreshed cursor is unknown, never offline. */
@@ -248,7 +249,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 ),
             )
         }
-    }.stateIn(
+    }.flowOn(Dispatchers.Default).stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         SessionDevicePresentation.Unknown,
@@ -264,7 +265,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      */
     val hostDeviceOffline: StateFlow<Boolean> = combine(hostDevice, session) { device, row ->
         device.offline && row != null && row.status == DomainContract.sessionStatusRunning
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
      * EXP-909: the synced `devices` row of the machine this run is on — the
@@ -293,21 +294,21 @@ class AgentSessionViewModel @AssistedInject constructor(
         auth.userId,
     ) { device, now, userId ->
         device?.toSteerDevice(now, userId)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** EXP-1334: the host machine reads the per-run `computerUse` flag (the
      *  "+" menu's Computer use row). */
     val hostCanToggleComputerUse: StateFlow<Boolean> = hostSteerDevice
         .map { it?.canToggleComputerUse == true }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** The host device's synced launch defaults — the composer's model pin
      *  falls back to them before the relay names the model in force. */
     val hostLaunchDefaults: StateFlow<DeviceLaunchDefaults?> = hostDeviceRow
         .map { parseLaunchDefaults(it?.launchDefaults) }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-1291: the issues the session's THREAD links (`session_issues` on its
@@ -330,12 +331,12 @@ class AgentSessionViewModel @AssistedInject constructor(
                 }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The thread's first issue (null for an issue-less session). */
     val issue: StateFlow<IssueEntity?> = issues
         .map { it.firstOrNull() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-688: the host machine's sign-in for the SAME agent — the Usage
@@ -349,7 +350,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     ) { row, device ->
         val agent = row?.cli?.takeIf { it.isNotBlank() } ?: return@combine null
         AgentUsagePresentation.parseAccounts(device?.agentAccounts)?.get(agent)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-849 phase 3: everything the mid-session account switch gates on,
@@ -387,7 +388,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 ?: row.deviceId,
             currentAccount = row.account,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionAccountSwitchState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionAccountSwitchState())
 
     /**
      * EXP-1252: the Device pin's rows — THE launch composer's machines for the
@@ -420,7 +421,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             label = SessionDeviceMove.pinLabel(rows, row.deviceId),
             deviceId = row.deviceId,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionDeviceMoveState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionDeviceMoveState())
 
     /**
      * EXP-484/EXP-909: the rate-limit windows the Usage overlay heads with —
@@ -448,7 +449,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         val ambient = AgentUsagePresentation.parseUsageMap(device?.agentUsage)?.get(agent)
         val current = switch.options.firstOrNull { it.current } ?: return@combine ambient
         current.usage ?: ambient.takeIf { current.active }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-909: one on-demand usage refresh when the overlay OPENS — the same
@@ -563,7 +564,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }
         .map { users -> users.map { MentionMember(it.name ?: it.email, it.email) } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * Probed sizes of the linked issue's attachments (REV2-79) — the feed
@@ -583,7 +584,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }
         .map { rows -> AttachmentDims.fromRows(rows) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
 
     val currentUserId: StateFlow<String?> = auth.userId
 
@@ -644,7 +645,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val _uploadError = MutableStateFlow<String?>(null)
     val steerImageError: StateFlow<String?> = combine(_uploadError, connection.steerImageError) { own, relay ->
         own ?: relay
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** A failed `sessions.send` / `sessions.unqueue` — FEED-79: the error
      *  toast `Couldn't send the message`, raised once by the screen. */
@@ -761,7 +762,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 }.flowOn(kotlinx.coroutines.Dispatchers.Default)
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private fun headerOf(
         root: String,
@@ -790,7 +791,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     val agentMarks: StateFlow<Map<String, com.exponential.app.data.db.AgentDefinitionEntity>> =
         dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() }
             .map { rows -> rows.associateBy { it.id } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** S-3: the session page's `origin` link ([root] = the target is a
      *  root: it opens as its thread, else as its session view). */
@@ -839,7 +840,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-1291: the viewer's OWN messages the server still holds for this
@@ -873,14 +874,14 @@ class AgentSessionViewModel @AssistedInject constructor(
     val sessionConfig: StateFlow<SessionConfigState?> = connection.activity
         .map { it.config }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** EXP-746: this run's context window + spend, same latest-wins rule —
      *  the Usage sheet's "Context" block. Null when the engine reports none. */
     val sessionUsage: StateFlow<SessionUsageState?> = connection.activity
         .map { it.usage }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** EXP-1051: how that window is laid out — the device's attribution of
      *  the context it filled before the first turn, the second half of the
@@ -889,7 +890,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     val sessionContextLayout: StateFlow<List<ContextSegment>?> = connection.activity
         .map { it.contextLayout }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-724: the curated slash commands the `/` menu should offer for the
@@ -907,7 +908,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             text,
             SlashCommands.agentId(row?.cli, config != null),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** NEW-2: the session's team's prompts, the `/` menu's rows after the
      *  builtins (the synced, body-less `prompts`). */
@@ -929,7 +930,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     /** #EXP-1434: the "+" menu's Prompts › rows = the team's prompts in the
      *  `/` menu's order. */
     val promptRows: StateFlow<List<com.exponential.app.domain.SlashPrompt>> =
-        teamPrompts.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        teamPrompts.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * NEW-2: THE `/` menu's rows ×4 = the builtins [slashMatches] offers,
@@ -943,7 +944,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         teamPrompts,
     ) { text, row, config, prompts ->
         SlashCommands.candidates(text, SlashCommands.agentId(row?.cli, config != null), prompts)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _promptFailure = MutableStateFlow<com.exponential.app.ui.components.FailedAction?>(null)
     /** FEED-79: a picked prompt whose body could not load, raised once. */
@@ -1384,7 +1385,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     val toolAsks: StateFlow<List<SessionTree.ThreadRow>> = sessionCards
         .map { cards -> cards.filter { it.first.kind != AskDock.SessionCardKind.Surface }.map { it.second } }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Answer a tool-posted card; [settled] = whether the call went through
      *  (a failure toasts `Couldn't answer the <thing>`). */

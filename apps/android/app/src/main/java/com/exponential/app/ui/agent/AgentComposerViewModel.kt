@@ -68,6 +68,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.FeedbackStates
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 // EXP-825: the ONE launcher's state — the Agent page composer. It replaced the
 // three-tab Start-coding sheet (Issues | Actions | Chat, EXP-257/EXP-615) and
@@ -216,7 +218,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     val teamId: StateFlow<String?> =
         routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
-            .stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
 
     // ── The shared launch rails ─────────────────────────────────────────────
     val steerEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
@@ -254,7 +256,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     val candidateDevices: StateFlow<List<SteerDevice>?> = steerLaunch.devices
         .map { devices -> devices?.filter { it.hasRunnableAgent } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // ── Subject ─────────────────────────────────────────────────────────────
     private val _subject = MutableStateFlow<ComposerSubject?>(null)
@@ -267,11 +269,11 @@ class AgentComposerViewModel @Inject constructor(
      */
     val allIssues: StateFlow<List<IssueEntity>> =
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val allRelations: StateFlow<List<IssueRelationEntity>> =
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * EXP-980: what still BLOCKS the picked issues — the open `blocks`
@@ -291,7 +293,7 @@ class AgentComposerViewModel @Inject constructor(
         // empty seeds; eager keeps them live for the composer's lifetime.
         // [submit] does NOT read this flow's `.value` (a combine lands a hop
         // behind its sources): it recomputes from the pools on the tap.
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
      * SLOP-3: every synced board; an issue's repository is its board's
@@ -299,7 +301,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     private val allBoards: StateFlow<List<BoardEntity>> =
         dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // ── Home (EXP-1253, composer-home.json) ─────────────────────────────────
     /** The caller's user-row name: the greeting's `{name}` (null = none synced). */
@@ -307,7 +309,7 @@ class AgentComposerViewModel @Inject constructor(
         .flatMapLatest { (db, userId) ->
             if (db == null || userId == null) flowOf(null) else db.userDao().observeById(userId).map { it?.name }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * Whether THIS team has a live board; null until the boards have synced.
@@ -315,7 +317,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     val teamHasBoard: StateFlow<Boolean?> = combine(dbFlow, allBoards, teamId) { db, boards, team ->
         if (db == null || team == null) null else boards.any { it.teamId == team && it.deletedAt == null }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // ── Draft ───────────────────────────────────────────────────────────────
     private val _draft = MutableStateFlow("")
@@ -434,7 +436,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     val device: StateFlow<SteerDevice?> = combine(candidateDevices, _launch) { devices, draft ->
         LaunchDeviceRules.resolve(devices.orEmpty(), draft.requestedDeviceId, draft.pickedDeviceId)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-836: why the machine a play button NAMED is not the one this run
@@ -445,7 +447,7 @@ class AgentComposerViewModel @Inject constructor(
     val deviceRequestNote: StateFlow<String?> =
         combine(_launch, device, steerLaunch.registry) { draft, settled, registry ->
             LaunchDeviceRules.requestNote(draft.requestedDeviceId, settled?.deviceId, registry)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // The machine whose defaults currently seed the options — a re-poll that
     // re-emits the SAME device must not stomp the user's edits (EXP-437).
@@ -485,7 +487,7 @@ class AgentComposerViewModel @Inject constructor(
                 }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * EXP-892: the composer's `#` menu server half — `issues.search` over the
@@ -513,7 +515,7 @@ class AgentComposerViewModel @Inject constructor(
             }
         }
         .map { users -> users.map { MentionMember(it.name ?: it.email, it.email) } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         applySeed(seed)
@@ -756,7 +758,7 @@ class AgentComposerViewModel @Inject constructor(
      *  `launch_defaults.computerUse`. */
     val computerUse: StateFlow<Boolean> = combine(_computerUsePick, device) { pick, d ->
         pick ?: (d?.launchDefaults?.computerUse == true)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun setComputerUse(value: Boolean) {
         _computerUsePick.value = value
