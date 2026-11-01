@@ -7579,23 +7579,13 @@ impl SteerSessionView {
         )
     }
 
-    /// N-12: the session's own DockCards (web `useSessionDock`): the queued
-    /// messages, THE Queue and the status banners. The session view adds
-    /// its waiting cards; a root's host (thread, agent channel) adds the
-    /// tree's.
-    pub(crate) fn session_dock_sources(&self, cx: &App) -> Vec<domain::dock::DockSource> {
-        use domain::dock::{DockQueue, DockQueueCompleted, DockQueueItem, DockQueueTodo, DockQueuedMessage, DockSource};
-        let queued = if self.run_open() {
-            self.feed
-                .queue()
-                .iter()
-                .map(|message| DockQueuedMessage { id: message.id.clone(), text: message.text.split_whitespace().collect::<Vec<_>>().join(" ") })
-                .collect()
-        } else {
-            Vec::new()
-        };
+    /// N-12: THE Queue as the `tasks` DockCard reads it; `None` when nothing
+    /// is to do or the session is over. #EXP-1545: a thread reads each Live
+    /// child's through its own view.
+    pub(crate) fn dock_queue(&self) -> Option<domain::dock::DockQueue> {
+        use domain::dock::{DockQueue, DockQueueCompleted, DockQueueItem, DockQueueTodo};
         // #EXP-1538: a session that is over shows none of the stream's slots.
-        let queue = self.task_queue_model().filter(|_| self.run_open()).map(|queue| DockQueue {
+        self.task_queue_model().filter(|_| self.run_open()).map(|queue| DockQueue {
             todo: DockQueueTodo {
                 title: queue.todo.title.clone(),
                 items: queue
@@ -7610,8 +7600,26 @@ impl SteerSessionView {
                     .collect(),
             },
             completed: queue.completed.as_ref().map(|section| DockQueueCompleted { title: section.title.clone() }),
-        });
-        let mut out = vec![DockSource::Queued { messages: queued }, DockSource::Tasks { queue }];
+        })
+    }
+
+    /// N-12: the session's own DockCards (web `useSessionDock`): the queued
+    /// messages, THE Queue and the status banners. The session view adds
+    /// its waiting cards; a root's host (thread, agent channel) adds the
+    /// tree's.
+    pub(crate) fn session_dock_sources(&self, cx: &App) -> Vec<domain::dock::DockSource> {
+        use domain::dock::{DockQueuedMessage, DockSource};
+        let queued = if self.run_open() {
+            self.feed
+                .queue()
+                .iter()
+                .map(|message| DockQueuedMessage { id: message.id.clone(), text: message.text.split_whitespace().collect::<Vec<_>>().join(" ") })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let queue = self.dock_queue();
+        let mut out = vec![DockSource::Queued { messages: queued }, DockSource::Tasks { session_name: None, queue }];
         out.extend(self.dock_banners(cx));
         out
     }

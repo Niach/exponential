@@ -30,6 +30,9 @@ export type DockSource =
   | { kind: `question`; id: string; text: string; sessionName: string | null; createdAt: number }
   | {
       kind: `tasks`
+      /** #EXP-1545: a thread's Live child carrying the card (its name leads
+       *  the caption); absent or null = the root / the session view. */
+      sessionName?: string | null
       /** THE Queue (task-queue.json `taskQueue`), or null when nothing is to do. */
       queue: {
         todo: { title: string; items: readonly { label: string; description: string | null; state: string }[] }
@@ -154,7 +157,10 @@ export function dockRows(sources: readonly DockSource[]): DockRow[] {
           tint: `muted`,
           icon: fixture.icons.tasks,
           label: source.queue.todo.title,
-          caption: source.queue.completed?.title ?? null,
+          caption:
+            [source.sessionName ?? null, source.queue.completed?.title ?? null]
+              .filter((part): part is string => part !== null)
+              .join(` · `) || null,
           meta: first.description,
           title: first.label,
           expandable: true,
@@ -219,6 +225,40 @@ export function dockRows(sources: readonly DockSource[]): DockRow[] {
         ORDER[a.row.kind] - ORDER[b.row.kind] || a.createdAt - b.createdAt || compareIds(a.row.id, b.row.id)
     )
     .map((entry) => entry.row)
+}
+
+/** #EXP-1545: a session of a thread's tree that may carry the Dock's ONE
+ *  `tasks` card. `activeAt` = epoch ms of its last turn (else its start),
+ *  null = no activity yet; `open` = its Queue has a todo item to show. */
+export interface ThreadQueueCandidate {
+  sessionId: string
+  name: string
+  root: boolean
+  ended: boolean
+  activeAt: number | null
+  open: boolean
+}
+
+/** #EXP-1545: whose Queue the thread's Dock shows: the root's while it is
+ *  open, else the most recently active Live child's (ties by id), else
+ *  none. An ended session contributes nothing. */
+export function threadDockQueue(
+  candidates: readonly ThreadQueueCandidate[]
+): { sessionId: string; sessionName: string | null } | null {
+  const live = candidates.filter((candidate) => candidate.open && !candidate.ended)
+  const root = live.find((candidate) => candidate.root)
+  if (root) return { sessionId: root.sessionId, sessionName: null }
+  let best: ThreadQueueCandidate | null = null
+  for (const candidate of live) {
+    if (
+      !best ||
+      (candidate.activeAt ?? -Infinity) > (best.activeAt ?? -Infinity) ||
+      ((candidate.activeAt ?? -Infinity) === (best.activeAt ?? -Infinity) && compareIds(candidate.sessionId, best.sessionId) < 0)
+    ) {
+      best = candidate
+    }
+  }
+  return best ? { sessionId: best.sessionId, sessionName: best.name } : null
 }
 
 /** The band: the pile (or the fan while `expanded`), the front card, the

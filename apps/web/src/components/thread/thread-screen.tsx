@@ -477,6 +477,7 @@ export function ThreadScreen({
         onOpenSession={openRowSession}
         onOpenXref={nav.open}
         agentFor={agentFor}
+        tree={rows}
         topInset={topInset}
         messagePage={messagePage}
       />
@@ -655,6 +656,7 @@ function ConversationBody({
   onOpenSession,
   onOpenXref,
   agentFor,
+  tree,
   topInset = 0,
   messagePage,
 }: {
@@ -672,6 +674,8 @@ function ConversationBody({
   onOpenXref: (sessionId: string) => void
   /** The agent CLI of a session of the tree (the suggestions' models). */
   agentFor: (sessionId: string) => string | null | undefined
+  /** #EXP-1545: every session of the tree (a Live child's Queue docks). */
+  tree: readonly SessionRow[]
   /** Phones: the overlay header band's height (the scroller pads by it). */
   topInset?: number
   /** #EXP-1380: the loaded newest messages (Load earlier pages more). */
@@ -710,10 +714,18 @@ function ConversationBody({
     [canReply, view.rows]
   )
   const sessionName = useMemo(() => threadSessionNames(view.tabs), [view.tabs])
-  // N-12: THE Dock over the Conversation's bottom edge: the root's Queue,
+  // N-12: THE Dock over the Conversation's bottom edge: the Queue (the
+  // root's, else a Live child's, #EXP-1545), the root's
   // queued messages, banners and open suggestions, then the composer
   // (a phone's floats in the work bar); the scroller pads by its height.
-  const sessionDock = useSessionDock(root)
+  const dockChildren = useMemo(
+    () =>
+      tree
+        .filter((row) => row.id !== root.id)
+        .map((row) => ({ session: row, name: sessionName(row.id) ?? row.title ?? `` })),
+    [tree, root.id, sessionName]
+  )
+  const sessionDock = useSessionDock(root, dockChildren)
   const sendSurfaceReply = (text: string) => {
     sendSessionMessage({ teamId, sessionId: view.composer.sessionId, text }, SKIP_ERROR_TOAST)
       .catch((error) => failedAction(`send`, `the message`, error))

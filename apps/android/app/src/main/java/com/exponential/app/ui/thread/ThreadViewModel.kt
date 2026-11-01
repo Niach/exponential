@@ -572,8 +572,56 @@ class ThreadViewModel @Inject constructor(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
+    /** #EXP-1545: one held connection per Live child of the tree (the
+     *  thread's Dock reads their Queues), released when the child ends,
+     *  leaves the tree, and in [onCleared]. */
+    private val childConnections = mutableMapOf<String, SteerConnection>()
+
+    private fun releaseChildren(keep: Set<String> = emptySet()) {
+        val gone = childConnections.keys.filter { it !in keep }
+        for (id in gone) childConnections.remove(id)?.let { steerStore.release(it.codingSessionId) }
+    }
+
+    /** One Live child's Dock slice: its stream's last-known slots ([slots] =
+     *  dock.json LOCAL FIRST: drawn while it (re)connects, never once over). */
+    data class ChildDockState(
+        val slots: Boolean,
+        val activity: com.exponential.app.ui.session.AgentSessionViewModel.DockActivity,
+    )
+
+    /**
+     * #EXP-1545 (dock.json THREAD QUEUE): every not-ended child's relay
+     * state, by id: the same per-session connection the session view reads
+     * ([SteerConnectionStore]), so its last-known Queue is there at once. An
+     * ended child contributes nothing (its connection goes back to the store).
+     */
+    val childDocks: StateFlow<Map<String, ChildDockState>> = tree
+        .map { rows -> rows.filter { it.id != rootId && !it.isEnded }.map { it.id }.sorted() }
+        .distinctUntilChanged()
+        .flatMapLatest { ids ->
+            releaseChildren(ids.toSet())
+            if (ids.isEmpty()) {
+                flowOf(emptyMap())
+            } else {
+                val flows = ids.map { id ->
+                    val connection = childConnections.getOrPut(id) {
+                        steerStore.acquire(id).also { it.kick("thread-child-dock") }
+                    }
+                    combine(connection.phase, connection.activity) { phase, activity ->
+                        id to ChildDockState(
+                            slots = com.exponential.app.ui.session.dockStreamSlots(phase, sessionEnded = false),
+                            activity = com.exponential.app.ui.session.dockActivityOf(activity),
+                        )
+                    }.distinctUntilChanged()
+                }
+                combine(flows) { pairs -> pairs.toMap() }
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     override fun onCleared() {
         releaseTail()
+        releaseChildren()
         super.onCleared()
     }
 

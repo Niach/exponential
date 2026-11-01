@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -49,6 +50,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.PullRequestEntity
 import com.exponential.app.domain.AskDock
+import com.exponential.app.domain.Dock
+import com.exponential.app.ui.components.DockSheetBody
 import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueStatusResolver
@@ -349,6 +352,78 @@ fun ThreadScreen(
         MentionResolver(teamUsers.map { MentionMember(it.name ?: it.email, it.email) })
     }
 
+    // #EXP-1545 (dock.json THREAD QUEUE): each Live child's Queue (its
+    // per-session relay slots, LOCAL FIRST); the Dock shows ONE tasks card.
+    val childDocks by viewModel.childDocks.collectAsStateWithLifecycle()
+    val childQueues = HashMap<String, com.exponential.app.domain.TaskQueue?>()
+    for ((id, child) in childDocks) {
+        key(id) {
+            childQueues[id] = com.exponential.app.ui.session.rememberSessionTaskQueue(
+                child.activity.feed,
+                child.activity.taskList,
+                child.activity.backgroundTasks,
+            ).takeIf { child.slots }
+        }
+    }
+    val treeNames = remember(view) {
+        buildMap {
+            view?.tabs.orEmpty().filterIsInstance<SessionTree.ThreadTab.SessionTab>().forEach { tab ->
+                put(tab.sessionId, tab.name)
+                tab.nested.forEach { put(it.sessionId, it.name) }
+            }
+        }
+    }
+    var childTodoOpen by rememberSaveable { mutableStateOf(true) }
+    var childCompletedOpen by rememberSaveable { mutableStateOf(false) }
+    val threadDock: (com.exponential.app.ui.session.SessionDock) -> com.exponential.app.ui.session.SessionDock = { sd ->
+        val rootQueue = sd.sources.filterIsInstance<Dock.Source.Tasks>().firstOrNull()?.queue
+        val candidates = tree.map { row ->
+            val root = row.id == viewModel.rootId
+            val queue = if (root) rootQueue else childQueues[row.id]
+            Dock.ThreadQueueCandidate(
+                sessionId = row.id,
+                name = treeNames[row.id] ?: row.title.orEmpty(),
+                root = root,
+                ended = row.isEnded,
+                activeAt = (row.lastTurnAt ?: row.startedAt)?.let(com.exponential.app.domain.WireTimestamps::parseEpochMs),
+                open = queue?.todo?.items?.isNotEmpty() == true,
+            )
+        }
+        val chosen = Dock.threadDockQueue(candidates)
+        when {
+            chosen?.sessionId == viewModel.rootId -> sd
+            chosen == null -> com.exponential.app.ui.session.SessionDock(
+                sd.sources.filter { it !is Dock.Source.Tasks }, sd.sheet, sd.action,
+            )
+            else -> {
+                val queue = childQueues[chosen.sessionId]
+                com.exponential.app.ui.session.SessionDock(
+                    sources = sd.sources.map { if (it is Dock.Source.Tasks) Dock.Source.Tasks(queue, chosen.sessionName) else it },
+                    // The card's sheet opens THAT child's Trace.
+                    sheet = { row, scope, close ->
+                        if (row.kind == Dock.Kind.Tasks) {
+                            DockSheetBody {
+                                if (queue != null) {
+                                    com.exponential.app.ui.components.TaskQueueView(
+                                        queue = queue,
+                                        todoOpen = childTodoOpen,
+                                        onTodoOpenChange = { childTodoOpen = it },
+                                        completedOpen = childCompletedOpen,
+                                        onCompletedOpenChange = { childCompletedOpen = it },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                }
+                            }
+                        } else {
+                            sd.sheet(this, row, scope, close)
+                        }
+                    },
+                    action = sd.action,
+                )
+            }
+        }
+    }
+
     val hazeState = rememberHazeState()
     val titleCollapse = remember { TitleCollapseState() }
     ProvideMarkdownToolbar {
@@ -401,7 +476,9 @@ fun ThreadScreen(
                         // N-12: THE Dock: the tree's waiting cards, then the
                         // root's Queue and banners (its queued rows sit in the
                         // Conversation), over the composer that never leaves.
-                        dock = { sessionDock ->
+                        dock = { rootDock ->
+                            // #EXP-1545: the root's Queue, else a Live child's.
+                            val sessionDock = threadDock(rootDock)
                             ThreadDock(
                                 rows = view?.rows.orEmpty(),
                                 sources = sessionDock.sources,

@@ -29,6 +29,7 @@ pub(super) fn sources() -> Vec<DockSource> {
             ],
         },
         DockSource::Tasks {
+            session_name: None,
             queue: Some(DockQueue {
                 todo: DockQueueTodo {
                     title: "3 to do".into(),
