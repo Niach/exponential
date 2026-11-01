@@ -83,12 +83,6 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
 }
 
 public enum AgentAccountsRows {
-    /// The chip menu's EXP-1533 labels, byte-identical ×4.
-    public enum Copy {
-        public static let keepSignedIn = "Keep signed in"
-        public static let renewLongLived = "Renew long-lived login"
-    }
-
     /// A forced usage refresh is refused while the last fetch is younger than
     /// this: the device never hits the agent's usage endpoint more often (its
     /// `RATE_LIMITED_FLOOR_SECS`). Locked ×4.
@@ -334,15 +328,17 @@ public enum AgentAccountsRows {
         row.signedIn
     }
 
-    /// EXP-1533: the chip menu's long-lived entry, right after "Sign in" —
-    /// a claude login only (the one agent with a `setup-token`). It drives
-    /// the same remote sign-in sheet as Sign in, queuing `agent_login` with
-    /// `longLived`. Nil = no entry.
+    /// EXP-1533/EXP-1612: the chip menu's long-lived entry, right after
+    /// "Sign in" — a claude login only (the one agent with a `setup-token`),
+    /// and only when the menu does NOT sign it in (that Sign in already is
+    /// Keep signed in): "Switch to Keep signed in" without a token, "Renew
+    /// Keep signed in" with one (`devices-list.json` copy). It drives the
+    /// same remote sign-in sheet, long-lived. Nil = no entry.
     public static func chipLongLivedLabel(_ row: AgentProfileUsageRow) -> String? {
-        guard row.agent == "claude" else { return nil }
+        guard row.agent == "claude", !chipSignsIn(row) else { return nil }
         return nonEmpty(row.tokenExpiresAt) == nil
-            ? Copy.keepSignedIn
-            : Copy.renewLongLived
+            ? DevicesList.Copy.switchToKeepSignedIn
+            : DevicesList.Copy.renewKeepSignedIn
     }
 
     /// The confirm the destructive entry asks, pinned ×4: it names the login

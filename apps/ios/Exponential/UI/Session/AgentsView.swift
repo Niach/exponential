@@ -368,7 +368,8 @@ struct AgentsView: View {
     /// A-16 (`devices-list.json`): every row's derivation — its group, its
     /// empty-slot wording and its attention items — off the ×4 pure rule.
     private func listRow(_ vm: AgentsViewModel, _ device: SteerDevice) -> DevicesList.Row {
-        DevicesList.row(DevicesList.Input(
+        let now = Date()
+        return DevicesList.row(DevicesList.Input(
             online: device.isOnline,
             mine: device.isMine,
             server: device.isServer,
@@ -377,7 +378,8 @@ struct AgentsView: View {
             latest: latestVersion(device),
             updateQueued: isUpdateQueued(device),
             accountsReported: device.agentAccounts != nil,
-            logins: vm.deviceLoginRows(device.deviceId).map { DevicesList.Login($0) }
+            logins: vm.deviceLoginRows(device.deviceId).map { DevicesList.Login($0, now: now) },
+            now: now
         ))
     }
 
@@ -525,9 +527,7 @@ struct AgentsView: View {
                 attention: row.attention,
                 readOnly: !device.isMine,
                 onSignIn: { signIn(device, agent: $0.agent, profileId: $0.profileId) },
-                onKeepSignedIn: {
-                    signIn(device, agent: $0.agent, profileId: $0.profileId, longLived: true)
-                },
+                onKeepSignedIn: { signIn(device, agent: $0.agent, profileId: $0.profileId) },
                 onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) },
                 onSignOut: { signOutAccountTarget = AccountRemoveTarget(row: $0) }
             )
@@ -540,20 +540,15 @@ struct AgentsView: View {
         .accessibilityIdentifier("device-card-\(device.deviceId)")
     }
 
-    /// The sign-in sheet on ONE login (its icon's account menu); `longLived`
-    /// (EXP-1533) = the menu's "Keep signed in".
-    private func signIn(
-        _ device: SteerDevice,
-        agent: String,
-        profileId: String?,
-        longLived: Bool = false
-    ) {
+    /// The sign-in sheet on ONE login (its icon's account menu): Sign in,
+    /// Switch to / Renew Keep signed in alike — a claude sign-in is the
+    /// long-lived login by default (EXP-1612).
+    private func signIn(_ device: SteerDevice, agent: String, profileId: String?) {
         loginTarget = AgentLoginTarget(
             deviceId: device.deviceId,
             deviceLabel: deviceName(device),
             agent: agent,
-            profileId: profileId,
-            longLived: longLived
+            profileId: profileId
         )
     }
 
