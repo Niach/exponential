@@ -330,7 +330,9 @@ impl Builder<'_, '_> {
                     s
                 }
             };
-            let row = self.part_in(body, &owner, "row", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center"}), json!({"key": key, "index": i}), &format!(".{key}"));
+            // Cells stretch to the row's height (the web's grid rows): a wrapped
+            // cell grows the row, its neighbours centre their content in it.
+            let row = self.part_in(body, &owner, "row", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "stretch"}), json!({"key": key, "index": i}), &format!(".{key}"));
             self.nodes[row as usize].pressable = true;
             self.nodes[row as usize].scope = row_scope.clone();
             self.query_prop(row, "striped", Value::Bool(striped && pos % 2 == 1));
@@ -339,7 +341,7 @@ impl Builder<'_, '_> {
             }
             if multiple {
                 let label = self.string("selectRow");
-                let c = self.part_in(row, &owner, "checkbox", "Checkbox", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"checked": is_selected, "label": label, "key": key}), &format!(".{key}"));
+                let c = self.part_in(row, &owner, "checkbox", "Checkbox", NodeKind::Leaf, json!({"flexShrink": 0, "alignSelf": "center"}), json!({"checked": is_selected, "label": label, "key": key}), &format!(".{key}"));
                 self.nodes[c as usize].pressable = true;
                 if is_selected {
                     self.add_state(c, "checked");

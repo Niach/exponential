@@ -203,7 +203,7 @@ struct TableCellLeaf: View {
                 .frame(height: cx.inner.height)
             }
         }
-        .frame(width: cx.inner.width, height: cx.inner.height, alignment: Alignment(horizontal: frameAlign.horizontal, vertical: .top))
+        .frame(width: cx.inner.width, height: cx.inner.height, alignment: Alignment(horizontal: frameAlign.horizontal, vertical: .center))
         .offset(x: cx.inner.minX, y: cx.inner.minY)
     }
 
