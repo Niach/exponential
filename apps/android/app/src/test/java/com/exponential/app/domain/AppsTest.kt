@@ -137,6 +137,8 @@ class AppsTest {
             "menu" to Apps.TestIds.MENU, "settings" to Apps.TestIds.SETTINGS,
             "versionPreview" to Apps.TestIds.VERSION_PREVIEW, "versionRestore" to Apps.TestIds.VERSION_RESTORE,
             "data" to Apps.TestIds.DATA,
+            "previewToolbar" to Apps.TestIds.PREVIEW_TOOLBAR, "previewFrame" to Apps.TestIds.PREVIEW_FRAME,
+            "previewTemplate" to Apps.TestIds.PREVIEW_TEMPLATE,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)

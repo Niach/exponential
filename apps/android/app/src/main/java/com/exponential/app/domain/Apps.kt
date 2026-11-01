@@ -88,6 +88,11 @@ object Apps {
         const val VERSION_RESTORE = "app-version-restore"
         // VAPP-178: the Data tab's body.
         const val DATA = "app-editor-data"
+        // VAPP-179: the Preview toolbar (web ≥ md + desktop only; phones
+        // have none, the ids stay in step with the fixture).
+        const val PREVIEW_TOOLBAR = "app-preview-toolbar"
+        const val PREVIEW_FRAME = "app-preview-frame"
+        const val PREVIEW_TEMPLATE = "app-preview-template"
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,
