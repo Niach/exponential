@@ -98,72 +98,32 @@ struct Census {
     shapes: usize,
 }
 
-/// Features the spike engine (velato 0.12) does not render faithfully.
-/// Every entry is a parity gap M1 closes; the list shrinks to empty.
-fn gap_for_layer(layer: &serde_json::Map<String, Value>) -> Vec<(&'static str, String)> {
-    let mut gaps = Vec::new();
-    match layer.get("ty").and_then(Value::as_i64) {
-        Some(5) => gaps.push(("gap-text", "text layer".into())),
-        Some(13) => gaps.push(("camera", "3D camera layers are not rendered".into())),
-        Some(1) => {}
-        _ => {}
+/// Effect types the engine lowers (drop shadow, blur, fill, tint, tritone, stroke).
+const EFFECTS: [i64; 6] = [20, 21, 22, 23, 25, 29];
+
+/// What the engine reports but does not render (or renders flattened).
+fn notes_for_layer(layer: &serde_json::Map<String, Value>) -> Vec<(&'static str, String)> {
+    let mut notes = Vec::new();
+    if layer.get("ty").and_then(Value::as_i64) == Some(13) {
+        notes.push(("camera", "3D camera layers are not rendered".into()));
     }
     if layer.get("ddd").and_then(Value::as_i64) == Some(1) {
-        gaps.push(("gap-3d", "3D layer flattened".into()));
-    }
-    if layer.contains_key("tm") {
-        gaps.push(("gap-time-remap", "time remap ignored".into()));
+        notes.push(("3d-layer", "3D layer drawn flattened (z, x/y rotation ignored)".into()));
     }
     if let Some(Value::Array(ef)) = layer.get("ef") {
-        if !ef.is_empty() {
-            gaps.push(("gap-effects", "layer effects ignored".into()));
-        }
-    }
-    match layer.get("tt").and_then(Value::as_i64) {
-        Some(3) | Some(4) => gaps.push(("gap-luma-matte", "luma matte drawn as alpha".into())),
-        _ => {}
-    }
-    if let Some(Value::Array(masks)) = layer.get("masksProperties") {
-        for m in masks {
-            let mode = m.get("mode").and_then(Value::as_str).unwrap_or("a");
-            if mode != "a" {
-                gaps.push(("gap-mask-mode", format!("mask mode `{mode}` drawn as add")));
-            }
-            if m.get("inv").and_then(Value::as_bool) == Some(true) {
-                gaps.push(("gap-mask-invert", "inverted mask".into()));
-            }
-            if m.get("x").is_some_and(|x| !is_zero_prop(x)) {
-                gaps.push(("gap-mask-expansion", "mask expansion".into()));
-            }
-            if m.get("f").is_some_and(|x| !is_zero_prop(x)) {
-                gaps.push(("gap-mask-feather", "mask feather".into()));
+        for e in ef {
+            let ty = e.get("ty").and_then(Value::as_i64).unwrap_or(-1);
+            if !EFFECTS.contains(&ty) {
+                notes.push(("effect", format!("effect type {ty} is not supported")));
             }
         }
     }
-    if layer.get("bm").and_then(Value::as_i64).unwrap_or(0) != 0 {
-        // velato maps blend modes; recorded so the corpus shows coverage.
+    if let Some(t) = layer.get("t") {
+        if t.get("p").and_then(|p| p.get("m")).is_some() {
+            notes.push(("text-path", "text on a path is drawn on its baseline".into()));
+        }
     }
-    gaps
-}
-
-fn is_zero_prop(v: &Value) -> bool {
-    match v.get("k") {
-        Some(Value::Number(n)) => n.as_f64() == Some(0.0),
-        Some(Value::Array(a)) => a.iter().all(|x| x.as_f64() == Some(0.0)),
-        _ => false,
-    }
-}
-
-fn gap_for_shape(ty: &str) -> Option<(&'static str, &'static str)> {
-    Some(match ty {
-        "mm" => ("gap-merge-paths", "merge paths ignored"),
-        "zz" => ("gap-zig-zag", "zig-zag ignored"),
-        "op" => ("gap-offset-path", "offset path ignored"),
-        "pb" => ("gap-pucker-bloat", "pucker/bloat ignored"),
-        "tw" => ("gap-twist", "twist ignored"),
-        "rd" => ("gap-round-corners", "round corners ignored"),
-        _ => return None,
-    })
+    notes
 }
 
 fn walk(v: &Value, path: &str, census: &mut Census, report: &mut Report) {
@@ -180,21 +140,13 @@ fn walk(v: &Value, path: &str, census: &mut Census, report: &mut Report) {
                 }
             }
             if map.contains_key("ty") && map.contains_key("ks") && map.contains_key("ip") {
-                for (code, msg) in gap_for_layer(map) {
+                for (code, msg) in notes_for_layer(map) {
                     report.warnings.push(issue(code, path, msg));
                 }
             }
-            if let Some(Value::String(ty)) = map.get("ty") {
+            if let Some(Value::String(_)) = map.get("ty") {
                 if path.contains("/shapes/") || path.contains("/it/") {
                     census.shapes += 1;
-                    if let Some((code, msg)) = gap_for_shape(ty) {
-                        report.warnings.push(issue(code, path, msg));
-                    }
-                    if (ty == "st" || ty == "gs") && map.get("d").is_some() {
-                        report
-                            .warnings
-                            .push(issue("gap-dashes", path, "dashes ignored"));
-                    }
                 }
             }
             for (k, child) in map {

@@ -12,23 +12,27 @@
 //! assert_eq!(list.width, 10.0);
 //! ```
 
+pub mod anim;
 pub mod display;
+pub mod effects;
+pub mod geom;
+mod import;
+pub mod model;
+pub mod modifiers;
 #[cfg(feature = "raster")]
 pub mod raster;
-mod sink;
+pub mod render;
+pub mod shapes;
+pub mod text;
 pub mod validate;
 
 pub use display::{DisplayList, Op};
+pub use model::Marker;
 pub use validate::{Issue, Limits};
-
-use std::cell::RefCell;
 
 /// A loaded, validated animation.
 pub struct Motion {
-    composition: velato::Composition,
-    /// Image asset ids, in the order `Op::Image::asset` indexes them.
-    images: Vec<String>,
-    renderer: RefCell<velato::Renderer>,
+    anim: model::Animation,
     /// Non-fatal findings (unsupported features rendered approximately or skipped).
     pub warnings: Vec<Issue>,
 }
@@ -36,48 +40,35 @@ pub struct Motion {
 impl Motion {
     /// Parse and validate with the default [`Limits`].
     pub fn load(source: &[u8]) -> Result<Self, Vec<Issue>> {
-        Self::load_with(source, &Limits::default())
+        Self::load_with(source, &Limits::default(), &serde_json::Map::new())
     }
 
-    /// Parse and validate with explicit limits.
-    pub fn load_with(source: &[u8], limits: &Limits) -> Result<Self, Vec<Issue>> {
+    /// Parse and validate with explicit limits and slot overrides (slot id →
+    /// `{"p": property}` or a bare value, e.g. a resolved theme colour).
+    pub fn load_with(source: &[u8], limits: &Limits, slots: &serde_json::Map<String, serde_json::Value>) -> Result<Self, Vec<Issue>> {
         let report = validate::check(source, limits);
         if !report.errors.is_empty() {
             return Err(report.errors);
         }
-        let composition = velato::Composition::from_slice(source).map_err(|e| {
-            vec![Issue {
-                code: "parse".into(),
-                path: String::new(),
-                message: e.to_string(),
-            }]
+        let root: serde_json::Value = serde_json::from_slice(source).map_err(|e| {
+            vec![Issue { code: "parse".into(), path: String::new(), message: e.to_string() }]
         })?;
-        let mut images: Vec<String> = composition.images.keys().cloned().collect();
-        images.sort();
-        Ok(Self {
-            composition,
-            images,
-            renderer: RefCell::new(velato::Renderer::new()),
-            warnings: report.warnings,
-        })
+        Ok(Self { anim: import::import(&root, slots), warnings: report.warnings })
     }
 
     /// Composition width × height.
     pub fn size(&self) -> (f32, f32) {
-        (
-            self.composition.width as f32,
-            self.composition.height as f32,
-        )
+        (self.anim.width as f32, self.anim.height as f32)
     }
 
     /// Frames per second.
     pub fn frame_rate(&self) -> f64 {
-        self.composition.frame_rate
+        self.anim.frame_rate
     }
 
     /// The active frame range `[in, out)`.
     pub fn frames(&self) -> (f64, f64) {
-        (self.composition.frames.start, self.composition.frames.end)
+        (self.anim.in_point, self.anim.out_point)
     }
 
     /// Duration in seconds.
@@ -90,33 +81,36 @@ impl Motion {
         }
     }
 
-    /// Image asset ids in `Op::Image::asset` order.
-    pub fn images(&self) -> &[String] {
-        &self.images
+    /// Markers (named segments).
+    pub fn markers(&self) -> &[Marker] {
+        &self.anim.markers
     }
 
-    /// Location (`u` + `p`, or the data URL) of image asset `index`.
-    pub fn image_location(&self, index: usize) -> Option<String> {
-        let id = self.images.get(index)?;
-        self.composition.images.get(id).map(|i| i.location())
+    /// Image assets in `Op::Image::asset` order: (id, location).
+    pub fn images(&self) -> Vec<(String, String)> {
+        self.anim.images.iter().map(|i| (i.id.clone(), i.location.clone())).collect()
+    }
+
+    /// Register a font file for text layers that ship no glyphs (`chars`).
+    /// Hosts register the theme's fonts; the first registered font is the
+    /// fallback for unknown families.
+    pub fn add_font(&mut self, family: &str, data: Vec<u8>) {
+        self.anim.font_book.add(family, data);
+    }
+
+    /// True when text layers have no glyphs to draw with: no `chars` in the
+    /// file and no font registered with [`Motion::add_font`].
+    pub fn needs_fonts(&self) -> bool {
+        text::needs_fonts(&self.anim)
+    }
+
+    /// The imported model.
+    pub fn model(&self) -> &model::Animation {
+        &self.anim
     }
 
     /// Sample `frame` (composition frames, fractional allowed) into `list`.
     pub fn sample(&self, frame: f64, list: &mut DisplayList) {
-        list.clear();
-        let (w, h) = self.size();
-        list.width = w;
-        list.height = h;
-        let mut recorder = sink::Recorder {
-            list,
-            images: &self.images,
-        };
-        self.renderer.borrow_mut().append(
-            &self.composition,
-            frame,
-            kurbo::Affine::IDENTITY,
-            1.0,
-            &mut recorder,
-        );
+        render::render(&self.anim, frame, list);
     }
 }

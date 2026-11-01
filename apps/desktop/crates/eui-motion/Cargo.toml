@@ -16,16 +16,22 @@ exclude = ["tests/", "examples/"]
 default = []
 # The tiny-skia reference raster: the gpui painter, the conformance
 # reference, GIF previews. Off in the WASM and FFI builds.
-raster = ["dep:tiny-skia"]
+raster = ["dep:tiny-skia", "dep:image", "dep:base64"]
 
 [dependencies]
-# EXP-1601 spike: velato as a crate (no vello); the fork decision is in the README.
-velato = { version = "0.12", default-features = false }
-kurbo = "0.13"
-peniko = "0.6"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+# Glyph outlines for text layers without `chars` (the version already in
+# apps/desktop/Cargo.lock via fontdb; no_std-capable, small in WASM).
+ttf-parser = { version = "0.25", default-features = false, features = ["std", "opentype-layout", "glyph-names"] }
 tiny-skia = { version = "0.11.4", optional = true }
+# `raster`: decodes image assets (data URLs, files) for the reference painter.
+image = { version = "0.25", optional = true, default-features = false, features = ["png", "jpeg", "webp"] }
+base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 serde_json = "1"
+
+[[example]]
+name = "spike"
+required-features = ["raster"]

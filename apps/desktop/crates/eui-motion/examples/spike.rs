@@ -33,7 +33,7 @@ fn main() {
         let name = path.file_stem().unwrap().to_string_lossy().to_string();
         let bytes = std::fs::read(&path).unwrap();
         let strict = validate::check(&bytes, &Limits::default());
-        let motion = match Motion::load_with(&bytes, &unlimited) {
+        let motion = match Motion::load_with(&bytes, &unlimited, &Default::default()) {
             Ok(m) => m,
             Err(e) => {
                 println!("{name}: REFUSED {:?}", e.iter().map(|i| &i.code).collect::<Vec<_>>());

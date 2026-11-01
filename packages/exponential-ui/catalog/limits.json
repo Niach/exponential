@@ -5,5 +5,14 @@
   "maxMessageBytes": 4194304,
   "maxTemplateItems": 10000,
   "maxPointerBytes": 1024,
-  "maxPointerSegments": 64
+  "maxPointerSegments": 64,
+  "motion": {
+    "$comment": "EXP-1584/1602: the eUI Motion (Lottie) limits, enforced by the one engine (apps/desktop/crates/eui-motion, src/validate.rs Limits) on every renderer through its WASM and uniffi builds. A source past maxBytes (UTF-8 JSON), maxShapes (shape items: objects with a string `ty` inside a layer's `shapes` or a group's `it`) or maxSeconds ((op − ip) / fr) is refused with an issue (`limit-bytes`, `limit-shapes`, `limit-duration`; expressions are refused too: `expression`); maxVertices = path vertices in one sampled frame (checked per frame by the player, not by the validator); maxFps = the highest frame rate a player samples at; maxPlayingPerSurface = Motion components one surface animates at once. Cases: fixtures/motion-validate.json.",
+    "maxBytes": 2097152,
+    "maxShapes": 5000,
+    "maxVertices": 100000,
+    "maxSeconds": 120,
+    "maxFps": 60,
+    "maxPlayingPerSurface": 8
+  }
 }

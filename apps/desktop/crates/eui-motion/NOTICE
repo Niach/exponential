@@ -1,0 +1,27 @@
+eui-motion — Exponential UI Motion
+Copyright Exponential. Licensed under the Apache License 2.0 (see the
+repository LICENSE).
+
+Parts of this crate are ports of lottie-web
+(https://github.com/airbnb/lottie-web, commit
+bede03d25d232826e0c9dca1733d542d8a7754fb), MIT License, Copyright (c)
+2015 Bodymovin; the licence is reproduced in LICENSE-lottie-web.txt:
+
+- src/geom.rs: the rectangle, ellipse, star and polygon path builders
+  (player/js/utils/shapes/ShapeProperty.js);
+- src/modifiers.rs: trim paths, round corners, pucker/bloat, zig-zag and
+  offset path (player/js/utils/shapes/*Modifier.js, bez.js,
+  PolynomialBezier.js);
+- src/shapes.rs: the repeater transform steps (RepeaterModifier.js);
+- src/text/: text layout, animators and range selectors
+  (player/js/utils/text/*, FontManager.js);
+- src/effects.rs: effect parameter semantics
+  (player/js/elements/svgElements/effects/*).
+
+Changes: translated from JavaScript to Rust, adapted to the eUI display
+list (paths and layers instead of SVG/Canvas calls), and made
+deterministic (no Math.random).
+
+The design of the display-list RenderSink follows velato
+(https://github.com/linebender/velato, Apache-2.0 OR MIT); no velato code
+is included.

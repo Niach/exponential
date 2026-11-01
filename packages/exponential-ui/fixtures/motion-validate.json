@@ -1,0 +1,138 @@
+{
+  "$comment": "EXP-1602: eUI Motion validation (apps/desktop/crates/eui-motion/src/validate.rs; the limits are catalog/limits.json › motion): what a Motion source is refused for (`errors`) and what it loads with as notes (`warnings`). AUTO-GENERATED expected codes: `UPDATE_MOTION_FIXTURES=1 cargo test -p eui-motion --test validate` (inputs kept). Each case: `id`, `covers`, ONE input, then `errors` and `warnings`: the issue CODES, compared as sorted multisets (paths and messages are informative, not part of the contract). Inputs: `lottie` = a document, serialised as compact JSON (no whitespace, keys in the order given); `source` = the raw UTF-8 bytes (parse errors); `build` = a generated input: `build.lottie` (compact JSON as above, integers and plain strings only, so every language serialises it byte-identically) with `repeatShapes: {count, shape}` = the first layer's `shapes` set to `count` copies of `shape`, then `padToBytes: N` = ASCII spaces appended until the source is exactly N bytes (trailing whitespace is valid JSON). Codes: `parse` (not JSON), `timing` (needs fr > 0 and op > ip), `limit-bytes` (source > maxBytes, checked first: nothing else runs), `limit-duration` ((op − ip) / fr > maxSeconds), `limit-shapes` (more than maxShapes shape items: every object with a string `ty` inside a layer's `shapes` or a group's `it`), `expression` (an animated property, an object with `k`, carrying an `x` STRING; one per property; ease handles' `x` arrays are not expressions); warnings are the engine's notes on features it renders approximately or skips.",
+  "cases": [
+    {
+      "id": "ok-minimal",
+      "covers": "a valid one-layer animation: no errors, no warnings",
+      "lottie": {"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "id": "ok-no-layers",
+      "covers": "an empty layer list is valid",
+      "lottie": {"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[]},
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "id": "ok-eased-keyframes",
+      "covers": "keyframe easing handles carry `x` ARRAYS, which are not expressions",
+      "lottie": {"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":1,"k":[{"t":0,"s":[0],"o":{"x":[0.4],"y":[0]},"i":{"x":[0.6],"y":[1]}},{"t":30,"s":[100]}]},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "id": "expression-static",
+      "covers": "an expression (`x` string) on a static property is refused",
+      "lottie": {"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0,"x":"time * 30"},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},
+      "errors": ["expression"],
+      "warnings": []
+    },
+    {
+      "id": "expression-nested",
+      "covers": "expressions deep inside shapes and precomp assets are refused, each one reported",
+      "lottie": {"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100,"x":"wiggle(1, 5)"}}]}],"assets":[{"id":"p","layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4],"x":"value"},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]}]},
+      "errors": ["expression","expression"],
+      "warnings": []
+    },
+    {
+      "id": "parse-not-json",
+      "covers": "bytes that are not JSON",
+      "source": "{\"v\":\"5.7.0\",\"fr\":30,",
+      "errors": ["parse"],
+      "warnings": []
+    },
+    {
+      "id": "parse-empty",
+      "covers": "an empty source",
+      "source": "",
+      "errors": ["parse"],
+      "warnings": []
+    },
+    {
+      "id": "timing-no-fr",
+      "covers": "a missing frame rate",
+      "lottie": {"v":"5.7.0","ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},
+      "errors": ["timing"],
+      "warnings": []
+    },
+    {
+      "id": "timing-zero-fr",
+      "covers": "fr 0",
+      "lottie": {"v":"5.7.0","fr":0,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},
+      "errors": ["timing"],
+      "warnings": []
+    },
+    {
+      "id": "timing-op-before-ip",
+      "covers": "op ≤ ip",
+      "lottie": {"v":"5.7.0","fr":30,"ip":30,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},
+      "errors": ["timing"],
+      "warnings": []
+    },
+    {
+      "id": "duration-at-limit",
+      "covers": "exactly 120 s (3,600 frames at 30 fps) is allowed",
+      "lottie": {"v":"5.7.0","fr":30,"ip":0,"op":3600,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "id": "duration-over-limit",
+      "covers": "120.03 s is refused (limit-duration)",
+      "lottie": {"v":"5.7.0","fr":30,"ip":0,"op":3601,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},
+      "errors": ["limit-duration"],
+      "warnings": []
+    },
+    {
+      "id": "duration-ip-offset",
+      "covers": "duration = (op − ip) / fr: a late ip keeps a long op inside the limit",
+      "lottie": {"v":"5.7.0","fr":30,"ip":1000,"op":4600,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "id": "bytes-at-limit",
+      "covers": "exactly 2,097,152 bytes is allowed",
+      "build": {"lottie":{"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},"padToBytes":2097152},
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "id": "bytes-over-limit",
+      "covers": "2,097,153 bytes is refused (limit-bytes) before parsing",
+      "build": {"lottie":{"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},"padToBytes":2097153},
+      "errors": ["limit-bytes"],
+      "warnings": []
+    },
+    {
+      "id": "shapes-at-limit",
+      "covers": "5,000 shape items is allowed",
+      "build": {"lottie":{"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[]}]},"repeatShapes":{"count":5000,"shape":{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}}}},
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "id": "shapes-over-limit",
+      "covers": "5,001 shape items is refused (limit-shapes)",
+      "build": {"lottie":{"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[]}]},"repeatShapes":{"count":5001,"shape":{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}}}},
+      "errors": ["limit-shapes"],
+      "warnings": []
+    },
+    {
+      "id": "notes-camera-3d",
+      "covers": "a camera layer and a 3D layer load with notes (rendered flattened / not at all)",
+      "lottie": {"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":1,"ind":2,"ty":13,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"pe":{"a":0,"k":600}},{"ddd":1,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}]}]},
+      "errors": [],
+      "warnings": ["3d-layer","3d-layer","camera"]
+    },
+    {
+      "id": "notes-unsupported-effect",
+      "covers": "an unsupported effect type is a note, a supported one (29, gaussian blur) is not",
+      "lottie": {"v":"5.7.0","fr":30,"ip":0,"op":30,"w":10,"h":10,"layers":[{"ddd":0,"ind":1,"ty":4,"ip":0,"op":30,"st":0,"ks":{"o":{"a":0,"k":100},"r":{"a":0,"k":0},"p":{"a":0,"k":[0,0]},"a":{"a":0,"k":[0,0]},"s":{"a":0,"k":[100,100]}},"shapes":[{"ty":"rc","p":{"a":0,"k":[5,5]},"s":{"a":0,"k":[4,4]},"r":{"a":0,"k":0}},{"ty":"fl","c":{"a":0,"k":[1,0,0,1]},"o":{"a":0,"k":100}}],"ef":[{"ty":29,"nm":"Blur","ef":[{"ty":0,"nm":"Blurriness","v":{"a":0,"k":5}}]},{"ty":5,"nm":"Slider","ef":[{"ty":0,"nm":"Slider","v":{"a":0,"k":5}}]}]}]},
+      "errors": [],
+      "warnings": ["effect"]
+    }
+  ]
+}
