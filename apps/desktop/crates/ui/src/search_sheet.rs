@@ -39,7 +39,6 @@ use gpui::{
     IntoElement, KeyBinding, ParentElement, Pixels, Render, Styled, Task, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
     input::InputEvent,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -239,7 +238,9 @@ impl SearchSheetView {
         };
         let chrome = native_dialog::chromeless_vertical_chrome(Some(window));
         let target = (px(INPUT_ROW_HEIGHT) + content + chrome).min(self.max_height);
-        let current = window.viewport_size();
+        let Some(current) = native_dialog::dialog_size(window, cx) else {
+            return;
+        };
         if (target - current.height).abs() <= px(1.) || self.last_requested_height == Some(target) {
             return;
         }
@@ -357,7 +358,6 @@ impl SearchSheetView {
 impl Render for SearchSheetView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         self.fit_to_content(window, cx);
-        let muted = cx.theme().muted_foreground;
         let selected = self.list.cursor(self.hits.len());
         let entity = cx.entity().downgrade();
         let rows: Vec<gpui::AnyElement> = self
@@ -421,17 +421,9 @@ impl Render for SearchSheetView {
             .capture_action(cx.listener(Self::on_tab))
             .capture_action(cx.listener(Self::on_escape))
             .child(
-                search_list::input_row(&self.list.input, (!self.searched.is_empty()).then_some(count), cx)
-                    .child(
-                        Button::new("search-sheet-close")
-                            .ghost()
-                            .cursor_pointer()
-                            .xsmall()
-                            .icon(Icon::new(registry::UI_CLOSE).small().text_color(muted))
-                            .on_click(|_, window, cx| {
-                                native_dialog::close_dialog_window(window, cx);
-                            }),
-                    ),
+                // EXP-1557: no ✕ after the count (the web palette has none):
+                // the scrim press and Escape dismiss it.
+                search_list::input_row(&self.list.input, (!self.searched.is_empty()).then_some(count), cx),
             )
             .child(search_list::hairline(cx))
             .child(body)

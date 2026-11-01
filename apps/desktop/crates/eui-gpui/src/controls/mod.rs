@@ -35,7 +35,7 @@ mod voice_wave;
 
 pub use animation::{until_next_step, SteppedAnimationElement, SteppedAnimationExt, SMOOTH_STEP};
 pub use buttons::{
-    call_button, custom_variant_fill, ghost_icon_button, CallSize, CallTone, glass_icon_button, text_button, web_switch,
+    call_button, custom_variant_fill, ghost_icon_button, CallSize, CallTone, glass_icon_button, text_button, web_switch, WebSwitch,
     TextButtonVariant, CUSTOM_VARIANT_ALPHA_FACTOR,
 };
 pub use choice_tiles::{

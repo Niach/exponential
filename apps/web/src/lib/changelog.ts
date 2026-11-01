@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-desktop-dialogs-in-window`,
+    date: `2026-11-01`,
+    title: `Desktop looks like the web app`,
+    summary: `Desktop dialogs open inside the window over a dimmed backdrop, and Settings matches the web page.`,
+    body: `- **Dialogs in the window**: Add device, Device settings, Join a team, Getting started, export, search and every confirm open over a dimmed backdrop; a click outside or Escape closes them.
+- **Settings**: the pages use the web app's type size, row style and switches.`,
+  },
+  {
     id: `2026-11-01-agents-get-the-issue`,
     date: `2026-11-01`,
     title: `Agents get the issue you hand them`,

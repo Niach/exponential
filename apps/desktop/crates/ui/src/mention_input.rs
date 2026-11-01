@@ -162,6 +162,17 @@ impl MentionInput {
         cx.notify();
     }
 
+    /// EXP-1557 (DEV-ONLY, `EXP_DEV_COMPOSER_TEXT`): type `text` at the
+    /// caret as a keystroke would, so a `#` token opens THE search list
+    /// (the `search-list` capture), whether or not the insert emitted a
+    /// Change of its own (the refresh is idempotent).
+    pub(crate) fn dev_type(&mut self, text: &str, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.insert_text(text, window, cx);
+        let input = self.input.clone();
+        self.refresh_completion(&input, cx);
+        cx.notify();
+    }
+
     fn refresh_completion(&mut self, input: &Entity<TextareaState>, cx: &mut gpui::Context<Self>) {
         let Some(source) = self.source.clone() else {
             self.completion = None;

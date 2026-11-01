@@ -1239,13 +1239,12 @@ pub(crate) fn reveals_undocked_window(screen: &Screen) -> bool {
 /// that HAS a panel takes the normal path, so this costs one registry lookup
 /// per navigation in the common case.
 /// The window a screen-less window's navigation belongs to: an undocked
-/// screen's shell, or (EXP-1037) the window a DIALOG was opened from. Both
-/// are windows without a screens panel, and both must hand a navigation on
-/// rather than write it to a nav nothing renders.
+/// screen's shell. It must hand a navigation on rather than write it to a
+/// nav nothing renders. (EXP-1037's dialog windows were the other case; a
+/// dialog is a layer of its window since EXP-1557.)
 fn owner_window_for(window: &Window, cx: &App) -> Option<AnyWindowHandle> {
     let window_id = window.window_handle().window_id();
     crate::undock::owner_shell_for_window(window_id, cx)
-        .or_else(|| crate::native_dialog::opener_of_window(window_id, cx))
 }
 
 /// EXP-1037 — the window a DEFERRED open should land in: this one, unless it
