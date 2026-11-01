@@ -184,7 +184,7 @@ vi.mock(`@/lib/client-version`, () => ({
 
 import {
   AGENT_IMPORT_REMOVED,
-  AGENT_LONG_LIVED_NEEDS_PROFILE,
+  AGENT_LONG_LIVED_CLAUDE_ONLY,
   clampAgentAccounts,
   clampAgentUsage,
   clearDeviceKey,
@@ -2517,21 +2517,37 @@ describe(`devices.createCommand — agent_login`, () => {
     })
   })
 
-  it(`refuses a long-lived login without a claude profile`, async () => {
-    for (const extra of [{ agent: `claude` }, { agent: `codex`, profileId: `p-work` }]) {
-      h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
-      await expect(
-        caller.createCommand({
-          deviceId: `dev-1`,
-          kind: `agent_login`,
-          longLived: true,
-          ...extra,
-        } as never)
-      ).rejects.toMatchObject({
-        code: `BAD_REQUEST`,
-        message: AGENT_LONG_LIVED_NEEDS_PROFILE,
-      })
-    }
+  // EXP-1612: Keep signed in is the default claude sign-in, an Add too.
+  it(`carries longLived for a claude Add account (no profile)`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-ll-add` }]]
+    await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login`,
+      agent: `claude`,
+      longLived: true,
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      kind: `agent_login`,
+      payload: { agent: `claude`, switch: `false`, longLived: `true` },
+    })
+    expect((h.state.inserted[0] as { payload: object }).payload).not.toHaveProperty(`profileId`)
+  })
+
+  it(`refuses a long-lived login for any agent but claude`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login`,
+        agent: `codex`,
+        profileId: `p-work`,
+        longLived: true,
+      } as never)
+    ).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: AGENT_LONG_LIVED_CLAUDE_ONLY,
+    })
     expect(h.state.inserted).toHaveLength(0)
   })
 })

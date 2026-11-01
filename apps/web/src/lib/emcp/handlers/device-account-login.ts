@@ -12,7 +12,7 @@
 //
 // One call per step, each bounded: the tool waits a little for the device's
 // answer and otherwise hands back the `commandId` to check on.
-import { parseAgentLoginResult } from "@/lib/agent-usage"
+import { loginIsLongLived, parseAgentLoginResult } from "@/lib/agent-usage"
 import type { AgentLoginProfileTarget } from "@/hooks/use-agent-login"
 
 export interface DeviceAccountLoginInput {
@@ -20,7 +20,8 @@ export interface DeviceAccountLoginInput {
   agent: string
   /** The login this sign-in is FOR (a re-login); absent = add an account. */
   profileId?: string
-  /** EXP-1533: a one-year `claude setup-token` login for `profileId`. */
+  /** EXP-1533: a one-year `claude setup-token` login. EXP-1612: the claude
+   *  DEFAULT (absent = true for claude); false = the browser login. */
   longLived?: boolean
   code?: string
   commandId?: string
@@ -171,7 +172,7 @@ export async function deviceAccountLogin(
     agent,
     switch: false,
     ...(input.profileId ? { profileId: input.profileId } : {}),
-    ...(input.longLived ? { longLived: true } : {}),
+    ...(loginIsLongLived(agent, input.longLived) ? { longLived: true } : {}),
   })
   return describe(await waitFor(id, deps, LOGIN_WAIT_MS))
 }

@@ -12,10 +12,11 @@
 // its entries in this fixed order:
 //
 //   - "Sign in": signed out, or a credential that expired here.
-//   - "Keep signed in" / "Renew long-lived login" (EXP-1533): claude rows
-//     only, always — the same sign-in, but the machine runs `claude
-//     setup-token` in that profile and keeps a one-year login; "Renew" while
-//     the profile already holds one (`tokenExpiresAt`).
+//   - "Switch to Keep signed in" / "Renew Keep signed in" (EXP-1533,
+//     EXP-1612): claude rows that do NOT need a sign-in — the machine runs
+//     `claude setup-token` in that profile and keeps a one-year login;
+//     "Renew" while the profile already holds one (`tokenExpiresAt`). A
+//     claude "Sign in" is that same long-lived login by default.
 //   - "Sign out" (EXP-1137): signed in (`agent_profile_sign_out`: claude's own `auth logout` inside that
 //     profile's config dir, codex's credential file deleted — never `codex
 //     logout`, which revokes the account server-wide). The row stays.
@@ -55,6 +56,7 @@ import {
   Prompt,
   toast,
 } from "@exp/ui"
+import { DEVICES_LIST_COPY } from "@exp/domain-contract/devices-list"
 import { parseAgentLoginResult, accountName } from "@/lib/agent-usage"
 import {
   canSignOutAccountOn,
@@ -79,10 +81,11 @@ const LongLivedIcon = conceptIcon(`ui-clock`)
 /** The chip menu's entries, byte-identical ×4 (Android
  * `AgentAccountsRows.ACTION_*`). */
 export const ACTION_SIGN_IN = `Sign in`
-/** EXP-1533: a claude login's long-lived (`claude setup-token`) sign-in —
- *  "Keep" while it holds none, "Renew" while it does. */
-export const ACTION_KEEP_SIGNED_IN = `Keep signed in`
-export const ACTION_RENEW_LONG_LIVED = `Renew long-lived login`
+/** EXP-1533 / EXP-1612: a claude login's long-lived (`claude setup-token`)
+ *  sign-in — "Switch" while it holds none, "Renew" while it does
+ *  (devices-list.json copy, ×4). */
+export const ACTION_KEEP_SIGNED_IN = DEVICES_LIST_COPY.switchToKeepSignedIn
+export const ACTION_RENEW_LONG_LIVED = DEVICES_LIST_COPY.renewKeepSignedIn
 export const ACTION_SIGN_OUT = `Sign out`
 export const ACTION_REMOVE = `Remove account`
 
@@ -121,9 +124,11 @@ export interface AccountChipRow {
   tokenExpiresAt?: string | null
 }
 
-/** EXP-1533: the long-lived entry this row offers, or null (claude only). */
+/** EXP-1533: the long-lived entry this row offers, or null (claude only).
+ *  EXP-1612: a row that signs in has none — its "Sign in" IS the long-lived
+ *  login. */
 export function longLivedAction(row: AccountChipRow): string | null {
-  if (row.agent !== `claude`) return null
+  if (row.agent !== `claude` || chipSignsIn(row)) return null
   return row.tokenExpiresAt ? ACTION_RENEW_LONG_LIVED : ACTION_KEEP_SIGNED_IN
 }
 
@@ -245,9 +250,9 @@ export function AccountChipMenu({
   accountLabel?: string
   /** Open the sign-in for THIS login (`AgentLoginDialogHost` lives at the
    *  route level; the caller owns the request so this module stays off the
-   *  dialog's import graph). `longLived` (EXP-1533) = the same sign-in, but
-   *  the machine mints a one-year `claude setup-token` login. */
-  onSignIn: (opts?: { longLived?: boolean }) => void
+   *  dialog's import graph). A claude sign-in is the long-lived `claude
+   *  setup-token` login by default (EXP-1612). */
+  onSignIn: () => void
   /** A-16: the login's limits, drawn above the entries. */
   header?: ReactNode
   trigger: ReactNode
@@ -294,8 +299,6 @@ export function AccountChipMenu({
   // The login dialog is hosted elsewhere in the tree — hand off a tick after
   // the menu closes, or the close's focus return swallows it.
   const signIn = () => setTimeout(() => onSignIn(), 0)
-  const signInLongLived = () =>
-    setTimeout(() => onSignIn({ longLived: true }), 0)
   const longLived = longLivedAction(row)
 
   return (
@@ -316,7 +319,7 @@ export function AccountChipMenu({
             </DropdownMenuItem>
           )}
           {longLived && actions.includes(longLived) && (
-            <DropdownMenuItem onSelect={signInLongLived}>
+            <DropdownMenuItem onSelect={signIn}>
               <LongLivedIcon />
               {longLived}
             </DropdownMenuItem>

@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-keep-signed-in-default`,
+    date: `2026-11-01`,
+    title: `Claude stays signed in by default`,
+    summary: `Signing Claude in now keeps it signed in for a year: open the link on any device and paste the code back.`,
+    body: `- **Keep signed in by default**: every new Claude sign-in uses a one-year login that can't be signed out by a token refresh. It shows no usage windows, and we remind you a month before it needs renewing.
+- **Switch in one tap**: Claude logins from before show "Switch to Keep signed in" on their device.
+- **Browser login**: still there under "Use browser login (Advanced)" in the sign-in dialog.`,
+  },
+  {
     id: `2026-11-01-dismiss-cards`,
     date: `2026-11-01`,
     title: `Dismiss a question or plan`,
