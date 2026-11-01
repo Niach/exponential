@@ -5467,8 +5467,8 @@
         "file": "shots/steering/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 69590,
-        "sha256": "a11658cd72eb72e57393f35e45c1ffd22176e00982619f72a6c8ef368e8f2ec4"
+        "bytes": 68640,
+        "sha256": "a5d5fe11071015a4139e7b4ae9dba4547f8cfd554d11a96012111c68db6019cb"
       },
       "web": {
         "file": "shots/steering/web.webp",
