@@ -2598,6 +2598,11 @@ export const messages = pgTable(
     // The issues it references (`#IDENT`; the writer names them when the
     // body is sealed): a PR's share (lib/sessions/pr-issues.ts). SERVER-ONLY.
     refIssueIds: uuid(`ref_issue_ids`).array(),
+    // #EXP-1584: the Issues section (identifier, title, description) of the
+    // issues this message FORWARDED into a session already under way
+    // (fixtures/session-brief.json `issueBriefCases`): clear even when the
+    // body is sealed; the device appends it to what the agent reads. SYNCED.
+    issueBrief: text(`issue_brief`),
     ...timestamps,
   },
   (table) => [

@@ -51,7 +51,7 @@ async function sealedAttachmentLines(ids: string[]): Promise<string[]> {
 
 async function sessionIssueRows(session: Pick<Session, `id`>) {
   return db
-    .select({ identifier: issues.identifier, title: issues.title })
+    .select({ identifier: issues.identifier, title: issues.title, description: issues.description })
     .from(sessionIssues)
     .innerJoin(issues, eq(issues.id, sessionIssues.issueId))
     .where(eq(sessionIssues.sessionId, session.id))

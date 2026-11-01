@@ -500,7 +500,7 @@ impl Render for ImagePreview {
 pub(crate) const GUIDE_VIEWER_PANEL_W: f32 = 360.;
 
 /// The viewer dialog's window title (EXP-1348).
-const GUIDE_VIEWER_TITLE: &str = "Guide";
+const GUIDE_VIEWER_TITLE: &str = "Stories";
 
 /// The Guide viewer's and the gallery's picture margin (each side).
 const GUIDE_PICTURE_PAD: f32 = 16.;

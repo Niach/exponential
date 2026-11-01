@@ -683,11 +683,15 @@ impl AppScreenView {
                 .child("This surface needs a newer Exponential. Update the app to show it.")
         });
         let surface = host.and_then(|host| host.surface(surface_id));
+        // EXP-1557 (web parity): `No version yet` is CENTRED in the frame,
+        // so it fills the frame itself (a scroll pane's content has no
+        // height to centre in).
+        let preview_empty = surface.is_none() && self.viewing.is_none();
         let frame_body = match surface {
             Some(surface) => v_flex().w_full().gap_3().children(host_banner).child(surface).into_any_element(),
             None if self.viewing.is_some() => div().into_any_element(),
             None => div()
-                .size_full()
+                .flex_1()
                 .min_h(px(192.))
                 .flex()
                 .items_center()
@@ -718,11 +722,16 @@ impl AppScreenView {
             .border_1()
             .border_color(theme.border)
             .bg(theme.background)
-            .child(crate::scroll_pane::v_scroll_pane(
-                "app-preview-scroll",
-                &self.preview_scroll,
-                div().w_full().p(px(APPS.preview.padding)).child(frame_body),
-            ));
+            .map(|frame| {
+                if preview_empty {
+                    return frame.child(frame_body);
+                }
+                frame.child(crate::scroll_pane::v_scroll_pane(
+                    "app-preview-scroll",
+                    &self.preview_scroll,
+                    div().w_full().p(px(APPS.preview.padding)).child(frame_body),
+                ))
+            });
         v_flex()
             .size_full()
             .min_h_0()

@@ -521,10 +521,10 @@ describe(`the bottom band sits on the ground, not in the card (EXP-771)`, () => 
 })
 
 describe(`the settings page header`, () => {
-  test(`title, subtitle and divider ride a centred 896 column`, () => {
+  test(`title and divider ride a centred 896 column`, () => {
     const { markup, blurb } = spec(`page-header`)
     expect(markup).toContain(`<div class="title">Settings</div>`)
-    expect(markup).toMatch(/<div class="desc">Manage .+ and your account<\/div>/)
+    expect(markup).not.toContain(`class="desc"`)
     expect(markup).toContain(`class="cmp-divider"`)
     expect(blurb).toContain(`Widget`)
     const column = ruleBody(`.cmp-page-header .content`)

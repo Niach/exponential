@@ -94,8 +94,8 @@ import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authentic
 import { Route as AuthenticatedAdminTeamsRouteImport } from './routes/_authenticated/admin/teams'
 import { Route as AuthenticatedAdminPerformanceRouteImport } from './routes/_authenticated/admin/performance'
 import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authenticated/admin/email'
-import { Route as AuthenticatedAdminConnectionsRouteImport } from './routes/_authenticated/admin/connections'
 import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
+import { Route as AuthenticatedAdminConnectionsRouteImport } from './routes/_authenticated/admin/connections'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
 import { Route as TTeamSlugThreadsIndexRouteImport } from './routes/t/$teamSlug/threads/index'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
@@ -584,16 +584,16 @@ const AuthenticatedAdminEmailRoute = AuthenticatedAdminEmailRouteImport.update({
   path: '/email',
   getParentRoute: () => AuthenticatedAdminRouteRoute,
 } as any)
-const AuthenticatedAdminConnectionsRoute =
-  AuthenticatedAdminConnectionsRouteImport.update({
-    id: '/connections',
-    path: '/connections',
-    getParentRoute: () => AuthenticatedAdminRouteRoute,
-  } as any)
 const AuthenticatedAdminConversionsRoute =
   AuthenticatedAdminConversionsRouteImport.update({
     id: '/conversions',
     path: '/conversions',
+    getParentRoute: () => AuthenticatedAdminRouteRoute,
+  } as any)
+const AuthenticatedAdminConnectionsRoute =
+  AuthenticatedAdminConnectionsRouteImport.update({
+    id: '/connections',
+    path: '/connections',
     getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
 const TTeamSlugSettingsRouteRoute = TTeamSlugSettingsRouteRouteImport.update({
@@ -2400,18 +2400,18 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminEmailRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
-    '/_authenticated/admin/connections': {
-      id: '/_authenticated/admin/connections'
-      path: '/connections'
-      fullPath: '/admin/connections'
-      preLoaderRoute: typeof AuthenticatedAdminConnectionsRouteImport
-      parentRoute: typeof AuthenticatedAdminRouteRoute
-    }
     '/_authenticated/admin/conversions': {
       id: '/_authenticated/admin/conversions'
       path: '/conversions'
       fullPath: '/admin/conversions'
       preLoaderRoute: typeof AuthenticatedAdminConversionsRouteImport
+      parentRoute: typeof AuthenticatedAdminRouteRoute
+    }
+    '/_authenticated/admin/connections': {
+      id: '/_authenticated/admin/connections'
+      path: '/connections'
+      fullPath: '/admin/connections'
+      preLoaderRoute: typeof AuthenticatedAdminConnectionsRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
     '/t/$teamSlug/settings': {

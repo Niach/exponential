@@ -25,7 +25,6 @@ import {
   GlassGroup,
   GlassSectionHeader,
   Picker,
-  Switch,
 } from "@exp/ui"
 
 // The estimate scale. Owner-only (teams.update); members see the value.
@@ -185,27 +184,6 @@ export function PrAutomationCard({
     }
   }
 
-  // EXP-711: merge ends the PR's live coding sessions by default (EXP-498);
-  // the switch turns that off team-wide. Pre-column rows read as enabled,
-  // matching the server default.
-  const [endSessionsBusy, setEndSessionsBusy] = useState(false)
-  const persistEndSessions = async (enabled: boolean) => {
-    setEndSessionsBusy(true)
-    try {
-      const { txId } = await trpc.statuses.setEndSessionsOnMerge.mutate(
-        { teamId, enabled },
-        SKIP_ERROR_TOAST
-      )
-      await teamCollection.utils.awaitTxId(txId)
-    } catch (err) {
-      failedAction(`update`, `PR automation`, err, {
-        retry: () => void persistEndSessions(enabled),
-      })
-    } finally {
-      setEndSessionsBusy(false)
-    }
-  }
-
   if (!team || pickable.length === 0) return null
 
   return (
@@ -280,15 +258,6 @@ export function PrAutomationCard({
               </div>
             )
           })}
-        <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <span className="min-w-0 text-sm">When a PR merges, end its sessions</span>
-          <Switch
-            checked={team.endSessionsOnMerge !== false}
-            disabled={endSessionsBusy}
-            onCheckedChange={(next) => void persistEndSessions(next)}
-            aria-label="End sessions when a pull request merges"
-          />
-        </div>
       </GlassGroup>
     </div>
   )

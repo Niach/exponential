@@ -23,7 +23,7 @@ import type { SessionXref as SessionXrefModel } from "@exp/domain-contract/sessi
 import { useMarkRead, useNewestAgentMessageAt } from "@/hooks/use-mark-read"
 import { useTeamUsers } from "@/hooks/use-team-data"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
-import type { SessionRow } from "@/lib/session-tree"
+import { THREAD_COPY, type SessionRow } from "@/lib/session-tree"
 import { cn } from "@/lib/utils"
 
 // EXP-1293 / EXP-1316: ONE session's RAW WORK. Two hosts:
@@ -83,7 +83,8 @@ export function BackStackButton({ onPop, className }: { onPop?: () => void; clas
     </Button>
   )
 }
-const REPLY_PLACEHOLDER = `Reply…`
+/** session-thread.json: THE session composer's placeholder ×4. */
+const REPLY_PLACEHOLDER = THREAD_COPY.placeholder
 
 /** The reply box under a session's feed. */
 function SessionReply({ row, opaque = false }: { row: SessionRow; opaque?: boolean }) {

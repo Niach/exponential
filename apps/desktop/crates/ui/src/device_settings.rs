@@ -2019,11 +2019,11 @@ impl DeviceSettingsView {
         if content <= px(0.) || body <= px(0.) || self.fitted == Some(content) {
             return;
         }
-        if window.is_maximized() || window.is_fullscreen() {
-            return;
-        }
         self.fitted = Some(content);
-        let current = window.viewport_size();
+        // EXP-1557: the in-window dialog's content box, not the window.
+        let Some(current) = crate::native_dialog::dialog_size(window, cx) else {
+            return;
+        };
         let chrome = (current.height - body).max(px(0.));
         let target = (content + chrome).min(self.max_height.max(px(360.)));
         if (target - current.height).abs() <= px(1.) {

@@ -1310,35 +1310,28 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_session: that session's page in the thread (DEMO_SESSION_ID) ─
         // The relay stub's feed ends on an UNANSWERED question, whose card
         // waits in THE Dock (N-12). Nothing is answered.
-        // The session's strip chip in the thread header opens the SAME page
-        // as its Conversation card, and it never scrolls: a card scrolled
-        // under the floating header still reads hittable, and XCUITest then
-        // taps the point it finds visible (the header's back button on a Pro
-        // Max), popping the thread instead. The card is the fallback when
-        // the strip folded the chip into a "+N".
-        let sessionChip = anyElement(app, identified: "thread-tab-session-\(Self.sessionId)")
-        if sessionChip.waitForExistence(timeout: Wait.sync), sessionChip.isHittable {
-            sessionChip.tap()
-        } else {
-            let sessionCard = app.descendants(matching: .any)
-                .matching(identifier: "session-card")
-                .matching(NSPredicate(format: "label CONTAINS %@", Self.sessionTitle))
-                .firstMatch
-            // NEW-16: scroll the card BELOW the strip, then tap its centre.
-            revealAndTap(
-                app,
-                sessionCard,
-                below: anyElement(app, identified: "thread-tab-conversation"),
-                "The cold-start thread drew no \"\(Self.sessionTitle)\" chip or card"
-            )
-        }
+        // #EXP-1433: the strip holds no session chips (issues + sessions fold
+        // into ONE group tab), so its Conversation card opens the page.
+        let sessionCard = app.descendants(matching: .any)
+            .matching(identifier: "session-card")
+            .matching(NSPredicate(format: "label CONTAINS %@", Self.sessionTitle))
+            .firstMatch
+        // NEW-16: scroll the card BELOW the strip, then tap its centre: a
+        // card scrolled under the floating header still reads hittable, and
+        // XCUITest would tap the header's back button instead.
+        revealAndTap(
+            app,
+            sessionCard,
+            below: anyElement(app, identified: "thread-tab-conversation"),
+            "The cold-start thread drew no \"\(Self.sessionTitle)\" card"
+        )
         // NEW-16: a tap that missed the card lands on the header's back
         // button and pops to the Threads list; say so instead of waiting a
         // minute for a Dock that can never draw.
         settle(1)
         if !anyElement(app, identified: "thread-tab-conversation").exists,
            threadRow(app, containing: Self.coldStartThreadTitle).exists {
-            XCTFail("Opening \"\(Self.sessionTitle)\" popped the thread back to the Threads list: the tap missed the chip/card (header or status bar)")
+            XCTFail("Opening \"\(Self.sessionTitle)\" popped the thread back to the Threads list: the tap missed the card (header or status bar)")
             return
         }
         // EXP-1343: a session chip of THIS thread opens as its page under
@@ -1357,8 +1350,12 @@ final class StyleguideScreenshots: XCTestCase {
             relayCard.allElementsBoundByIndex.contains(where: \.isHittable),
             "The session drew no pending question inline — is `bun run screenshots:desktop` publishing its feed?"
         )
+        // #EXP-1433: the group tab reads the open item's name.
         expect(
-            anyElement(app, identified: "thread-tab-session-\(Self.sessionId)"),
+            app.descendants(matching: .any)
+                .matching(identifier: "thread-strip-group-label")
+                .matching(NSPredicate(format: "label == %@", Self.sessionTitle))
+                .firstMatch,
             within: Wait.sync,
             "The session did not open as the thread's \"\(Self.sessionTitle)\" page"
         )

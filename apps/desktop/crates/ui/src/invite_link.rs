@@ -257,10 +257,12 @@ impl Render for InviteLinkPanel {
         }
         column = column.child(
             h_flex().child(
+                // EXP-1557 (web parity): the link concept web draws
+                // (`editor-link`), at the footer's size (web's default `md`).
                 Button::new("invite-generate")
                     .outline()
-                    .web_sm()
-                    .icon(registry::UI_INVITE)
+                    .web_md()
+                    .icon(registry::EDITOR_LINK)
                     .label(copy::INVITE_GENERATE)
                     .loading(self.generating)
                     .disabled(self.generating)

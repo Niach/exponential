@@ -26,7 +26,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     input::InputState,
-    v_flex, ActiveTheme as _,
+    v_flex, ActiveTheme as _, Sizable as _,
 };
 use serde_json::{json, Value};
 
@@ -415,6 +415,11 @@ pub(crate) fn picker_trigger_bare(
     Button::new(id)
         .ghost()
         .cursor_pointer()
+        // EXP-1557: `Small` so the value reads `text_sm` like the row's
+        // label (web `PICKER_ROW_TRIGGER` value: `text-sm text-foreground/70`);
+        // a Medium button sets its content `text_base`, one rung LARGER than
+        // the label it answers. The box metrics are overridden below.
+        .small()
         .h_auto()
         .px_0()
         .py_0()

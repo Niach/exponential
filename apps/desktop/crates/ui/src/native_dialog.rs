@@ -1,74 +1,50 @@
-//! Native dialog windows (EXP-284): every dialog/alert spawns as a real OS
-//! window instead of gpui-component's in-window Dialog overlay layer.
+//! Dialogs (EXP-1557): every dialog/alert draws INSIDE the window that
+//! opened it, over a scrim, like the web's `Dialog` — the approved #EXP-1549
+//! call ("desktop dialogs go in-window over a scrim like web"). EXP-284 to
+//! EXP-720 made them real OS windows (own traffic lights, no backdrop, the
+//! app behind fully lit); that is gone.
 //!
 //! The shared shape is [`open_dialog_window`] (content dialogs) and
-//! [`open_alert`] (confirm/alert dialogs) over one [`DialogShell`] root view:
+//! [`open_alert`] (confirm/alert dialogs) over one [`DialogShell`] layer per
+//! open dialog, kept per window in an app-global registry and painted by
+//! [`render_layer`] above the window's content (`Shell::render`, the
+//! undocked windows):
 //!
-//! - **Window options** (EXP-287, Linux split in EXP-308): on macOS/Windows a
-//!   dialog is an ORDINARY secondary app window — `WindowKind::Normal` with
-//!   the main window's chrome (`gpui_component::TitleBar::title_bar_options()`),
-//!   minimizable on Windows only (a minimized macOS dialog folds into the
-//!   app's Dock icon instead of earning its own tile — nothing visible left
-//!   to restore it from). That is what earns
-//!   it its own taskbar/window-list button, which is the point: dialogs are
-//!   managed by hand now, so they must be findable. `WindowKind::Floating`
-//!   could not deliver that on macOS — it allocs an `NSPanel` (never listed,
-//!   and `hidesOnDeactivate` defaults YES, so every dialog blinked out
-//!   whenever the app deactivated). On LINUX the trade goes the other way
-//!   (EXP-308): `Normal` dialogs opened wherever the WM's placement policy
-//!   dropped them (top-left cascade on GNOME) instead of over the IDE window,
-//!   because our centered origin never survives — gpui's X11 backend sets no
-//!   position hint in `WM_NORMAL_HINTS`, so the WM ignores the CreateWindow
-//!   origin, and Wayland has no client positioning at all. The ONLY
-//!   parent-centered placement either backend offers is the transient parent
-//!   relationship, so Linux dialogs are `Floating` (`WM_TRANSIENT_FOR` /
-//!   `xdg_toplevel.set_parent` on the opener — WMs center transients over
-//!   their parent), accepting that the taskbar folds them into the opener's
-//!   button; a lost dialog is still recoverable by re-triggering its opener
-//!   ([`raise_existing_dialog`]). EXP-450: an X11 transient is a DIALOG to the
-//!   WM and dialogs are not maximizable, so a RESIZABLE Linux dialog also gets
-//!   its window type restamped once the WM has placed it — see
-//!   [`crate::x11_dialog_type`]. `Floating` also survives everywhere for
-//!   [`DialogSpec::chromeless`] dialogs (the ⌘K palette, the image lightbox;
-//!   the Guide picture viewer is a native-chrome dialog, EXP-1348):
-//!   a palette is not a document window and wants to stay above its opener.
-//! - **Parent-relative positioning**: bounds are centered over the opener's
-//!   window bounds at open time (honoured on macOS/Windows; on Linux the
-//!   WM/compositor centers the transient itself — see above).
-//! - **Focus/dismiss semantics**: a dialog closes only when the user says so
-//!   — Escape, the titlebar's close control, or the OS close request
-//!   (Alt-F4 / WM close), all gated by the per-dialog `can_close` so a busy
-//!   submit keeps its window up. Enter runs the per-dialog `on_enter` submit
-//!   fallback. **There is no auto-dismissal** (EXP-287 removed EXP-285's
-//!   opener-activation observer): clicking, minimizing or ⌘-tabbing away
-//!   from the opener leaves the dialog exactly where it is. Re-triggering an
-//!   opener that already has a dialog RAISES that window instead of silently
-//!   dropping the request.
-//! - **Result plumbing**: the shell registers `dialog window → opener` in an
-//!   app-global registry; [`close_dialog_window`] closes the dialog and
-//!   [`close_then`] additionally runs a callback inside the opener window
-//!   (navigate-after-create, spawn-terminal-tab, notifications) — cross-window
-//!   updates are deferred, mirroring `undock`'s re-entrancy rules.
+//! - **Look**: the web `DIALOG_CLASSES` — a `black/60` scrim over the whole
+//!   window, the centred panel (`rounded-2xl`, `border-glass-stroke-card`,
+//!   `shadow-2xl`) capped to the viewport less a 1rem gutter, the title
+//!   `text-lg font-semibold` top-left and the ✕ top-right. gpui cannot blur
+//!   what is behind a view, so the web's `backdrop-blur-sm` is the scrim
+//!   alone (the eUI gpui renderer's layers make the same trade).
+//! - **Focus/dismiss**: Escape, the ✕ or a press on the scrim close the top
+//!   layer, all gated by the per-dialog `can_close` so a busy submit keeps it
+//!   up. Enter runs the per-dialog `on_enter` submit fallback. Focus moves
+//!   into the dialog on open (unless its content claimed it) and returns to
+//!   whatever held it on close.
+//! - **Never stacks** a content dialog: a second open while one is up is a
+//!   no-op ([`raise_existing_dialog`]). An ALERT may stack over a dialog
+//!   (a confirm raised from inside Device settings).
+//! - **Result plumbing**: [`close_dialog_window`] closes the top layer;
+//!   [`close_then`] additionally runs a callback in the same window once it
+//!   is gone (navigate-after-create, the next dialog).
 //!
-//! Dialog content views are created INSIDE the new window (input focus, key
-//! contexts and overlay layers are per-window) and read the shared app
-//! globals like every other surface.
+//! The names keep their EXP-284 `_window` suffix so the 60-odd callers did
+//! not churn: a "dialog window" is now a dialog layer of a window.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use gpui::{
-    actions, div, point, prelude::FluentBuilder as _, px, size, AnyElement, AnyView,
-    AnyWindowHandle, App, AppContext as _, Bounds, Entity, FocusHandle, Focusable, FontWeight,
-    Global, InteractiveElement as _, IntoElement, KeyBinding, MouseButton, ParentElement, Pixels,
-    Render, SharedString, Size, Styled, Window, WindowBounds, WindowControlArea,
-    WindowId, WindowKind, WindowOptions,
+    actions, div, prelude::FluentBuilder as _, px, size, AnyElement, AnyView, App,
+    AppContext as _, Entity, FocusHandle, Focusable, FontWeight, Global,
+    InteractiveElement as _, IntoElement, KeyBinding, MouseButton, ParentElement, Pixels, Render,
+    SharedString, Size, Styled, Window, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     scroll::ScrollableElement as _,
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Root, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use domain::prompts::{Prompt, Role};
 use theme::tokens as t;
@@ -79,8 +55,17 @@ const CONTEXT: &str = "NativeDialog";
 
 actions!(native_dialog, [CancelNativeDialog, ConfirmNativeDialog]);
 
-/// Register the Escape/Enter bindings and the dialog-window registry. Called
-/// once from `ui::init`.
+/// The web panel's `sm:w-[calc(100%-2rem)]` / `max-h-[calc(100dvh-2rem)]`
+/// gutter: a dialog never comes closer than this to the window edge.
+const GUTTER: f32 = 16.;
+/// The web `rounded-2xl` panel radius.
+const PANEL_RADIUS: f32 = 16.;
+/// The header row's height above the content: the ✕/title band
+/// (`top-4` + the `text-lg` line + the panel gap).
+const HEADER_H: f32 = 48.;
+
+/// Register the Escape/Enter bindings and the dialog registry. Called once
+/// from `ui::init`.
 pub(crate) fn init(cx: &mut App) {
     cx.bind_keys([
         KeyBinding::new("escape", CancelNativeDialog, Some(CONTEXT)),
@@ -90,27 +75,10 @@ pub(crate) fn init(cx: &mut App) {
     cx.set_global(DialogRegistryGlobal(registry));
 }
 
-/// One live dialog window's registry row.
-struct DialogRow {
-    /// The window that opened this dialog.
-    opener: AnyWindowHandle,
-    /// This dialog's own window — EXP-287 raises it when its opener
-    /// re-triggers, and closes it when its opener dies.
-    handle: AnyWindowHandle,
-}
-
-/// Runtime registry: dialog window id → its [`DialogRow`].
+/// Runtime registry: window id → its open dialog layers, bottom first.
 #[derive(Default)]
 struct DialogRegistry {
-    openers: HashMap<WindowId, DialogRow>,
-    /// Openers whose dialog window is in flight — spawned but not opened yet.
-    /// `openers` only fills in once the window exists, so without this a
-    /// double-trigger (double-clicked button, ⌘N twice) would race past the
-    /// never-stack guard and open two windows.
-    pending: HashSet<WindowId>,
-    /// VAPP-121: a dialog whose content changed step re-titles its strip
-    /// ([`set_dialog_title`]); absent = the spec's title.
-    titles: HashMap<WindowId, SharedString>,
+    layers: HashMap<WindowId, Vec<Entity<DialogShell>>>,
 }
 
 struct DialogRegistryGlobal(Entity<DialogRegistry>);
@@ -122,151 +90,84 @@ fn registry(cx: &App) -> Option<Entity<DialogRegistry>> {
         .map(|global| global.0.clone())
 }
 
-/// Whether a dialog is already up "here" — this window is a dialog, or a
-/// dialog it opened is still alive (or on its way up). The native replacement
-/// for the old `window.has_active_dialog` never-stack guards (⌘K spam, deep
-/// links).
-fn dialog_open_here(window: &Window, cx: &App) -> bool {
+fn top_layer(window: &Window, cx: &App) -> Option<Entity<DialogShell>> {
     let id = window.window_handle().window_id();
-    registry(cx).is_some_and(|registry| {
-        let registry = registry.read(cx);
-        registry.openers.contains_key(&id)
-            || registry.pending.contains(&id)
-            || registry
-                .openers
-                .values()
-                .any(|row| row.opener.window_id() == id)
-    })
+    registry(cx)?.read(cx).layers.get(&id)?.last().cloned()
 }
 
-/// The live dialog window this window opened, if any.
-fn live_dialog_of(window: &Window, cx: &App) -> Option<AnyWindowHandle> {
-    let id = window.window_handle().window_id();
-    let registry = registry(cx)?;
-    let registry = registry.read(cx);
-    registry
-        .openers
-        .values()
-        .find(|row| row.opener.window_id() == id)
-        .map(|row| row.handle)
+/// Whether a dialog is up in this window.
+pub(crate) fn has_open_dialog(window: &Window, cx: &App) -> bool {
+    top_layer(window, cx).is_some()
 }
 
-/// EXP-287: the never-stack guard, now with a recovery path. Returns `true`
-/// when the caller must NOT open a dialog — either because it already has a
-/// live one (which this raises: dialogs no longer auto-dismiss, so a repeat
-/// trigger has to be able to find the window it already opened, and the
-/// buried-behind-the-opener case has to be recoverable), or because opening
-/// is illegal here at all (this window IS a dialog — never nest — or its
-/// dialog is spawned but not yet up).
-///
-/// Called by [`open_dialog_window`] itself and by the two openers that must
-/// decide before building any state (⌘K spam, an invite deep link arriving
-/// mid-dialog).
+/// The never-stack guard: `true` when the caller must NOT open a dialog
+/// because this window already shows one (it is in plain sight over its
+/// scrim, so there is nothing to raise any more — EXP-287's raise was for
+/// a dialog window buried behind its opener). Called by
+/// [`open_dialog_window`] itself and by the openers that must decide before
+/// building any state (⌘K spam, an invite deep link arriving mid-dialog).
 pub(crate) fn raise_existing_dialog(window: &mut Window, cx: &mut App) -> bool {
-    if let Some(existing) = live_dialog_of(window, cx) {
-        // Deferred: every caller is inside a window update.
-        cx.defer(move |cx| {
-            let _ = existing.update(cx, |_, window, _| window.activate_window());
-        });
-        return true;
-    }
-    dialog_open_here(window, cx)
+    has_open_dialog(window, cx)
 }
 
-fn opener_of(window: &Window, cx: &App) -> Option<AnyWindowHandle> {
-    opener_of_window(window.window_handle().window_id(), cx)
+/// N-6's host rule asked whether `window` IS a (small) dialog window, to
+/// send its menus to a menu window and its pickers inline. A dialog is a
+/// layer of its window now, so its menus and pickers open in-window like
+/// everywhere else: never.
+pub(crate) fn is_dialog_window(_window: &Window, _cx: &App) -> bool {
+    false
 }
 
-/// The window `window_id`'s dialog was opened FROM — `None` when it is not a
-/// dialog window at all.
-///
-/// EXP-1037: a dialog window hosts no screens panel, so a navigation raised
-/// inside one (the composer dialog starting a run, which opens the session
-/// screen) has to land in the surface that opened it — the same shape
-/// [`crate::undock::owner_shell_for_window`] gives undocked screens. See
-/// `navigation::owner_window_for`.
-pub(crate) fn opener_of_window(window_id: WindowId, cx: &App) -> Option<AnyWindowHandle> {
-    registry(cx).and_then(|registry| {
-        registry
-            .read(cx)
-            .openers
-            .get(&window_id)
-            .map(|row| row.opener)
-    })
-}
-
-/// N-6: whether `window` IS a dialog window (one this registry opened). The
-/// host rule reads it: a dialog is a small window that already is a
-/// surface, so its menus open in a menu window (`menu_window`) and its
-/// pickers open inline (`picker::Picker`).
-pub(crate) fn is_dialog_window(window: &Window, cx: &App) -> bool {
-    opener_of_window(window.window_handle().window_id(), cx).is_some()
-}
-
-/// EXP-287: a shell window is going away — close the dialogs it opened.
-/// Nothing else would: a dialog is an independent `WindowKind::Normal` window
-/// now, with its own taskbar button and no auto-dismissal, so an orphan would
-/// linger as a user-visible zombie pointing at a dead opener. Mirrors
-/// [`crate::undock::on_shell_released`], which the same hook site calls for
-/// undocked terminals.
+/// A shell window is going away — drop the dialog layers it holds.
 pub(crate) fn on_opener_released(opener: WindowId, cx: &mut App) {
+    if let Some(registry) = registry(cx) {
+        registry.update(cx, |registry, _| {
+            registry.layers.remove(&opener);
+        });
+    }
+}
+
+/// Pop this window's top layer and hand focus back to what held it.
+fn pop_layer(window: &mut Window, cx: &mut App) {
+    let id = window.window_handle().window_id();
     let Some(registry) = registry(cx) else {
         return;
     };
-    let doomed: Vec<AnyWindowHandle> = registry
-        .read(cx)
-        .openers
-        .values()
-        .filter(|row| row.opener.window_id() == opener)
-        .map(|row| row.handle)
-        .collect();
-    if doomed.is_empty() {
-        return;
-    }
-    cx.defer(move |cx| {
-        for handle in doomed {
-            let _ = handle.update(cx, |_, window, _| window.remove_window());
+    let popped = registry.update(cx, |registry, _| {
+        let layers = registry.layers.get_mut(&id)?;
+        let popped = layers.pop();
+        if layers.is_empty() {
+            registry.layers.remove(&id);
         }
+        popped
     });
+    if let Some(shell) = popped {
+        if let Some(previous) = shell.read(cx).previous_focus.clone() {
+            window.focus(&previous, cx);
+        }
+    }
+    window.refresh();
 }
 
-/// Close this dialog window (deferred — safe from inside its own update).
+/// Close this window's top dialog (deferred — safe from inside its own
+/// update).
 pub(crate) fn close_dialog_window(window: &mut Window, cx: &mut App) {
-    let handle = window.window_handle();
-    cx.defer(move |cx| {
-        let _ = handle.update(cx, |_, window, _| window.remove_window());
-    });
+    window.defer(cx, pop_layer);
 }
 
-/// Close this dialog window, then run `f` inside the OPENER window
-/// (best-effort — the opener may already be gone). This is the result path
-/// back to the surface that opened the dialog: navigation after a create,
-/// notifications, terminal-tab spawns.
-///
-/// The closed dialog's registry row goes NOW, not at its `on_release` (a
-/// later effect flush): `f` may open the next dialog (Add account → the
-/// remote sign-in dialog), and the never-stack guard would otherwise find
-/// the dying window still "live", raise it and open nothing.
+/// Close this window's top dialog, then run `f` in the same window. This is
+/// the result path back to the surface under the dialog: navigation after a
+/// create, notifications, terminal-tab spawns, the next dialog (Add account
+/// → the remote sign-in dialog — the never-stack guard sees the closed one
+/// gone because the pop runs first).
 pub(crate) fn close_then(
     window: &mut Window,
     cx: &mut App,
     f: impl FnOnce(&mut Window, &mut App) + 'static,
 ) {
-    let opener = opener_of(window, cx);
-    let handle = window.window_handle();
-    cx.defer(move |cx| {
-        let _ = handle.update(cx, |_, window, _| window.remove_window());
-        if let Some(registry) = registry(cx) {
-            registry.update(cx, |registry, _| {
-                registry.openers.remove(&handle.window_id());
-            });
-        }
-        if let Some(opener) = opener {
-            let _ = opener.update(cx, |_, window, cx| {
-                f(window, cx);
-                window.activate_window();
-            });
-        }
+    window.defer(cx, move |window, cx| {
+        pop_layer(window, cx);
+        f(window, cx);
     });
 }
 
@@ -274,47 +175,31 @@ pub(crate) fn close_then(
 // Content dialogs
 // ---------------------------------------------------------------------------
 
-/// VAPP-121: re-title THIS dialog window (the strip label + the OS title),
-/// for a dialog whose content switches step (New app → Import an app).
+/// VAPP-121: re-title this window's top dialog, for a dialog whose content
+/// switches step (New app → Import an app).
 pub(crate) fn set_dialog_title(window: &mut Window, cx: &mut App, title: impl Into<SharedString>) {
     let title = title.into();
-    let id = window.window_handle().window_id();
-    if let Some(registry) = registry(cx) {
-        registry.update(cx, |registry, _| {
-            registry.titles.insert(id, title.clone());
+    if let Some(shell) = top_layer(window, cx) {
+        shell.update(cx, |shell, cx| {
+            shell.title = title;
+            cx.notify();
         });
     }
-    window.set_window_title(&title);
-    window.refresh();
 }
 
-/// Per-dialog window shape.
+/// Per-dialog shape.
 pub(crate) struct DialogSpec {
-    /// OS window title — the taskbar/window-list label, and (EXP-287) the
-    /// label the shell's titlebar strip draws for native-chrome dialogs.
+    /// The panel title (the web `DialogTitle`).
     pub title: SharedString,
-    /// Inner content size, below the titlebar strip. Callers cap against the
-    /// opener's viewport.
+    /// Content size, below the header row. Capped to the window less the
+    /// gutter at paint time.
     pub size: Size<Pixels>,
-    /// The resize floor. EXP-720: every native-chrome dialog is
-    /// user-resizable — the window chrome must not differ per dialog (the
-    /// macOS zoom light and the strip's maximize control used to be dead on
-    /// the fixed-size ones), and every dialog view already fills its window
-    /// (`size_full` + a `flex_1` body over a pinned footer). `None` = the
-    /// opening size is the floor; [`Self::resizable`] lowers it (EXP-285) for
-    /// the layouts that can shrink.
-    min_size: Option<Size<Pixels>>,
-    /// EXP-287: full window chrome — the main window's titlebar options plus
-    /// the shell's [`crate::title_bar::TitleBar`] strip. `false` = fully
-    /// frameless AND still a floating panel (search palette, image preview:
-    /// chrome would overlap the input/image, and neither is a window the user
-    /// manages by hand).
+    /// `false` = no header row (search palette, image preview: a title would
+    /// sit on the input/image). The name is EXP-287's (it was the OS chrome).
     native_chrome: bool,
-    /// EXP-716: vertical placement as a fraction of the opener's height,
-    /// measured from its top edge, instead of centered. A window that
-    /// grows with its content (the search palette) needs a fixed top so it
-    /// extends downward like a dropdown; centered placement would leave a
-    /// compact opener at mid-screen and grow it off the bottom.
+    /// EXP-716: the panel's top edge as a fraction of the window's height
+    /// instead of centered — the web palette's `sm:top-[15%]`, so a panel
+    /// that grows with its content extends downward like a dropdown.
     anchor_top: Option<f32>,
 }
 
@@ -323,30 +208,25 @@ impl DialogSpec {
         Self {
             title: title.into(),
             size,
-            min_size: None,
             native_chrome: true,
             anchor_top: None,
         }
     }
 
-    /// Place the window's top edge `fraction` of the opener's height below
-    /// the opener's top instead of centering it vertically (EXP-716). The
-    /// web palette's `sm:top-[15%]`.
+    /// Pin the panel's top edge `fraction` of the window's height down
+    /// (EXP-716). The web palette's `sm:top-[15%]`.
     pub(crate) fn anchor_top(mut self, fraction: f32) -> Self {
         self.anchor_top = Some(fraction);
         self
     }
 
-    /// Lower the resize floor below the opening size (EXP-285). Every
-    /// native-chrome dialog resizes either way (EXP-720); this only says the
-    /// layout tolerates less than [`Self::size`].
-    pub(crate) fn resizable(mut self, min_size: Size<Pixels>) -> Self {
-        self.min_size = Some(min_size);
+    /// EXP-285's resize floor. An in-window panel is not user-resizable; kept
+    /// so the callers read the same.
+    pub(crate) fn resizable(self, _min_size: Size<Pixels>) -> Self {
         self
     }
 
-    /// Opt out of the window chrome: no titlebar strip, no native decoration,
-    /// and the window stays a floating panel above its opener.
+    /// No header row: the content owns the whole panel.
     pub(crate) fn chromeless(mut self) -> Self {
         self.native_chrome = false;
         self
@@ -358,25 +238,23 @@ type OnEnterFn = Rc<dyn Fn(&mut Window, &mut App)>;
 type TitleContentFn = Rc<dyn Fn(&mut Window, &mut App) -> AnyElement>;
 
 /// What a dialog's build closure hands back: the content view plus the
-/// shell-level semantics that used to live on gpui-component's `Dialog`
-/// builder (`title`, `keyboard(!busy)`, `on_ok`).
+/// shell-level semantics (`title`, `keyboard(!busy)`, `on_ok`).
 pub(crate) struct DialogContent {
     view: AnyView,
-    /// In-content header row (title + ✕) above the content. Honoured ONLY by
-    /// [`DialogSpec::chromeless`] dialogs — see
-    /// [`DialogContent::chromeless_header`].
+    /// A header row (title + ✕) for a [`DialogSpec::chromeless`] dialog —
+    /// the image lightbox, where it carries the title anyway.
     header: Option<SharedString>,
-    /// EXP-426: extra controls rendered in the chromeless header's right
-    /// cluster, before the ✕ (the image lightbox's "Open in browser").
+    /// EXP-426: extra controls in the header's right cluster, before the ✕
+    /// (the image lightbox's "Open in browser").
     header_actions: Option<TitleContentFn>,
     /// Standard 16px padding + overflow scrolling around the content
-    /// (`false` = the view owns the full window).
+    /// (`false` = the view owns the whole content box).
     padded: bool,
-    /// EXP-291: keep the padded/header chrome but hand the view a DEFINITE
-    /// full-height body box instead of the shell's scroller (see
+    /// EXP-291: keep the padding but hand the view a DEFINITE full-height
+    /// body box instead of the shell's scroller (see
     /// [`DialogContent::self_scrolling`]).
     self_scrolling: bool,
-    /// Gates Escape / ✕ / the OS close request. Default: always closable.
+    /// Gates Escape / ✕ / a scrim press. Default: always closable.
     can_close: Option<CanCloseFn>,
     /// Enter fallback when no focused editor consumed it (the old `on_ok`).
     on_enter: Option<OnEnterFn>,
@@ -395,21 +273,13 @@ impl DialogContent {
         }
     }
 
-    /// Draw an in-content header row (title + ✕) above the content.
-    ///
-    /// EXP-287 narrowed this to [`DialogSpec::chromeless`] dialogs: a
-    /// native-chrome dialog draws `DialogSpec::title` in its real titlebar
-    /// strip, so a second header row would just repeat it. The one caller
-    /// left is the image lightbox, where the ✕ is the only mouse dismissal.
+    /// A header row (title + ✕) on a [`DialogSpec::chromeless`] dialog.
     pub(crate) fn chromeless_header(mut self, title: impl Into<SharedString>) -> Self {
         self.header = Some(title.into());
         self
     }
 
-    /// EXP-426: extra header controls in the chromeless header's right
-    /// cluster, next to the ✕. They render inside the shared
-    /// [`crate::app_title_bar::interactive`] wrapper, so clicks reach them
-    /// instead of starting a window drag. Requires [`Self::chromeless_header`].
+    /// EXP-426: extra header controls next to the ✕.
     pub(crate) fn chromeless_header_actions(
         mut self,
         actions: impl Fn(&mut Window, &mut App) -> AnyElement + 'static,
@@ -424,12 +294,9 @@ impl DialogContent {
     }
 
     /// EXP-291: keep the standard padded body + header row, but let the
-    /// CONTENT view own its scrolling. The view's root is handed a definite
-    /// full-height box (a `size_full()` root resolves against it, exactly
-    /// like [`DialogContent::padless`]), so it can pin an action bar at the
-    /// bottom and scroll only its own body. The default wrapper instead
-    /// scrolls the WHOLE view — footer included, which is what made the
-    /// Start-coding dialog's Cancel/Start buttons scroll out of reach.
+    /// CONTENT view own its scrolling, so it can pin an action bar at the
+    /// bottom and scroll only its own body (the Start-coding dialog's
+    /// Cancel/Start used to scroll out of reach).
     pub(crate) fn self_scrolling(mut self) -> Self {
         self.self_scrolling = true;
         self
@@ -446,59 +313,38 @@ impl DialogContent {
     }
 }
 
-// Duplicates `app::channel::APP_ID` via the compile-time channel feature —
-// the same CLOUD_INSTANCE/undock precedent (ui cannot depend on app).
-#[cfg(not(feature = "staging"))]
-const CHANNEL_APP_ID: &str = "at.exponential";
-#[cfg(feature = "staging")]
-const CHANNEL_APP_ID: &str = "at.exponential.staging";
+/// The content box of this window's top dialog (`None`: no dialog up) —
+/// what the content-fitting dialogs measure their chrome against. It used
+/// to be the dialog window's viewport.
+pub(crate) fn dialog_size(window: &Window, cx: &App) -> Option<Size<Pixels>> {
+    top_layer(window, cx).map(|shell| shell.read(cx).size)
+}
 
-/// EXP-716: resize a dialog window to a new CONTENT size keeping its top
-/// edge fixed, so a window that follows its content grows downward. gpui's
-/// `Window::resize` already anchors the top-left on Windows and X11 (and a
-/// Wayland compositor places as it likes); macOS anchors the bottom-left, so
-/// it takes the native path in [`crate::macos_window`]. Deferred out of the
-/// current render either way — resizing mid-frame re-enters the platform
-/// path (the window_size.rs EXP-263 precedent).
+/// EXP-716: resize this window's top dialog to a new CONTENT size. The
+/// panel keeps its top edge when it is top-anchored (the search palette
+/// grows downward) and stays centered otherwise.
 pub(crate) fn resize_dialog_keeping_top(
     window: &mut Window,
     cx: &mut App,
     size: Size<Pixels>,
 ) {
-    window.defer(cx, move |window, cx| {
-        #[cfg(target_os = "macos")]
-        if crate::macos_window::resize_keeping_top(window, cx, size) {
-            return;
-        }
-        let _ = &cx;
-        window.resize(size);
-    });
-}
-
-/// EXP-716: the vertical space a chromeless dialog's own chrome takes out of
-/// the window — the 1px card edge top and bottom off Linux (drawn by
-/// [`DialogShell`]), the CSD shadow+border under Linux — so a content-sized
-/// dialog can convert its content height into a window height.
-///
-/// `None` = the window is not open yet (sizing the `DialogSpec`): assumes
-/// the untiled Linux frame, which is what a fresh floating dialog gets.
-pub(crate) fn chromeless_vertical_chrome(window: Option<&Window>) -> Pixels {
-    if !cfg!(target_os = "linux") {
-        return px(2.);
-    }
-    match window {
-        Some(window) => crate::window_frame::frame_vertical_chrome(window),
-        None => crate::window_frame::untiled_frame_vertical_chrome(),
+    if let Some(shell) = top_layer(window, cx) {
+        shell.update(cx, |shell, cx| {
+            shell.size = size;
+            cx.notify();
+        });
     }
 }
 
-/// Open a native dialog window over `window` (the opener). `build` runs
-/// INSIDE the new window and returns the content view + semantics.
-///
-/// Never stacks: called from a dialog window this is a no-op (never nest —
-/// App-global shortcut handlers can land here while a dialog is active), and
-/// a repeat trigger from an opener that already has one RAISES that window
-/// (EXP-287 — see [`raise_existing_dialog`]).
+/// EXP-716: the vertical space a chromeless dialog's own chrome takes — the
+/// panel's 1px edge top and bottom — so a content-sized dialog can convert
+/// its content height into a panel height.
+pub(crate) fn chromeless_vertical_chrome(_window: Option<&Window>) -> Pixels {
+    px(2.)
+}
+
+/// Open a dialog over `window`. `build` runs in `window` and returns the
+/// content view + semantics. Never stacks (see [`raise_existing_dialog`]).
 pub(crate) fn open_dialog_window(
     window: &mut Window,
     cx: &mut App,
@@ -508,272 +354,73 @@ pub(crate) fn open_dialog_window(
     if raise_existing_dialog(window, cx) {
         return;
     }
-    let opener = window.window_handle();
-    let opener_id = opener.window_id();
-    // Latch the in-flight marker synchronously — the window itself only
-    // registers once the spawn below actually opens it.
-    if let Some(registry) = registry(cx) {
-        registry.update(cx, |registry, _| {
-            registry.pending.insert(opener_id);
-        });
-    }
-    let native_chrome = spec.native_chrome;
-    // EXP-287: `DialogSpec::size` is the CONTENT box; a native-chrome dialog
-    // now carries a real 34px titlebar strip above it. Grow the window by that
-    // strip and re-apply the opener-viewport cap every caller already respects
-    // (several ask for `0.85 * viewport`), so no dialog can outgrow the screen
-    // it was sized against.
-    let mut size = spec.size;
-    if native_chrome {
-        size.height += crate::title_bar::TITLE_BAR_HEIGHT;
-        size.height = size.height.min(window.viewport_size().height);
-    }
-    // Parent-relative positioning: centered over the opener's outer bounds
-    // (or, EXP-716, top-anchored at the spec's fraction of the opener).
-    let opener_bounds = window.bounds();
-    let top = match spec.anchor_top {
-        Some(fraction) => opener_bounds.size.height * fraction,
-        None => (opener_bounds.size.height - size.height) / 2.,
-    };
-    let origin = point(
-        opener_bounds.origin.x + (opener_bounds.size.width - size.width) / 2.,
-        opener_bounds.origin.y + top,
-    );
-    let bounds = Bounds { origin, size };
-    let title = spec.title.clone();
-    // EXP-720: native-chrome dialogs always resize; the floor is the explicit
-    // one or the opening size (capped like the size itself, so the floor can
-    // never exceed what the viewport allowed). Chromeless panels (search,
-    // image preview) are never user-resizable — they are transient surfaces,
-    // not windows the user manages (the search palette follows its CONTENT
-    // instead, EXP-716: `resize_dialog_keeping_top`).
-    let min_size = native_chrome.then(|| {
-        let mut min = spec.min_size.unwrap_or(spec.size);
-        min.height += crate::title_bar::TITLE_BAR_HEIGHT;
-        min.height = min.height.min(size.height);
-        min
-    });
-
-    // The gpui-component-sanctioned pattern: open windows inside a foreground
-    // spawn (also dodges the re-entrant window-update trap — every caller is
-    // a click/action handler inside a window update).
-    cx.spawn(async move |cx| {
-        let options = WindowOptions {
-            window_bounds: Some(WindowBounds::Windowed(bounds)),
-            // EXP-287: an ordinary secondary app window, exactly like an
-            // undocked terminal (`undock::undocked_window_options`) — that is
-            // what earns it a taskbar/window-list button of its own, which a
-            // hand-managed, never-auto-dismissed dialog needs. `Floating`
-            // cannot: on macOS it allocs an NSPanel (never listed, and
-            // `hidesOnDeactivate` defaults YES, which blinked every dialog out
-            // whenever the app deactivated).
-            //
-            // EXP-308: Linux is the exception — `Normal` dialogs landed
-            // wherever the WM's placement policy put them (top-left cascade)
-            // instead of over the opener: gpui's X11 backend sets no position
-            // hint in WM_NORMAL_HINTS so the WM discards `bounds.origin`, and
-            // Wayland cannot position toplevels at all. The transient parent
-            // relationship `Floating` stamps (WM_TRANSIENT_FOR /
-            // `xdg_toplevel.set_parent` on the keyboard-focused opener) is the
-            // one mechanism both backends have that centers a window over its
-            // parent, so Linux trades the dialog's own taskbar button for
-            // correct placement (`raise_existing_dialog` keeps a buried dialog
-            // recoverable from its opener).
-            //
-            // Chromeless dialogs stay `Floating` on every platform: the ⌘K
-            // palette and the image lightbox are transient surfaces, not
-            // windows the user manages, and both want to stay above their
-            // opener.
-            kind: if native_chrome && !cfg!(target_os = "linux") {
-                WindowKind::Normal
-            } else {
-                WindowKind::Floating
-            },
-            // EXP-287: the main window's titlebar options (`app::windows`) —
-            // macOS traffic lights at (9,9) floating over the shell's own
-            // `TitleBar` strip, Windows caption suppressed, Linux CSD. The
-            // strip below carries the drag region and, off macOS, the
-            // min/close controls.
-            titlebar: native_chrome.then(|| gpui::TitlebarOptions {
-                title: Some(title.clone()),
-                ..gpui_component::TitleBar::title_bar_options()
-            }),
-            is_resizable: min_size.is_some(),
-            // EXP-287 wanted minimize wherever the dialog has its own
-            // taskbar/window-list button. EXP-308: that is Windows-only now —
-            // the Linux dialog is a transient with NO taskbar button, and a
-            // minimized macOS dialog folds into the app's Dock icon instead
-            // of earning a tile of its own — on both, minimizing would strand
-            // the window with no visible restore affordance. (On macOS this
-            // is what disables the yellow traffic light.)
-            is_minimizable: cfg!(target_os = "windows"),
-            window_min_size: min_size,
-            app_id: Some(CHANNEL_APP_ID.to_string()),
-            // EXP-290 glass: non-opaque + behind-window blur, same as the shell
-            // (`app::windows` carries the per-platform rationale). A small
-            // window over the desktop is the surface the glass reads best on —
-            // and on macOS the blurred backdrop is what keeps its 0.92-alpha
-            // page from showing the raw desktop through. Windows stays Opaque;
-            // Linux is `Transparent` for CSD only, its page opaque (EXP-1135).
-            #[cfg(target_os = "macos")]
-            window_background: gpui::WindowBackgroundAppearance::Blurred,
-            #[cfg(target_os = "linux")]
-            window_background: gpui::WindowBackgroundAppearance::Transparent,
-            #[cfg(target_os = "linux")]
-            window_decorations: Some(gpui::WindowDecorations::Client),
-            ..Default::default()
-        };
-        let shell_title = title.clone();
-        let opened = cx.open_window(options, move |window, cx| {
-            let content = build(window, cx);
-            let shell = cx.new(|cx| {
-                DialogShell::new(
-                    opener,
-                    content,
-                    shell_title,
-                    native_chrome,
-                    min_size.is_some(),
-                    window,
-                    cx,
-                )
-            });
-            // Root MUST be the first view of every window (§3.3) — it hosts
-            // the popover/menu/notification overlay layers the dialog content
-            // (chip dropdowns, date popovers) paints into.
-            cx.new(|cx| {
-                let root = Root::new(shell, window, cx);
-                #[cfg(target_os = "linux")]
-                let root = {
-                    use gpui::Styled as _;
-                    root.bordered(false).bg(gpui::transparent_black())
-                };
-                // EXP-290 macOS glass: clear Root's opaque full-window
-                // `tokens.background` fill — it would sit between the blurred
-                // backdrop and the translucent page gradient.
-                #[cfg(target_os = "macos")]
-                let root = {
-                    use gpui::Styled as _;
-                    root.bg(gpui::transparent_black())
-                };
-                root
-            })
-        });
-        // EXP-303: give the new Blurred window a working frosted backdrop
-        // (gpui's own BlurredView renders none on current macOS).
-        #[cfg(target_os = "macos")]
-        crate::macos_blur::ensure_window_blur();
-        // Drop the in-flight marker either way: on success `DialogShell::new`
-        // has already registered the real row (the build closure runs
-        // synchronously), on failure nothing may stay latched.
-        cx.update(|cx| {
-            if let Some(registry) = registry(cx) {
-                registry.update(cx, |registry, _| {
-                    registry.pending.remove(&opener_id);
-                });
-            }
-        });
-        let handle = opened?;
-        handle.update(cx, |_, window, cx| {
-            window.set_window_title(&title);
-            window.activate_window();
-            // EXP-450: the Linux dialog is a `WM_TRANSIENT_FOR` transient, which
-            // EWMH managers classify as a DIALOG — and a dialog cannot be
-            // maximized, so the strip's maximize control did nothing. Tell the
-            // WM it is an ordinary window once it has placed this one; the
-            // transient relationship (centering, stacking) is untouched.
-            #[cfg(target_os = "linux")]
-            if native_chrome && min_size.is_some() {
-                crate::x11_dialog_type::allow_maximize(window);
-            }
-            let _ = cx;
-        })?;
-
-        // EXP-287: on X11 the dialog needs the `_NET_WM_ICON` stamp — alt-tab
-        // (and, pre-EXP-308, its taskbar button) reads it, and the launch-time
-        // pass in `app::x11_window_icon` is long gone by the time one opens.
-        // No-op everywhere else.
-        cx.update(|cx| crate::window_hooks::notify_window_opened(cx));
-        anyhow::Ok(())
-    })
-    .detach();
+    push_layer(window, cx, spec, build);
 }
 
-/// The dialog window's root view: registry lifecycle, glass chrome, the
-/// titlebar strip, Escape/Enter handling, and the Root overlay layers.
+fn push_layer(
+    window: &mut Window,
+    cx: &mut App,
+    spec: DialogSpec,
+    build: impl FnOnce(&mut Window, &mut App) -> DialogContent + 'static,
+) {
+    let previous_focus = window.focused(cx);
+    let content = build(window, cx);
+    // The content claimed focus while building (search focuses its input):
+    // leave it there; otherwise the panel takes it, so Escape/Enter reach
+    // the `CONTEXT` bindings from the first frame.
+    let content_focused = window.focused(cx) != previous_focus;
+    let shell = cx.new(|cx| DialogShell {
+        content,
+        title: spec.title,
+        size: spec.size,
+        header: spec.native_chrome,
+        anchor_top: spec.anchor_top,
+        previous_focus,
+        focus_handle: cx.focus_handle(),
+    });
+    if !content_focused {
+        let handle = shell.read(cx).focus_handle.clone();
+        window.focus(&handle, cx);
+    }
+    let id = window.window_handle().window_id();
+    if let Some(registry) = registry(cx) {
+        registry.update(cx, |registry, _| {
+            registry.layers.entry(id).or_default().push(shell);
+        });
+    }
+    window.refresh();
+}
+
+/// Every open dialog layer of `window`, bottom first — composed by each
+/// window root ABOVE its content and below the toasts. `None` = none open.
+pub(crate) fn render_layer(window: &Window, cx: &App) -> Option<AnyElement> {
+    let id = window.window_handle().window_id();
+    let layers = registry(cx)?.read(cx).layers.get(&id)?.clone();
+    Some(
+        div()
+            .absolute()
+            .inset_0()
+            .children(layers.into_iter().map(|shell| shell.into_any_element()))
+            .into_any_element(),
+    )
+}
+
+/// One open dialog: the scrim, the panel, the header, Escape/Enter.
 struct DialogShell {
-    opener: AnyWindowHandle,
     content: DialogContent,
-    /// Window title — the titlebar strip's label.
+    /// The panel title.
     title: SharedString,
-    /// Whether this window carries the full chrome: a real titlebar strip
-    /// (EXP-287) and, on macOS, the native traffic lights floating over it.
-    native_chrome: bool,
-    /// Whether the window is user-resizable — a fixed-size window must not
-    /// draw a maximize control it cannot honour.
-    resizable: bool,
-    /// Chromeless header drag state (the `should_move` titlebar pattern).
-    should_move: bool,
+    /// The content box (below the header row).
+    size: Size<Pixels>,
+    /// Whether the panel draws the title + ✕ header row.
+    header: bool,
+    anchor_top: Option<f32>,
+    /// What held focus before the dialog opened; it gets it back on close.
+    previous_focus: Option<FocusHandle>,
     focus_handle: FocusHandle,
 }
 
 impl DialogShell {
-    fn new(
-        opener: AnyWindowHandle,
-        content: DialogContent,
-        title: SharedString,
-        native_chrome: bool,
-        resizable: bool,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) -> Self {
-        // Register FIRST so `close_then` resolves the opener from the first
-        // frame; the release hook below unregisters symmetrically.
-        let handle = window.window_handle();
-        let id = handle.window_id();
-        if let Some(registry) = registry(cx) {
-            let row = DialogRow { opener, handle };
-            registry.update(cx, |registry, cx| {
-                registry.openers.insert(id, row);
-                cx.notify();
-            });
-        }
-
-        // The OS close request (Alt-F4 / WM close / the macOS traffic light /
-        // the Windows caption hitbox) consults the same busy gate as Escape.
-        if let Some(can_close) = content.can_close.clone() {
-            window.on_window_should_close(cx, move |_, cx| can_close(cx));
-        }
-
-        cx.on_release(move |_, cx| {
-            if let Some(registry) = registry(cx) {
-                registry.update(cx, |registry, cx| {
-                    registry.openers.remove(&id);
-                    registry.titles.remove(&id);
-                    cx.notify();
-                });
-            }
-            // App-global action handlers can lazily create per-window
-            // registries against a focused dialog window — mirror the
-            // undocked-window teardown so nothing leaks past the close.
-            crate::navigation::remove_window(id, cx);
-            crate::repo_resolver::remove_window(id, cx);
-            crate::sidebar::remove_window(id, cx);
-            // N-6: a menu layer hung off this dialog goes with it.
-            crate::menu_window::on_host_released(id, cx);
-        })
-        .detach();
-
-        Self {
-            opener,
-            content,
-            title,
-            native_chrome,
-            resizable,
-            should_move: false,
-            focus_handle: cx.focus_handle(),
-        }
-    }
-
     fn can_close(&self, cx: &App) -> bool {
         self.content
             .can_close
@@ -789,137 +436,113 @@ impl Focusable for DialogShell {
     }
 }
 
+/// The web `DialogContent` panel frame: the glass card over the scrim.
+/// Shared with [`alert_specimen`], so the styleguide pictures the product's
+/// panel.
+fn panel_frame(cx: &App) -> gpui::Div {
+    v_flex()
+        .flex_shrink_0()
+        .overflow_hidden()
+        .rounded(px(PANEL_RADIUS))
+        .border_1()
+        .border_color(t::glass::STROKE_CARD.to_hsla())
+        // The web `bg-card/85` over its blur: the page ground with the
+        // panel wash on top (gpui cannot blur, so the ground is opaque).
+        .bg(cx.theme().background)
+        .shadow_2xl()
+        .text_color(cx.theme().foreground)
+}
+
+/// The web `DialogHeader` + the ✕ (`absolute top-4 right-4`): the title
+/// `text-lg font-semibold` leading, `actions` then the ✕ trailing.
+fn panel_header(
+    title: SharedString,
+    actions: Option<AnyElement>,
+    close: Option<Button>,
+) -> gpui::Div {
+    h_flex()
+        .h(px(HEADER_H))
+        .flex_shrink_0()
+        .items_center()
+        .justify_between()
+        .gap_2()
+        .pl_4()
+        .pr_3()
+        .pt_2()
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .text_lg()
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title),
+        )
+        .child(
+            h_flex()
+                .flex_shrink_0()
+                .items_center()
+                .gap_1()
+                .children(actions)
+                .children(close),
+        )
+}
+
+fn close_button(id: &'static str, closable: bool, cx: &App) -> Button {
+    Button::new(id)
+        .ghost()
+        .cursor_pointer()
+        .xsmall()
+        .icon(
+            Icon::new(registry::UI_CLOSE)
+                .small()
+                .text_color(cx.theme().muted_foreground),
+        )
+        .disabled(!closable)
+}
+
 impl Render for DialogShell {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // gpui builds the key dispatch path from the FOCUSED node and falls
-        // back to the ROOT node when the window has no focus at all
-        // (`Window::dispatch_key_event` → `focus_node_id_in_rendered_frame`),
-        // so the `key_context(CONTEXT)` div below is off the path and
-        // Escape/Enter are dead in a freshly opened dialog window until the
-        // first click lands inside it. Claim focus while nothing else holds it
-        // — the gpui-component overlay `Dialog` focused itself on open the
-        // same way. Content views that autofocus an input still win: they do
-        // it either in the `build` closure (search — runs before this view
-        // exists) or in their own `render`, which runs after this one.
-        if window.focused(cx).is_none() {
-            self.focus_handle.focus(window, cx);
-        }
-
-        let _ = self.opener;
         let closable = self.can_close(cx);
         let on_enter = self.content.on_enter.clone();
+        let viewport = window.viewport_size();
 
-        // EXP-287: native-chrome dialogs wear the MAIN WINDOW's chrome — the
-        // vendored `TitleBar` strip (drag zone, double-click zoom, the Linux
-        // right-click WM menu, the macOS traffic-light gutter, and off macOS
-        // the min/close controls), exactly like an undocked window
-        // (`undock::UndockedScreenWindow::render`). Under the Linux
-        // server-decoration fallback the WM already draws all of that, so the
-        // strip degrades to a plain labelled band.
-        //
-        // Chromeless dialogs (⌘K palette, image lightbox) keep the old
-        // in-content header row: a titlebar would sit on the search input,
-        // and the row's ✕ is the lightbox's only mouse dismissal.
-        let title = registry(cx)
-            .and_then(|registry| registry.read(cx).titles.get(&window.window_handle().window_id()).cloned())
-            .unwrap_or_else(|| self.title.clone());
-        let title_child: AnyElement = div().text_sm().child(title).into_any_element();
-        let chrome: Option<AnyElement> = self.native_chrome.then(|| {
-            if crate::app_title_bar::client_chrome(window) {
-                crate::title_bar::TitleBar::new()
-                    // A fixed-size dialog has no maximize affordance at the OS
-                    // level, so the control would be dead chrome. EXP-308: on
-                    // Linux the dialog is a taskbar-less transient, so the
-                    // minimize control goes too — the strip's Linux handler
-                    // calls `minimize_window()` directly, which would strand
-                    // the window with nothing to restore it from. (Maximize
-                    // stays: EXP-450 buys the WM's permission back for exactly
-                    // the resizable dialogs that draw it.)
-                    .window_controls(!cfg!(target_os = "linux"), self.resizable)
-                    // Linux only (upstream's gate, kept): `remove_window` never
-                    // consults `on_window_should_close`, so this is the only
-                    // place a busy submit can refuse the strip's own ✕. The
-                    // Windows/macOS close controls route through the OS and hit
-                    // the same gate via `on_window_should_close`.
-                    .on_close_window(cx.listener(|this, _, window, cx| {
-                        if this.can_close(cx) {
-                            close_dialog_window(window, cx);
-                        }
-                    }))
-                    .child(crate::app_title_bar::interactive(title_child))
-                    .into_any_element()
-            } else {
-                plain_title_band(title_child).into_any_element()
-            }
-        });
-
+        // The header: the dialog's title + ✕ (every dialog with chrome), or
+        // the chromeless lightbox's own header with its extra actions.
+        let header_title = if self.header {
+            Some(self.title.clone())
+        } else {
+            self.content.header.clone()
+        };
         let header_actions: Option<AnyElement> = self
             .content
             .header_actions
             .clone()
             .map(|actions| actions(window, cx));
-        let header = self.content.header.clone().map(|title| {
-            h_flex()
-                .flex_shrink_0()
-                .items_center()
-                .justify_between()
-                // The header carries its own padding (the body's p_4 used to
-                // leave a 16px undraggable band above it).
-                .px_4()
-                .pt_3()
-                // Chromeless windows have no other draggable chrome.
-                .window_control_area(WindowControlArea::Drag)
-                .on_mouse_down_out(cx.listener(|this, _, _, _| this.should_move = false))
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, _| this.should_move = true),
-                )
-                .on_mouse_up(
-                    MouseButton::Left,
-                    cx.listener(|this, _, _, _| this.should_move = false),
-                )
-                .on_mouse_move(cx.listener(|this, _, window, _| {
-                    if this.should_move {
-                        this.should_move = false;
-                        window.start_window_move();
-                    }
-                }))
-                .child(
-                    div()
-                        .text_lg()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .child(title),
-                )
-                .child(crate::app_title_bar::interactive(
-                    h_flex()
-                        .items_center()
-                        .gap_1()
-                        .children(header_actions)
-                        .child(
-                            Button::new("native-dialog-close")
-                                .ghost().cursor_pointer()
-                                .xsmall()
-                                .icon(
-                                    Icon::new(registry::UI_CLOSE)
-                                        .small()
-                                        .text_color(cx.theme().muted_foreground),
-                                )
-                                .disabled(!closable)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    if this.can_close(cx) {
-                                        close_dialog_window(window, cx);
-                                    }
-                                })),
-                        ),
-                ))
+        let header = header_title.map(|title| {
+            panel_header(
+                title,
+                header_actions,
+                Some(close_button("native-dialog-close", closable, cx).on_click(
+                    cx.listener(|this, _, window, cx| {
+                        if this.can_close(cx) {
+                            close_dialog_window(window, cx);
+                        }
+                    }),
+                )),
+            )
         });
+        let header_h = if header.is_some() { px(HEADER_H) } else { px(0.) };
+
+        // The panel: the content box under the header, capped to the window
+        // less the gutter (the web `max-h-[calc(100dvh-2rem)]`).
+        let width = self.size.width.min(viewport.width - px(2. * GUTTER));
+        let top = self
+            .anchor_top
+            .map(|fraction| (viewport.height * fraction).max(px(GUTTER)));
+        let max_h = viewport.height - top.unwrap_or(px(GUTTER)) - px(GUTTER);
+        let height = (self.size.height + header_h + px(2.)).min(max_h);
 
         let body: AnyElement = if self.content.padded {
-            let has_header = header.is_some();
-            // Overflowing forms scroll instead of clipping the footer (the
-            // old overlay grew with its content; a window can't) — unless the
-            // view is `self_scrolling` (EXP-291), which trades the wrapper
-            // for a plain definite-height box the view fills itself.
             let inner: AnyElement = if self.content.self_scrolling {
                 div()
                     .size_full()
@@ -932,143 +555,79 @@ impl Render for DialogShell {
                     .child(div().pr_1().child(self.content.view.clone()))
                     .into_any_element()
             };
-            let content = div().flex_1().min_h_0().child(inner);
-            if has_header {
-                // EXP-288: the header owns the top padding (drag region
-                // reaches y=0); only the content wrapper pads the rest.
-                v_flex()
-                    .size_full()
-                    .gap_3()
-                    .children(header)
-                    .child(content.px_4().pb_4())
-                    .into_any_element()
-            } else {
-                v_flex()
-                    .size_full()
-                    .p_4()
-                    .gap_3()
-                    .child(content)
-                    .into_any_element()
-            }
-        } else if let Some(row) = header {
-            // EXP-415: a padless view can still wear the chromeless header
-            // (search) — the row carries its own padding, the view keeps the
-            // rest of the window.
-            v_flex()
-                .size_full()
-                .child(row)
-                .child(div().flex_1().min_h_0().child(self.content.view.clone()))
+            div()
+                .flex_1()
+                .min_h_0()
+                .px_4()
+                .pb_4()
+                .when(header.is_none(), |this| this.pt_4())
+                .child(inner)
                 .into_any_element()
         } else {
             div()
-                .size_full()
+                .flex_1()
+                .min_h_0()
                 .child(self.content.view.clone())
                 .into_any_element()
         };
 
-        // Popover/menu/notification overlay layers — same composition rule as
-        // `Shell::render`; without them chip dropdowns and `toast::show`
-        // would silently never paint in this window.
-        let sheet_layer = Root::render_sheet_layer(window, cx);
-        let dialog_layer = Root::render_dialog_layer(window, cx);
-        let toast_layer = crate::toast::render_layer(window, cx);
-        // EXP-1275: the BLOCKING wait (team/account switch, sign-out)
-        // paints over everything, the toasts included.
-        let blocking_layer = crate::feedback::Blocking::overlay(cx);
-        // EXP-771: the body fill paints to the bottom window edge, so it has
-        // to carry the frame's bottom radii itself — same rule (and same
-        // reason) as `round_to_frame` on the gradient root below.
-        let frame_radii = crate::window_frame::frame_radii(window);
-
-        crate::window_frame::window_frame().child(
-            // EXP-269 corners: see `window_frame::frame_radii` — an
-            // edge-painting layer must round itself (this one carries the
-            // dialog's own border, which follows the same arc).
-            crate::window_frame::round_to_frame(div(), window)
-                .size_full()
-                // The glass dialog surface — the same page gradient as the
-                // main window (EXP-285). It carries EXP-290's 0.92 alpha like
-                // every other window root, so the blurred backdrop shows
-                // through; there is never dimmed in-window content behind a
-                // native window, only the desktop.
-                .bg(theme::background_gradient())
-                // Off Linux there is no `window_frame` stroke, so the dialog
-                // draws its own card edge. Under Linux CSD `window_frame`
-                // already paints a 1px `window_border` around the rounded
-                // frame, and a second stroke inside it both doubles the line
-                // and shifts the inner arc 1px off the radius `TitleBar` (and
-                // its close button's hover fill) rounds to — the EXP-269
-                // square-corner class of bug. `Shell` and the undocked windows
-                // carry no border here for the same reason.
-                .when(!cfg!(target_os = "linux"), |root| {
-                    root.border_1().border_color(t::glass::STROKE_CARD.to_hsla())
+        let panel = panel_frame(cx)
+            .id("native-dialog-panel")
+            .w(width)
+            .h(height)
+            .key_context(CONTEXT)
+            .track_focus(&self.focus_handle)
+            // A press inside the panel never reaches the scrim's dismiss.
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_action(cx.listener(|this, _: &CancelNativeDialog, window, cx| {
+                if this.can_close(cx) {
+                    close_dialog_window(window, cx);
+                }
+            }))
+            .when_some(on_enter, |this, on_enter| {
+                this.on_action(move |_: &ConfirmNativeDialog, window, cx| {
+                    on_enter(window, cx);
                 })
-                .text_color(cx.theme().foreground)
-                .key_context(CONTEXT)
-                .track_focus(&self.focus_handle)
-                .on_action(cx.listener(|this, _: &CancelNativeDialog, window, cx| {
+            })
+            .child(
+                v_flex()
+                    .size_full()
+                    // EXP-771: the panel wash the dialog body always wore.
+                    .bg(t::glass::FILL_PANEL.to_hsla())
+                    .children(header)
+                    .child(body),
+            );
+
+        // The web overlay: `fixed inset-0 bg-black/60`, a press on it
+        // dismisses (Radix's outside-press).
+        div()
+            .id("native-dialog-scrim")
+            .absolute()
+            .inset_0()
+            .occlude()
+            .bg(gpui::black().opacity(0.6))
+            .flex()
+            .flex_col()
+            .items_center()
+            .when_some(top, |this, top| this.pt(top))
+            .when(top.is_none(), |this| this.justify_center())
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, _, window, cx| {
                     if this.can_close(cx) {
                         close_dialog_window(window, cx);
                     }
-                }))
-                .when_some(on_enter, |this, on_enter| {
-                    this.on_action(move |_: &ConfirmNativeDialog, window, cx| {
-                        on_enter(window, cx);
-                    })
-                })
-                .child(
-                    v_flex()
-                        .size_full()
-                        .children(chrome)
-                        // EXP-771: the dialog BODY reads like the shell's
-                        // cutout panel (`shell::render`: `glass::FILL_PANEL`
-                        // inside `glass::STROKE_CARD`) instead of bare window
-                        // ground — a create-issue dialog used to be the only
-                        // near-black surface in the app. The gradient root
-                        // stays the ground the titlebar band sits on and the
-                        // card EDGE is the root's own border: a second stroke
-                        // here would double the line exactly like the Linux
-                        // CSD case documented above, so this layer is fill
-                        // only.
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_h_0()
-                                .bg(t::glass::FILL_PANEL.to_hsla())
-                                .rounded_bl(frame_radii.bottom_left)
-                                .rounded_br(frame_radii.bottom_right)
-                                .child(body),
-                        ),
-                )
-                // EXP-837: the text-selection disarm — every window that
-                // hosts the `TextSelection` layer needs it (a window MOVE eats
-                // the mouse-up that would have ended a selection drag).
-                .child(crate::text_selection_guard::selection_guard())
-                .children(sheet_layer)
-                .children(dialog_layer)
-                .child(toast_layer)
-                .children(blocking_layer),
-        )
+                }),
+            )
+            .child(panel)
     }
-}
-
-/// The titlebar strip without client chrome: a plain labelled band (the WM
-/// draws the drag zone and the controls itself).
-fn plain_title_band(title_child: AnyElement) -> gpui::Div {
-    h_flex()
-        .h(crate::title_bar::TITLE_BAR_HEIGHT)
-        .w_full()
-        .flex_shrink_0()
-        .items_center()
-        .px_3()
-        .child(title_child)
 }
 
 // ---------------------------------------------------------------------------
 // Alerts (confirm dialogs)
 // ---------------------------------------------------------------------------
 
-/// Every alert window's width.
+/// Every alert's width.
 const ALERT_WIDTH: f32 = 416.;
 
 type OnOkFn = Rc<dyn Fn(&mut Window, &mut App) -> bool>;
@@ -1088,7 +647,7 @@ pub(crate) enum AlertEnter {
     Secondary,
 }
 
-/// A native confirm window: title, description, optional extra content block
+/// A confirm dialog: title, description, optional extra content block
 /// (e.g. a typed-confirm input), Cancel + OK footer. The old
 /// `open_alert_dialog` + `DialogButtonProps` surface.
 pub(crate) struct AlertSpec {
@@ -1108,12 +667,16 @@ pub(crate) struct AlertSpec {
     ok_icon: Option<ExpIcon>,
     /// Window width; [`ALERT_WIDTH`] unless a footer needs more room.
     width: Pixels,
-    /// Total window height, titlebar strip included (see [`AlertSpec::height`]).
+    /// Total height, the header included (see [`AlertSpec::height`]).
     height: Pixels,
     /// Whether the footer draws Cancel next to OK. `false` (EXP-697) is for
     /// the informational alerts that only have something to dismiss — the
     /// window's own ✕ / Escape does the same job as a Cancel there.
     cancel: bool,
+    /// EXP-1557: whether the footer draws at all. `false` = an alert that
+    /// only shows something (Add device): the ✕, Escape and the scrim close
+    /// it, the web dialog's shape.
+    footer: bool,
     /// Extra block between the description and the footer.
     content: Option<AlertContentFn>,
     /// EXP-897: a THIRD button between Cancel and OK, the second real
@@ -1159,6 +722,7 @@ impl AlertSpec {
             // EXP-285: trimmed 240 → 220 — alerts size closer to content.
             height: px(220.),
             cancel: true,
+            footer: true,
             content: None,
             secondary: None,
             destructive: None,
@@ -1229,6 +793,12 @@ impl AlertSpec {
 
     /// Drop the Cancel button — an informational alert has nothing to cancel,
     /// only to dismiss (EXP-697). Escape / ✕ still close the window.
+    /// EXP-1557: no footer at all (see [`AlertSpec::footer`]).
+    pub(crate) fn without_footer(mut self) -> Self {
+        self.footer = false;
+        self
+    }
+
     pub(crate) fn without_cancel(mut self) -> Self {
         self.cancel = false;
         self
@@ -1340,14 +910,15 @@ impl AlertSpec {
     }
 }
 
-/// Open a native confirm window over `window` (the opener).
+/// Open a confirm dialog over `window`. Unlike a content dialog it may
+/// STACK over an open one (a confirm raised from inside Device settings).
 pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
-    // `AlertSpec::height` is the whole window; `DialogSpec::size` is the
-    // content below the titlebar strip (EXP-287).
+    // `AlertSpec::height` is the whole alert, header included (EXP-287
+    // kept that meaning); `DialogSpec::size` is the content below it.
     let content_height = (spec.height - crate::title_bar::TITLE_BAR_HEIGHT).max(px(0.));
     let dialog_size = size(spec.width, content_height);
     let title = spec.title.clone();
-    open_dialog_window(window, cx, DialogSpec::new(title, dialog_size), move |_, cx| {
+    push_layer(window, cx, DialogSpec::new(title, dialog_size), move |_, cx| {
         let on_closed = spec.on_closed.clone();
         let view = cx.new(|cx| {
             if let Some(on_closed) = on_closed {
@@ -1362,12 +933,11 @@ pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
     });
 }
 
-/// An alert OUTSIDE its window, for the styleguide's dialog specimens: the
-/// real [`AlertView`] over the SAME [`AlertSpec`] the product opens, at the
-/// alert's own width and height. A window cannot be embedded, so the frame
-/// stands in for [`DialogShell`]: the page gradient inside the card stroke,
-/// the plain titled band, then the panel fill the body sits on. `key` keeps
-/// the view across frames (`window.use_keyed_state`).
+/// An alert OUTSIDE the scrim, for the styleguide's dialog specimens: the
+/// real [`AlertView`] over the SAME [`AlertSpec`] the product opens, in the
+/// product's panel ([`panel_frame`] + [`panel_header`]) at the alert's own
+/// width and height. `key` keeps the view across frames
+/// (`window.use_keyed_state`).
 pub(crate) fn alert_specimen(
     key: &'static str,
     spec: AlertSpec,
@@ -1375,31 +945,16 @@ pub(crate) fn alert_specimen(
     cx: &mut App,
 ) -> gpui::Div {
     let title = spec.title.clone();
-    let height = spec.height;
+    let height = spec.height - crate::title_bar::TITLE_BAR_HEIGHT + px(HEADER_H + 2.);
     let width = spec.width;
     let view = window.use_keyed_state(key, cx, |_, _| AlertView { spec });
-    let radius = px(t::radius::LG);
-    v_flex()
-        .w(width)
-        .h(height)
-        .flex_shrink_0()
-        .rounded(radius)
-        .border_1()
-        .border_color(t::glass::STROKE_CARD.to_hsla())
-        .bg(theme::background_gradient())
-        .text_color(cx.theme().foreground)
-        .child(plain_title_band(
-            div().text_sm().child(title).into_any_element(),
-        ))
-        .child(
-            div()
-                .flex_1()
-                .min_h_0()
-                .bg(t::glass::FILL_PANEL.to_hsla())
-                .rounded_bl(radius)
-                .rounded_br(radius)
-                .child(view),
-        )
+    panel_frame(cx).w(width).h(height).child(
+        v_flex()
+            .size_full()
+            .bg(t::glass::FILL_PANEL.to_hsla())
+            .child(panel_header(title, None, Some(close_button("native-alert-specimen-close", true, cx))))
+            .child(div().flex_1().min_h_0().child(view)),
+    )
 }
 
 struct AlertView {
@@ -1441,11 +996,11 @@ impl Render for AlertView {
         let view = cx.entity().clone();
         let extra = self.spec.content.as_ref().map(|content| content(window, cx));
 
-        // EXP-287: no header row here — the shell's titlebar strip carries the
-        // alert title (which is also the OS window title) and the drag region.
+        // No header row here — the dialog panel's header carries the title.
         v_flex()
             .size_full()
-            .p_4()
+            .px_4()
+            .pb_4()
             .gap_3()
             .child(
                 v_flex()
@@ -1473,7 +1028,7 @@ impl Render for AlertView {
                     })
                     .children(extra),
             )
-            .child(
+            .when(self.spec.footer, |this| { this.child(
                 h_flex()
                     .flex_shrink_0()
                     .justify_end()
@@ -1530,7 +1085,7 @@ impl Render for AlertView {
                                 Self::confirm(&view, window, cx);
                             }),
                     ),
-            )
+            ) })
     }
 }
 

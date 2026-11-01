@@ -354,19 +354,6 @@ function pickerRow(label: string, value: string): string {
   ].join(``)
 }
 
-function toggleRow(label: string, desc: string | undefined, on: boolean): string {
-  const text =
-    desc === undefined
-      ? `<span class="label">${escapeHtml(label)}</span>`
-      : `<span class="text"><span class="label">${escapeHtml(label)}</span><span class="desc">${escapeHtml(desc)}</span></span>`
-  return [
-    `<div class="cmp-row-shell">`,
-    text,
-    `<span class="cmp-switch${on ? ` on` : ``}"></span>`,
-    `</div>`,
-  ].join(``)
-}
-
 /**
  * The selection bar. `labelled` is the desktop arm (icon + text on every
  * button); the phone arm keeps only the glyphs, and only Start coding keeps
@@ -1029,7 +1016,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `page-header`,
     title: `Settings page header`,
     kind: `Surfaces`,
-    blurb: `Every settings page on web and desktop opens identically (EXP-771): the title Settings at 2xl bold, the subtitle "Manage {team name} and your account" at sm muted, then a hairline divider. All three ride a centred column capped at 56rem (896px at a 16px root; the desktop pins 896 outright) with 1.5rem padding, while the SCROLL region is the full width of the pane, so the scrollbar rides the viewport edge instead of the text column. The nav beside it lists every page: web and desktop both carry Widget and MCP servers under a Features group.`,
+    blurb: `Every settings page on web and desktop opens identically (EXP-771): the title Settings at 2xl bold (no explanatory subtitle, EXP-1550), then a hairline divider. Both ride a centred column capped at 56rem (896px at a 16px root; the desktop pins 896 outright) with 1.5rem padding, while the SCROLL region is the full width of the pane, so the scrollbar rides the viewport edge instead of the text column. The nav beside it lists every page: web and desktop both carry Widget and MCP servers under a Features group.`,
     status: {
       web: ok(`SettingsLayout`, `apps/web/src/routes/t/$teamSlug/settings/route.tsx`),
       desktop: ok(
@@ -1045,9 +1032,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<div class="cmp-page-header">`,
         `<div class="content">`,
         `<div class="title">Settings</div>`,
-        `<div class="desc">Manage Mobile Ltd and your account</div>`,
         `<div class="cmp-divider"></div>`,
-        group(pickerRow(`Team name`, `Mobile Ltd`), toggleRow(`End sessions on merge`, undefined, true)),
+        group(pickerRow(`Team name`, `Mobile Ltd`)),
         `</div>`,
         `</div>`,
       ].join(``),

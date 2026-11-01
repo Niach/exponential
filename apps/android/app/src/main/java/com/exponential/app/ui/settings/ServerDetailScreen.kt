@@ -454,7 +454,7 @@ fun ServerDetailScreen(
     Scaffold(
         topBar = {
             CenterAlignedTopAppBar(
-                title = { TopBarTitle(account?.displayName ?: "Server") },
+                title = { TopBarTitle("Account") },
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },

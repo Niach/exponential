@@ -464,7 +464,16 @@ pub fn glass_input_row(label: impl Into<SharedString>, input: AnyElement, cx: &A
                 .text_color(cx.theme().foreground)
                 .child(label.into()),
         )
-        .child(div().flex_1().min_w_0().child(input))
+        // The typed VALUE at 70% (web `GlassInputRow`'s field:
+        // `text-right text-foreground/70`), the picker row's value tone. The
+        // field paints its text in the inherited colour, so this carries.
+        .child(
+            div()
+                .flex_1()
+                .min_w_0()
+                .text_color(cx.theme().foreground.opacity(0.7))
+                .child(input),
+        )
 }
 
 /// Strip an [`Input`]'s field chrome so it reads as the trailing VALUE of a
