@@ -8,6 +8,7 @@ import {
   boards,
   conversations,
   devices,
+  events,
   issues,
   mcpServers,
   messages,
@@ -2249,6 +2250,97 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     } finally {
       relay.on = false
     }
+  })
+
+  // EXP-1542 (#FEED-169): a move that leaves work on its source records
+  // `session.moved` (server-emitted, ids only); the source's hand-off
+  // report records ONE `session.handed_off`; the continuation reads both
+  // off its brief and `moveState`. A queued re-target records nothing.
+  it(`EXP-1542: a move records its source device; the source alone hands it off, once`, async () => {
+    const { SESSION_MOVED_EVENT, SESSION_HANDED_OFF_EVENT } = await import(`@/lib/sessions/move`)
+    const w = await moveWorld()
+    const movedEvents = async () =>
+      (await db.select().from(events).where(and(eq(events.teamId, w.teamId), eq(events.name, SESSION_MOVED_EVENT))))
+    // A queued row's re-target ran nowhere: no record.
+    const queued = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `pa`, text: `not yet` },
+    })
+    await sendSession({ userId: w.owner, input: { sessionId: queued.sessionId, deviceId: w.target } })
+    expect(await movedEvents()).toEqual([])
+
+    // A live row's relocation: the record names its source and its continuation.
+    const sent = await sendSession({
+      userId: w.owner,
+      input: { sessionId: w.sessionId, deviceId: w.target, text: `carry on there` },
+    })
+    const [moved] = await movedEvents()
+    expect(moved).toMatchObject({
+      emittedBy: `server`,
+      payload: { sessionId: w.sessionId, continuationId: sent.sessionId, fromDeviceId: w.deviceId, toDeviceId: w.target },
+    })
+    // The continuation's brief carries it, not handed off yet.
+    const host = caller(w.owner)
+    const brief = await host.brief({ sessionId: sent.sessionId })
+    expect(brief.moved).toMatchObject({
+      moveId: moved!.id,
+      sessionId: w.sessionId,
+      fromDeviceId: w.deviceId,
+      toDeviceId: w.target,
+      handedOff: null,
+    })
+    expect((await host.brief({ sessionId: w.sessionId })).moved).toBeNull()
+
+    // Only the account the SOURCE device runs under may hand it off.
+    await expect(
+      caller(w.mate).handedOff({ moveId: moved!.id, outcome: `pushed` })
+    ).rejects.toMatchObject({ code: `FORBIDDEN` })
+    expect(await host.handedOff({ moveId: moved!.id, outcome: `parked`, leftover: `exp/leftover-1a2b3c4d` })).toEqual({
+      outcome: `parked`,
+      leftover: `exp/leftover-1a2b3c4d`,
+    })
+    // A repeat (a restarted daemon, the finish and the pickup both) keeps the first.
+    expect(await host.handedOff({ moveId: moved!.id, outcome: `pushed` })).toEqual({
+      outcome: `parked`,
+      leftover: `exp/leftover-1a2b3c4d`,
+    })
+    const handed = await db
+      .select()
+      .from(events)
+      .where(and(eq(events.teamId, w.teamId), eq(events.name, SESSION_HANDED_OFF_EVENT)))
+    expect(handed).toHaveLength(1)
+    expect(handed[0]).toMatchObject({ emittedBy: `server`, payload: { moveId: moved!.id, outcome: `parked` } })
+    expect(await host.moveState({ sessionId: sent.sessionId })).toMatchObject({
+      moveId: moved!.id,
+      handedOff: { outcome: `parked`, leftover: `exp/leftover-1a2b3c4d` },
+    })
+    // An agent's `events_emit` of the same name is no record.
+    await db.insert(events).values({
+      teamId: w.teamId,
+      name: SESSION_MOVED_EVENT,
+      payload: { sessionId: w.sessionId, continuationId: sent.sessionId, fromDeviceId: `dev-evil`, toDeviceId: w.target },
+      emittedBy: `session`,
+    })
+    expect(await host.moveState({ sessionId: sent.sessionId })).toMatchObject({ moveId: moved!.id })
+  })
+
+  it(`EXP-1542: an ENDED root revived on another device records the move (its old device hands on)`, async () => {
+    const { SESSION_MOVED_EVENT } = await import(`@/lib/sessions/move`)
+    const w = await moveWorld()
+    await endSession({ userId: w.owner, sessionId: w.sessionId })
+    await sendSession({ userId: w.owner, input: { sessionId: w.sessionId, deviceId: w.target, text: `go on` } })
+    const moves = await db
+      .select()
+      .from(events)
+      .where(and(eq(events.teamId, w.teamId), eq(events.name, SESSION_MOVED_EVENT)))
+    expect(moves).toHaveLength(1)
+    expect(moves[0]!.payload).toEqual({
+      sessionId: w.sessionId,
+      continuationId: w.sessionId,
+      fromDeviceId: w.deviceId,
+      toDeviceId: w.target,
+    })
+    expect((await caller(w.owner).moveState({ sessionId: w.sessionId }))?.handedOff).toBeNull()
   })
 })
 

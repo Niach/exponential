@@ -322,6 +322,9 @@ pub struct PickupInput<'a> {
     /// EXP-1374: the same set holds an interrupted run's
     /// [`PickupAction::Continue`] (once per absence).
     pub revive_held: &'a HashSet<String>,
+    /// EXP-1542: the server's move records ([`move_records`] over the
+    /// synced `events`); empty while that shape is not up.
+    pub moves: &'a [MoveRecord],
 }
 
 /// What the host must do. Ordered: kills first, then launches/resumes, then
@@ -390,13 +393,15 @@ pub enum PickupAction {
     /// writes nothing to the row (one writer). NEW-1: a session's Move to
     /// device ENDS it here (a Kill) and continues it there server-side.
     Release { session_id: String },
-    /// EXP-1542 (#FEED-169): an ENDED row here that MOVED to another
-    /// device ([`moved_away`]): its branch goes to origin so the
-    /// continuation there carries the work on ([`hand_off`]). `live` = its
-    /// engine runs here (killed in the same pass): the run's finish pushes
+    /// EXP-1542 (#FEED-169): a session that MOVED away from THIS device
+    /// (the server's record names it the source, [`MoveRecord`]) and was
+    /// not handed off yet: its branch goes to origin so the continuation
+    /// there carries the work on ([`hand_off`]). `live` = its engine runs
+    /// here (killed in the same pass): the run's finish pushes
     /// ([`crate::run_cleanup::mark_moved`]); else the worktree its run
-    /// record names is pushed now, and kept.
-    HandOff { session_id: String, live: bool },
+    /// record names is pushed now, and kept. `move_id` = the record (`None`
+    /// = a live relocation seen before its record synced).
+    HandOff { session_id: String, live: bool, move_id: Option<String> },
 }
 
 /// EXP-1542: the start of the server's line in a session's conversation
@@ -404,17 +409,85 @@ pub enum PickupAction {
 /// "Moved from <device> to <device>").
 pub const MOVED_LINE_PREFIX: &str = "Moved from ";
 
-/// EXP-1542 (#FEED-169): whether `row` ended because it MOVED to another
-/// device: ended, on a branch, and its conversation holds the server's
-/// moved line (a system message, [`MOVED_LINE_PREFIX`]). A relocated row
-/// keeps naming the device it left, so its old device still sees it.
-pub fn moved_away(row: &SessionRow, messages: &[&MessageRow]) -> bool {
+/// EXP-1542: the server-emitted event recording a move (`session.moved`,
+/// payload `{sessionId, continuationId, fromDeviceId, toDeviceId}`) and its
+/// source's hand-off (`session.handed_off`, payload `{moveId, outcome}`).
+pub const SESSION_MOVED_EVENT: &str = "session.moved";
+pub const SESSION_HANDED_OFF_EVENT: &str = "session.handed_off";
+
+/// EXP-1542 (#FEED-169): one move as the server recorded it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MoveRecord {
+    /// The `session.moved` event's id.
+    pub id: String,
+    /// The row that moved (a relocation's ended row, a revived root).
+    pub session_id: String,
+    pub from_device_id: String,
+    /// A `session.handed_off` record names it: nothing left to do.
+    pub handed_off: bool,
+}
+
+/// EXP-1542: the moves in the synced `events` (SERVER-emitted only: an
+/// agent's `events_emit` of the same name is no record).
+pub fn move_records(events: &[domain::rows::EventRow]) -> Vec<MoveRecord> {
+    let by_server = |event: &&domain::rows::EventRow| event.emitted_by.as_deref() == Some("server");
+    let field = |event: &domain::rows::EventRow, key: &str| {
+        event
+            .payload
+            .as_ref()
+            .and_then(|payload| payload.get(key))
+            .and_then(serde_json::Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let handed: HashSet<String> = events
+        .iter()
+        .filter(by_server)
+        .filter(|event| event.name.as_deref() == Some(SESSION_HANDED_OFF_EVENT))
+        .filter_map(|event| field(event, "moveId"))
+        .collect();
+    let mut moves: Vec<MoveRecord> = events
+        .iter()
+        .filter(by_server)
+        .filter(|event| event.name.as_deref() == Some(SESSION_MOVED_EVENT))
+        .filter_map(|event| {
+            Some(MoveRecord {
+                id: event.id.clone(),
+                session_id: field(event, "sessionId")?,
+                from_device_id: field(event, "fromDeviceId")?,
+                handed_off: handed.contains(&event.id),
+            })
+        })
+        .collect();
+    moves.sort_by(|a, b| a.id.cmp(&b.id));
+    moves
+}
+
+/// How close to its end a live row's moved line must be for
+/// [`relocated_just_now`] (the server writes both in one transaction).
+const RELOCATED_WINDOW_MS: i64 = 120_000;
+
+/// EXP-1542: a LIVE engine's row ended because it was RELOCATED from this
+/// device, read before the move's record synced: the row still names this
+/// device, is on a branch, and its conversation holds the server's moved
+/// line written with its end (within [`RELOCATED_WINDOW_MS`] of
+/// `ended_at`). A session that moved HERE earlier and ended here later
+/// carries an old line: never a match.
+pub fn relocated_just_now(row: &SessionRow, messages: &[&MessageRow], device_id: &str) -> bool {
+    let ended_at = row.ended_at.as_deref().and_then(domain::instant::parse_instant);
     row.status_is(SESSION_STATUS_ENDED)
+        && row.on_device(device_id)
         && row.branch.as_deref().is_some_and(|branch| !branch.trim().is_empty())
-        && messages.iter().any(|m| {
-            m.session_id == row.id
-                && m.author_kind.as_deref() == Some("system")
-                && m.body.as_deref().is_some_and(|body| body.starts_with(MOVED_LINE_PREFIX))
+        && ended_at.is_some_and(|ended| {
+            messages.iter().any(|m| {
+                m.session_id == row.id
+                    && m.author_kind.as_deref() == Some("system")
+                    && m.body.as_deref().is_some_and(|body| body.starts_with(MOVED_LINE_PREFIX))
+                    && m.created_at
+                        .as_deref()
+                        .and_then(domain::instant::parse_instant)
+                        .is_some_and(|at| (ended - at).abs() <= RELOCATED_WINDOW_MS)
+            })
         })
 }
 
@@ -559,20 +632,36 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
         if gone {
             killed.insert(session_id);
             actions.push(PickupAction::Kill { session_id: session_id.to_string() });
-            if rows.get(session_id).is_some_and(|row| moved_away(row, &all_messages)) {
-                actions.push(PickupAction::HandOff { session_id: session_id.to_string(), live: true });
+            // EXP-1542: it moved away from here: its run's finish hands on.
+            let record = input.moves.iter().find(|m| m.session_id == session_id && m.from_device_id == input.device_id);
+            let hand_off = match record {
+                Some(record) => (!record.handed_off).then(|| Some(record.id.clone())),
+                None => rows
+                    .get(session_id)
+                    .is_some_and(|row| relocated_just_now(row, &all_messages, input.device_id))
+                    .then_some(None),
+            };
+            if let Some(move_id) = hand_off {
+                actions.push(PickupAction::HandOff { session_id: session_id.to_string(), live: true, move_id });
             }
         }
     }
-    // EXP-1542: a moved row with no engine here hands its worktree's
-    // branch on all the same.
-    for row in input.sessions {
-        if row.on_device(input.device_id)
-            && !input.live.contains_key(&row.id)
-            && !input.in_flight.contains(&row.id)
-            && moved_away(row, &all_messages)
+    // EXP-1542: every other move FROM this device not handed off yet
+    // (an idle or ended session, a revived root now on the new device, a
+    // run another process here holds, a restart in between): its worktree's
+    // branch goes on. The record decides, never the moved line's text.
+    for record in input.moves {
+        if record.from_device_id == input.device_id
+            && !record.handed_off
+            && !killed.contains(record.session_id.as_str())
+            && !input.live.contains_key(&record.session_id)
+            && !input.in_flight.contains(&record.session_id)
         {
-            actions.push(PickupAction::HandOff { session_id: row.id.clone(), live: false });
+            actions.push(PickupAction::HandOff {
+                session_id: record.session_id.clone(),
+                live: false,
+                move_id: Some(record.id.clone()),
+            });
         }
     }
 
@@ -2826,63 +2915,140 @@ pub fn execute(action: &PickupAction, deps: &PickupDeps) -> Result<(), String> {
             release(session_id, deps);
             Ok(())
         }
-        PickupAction::HandOff { session_id, live } => {
-            hand_off(session_id, *live, deps);
+        PickupAction::HandOff { session_id, live, move_id } => {
+            hand_off(session_id, *live, move_id.as_deref(), deps);
             Ok(())
         }
     }
 }
 
-/// EXP-1542: the sessions this process already handed off (each once: the
-/// moved row stays in the shape).
-static HANDED_OFF: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+/// EXP-1542: where each move's hand-off stands in THIS process (keyed by
+/// the move id, else the session id). `Done` = reported (the synced
+/// `session.handed_off` record then keeps it from ever being planned
+/// again, across restarts); `Running` = a thread is on it; `RetryAt` = not
+/// before then.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum HandOffState {
+    Running,
+    Done,
+    RetryAt(std::time::Instant),
+}
 
-/// EXP-1542 (#FEED-169): [`PickupAction::HandOff`]. Once per session and
-/// process. A live run is marked for its finish
-/// ([`crate::run_cleanup::finish_session_worktree`] pushes the session's
-/// own branch first); otherwise the worktree its run record names is
-/// handed off now, off-thread ([`crate::run_cleanup::hand_off_moved_branch`]:
-/// WIP commit, own-branch push, else `exp/leftover-<id8>`; never removed).
-/// A run another live host process holds is that host's to hand off.
-pub fn hand_off(session_id: &str, live: bool, deps: &PickupDeps) {
-    {
-        let mut handed = locked(&HANDED_OFF);
-        if handed.iter().any(|id| id == session_id) {
-            return;
+static HAND_OFFS: std::sync::Mutex<Vec<(String, HandOffState)>> = std::sync::Mutex::new(Vec::new());
+
+/// How long a hand-off that could not run waits before the next pass tries
+/// it again (a foreground host's run, the launch gate, a failed push).
+const HAND_OFF_RETRY: std::time::Duration = std::time::Duration::from_secs(30);
+
+fn hand_off_state(key: &str) -> Option<HandOffState> {
+    locked(&HAND_OFFS).iter().find(|(id, _)| id == key).map(|(_, state)| *state)
+}
+
+fn set_hand_off_state(key: &str, state: HandOffState) {
+    let mut states = locked(&HAND_OFFS);
+    match states.iter_mut().find(|(id, _)| id == key) {
+        Some((_, slot)) => *slot = state,
+        None => states.push((key.to_string(), state)),
+    }
+}
+
+/// EXP-1542: what a no-engine hand-off does with the run record it found.
+#[derive(Debug, PartialEq, Eq)]
+pub enum HandOffStep {
+    /// Nothing ran here (no record, no repository): report `none` at once.
+    Nothing,
+    /// Another live process here holds the run (a foreground `code`/`run`):
+    /// not now; a later pass tries again once it is gone.
+    Wait,
+    /// Hand the worktree it names on.
+    Run(crate::run_cleanup::RunCleanup),
+}
+
+/// EXP-1542: [`HandOffStep`] for `record` (`me` = this process's pid).
+pub fn hand_off_step(record: Option<RunRecord>, me: u32, alive: impl Fn(u32) -> bool) -> HandOffStep {
+    let Some(record) = record else {
+        return HandOffStep::Nothing;
+    };
+    if record.host_pid.is_some_and(|pid| pid != me && alive(pid)) {
+        return HandOffStep::Wait;
+    }
+    match (record.clone, record.branch, record.base_branch) {
+        (Some(clone), Some(branch), Some(base_branch)) => {
+            HandOffStep::Run(crate::run_cleanup::RunCleanup { clone, worktree: record.cwd, branch, base_branch })
         }
-        handed.push(session_id.to_string());
+        _ => HandOffStep::Nothing,
+    }
+}
+
+/// EXP-1542 (#FEED-169): [`PickupAction::HandOff`]. A live run is marked
+/// for its finish ([`crate::run_cleanup::finish_session_worktree`] hands
+/// the session's own branch on and reports it); otherwise the worktree its
+/// run record names is handed off now, off-thread
+/// ([`crate::run_cleanup::hand_off_moved_branch`]: WIP commit, own-branch
+/// push, else `exp/leftover-<id8>`; never removed) and the outcome reported
+/// (`sessions.handedOff`), which the continuation's device waits for. A
+/// run another live host process holds (a foreground `code`/`run`) is
+/// retried once it exits; so is anything that could not run now.
+pub fn hand_off(session_id: &str, live: bool, move_id: Option<&str>, deps: &PickupDeps) {
+    let key = move_id.unwrap_or(session_id).to_string();
+    let now = std::time::Instant::now();
+    match hand_off_state(&key) {
+        Some(HandOffState::Running | HandOffState::Done) => return,
+        Some(HandOffState::RetryAt(at)) if now < at => return,
+        _ => {}
     }
     if live {
         log::info!("pickup: session {session_id} moved away: its run's finish pushes its branch");
-        crate::run_cleanup::mark_moved(session_id);
+        crate::run_cleanup::mark_moved(session_id, move_id);
+        // The finish reports; a later pass (the engine gone) checks again.
+        set_hand_off_state(&key, HandOffState::RetryAt(now + HAND_OFF_RETRY));
         return;
     }
+    let Some(move_id) = move_id.map(str::to_string) else {
+        return;
+    };
+    let record = crate::run_registry::get(&deps.coding.data_dir, session_id);
+    let cleanup = match hand_off_step(record, std::process::id(), crate::process::is_alive) {
+        HandOffStep::Nothing => {
+            let done = crate::run_cleanup::report_hand_off(
+                &deps.coding.trpc,
+                &move_id,
+                &crate::run_cleanup::HandOff::Nothing("nothing ran here".to_string()),
+            );
+            set_hand_off_state(&key, if done { HandOffState::Done } else { HandOffState::RetryAt(now + HAND_OFF_RETRY) });
+            return;
+        }
+        HandOffStep::Wait => {
+            set_hand_off_state(&key, HandOffState::RetryAt(now + HAND_OFF_RETRY));
+            return;
+        }
+        HandOffStep::Run(cleanup) => cleanup,
+    };
+    set_hand_off_state(&key, HandOffState::Running);
     let data_dir = deps.coding.data_dir.clone();
-    let Some(record) = crate::run_registry::get(&data_dir, session_id) else {
-        return;
-    };
-    if record.host_pid.is_some_and(|pid| pid != std::process::id() && crate::process::is_alive(pid)) {
-        return;
-    }
-    let (Some(clone), Some(branch), Some(base_branch)) = (record.clone, record.branch, record.base_branch) else {
-        return;
-    };
-    let cleanup = crate::run_cleanup::RunCleanup { clone, worktree: record.cwd, branch, base_branch };
     let trpc = std::sync::Arc::clone(&deps.coding.trpc);
     let session_id = session_id.to_string();
+    let thread_key = key.clone();
     let spawned = std::thread::Builder::new().name("exp-pickup-hand-off".to_string()).spawn(move || {
         let live = crate::run_cleanup::LiveHolders::default().with_registry(&data_dir, &session_id);
         let id8 = crate::run_cleanup::session_id8(&session_id);
         let outcome = crate::run_cleanup::hand_off_moved_branch(&cleanup, &live, &id8);
         log::info!("pickup: moved session {session_id} handed off {}: {outcome:?}", cleanup.branch);
         if let crate::run_cleanup::HandOff::Parked(parked) = &outcome {
-            crate::run_cleanup::post_leftover_note(&trpc, &session_id, parked);
+            if cleanup.worktree.is_dir() {
+                crate::run_cleanup::post_leftover_note(&trpc, &session_id, parked);
+            }
         }
+        let done = crate::run_cleanup::report_hand_off(&trpc, &move_id, &outcome);
+        let next = std::time::Instant::now() + HAND_OFF_RETRY;
+        set_hand_off_state(&thread_key, if done { HandOffState::Done } else { HandOffState::RetryAt(next) });
     });
     if let Err(err) = spawned {
         log::warn!("pickup: hand-off thread not started: {err}");
+        set_hand_off_state(&key, HandOffState::RetryAt(now + HAND_OFF_RETRY));
     }
 }
+
 
 /// EXP-1252: stop a live engine whose row names another device, writing
 /// nothing to the row ([`RELEASED_OUTCOME`]).
@@ -3604,6 +3770,7 @@ mod tests {
         live: HashMap<String, LiveView>,
         in_flight: HashSet<String>,
         revive_held: HashSet<String>,
+        moves: Vec<MoveRecord>,
     }
 
     impl Pass {
@@ -3614,7 +3781,13 @@ mod tests {
                 live: HashMap::new(),
                 in_flight: HashSet::new(),
                 revive_held: HashSet::new(),
+                moves: Vec::new(),
             }
+        }
+
+        fn moves(mut self, moves: Vec<MoveRecord>) -> Self {
+            self.moves = moves;
+            self
         }
 
         fn live(mut self, id: &str, view: LiveView) -> Self {
@@ -3630,6 +3803,7 @@ mod tests {
                 live: &self.live,
                 in_flight: &self.in_flight,
                 revive_held: &self.revive_held,
+                moves: &self.moves,
             })
         }
     }
@@ -4355,67 +4529,131 @@ mod tests {
         );
     }
 
-    /// EXP-1542 (#FEED-169): an ended row here whose conversation holds the
-    /// server's moved line hands its branch off: with its engine live (the
-    /// kill comes first), and without one; a plain end does not.
+    /// EXP-1542 (#FEED-169, review): the SERVER's record decides who hands
+    /// off: a move FROM this device not handed off yet = a HandOff (live:
+    /// after its kill; else from the run record, a revived root now naming
+    /// another device included); a move TO this device, a handed-off one
+    /// and a plain end never do. Before the record syncs, a live row's
+    /// moved line written with its end still counts; an OLD moved line (a
+    /// session that moved here and ended later) never does.
     #[test]
-    fn a_moved_row_hands_its_branch_off_a_plain_end_does_not() {
-        let on_branch = |id: &str| SessionRow {
+    fn only_a_recorded_move_from_this_device_hands_its_branch_off() {
+        let ended = |id: &str, device: &str| SessionRow {
             branch: Some(format!("exp/session-{id}")),
-            ..session(id, "ended", DEV, "2026-10-01T00:00:00Z")
+            ended_at: Some("2026-10-02T00:00:01Z".to_string()),
+            ..session(id, "ended", device, "2026-10-01T00:00:00Z")
         };
-        let moved = |id: &str, session: &str| MessageRow {
+        let moved_line = |id: &str, session: &str, at: &str| MessageRow {
             author_kind: Some("system".to_string()),
             body: Some("Moved from Laptop to DESKTOP-2K0CVDE".to_string()),
-            consumed_at: Some("2026-10-02T00:00:00Z".to_string()),
-            ..message(id, session, "2026-10-02T00:00:00Z")
+            consumed_at: Some(at.to_string()),
+            ..message(id, session, at)
+        };
+        let record = |id: &str, session: &str, from: &str, handed_off: bool| MoveRecord {
+            id: id.to_string(),
+            session_id: session.to_string(),
+            from_device_id: from.to_string(),
+            handed_off,
         };
         let pass = Pass::new(
-            vec![on_branch("s1"), on_branch("s2"), on_branch("s3")],
-            vec![moved("m1", "s1"), moved("m2", "s2")],
+            vec![ended("s1", DEV), ended("s2", DEV), ended("s3", DEV), ended("s4", DEV), ended("s5", "dev-b"), ended("s6", DEV)],
+            vec![moved_line("m3", "s3", "2026-10-01T00:00:05Z")],
         )
-        .live("s1", LiveView::default());
+        .live("s1", LiveView::default())
+        .moves(vec![
+            record("mv-1", "s1", DEV, false),
+            record("mv-2", "s2", DEV, false),
+            // s3 moved HERE once and ended here later: no record from here.
+            record("mv-3", "s3", "dev-b", false),
+            record("mv-4", "s4", DEV, true),
+            // A revived root: the row names the new device now.
+            record("mv-5", "s5", DEV, false),
+        ]);
         assert_eq!(
             pass.run(),
             vec![
                 PickupAction::Kill { session_id: "s1".to_string() },
-                PickupAction::HandOff { session_id: "s1".to_string(), live: true },
-                PickupAction::HandOff { session_id: "s2".to_string(), live: false },
+                PickupAction::HandOff { session_id: "s1".to_string(), live: true, move_id: Some("mv-1".to_string()) },
+                PickupAction::HandOff { session_id: "s2".to_string(), live: false, move_id: Some("mv-2".to_string()) },
+                PickupAction::HandOff { session_id: "s5".to_string(), live: false, move_id: Some("mv-5".to_string()) },
             ]
         );
+        // A live relocation read before its record synced: the line written
+        // with its end counts; an old line, or one on a row naming another
+        // device, does not.
+        let fresh = Pass::new(vec![ended("s6", DEV)], vec![moved_line("m6", "s6", "2026-10-02T00:00:01Z")])
+            .live("s6", LiveView::default());
+        assert_eq!(
+            fresh.run(),
+            vec![
+                PickupAction::Kill { session_id: "s6".to_string() },
+                PickupAction::HandOff { session_id: "s6".to_string(), live: true, move_id: None },
+            ]
+        );
+        let old = Pass::new(vec![ended("s3", DEV)], vec![moved_line("m3", "s3", "2026-10-01T00:00:05Z")])
+            .live("s3", LiveView::default());
+        assert_eq!(old.run(), vec![PickupAction::Kill { session_id: "s3".to_string() }]);
         // A person's text that reads the same is no moved line.
-        let person = MessageRow { body: Some("Moved from here".to_string()), ..message("m3", "s3", "t") };
-        assert!(!moved_away(&on_branch("s3"), &[&person]));
-        // A branchless (repo-less) row has nothing to hand off.
-        let scratch = session("s4", "ended", DEV, "t");
-        assert!(!moved_away(&scratch, &[&moved("m4", "s4")]));
+        let person = MessageRow { body: Some("Moved from here".to_string()), ..message("m7", "s6", "2026-10-02T00:00:01Z") };
+        assert!(!relocated_just_now(&ended("s6", DEV), &[&person], DEV));
     }
 
+    /// EXP-1542: the records come off the synced events, SERVER-emitted
+    /// only (an agent's `events_emit` of the same name is none), a
+    /// `session.handed_off` naming the move marks it done.
     #[test]
-    fn a_live_session_gets_its_unhanded_person_messages_oldest_first() {
-        let pass = Pass::new(
-            vec![session("s1", "running", DEV, "2026-10-01T00:00:00Z")],
-            vec![
-                message("m3", "s1", "2026-10-02T00:00:03Z"),
-                message("m1", "s1", "2026-10-02T00:00:01Z"),
-                message("m2", "s1", "2026-10-02T00:00:02Z"),
-                consumed(message("m0", "s1", "2026-10-02T00:00:00Z")),
-                MessageRow { author_kind: Some("agent".to_string()), ..message("r1", "s1", "2026-10-02T00:00:04Z") },
-                card("c1", "s1", false),
-                message("x1", "other", "2026-10-02T00:00:00Z"),
-            ],
-        )
-        .live("s1", handed(&["m1"]));
+    fn move_records_read_the_servers_events_only() {
+        let event = |id: &str, name: &str, by: &str, payload: serde_json::Value| domain::rows::EventRow {
+            id: id.to_string(),
+            team_id: Some("team-1".to_string()),
+            name: Some(name.to_string()),
+            payload: Some(payload),
+            emitted_by: Some(by.to_string()),
+            session_id: None,
+            user_id: None,
+            created_at: None,
+        };
+        let moved = |id: &str, by: &str| {
+            event(id, SESSION_MOVED_EVENT, by, serde_json::json!({"sessionId": "s1", "continuationId": "s2", "fromDeviceId": DEV, "toDeviceId": "dev-b"}))
+        };
+        let events = vec![
+            moved("e1", "server"),
+            moved("e2", "session"),
+            moved("e3", "server"),
+            event("e4", SESSION_HANDED_OFF_EVENT, "server", serde_json::json!({"moveId": "e1", "outcome": "pushed"})),
+            event("e5", SESSION_HANDED_OFF_EVENT, "session", serde_json::json!({"moveId": "e3", "outcome": "pushed"})),
+            event("e6", SESSION_MOVED_EVENT, "server", serde_json::json!({"sessionId": "s1"})),
+        ];
+        let records = move_records(&events);
         assert_eq!(
-            pass.run(),
-            vec![PickupAction::Deliver {
-                session_id: "s1".to_string(),
-                messages: vec![
-                    message("m2", "s1", "2026-10-02T00:00:02Z"),
-                    message("m3", "s1", "2026-10-02T00:00:03Z"),
-                ],
-            }]
+            records,
+            vec![
+                MoveRecord { id: "e1".to_string(), session_id: "s1".to_string(), from_device_id: DEV.to_string(), handed_off: true },
+                MoveRecord { id: "e3".to_string(), session_id: "s1".to_string(), from_device_id: DEV.to_string(), handed_off: false },
+            ]
         );
+    }
+
+    /// EXP-1542 (review): a no-engine hand-off with no run record reports
+    /// `none` at once (the continuation stops waiting); a run another live
+    /// process here holds (a foreground `code`/`run`) WAITS for it to exit
+    /// (the daemon retries, never gives up); its own or a dead pid runs.
+    #[test]
+    fn a_hand_off_waits_for_a_live_foreground_host_and_runs_once_it_is_gone() {
+        assert_eq!(hand_off_step(None, 10, |_| true), HandOffStep::Nothing);
+        let dir = temp_dir("pickup-hand-off-step");
+        let record = |pid: Option<u32>| RunRecord {
+            clone: Some(std::path::PathBuf::from("/tmp/clone")),
+            branch: Some("exp/session-s1".to_string()),
+            base_branch: Some("main".to_string()),
+            host_pid: pid,
+            ..record(&dir.0, "s1")
+        };
+        assert_eq!(hand_off_step(Some(record(Some(77))), 10, |pid| pid == 77), HandOffStep::Wait);
+        assert!(matches!(hand_off_step(Some(record(Some(77))), 10, |_| false), HandOffStep::Run(_)));
+        assert!(matches!(hand_off_step(Some(record(Some(10))), 10, |_| true), HandOffStep::Run(_)));
+        let repo_less = RunRecord { clone: None, ..record(None) };
+        assert_eq!(hand_off_step(Some(repo_less), 10, |_| true), HandOffStep::Nothing);
     }
 
     #[test]
@@ -4758,6 +4996,7 @@ mod tests {
             live: &views,
             in_flight: &HashSet::new(),
             revive_held: &held,
+            moves: &[],
         });
         let actions: Vec<&PickupAction> = actions.iter().filter(|action| action.session_id() == "quiet").collect();
         assert!(
@@ -5705,6 +5944,7 @@ mod tests {
                 live: &views,
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                moves: &[],
             })
         };
         assert!(pass(running.clone(), &[]).is_empty());
@@ -6391,6 +6631,7 @@ mod tests {
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                moves: &[],
             })
         };
         *host.engine.mode.lock().unwrap() = Some(false);
@@ -6500,6 +6741,7 @@ mod tests {
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                moves: &[],
             })
         };
         let actions = pass(&flipped, std::slice::from_ref(&card));
@@ -6768,6 +7010,7 @@ mod tests {
                 live: &host.deps.live.live_views(),
                 in_flight: &HashSet::new(),
                 revive_held: &HashSet::new(),
+                moves: &[],
             })
         };
         assert!(pass(&launched).is_empty());

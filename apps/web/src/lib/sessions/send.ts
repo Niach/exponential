@@ -72,6 +72,7 @@ import {
   deviceName,
   loadDeviceRow,
   movedText,
+  recordMoveInTx,
   resolveMoveTarget,
   type MoveTarget,
 } from "@/lib/sessions/move"
@@ -1118,6 +1119,14 @@ async function messageSession(
         device: { deviceId: move.target.deviceId, ownerId: device.ownerId },
         adopt: true,
       })
+      // EXP-1542: the source device hands the branch on (`session.moved`).
+      await recordMoveInTx(tx, {
+        teamId: target.teamId,
+        sessionId: target.id,
+        continuationId: result.sessionId,
+        fromDeviceId: target.deviceId,
+        toDeviceId: move.target.deviceId,
+      })
       await applyWakeOn(tx, caller, input)
       return { ...result, txid, endedIds: ended.map((row) => row.id) }
     })
@@ -1253,6 +1262,17 @@ async function messageSession(
       device: { deviceId, ownerId: device.ownerId },
       adopt: false,
     })
+    // EXP-1542: continued on ANOTHER device: its old one hands on what it
+    // parked when it ended.
+    if (deviceId !== target.deviceId) {
+      await recordMoveInTx(tx, {
+        teamId: target.teamId,
+        sessionId: target.id,
+        continuationId: result.sessionId,
+        fromDeviceId: target.deviceId,
+        toDeviceId: deviceId,
+      })
+    }
     await applyWakeOn(tx, caller, input)
     return { ...result, txid }
   })
@@ -1402,6 +1422,14 @@ async function reviveRoot(
       root.deviceId
     )
     await postMovedMessage(tx, revived, movedText(fromName, moveTarget.name))
+    // EXP-1542: its old device still holds the worktree: it hands it on.
+    await recordMoveInTx(tx, {
+      teamId: root.teamId,
+      sessionId: root.id,
+      continuationId: root.id,
+      fromDeviceId: root.deviceId,
+      toDeviceId: revived.deviceId,
+    })
   }
   if (input.issueIds?.length) {
     await forwardIssues(tx, {
