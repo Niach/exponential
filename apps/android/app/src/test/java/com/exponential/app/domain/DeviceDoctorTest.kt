@@ -153,41 +153,8 @@ class DeviceDoctorTest {
     }
 
     @Test
-    fun `import pills ride the agent rows that carry an ambient login`() {
-        for (case in cases) {
-            val name = case.strOrNull("name")
-            val expected = case["importPills"]?.jsonObject
-                ?.mapValues { it.value.jsonPrimitive.content }
-                .orEmpty()
-            fun pills(rows: List<DoctorRow>) =
-                rows.mapNotNull { row -> row.importEmail?.let { row.key to it } }.toMap()
-            // On the device itself, and on another device.
-            val local = DeviceReadiness.groups(doctorOf(case), remote = false).flatMap { it.rows }
-            assertEquals(name, expected, pills(local))
-            val remote = DeviceReadiness.groups(doctorOf(case), remote = true).flatMap { it.rows }
-            assertEquals(name, expected, pills(remote))
-            // The import never takes the primary pill: it is always plain.
-            assertEquals(
-                name,
-                case.strOrNull("localPrimary"),
-                local.firstOrNull { it.primary }?.key,
-            )
-        }
-        // The composer's single row carries it too.
-        val imported = cases.first { it["importPills"] != null }
-        val row = DeviceReadiness.failingRow(doctorOf(imported), "claude")!!
-        assertEquals("dev@acme.test", row.importEmail)
-        assertEquals("sign_in", row.action)
-    }
-
-    @Test
-    fun `the import confirm and the duplicate toast are the fixture copy`() {
+    fun `the duplicate toast is the fixture copy`() {
         val copy = fixture["copy"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content }
-        assertEquals(
-            copy["importTitle"]!!.replace("{email}", "a@x.test"),
-            DeviceReadiness.importTitle("a@x.test"),
-        )
-        assertEquals(copy["importBody"], DeviceReadiness.IMPORT_BODY)
         assertEquals(
             copy["alreadyAdded"]!!.replace("{email}", "a@x.test"),
             DeviceReadiness.alreadyAdded("a@x.test"),

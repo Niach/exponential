@@ -1898,13 +1898,8 @@ impl DeviceSettingsView {
                 .filter(|label| !label.trim().is_empty())
                 .unwrap_or_else(|| self.device_id.clone())
                 .into();
-            let offer_import = row.is_some();
             device_readiness::BlockProps {
                 id: "device-readiness".into(),
-                offer_import,
-                on_import: offer_import.then(|| {
-                    device_readiness::remote_import_handler(device_id.clone(), label.clone())
-                }),
                 on_action: Some(Rc::new(move |key, action, window, cx| match action {
                     // Tracked here so the outcome lands under the row.
                     DoctorAction::Update => {

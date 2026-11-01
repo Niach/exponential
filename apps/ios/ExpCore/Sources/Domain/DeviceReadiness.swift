@@ -34,19 +34,14 @@ public struct DeviceDoctor: Decodable, Sendable, Equatable {
         public let state: String
         public let detail: String?
         public let action: String?
-        /// An agent row whose CLI has an AMBIENT login: that login's email.
-        /// It renders the `import` pill (before the action pill).
-        public let importEmail: String?
 
         private enum CodingKeys: String, CodingKey {
             case key, group, parent, label, state, detail, action
-            case importEmail = "import"
         }
 
         public init(
             key: String, group: String, parent: String? = nil, label: String? = nil,
-            state: String, detail: String? = nil, action: String? = nil,
-            importEmail: String? = nil
+            state: String, detail: String? = nil, action: String? = nil
         ) {
             self.key = key
             self.group = group
@@ -55,7 +50,6 @@ public struct DeviceDoctor: Decodable, Sendable, Equatable {
             self.state = state
             self.detail = detail
             self.action = action
-            self.importEmail = importEmail
         }
     }
 
@@ -133,7 +127,6 @@ private struct FailableItem: Decodable {
 
     private enum CodingKeys: String, CodingKey {
         case key, group, parent, label, state, detail, action
-        case importEmail = "import"
     }
 
     init(from decoder: Decoder) throws {
@@ -153,8 +146,7 @@ private struct FailableItem: Decodable {
             label: string(.label),
             state: string(.state) ?? "",
             detail: string(.detail),
-            action: string(.action),
-            importEmail: string(.importEmail)
+            action: string(.action)
         )
     }
 }
@@ -204,23 +196,8 @@ public enum DeviceReadiness {
         "install": ("Install", false),
         "update": ("Update", true),
         "sign_in": ("Sign in", true),
-        "import": ("Import", true),
         "grant": ("Open System Settings", false),
     ]
-
-    /// The `import` action key: an agent row's ambient login moves into a
-    /// profile (another device: `agent_login {agent, import: true}`, cap
-    /// `agent-import`). Rides `Row.importEmail`, never `Row.action`.
-    public static let importAction = "import"
-
-    /// Fixture `copy.importTitle`: the Import pill's confirm title.
-    public static func importTitle(email: String) -> String {
-        "Import \(email)?"
-    }
-
-    /// Fixture `copy.importBody`: the confirm's body. Buttons Cancel / Import.
-    public static let importBody =
-        "Your login moves into Exponential. Sign in again outside of it."
 
     /// The item that IS the switch row (writes `launch_defaults.computerUse`).
     public static let switchKey = "computer_use"
@@ -243,9 +220,6 @@ public enum DeviceReadiness {
         public let actionLabel: String?
         /// The ONE filled pill of the block.
         public let primary: Bool
-        /// The ambient login's email when the `import` pill is OFFERED here
-        /// (it renders before the action pill, always plain).
-        public let importEmail: String?
 
         public var id: String { key }
     }
@@ -352,14 +326,6 @@ public enum DeviceReadiness {
         return (!remote || remoteOk) ? action : nil
     }
 
-    /// The `import` pill's email when it is offered: same offer rules as an
-    /// action (`import` is remote).
-    private static func offeredImport(_ item: DeviceDoctor.Item, remote: Bool) -> String? {
-        guard let email = item.importEmail, !email.isEmpty else { return nil }
-        guard !remote || (actions[importAction]?.remote ?? false) else { return nil }
-        return email
-    }
-
     private static func row(
         _ item: DeviceDoctor.Item, remote: Bool, primary: Bool, switchOff: Bool
     ) -> Row {
@@ -378,8 +344,7 @@ public enum DeviceReadiness {
             switchOn: isSwitch && !switchOff,
             action: action,
             actionLabel: action.map { actions[$0]?.label ?? $0 },
-            primary: primary && action != nil,
-            importEmail: isSwitch ? nil : offeredImport(item, remote: remote)
+            primary: primary && action != nil
         )
     }
 }

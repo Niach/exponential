@@ -626,8 +626,8 @@ struct VoiceSettingsBlock: View {
 
 extension View {
     /// The host side of `VoiceSettingsBlock`: hands the model the
-    /// environment, loads + observes, and THE consent prompt (#NEW-57, the
-    /// doctor Import's GlassAlert; Cancel leaves Meeting mode off) on a
+    /// environment, loads + observes, and THE consent prompt (#NEW-57, a
+    /// GlassAlert; Cancel leaves Meeting mode off) on a
     /// zero-size node of its own (EXP-1215).
     func voiceSettingsHost(_ model: VoiceSettingsModel) -> some View {
         modifier(VoiceSettingsHost(model: model))

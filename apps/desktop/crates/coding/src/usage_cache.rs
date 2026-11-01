@@ -214,6 +214,15 @@ pub struct AgentCacheEntry {
     /// Newest first, capped at [`MAX_DEAD_REFRESH_TOKENS`].
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub dead_refresh_tokens: Vec<String>,
+    /// EXP-1532 — the login's refresh grant is DEAD (the token endpoint said
+    /// `invalid_grant`, or a launch's `auth status` said signed out): health
+    /// stays `needs_relogin` even while a usage read on the still-live access
+    /// token succeeds, because the CLI cannot renew that token and every run
+    /// dies "Not logged in" the moment it expires. Cleared by a keep-alive
+    /// read that finds a grant not known dead (a fresh `/login` in the
+    /// profile) and by a sign-in commit ([`forget_profile`]).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub relogin_required: bool,
     /// When the ENDPOINT is next owed a poll while a PARTIAL live publisher
     /// (claude's `rate_limit_event`) answers for this login. Unix seconds;
     /// `None` = owed now. Live applies stamp `fetched_at_secs` and
@@ -321,6 +330,10 @@ fn load_unlocked(data_dir: &Path) -> UsageCache {
 /// the next run re-polls.
 pub fn save(data_dir: &Path, cache: &UsageCache) {
     let _guard = locked();
+    save_unlocked(data_dir, cache);
+}
+
+fn save_unlocked(data_dir: &Path, cache: &UsageCache) {
     let mut object = serde_json::Map::new();
     for (agent, entry) in &cache.entries {
         let Ok(value) = serde_json::to_value(entry) else {
@@ -362,6 +375,22 @@ pub fn forget_profile(data_dir: &Path, agent: &str, profile: &str) {
     if removed {
         save(data_dir, &cache);
     }
+}
+
+/// EXP-1532 — a launch's live `auth status` found `profile` of `agent`
+/// signed OUT while this cache still called it usable: say so at once, so
+/// the next pick (this launch's retry, the heartbeat, every other start)
+/// stops landing on it. A login the cache never saw gets a row of its own.
+/// The next sign-in commit drops the row ([`forget_profile`]).
+pub fn note_signed_out(data_dir: &Path, agent: &str, profile: &str) {
+    let _guard = locked();
+    let mut cache = load_unlocked(data_dir);
+    let entry = cache.entries.entry(entry_key(agent, profile)).or_default();
+    let account = entry.account.get_or_insert_with(AgentAccount::default);
+    account.signed_in = false;
+    entry.health = Some(crate::agent_accounts::Health::SignedOut.as_str().to_string());
+    entry.relogin_required = true;
+    save_unlocked(data_dir, &cache);
 }
 
 /// Whether this agent may be polled right now: past its scheduled next poll,
@@ -793,8 +822,18 @@ pub fn apply_outcome(
             entry.credential_denied_until_secs = None;
             entry.rate_limited_until_secs = None;
             // EXP-849: …and proves the credential itself still works, which
-            // is exactly what `health: ok` claims.
-            entry.health = Some(crate::agent_accounts::Health::Ok.as_str().to_string());
+            // is exactly what `health: ok` claims. EXP-1532: unless its
+            // refresh grant is known dead — the access token answering now
+            // is the login's last few hours, not a working account.
+            entry.health = Some(
+                if entry.relogin_required {
+                    crate::agent_accounts::Health::NeedsRelogin
+                } else {
+                    crate::agent_accounts::Health::Ok
+                }
+                .as_str()
+                .to_string(),
+            );
             if unchanged {
                 PollOutcome::Unchanged
             } else {
@@ -1132,6 +1171,29 @@ mod tests {
     /// EXP-849 — health tracks the CREDENTIAL's own answer and nothing else:
     /// a read proves it works, a 401 proves it does not, and a flaky network
     /// (or a 429, or a refused keychain) leaves the badge where it was.
+    /// EXP-1532 (#FEED-175): a login whose refresh grant is dead stays
+    /// `needs_relogin` while its last access token still answers the usage
+    /// read; a launch's sign-out verdict lands in the cache at once.
+    #[test]
+    fn a_dead_grant_keeps_needs_relogin_through_a_good_read() {
+        use crate::agent_accounts::Health;
+        let mut entry = AgentCacheEntry { relogin_required: true, ..Default::default() };
+        apply_outcome(&mut entry, PollOutcome::Changed, Some(vec![window("session", 10, None)]), 1, "T0");
+        assert_eq!(entry.health.as_deref(), Some(Health::NeedsRelogin.as_str()));
+        assert!(entry.usage.is_some(), "the numbers still show");
+
+        let dir = std::env::temp_dir().join(format!("exp-usage-signed-out-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        note_signed_out(&dir, "claude", "p1");
+        let cache = load(&dir);
+        let entry = cache.get(&entry_key("claude", "p1")).expect("a row of its own");
+        assert_eq!(entry.health.as_deref(), Some(Health::SignedOut.as_str()));
+        assert!(!entry.account.as_ref().unwrap().signed_in);
+        forget_profile(&dir, "claude", "p1");
+        assert!(load(&dir).get(&entry_key("claude", "p1")).is_none(), "a sign-in starts clean");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn health_follows_the_probe_and_the_keep_alive_has_its_own_cadence() {
         use crate::agent_accounts::Health;

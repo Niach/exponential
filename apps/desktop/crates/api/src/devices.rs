@@ -192,7 +192,7 @@ pub struct PendingCommand {
     /// ("unsupported") by the executor, never dropped silently.
     #[serde(default)]
     pub kind: String,
-    /// `agent_login`: `{agent, switch?, profileId?, import?}` (all STRINGS —
+    /// `agent_login`: `{agent, switch?, profileId?}` (all STRINGS —
     /// the payload column is a `Record<string,string>`); `agent_login_code`: `{agent, code}`
     /// (EXP-765). `agent_usage_refresh`: `{agent, profileId}` — force
     /// the usage collector past its shared TTL (never past the rate-limit
@@ -642,16 +642,14 @@ pub struct CreatedCommand {
 ///
 /// `profile_id` = the INTENDED profile (a row's "Sign in"), read by the
 /// device's duplicate check only; absent = "Add account". A blank id or the
-/// retired `system` is never named. `import` = move the device's AMBIENT
-/// login into a profile instead (cap `agent-import`; never together with a
-/// profile). Both ride only when set, so a plain sign-in is
-/// `{deviceId, kind, agent}`.
+/// retired `system` is never named; it rides only when set, so a plain
+/// sign-in is `{deviceId, kind, agent}`. There is no import (EXP-1532: every
+/// profile signs in on its own).
 pub fn create_agent_login_command(
     trpc: &TrpcClient,
     device_id: &str,
     agent: &str,
     profile_id: Option<&str>,
-    import: bool,
 ) -> Result<CreatedCommand, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -661,8 +659,6 @@ pub fn create_agent_login_command(
         agent: &'a str,
         #[serde(skip_serializing_if = "Option::is_none")]
         profile_id: Option<&'a str>,
-        #[serde(skip_serializing_if = "std::ops::Not::not")]
-        import: bool,
     }
     trpc.mutation(
         "devices.createCommand",
@@ -672,8 +668,7 @@ pub fn create_agent_login_command(
             agent,
             profile_id: profile_id
                 .map(str::trim)
-                .filter(|id| !import && !id.is_empty() && *id != "system"),
-            import,
+                .filter(|id| !id.is_empty() && *id != "system"),
         },
     )
 }
@@ -1285,9 +1280,9 @@ mod tests {
     }
 
     #[test]
-    fn agent_login_command_posts_agent_intended_profile_or_import() {
+    fn agent_login_command_posts_agent_and_intended_profile() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-7"}}}"#);
-        let created = create_agent_login_command(&client(&base), "dev-1", "codex", None, false).unwrap();
+        let created = create_agent_login_command(&client(&base), "dev-1", "codex", None).unwrap();
         assert_eq!(created.id, "cmd-7");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/devices.createCommand HTTP/1.1"));
@@ -1296,7 +1291,7 @@ mod tests {
         // The intended profile rides when named; blank and the retired
         // `system` never do.
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-8"}}}"#);
-        create_agent_login_command(&client(&base), "dev-1", "claude", Some("0a1b2c3d"), false)
+        create_agent_login_command(&client(&base), "dev-1", "claude", Some("0a1b2c3d"))
             .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
@@ -1304,20 +1299,11 @@ mod tests {
         ));
         for unnamed in ["system", "  "] {
             let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-8c"}}}"#);
-            create_agent_login_command(&client(&base), "dev-1", "claude", Some(unnamed), false)
+            create_agent_login_command(&client(&base), "dev-1", "claude", Some(unnamed))
                 .unwrap();
             let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
             assert!(request.ends_with(r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude"}"#));
         }
-
-        // An import names no profile, ever.
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-9"}}}"#);
-        create_agent_login_command(&client(&base), "dev-1", "claude", Some("0a1b2c3d"), true)
-            .unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(
-            r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","import":true}"#
-        ));
     }
 
     /// EXP-765: the code goes back as its own command kind, beside the agent

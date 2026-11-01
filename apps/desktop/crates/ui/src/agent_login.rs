@@ -31,9 +31,9 @@
 //! back as an `agent_login_code` command; [`enter_remote_code`] finds the
 //! agent's live login tab in [`LoginTabs`] and types it there.
 //!
-//! IMPORT (`agent_login {agent, import: "true"}`, or the doctor's Import pill
-//! here) moves the agent's AMBIENT login into a profile by the same commit,
-//! with no tab at all ([`import_ambient_login`]).
+//! There is no import (EXP-1532): an old client's `agent_login {agent,
+//! import: "true"}` is refused by the payload parse
+//! (`agent_login::IMPORT_REMOVED`); every profile signs in on its own.
 
 use crate::toast::Toast;
 use std::collections::{BTreeMap, HashMap};
@@ -152,16 +152,9 @@ pub(crate) fn open_login_tab(agent: CodingAgent, intended: Option<String>, cx: &
     start(agent, target, None, cx);
 }
 
-/// Import `agent`'s AMBIENT login on this machine (the doctor's Import pill,
-/// after its confirm).
-pub(crate) fn import_ambient_login(agent: CodingAgent, cx: &mut App) {
-    start(agent, LoginTarget::Import, None, cx);
-}
-
 /// EXP-484 (D): run an `agent_login` device command. The payload was already
 /// validated and claimed by [`crate::device_sync`]; this opens the same tab
-/// the local button does and answers the command the moment a URL is up (an
-/// import answers with its outcome sentence).
+/// the local button does and answers the command the moment a URL is up.
 pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut App) {
     // The beat already refused a malformed payload; this is the belt.
     let request = match agent_login::parse_login_payload(&command.payload) {
@@ -192,7 +185,7 @@ fn answer_unstarted(remote: Option<&RemoteLogin>, ok: bool, message: String, cx:
     }
 }
 
-/// What a committed sign-in or import says here: the duplicate warning, or
+/// What a committed sign-in says here: the duplicate warning, or
 /// the plain line.
 fn commit_toast(commit: &agent_login::LoginCommit, fallback: String) -> Toast {
     match commit.duplicate_warning() {
@@ -201,7 +194,7 @@ fn commit_toast(commit: &agent_login::LoginCommit, fallback: String) -> Toast {
     }
 }
 
-/// The one sequence: (import, done) | codex fetch → staging dir → login tab
+/// The one sequence: codex fetch → staging dir → login tab
 /// → grid watch → commit on a clean exit → re-probe. Deferred, because the
 /// caller is typically inside its own window's update and
 /// [`crate::coding_flow::any_terminal_dock`] has to update windows to find
@@ -213,30 +206,6 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
     // the requester gets the link through the command result instead.
     let mut plan = agent_login::login_plan(&settings, agent, remote.is_some());
     cx.spawn(async move |cx| {
-        if target == LoginTarget::Import {
-            let imported = {
-                let (settings, data_dir) = (settings.clone(), data_dir.clone());
-                cx.background_executor()
-                    .spawn(async move { agent_login::import_ambient(&settings, &data_dir, agent) })
-                    .await
-            };
-            let _ = cx.update(|cx| {
-                match imported {
-                    Ok(commit) => {
-                        let text = commit.import_result_text();
-                        notify(commit_toast(&commit, text.clone()), cx);
-                        answer_unstarted(remote.as_ref(), true, text, cx);
-                    }
-                    Err(message) => {
-                        notify(crate::action_error::failed_toast("import", "the login", Some(message.clone())), cx);
-                        answer_unstarted(remote.as_ref(), false, message, cx);
-                    }
-                }
-                let hub = CodingHub::global(cx);
-                CodingHub::refresh_agent_usage(&hub, cx);
-            });
-            return;
-        }
         // EXP-1232: a managed Codex sign-in fetches the pinned build first
         // (one toast; the doctor row reads Downloading… meanwhile). A failed
         // fetch answers the requester and starts nothing.
@@ -985,7 +954,6 @@ impl LoginDialogView {
                             &device_id,
                             agent.id(),
                             intended.as_deref(),
-                            false,
                         )
                         .map(|created| created.id)
                     }

@@ -66,6 +66,7 @@ import {
 import { markTreesReadBy } from "@/lib/sessions/reads"
 import {
   assertMovable,
+  childAccountOnDevice,
   deviceName,
   loadDeviceRow,
   movedText,
@@ -1450,6 +1451,17 @@ async function startChild(
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The parent is in another team` })
   }
   const deviceId = input.deviceId ?? parent.deviceId
+  // #FEED-182: profile ids are device-local — a child on ANOTHER device gets
+  // a login of THAT device (the named one, or the parent's by email).
+  const crossDevice = deviceId !== parent.deviceId
+  const childAccount = crossDevice
+    ? await childAccountOnDevice(
+        parent,
+        input.cli ?? (await effectiveCli(parent)) ?? `claude`,
+        { deviceId, ownerId: (await resolveSessionDevice(userId, parent.teamId, deviceId)).ownerId },
+        input.account
+      )
+    : undefined
 
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
@@ -1475,6 +1487,7 @@ async function startChild(
       userId,
       deviceId,
       ...runnerFields(input, parent),
+      ...(crossDevice ? { account: childAccount } : {}),
       // EXP-1341: the parent's `name`, else a suggestion's title; omitted =
       // the session names itself (session-title.json).
       ...((input.name ?? extras.title)?.trim()

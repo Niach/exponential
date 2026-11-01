@@ -203,16 +203,10 @@ private struct CreateCommandInput: Encodable {
     /// profile matching its EMAIL regardless, and uses this only to tell a
     /// duplicate apart.
     let profileId: String?
-    /// `agent_login` only: MOVE the machine's ambient login into a profile
-    /// instead of signing in. Needs the `agent-import` cap; never together
-    /// with `profileId` (the server refuses the pair). `import` is a Swift
-    /// keyword, so the wire key is restored via CodingKeys.
-    let importLogin: Bool?
 
     enum CodingKeys: String, CodingKey {
         case deviceId, kind, agent, code, profileId
         case switchAccount = "switch"
-        case importLogin = "import"
     }
 }
 
@@ -374,8 +368,6 @@ public final class DevicesApi: Sendable {
     /// with the URL/code as its `result`.
     /// EXP-765: `agent_login_code` needs `agent` + `code` — the way BACK from
     /// that link, typed into the sign-in still waiting on the machine.
-    /// `importLogin: true` on `agent_login` = the doctor's Import (cap
-    /// `agent-import`).
     public func createCommand(
         accountId: String,
         deviceId: String,
@@ -383,15 +375,14 @@ public final class DevicesApi: Sendable {
         agent: String? = nil,
         switchAccount: Bool? = nil,
         code: String? = nil,
-        profileId: String? = nil,
-        importLogin: Bool? = nil
+        profileId: String? = nil
     ) async throws -> CreatedDeviceCommand {
         try await trpc.mutation(
             accountId: accountId,
             path: "devices.createCommand",
             input: CreateCommandInput(
                 deviceId: deviceId, kind: kind, agent: agent, switchAccount: switchAccount,
-                code: code, profileId: profileId, importLogin: importLogin
+                code: code, profileId: profileId
             )
         )
     }

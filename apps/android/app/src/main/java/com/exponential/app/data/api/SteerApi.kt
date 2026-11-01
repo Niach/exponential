@@ -147,19 +147,6 @@ data class AgentAccount(
      * them when there are two or more. Absent = the device reported none.
      */
     @SerialName("profiles") val profiles: List<AgentAccountProfile>? = null,
-    /**
-     * The CLI's AMBIENT login (`~/.claude`, `~/.codex`), present only while it
-     * is signed in. Never run on: runs use the profiles alone, and the
-     * device's doctor offers to IMPORT this one (it moves into a profile).
-     */
-    @SerialName("importable") val importable: AgentImportable? = null,
-)
-
-/** What an agent's ambient login says about itself — see [AgentAccount.importable]. */
-@Serializable
-data class AgentImportable(
-    @SerialName("email") val email: String? = null,
-    @SerialName("plan") val plan: String? = null,
 )
 
 /**
@@ -174,7 +161,7 @@ data class AgentImportable(
  * identity line, and the profile's OWN [usage] — the active profile's numbers
  * also ride the pre-profile `agentUsage` slot, which is the fallback for a
  * device that only populated that one. [lastLoginAt] is stamped by the device
- * when a sign-in or import COMMITS into this profile: what an open sign-in
+ * when a sign-in COMMITS into this profile: what an open sign-in
  * sheet watches to see its login land.
  */
 @Serializable

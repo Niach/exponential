@@ -262,10 +262,25 @@ impl EngineSession {
     /// with the turn slot, to decide whether this run may move to another
     /// account right now. An expired wall (its own reset stamp passed)
     /// reads as `None`, by the same rule the synced row follows.
+    ///
+    /// EXP-1532 (#FEED-181): a run whose latest turn failed because its login
+    /// is signed out reads as a DEVICE-LOCAL wall of kind
+    /// [`coding::account_rotation::SIGNED_OUT_KIND`], so the same rotation
+    /// moves it to a working login. This wall never reaches the wire.
     pub fn blocked(&self) -> Option<steer::SessionBlocked> {
-        self.0
+        let wall = self
+            .0
             .blocked_wall()
-            .filter(|wall| !steer::blocked_wall_expired(wall, steer::now_unix_millis()))
+            .filter(|wall| !steer::blocked_wall_expired(wall, steer::now_unix_millis()));
+        wall.or_else(|| {
+            self.0.signed_out().then(|| steer::SessionBlocked {
+                kind: coding::account_rotation::SIGNED_OUT_KIND.to_string(),
+                agent: self.0.agent().id().to_string(),
+                window: coding::account_rotation::SIGNED_OUT_WINDOW.to_string(),
+                resets_at: None,
+                since: coding::agent_accounts::now_iso(),
+            })
+        })
     }
 }
 

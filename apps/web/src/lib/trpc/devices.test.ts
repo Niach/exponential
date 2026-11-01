@@ -181,6 +181,7 @@ vi.mock(`@/lib/client-version`, () => ({
 }))
 
 import {
+  AGENT_IMPORT_REMOVED,
   clampAgentAccounts,
   clampAgentUsage,
   clearDeviceKey,
@@ -2051,13 +2052,13 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
       checkedAt: `2026-10-05T19:00:00.000Z`,
       items: [
         { key: `git`, group: `required`, state: `ok`, detail: `2.55.0` },
+        // EXP-1532: an old device's `import` is dropped.
         {
           key: `claude`,
           group: `agents`,
           state: `action`,
           detail: `Signed out`,
           action: `sign_in`,
-          import: `dev@acme.test`,
         },
         {
           key: `accessibility`,
@@ -2431,34 +2432,21 @@ describe(`devices.createCommand — agent_login`, () => {
     })
   })
 
-  it(`queues an import`, async () => {
-    h.state.selectQueue = [
-      [{ id: `row-1`, caps: [`agent-login`] }],
-      [],
-    ]
-    h.state.insertReturning = [[{ id: `cmd-1` }]]
-    await caller.createCommand({
-      deviceId: `dev-1`,
-      kind: `agent_login`,
-      agent: `claude`,
-      import: true,
-    })
-    expect(h.state.inserted[0]).toMatchObject({
-      payload: { agent: `claude`, switch: `false`, import: `true` },
-    })
-  })
-
-  it(`refuses an import beside a profileId`, async () => {
-    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_login`,
-        agent: `claude`,
-        profileId: `p-work`,
-        import: true,
-      })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  // EXP-1532: the import is retired — an old client's is refused with the
+  // sentence, never queued (nor turned into a plain sign-in).
+  it(`refuses an import`, async () => {
+    for (const extra of [{}, { profileId: `p-work` }]) {
+      h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`] }]]
+      await expect(
+        caller.createCommand({
+          deviceId: `dev-1`,
+          kind: `agent_login`,
+          agent: `claude`,
+          import: true,
+          ...extra,
+        })
+      ).rejects.toMatchObject({ code: `BAD_REQUEST`, message: AGENT_IMPORT_REMOVED })
+    }
     expect(h.state.inserted).toHaveLength(0)
   })
 })
@@ -2973,9 +2961,9 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
     )
   })
 
-  // The CLI's ambient login the doctor offers to Import: present iff signed
-  // in, null-free.
-  it(`keeps the importable ambient login`, () => {
+  // EXP-1532: an old device's `importable` (the retired import offer) is
+  // dropped.
+  it(`drops the retired importable ambient login`, () => {
     expect(
       clampAgentAccounts({
         claude: {
@@ -2983,9 +2971,9 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
           importable: { email: `dev@acme.test`, plan: null },
         },
         codex: { signedIn: false, importable: null },
-      })
+      } as never)
     ).toEqual({
-      claude: { signedIn: false, importable: { email: `dev@acme.test` } },
+      claude: { signedIn: false },
       codex: { signedIn: false },
     })
   })

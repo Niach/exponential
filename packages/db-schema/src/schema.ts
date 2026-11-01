@@ -1077,10 +1077,6 @@ export interface DeviceAgentAccount {
    * the top-level row only. The device settings' Update section shows it
    * beside the per-agent "Update" control. */
   version?: string
-  /** Present iff the agent CLI's AMBIENT login (~/.claude, ~/.codex) is
-   * signed in. Runs never use it; the doctor offers to Import (move) it into
-   * a profile. */
-  importable?: { email?: string; plan?: string }
 }
 export interface DeviceAgentProfileEntry {
   id: string
@@ -1198,13 +1194,8 @@ export const deviceAgentAccountsSchema = z.record(
       profiles: z.array(deviceAgentProfileSchema.nullish()).nullish(),
       // The install's CLI version (`DeviceAgentAccount.version`).
       version: z.string().max(64).nullish(),
-      // `DeviceAgentAccount.importable`.
-      importable: z
-        .object({
-          email: z.string().max(320).nullish(),
-          plan: z.string().max(64).nullish(),
-        })
-        .nullish(),
+      // EXP-1532: an old device's retired `importable` is stripped (zod
+      // objects drop unknown keys).
     })
     .nullish()
 )
@@ -1277,7 +1268,6 @@ export const deviceDoctorActions = [
   `install`,
   `update`,
   `sign_in`,
-  `import`,
   `grant`,
 ] as const
 export type DeviceDoctorKey = (typeof deviceDoctorKeys)[number]
@@ -1293,9 +1283,6 @@ export interface DeviceDoctorItem {
   state: DeviceDoctorState | (string & {})
   detail?: string
   action?: DeviceDoctorAction | (string & {})
-  /** The agent's AMBIENT login email: renders an `import` pill before the
-   * action pill. */
-  import?: string
 }
 /** NEW-59: one display as the device reports it (the OS's order, pixels). */
 export interface DeviceDisplay {
@@ -1342,7 +1329,7 @@ export const deviceDoctorItemSchema = z.object({
     .nullish()
     .transform((v) => (v == null ? v : v.slice(0, 120))),
   action: z.string().max(32).nullish(),
-  import: z.string().max(320).nullish(),
+  // EXP-1532: an old device's retired `import` is stripped.
 })
 export const deviceDoctorSchema = z.object({
   checkedAt: z.string().max(64),

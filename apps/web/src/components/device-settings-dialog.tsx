@@ -78,7 +78,6 @@ import {
   subagentModelChoices,
 } from "@/components/launch-dialog/launch-options-pane"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
-import { queueAgentImport } from "@/components/device-readiness-notice"
 
 const RemoveIcon = conceptIcon(`ui-delete`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
@@ -880,14 +879,8 @@ export function DeviceSettingsDialog({
                 remote
                 busy={tracked.some((command) => isAgentUpdateKey(command.key))}
                 computerUse={{ checked: computerUse, onCheckedChange: toggleComputerUse }}
-                canImport={device !== null}
                 onAction={(itemKey, action) => {
-                  if (action === `import` && device) {
-                    const email = row.doctor?.items.find(
-                      (item) => item.key === itemKey
-                    )?.import
-                    if (email) void queueAgentImport(device, itemKey, email)
-                  } else if (action === `update`) {
+                  if (action === `update`) {
                     void queueCommand(agentUpdateKey(itemKey), {
                       kind: `agent_update`,
                       agent: itemKey,

@@ -22,8 +22,8 @@ import com.exponential.app.data.db.DeviceEntity
 /**
  * One device × agent × profile — what a machine reports about ONE login of
  * an agent. Only the reported `profiles` are rows: the top-level fields are
- * never turned into a login of their own (the ambient login is never run on;
- * the doctor offers to import it).
+ * never turned into a login of their own (the ambient login is never read,
+ * run on or imported: EXP-1532).
  */
 data class AgentProfileUsageRow(
     /** `<deviceId>:<agent>:<profileId>` — stable enough to key a list. */

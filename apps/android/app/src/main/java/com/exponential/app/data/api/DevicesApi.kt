@@ -362,20 +362,6 @@ fun agentLoginCommand(
     }
 
 /**
- * The import form of `agent_login`: the machine MOVES [agent]'s ambient login
- * into a profile (an existing same-email profile is refreshed, else a new one).
- * The device completes it with a plain
- * sentence (`Imported {email}.` or why not).
- */
-fun agentImportCommand(deviceId: String, agent: String): JsonObject =
-    buildJsonObject {
-        put("deviceId", deviceId)
-        put("kind", "agent_login")
-        put("agent", agent)
-        put("import", true)
-    }
-
-/**
  * The `agent_profile_remove` input for [DevicesApi.createCommand] (EXP-862) —
  * the machine deletes ITS OWN copy of the login [profileId] for [agent]: the
  * agent CLI's config dir for that profile (credentials included) and its index

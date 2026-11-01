@@ -41,9 +41,8 @@ import SwiftUI
 //              `device-doctor.json`), only when the row carries one; an
 //              older build's row (no doctor) gets the bare Computer use switch. A phone
 //              is always ANOTHER device: Update queues `agent_update {agent}`,
-//              Sign in opens the remote `AgentLoginSheet`, Import (an agent's
-//              ambient login, cap `agent-import`) runs `agentImportFlow`;
-//              local-only actions render no pill.
+//              Sign in opens the remote `AgentLoginSheet`; local-only
+//              actions render no pill.
 //   Update   — EXP-909, SERVER devices only (a desktop app updates itself):
 //              the version, an amber "Update available" caption, and the
 //              Update / Queued / Updating… control the device ROW used to
@@ -138,8 +137,6 @@ struct DeviceSettingsSheet: View {
     @State private var loginTarget: AgentLoginTarget?
     /// EXP-1196: agents whose `agent_update` is on the wire.
     @State private var updatingAgents: Set<String> = []
-    /// The Import the person is confirming (`agentImportFlow`).
-    @State private var importTarget: AgentImportTarget?
 
     /// The live row off the devices shape. Own machines only — the sheet is an
     /// owner surface, so a row that stops being ours reads as gone.
@@ -215,8 +212,6 @@ struct DeviceSettingsSheet: View {
             guard seeded, !defaultsPending, !savingDefaults else { return }
             applyDefaults(device, keepTab: true)
         }
-        // The readiness block's Import pill: confirm, queue, duplicate toast.
-        .agentImportFlow($importTarget, devices: viewModel.devices ?? [])
         // EXP-594: white control tint — system blue is retired (toggles,
         // menu pickers).
         .tint(DesignTokens.Palette.primary)
@@ -539,10 +534,7 @@ struct DeviceSettingsSheet: View {
                     displays: doctor.displays, stored: computerUseDisplayId
                 ),
                 busyActions: updatingAgents,
-                onAction: { row in runReadinessAction(row, device: device) },
-                onImport: { row in
-                    importTarget = AgentImportTarget(row: row, device: device)
-                }
+                onAction: { row in runReadinessAction(row, device: device) }
             )
             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
         }
