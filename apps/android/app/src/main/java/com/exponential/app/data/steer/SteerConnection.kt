@@ -219,6 +219,10 @@ class SteerConnection internal constructor(
     /** EXP-1522: where a committed replay is folded (Default in the app);
      *  null folds inline, which keeps the dial-loop tests deterministic. */
     private val foldDispatcher: CoroutineDispatcher? = null,
+    /** EXP-1529: connection analytics (fixtures/steer-enet.json `connStats`); null = none. */
+    stats: SteerConnStatsSink? = null,
+    version: String = "",
+    private val settleAfterMs: Long = SteerConnStatsSpec.SETTLE_AFTER_MS,
 ) {
 
     /** The connection's own lifetime — outlives every screen that attaches. */
@@ -372,7 +376,15 @@ class SteerConnection internal constructor(
     internal val isDeviceOffline: Boolean
         get() = !closed && _phase.value is AgentPhase.Ended && _history.value == HistoryState.DeviceOffline
 
+    /** EXP-1529: the open `steer.view`; the carriers report fallbacks and failures into it. */
+    private val viewStats = stats?.let { SteerViewStats(it, version, nowMs) }
+    private var settleJob: Job? = null
+
+    /** EXP-1529: when the last dial's carriers were both down (the lostBanner clock), when it knew. */
+    private var lastDownSinceMs: Long? = null
+
     init {
+        (transport as? FallbackSteerTransport)?.listener = viewStats
         // VAPP-173: a feed that answered while the row still read ended landed
         // on Ended ("row ended"); the run came back (fixtures/steer-enet.json
         // OFFLINE REDIAL: "a run that came back = live"), so the row flipping
@@ -445,6 +457,7 @@ class SteerConnection internal constructor(
         connectJob?.cancel()
         reconnectAttempts = 0
         clearDrop()
+        openView()
         Log.i(TAG, "[$sid] connect(silent=$silent)")
         connectJob = scope.launch {
             val me = currentCoroutineContext()[Job]
@@ -508,7 +521,8 @@ class SteerConnection internal constructor(
                         if (droppedAtMs != null) {
                             failedRedialsSinceDrop++
                         } else if (_phase.value == AgentPhase.Live) {
-                            droppedAtMs = nowMs()
+                            // EXP-1529: from the moment NEITHER carrier was active.
+                            droppedAtMs = lastDownSinceMs?.coerceAtMost(nowMs()) ?: nowMs()
                             failedRedialsSinceDrop = 0
                         }
                         // Never park on a dead socket behind a manual button
@@ -548,6 +562,7 @@ class SteerConnection internal constructor(
         }
         if (isFinished) return
         Log.i(TAG, "[$sid] park")
+        closeView()
         connectJob?.cancel()
         connectJob = null
         runCatching { ws?.cancel() }
@@ -579,7 +594,11 @@ class SteerConnection internal constructor(
 
     /** Come back to the foreground: whatever state the connection is in, ask
      *  the revival policy what it needs. */
-    internal fun resume() = kick("foreground")
+    internal fun resume() {
+        // EXP-1529: a feed on its fallback re-evaluates eNet at once.
+        ws?.wake()
+        kick("foreground")
+    }
 
     /** Tear the connection down for good — sign-out, account switch, or the
      *  store reaping a finished session nothing is looking at. */
@@ -587,6 +606,7 @@ class SteerConnection internal constructor(
         val wasFinished = isFinished
         closed = true
         Log.i(TAG, "[$sid] close")
+        closeView()
         connectJob?.cancel()
         connectJob = null
         runCatching { ws?.cancel() }
@@ -634,6 +654,24 @@ class SteerConnection internal constructor(
             delay((COMPACTION_TIMEOUT_MS - age).coerceAtLeast(0L))
             _activity.value = _activity.value.clearCompaction()
         }
+    }
+
+    /** EXP-1529: a viewer OPEN of the feed begins one `steer.view` (idempotent across redials). */
+    private fun openView() {
+        val view = viewStats ?: return
+        if (view.isOpen) return
+        view.open()
+        settleJob?.cancel()
+        settleJob = scope.launch {
+            delay(settleAfterMs)
+            view.settleTimeout()
+        }
+    }
+
+    private fun closeView() {
+        settleJob?.cancel()
+        settleJob = null
+        viewStats?.close()
     }
 
     private fun clearDrop() {
@@ -724,13 +762,16 @@ class SteerConnection internal constructor(
         var detail: String? = null
 
         var opened: SteerSocket? = null
+        var sawFirstFrame = false
+        lastDownSinceMs = null
         try {
             val startedAt = nowMs()
             // VAPP-33: the install running the session (or holding its stored
-            // journal), joined over eNet and bounded by its own join timeout.
-            // VAPP-43: null = NO FEED, and there is no relay to fall back to.
+            // journal), joined over eNet and bounded by its own join timeout;
+            // EXP-1529: the sealed relay tunnel when eNet stalls or has no
+            // feed. Null = NO FEED on both carriers.
             val socket = transport.open(codingSessionId) ?: return noFeed(dial)
-            Log.i(TAG, "[$sid] dial#$dial over eNet")
+            Log.i(TAG, "[$sid] dial#$dial opened")
             opened = socket
             if (!currentCoroutineContext().isActive) {
                 // Cancelled while the handshake was in flight: the socket we
@@ -784,6 +825,10 @@ class SteerConnection internal constructor(
                 // `turn` event (replayed or fresh) says `started`, so nothing
                 // pulses just because the socket came up.
                 if (result.live) {
+                    if (!sawFirstFrame) {
+                        sawFirstFrame = true
+                        viewStats?.firstFrame(socket.path)
+                    }
                     // A feed answered, so any earlier no-feed line is over:
                     // what arrives next IS the transcript.
                     _history.value = null
@@ -846,6 +891,7 @@ class SteerConnection internal constructor(
                 // the device drops the ask with the viewer, so a new one may go out.
                 historyRequest = null
             }
+            lastDownSinceMs = opened?.downSinceMs()
             runCatching { opened?.cancel() }
         }
 
