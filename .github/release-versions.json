@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1430: Exponential's release versions for .github/actions/bump-versions (schema in its README). Each pattern matches exactly once unless \"all\": true; (?<value>…) is the rewritten span. iOS build +2: prod and staging each take one (stagingBuildVersion = build+1). web lives only in its v* tags.",
+  "$comment": "EXP-1430: Exponential's release versions for .github/actions/bump-versions (schema in its README). Each pattern matches exactly once unless \"all\": true; (?<value>…) is the rewritten span. iOS build +2: prod and staging each take one (stagingBuildVersion = build+1). web's current version comes from its v* tags; apps/web/package.json follows it (EXP-1594: conn-stats reports it).",
   "products": {
     "desktop": {
       "tags": ["desktop-v{version}", "cli-v{version}"],
@@ -29,7 +29,8 @@
     },
     "web": {
       "tags": ["v{version}"],
-      "versionFromTags": "v"
+      "versionFromTags": "v",
+      "fields": [{ "file": "apps/web/package.json", "pattern": "^  \"version\": \"(?<value>[^\"]+)\",$" }]
     }
   }
 }
