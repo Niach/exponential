@@ -15,7 +15,8 @@ name: release-suite
 # desktop cargo test + Rust licence inventory (+ the engine's macOS-only
 # confine cases on the Mac), the desktop fuzz targets (short
 # runs, NEW-88), Android unit tests + lint +
-# licence inventory, the iOS compile + suites (test-ios.yml), and every
+# licence inventory, the iOS compile + suites (test-ios.yml) and the ExpCore
+# SwiftPM replay (ios-core.yml; informational on PRs), and every
 # Exponential UI renderer + conformance + bench (exponential-ui.yml), and
 # eTalk's phone facade (etalk-ffi: bindings drift + Swift/Kotlin suites).
 
@@ -90,6 +91,14 @@ jobs:
     needs: dedupe
     if: needs.dedupe.outputs.run == 'true'
     uses: ./.github/workflows/test-ios.yml
+    secrets: inherit
+
+  # The ExpCore fixture replay + GRDB pin check (informational on PRs since
+  # 2026-11-01): here it blocks the release, like everything in this suite.
+  ios-core:
+    needs: dedupe
+    if: needs.dedupe.outputs.run == 'true'
+    uses: ./.github/workflows/ios-core.yml
     secrets: inherit
 
   exponential-ui:

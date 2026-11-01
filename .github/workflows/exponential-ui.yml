@@ -46,6 +46,17 @@ on:
       conformance_only:
         type: boolean
         default: false
+      # 2026-11-01: the PR gate (test.yml) runs the Swift leg apart, as an
+      # informational check: `skip_swift` drops it from the gated call,
+      # `swift_only` runs it alone (with its own `conformant`). The release
+      # suite and workflow_dispatch run every renderer: `conformant` requires
+      # the Swift report there.
+      skip_swift:
+        type: boolean
+        default: false
+      swift_only:
+        type: boolean
+        default: false
   workflow_dispatch: {}
 
 permissions:
@@ -69,6 +80,7 @@ jobs:
 
   react:
     needs: pick
+    if: ${{ !inputs.swift_only }}
     runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
@@ -130,6 +142,7 @@ jobs:
 
   solid:
     needs: pick
+    if: ${{ !inputs.swift_only }}
     runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
@@ -191,6 +204,7 @@ jobs:
         run: bun packages/exponential-ui-bench/scripts/ratchet.ts .bench/*.json
 
   element:
+    if: ${{ !inputs.swift_only }}
     runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
@@ -249,6 +263,7 @@ jobs:
 
   rust:
     needs: pick
+    if: ${{ !inputs.swift_only }}
     runs-on: ${{ fromJSON(needs.pick.outputs.linux) }}
     steps:
       - uses: actions/checkout@v4
@@ -333,6 +348,7 @@ jobs:
   swift:
     # Same image as test-ios.yml / build-ios.yml.
     needs: pick
+    if: ${{ !inputs.skip_swift }}
     runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     timeout-minutes: 60
     steps:
@@ -558,6 +574,7 @@ jobs:
 
   compose:
     needs: pick
+    if: ${{ !inputs.swift_only }}
     # GitHub-hosted only: the Roborazzi images + snapshots are pixel-exact to
     # the ubuntu image record-compose-fixtures.yml records them on.
     runs-on: ubuntu-latest
@@ -628,8 +645,25 @@ jobs:
 
   conformant:
     needs: [react, solid, element, rust, swift, compose]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
+      # A skipped leg passes only when this call skipped it on purpose
+      # (`skip_swift`, or every other leg under `swift_only`).
+      - name: Every leg ran or was skipped on purpose
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          SKIP_SWIFT: ${{ inputs.skip_swift == true }}
+          SWIFT_ONLY: ${{ inputs.swift_only == true }}
+        run: |
+          jq -r 'to_entries[] | "\(.key) \(.value.result)"' <<<"$RESULTS" | while read -r job result; do
+            [ "$result" = success ] && continue
+            if [ "$result" = skipped ]; then
+              [ "$job" = swift ] && [ "$SKIP_SWIFT" = true ] && continue
+              [ "$job" != swift ] && [ "$SWIFT_ONLY" = true ] && continue
+            fi
+            echo "::error::$job ended $result"; exit 1
+          done
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile

@@ -1,8 +1,8 @@
 // swift-tools-version:6.0
 import PackageDescription
 
-// #EXP-1543: ExpCore as a plain SwiftPM package, ONLY so the PR gate
-// (test.yml `ios-core`) replays its suite on the macOS host with
+// #EXP-1543: ExpCore as a plain SwiftPM package, ONLY so CI (ios-core.yml:
+// informational on PRs, a blocker in release-suite.yml) replays its suite on the macOS host with
 // `swift test` (no tuist, no simulator). The app builds ExpCore from
 // Project.swift; keep the two in step (Swift 6, MemberImportVisibility, GRDB
 // pinned EXACTLY to Tuist/Package.resolved: the gate checks it).
