@@ -1,0 +1,31 @@
+[package]
+name = "eui-motion"
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+description = "Exponential UI Motion: samples Lottie animations into a flat display list every eUI painter replays (gpui, SwiftUI, Compose, Canvas2D), with a tiny-skia reference raster."
+repository = "https://github.com/Niach/exponential"
+homepage = "https://exponential.at/ui/"
+readme = "README.md"
+keywords = ["lottie", "animation", "a2ui", "vector-graphics"]
+categories = ["rendering", "graphics"]
+# EXP-1584: standalone like eui-core; depends on nothing from the app's crates.
+exclude = ["tests/", "examples/"]
+
+[features]
+default = []
+# The tiny-skia reference raster: the gpui painter, the conformance
+# reference, GIF previews. Off in the WASM and FFI builds.
+raster = ["dep:tiny-skia"]
+
+[dependencies]
+# EXP-1601 spike: velato as a crate (no vello); the fork decision is in the README.
+velato = { version = "0.12", default-features = false }
+kurbo = "0.13"
+peniko = "0.6"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+tiny-skia = { version = "0.11.4", optional = true }
+
+[dev-dependencies]
+serde_json = "1"
