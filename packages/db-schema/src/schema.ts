@@ -3263,6 +3263,37 @@ export const conversionEvents = pgTable(
   ]
 )
 
+// #EXP-1510: the orchestration core's shadow mode (apps/web/src/lib/sessions/
+// shadow). Server-only, never synced: per rule (a core event kind) and UTC day,
+// how many events were compared, matched the server's decision, mismatched,
+// were outside what the core models (skipped) or failed to shadow; and the
+// first mismatches of each day as samples (the diff, never a body: sealed
+// trees stay sealed and lines are keyed, not quoted, when sealed).
+export const eagentShadowCounts = pgTable(
+  `eagent_shadow_counts`,
+  {
+    rule: varchar({ length: 64 }).notNull(),
+    day: date().notNull(),
+    compared: integer().notNull().default(0),
+    mismatched: integer().notNull().default(0),
+    skipped: integer().notNull().default(0),
+    failed: integer().notNull().default(0),
+    updatedAt: timestamp(`updated_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.rule, table.day] })]
+)
+
+export const eagentShadowSamples = pgTable(
+  `eagent_shadow_samples`,
+  {
+    id: uuidPk(),
+    rule: varchar({ length: 64 }).notNull(),
+    diff: jsonb().$type<Record<string, unknown>>().notNull(),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index(`idx_eagent_shadow_samples_rule_created`).on(table.rule, table.createdAt)]
+)
+
 // EXP-759: durable per-user client-platform ledger (SERVER-ONLY, admin
 // console; never synced — no shape proxy). Touched by lib/auth/resolve-bearer.ts
 // on every authenticated API request (in-process throttled): natives identify

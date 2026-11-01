@@ -41,6 +41,7 @@
     "@exp/domain-contract": "workspace:*",
     "@exp/etalk": "workspace:*",
     "@exp/eagent": "workspace:*",
+    "@exp/ecore": "workspace:*",
     "@exp/emcp": "workspace:*",
     "@exp/emoji": "workspace:*",
     "@exp/icons": "workspace:*",

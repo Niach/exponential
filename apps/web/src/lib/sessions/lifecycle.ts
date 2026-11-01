@@ -16,6 +16,8 @@ import { hostedByCondition, hostRowCondition, resolveSessionHost, sessionDeviceO
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
 import { contract } from "@exp/domain-contract"
 import { yoloEdge } from "@/lib/yolo-edge"
+import { shadow } from "@/lib/sessions/shadow"
+import { endPlan } from "@/lib/sessions/shadow/plans"
 
 // EXP-1291/NEW-1: the session lifecycle — queued → running ⇄ idle → ended.
 // Merging ends nothing; a session ends only explicitly (End, the agent's
@@ -251,7 +253,12 @@ function checkSealedReport(
  *  root ends its tree deepest first, every child reporting into its parent
  *  before it goes. `summary` = the session's closing agent message (MCP
  *  `sessions_end`). */
-export async function endSession(args: {
+/** #EXP-1510: End runs beside the orchestration core's shadow (never acts). */
+export function endSession(args: Parameters<typeof endSessionNow>[0]): ReturnType<typeof endSessionNow> {
+  return shadow(endPlan(args), () => endSessionNow(args))
+}
+
+async function endSessionNow(args: {
   userId: string
   sessionId: string
   summary?: string | null

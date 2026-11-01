@@ -84,6 +84,8 @@ import { isSealedBody, validSealedBody } from "@/lib/sessions/sealed"
 import { createTreeKeyInTx } from "@/lib/sessions/tree-keys"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { fireAndForgetSessionMessageNotify } from "@/lib/integrations/notifications"
+import { shadow } from "@/lib/sessions/shadow"
+import { sendPlan } from "@/lib/sessions/shadow/plans"
 
 // EXP-1291/NEW-1/NEW-2: `sessions.send` — THE entrypoint (tRPC
 // `sessions.send` and MCP `exponential_sessions_send` both land here). Four
@@ -642,7 +644,12 @@ interface SendOutcome extends SessionsSendResult {
   endedIds?: string[]
 }
 
-export async function sendSession(args: {
+/** #EXP-1510: every send runs beside the orchestration core's shadow (never acts). */
+export function sendSession(args: Parameters<typeof sendSessionNow>[0]): ReturnType<typeof sendSessionNow> {
+  return shadow(sendPlan(args), () => sendSessionNow(args))
+}
+
+async function sendSessionNow(args: {
   userId: string
   input: SessionsSendInput
   callerSessionId?: string | null

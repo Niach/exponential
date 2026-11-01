@@ -112,6 +112,7 @@
         "@exp/db-schema": "workspace:*",
         "@exp/domain-contract": "workspace:*",
         "@exp/eagent": "workspace:*",
+        "@exp/ecore": "workspace:*",
         "@exp/emcp": "workspace:*",
         "@exp/emoji": "workspace:*",
         "@exp/etalk": "workspace:*",

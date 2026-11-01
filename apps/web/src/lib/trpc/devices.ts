@@ -81,6 +81,7 @@ import {
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
+import { heartbeatPlan, shadowNext } from "@/lib/sessions/shadow/plans"
 import {
   createInstallToken,
   installTokenMintLimiter,
@@ -954,6 +955,8 @@ export const devicesRouter = router({
           .optional(),
       })
     )
+    // #EXP-1510: the orchestration core's shadow beside it (never acts).
+    .use(({ input, next }) => shadowNext(heartbeatPlan(input), next))
     .mutation(async ({ ctx, input }) => {
       const now = new Date()
       let liveSessionIds: string[] | null = null

@@ -75,6 +75,7 @@ import {
 } from "@/lib/sessions/suggestions"
 import { issuesRouter } from "@/lib/trpc/issues"
 import { yoloEdge } from "@/lib/yolo-edge"
+import { claimPlan, consumePlan, replyPlan, reportPlan, shadowNext } from "@/lib/sessions/shadow/plans"
 import {
   assertNotPlainInSealedTree,
   effectiveCli,
@@ -573,6 +574,8 @@ export const sessionsRouter = router({
         branch: z.string().max(255).optional(),
       })
     )
+    // #EXP-1510: the orchestration core's shadow beside it (never acts).
+    .use(({ input, next }) => shadowNext(claimPlan(input), next))
     .mutation(async ({ ctx, input }) => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       await assertDeviceHost(ctx.session.user.id, session)
@@ -705,6 +708,8 @@ export const sessionsRouter = router({
         midTurn: z.boolean().optional(),
       })
     )
+    // #EXP-1510: the orchestration core's shadow beside it (never acts).
+    .use(({ input, next }) => shadowNext(reportPlan(input), next))
     .mutation(async ({ ctx, input }) => {
       const session = await loadDeviceSession(ctx, input.sessionId)
       if (
@@ -897,6 +902,8 @@ export const sessionsRouter = router({
         askText: z.string().max(sealedBodyMax(MESSAGE_BODY_MAX)).optional(),
       })
     )
+    // #EXP-1510: the orchestration core's shadow beside it (never acts).
+    .use(({ input, next }) => shadowNext(replyPlan(input), next))
     .mutation(async ({ ctx, input }) => {
       const session = await loadDeviceSession(ctx, input.sessionId)
       // A deleted session: nothing to post into, a no-op (no message id).
@@ -1059,6 +1066,8 @@ export const sessionsRouter = router({
    *  `exponential_sessions_ask`) once its answer text was delivered. */
   consume: authedProcedure
     .input(z.object({ sessionId: uuid, messageIds: z.array(uuid).min(1).max(100) }))
+    // #EXP-1510: the orchestration core's shadow beside it (never acts).
+    .use(({ input, next }) => shadowNext(consumePlan(input), next))
     .mutation(async ({ ctx, input }) => {
       const session = await loadDeviceSession(ctx, input.sessionId)
       if (!session) return noOpTx(ctx.db)

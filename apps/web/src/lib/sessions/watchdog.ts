@@ -15,6 +15,8 @@ import { reportSchedulerRun } from "@/lib/metrics/registry"
 import { getSteerRelayConfig, relayPostNudge } from "@/lib/steer"
 import { autoStopHours, MEETING_AUTO_STOP } from "@exp/etalk/meeting"
 import { postMeetingStopNote } from "@/lib/sessions/meeting-access"
+import { shadow } from "@/lib/sessions/shadow"
+import { tickPlan } from "@/lib/sessions/shadow/plans"
 
 // NEW-1: the server watchdog (every minute; contract `sessionWatchdog`).
 // Nothing waits on a device's good behaviour: what stalls is flagged on
@@ -541,13 +543,17 @@ export async function flagDeadSessionsInTx(
 }
 
 export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> {
-  return {
+  // #EXP-1510: the session rules (the core's `watchdog.tick`) run beside the orchestration core's shadow.
+  const sessionRules = await shadow(tickPlan(now), async () => ({
     unclaimed: await flagUnclaimed(now),
     nudged: await nudgeStalled(now),
     stuck: await flagStuck(now),
     offline: await flagOffline(now),
     unresumed: await flagUnresumed(now),
     expired: await clearExpiredWalls(now),
+  }))
+  return {
+    ...sessionRules,
     // NEW-2: the same tick fires the agents' schedules (a missed tick is
     // caught up here) and sweeps the event stream.
     fired: await fireScheduledTriggers(now),
