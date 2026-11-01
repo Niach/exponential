@@ -98,10 +98,11 @@ first; each op needs the eCore capability it names:
 
 | Op | Capability |
 |---|---|
-| `list_windows`, `list_outputs`, `subscribe` (events: `window.opened/closed/focused`, `session.locked/unlocked`, `config.reloaded`) | any grant |
+| `list_windows`, `list_outputs`, `pointer_position`, `subscribe` (events: `window.opened/closed/focused`, `session.locked/unlocked`, `config.reloaded`) | any grant |
 | `focus_window`, `close_window`, `move_window` | `ui` |
 | `capture` (an output: protected windows black, locked = black; a window: protected ones refused) | `capture` |
-| `input` (key, pointer motion, button; refused on protected surfaces and the lock) | `input:person` |
+| `input` (key, keysym, pointer motion, button, wheel; refused on protected surfaces and the lock) | `input:person` |
+| `hold_input`, `release_input` (the person's own input reaches no window while the connection lives; their Esc ends it, `input.escape` to the holder) | `input:person` |
 | `reload_config`, `lock`, `mint_grant`, `revoke_grant` | `system` |
 
 The compositor writes the root token (every capability) to
@@ -116,6 +117,23 @@ lending come with their own issues; captures are drawn in software for now.
 let mut ede = ede_protocol::Client::connect_env()?;   // $WAYLAND_DISPLAY + the token file (or $EDE_TOKEN)
 for w in ede.windows()? { println!("{} {:?}", w.id, w.title); }
 ```
+
+### ePilot on eDE
+
+ePilot (`apps/desktop/crates/epilot`, #NEW-112) drives an eDE session
+through this socket instead of XTest: `XDG_CURRENT_DESKTOP=eDE` and the socket
+present = the eDE backend (`epilot::backend_name()` says `eDE`). A tool call
+is `input` / `capture` / `list_windows`; its lock is `hold_input` on a
+connection of its own, so the IDE's banner and Esc work as on X11. Headless
+test: `EDE_COMPOSITOR=<target>/debug/ede-compositor cargo test -p epilot
+headless_ede` (in `apps/desktop`).
+
+On the real machine (Danny): log in to **Exponential**, turn on Computer use
+for the device in the IDE, the device doctor shows computer use ready;
+start a coding session that clicks and types into gnome-text-editor. While
+it runs: your mouse and keys do nothing, the banner shows, **Esc** gives
+them back and aborts the turn. A keepassxc window stays black in its
+screenshots and refuses its clicks.
 
 ## Config
 

@@ -40,6 +40,9 @@ image = { workspace = true, features = ["png"] }
 # grabs of the person's own devices), randr = the displays.
 [target.'cfg(target_os = "linux")'.dependencies]
 x11rb = { version = "0.13", features = ["xtest", "xinput", "randr"] }
+# #NEW-112: on an eDE session (Wayland, no XTest) input, capture and the lock
+# go through the compositor's control plane (`src/backend/ede.rs`).
+ede-protocol = { path = "../../../ede/crates/ede-protocol" }
 
 # macOS: CGEvent input + CGDisplay capture + the event tap lock (all in
 # core-graphics, already in the tree), the window list off

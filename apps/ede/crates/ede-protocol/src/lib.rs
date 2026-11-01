@@ -37,6 +37,9 @@ pub mod events {
     pub const SESSION_LOCKED: &str = "session.locked";
     pub const SESSION_UNLOCKED: &str = "session.unlocked";
     pub const CONFIG_RELOADED: &str = "config.reloaded";
+    /// The person pressed Esc during a [`super::Request::HoldInput`]: the
+    /// hold is over. Sent to the holders only, subscribed or not.
+    pub const INPUT_ESCAPE: &str = "input.escape";
 }
 
 /// The socket and token file of the compositor serving `wayland_display`.
@@ -72,6 +75,15 @@ pub enum Request {
     Capture { target: CaptureTarget },
     /// Drive the person's seat. Protected surfaces and the lock refuse it.
     Input { event: InputEvent },
+    /// Where the pointer is (global logical coordinates): [`PointerInfo`].
+    PointerPosition,
+    /// Lock the person's own keyboard and pointer out while this connection
+    /// lives (or until [`Request::ReleaseInput`]): nothing they do reaches a
+    /// window, [`Request::Input`] still does. Their Esc ends every hold and
+    /// arrives as [`events::INPUT_ESCAPE`]. The session lock screen always
+    /// takes their input.
+    HoldInput,
+    ReleaseInput,
     ReloadConfig,
     Lock,
     /// Start receiving events.
@@ -93,10 +105,10 @@ impl Request {
     /// The capability the op needs; `None` = any valid grant.
     pub fn capability(&self) -> Option<Capability> {
         match self {
-            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::Subscribe => None,
+            Request::Hello { .. } | Request::ListWindows | Request::ListOutputs | Request::Subscribe | Request::PointerPosition => None,
             Request::FocusWindow { .. } | Request::CloseWindow { .. } | Request::MoveWindow { .. } => Some(Capability::Ui),
             Request::Capture { .. } => Some(Capability::Capture),
-            Request::Input { .. } => Some(Capability::InputPerson),
+            Request::Input { .. } | Request::HoldInput | Request::ReleaseInput => Some(Capability::InputPerson),
             Request::ReloadConfig | Request::Lock | Request::MintGrant { .. } | Request::RevokeGrant { .. } => Some(Capability::System),
         }
     }
@@ -116,6 +128,12 @@ pub enum InputEvent {
     Key { key: u32, pressed: bool },
     PointerMotion { x: f64, y: f64 },
     PointerButton { button: u32, pressed: bool },
+    /// Wheel notches at the pointer: `dy > 0` scrolls down, `dx > 0` right.
+    PointerAxis { dx: f64, dy: f64 },
+    /// The key that makes `keysym` on the active layout, with the Shift or
+    /// AltGr its level needs held around it (press = modifiers then key,
+    /// release = key then modifiers). `not_found` when no key makes it.
+    Keysym { keysym: u32, pressed: bool },
 }
 
 /// What the compositor sends.
@@ -159,6 +177,12 @@ pub struct OutputInfo {
     pub width: i32,
     pub height: i32,
     pub scale: f64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PointerInfo {
+    pub x: f64,
+    pub y: f64,
 }
 
 /// A capture reply; the pixels follow as the next frame.
@@ -332,6 +356,21 @@ impl Client {
         self.call(Request::Input { event }).map(|_| ())
     }
 
+    pub fn pointer(&mut self) -> Result<PointerInfo, Error> {
+        self.call_as(Request::PointerPosition)
+    }
+
+    /// [`Request::HoldInput`]: the hold lasts until this connection closes.
+    pub fn hold_input(&mut self) -> Result<(), Error> {
+        self.call(Request::HoldInput).map(|_| ())
+    }
+
+    /// The socket itself, e.g. to [`UnixStream::shutdown`] a connection
+    /// another thread blocks on in [`Client::next_event`].
+    pub fn try_clone_stream(&self) -> std::io::Result<UnixStream> {
+        self.stream.try_clone()
+    }
+
     pub fn mint(&mut self, session_id: SessionId, capabilities: Vec<Capability>, expires_at: Option<i64>) -> Result<Grant, Error> {
         self.call_as(Request::MintGrant { session_id, run_id: None, capabilities, expires_at })
     }
@@ -369,6 +408,9 @@ mod tests {
         assert_eq!(serde_json::from_value::<Call>(json).unwrap(), call);
         let input: Call = serde_json::from_str(r#"{"id":1,"op":"input","event":{"kind":"key","key":30,"pressed":true}}"#).unwrap();
         assert_eq!(input.request, Request::Input { event: InputEvent::Key { key: 30, pressed: true } });
+        let sym = Call { id: 2, request: Request::Input { event: InputEvent::Keysym { keysym: 0x41, pressed: true } } };
+        assert_eq!(serde_json::to_value(&sym).unwrap(), serde_json::json!({"id": 2, "op": "input", "event": {"kind": "keysym", "keysym": 65, "pressed": true}}));
+        assert_eq!(serde_json::to_value(Call { id: 4, request: Request::HoldInput }).unwrap(), serde_json::json!({"id": 4, "op": "hold_input"}));
     }
 
     #[test]
@@ -376,6 +418,8 @@ mod tests {
         assert_eq!(Request::Capture { target: CaptureTarget::Output { name: "x".into() } }.capability(), Some(Capability::Capture));
         assert_eq!(Request::Input { event: InputEvent::PointerMotion { x: 0.0, y: 0.0 } }.capability(), Some(Capability::InputPerson));
         assert_eq!(Request::Lock.capability(), Some(Capability::System));
+        assert_eq!(Request::HoldInput.capability(), Some(Capability::InputPerson));
+        assert_eq!(Request::PointerPosition.capability(), None);
         assert_eq!(Request::ListWindows.capability(), None);
     }
 

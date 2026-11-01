@@ -16,8 +16,9 @@
 //! grabbed as it appears (the hierarchy events). No root, no uinput,
 //! released by the server the moment our connection closes.
 //!
-//! Wayland is out for now: there is no per-window input and no grab a
-//! client may take, so the session is refused with a note.
+//! Wayland is out (there is no per-window input and no grab a client may
+//! take), so the session is refused with a note; except on eDE, whose own
+//! control plane drives it (`ede.rs`, #NEW-112).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -135,7 +136,7 @@ impl KeyMap {
 
 /// The X keysym for a character: Latin-1 is itself, the rest is the
 /// Unicode keysym range.
-fn char_keysym(ch: char) -> u32 {
+pub(super) fn char_keysym(ch: char) -> u32 {
     let cp = u32::from(ch);
     if (0x20..0x7f).contains(&cp) || (0xa0..=0xff).contains(&cp) {
         cp
@@ -144,7 +145,7 @@ fn char_keysym(ch: char) -> u32 {
     }
 }
 
-fn keysym_of(key: Key) -> u32 {
+pub(super) fn keysym_of(key: Key) -> u32 {
     match key {
         Key::Named(named) => named.keysym(),
         Key::Char(ch) => char_keysym(ch),

@@ -14,7 +14,7 @@ use std::{
 
 use ede_protocol::{
     events, take_frames, write_frame, Call, Capability, CaptureInfo, CaptureTarget, Envelope, ErrorCode, Failure, Grant, Hello, InputEvent, Message,
-    OutputInfo, Request, SessionId, Token, WindowId, WindowInfo, EVENT_SOURCE, PROTOCOL_VERSION,
+    OutputInfo, PointerInfo, Request, SessionId, Token, WindowId, WindowInfo, EVENT_SOURCE, PROTOCOL_VERSION,
 };
 use smithay::{
     backend::input::{ButtonState, KeyState},
@@ -35,6 +35,8 @@ pub struct Ipc {
     next_event: u64,
     /// The socket and token file, removed on exit.
     pub paths: Vec<PathBuf>,
+    /// `hold_input` (#NEW-112).
+    pub hold: crate::hold::Hold,
 }
 
 #[derive(Debug)]
@@ -55,7 +57,7 @@ impl Drop for Ipc {
     }
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as i64).unwrap_or(0)
 }
 
@@ -89,6 +91,17 @@ impl Ipc {
 
     fn grant(&self, token: &Token) -> Option<&Grant> {
         self.grants.iter().find(|g| &g.token == token)
+    }
+
+    pub(crate) fn next_event_id(&mut self) -> u64 {
+        self.next_event += 1;
+        self.next_event
+    }
+
+    /// A connection went away: its hold goes with it.
+    fn drop_client(&mut self, id: u64) {
+        self.clients.retain(|c| c.id != id);
+        self.hold.holders.retain(|c| *c != id);
     }
 }
 
@@ -137,13 +150,13 @@ impl Ede {
                 Ok(n) => n,
             };
             if n == 0 || !state.ipc_received(id, &buf[..n]) {
-                state.ipc.clients.retain(|c| c.id != id);
+                state.ipc.drop_client(id);
                 return Ok(PostAction::Remove);
             }
             Ok(PostAction::Continue)
         });
         if inserted.is_err() {
-            self.ipc.clients.retain(|c| c.id != id);
+            self.ipc.drop_client(id);
         }
     }
 
@@ -173,7 +186,7 @@ impl Ede {
         self.ipc.clients.iter().any(|c| c.id == id && !c.dead)
     }
 
-    fn ipc_send(&mut self, id: u64, message: &Message, extra: Option<&[u8]>) -> bool {
+    pub(crate) fn ipc_send(&mut self, id: u64, message: &Message, extra: Option<&[u8]>) -> bool {
         let Some(conn) = self.ipc.clients.iter_mut().find(|c| c.id == id) else { return false };
         let json = serde_json::to_vec(message).expect("messages serialize");
         let ok = write_frame(&mut conn.writer, &json).and_then(|_| extra.map_or(Ok(()), |b| write_frame(&mut conn.writer, b))).is_ok();
@@ -190,8 +203,7 @@ impl Ede {
         if !self.ipc.clients.iter().any(|c| c.subscribed) {
             return;
         }
-        self.ipc.next_event += 1;
-        let envelope = Envelope::new(&format!("ev-{}", self.ipc.next_event), kind, now_ms(), EVENT_SOURCE, None, data);
+        let envelope = Envelope::new(&format!("ev-{}", self.ipc.next_event_id()), kind, now_ms(), EVENT_SOURCE, None, data);
         let message = Message::Event { event: envelope };
         let now = now_ms();
         let ids: Vec<u64> = self
@@ -294,8 +306,25 @@ impl Ede {
                     InputEvent::PointerButton { button, pressed } => {
                         self.drive_pointer_button(button, if pressed { ButtonState::Pressed } else { ButtonState::Released }, now as u32)
                     }
+                    InputEvent::PointerAxis { dx, dy } => self.drive_pointer_axis(dx, dy, now as u32),
+                    InputEvent::Keysym { keysym, pressed } => match self.drive_keysym(keysym, pressed, now as u32) {
+                        Ok(false) => return Err(fail(ErrorCode::NotFound, &format!("no key makes keysym {keysym:#x} on this layout"))),
+                        other => other.map(|_| ()),
+                    },
                 };
                 refused.map_err(|r| fail(ErrorCode::Forbidden, if r == crate::protected::Refused::Locked { "the session is locked" } else { "a protected surface is never driven" }))?;
+                json(serde_json::Value::Null)
+            }
+            Request::PointerPosition => {
+                let at = self.seat.get_pointer().unwrap().current_location();
+                json(serde_json::to_value(PointerInfo { x: at.x, y: at.y }).unwrap())
+            }
+            Request::HoldInput => {
+                self.hold_input(id);
+                json(serde_json::Value::Null)
+            }
+            Request::ReleaseInput => {
+                self.release_input(id);
                 json(serde_json::Value::Null)
             }
             Request::ReloadConfig => {

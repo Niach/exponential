@@ -9,6 +9,8 @@
 //! points of the main display); the frame the agent sees is `tools.rs`'s.
 
 #[cfg(target_os = "linux")]
+mod ede;
+#[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "macos")]
 mod macos;
@@ -155,7 +157,10 @@ pub(crate) trait Backend: Send {
 /// read without connecting (the doctor line).
 pub(crate) fn unsupported() -> Option<String> {
     #[cfg(target_os = "linux")]
-    return linux::unsupported();
+    return match ede::session() {
+        Some(session) => ede::unsupported(&session),
+        None => linux::unsupported(),
+    };
     #[cfg(target_os = "macos")]
     return macos::unsupported();
     #[cfg(target_os = "windows")]
@@ -206,20 +211,38 @@ pub(crate) fn pixel_size(x: i32, y: i32, width: u32, height: u32) -> (u32, u32) 
     }
 }
 
-/// Open the backend for one call.
 /// [`crate::screen_layout`]: X11 only, where the toolkit's display is the
 /// whole screen.
 #[cfg(target_os = "linux")]
 pub(crate) fn screen_layout() -> Option<crate::ScreenLayout> {
+    if ede::session().is_some() {
+        return None;
+    }
     linux::screen_layout()
 }
 
+/// What drives this machine's screen: `eDE`, `X11`, `macOS`, `Windows`.
+pub(crate) fn name() -> &'static str {
+    #[cfg(target_os = "linux")]
+    return if ede::session().is_some() { "eDE" } else { "X11" };
+    #[cfg(target_os = "macos")]
+    return "macOS";
+    #[cfg(target_os = "windows")]
+    return "Windows";
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    "none"
+}
+
+/// Open the backend for one call.
 pub(crate) fn open() -> Result<Box<dyn Backend>, String> {
     if let Some(reason) = unsupported() {
         return Err(reason);
     }
     #[cfg(target_os = "linux")]
-    return linux::open();
+    return match ede::session() {
+        Some(session) => ede::open(&session?),
+        None => linux::open(),
+    };
     #[cfg(target_os = "macos")]
     return macos::open();
     #[cfg(target_os = "windows")]

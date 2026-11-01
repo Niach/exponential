@@ -202,3 +202,84 @@ fn the_socket_lives_in_a_private_directory() {
     let mut client = Client::connect(&socket, token).unwrap();
     assert_eq!(client.outputs().unwrap().len(), 1);
 }
+
+const KEY_ESC: u32 = 1;
+const KEY_LEFTSHIFT: u32 = 42;
+
+fn person_key(h: &Harness, code: u32) {
+    use smithay::backend::input::KeyState;
+    h.with(move |ede| {
+        ede.keyboard_key((code + 8).into(), KeyState::Pressed, 0);
+        ede.keyboard_key((code + 8).into(), KeyState::Released, 0);
+    });
+}
+
+#[test]
+fn a_hold_locks_the_person_out_until_their_esc() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("notes");
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_some());
+
+    let grant = h.ipc().mint(SessionId::new("epilot").unwrap(), vec![Capability::InputPerson], None).unwrap();
+    let mut agent = h.ipc_with(grant.token.clone()).unwrap();
+    agent.hold_input().unwrap();
+    assert!(h.with(|ede| ede.person_input_held()));
+
+    // The person's keys and pointer reach nothing; the agent's still land.
+    person_key(&h, KEY_A);
+    let before = h.with(|ede| ede.seat.get_pointer().unwrap().current_location());
+    assert!(!h.with(|ede| ede.person_pointer_motion_to((400.0, 400.0).into(), 0)));
+    assert_eq!(h.with(|ede| ede.seat.get_pointer().unwrap().current_location()), before);
+    agent.input(InputEvent::Key { key: KEY_LEFTSHIFT, pressed: true }).unwrap();
+    agent.input(InputEvent::Key { key: KEY_LEFTSHIFT, pressed: false }).unwrap();
+    wait_for(&mut app, |c| c.state.keys == [KEY_LEFTSHIFT]);
+
+    // Esc: the hold is over, the agent hears it, the person types again.
+    agent.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    person_key(&h, KEY_ESC);
+    assert_eq!(agent.next_event().unwrap().kind, events::INPUT_ESCAPE);
+    assert!(!h.with(|ede| ede.person_input_held()));
+    person_key(&h, KEY_A);
+    wait_for(&mut app, |c| c.state.keys == [KEY_LEFTSHIFT, KEY_A]);
+    assert!(!app.state.keys.contains(&KEY_ESC), "the Esc that ends a hold reaches no window");
+
+    // A holder that goes away lets go; a grant without input:person cannot hold.
+    agent.hold_input().unwrap();
+    assert!(h.with(|ede| ede.person_input_held()));
+    drop(agent);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while h.with(|ede| ede.person_input_held()) {
+        assert!(Instant::now() < deadline, "the hold outlived its connection");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let watcher = h.ipc().mint(SessionId::new("watcher").unwrap(), vec![Capability::Capture], None).unwrap();
+    assert_eq!(code(h.ipc_with(watcher.token).unwrap().hold_input().unwrap_err()), ErrorCode::Forbidden);
+}
+
+#[test]
+fn keysyms_find_their_key_and_level_on_the_layout() {
+    let h = harness();
+    let mut app = Session::connect(h.connect());
+    app.keyboard();
+    let t = app.toplevel("notes");
+    app.draw(&t, 300, 200, BLUE);
+    wait_for(&mut app, |c| c.state.keyboard_focus.is_some());
+
+    let mut ipc = h.ipc();
+    for (keysym, pressed) in [(0x61, true), (0x61, false), (0x41, true), (0x41, false)] {
+        ipc.input(InputEvent::Keysym { keysym, pressed }).unwrap();
+    }
+    // `a`, then `A` = Shift held around `a`, Shift released again.
+    wait_for(&mut app, |c| c.state.keys == [KEY_A, KEY_LEFTSHIFT, KEY_A]);
+    assert!(h.with(|ede| ede.seat.get_keyboard().unwrap().pressed_keys().is_empty()));
+    let snowman = InputEvent::Keysym { keysym: 0x0100_2603, pressed: true };
+    assert_eq!(code(ipc.input(snowman).unwrap_err()), ErrorCode::NotFound);
+
+    ipc.input(InputEvent::PointerMotion { x: 120.0, y: 80.0 }).unwrap();
+    let at = ipc.pointer().unwrap();
+    assert_eq!((at.x, at.y), (120.0, 80.0));
+    ipc.input(InputEvent::PointerAxis { dx: 0.0, dy: 3.0 }).unwrap();
+}

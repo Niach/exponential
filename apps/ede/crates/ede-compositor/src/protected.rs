@@ -166,6 +166,13 @@ impl Ede {
         Ok(())
     }
 
+    pub fn drive_pointer_axis(&mut self, dx: f64, dy: f64, time: u32) -> Result<(), Refused> {
+        let pos = self.seat.get_pointer().unwrap().current_location();
+        self.may_drive_at(pos)?;
+        self.pointer_axis_notches(dx, dy, time);
+        Ok(())
+    }
+
     fn may_drive_at(&self, pos: Point<f64, Logical>) -> Result<(), Refused> {
         if self.is_locked() {
             return Err(Refused::Locked);
