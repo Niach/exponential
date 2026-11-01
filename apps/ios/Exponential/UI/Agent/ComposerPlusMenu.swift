@@ -74,19 +74,30 @@ struct ComposerPlusMenu: View {
                 ForEach(Array(ComposerMenu.composerMenuLayout(conditions, surface: .launch).enumerated()), id: \.offset) { _, entry in
                     switch entry {
                     case .separator:
+                        // A WHOLE-point slot (4 + hairline + rest = 9pt):
+                        // 4 + 0.5 + 4 left every second divider on a half
+                        // point, where the 0.5pt line rasterised away.
                         GlassDivider()
-                            .padding(.vertical, 4)
+                            .padding(.top, Self.separatorInset)
+                            .frame(height: Self.separatorSlot, alignment: .top)
                     case let .row(row):
                         menuRow(row)
                     }
                 }
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding)
+            // No title: the rows clear the system drag indicator the way a
+            // titled sheet's header does (Android's gap under its handle).
+            .padding(.top, GlassSheetTokens.headerTopPadding)
             .padding(.bottom, 16)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(ComposerMenu.menuTestId)
     }
+
+    /// A separator's space above its hairline, and its whole-point slot.
+    private static let separatorInset: CGFloat = 4
+    private static let separatorSlot: CGFloat = 9
 
     @ViewBuilder
     private func menuRow(_ row: ComposerMenu.Row) -> some View {

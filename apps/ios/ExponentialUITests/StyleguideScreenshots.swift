@@ -143,6 +143,13 @@ final class StyleguideScreenshots: XCTestCase {
     /// sit in the same group, so one scroll reaches both.
     private static let bulkFirstTitle = "Localize the app in German and Spanish"
     private static let bulkSecondTitle = "Audit accessibility labels for VoiceOver"
+    /// EXP-1551: the two issues every client's `chat-issues` chips, in order
+    /// (web `demo-ids.ts` `CHAT_ISSUE_IDENTIFIERS`: `$issueA` APP-3, `$issueB`
+    /// APP-6).
+    private static let chatIssueTitles = [
+        "Dark mode contrast pass across settings",
+        "Push notification deep links open the wrong tab",
+    ]
     /// The device `bun run screenshots:desktop` registers for the demo user.
     private static let demoDeviceName = "Alex's MacBook Pro"
     /// The login that device announces for its agents (`screenshot-demo.ts`
@@ -560,10 +567,24 @@ final class StyleguideScreenshots: XCTestCase {
         anyElement(app, identified: "agent-composer-menu-implement-issue").tap()
         let issuePicker = anyElement(app, identified: "agent-composer-issues-picker")
         expect(issuePicker, within: Wait.nav, "Issue picker did not open")
-        for title in [Self.bulkFirstTitle, Self.bulkSecondTitle] {
+        // EXP-1551: the same two issues web chips (APP-3 then APP-6), each
+        // filtered first so its row is on screen whatever the list's order.
+        let issueSearch = anyElement(app, identified: "agent-composer-submenu-search")
+        expect(issueSearch, within: Wait.nav, "The issue picker has no search input")
+        for title in Self.chatIssueTitles {
+            // Tap the trailing edge: the caret lands at the END, so the
+            // deletes clear the previous title whole (a centre tap leaves
+            // its head in the field).
+            issueSearch.coordinate(withNormalizedOffset: CGVector(dx: 0.97, dy: 0.5)).tap()
+            clearText(of: issueSearch)
+            issueSearch.typeText(title)
             // EXP-1030: a picker row reads `IDENT Title` in ONE label (the ×4
-            // contract), so it is matched on the title as a fragment.
-            let row = anyElement(app, containing: title)
+            // contract), so it is matched on the title as a fragment, among
+            // the list's rows (never the input holding the same text).
+            let row = app.descendants(matching: .any)
+                .matching(identifier: "search-list-row")
+                .matching(NSPredicate(format: "label CONTAINS %@", title))
+                .firstMatch
             expect(row, within: Wait.sync, "Issue picker never listed \"\(title)\"")
             row.tap()
         }

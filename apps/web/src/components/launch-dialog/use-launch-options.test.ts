@@ -255,8 +255,17 @@ describe(`useLaunchOptions MCP pick`, () => {
 describe(`useLaunchOptions computer use`, () => {
   const capable: SteerDevice = {
     ...device,
+    caps: [`computer-use-run`],
     launchDefaults: { ...device.launchDefaults, computerUse: true },
   }
+
+  it(`offers no toggle on a device without the per-run cap`, () => {
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [{ ...capable, caps: [`chat`] }] })
+    )
+    expect(result.current.computerUseAvailable).toBe(false)
+    expect(`computerUse` in result.current.buildOptions()).toBe(false)
+  })
 
   it(`shows the device default, omits it untouched, sends a flip`, () => {
     const { result } = renderHook(() =>

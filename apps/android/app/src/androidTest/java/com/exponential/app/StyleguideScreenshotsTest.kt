@@ -300,6 +300,10 @@ class StyleguideScreenshotsTest {
         private const val CHAT_FIRST_ISSUE_TITLE = "Dark mode contrast pass across settings"
         private const val CHAT_SECOND_ISSUE_TITLE = "Push notification deep links open the wrong tab"
 
+        // EXP-1551: the chips the shot must show, in pick order (web: APP-3
+        // then APP-6, `demoIds.issueA` / `issueB`).
+        private val CHAT_ISSUE_IDENTS = listOf("APP-3", "APP-6")
+
         // EXP-1309: the seed's session tree (seedSessionTree in
         // apps/web/scripts/seed-screenshots.ts). The private running root
         // (the home's Running band and the Threads tab), the ended one
@@ -743,7 +747,7 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_composer-menu")
         composeRule.onNode(hasTestTag(implementRow)).performClick()
         flow.waitFor(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
-        for (title in listOf(CHAT_FIRST_ISSUE_TITLE, CHAT_SECOND_ISSUE_TITLE)) {
+        listOf(CHAT_FIRST_ISSUE_TITLE, CHAT_SECOND_ISSUE_TITLE).forEachIndexed { index, title ->
             // A prefix query: the field's own text never matches the row's
             // full title, so the match below is the row.
             composeRule.onNode(hasTestTag(SearchList.INPUT_TEST_ID))
@@ -751,12 +755,30 @@ class StyleguideScreenshotsTest {
             val row = hasText(title, substring = true) and hasAnyAncestor(hasTestTag("agent-composer-issues-picker"))
             flow.waitFor(row, SYNC_TIMEOUT)
             composeRule.onAllNodes(row).onFirst().performClick()
+            // EXP-1551: the pick landed before the next query replaces the
+            // list (the footer counts the picks: "Implement 2 issues").
+            val picked = index + 1
+            val submit = hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID)
+            flow.waitFor(
+                hasText(ComposerMenu.implementButtonLabel(picked)) and (submit or hasAnyAncestor(submit)),
+                NAV_TIMEOUT,
+            )
         }
         Espresso.closeSoftKeyboard()
         flow.waitFor(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID), NAV_TIMEOUT)
         composeRule.onNode(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID)).performClick()
         flow.waitForGone(hasTestTag(ComposerMenu.MENU_TEST_ID), NAV_TIMEOUT)
         flow.waitFor(hasIssueChip(), NAV_TIMEOUT)
+        // Both chips, APP-3 then APP-6 (the headline wraps, so neither is
+        // scrolled off the edge).
+        CHAT_ISSUE_IDENTS.forEach { ident ->
+            flow.waitFor(hasTestTag("agent-composer-chip-issue-$ident"), NAV_TIMEOUT)
+        }
+        val chipLefts = CHAT_ISSUE_IDENTS.map { ident ->
+            composeRule.onNode(hasTestTag("agent-composer-chip-issue-$ident"))
+                .fetchSemanticsNode().boundsInRoot.let { it.top * 100_000f + it.left }
+        }
+        check(chipLefts == chipLefts.sorted()) { "chips out of pick order: $CHAT_ISSUE_IDENTS" }
         flow.settle()
         flow.screenshot("sg_chat-issues")
         // A tab now (Back would leave the app): the Team tab's Devices row

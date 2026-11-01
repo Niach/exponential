@@ -33,6 +33,10 @@ public struct ComposerAgentRowView: View {
         }
     }
 
+    /// Every circle's glyph: web's `size-5` (the brand mark at `size / 2`)
+    /// inside the 40pt bubble, not the Chats bubble's smaller share.
+    static let glyphSize = CGFloat(ComposerAgentRow.size) / 2
+
     let label: String
     let items: [Item]
     let selected: String
@@ -81,7 +85,8 @@ public struct ComposerAgentRowView: View {
                 ringGap: CGFloat(ComposerAgentRow.ringGap),
                 ringColor: isSelected ? .white : GlassTokens.strokeCard,
                 ringWidth: isSelected ? CGFloat(ComposerAgentRow.ringWidth) : GlassTokens.hairline,
-                ringSlot: CGFloat(ComposerAgentRow.ringWidth)
+                ringSlot: CGFloat(ComposerAgentRow.ringWidth),
+                glyphSize: Self.glyphSize
             )
             .contentShape(Circle())
         }
