@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-sealed-agent-sends`,
+    date: `2026-11-01`,
+    title: `Agents seal their messages from the start`,
+    summary: `Agents started while a device was still coming online now seal their messages and card answers.`,
+    body: `- **No more refusals**: an agent started while its device was still coming online no longer gets "This chat is sealed" when it messages or answers a card.`,
+  },
+  {
     id: `2026-11-01-agent-signed-out`,
     date: `2026-11-01`,
     title: `Signed-out logins reach your inbox`,
