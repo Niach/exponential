@@ -203,6 +203,51 @@ object Round2Suites {
         }
     }
 
+    /**
+     * EXP-1586: every `fixtures/zoom.json` group, case by case, through the
+     * painter's request builder ([at.exponential.ui.compose.CoreZoomMath])
+     * and the facade's `zoomJson`: the op = the group, the case's frame
+     * (`viewport` overriding it) and its inputs; numbers within 1e-6,
+     * strings, booleans and nulls exact (`percent` = [scale, label]).
+     */
+    fun zoom(): List<Pair<String, String?>> {
+        val f = json("zoom.json")
+        val frames = f["frames"]?.obj ?: emptyMap()
+        val core = at.exponential.ui.compose.CoreZoomMath
+        return (f.obj ?: emptyMap()).filterKeys { it != "\$comment" && it != "frames" }.flatMap { (group, cases) ->
+            (cases.array ?: emptyList()).mapIndexed { i, c ->
+                if (c is JsonValue.Arr) {
+                    case("$group ${c.v.getOrNull(1)?.string ?: i}") {
+                        val got = core.call(core.request(group, null, mapOf("scale" to c.v[0]))) ?: return@case "the core refused it"
+                        zoomSame(got, c.v[1], "")
+                    }
+                } else {
+                    case("$group ${s(c, "name").ifEmpty { "$i" }}") {
+                        var frame = c["frame"]?.string?.let { frames[it] ?: return@case "no frame $it" }
+                        c["viewport"]?.let { v -> frame = JsonValue.Obj((frame?.obj ?: emptyMap()) + ("viewport" to v)) }
+                        val fields = (c.obj ?: emptyMap()).filterKeys { it !in setOf("name", "expected", "frame", "viewport") }
+                        val got = core.call(core.request(group, frame, fields)) ?: return@case "the core refused it"
+                        zoomSame(got, c["expected"] ?: JsonValue.Null, "")
+                    }
+                }
+            }
+        }
+    }
+
+    /** null when [got] matches [want] (numbers within 1e-6), else where it differs. */
+    private fun zoomSame(got: JsonValue, want: JsonValue, at: String): String? = when (want) {
+        is JsonValue.Num -> if (got is JsonValue.Num && abs(got.v - want.v) <= 1e-6) null else "$at: got ${got.json} / expected ${want.json}"
+        is JsonValue.Arr -> {
+            val g = got.array
+            if (g == null || g.size != want.v.size) "$at: got ${got.json} / expected ${want.json}" else want.v.indices.firstNotNullOfOrNull { zoomSame(g[it], want.v[it], "$at/$it") }
+        }
+        is JsonValue.Obj -> {
+            val g = got.obj
+            if (g == null || g.keys != want.v.keys) "$at: got ${got.json} / expected ${want.json}" else want.v.entries.firstNotNullOfOrNull { (k, v) -> zoomSame(g[k]!!, v, "$at/$k") }
+        }
+        else -> if (got == want) null else "$at: got ${got.json} / expected ${want.json}"
+    }
+
     /** A `fixtures/voice-wave.json` case with a child: the wave's edge, activity and the child's own size. */
     class VoiceWaveChildCase(val name: String, val size: Float, val activity: String, val width: Float, val height: Float, val expected: JsonValue)
 
