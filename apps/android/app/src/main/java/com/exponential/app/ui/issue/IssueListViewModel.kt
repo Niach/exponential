@@ -51,6 +51,8 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 // The server caps every bulk procedure's id array at 200; larger selections go
 // out as sequential chunks, matching the web bar's BULK_CHUNK_SIZE.
@@ -199,14 +201,14 @@ class IssueListViewModel @Inject constructor(
                 if (db == null || board == null) flowOf(emptyList())
                 else db.agentDefinitionDao().observeByTeam(board.teamId)
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** S-3: the assignee picker's agents: another member's Assistant is never
      *  one (`visibleAgent`); an assignment to it still reads off [teamAgents]. */
     val assignableAgents: StateFlow<List<com.exponential.app.data.db.AgentDefinitionEntity>> =
         combine(teamAgents, auth.userId) { rows, me ->
             rows.filter { com.exponential.app.domain.AgentSettings.Assistant.visibleAgent(it.role, it.ownerId, me) }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // EXP-50: the target team's lone member when it has exactly one — else
     // null. A solo team hides the assignee picker and defaults new issues to
@@ -214,7 +216,7 @@ class IssueListViewModel @Inject constructor(
     // offering a one-option choice).
     val soloMemberId: StateFlow<String?> = membersForTeam
         .map { members -> members.map { it.userId }.singleOrNull() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val permissions: StateFlow<TeamPermissions> = combine(
         teamForBoard,
@@ -229,7 +231,7 @@ class IssueListViewModel @Inject constructor(
             isMember = userId != null && members.any { it.userId == userId },
             memberRole = members.firstOrNull { it.userId == userId }?.role,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamPermissions.Denied)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamPermissions.Denied)
 
     // Distinguish "still syncing membership" from "not allowed": when the user
     // is signed in but not yet a resolved member AND the team_members shape
@@ -242,7 +244,7 @@ class IssueListViewModel @Inject constructor(
         stats.state,
     ) { perms, accountId, all ->
         syncBannerFor(perms, all[accountId]?.get(MEMBERS_SHAPE))
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncBanner.None)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SyncBanner.None)
 
     /**
      * Drives the "Syncing…" chip: the app is behind the server and working on
@@ -260,7 +262,7 @@ class IssueListViewModel @Inject constructor(
     }
         .distinctUntilChanged()
         .debounce { visible -> if (visible) 500L else 0L }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
      * EXP-980: every synced issue and every synced relation — ONE observation
@@ -270,11 +272,11 @@ class IssueListViewModel @Inject constructor(
      */
     val allIssues: StateFlow<List<IssueEntity>> =
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val relations: StateFlow<List<IssueRelationEntity>> =
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // The heavy group/sort pipeline. Recomputes only when one of its
     // *meaningful* data inputs changes (board, issues, labels, joins or
@@ -400,7 +402,7 @@ class IssueListViewModel @Inject constructor(
             error = error,
             issuesSynced = synced,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueListState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueListState())
 
     // ── Multi-select / remote start (EXP-239) ────────────────────────────
 
@@ -422,7 +424,7 @@ class IssueListViewModel @Inject constructor(
         steerDeviceFlow(dbFlow, _board.map { it?.teamId }.distinctUntilChanged(), auth.userId),
         _steerEnabled,
     ) { devices, enabled -> onlineStartTargets(devices, enabled) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     fun ensureSteerLoaded() {
         viewModelScope.launch {

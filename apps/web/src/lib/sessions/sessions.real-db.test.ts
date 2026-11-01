@@ -1994,6 +1994,45 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     expect((await row(sent.sessionId)).parentId).toBe(w.sessionId)
   })
 
+  // #FEED-182 (#EXP-1532): a child started on ANOTHER device never takes the
+  // parent's device-local profile id: a named login resolves on the target
+  // (id or email, or the parent's id carried by email), else the send is
+  // refused naming the logins signed in there; unnamed = the parent's login
+  // by email, else the device's own pick.
+  it(`a child on another device runs on a login of THAT device`, async () => {
+    const w = await moveWorld()
+    const child = (account?: string) =>
+      sendSession({
+        userId: w.owner,
+        input: { parentId: w.sessionId, deviceId: w.target, text: `there`, ...(account ? { account } : {}) },
+      })
+    expect(await row((await child()).sessionId)).toMatchObject({ deviceId: w.target, account: `pb` })
+    expect(await row((await child(`pa`)).sessionId)).toMatchObject({ account: `pb` })
+    expect(await row((await child(`me@move.test`)).sessionId)).toMatchObject({ account: `pb` })
+    await expect(child(`dennis@elsewhere.test`)).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: `Account "dennis@elsewhere.test" is not signed in for claude on b-box. Signed in there: ME@move.test.`,
+    })
+    // A login signed out there is no target either.
+    await db
+      .update(devices)
+      .set({
+        agentAccounts: {
+          claude: {
+            signedIn: true,
+            email: `other@move.test`,
+            profiles: [
+              { id: `pb`, signedIn: false, email: `ME@move.test`, health: `signed_out` },
+              { id: `pc`, signedIn: true, email: `other@move.test`, active: true },
+            ],
+          },
+        },
+      })
+      .where(eq(devices.deviceId, w.target))
+    expect(await row((await child()).sessionId)).toMatchObject({ deviceId: w.target, account: null })
+    await expect(child(`pa`)).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
   it(`refuses with the client copy: offline, visibility, no login, agent; an ended thread revives there`, async () => {
     const w = await moveWorld()
     const add = async (values: Partial<typeof devices.$inferInsert>) => {

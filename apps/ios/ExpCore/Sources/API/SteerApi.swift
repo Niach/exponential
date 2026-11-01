@@ -147,10 +147,6 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
     /// client lists: the top-level fields mirror the active one, and no row is
     /// ever synthesized from them.
     public let profiles: [AgentAccountProfile]?
-    /// The agent CLI's AMBIENT login (~/.claude, ~/.codex), present only
-    /// while it is signed in. Never used for a run: the doctor offers to
-    /// IMPORT it into a profile.
-    public let importable: AgentImportable?
 
     public init(
         signedIn: Bool? = nil,
@@ -158,8 +154,7 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         plan: String? = nil,
         checkedAt: String? = nil,
         profiles: [AgentAccountProfile]? = nil,
-        health: String? = nil,
-        importable: AgentImportable? = nil
+        health: String? = nil
     ) {
         self.signedIn = signedIn
         self.email = email
@@ -167,11 +162,10 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         self.checkedAt = checkedAt
         self.profiles = profiles
         self.health = health
-        self.importable = importable
     }
 
     private enum CodingKeys: String, CodingKey {
-        case signedIn, email, plan, checkedAt, profiles, health, importable
+        case signedIn, email, plan, checkedAt, profiles, health
     }
 
     public init(from decoder: Decoder) throws {
@@ -182,26 +176,6 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         checkedAt = try c.decodeIfPresent(String.self, forKey: .checkedAt)
         profiles = (try? c.decodeIfPresent([AgentAccountProfile].self, forKey: .profiles)) ?? nil
         health = try? c.decodeIfPresent(String.self, forKey: .health)
-        importable = (try? c.decodeIfPresent(AgentImportable.self, forKey: .importable)) ?? nil
-    }
-}
-
-/// The ambient login a machine could import (`agentAccounts[agent].importable`).
-public struct AgentImportable: Decodable, Equatable, Sendable {
-    public let email: String?
-    public let plan: String?
-
-    public init(email: String? = nil, plan: String? = nil) {
-        self.email = email
-        self.plan = plan
-    }
-
-    private enum CodingKeys: String, CodingKey { case email, plan }
-
-    public init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        email = try? c.decodeIfPresent(String.self, forKey: .email)
-        plan = try? c.decodeIfPresent(String.self, forKey: .plan)
     }
 }
 
@@ -228,6 +202,10 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
     /// string, device-stamped) — what a sign-in sheet watches to see its
     /// login land (`AgentAccountsRows.loginLanding`).
     public let lastLoginAt: String?
+    /// EXP-1533: when the profile's long-lived (`claude setup-token`) login
+    /// expires (ISO), present only while the profile holds one — the chip
+    /// menu then offers "Renew long-lived login" instead of "Keep signed in".
+    public let tokenExpiresAt: String?
 
     public init(
         id: String,
@@ -238,7 +216,8 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         checkedAt: String? = nil,
         usage: AgentUsage? = nil,
         health: String? = nil,
-        lastLoginAt: String? = nil
+        lastLoginAt: String? = nil,
+        tokenExpiresAt: String? = nil
     ) {
         self.id = id
         self.active = active
@@ -249,10 +228,12 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         self.usage = usage
         self.health = health
         self.lastLoginAt = lastLoginAt
+        self.tokenExpiresAt = tokenExpiresAt
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, active, signedIn, email, plan, checkedAt, usage, health, lastLoginAt
+        case tokenExpiresAt
     }
 
     /// Only the id is load-bearing; every other field degrades on its own so
@@ -268,6 +249,7 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         usage = try? c.decodeIfPresent(AgentUsage.self, forKey: .usage)
         health = try? c.decodeIfPresent(String.self, forKey: .health)
         lastLoginAt = try? c.decodeIfPresent(String.self, forKey: .lastLoginAt)
+        tokenExpiresAt = try? c.decodeIfPresent(String.self, forKey: .tokenExpiresAt)
     }
 }
 

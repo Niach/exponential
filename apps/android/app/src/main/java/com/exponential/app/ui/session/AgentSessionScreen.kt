@@ -1,6 +1,7 @@
 package com.exponential.app.ui.session
 
 import com.exponential.app.domain.TaskQueue
+import com.exponential.app.domain.contentType
 import androidx.compose.runtime.Stable
 import androidx.compose.foundation.shape.CircleShape
 import com.exponential.app.data.api.AnswerInput
@@ -719,12 +720,8 @@ private fun RunFaceContent(
     // the switch gates on but the turn slot (which is right here in `activity`).
     val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
     val switchingAccount by viewModel.switchingAccount.collectAsStateWithLifecycle()
-    // EXP-849: a refused switch = `Couldn't switch the account`.
-    val switchError by viewModel.switchError.collectAsStateWithLifecycle()
-    com.exponential.app.ui.components.FailedActionToast(
-        switchError?.let { com.exponential.app.ui.components.FailedAction("switch", "the account", it.ifBlank { null }) },
-        onShown = viewModel::clearSwitchError,
-    )
+    // EXP-849: a refused switch = `Couldn't switch the account`, raised by
+    // THE SessionComposer (#EXP-1535: its Account › is the same switch).
     // EXP-746: the agent's live configuration (the composer footer + the run's
     // own `/` commands) and its context/spend meter. Both null on a PTY run,
     // which publishes neither.
@@ -772,7 +769,11 @@ private fun RunFaceContent(
     )
     // N-11: no status row over the feed; before the first turn the empty
     // column reads "Starting on <device>" over its placeholder rows.
+    // EXP-1524: only a QUEUED row (web parity): an idle session waiting on a
+    // question read "Starting on <device>" while its feed was connecting.
     val startingRun = session != null && session?.userId == currentUserId &&
+        session?.status == com.exponential.app.domain.DomainContract.sessionStatusQueued &&
+        !awaitingInput && !agentWorking &&
         !sessionEnded && feed.isEmpty() &&
         activity.turnState != TURN_STATE_STARTED && history == null &&
         phase !is AgentPhase.Closed && phase !is AgentPhase.Ended
@@ -1072,9 +1073,9 @@ private fun RunFaceContent(
                     onLoadEarlier = { viewModel.loadEarlier() },
                     working = agentWorking,
                     // EXP-850 (S5): the working caption's inputs.
-                    turnStartedAt = activity.turnStartedAt,
-                    turnTokens = activity.turnTokens,
-                    turnWriting = activity.turnWriting,
+                    // EXP-1521: read by the working row alone, so the
+                    // agent's `turn` ticks never recompose the transcript.
+                    turnCaption = { WorkingTurn(activity.turnStartedAt, activity.turnTokens, activity.turnWriting) },
                     workflowCaption = workflowCaption,
                     workingAgent = workingAgent,
                     // EXP-850 (S3): the cards, looked up by the id of
@@ -1595,10 +1596,9 @@ private fun ActivityFeed(
     /** EXP-850 (S5): the working row's caption inputs — the turn's start (the
      *  clock AND the verb's seed), its output tokens so far, and the caption
      *  of the running workflow, which REPLACES the verb while one runs. */
-    turnStartedAt: Long? = null,
-    turnTokens: Long? = null,
-    /** EXP-1501: the tool call whose input is streaming, if any. */
-    turnWriting: WorkingWriting? = null,
+    /** EXP-1501: + the tool call whose input is streaming, if any.
+     *  EXP-1521: a provider, read inside the working row only. */
+    turnCaption: () -> WorkingTurn = { WorkingTurn(null, null, null) },
     workflowCaption: String? = null,
     /** EXP-850 (S5): whose brand mark pulses beside that caption. */
     workingAgent: String? = null,
@@ -1696,15 +1696,18 @@ private fun ActivityFeed(
         answerStates.filterValues { it.locksCard() }.keys
     }
     // EXP-1175: the card inputs, shared with the thread's pending cards.
-    val cards = AnswerCards(
-        answered = answered,
-        activeQuestionIds = activeQuestionIds,
-        answerEnabled = answerEnabled,
-        answerStates = answerStates,
-        answerLabels = answerLabels,
-        onAnswer = onAnswer,
-        onPlanFollowUp = onPlanFollowUp,
-    )
+    // EXP-1521: one instance per input change, so the card rows can skip.
+    val cards = remember(answered, activeQuestionIds, answerEnabled, answerStates, answerLabels, onAnswer, onPlanFollowUp) {
+        AnswerCards(
+            answered = answered,
+            activeQuestionIds = activeQuestionIds,
+            answerEnabled = answerEnabled,
+            answerStates = answerStates,
+            answerLabels = answerLabels,
+            onAnswer = onAnswer,
+            onPlanFollowUp = onPlanFollowUp,
+        )
+    }
 
     // Only user drags flip follow-mode; programmatic scrolls keep it.
     // EXP-529 batch: "at the bottom" carries slack — the pixel-exact
@@ -1716,11 +1719,17 @@ private fun ActivityFeed(
     // the run view and a chat show THE jump button at the same scroll.
     val followSlackPx = with(LocalDensity.current) { Chats.Transcript.FOLLOW_SLACK.dp.toPx() }
     val jumpScope = rememberCoroutineScope()
+    // EXP-1521: leaving the bottom drops follow at once, but reaching it only
+    // re-arms follow once the scroll SETTLES: re-arming mid-drag fired the
+    // re-pin below while the finger was still down and yanked the list.
     LaunchedEffect(listState, followSlackPx) {
+        var wasScrolling = false
         snapshotFlow { listState.isScrollInProgress to listState.isNearBottom(followSlackPx) }
             .distinctUntilChanged()
-            .collect { (dragging, nearBottom) ->
-                if (dragging) onFollowChange(nearBottom)
+            .collect { (scrolling, nearBottom) ->
+                if (scrolling && !nearBottom) onFollowChange(false)
+                if (!scrolling && wasScrolling) onFollowChange(nearBottom)
+                wasScrolling = scrolling
             }
     }
     // Keyed on feed.size (not rows.size) — a growing trailing tool run adds
@@ -1806,7 +1815,11 @@ private fun ActivityFeed(
                     // edits fold into ONE edited-files card, exactly as they
                     // do in the main transcript.
                     val laneRows = projectLaneRows(focused.items, workflowIds)
-                    itemsIndexed(laneRows, key = { _, laneRow -> laneRow.id }) { index, laneRow ->
+                    itemsIndexed(
+                        laneRows,
+                        key = { _, laneRow -> laneRow.id },
+                        contentType = { _, laneRow -> laneRow.contentType },
+                    ) { index, laneRow ->
                         // The same ladder as the main feed, over the rows a
                         // subagent's conversation is made of.
                         TranscriptRow(
@@ -1837,13 +1850,15 @@ private fun ActivityFeed(
                 }
             }
             // EXP-1398: the session cards whose call is not in the feed.
-            items(sessionCards.head, key = { "session-card-${it.id}" }) { card ->
+            items(sessionCards.head, key = { "session-card-${it.id}" }, contentType = { "session-card" }) { card ->
                 SessionCardRow(card, renderCard)
             }
             // EXP-787: the row's space comes from the row BEFORE it — the one
             // gap ladder, shared with web, iOS and the desktop. Keys stay the
             // row ids: the follow/scroll logic is anchored on them.
-            itemsIndexed(rows, key = { _, row -> row.id }) { index, row ->
+            // EXP-1521: a contentType per row kind, so a scrolled-off slot is
+            // reused by a row of the same shape instead of rebuilt.
+            itemsIndexed(rows, key = { _, row -> row.id }, contentType = { _, row -> row.contentType }) { index, row ->
                 Column {
                 TranscriptRow(
                     transcriptGap(rows.getOrNull(index - 1)?.rowClass, row.rowClass),
@@ -1962,7 +1977,7 @@ private fun ActivityFeed(
             // it lands at the tail as a row of its own rather than taking its
             // agents and its warnings down with it.
             if (orphanWorkflows.isNotEmpty()) {
-                items(orphanWorkflows, key = { "workflow-${it.id}" }) { workflow ->
+                items(orphanWorkflows, key = { "workflow-${it.id}" }, contentType = { "workflow" }) { workflow ->
                     TranscriptRow(TranscriptGap.Tool) {
                         WorkflowWorkCard(
                             workflow = workflow,
@@ -1983,10 +1998,11 @@ private fun ActivityFeed(
                     TranscriptRow(
                         transcriptGap(rows.lastOrNull()?.rowClass, AgentRowClass.Tool),
                     ) {
+                        val turn = turnCaption()
                         WorkingIndicatorRow(
-                            startedAt = turnStartedAt,
-                            tokens = turnTokens,
-                            writing = turnWriting,
+                            startedAt = turn.startedAt,
+                            tokens = turn.tokens,
+                            writing = turn.writing,
                             workflowCaption = workflowCaption,
                             agent = workingAgent,
                         )
@@ -2258,12 +2274,14 @@ private fun NarrationBubble(
     // Thread 58cb32df (chats.json TRANSCRIPT): phones paint the agent's text
     // on the left on THE card surface (max 94%, top-leading corner 6dp).
     // EXP-440: GFM; EXP-430 bare URLs stay tappable.
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+    // EXP-1521: the 94% cap as a layout modifier; BoxWithConstraints made
+    // every agent bubble a subcomposition just to read its width.
+    Box(modifier = Modifier.fillMaxWidth()) {
         val shape = RoundedCornerShape(topStart = 6.dp, topEnd = 18.dp, bottomEnd = 18.dp, bottomStart = 18.dp)
         Box(
             modifier = Modifier
                 .align(Alignment.CenterStart)
-                .widthIn(max = maxWidth * 0.94f)
+                .maxWidthFraction(0.94f)
                 .clip(shape)
                 .background(GlassTokens.OpaqueCardFill, shape)
                 .border(GlassTokens.Hairline, GlassTokens.StrokeCard, shape)
@@ -2275,10 +2293,25 @@ private fun NarrationBubble(
     }
 }
 
+/** The incoming max width capped at [fraction] of itself (a `widthIn(max = maxWidth × f)`
+ *  without the BoxWithConstraints subcomposition). */
+private fun Modifier.maxWidthFraction(fraction: Float): Modifier = layout { measurable, constraints ->
+    val cap = (constraints.maxWidth * fraction).toInt()
+    val placeable = measurable.measure(
+        constraints.copy(minWidth = minOf(constraints.minWidth, cap), maxWidth = cap),
+    )
+    layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+}
+
+private val FEED_CLOCK_FORMAT: java.time.format.DateTimeFormatter =
+    java.time.format.DateTimeFormatter.ofPattern("HH:mm")
+
+/** EXP-1521: the working row's caption inputs off the `turn` slot. */
+internal data class WorkingTurn(val startedAt: Long?, val tokens: Long?, val writing: WorkingWriting?)
+
 /** A relay stamp (epoch ms) as the local `HH:mm` a bubble / divider shows. */
 private fun feedClock(at: Long): String =
-    java.time.Instant.ofEpochMilli(at).atZone(java.time.ZoneId.systemDefault())
-        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+    java.time.Instant.ofEpochMilli(at).atZone(java.time.ZoneId.systemDefault()).format(FEED_CLOCK_FORMAT)
 
 /**
  * The trailing "agent is busy" row (EXP-389/EXP-850): the running agent's own
@@ -2340,9 +2373,11 @@ private fun WorkingIndicatorRow(
  * alike. Reduced motion pins it at 1.
  */
 @Composable
-internal fun rememberWorkingMarkPulse(): Float {
+internal fun rememberWorkingMarkPulse(): androidx.compose.runtime.State<Float> {
     val reduceMotion = LocalReduceMotion.current
-    val pulse by rememberInfiniteTransition(label = "working").animateFloat(
+    // A State, read in the draw phase (`graphicsLayer`): reading the value in
+    // composition would recompose the caller on every animation frame.
+    val pulse = rememberInfiniteTransition(label = "working").animateFloat(
         initialValue = 1f,
         targetValue = if (reduceMotion) 1f else 0.4f,
         animationSpec = infiniteRepeatable(
@@ -2423,7 +2458,8 @@ internal class SessionDock(
 internal fun rememberSessionDock(viewModel: AgentSessionViewModel, onOpenUsage: (() -> Unit)?): SessionDock {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
-    val activity by viewModel.activity.collectAsStateWithLifecycle()
+    // EXP-1521: the Dock's slice only (a `turn` tick changes none of it).
+    val activity by viewModel.dockActivity.collectAsStateWithLifecycle()
     val hostDevice by viewModel.hostDevice.collectAsStateWithLifecycle()
     val hostOffline by viewModel.hostDeviceOffline.collectAsStateWithLifecycle()
     val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
@@ -4546,7 +4582,9 @@ internal fun SessionComposer(
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
-    val activity by viewModel.activity.collectAsStateWithLifecycle()
+    // EXP-1521: only the composer's slice of the live state, so the agent's
+    // periodic `turn` frames never recompose the field.
+    val composerActivity by viewModel.composerActivity.collectAsStateWithLifecycle()
     val pendingImages by viewModel.pendingImages.collectAsStateWithLifecycle()
     val steerSending by viewModel.steerSending.collectAsStateWithLifecycle()
     val steerImageError by viewModel.steerImageError.collectAsStateWithLifecycle()
@@ -4581,8 +4619,7 @@ internal fun SessionComposer(
     }
     val catalogAgent = SlashCommands.agentId(session?.cli, sessionConfig != null)
     val sessionEnded = session?.isEnded == true
-    val awaitingInput = phase == AgentPhase.Live &&
-        remember(activity.feed) { activeQuestionIds(activity.feed) }.isNotEmpty()
+    val awaitingInput = phase == AgentPhase.Live && composerActivity.asking
     // N-12: the composer never yields its slot; THE Dock sits above it.
     val composerHidden = false
     val sessionDock = rememberSessionDock(viewModel, onOpenUsage).let { sd ->
@@ -4592,11 +4629,11 @@ internal fun SessionComposer(
     val agentWorking = agentWorking(
         live = phase == AgentPhase.Live,
         sessionEnded = sessionEnded,
-        turnState = activity.turnState,
+        turnState = composerActivity.turnState,
         awaitingInput = awaitingInput,
         needsInput = session?.needsInput == true,
         blocked = AgentUsagePresentation.parseBlocked(session?.blocked) != null,
-        compacting = activity.compacting != null,
+        compacting = composerActivity.compacting,
     )
     // The context ring ×4 (web `percent !== null`): only once the run has
     // reported its context numbers — never an empty circle.
@@ -4628,6 +4665,44 @@ internal fun SessionComposer(
     // #EXP-1434: the + menu's prompt lands at the composer's caret (its
     // selection, kept current below where the field value lives).
     val promptCaret = remember { intArrayOf(-1, -1) }
+    // #EXP-1535: Account › = THE session account switch (the usage wall's),
+    // while the session's device is online and the viewer steers it. A
+    // run-level refusal (not claude, offline, busy) or a login's own disables
+    // the row; the submenu stays.
+    val accountSwitch by viewModel.accountSwitch.collectAsStateWithLifecycle()
+    val viewerId by viewModel.currentUserId.collectAsStateWithLifecycle()
+    val switchError by viewModel.switchError.collectAsStateWithLifecycle()
+    com.exponential.app.ui.components.FailedActionToast(
+        switchError?.let { com.exponential.app.ui.components.FailedAction("switch", "the account", it.ifBlank { null }) },
+        onShown = viewModel::clearSwitchError,
+    )
+    val composerAccount = session?.let { row ->
+        val canSteer = SessionDeviceMove.canSteer(row.shared, row.userId, viewerId)
+        // No login reported for the session's agent = no row (web, desktop).
+        if (row.isEnded || !accountSwitch.deviceOnline || !canSteer || accountSwitch.options.isEmpty()) return@let null
+        // The row only shows to a viewer who steers the session: the
+        // starter-only refusal reads `canSteerSession` here (web parity).
+        val gate = accountSwitch.copy(mine = true)
+        val options = accountSwitch.options
+        SessionComposerAccount(
+            options = options.map { option ->
+                com.exponential.app.ui.components.picker.AccountPickerOption(
+                    key = option.profileId,
+                    agent = accountSwitch.agent?.takeIf { it.isNotBlank() } ?: composerAgent,
+                    email = option.caption,
+                    healthNote = AgentHealthRules.badgeLabel(option.health),
+                    limits = com.exponential.app.domain.AccountOptions.limitsOf(option.usage),
+                    disabled = gate.refusal(option, composerActivity.turnState) != null,
+                )
+            },
+            value = options.firstOrNull { it.current }?.profileId,
+            onPick = { key ->
+                options.firstOrNull { it.profileId == key }
+                    ?.takeIf { gate.refusal(it, composerActivity.turnState) == null }
+                    ?.let(viewModel::switchAccount)
+            },
+        )
+    }
     val plusMenu = SessionComposerMenu(
         agent = composerAgent,
         effort = picks.effort ?: session?.effort.orEmpty(),
@@ -4659,6 +4734,7 @@ internal fun SessionComposer(
         surface = surface,
         prompts = promptRows,
         onPickPrompt = { prompt -> viewModel.insertPrompt(prompt.id, at = promptCaret[0] to promptCaret[1]) },
+        account = composerAccount,
     )
 
     // Steer attach (EXP-511, wave D: ANY file, images included) — the system
@@ -4910,6 +4986,83 @@ internal fun SessionComposer(
         // [composerHidden]). EXP-893: retired or displaced, the BAR stays —
         // with only the host's trailing circle — and goes without one.
         if (!composerHidden) {
+            // EXP-1521: the field's key handler, read through a stable modifier so a
+            // recomposition of this composer never re-runs the field itself.
+            val onFieldKey: (androidx.compose.ui.input.key.KeyEvent) -> Boolean = onFieldKey@{ event ->
+                if (event.type != KeyEventType.KeyDown) return@onFieldKey false
+                // EXP-892: the autocomplete owns the same four keys while
+                // IT is the menu that is up.
+                if (composerMenu == ComposerMenu.Autocomplete && composerCandidateCount > 0) {
+                    return@onFieldKey when (event.key) {
+                        Key.DirectionUp -> {
+                            autocompleteSelected =
+                                (autocompleteSelected - 1 + composerCandidateCount) %
+                                    composerCandidateCount
+                            true
+                        }
+                        Key.DirectionDown -> {
+                            autocompleteSelected =
+                                (autocompleteSelected + 1) % composerCandidateCount
+                            true
+                        }
+                        Key.Enter, Key.NumPadEnter, Key.Tab -> {
+                            pickAutocompleteAt(
+                                index = autocompleteSelected
+                                    .coerceIn(0, composerCandidateCount - 1),
+                                mentionCandidates = composerMentions,
+                                refCandidates = composerRefs,
+                                emojiCandidates = composerEmoji,
+                                onPickMention = {
+                                    commitComposerToken(composerField.withMention(it))
+                                },
+                                onPickIssueRef = {
+                                    commitComposerToken(composerField.withIssueRef(it))
+                                },
+                                onPickEmoji = { record ->
+                                    commitComposerToken(
+                                        composerField.withEmoji(record, trailingSpace = true),
+                                    )
+                                    composerEmojiPrefs.pushRecent(record.unicode)
+                                },
+                            )
+                            true
+                        }
+                        Key.Escape -> {
+                            composerArmed = false
+                            true
+                        }
+                        else -> false
+                    }
+                }
+                // Keyed on the RESOLVED menu, not on `slashMenuOpen`:
+                // ↑/↓/Enter must only ever drive the menu that is up.
+                if (composerMenu != ComposerMenu.Slash) return@onFieldKey false
+                when (event.key) {
+                    // ↑/↓ wrap around the candidate list.
+                    Key.DirectionUp -> {
+                        slashSelected =
+                            (slashSelected - 1 + slashMatches.size) % slashMatches.size
+                        true
+                    }
+                    Key.DirectionDown -> {
+                        slashSelected = (slashSelected + 1) % slashMatches.size
+                        true
+                    }
+                    // Enter ACCEPTS while the menu is open; it never
+                    // sends the half-typed command underneath it.
+                    Key.Enter, Key.NumPadEnter -> {
+                        slashMatches.getOrNull(slashSelected)?.let(acceptSlash)
+                        true
+                    }
+                    Key.Escape -> {
+                        slashDismissedFor = draft
+                        true
+                    }
+                    else -> false
+                }
+            }
+            val currentOnFieldKey by rememberUpdatedState(onFieldKey)
+            val fieldKeyModifier = remember { Modifier.onPreviewKeyEvent { currentOnFieldKey(it) } }
             SteerComposer(
                 value = composerField,
                 // A user edit is the ONLY write that may arm the `@`/`#`/`:`
@@ -4926,79 +5079,7 @@ internal fun SessionComposer(
                     composerField = next
                     viewModel.setDraft(next.text)
                 },
-                fieldModifier = Modifier.onPreviewKeyEvent { event ->
-                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                    // EXP-892: the autocomplete owns the same four keys while
-                    // IT is the menu that is up.
-                    if (composerMenu == ComposerMenu.Autocomplete && composerCandidateCount > 0) {
-                        return@onPreviewKeyEvent when (event.key) {
-                            Key.DirectionUp -> {
-                                autocompleteSelected =
-                                    (autocompleteSelected - 1 + composerCandidateCount) %
-                                        composerCandidateCount
-                                true
-                            }
-                            Key.DirectionDown -> {
-                                autocompleteSelected =
-                                    (autocompleteSelected + 1) % composerCandidateCount
-                                true
-                            }
-                            Key.Enter, Key.NumPadEnter, Key.Tab -> {
-                                pickAutocompleteAt(
-                                    index = autocompleteSelected
-                                        .coerceIn(0, composerCandidateCount - 1),
-                                    mentionCandidates = composerMentions,
-                                    refCandidates = composerRefs,
-                                    emojiCandidates = composerEmoji,
-                                    onPickMention = {
-                                        commitComposerToken(composerField.withMention(it))
-                                    },
-                                    onPickIssueRef = {
-                                        commitComposerToken(composerField.withIssueRef(it))
-                                    },
-                                    onPickEmoji = { record ->
-                                        commitComposerToken(
-                                            composerField.withEmoji(record, trailingSpace = true),
-                                        )
-                                        composerEmojiPrefs.pushRecent(record.unicode)
-                                    },
-                                )
-                                true
-                            }
-                            Key.Escape -> {
-                                composerArmed = false
-                                true
-                            }
-                            else -> false
-                        }
-                    }
-                    // Keyed on the RESOLVED menu, not on `slashMenuOpen`:
-                    // ↑/↓/Enter must only ever drive the menu that is up.
-                    if (composerMenu != ComposerMenu.Slash) return@onPreviewKeyEvent false
-                    when (event.key) {
-                        // ↑/↓ wrap around the candidate list.
-                        Key.DirectionUp -> {
-                            slashSelected =
-                                (slashSelected - 1 + slashMatches.size) % slashMatches.size
-                            true
-                        }
-                        Key.DirectionDown -> {
-                            slashSelected = (slashSelected + 1) % slashMatches.size
-                            true
-                        }
-                        // Enter ACCEPTS while the menu is open; it never
-                        // sends the half-typed command underneath it.
-                        Key.Enter, Key.NumPadEnter -> {
-                            slashMatches.getOrNull(slashSelected)?.let(acceptSlash)
-                            true
-                        }
-                        Key.Escape -> {
-                            slashDismissedFor = draft
-                            true
-                        }
-                        else -> false
-                    }
-                },
+                fieldModifier = fieldKeyModifier,
                 pendingImages = pendingImages,
                 sending = steerSending,
                 // EXP-1291: a message is `sessions.send({sessionId})` — the
@@ -5228,6 +5309,24 @@ internal data class SessionComposerMenu(
     val prompts: List<com.exponential.app.domain.SlashPrompt> = emptyList(),
     /** ... and its pick = the `/` menu's pick (the body into the draft). */
     val onPickPrompt: (com.exponential.app.domain.SlashPrompt) -> Unit = {},
+    /** #EXP-1535: Account ›, while the session's device is online and the
+     *  viewer steers it; null = no row. */
+    val account: SessionComposerAccount? = null,
+)
+
+/**
+ * #EXP-1535: the session composer's Account › = THE AccountPicker rows over
+ * the session's agent's logins (the current one checked, a refused one
+ * disabled), and a pick = THE usage wall's switch
+ * ([AgentSessionViewModel.switchAccount]: `sessions.send {sessionId,
+ * account}`, no text).
+ */
+@Immutable
+internal data class SessionComposerAccount(
+    val options: List<com.exponential.app.ui.components.picker.AccountPickerOption>,
+    /** The current login's key, null when the run's login is unknowable. */
+    val value: String?,
+    val onPick: (String) -> Unit,
 )
 
 @Composable
@@ -5396,6 +5495,8 @@ private fun ExpandedSteerComposer(
                 // S-3: a session / an agent chat changes its model only (on a
                 // model-switching agent); never its device or login here.
                 ComposerMenuConditions(
+                    // #EXP-1535: the login its NEXT turn runs on.
+                    account = menu.account != null,
                     model = model != null && (modelPickable || modelSwitches),
                     prompts = menu.prompts.isNotEmpty(),
                 ),
@@ -5431,7 +5532,12 @@ private fun ExpandedSteerComposer(
                     },
                 )
             },
-            values = mapOf(ComposerMenuRowId.Model to model?.let(::modelLabel)),
+            values = mapOf(
+                ComposerMenuRowId.Account to menu.account?.let { account ->
+                    account.options.firstOrNull { it.key == account.value }?.email
+                },
+                ComposerMenuRowId.Model to model?.let(::modelLabel),
+            ),
             pages = mapOf(
                 // #EXP-1434: the `/` menu's pick, from the "+".
                 ComposerMenuRowId.Prompts to { close ->
@@ -5441,6 +5547,18 @@ private fun ExpandedSteerComposer(
                             menu.onPickPrompt(prompt)
                             close()
                         },
+                    )
+                },
+                // #EXP-1535: THE account picker's rows (the launch
+                // composer's); a pick = the session account switch.
+                ComposerMenuRowId.Account to { close ->
+                    val account = menu.account
+                    com.exponential.app.ui.components.picker.AccountPicker(
+                        options = account?.options.orEmpty(),
+                        value = account?.value,
+                        onChange = { key -> if (key != account?.value) account?.onPick?.invoke(key) },
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
                     )
                 },
                 ComposerMenuRowId.Model to { close ->

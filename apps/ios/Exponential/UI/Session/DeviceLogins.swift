@@ -8,8 +8,8 @@ import SwiftUI
 /// warning is written on a chip: a login's trouble is the row's attention
 /// icon's business.
 ///
-/// Touch: tapping a chip opens the account menu (Sign in / Sign out / Remove
-/// account — the existing chip rules, EXP-862/EXP-1137) with that login's
+/// Touch: tapping a chip opens the account menu (Sign in / Keep signed in
+/// (claude, EXP-1533) / Sign out / Remove account — the existing chip rules, EXP-862/EXP-1137) with that login's
 /// limit bars at its top (the account picker's inline bars, EXP-992). A team
 /// device's chip previews (the bars alone) and never offers an action. Own,
 /// online rows with an agent to add end with a ghost `+` (Add account). A
@@ -27,6 +27,9 @@ struct DeviceLogins: View {
     /// Sign this login in — the host opens `AgentLoginSheet` on it (the
     /// PROFILE rides along, so a re-login repairs the login that was tapped).
     let onSignIn: (AgentProfileUsageRow) -> Void
+    /// EXP-1533: "Keep signed in" / "Renew long-lived login" on a claude
+    /// login — the host opens the same `AgentLoginSheet`, long-lived.
+    let onKeepSignedIn: (AgentProfileUsageRow) -> Void
     /// EXP-862: ask to remove this login from the machine (the host confirms).
     let onRemove: (AgentProfileUsageRow) -> Void
     /// EXP-1137: ask to sign this login out on the machine (the host confirms).
@@ -168,11 +171,17 @@ struct DeviceLogins: View {
     @ViewBuilder
     private func menuItems(_ row: AgentProfileUsageRow) -> some View {
         // ONE rule, byte-identical with web's `accountChipActions`, the
-        // desktop rows and Android, in this fixed order: Sign in, Sign out
-        // (EXP-1137), Remove account.
+        // desktop rows and Android, in this fixed order: Sign in, the
+        // long-lived login (EXP-1533, claude only), Sign out (EXP-1137),
+        // Remove account.
         if AgentAccountsRows.chipSignsIn(row) {
             GlassMenuItem("Sign in", icon: AppIcons.uiSignIn) {
                 onSignIn(row)
+            }
+        }
+        if let longLived = AgentAccountsRows.chipLongLivedLabel(row) {
+            GlassMenuItem(longLived, icon: AppIcons.uiClock) {
+                onKeepSignedIn(row)
             }
         }
         if AgentAccountsRows.chipSignsOut(row) {

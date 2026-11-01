@@ -35,6 +35,8 @@ use steer::{
     MAX_STEER_IMAGES,
 };
 
+use domain::composer_send::{after_send, ComposerContent, SendOutcome};
+
 use crate::icons::registry;
 use crate::markdown::image_paste::{
     self, max_upload_bytes_for, pasted_image_parts, ACCEPTED_IMAGE_CONTENT_TYPES,
@@ -112,10 +114,6 @@ impl PendingImages {
 
     pub(crate) fn len(&self) -> usize {
         self.pending.len()
-    }
-
-    pub(crate) fn clear(&mut self) {
-        self.pending.clear();
     }
 
     fn image_count(&self) -> usize {
@@ -200,26 +198,39 @@ impl PendingImages {
     /// [`Self::note_uploaded`]) — the prose, the image embeds, then the file
     /// lines with the server's filenames (`steer::build_steer_message`).
     pub(crate) fn message(&self, text: &str) -> String {
-        let images: Vec<String> = self
+        let resolved: Vec<Uploaded> = self
             .pending
             .iter()
-            .filter(|item| !item.is_file)
-            .filter_map(|item| item.uploaded_id.clone())
-            .collect();
-        let files: Vec<SteerFile> = self
-            .pending
-            .iter()
-            .filter(|item| item.is_file)
             .filter_map(|item| {
                 let id = item.uploaded_id.clone()?;
                 let name = item
                     .uploaded_name
                     .clone()
                     .unwrap_or_else(|| item.filename.clone());
-                Some(SteerFile::new(id, name))
+                Some((item.key, id, name))
             })
             .collect();
-        build_steer_message(text, &images, &files)
+        let file_keys: Vec<u64> = self
+            .pending
+            .iter()
+            .filter(|item| item.is_file)
+            .map(|item| item.key)
+            .collect();
+        uploaded_message(text, &file_keys, &resolved)
+    }
+
+    /// EXP-1537: the composer's content as `domain::composer_send` reads it:
+    /// `text` (untrimmed) + the strip's keys, in strip order.
+    pub(crate) fn content(&self, text: String) -> ComposerContent {
+        ComposerContent {
+            text,
+            attachments: self.pending.iter().map(|item| item.key.to_string()).collect(),
+        }
+    }
+
+    /// Keep only the staged entries whose key is in `keep`.
+    pub(crate) fn retain_keys(&mut self, keep: &[String]) {
+        self.pending.retain(|item| keep.contains(&item.key.to_string()));
     }
 
     /// Drop a staged image and renumber the draft's markers behind it: the
@@ -434,6 +445,58 @@ pub(crate) fn upload_all(
     Ok(resolved)
 }
 
+/// EXP-1537: why an upload-then-send did not go out. Both arms carry the
+/// uploads that landed, so a retry uploads only the rest.
+pub(crate) enum UploadSendError {
+    Upload(Vec<Uploaded>, String),
+    Send(Vec<Uploaded>, api::ApiError),
+}
+
+/// The keys of `jobs` that are FILES (no marker, the message's file block).
+pub(crate) fn file_keys(jobs: &[UploadJob]) -> Vec<u64> {
+    jobs.iter()
+        .filter(|job| !is_inline_image(&job.content_type))
+        .map(|job| job.key)
+        .collect()
+}
+
+/// Wave D: the message once every upload landed — the prose, the image
+/// embeds, then the file lines with the server's filenames
+/// (`steer::build_steer_message`). Off the snapshot alone, so a send whose
+/// view closed under its upload still goes out (EXP-1537).
+pub(crate) fn uploaded_message(text: &str, file_keys: &[u64], resolved: &[Uploaded]) -> String {
+    let images: Vec<String> = resolved
+        .iter()
+        .filter(|(key, _, _)| !file_keys.contains(key))
+        .map(|(_, id, _)| id.clone())
+        .collect();
+    let files: Vec<SteerFile> = resolved
+        .iter()
+        .filter(|(key, _, _)| file_keys.contains(key))
+        .map(|(_, id, name)| SteerFile::new(id.clone(), name.clone()))
+        .collect();
+    build_steer_message(text, &images, &files)
+}
+
+/// EXP-1537: a send landed: the field clears only if it still holds
+/// exactly `sent.text`, and only the attachments that went out leave the
+/// strip (`domain::composer_send::after_send`). The field is only written
+/// when it changes, so the caret of a writer still typing stays put.
+pub(crate) fn settle_sent(
+    input: &Entity<TextareaState>,
+    images: &mut PendingImages,
+    sent: &ComposerContent,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let current = images.content(input.read(cx).value().to_string());
+    let next = after_send(SendOutcome::Sent, sent, &current);
+    images.retain_keys(&next.attachments);
+    if next.text != current.text {
+        input.update(cx, |state, cx| state.set_value(next.text, window, cx));
+    }
+}
+
 /// The images on the clipboard right now — pasted bitmaps and image FILES
 /// (a Finder copy). Empty when the clipboard holds none, so the host lets
 /// the paste fall through to the text field.
@@ -607,6 +670,30 @@ mod tests {
 
     fn entry(name: &str, content_type: &str, len: usize) -> StagedFile {
         (name.to_string(), content_type.to_string(), vec![1u8; len])
+    }
+
+    /// EXP-1537: the view-free message equals the strip's own, and a landed
+    /// send takes out only the entries that went out.
+    #[test]
+    fn a_landed_send_keeps_what_was_added_meanwhile() {
+        let mut strip = PendingImages::default();
+        strip.stage_entries(vec![entry("a.png", "image/png", 4), entry("spec.pdf", "application/pdf", 4)]);
+        let jobs = strip.jobs();
+        let resolved: Vec<Uploaded> = jobs
+            .iter()
+            .map(|job| (job.key, format!("att-{}", job.key), job.filename.clone()))
+            .collect();
+        let file_keys = file_keys(&jobs);
+        strip.note_uploaded(&resolved);
+        assert_eq!(uploaded_message("look", &file_keys, &resolved), strip.message("look"));
+
+        let sent = strip.content("look".into());
+        strip.stage_entries(vec![entry("b.png", "image/png", 4)]);
+        let current = strip.content("look again".into());
+        let next = domain::composer_send::after_send(SendOutcome::Sent, &sent, &current);
+        strip.retain_keys(&next.attachments);
+        assert_eq!(next.text, "look again");
+        assert_eq!(strip.content(String::new()).attachments, vec!["2".to_string()]);
     }
 
     /// Wave D: images and files cap apart (4 + 4), markers count images

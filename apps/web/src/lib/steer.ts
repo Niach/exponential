@@ -97,6 +97,9 @@ export type SteerTicketSeed =
       deviceId: string
     }
   | { kind: `call_host`; userId: string; callId: string; deviceId: string }
+  // #EXP-1525: a viewer's sealed relay tunnel to the host device of one
+  // session (the visibility rule checked by the minting route).
+  | { kind: `tunnel`; userId: string; teamId: string; sessionId: string; deviceId: string; deviceOwnerId: string }
 
 export function buildSteerTicketClaims(
   seed: SteerTicketSeed,
@@ -129,6 +132,15 @@ export function buildSteerTicketClaims(
       }
     case `call_host`:
       return { ...base, team: ``, role: `call_host`, callId: seed.callId, deviceId: seed.deviceId }
+    case `tunnel`:
+      return {
+        ...base,
+        team: seed.teamId,
+        role: `tunnel`,
+        sessionId: seed.sessionId,
+        deviceId: seed.deviceId,
+        deviceOwnerId: seed.deviceOwnerId,
+      }
   }
 }
 

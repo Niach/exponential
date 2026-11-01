@@ -59,6 +59,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use domain::composer_send::ComposerContent;
+
 use gpui::{
     div, list, prelude::FluentBuilder as _, px,
     AnyElement, App, AppContext as _, ClickEvent, ElementId, Entity, FocusHandle,
@@ -3346,8 +3348,16 @@ impl SteerSessionView {
             );
             return;
         }
+        // EXP-1537: the field stays editable while the send is in flight;
+        // what lands takes out only what was sent (`composer_send`).
+        let sent = self.pending_images.content(text.clone());
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("send", "the message", None, cx);
+            return;
+        };
         if self.pending_images.is_empty() {
-            self.post_message(text, Vec::new(), window, cx);
+            let input = api::sessions::SendInput::message(&self.session_id, &text, Vec::new());
+            self.post_message(input, sent, window, cx);
             return;
         }
         // EXP-702: steer images upload to the SESSION route, not the issue's
@@ -3361,27 +3371,38 @@ impl SteerSessionView {
         // Sequential + idempotent per image: a mid-batch failure keeps the
         // composer intact and a retry only uploads the rest (web parity).
         let jobs = self.pending_images.jobs();
+        let file_keys = composer_images::file_keys(&jobs);
+        // The sealing facts are the text's (the embeds name no one): read
+        // now, so the send needs nothing of the view once the uploads land.
+        let mut probe = api::sessions::SendInput::message(&session_id, &text, Vec::new());
+        probe.text = Some(text.clone());
+        let plan = crate::sealing::plan_send(&probe, cx);
         self.sending = true;
         cx.notify();
+        // EXP-1537: the uploads AND the send run in one background job that
+        // holds nothing of the view, so closing it never cancels either.
         cx.spawn_in(window, async move |this, cx| {
             let outcome = cx
                 .background_executor()
                 .spawn(async move {
-                    composer_images::upload_all(jobs, |filename, content_type, bytes| {
+                    let resolved = composer_images::upload_all(jobs, |filename, content_type, bytes| {
                         transport.upload_session(&session_id, filename, content_type, bytes)
                     })
+                    .map_err(|(resolved, error)| composer_images::UploadSendError::Upload(resolved, error))?;
+                    let message = composer_images::uploaded_message(&text, &file_keys, &resolved);
+                    let ids = resolved.iter().map(|(_, id, _)| id.clone()).collect();
+                    let input = api::sessions::SendInput::message(&session_id, &message, ids);
+                    match crate::sealing::send_blocking(&trpc, &input, &plan) {
+                        Ok(_) => Ok(()),
+                        Err(err) => Err(composer_images::UploadSendError::Send(resolved, err)),
+                    }
                 })
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.sending = false;
                 match outcome {
-                    Ok(resolved) => {
-                        this.pending_images.note_uploaded(&resolved);
-                        let message = this.pending_images.message(&text);
-                        let ids = resolved.into_iter().map(|(_, id, _)| id).collect();
-                        this.post_message(message, ids, window, cx);
-                    }
-                    Err((resolved, error)) => {
+                    Ok(()) => this.settle_sent(&sent, window, cx),
+                    Err(composer_images::UploadSendError::Upload(resolved, error)) => {
                         // Keep what landed so a retry uploads only the rest.
                         this.pending_images.note_uploaded(&resolved);
                         log::warn!("[ui] steer composer upload failed: {error}");
@@ -3398,6 +3419,10 @@ impl SteerSessionView {
                             cx,
                         );
                     }
+                    Err(composer_images::UploadSendError::Send(resolved, err)) => {
+                        this.pending_images.note_uploaded(&resolved);
+                        crate::action_error::failed_action_err("send", "the message", &err, cx);
+                    }
                 }
                 cx.notify();
             });
@@ -3407,24 +3432,13 @@ impl SteerSessionView {
 
     /// EXP-1294 — the database is the bus: a message is a `messages` row
     /// (`sessions.send{sessionId}`) the hosting device picks up; one to an
-    /// idle session resumes it, one to an ended session continues it. The
-    /// draft clears once the row is in; a refusal keeps it and toasts.
+    /// idle session resumes it, one to an ended session continues it.
+    /// EXP-1537: once the row is in, the draft settles against `sent` (the
+    /// field as Send found it); a refusal keeps the field and toasts.
     fn post_message(
         &mut self,
-        text: String,
-        attachment_ids: Vec<String>,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        let input = api::sessions::SendInput::message(&self.session_id, &text, attachment_ids);
-        self.post_message_with(input, window, cx);
-    }
-
-    /// [`Self::post_message`]'s send for any `sessions.send` input: the draft
-    /// clears once it is in.
-    fn post_message_with(
-        &mut self,
         input: api::sessions::SendInput,
+        sent: ComposerContent,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -3443,7 +3457,7 @@ impl SteerSessionView {
             let _ = this.update_in(cx, |this, window, cx| {
                 this.sending = false;
                 match result {
-                    Ok(_) => this.clear_draft(window, cx),
+                    Ok(_) => this.settle_sent(&sent, window, cx),
                     Err(err) => crate::action_error::failed_action_err("send", "the message", &err, cx),
                 }
                 cx.notify();
@@ -3512,13 +3526,16 @@ impl SteerSessionView {
         .detach();
     }
 
-    fn clear_draft(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.pending_images.clear();
+    /// EXP-1537: a landed send takes out of the draft only what it sent
+    /// (`composer_send::after_send`): text typed and files added meanwhile
+    /// stay.
+    fn settle_sent(&mut self, sent: &ComposerContent, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        composer_images::settle_sent(&self.input, &mut self.pending_images, sent, window, cx);
         self.notice = None;
-        self.slash = None;
-        self.slash_dismissed_for = None;
-        self.input
-            .update(cx, |state, cx| state.set_value("", window, cx));
+        if self.input.read(cx).value().is_empty() {
+            self.slash = None;
+            self.slash_dismissed_for = None;
+        }
     }
 
     /// Add clipboard / picked images to the draft — the shared composer
@@ -7703,6 +7720,33 @@ impl SteerSessionView {
         }
     }
 
+    /// #EXP-1535 — the "+" menu's Account › (composer-menu.json
+    /// `conditions.account`): the session is live, its device online (or
+    /// hosted here) and the viewer steers it; then THE switch decision the
+    /// usage wall's "Switch account" offers ([`Self::switch_account_control`]'s
+    /// context, [`crate::account_switch::SwitchContext::resolve`]: the host's
+    /// logins for the session's agent, each refusal on its row). `None` =
+    /// no row (no builtin agent, or the host reported no login).
+    fn composer_account_switch(
+        &self,
+        cx: &App,
+    ) -> Option<(crate::account_switch::SwitchContext, Vec<crate::account_switch::SwitchTarget>)> {
+        let row = self.row.as_ref()?;
+        let device_online = row.device_id.is_some() && (self.is_local() || !self.device(cx).offline);
+        if !crate::account_switch::composer_offers_account(self.run_open(), device_online, self.may_message) {
+            return None;
+        }
+        let context = crate::account_switch::SwitchContext {
+            session_id: self.session_id.to_string(),
+            device_id: row.device_id.clone(),
+            local: self.is_local(),
+            agent: self.builtin_agent()?,
+            working: self.working_now(),
+        };
+        let targets = context.resolve(cx)?;
+        Some((context, targets))
+    }
+
     /// EXP-1334: whether this viewer may change the run's options mid-session
     /// (`sessions.configure`): a live run it may message.
     fn configurable(&self) -> bool {
@@ -7858,9 +7902,11 @@ impl SteerSessionView {
     /// EXP-1334 / S-3 — the composer's "+": THE composer menu
     /// (composer-menu.json) on the `session` surface (`agent` for an agent
     /// conversation): Photo or file, Issue › (THE issue search list; a pick
-    /// inserts `#IDENT` at the caret), then Model › while the run may switch
-    /// models (claude and codex: `sessions.configure({model})`). A running
-    /// session never moves device or login here; the work rows belong to a
+    /// inserts `#IDENT` at the caret), then #EXP-1535 Account › while the
+    /// device is online and the viewer steers the session (THE usage wall's
+    /// switch: [`Self::composer_account_switch`]), then Model › while the run
+    /// may switch models (claude and codex: `sessions.configure({model})`).
+    /// A running session never moves device here; the work rows belong to a
     /// start.
     fn render_plus_menu(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
         use crate::chat_screen::{composer_menu_rows, titled_row, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
@@ -7884,9 +7930,11 @@ impl SteerSessionView {
                     .collect()
             })
             .unwrap_or_default();
+        let account_switch = self.composer_account_switch(cx);
         let rows = composer_menu_rows(
             surface,
             ComposerMenuConditions {
+                account: account_switch.is_some(),
                 model: self.configurable(),
                 prompts: !prompts.is_empty(),
                 ..ComposerMenuConditions::default()
@@ -7904,6 +7952,15 @@ impl SteerSessionView {
             };
             (choices, value)
         };
+        // #EXP-1535 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=session-account`):
+        // open the menu once with Account › selected (its submenu open).
+        let account_step = rows
+            .iter()
+            .filter(|row| **row != Row::Separator)
+            .position(|row| *row == Row::Account);
+        let dev_open = account_step.is_some()
+            && crate::navigation::shapes_ready(cx)
+            && crate::screens::take_dev_session_account_menu();
         let input = self.input.clone();
         let trigger = crate::composer::composer_tool(
             SharedString::from(format!("{}-plus", self.composer_ids.attach)),
@@ -7977,6 +8034,46 @@ impl SteerSessionView {
                             )
                         })
                     }
+                    // #EXP-1535: THE account rows (agent mark, login, health
+                    // hint, the usage preview on hover), the run's login
+                    // checked; a pick IS the usage wall's "Switch account"
+                    // (`account_switch::switch_to`: `sessions.send {sessionId,
+                    // account}`, no text). A refusal disables its row.
+                    Row::Account => {
+                        let Some((context, targets)) = account_switch.clone() else {
+                            continue;
+                        };
+                        let value = crate::account_switch::current_caption(&targets);
+                        menu.submenu_with_icon(row.icon().map(Icon::new), titled_row(row, value), window, cx, move |mut sub, _, _| {
+                            let agent = context.agent;
+                            for target in &targets {
+                                let session_id = context.session_id.clone();
+                                let local = context.local;
+                                let profile_id = target.profile_id.clone();
+                                sub = sub.item(
+                                    crate::controls::pointer_account_item(
+                                        format!("steer-menu-account-{}", target.profile_id),
+                                        move || crate::coding_selects::agent_mark(agent),
+                                        target.caption.clone(),
+                                        target.health.badge_label(),
+                                        target.current,
+                                        target.usage.as_ref().and_then(coding::account_option::account_limits),
+                                        move |window, cx| {
+                                            crate::account_switch::switch_to(
+                                                session_id.clone(),
+                                                local,
+                                                profile_id.clone(),
+                                                window,
+                                                cx,
+                                            );
+                                        },
+                                    )
+                                    .disabled(!target.pickable()),
+                                );
+                            }
+                            sub
+                        })
+                    }
                     Row::Model => {
                         let value = models
                             .iter()
@@ -8013,6 +8110,8 @@ impl SteerSessionView {
             menu
         })
         .anchor(gpui::Anchor::BottomLeft)
+        .dev_open(dev_open)
+        .dev_steps(account_step.map_or(1, |at| at + 1))
         .into_any_element()
     }
 

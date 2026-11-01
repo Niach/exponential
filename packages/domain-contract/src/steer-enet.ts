@@ -145,3 +145,194 @@ export function steerNoFeedState(row: { ended: boolean; busy: boolean }): SteerN
   if (row.ended) return `offline`
   return row.busy ? `starting` : `idle`
 }
+
+// ── P2P stabilisation: the sealed relay FALLBACK (fixture `fallback`) ───────
+
+export const STEER_FALLBACK_STALL_MS = fixture.fallback.stallMs
+export const STEER_TUNNEL_MAX_DATA_BYTES = fixture.fallback.tunnelMaxDataBytes
+export const STEER_RELAY_RETRY_MS = fixture.fallback.relayRetryMs
+export const STEER_TUNNEL_ERROR_CODES = fixture.fallback.tunnelErrorCodes
+
+export type SteerCarrier = `enet` | `relay`
+export type SteerCarrierState = { active: `none` | SteerCarrier; relay: `closed` | `open` }
+export type SteerCarrierEvent =
+  | `start`
+  | `stall`
+  | `enetNoFeed`
+  | `enetReset`
+  | `enetSynced`
+  | `enetDropped`
+  | `relayReset`
+  | `relaySynced`
+  | `relayDropped`
+  | `relayUnavailable`
+export type SteerCarrierAction =
+  | `dialEnet`
+  | `armStall`
+  | `openRelay`
+  | `rejoinRelay`
+  | `closeRelay`
+  | `reopenRelayLater`
+  | `redialEnetLater`
+  | `apply`
+  | `drop`
+
+/**
+ * The one carrier rule every viewer runs: eNet first, the sealed relay only
+ * when eNet stalls (`stallMs`), has no feed or drops; eNet keeps redialing
+ * while the relay is active and takes over on its `activity_reset`. Frames
+ * apply only from the active carrier (`apply`), anything else is `drop`ped.
+ * `enetReset`/`relayReset` = that carrier's `activity_reset`; the `*Synced`
+ * events stand for every later frame of that carrier (synced, live, bye).
+ */
+export function steerCarrierStep(
+  state: SteerCarrierState,
+  event: SteerCarrierEvent
+): { state: SteerCarrierState; actions: SteerCarrierAction[] } {
+  const { active, relay } = state
+  const at = (a: SteerCarrierState[`active`], r: SteerCarrierState[`relay`], actions: SteerCarrierAction[]) => ({
+    state: { active: a, relay: r },
+    actions,
+  })
+  switch (event) {
+    case `start`:
+      return at(`none`, `closed`, [`dialEnet`, `armStall`])
+    case `stall`:
+      return active === `none` && relay === `closed` ? at(`none`, `open`, [`openRelay`]) : at(active, relay, [])
+    case `enetNoFeed`:
+      if (active === `none` && relay === `closed`) return at(`none`, `open`, [`openRelay`, `redialEnetLater`])
+      return at(active, relay, [`redialEnetLater`])
+    case `enetReset`:
+      return at(`enet`, relay, [`apply`])
+    case `enetSynced`:
+      if (active !== `enet`) return at(active, relay, [`drop`])
+      return relay === `open` ? at(`enet`, `closed`, [`apply`, `closeRelay`]) : at(`enet`, relay, [`apply`])
+    case `enetDropped`:
+      if (active !== `enet`) return at(active, relay, [`redialEnetLater`])
+      return relay === `open`
+        ? at(`none`, `open`, [`rejoinRelay`, `redialEnetLater`])
+        : at(`none`, `open`, [`openRelay`, `redialEnetLater`])
+    case `relayReset`:
+      return active === `enet` ? at(active, relay, [`drop`]) : at(`relay`, relay, [`apply`])
+    case `relaySynced`:
+      return active === `relay` ? at(active, relay, [`apply`]) : at(active, relay, [`drop`])
+    case `relayDropped`:
+      return active === `enet` ? at(`enet`, `closed`, []) : at(`none`, `closed`, [`reopenRelayLater`])
+    case `relayUnavailable`:
+      return at(active, `closed`, [])
+  }
+}
+
+// ── Connection analytics (fixture `connStats`) ───────────────────────────────
+
+const stats = fixture.connStats
+export const STEER_CONN_STATS = stats
+
+export type SteerConnPlatform = (typeof stats.platforms)[number]
+export type SteerConnPath = `direct` | `iroh_relay` | `server_fallback`
+export type SteerConnData = {
+  phase: `settled` | `ended`
+  platform: string
+  version: string
+  outcome: `ok` | `failed`
+  path?: SteerConnPath
+  firstFrameMs?: number
+  errorClass?: string
+  fallbacks?: number
+  reconnects?: number
+  durationMs?: number
+  failures?: Record<string, number>
+}
+export type SteerConnEvent = {
+  v: 1
+  id: string
+  kind: `steer.view` | `steer.serve`
+  at: number
+  source: `steer-viewer` | `steer-device`
+  data: SteerConnData
+}
+
+const DATA_KEYS = new Set([
+  `phase`,
+  `platform`,
+  `version`,
+  `outcome`,
+  `path`,
+  `firstFrameMs`,
+  `errorClass`,
+  `fallbacks`,
+  `reconnects`,
+  `durationMs`,
+  `failures`,
+])
+const EVENT_KEYS = new Set([`v`, `id`, `kind`, `at`, `source`, `data`])
+const isCount = (v: unknown) => typeof v === `number` && Number.isInteger(v) && v >= 0 && v <= 2_147_483_647
+
+/** The server's validation of one posted event: anything off-schema (an
+ *  extra key included: content must never ride along) is refused whole. */
+export function steerConnEventValid(value: unknown): value is SteerConnEvent {
+  if (!value || typeof value !== `object` || Array.isArray(value)) return false
+  const e = value as Record<string, unknown>
+  if (Object.keys(e).some((k) => !EVENT_KEYS.has(k))) return false
+  if (e.v !== 1 || typeof e.id !== `string` || e.id.length === 0 || e.id.length > 64) return false
+  if (!stats.kinds.includes(e.kind as string) || !stats.sources.includes(e.source as string)) return false
+  if (typeof e.at !== `number` || !Number.isInteger(e.at) || e.at <= 0) return false
+  const d = e.data as Record<string, unknown> | null
+  if (!d || typeof d !== `object` || Array.isArray(d)) return false
+  if (Object.keys(d).some((k) => !DATA_KEYS.has(k))) return false
+  if (!stats.phases.includes(d.phase as string) || !stats.platforms.includes(d.platform as string)) return false
+  if (typeof d.version !== `string` || d.version.length === 0 || d.version.length > stats.versionMax) return false
+  if (!stats.outcomes.includes(d.outcome as string)) return false
+  if (d.path !== undefined && !stats.paths.includes(d.path as string)) return false
+  if (d.outcome === `ok` && d.path === undefined) return false
+  if (d.errorClass !== undefined && !stats.errorClasses.includes(d.errorClass as string)) return false
+  for (const k of [`firstFrameMs`, `fallbacks`, `reconnects`, `durationMs`] as const) {
+    if (d[k] !== undefined && !isCount(d[k])) return false
+  }
+  if (d.failures !== undefined) {
+    const f = d.failures as Record<string, unknown>
+    if (!f || typeof f !== `object` || Array.isArray(f)) return false
+    for (const [k, n] of Object.entries(f)) {
+      if (!stats.errorClasses.includes(k) || !isCount(n)) return false
+    }
+  }
+  return true
+}
+
+export type SteerConnRow = Pick<SteerConnData, `phase` | `outcome` | `path` | `firstFrameMs` | `fallbacks`> & {
+  errorClass?: string
+  durationMs?: number
+}
+export type SteerConnAggregate = {
+  views: number
+  successRate: number | null
+  p50FirstFrameMs: number | null
+  p95FirstFrameMs: number | null
+  fallbackRate: number | null
+}
+
+/** Nearest-rank percentile (rank = ceil(p * n), 1-based) of sorted values. */
+function nearestRank(sorted: number[], p: number): number | null {
+  if (sorted.length === 0) return null
+  return sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)] ?? null
+}
+
+/** The dashboard's numbers over one platform/version bucket (`$aggregateRule`). */
+export function steerConnAggregate(rows: SteerConnRow[]): SteerConnAggregate {
+  const settled = rows.filter((r) => r.phase === `settled`)
+  const views = settled.length
+  if (views === 0) return { views, successRate: null, p50FirstFrameMs: null, p95FirstFrameMs: null, fallbackRate: null }
+  const ok = settled.filter((r) => r.outcome === `ok`)
+  const firsts = ok.map((r) => r.firstFrameMs).filter((v): v is number => typeof v === `number`).sort((a, b) => a - b)
+  const fallbackSettles = settled.filter((r) => r.path === `server_fallback`).length
+  const fallbackEnded = rows.filter(
+    (r) => r.phase === `ended` && (r.fallbacks ?? 0) > 0 && r.path !== `server_fallback`
+  ).length
+  return {
+    views,
+    successRate: ok.length / views,
+    p50FirstFrameMs: nearestRank(firsts, 0.5),
+    p95FirstFrameMs: nearestRank(firsts, 0.95),
+    fallbackRate: (fallbackSettles + fallbackEnded) / views,
+  }
+}

@@ -16,7 +16,7 @@
 //! [`is_signed_in`] asks the CLI afterwards.
 //!
 //! Exponential's multi-account flow (`coding::agent_login`: a staging dir
-//! per sign-in, commit by email, import of the ambient login) builds on the
+//! per sign-in, commit by email) builds on the
 //! same plan ([`login_command`]), the same sign-out ([`logout_in`]) and the
 //! same scrapers, and drives its PTY through its own terminal emulator.
 
@@ -74,6 +74,79 @@ pub fn login_command(agent: CodingAgent, program: impl Into<String>, remote: boo
         env,
         title: title.to_string(),
     }
+}
+
+/// EXP-1533 — claude's LONG-LIVED sign-in: `claude setup-token` mints a
+/// one-year, inference-only OAuth token with no refresh grant. Its screen is
+/// the browser sign-in's own (the same link, the same "Paste code here"
+/// prompt, so [`LoginWatch`] and the code hand-off drive it unchanged); the
+/// token is printed at the end instead of stored, and [`scrape_setup_token`]
+/// reads it off the screen. `remote` pins `BROWSER` exactly as
+/// [`login_command`] does.
+pub fn setup_token_command(program: impl Into<String>, remote: bool) -> LoginCommand {
+    let mut env = Vec::new();
+    if remote {
+        env.push(("BROWSER".to_string(), "true".to_string()));
+    }
+    LoginCommand {
+        program: program.into(),
+        args: vec!["setup-token".to_string()],
+        env,
+        title: "Long-lived Claude login".to_string(),
+    }
+}
+
+/// The prefix of the token `claude setup-token` prints (`sk-ant-oat01-…`).
+pub const SETUP_TOKEN_PREFIX: &str = "sk-ant-oat";
+
+/// The token `claude setup-token` printed on `lines`, with how long it says
+/// the token lives (seconds, when the screen names it). A token wrapped over
+/// several lines (a narrow PTY) is joined back: the CLI prints it alone,
+/// between "Your OAuth token (valid for …):" and "Store this token securely".
+pub fn scrape_setup_token(lines: &[String]) -> Option<(String, Option<i64>)> {
+    let start = lines.iter().position(|line| line.contains(SETUP_TOKEN_PREFIX))?;
+    let mut token = String::new();
+    for line in &lines[start..] {
+        let line = line.trim();
+        let piece = if token.is_empty() {
+            &line[line.find(SETUP_TOKEN_PREFIX)?..]
+        } else {
+            line
+        };
+        let clean: String = piece
+            .chars()
+            .take_while(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_')
+            .collect();
+        if clean.is_empty() || (!token.is_empty() && clean.len() != piece.len()) {
+            break;
+        }
+        token.push_str(&clean);
+        if clean.len() != piece.len() {
+            break;
+        }
+    }
+    if token.len() <= SETUP_TOKEN_PREFIX.len() + 8 {
+        return None;
+    }
+    let lifetime = lines[..start].iter().rev().find_map(|line| parse_valid_for(line));
+    Some((token, lifetime))
+}
+
+/// "Your OAuth token (valid for 1 year):" / "(valid for 30 days):" → seconds.
+fn parse_valid_for(line: &str) -> Option<i64> {
+    let rest = &line[line.find("valid for")? + "valid for".len()..];
+    let rest = rest.trim_start();
+    let mut words = rest.split(|ch: char| ch.is_whitespace() || ch == ')' || ch == ':').filter(|w| !w.is_empty());
+    let count: i64 = words.next()?.parse().ok()?;
+    let unit = words.next()?;
+    let secs = if unit.starts_with("year") {
+        365 * 86_400
+    } else if unit.starts_with("day") {
+        86_400
+    } else {
+        return None;
+    };
+    Some(count * secs)
 }
 
 /// The CLI's own sign-out argv for `agent`.
@@ -560,6 +633,32 @@ mod tests {
             spoof.observe(&screen_lines("visit: https://evil.test/oauth/authorize?code=true\r\n")),
             LoginStep::Nothing
         );
+    }
+
+    /// EXP-1533: the token `claude setup-token` prints (2.1.308's screen),
+    /// whole or wrapped by a narrow PTY, with its lifetime.
+    #[test]
+    fn a_setup_token_is_scraped_off_the_screen() {
+        let screen = "\u{1b}[32m\u{2713} Long-lived authentication token created successfully!\u{1b}[0m\r\n\r\n\
+                      Your OAuth token (valid for 1 year):\r\n\r\n\
+                      \u{1b}[33msk-ant-oat01-AbC_d-123456789\u{1b}[0m\r\n\r\n\
+                      Store this token securely. You won't be able to see it again.\r\n\
+                      Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>\r\n";
+        assert_eq!(
+            scrape_setup_token(&screen_lines(screen)),
+            Some(("sk-ant-oat01-AbC_d-123456789".to_string(), Some(365 * 86_400)))
+        );
+        let wrapped = "Your OAuth token (valid for 30 days):\r\n  sk-ant-oat01-AAAAAAAAAA\r\nBBBBBBBBBB\r\nCC\r\n\r\nStore this token securely.\r\n";
+        assert_eq!(
+            scrape_setup_token(&screen_lines(wrapped)),
+            Some(("sk-ant-oat01-AAAAAAAAAABBBBBBBBBBCC".to_string(), Some(30 * 86_400)))
+        );
+        // The hint line names the variable, never a token.
+        assert_eq!(scrape_setup_token(&screen_lines("export CLAUDE_CODE_OAUTH_TOKEN=<token>\r\n")), None);
+        assert_eq!(scrape_setup_token(&screen_lines("sk-ant-oat\r\n")), None);
+        let command = setup_token_command("claude", true);
+        assert_eq!(command.args, vec!["setup-token"]);
+        assert_eq!(command.env, vec![("BROWSER".to_string(), "true".to_string())]);
     }
 
     #[test]

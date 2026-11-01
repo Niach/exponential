@@ -147,19 +147,6 @@ data class AgentAccount(
      * them when there are two or more. Absent = the device reported none.
      */
     @SerialName("profiles") val profiles: List<AgentAccountProfile>? = null,
-    /**
-     * The CLI's AMBIENT login (`~/.claude`, `~/.codex`), present only while it
-     * is signed in. Never run on: runs use the profiles alone, and the
-     * device's doctor offers to IMPORT this one (it moves into a profile).
-     */
-    @SerialName("importable") val importable: AgentImportable? = null,
-)
-
-/** What an agent's ambient login says about itself — see [AgentAccount.importable]. */
-@Serializable
-data class AgentImportable(
-    @SerialName("email") val email: String? = null,
-    @SerialName("plan") val plan: String? = null,
 )
 
 /**
@@ -174,7 +161,7 @@ data class AgentImportable(
  * identity line, and the profile's OWN [usage] — the active profile's numbers
  * also ride the pre-profile `agentUsage` slot, which is the fallback for a
  * device that only populated that one. [lastLoginAt] is stamped by the device
- * when a sign-in or import COMMITS into this profile: what an open sign-in
+ * when a sign-in COMMITS into this profile: what an open sign-in
  * sheet watches to see its login land.
  */
 @Serializable
@@ -189,6 +176,12 @@ data class AgentAccountProfile(
     @SerialName("health") val health: String? = null,
     @SerialName("usage") val usage: AgentUsage? = null,
     @SerialName("lastLoginAt") val lastLoginAt: String? = null,
+    /**
+     * EXP-1533: set (ISO) while the profile holds a long-lived claude login
+     * (`claude setup-token`, one year): the menu offers "Renew long-lived
+     * login" instead of "Keep signed in".
+     */
+    @SerialName("tokenExpiresAt") val tokenExpiresAt: String? = null,
 )
 
 /**
@@ -405,8 +398,52 @@ data class SteerDevice(
     }
 }
 
+/** EXP-1529: `steer.tunnelTicket`'s input. */
+@Serializable
+private data class TunnelTicketInput(val sessionId: String)
+
+/**
+ * EXP-1529: `steer.tunnelTicket` = `{disabled: true}` | `{unavailable: true}`
+ * | `{ticket, url}` (url = the full ws(s) dial URL, dialled as-is). Every
+ * field optional: an older or newer server shape never fails the decode.
+ */
+@Serializable
+data class TunnelTicketResult(
+    val disabled: Boolean = false,
+    val unavailable: Boolean = false,
+    val ticket: String? = null,
+    val url: String? = null,
+)
+
+/** EXP-1529: `connStats.record`'s input (<= 50 privacy-safe eCore envelopes). */
+@Serializable
+private data class ConnStatsInput(val events: List<JsonObject>)
+
+@Serializable
+data class ConnStatsResult(val accepted: Int = 0)
+
 @Singleton
 class SteerApi @Inject constructor(private val trpc: TrpcClient) {
+
+    /** EXP-1529: a viewer ticket for the sealed relay tunnel to [sessionId]'s host device. */
+    suspend fun tunnelTicket(accountId: String, sessionId: String): TunnelTicketResult =
+        trpc.mutation(
+            accountId,
+            path = "steer.tunnelTicket",
+            input = TunnelTicketInput(sessionId),
+            inputSerializer = TunnelTicketInput.serializer(),
+            outputSerializer = TunnelTicketResult.serializer(),
+        )
+
+    /** EXP-1529: post one batch of connection analytics. */
+    suspend fun recordConnStats(accountId: String, events: List<JsonObject>): ConnStatsResult =
+        trpc.mutation(
+            accountId,
+            path = "connStats.record",
+            input = ConnStatsInput(events),
+            inputSerializer = ConnStatsInput.serializer(),
+            outputSerializer = ConnStatsResult.serializer(),
+        )
 
     /** `steer.config` — enabled iff the server has a relay configured. */
     suspend fun config(accountId: String): SteerConfigResult =

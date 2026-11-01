@@ -138,8 +138,8 @@ android {
         applicationId = "at.exponential"
         minSdk = 26
         targetSdk = 36
-        versionCode = 165
-        versionName = "0.14.82"
+        versionCode = 169
+        versionName = "0.14.86"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -183,6 +183,16 @@ android {
             // Same applicationId as release so a single google-services.json
             // client (registered for at.exponential) covers both.
             isDebuggable = true
+        }
+        // EXP-1521/1522: what :macrobenchmark measures: the release build
+        // (R8, no debuggable), profileable from the shell and signed with the
+        // debug key so it installs next to nothing. Never shipped.
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isProfileable = true
+            ndk { debugSymbolLevel = "NONE" }
         }
     }
 

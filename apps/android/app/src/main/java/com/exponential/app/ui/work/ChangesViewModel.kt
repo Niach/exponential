@@ -23,6 +23,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 // EXP-1291 Threads v2: ONE pull request (a `pull_requests` row) behind a
 // Guide — its changed files (`pullRequests.files`) and the Merge / Close PR
@@ -53,14 +55,14 @@ class ChangesViewModel @AssistedInject constructor(
 
     val pullRequest: StateFlow<PullRequestEntity?> =
         dbFlow.scopedQuery<PullRequestEntity?>(null) { it.pullRequestDao().observeById(pullRequestId) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** How many issues the PR closes (the Close PR confirm's batch line). */
     val linkedIssueCount: StateFlow<Int> =
         dbFlow.scopedQuery(emptyList<PullRequestIssueEntity>()) {
             it.pullRequestIssueDao().observeByPullRequest(pullRequestId)
         }.map { it.size }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     private val _load = MutableStateFlow<ChangesLoadState>(ChangesLoadState.Loading)
     val load: StateFlow<ChangesLoadState> = _load

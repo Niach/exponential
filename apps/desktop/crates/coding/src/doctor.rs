@@ -39,7 +39,7 @@
 //! executor (settings "Check tools" button, onboarding, launch step 0).
 
 use crate::agent::CodingAgent;
-use crate::agent_accounts::{now_iso, AgentAccount, AgentAccounts, Importable};
+use crate::agent_accounts::{now_iso, AgentAccount, AgentAccounts};
 use crate::settings::Settings;
 #[cfg(test)]
 use std::time::Duration;
@@ -85,9 +85,10 @@ pub(crate) use eagent::detect::{
 ///   without the cap.
 /// - `account-sign-out` (EXP-1137) — this build runs `agent_profile_sign_out`
 ///   (sign one login out here, keep its row). Same reasoning.
-/// - `agent-import` — this build runs `agent_login {agent, import: "true"}`:
-///   move the agent's AMBIENT login into an account profile (commit by
-///   email). Clients offer the remote Import pill only with it.
+/// - `agent-import` is RETIRED (EXP-1532): importing copied a LIVE
+///   credential into a profile, and whichever copy refreshed first spent the
+///   other's grant — the "signed out every two days" of #FEED-175. Every
+///   profile signs in on its own; a build without the cap shows no Import.
 /// - `agent-usage-refresh` (EXP-792) — this build runs
 ///   `agent_usage_refresh` (a forced usage re-read, 429 floor kept).
 /// - `update-now` (FEED-36) — this build runs `update_now`: ends every live
@@ -95,14 +96,13 @@ pub(crate) use eagent::detect::{
 ///   the desktop advertises it too but updates through its own updater).
 ///
 /// Ceiling check: `devices.register`'s caps input accepts 24 caps
-/// (`apps/web/src/lib/trpc/devices.ts`); this is 8 + 2 = 10.
-pub const DEVICE_CAPS: [&str; 8] = [
+/// (`apps/web/src/lib/trpc/devices.ts`); this is 7 + 2 = 9.
+pub const DEVICE_CAPS: [&str; 7] = [
     "agent-login",
     "acp",
     ACCOUNT_SWITCH_CAP,
     ACCOUNT_REMOVE_CAP,
     ACCOUNT_SIGN_OUT_CAP,
-    AGENT_IMPORT_CAP,
     "agent-usage-refresh",
     "update-now",
 ];
@@ -121,9 +121,6 @@ pub const ACCOUNT_REMOVE_CAP: &str = "account-remove";
 /// so a client deciding whether a machine can sign one of its logins out
 /// never repeats the string.
 pub const ACCOUNT_SIGN_OUT_CAP: &str = "account-sign-out";
-
-/// The ambient-login import cap, by name (see [`DEVICE_CAPS`]).
-pub const AGENT_IMPORT_CAP: &str = "agent-import";
 
 /// The RUN capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
@@ -238,10 +235,6 @@ pub struct ToolCheck {
     /// EXP-1138: the first account profile of this agent that probed signed
     /// in (the last used login first). `None` when none did.
     pub signed_in_profile: Option<String>,
-    /// The agent's AMBIENT login (`~/.claude` / `~/.codex`, no config-dir
-    /// override) while it is signed in — never run on, only offered for
-    /// IMPORT (`AgentAccount::importable`, the doctor item's `import`).
-    pub importable: Option<Importable>,
     /// Every account profile's sign-in probe from this check, the last used
     /// first — what the heartbeat's `profiles[]` rows and the usage
     /// collector's eligibility read, so a beat spawns no probe of its own.
@@ -287,7 +280,7 @@ impl DoctorReport {
 
     /// EXP-1137: re-run ONE agent's check (`check_agent`, exactly what
     /// [`run_doctor`] would build for it) — after a sign-out, a sign-in
-    /// commit or an import, this report's row is stale and would keep naming
+    /// commit, this report's row is stale and would keep naming
     /// the logins as they were.
     pub fn reprobe_agent(&mut self, settings: &Settings, data_dir: &Path, agent: CodingAgent) {
         let check = check_agent(settings, data_dir, agent);
@@ -458,7 +451,6 @@ impl DoctorReport {
             if let Some(account) = &check.account {
                 let mut account = account.clone();
                 account.checked_at = now.to_string();
-                account.importable = check.importable.clone();
                 accounts.insert(agent.id().to_string(), account);
             }
         }
@@ -556,10 +548,25 @@ impl DoctorReport {
                     crate::usage_cache::entry_key(agent.id(), &profile.id),
                     eligible,
                 );
+                // EXP-1533: a long-lived login names its expiry, and a
+                // token-only profile (its browser login gone) keeps the
+                // email it last signed in as: the token names nobody.
+                let token = match agent {
+                    CodingAgent::Claude => crate::agent_profiles::profile_dir(data_dir, agent, &profile.id)
+                        .and_then(|dir| crate::claude_token::read(&dir)),
+                    CodingAgent::Codex => None,
+                };
+                let email = account.email.clone().or_else(|| {
+                    token
+                        .as_ref()
+                        .filter(|_| account.signed_in)
+                        .and_then(|_| crate::agent_profiles::known_email(data_dir, agent, &profile.id))
+                });
                 rows.push(crate::agent_accounts::AgentProfileEntry {
                     id: profile.id.clone(),
                     signed_in: account.signed_in,
-                    email: account.email.clone(),
+                    email,
+                    token_expires_at: token.map(|token| token.expires_at),
                     plan: account.plan.clone(),
                     active: Some(&profile.id) == active.as_ref(),
                     checked_at: now.to_string(),
@@ -663,8 +670,8 @@ impl AgentAdvertisement {
 /// doctor` runs on demand.
 ///
 /// `data_dir` holds the account profiles: an agent's sign-in state is its
-/// PROFILES' ([`apply_auth_gate`]); its ambient login only feeds
-/// [`ToolCheck::importable`].
+/// PROFILES' ([`apply_auth_gate`]); its ambient login is never read
+/// (EXP-1532).
 pub fn run_doctor(settings: &Settings, data_dir: &Path) -> DoctorReport {
     // EXP-419: a Windows installer edits the registry PATH, which a running
     // process never sees — re-read it so "Check tools" (and every later
@@ -730,7 +737,6 @@ pub(crate) fn managed_codex_check(state: crate::managed_codex::State) -> ToolChe
         acp: Some(false),
         acp_note: Some(error),
         signed_in_profile: None,
-        importable: None,
         profiles: Vec::new(),
     }
 }
@@ -808,8 +814,8 @@ Update to {min_major}.{min_minor}.{min_patch}+ to run coding sessions."
 /// profile's identity and the first signed-in profile on a still-green agent
 /// check, and flip it red when no profile is signed in (or there is none).
 /// Runs AFTER the version gate (an old claude may predate `auth status`);
-/// skips already-failed checks and git. The AMBIENT login is probed too, but
-/// only to say whether there is one to import ([`ToolCheck::importable`]).
+/// skips already-failed checks and git. The AMBIENT login is never probed
+/// (EXP-1532: nothing imports it).
 fn apply_auth_gate(check: &mut ToolCheck, program: &str, path_env: &str, data_dir: &Path) {
     let Some(agent) = check.tool.agent() else {
         return;
@@ -818,7 +824,6 @@ fn apply_auth_gate(check: &mut ToolCheck, program: &str, path_env: &str, data_di
         return;
     }
     let now = now_iso();
-    check.importable = probe_ambient_importable(agent, program, path_env);
     let active = crate::agent_profiles::active_profile(data_dir, agent);
     let mut ids: Vec<String> = active.clone().into_iter().collect();
     ids.extend(
@@ -879,34 +884,6 @@ fn apply_auth_gate(check: &mut ToolCheck, program: &str, path_env: &str, data_di
     }
 }
 
-/// The AMBIENT login of `agent` (no config-dir override), when it is signed
-/// in: who it is, for the import offer. claude: `auth status`. codex: `login
-/// status` (an unreadable answer counts when a credential file is there),
-/// named by its `auth.json` id token.
-fn probe_ambient_importable(agent: CodingAgent, program: &str, path_env: &str) -> Option<Importable> {
-    match agent {
-        CodingAgent::Claude => {
-            let status = probe_claude_auth_status_in(program, path_env, None)?;
-            status.logged_in.then(|| Importable {
-                email: status.email.clone(),
-                plan: status.subscription_type.clone(),
-            })
-        }
-        CodingAgent::Codex => {
-            let home = crate::codex_trust::codex_home(None)?;
-            let auth = home.join(crate::agent_login::CODEX_AUTH_FILE);
-            if !auth.is_file() || probe_codex_auth_in(program, path_env, None) == Some(false) {
-                return None;
-            }
-            let identity = crate::agent_login::codex_identity(&auth);
-            Some(Importable {
-                email: identity.email,
-                plan: identity.plan,
-            })
-        }
-    }
-}
-
 /// The wire account row of a [`ClaudeAuthStatus`] (Exponential's
 /// `devices.agentAccounts` vocabulary, so it stays here).
 pub trait ClaudeAuthStatusExt {
@@ -961,16 +938,26 @@ fn probe_profile_full(
     };
     let config = Some((key, config_dir));
     match agent {
-        CodingAgent::Claude => match probe_claude_auth_status_in(program, path_env, config) {
-            Some(status) => (
-                Some(status.logged_in),
-                ProfileAuth {
-                    account: status.account(now),
-                    usage_eligible: status.usage_eligible(),
-                },
-            ),
-            None => (None, ProfileAuth { account: signed_out(now), usage_eligible: false }),
-        },
+        CodingAgent::Claude => {
+            let (raw, mut auth) = match probe_claude_auth_status_in(program, path_env, config) {
+                Some(status) => (
+                    Some(status.logged_in),
+                    ProfileAuth {
+                        account: status.account(now),
+                        usage_eligible: status.usage_eligible(),
+                    },
+                ),
+                None => (None, ProfileAuth { account: signed_out(now), usage_eligible: false }),
+            };
+            // EXP-1533: a valid long-lived token signs the profile in, whatever
+            // its browser login says (runs spend the token). Usage stays the
+            // browser login's: the token cannot read it.
+            if crate::claude_token::valid(config_dir).is_some() {
+                auth.account.signed_in = true;
+                return (Some(true), auth);
+            }
+            (raw, auth)
+        }
         CodingAgent::Codex => {
             let raw = probe_codex_auth_in(program, path_env, config);
             let authed = raw.unwrap_or(false);
@@ -1004,6 +991,8 @@ pub(crate) fn probe_profile_signed_in(
     let key = crate::agent_profiles::config_env_var(agent)?;
     let config = Some((key, config_dir));
     match agent {
+        // EXP-1533: a valid long-lived token is a sign-in without a probe.
+        CodingAgent::Claude if crate::claude_token::valid(config_dir).is_some() => Some(true),
         CodingAgent::Claude => {
             probe_claude_auth_status_in(program, path_env, config).map(|status| status.logged_in)
         }
@@ -1038,7 +1027,6 @@ impl From<rt::ToolCheck> for ToolCheck {
             acp: None,
             acp_note: None,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
         }
     }
@@ -1112,7 +1100,6 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: None,
             acp_note: None,
@@ -1129,7 +1116,6 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: None,
             acp_note: None,
@@ -1795,21 +1781,16 @@ mod tests {
         dir
     }
 
-    /// No profile: no rows (the ambient login is never one), the top-level
-    /// fields are the check's signed-out row, and an ambient login rides as
-    /// `importable`.
+    /// No profile: no rows (the ambient login is never one) and the top-level
+    /// fields are the check's signed-out row.
     #[test]
-    fn an_agent_with_no_profile_reports_no_rows_and_its_importable_login() {
+    fn an_agent_with_no_profile_reports_no_rows() {
         let dir = profile_data_dir("none");
         let mut claude = green(Tool::Claude, "2.1.215 (Claude Code)");
         claude.account = Some(AgentAccount {
             signed_in: false,
             checked_at: "2026-01-01T00:00:00.000Z".into(),
             ..AgentAccount::default()
-        });
-        claude.importable = Some(Importable {
-            email: Some("dev@acme.test".into()),
-            plan: Some("max".into()),
         });
         let report = DoctorReport {
             claude,
@@ -1822,10 +1803,6 @@ mod tests {
         assert!(claude.profiles.is_empty());
         assert!(!claude.signed_in);
         assert_eq!(claude.email, None, "the ambient login never names the row");
-        assert_eq!(
-            claude.importable.as_ref().and_then(|found| found.email.as_deref()),
-            Some("dev@acme.test")
-        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1961,7 +1938,6 @@ mod tests {
             check.error.as_deref(),
             Some("claude is installed but not signed in. Sign in from Settings → Agents, or from the Sign in button on the failed start.")
         );
-        assert_eq!(check.importable, None);
 
         let claude_in = write_stub(
             "claude-in",
@@ -1971,17 +1947,10 @@ mod tests {
         assert!(check.ok, "{:?}", check.error);
         assert_eq!(check.authed, Some(true));
         assert!(check.signed_in_profile.is_some());
-        assert_eq!(
-            check.importable.as_ref().and_then(|found| found.email.as_deref()),
-            Some("dev@acme.test"),
-            "this stub's ambient login is signed in too"
-        );
-        // No profile at all: signed out, whatever the ambient login says —
-        // which is still offered for import.
+        // No profile at all: signed out, whatever the ambient login says.
         let check = checked_in(&bare, Tool::Claude, &claude_in);
         assert!(!check.ok);
         assert!(check.signed_out());
-        assert!(check.importable.is_some());
 
         let codex_out = write_stub(
             "codex-out",
@@ -2079,7 +2048,6 @@ mod tests {
                 check.account.as_ref().is_some_and(|account| account.signed_in),
                 "the top-level row mirrors the last used profile"
             );
-            assert_eq!(check.importable, None, "the stub's ambient login is signed out");
         }
         assert_eq!(report.claude.account.as_ref().unwrap().email.as_deref(), Some("work@acme.test"));
         assert_eq!(report.codex.acp, Some(true));

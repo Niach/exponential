@@ -1,6 +1,9 @@
 import { z } from "zod"
 import { router, authedProcedure } from "@/lib/trpc"
+import { eq } from "drizzle-orm"
+import { sessions } from "@/db/schema"
 import { getSteerRelayConfig, mintSteerTicket } from "@/lib/steer"
+import { loadSessionForUser, sessionDeviceOwner } from "@/lib/sessions/access"
 
 // The steer relay (masterplan §3.5), VAPP-43: device presence, control and
 // eTalk calls, and NO session content. A device holds one CONTROL socket
@@ -12,6 +15,11 @@ import { getSteerRelayConfig, mintSteerTicket } from "@/lib/steer"
 // STEER_RELAY_SECRET: it mints the short-lived HS256 relay tickets (control
 // here, the call pair in `voice.*`). STEER_RELAY_URL unset ⇒ the subsystem
 // reports disabled and every proc degrades gracefully.
+//
+// #EXP-1525: the relay is back as eNet's FALLBACK carrier, ciphertext only
+// (fixtures/steer-enet.json `fallback`): `tunnelTicket` mints a viewer's
+// `tunnel` ticket to the host device of one session. eNet stays primary; a
+// viewer dials this only when eNet stalls, has no feed or drops.
 
 const mintTicketInput = z.discriminatedUnion(`kind`, [
   // Device presence + control socket (account-scoped, no session).
@@ -33,4 +41,35 @@ export const steerRouter = router({
     if (!config) return { disabled: true as const }
     return mintSteerTicket(config, { kind: `control`, userId: ctx.session.user.id })
   }),
+
+  // #EXP-1525: a sealed tunnel ticket for one session. The visibility rule
+  // (loadSessionForUser: a member, and shared or the starter) is the gate;
+  // the tunnel is routed to the session's host device (its steer deviceId
+  // under the host account). A keyless ROOT has no tunnel: the relay may
+  // only ever carry envelopes sealed to the tree key. `unavailable` is a
+  // result, never an error: the viewer stays on eNet.
+  tunnelTicket: authedProcedure
+    .input(z.object({ sessionId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const config = getSteerRelayConfig()
+      if (!config) return { disabled: true as const }
+      const userId = ctx.session.user.id
+      const session = await loadSessionForUser(userId, input.sessionId, ctx.db)
+      if (!session.deviceId) return { unavailable: true as const }
+      const [root] = await ctx.db
+        .select({ sealPublicKey: sessions.sealPublicKey })
+        .from(sessions)
+        .where(eq(sessions.id, session.rootId ?? session.id))
+        .limit(1)
+      if (!root?.sealPublicKey) return { unavailable: true as const }
+      const deviceOwnerId = await sessionDeviceOwner(session, ctx.db)
+      return mintSteerTicket(config, {
+        kind: `tunnel`,
+        userId,
+        teamId: session.teamId,
+        sessionId: session.id,
+        deviceId: session.deviceId,
+        deviceOwnerId,
+      })
+    }),
 })

@@ -1,5 +1,5 @@
 {
-  "id": "52770e04-4ddc-475c-9761-6f22013bc779",
+  "id": "b512e91e-ea9a-4cbb-8436-88301345f01c",
   "prevId": "2e12b20c-e7e2-464a-91e8-f45a625c21a4",
   "version": "7",
   "dialect": "postgresql",
@@ -2949,13 +2949,6 @@
           "type": "jsonb",
           "primaryKey": false,
           "notNull": false
-        },
-        "agent_sign_out_notified": {
-          "name": "agent_sign_out_notified",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
         },
         "agent_usage_at": {
           "name": "agent_usage_at",
@@ -7217,12 +7210,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "device_id": {
-          "name": "device_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "type": {
           "name": "type",
           "type": "notification_type",
@@ -7394,22 +7381,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "idx_notifications_device": {
-          "name": "idx_notifications_device",
-          "columns": [
-            {
-              "expression": "device_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "where": "device_id IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -7471,19 +7442,6 @@
           "tableTo": "sessions",
           "columnsFrom": [
             "session_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "notifications_device_id_devices_id_fk": {
-          "name": "notifications_device_id_devices_id_fk",
-          "tableFrom": "notifications",
-          "tableTo": "devices",
-          "columnsFrom": [
-            "device_id"
           ],
           "columnsTo": [
             "id"
@@ -9558,6 +9516,126 @@
           "value": "(parent_id IS NULL AND depth = 0 AND root_id = id) OR (parent_id IS NOT NULL AND depth > 0)"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.steer_connection_events": {
+      "name": "steer_connection_events",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "varchar(64)",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "at": {
+          "name": "at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "kind": {
+          "name": "kind",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "phase": {
+          "name": "phase",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform": {
+          "name": "platform",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "version": {
+          "name": "version",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "varchar(16)",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_frame_ms": {
+          "name": "first_frame_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_class": {
+          "name": "error_class",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "fallbacks": {
+          "name": "fallbacks",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reconnects": {
+          "name": "reconnects",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "duration_ms": {
+          "name": "duration_ms",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "failures": {
+          "name": "failures",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "idx_steer_connection_events_received": {
+          "name": "idx_steer_connection_events_received",
+          "columns": [
+            {
+              "expression": "received_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.team_invites": {
@@ -11989,8 +12067,7 @@
         "pr_merged",
         "reporter_reply",
         "agent_message",
-        "session_blocked",
-        "agent_signed_out"
+        "session_blocked"
       ]
     },
     "public.pin_kind": {

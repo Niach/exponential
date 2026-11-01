@@ -119,6 +119,10 @@
       "reason": "Global admin console. Operator surface, not a product view; gated by INITIAL_ADMIN_EMAILS."
     },
     {
+      "route": "/admin/connections",
+      "reason": "Global admin console (P2P connection analytics, EXP-1530)."
+    },
+    {
       "route": "/admin/conversions",
       "reason": "Global admin console (cloud-only conversion funnel)."
     },

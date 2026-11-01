@@ -89,26 +89,70 @@ fn apply_start_pick(
     // Settle the profile first, so the rotation below judges a login that
     // exists (an unlisted launch account is never moved).
     resolve_launch_account(options, deps, check);
-    let now_ms = chrono::Utc::now().timestamp_millis();
-    // FEED-61: the runs already live on each login count against it, so
-    // concurrent starts spread instead of sharing one 5h window.
-    let profiles = crate::account_rotation::weigh_live_runs(
-        crate::agent_usage::profile_usage_snapshot(options.agent, &deps.data_dir),
-        &crate::run_registry::live_runs_per_account(&deps.data_dir, options.agent),
-        now_ms,
-    );
-    let model = Some(options.model.as_str()).filter(|model| !model.is_empty());
-    // EXP-1107 (owner decision): the last used login is a pin too, so every
-    // resolved account rides as named.
-    crate::account_rotation::apply_start_pick(
+    let agent = options.agent;
+    let model = Some(options.model.as_str()).filter(|model| !model.is_empty()).map(str::to_string);
+    pick_verified_account(
         &mut options.account,
-        true,
-        &profiles,
+        &deps.data_dir,
         deps.settings.auto_rotate_accounts,
-        options.agent,
-        model,
-        now_ms,
+        agent,
+        model.as_deref(),
+        |profile| profile_signed_out(deps, agent, Some(check), profile),
     )
+}
+
+/// EXP-1532 (#FEED-181) — the start pick, VERIFIED. The pick judges logins
+/// off the usage cache, which can still call a login healthy that the CLI
+/// already signed out (a spent refresh grant); the launch gate's live `auth
+/// status` then refused the start. Now the picked login is probed here: a
+/// sign-out is stamped into the cache at once
+/// ([`crate::usage_cache::note_signed_out`], so the heartbeat and every
+/// later pick see it) and the pick runs again without it — until a login
+/// answers signed in, or none is left and the gate says why.
+pub(crate) fn pick_verified_account(
+    account: &mut Option<String>,
+    data_dir: &Path,
+    auto_rotate: bool,
+    agent: CodingAgent,
+    model: Option<&str>,
+    signed_out: impl Fn(&str) -> bool,
+) -> Option<crate::account_rotation::StartPick> {
+    let requested = account.clone();
+    let mut tries = 0usize;
+    loop {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        // FEED-61: the runs already live on each login count against it, so
+        // concurrent starts spread instead of sharing one 5h window.
+        let profiles = crate::account_rotation::weigh_live_runs(
+            crate::agent_usage::profile_usage_snapshot(agent, data_dir),
+            &crate::run_registry::live_runs_per_account(data_dir, agent),
+            now_ms,
+        );
+        *account = requested.clone();
+        // EXP-1107 (owner decision): the last used login is a pin too, so
+        // every resolved account rides as named.
+        let pick = crate::account_rotation::apply_start_pick(
+            account,
+            true,
+            &profiles,
+            auto_rotate,
+            agent,
+            model,
+            now_ms,
+        );
+        let Some(id) = account.clone() else {
+            return pick;
+        };
+        let known_out = profiles
+            .iter()
+            .any(|profile| profile.profile_id == id && !profile.signed_in);
+        tries += 1;
+        if known_out || tries > profiles.len() || !signed_out(&id) {
+            return pick;
+        }
+        log::warn!("coding: the {} login {id} is signed out — picking another", agent.label());
+        crate::usage_cache::note_signed_out(data_dir, agent.id(), &id);
+    }
 }
 
 /// EXP-1138 / EXP-1158 — settle `options.account` on the login the launch
@@ -1374,10 +1418,26 @@ pub fn apply_account_env(
     data_dir: &Path,
     account: Option<&str>,
 ) -> SpawnSpec {
-    match crate::agent_profiles::config_env(data_dir, agent, account) {
+    let spawn = match crate::agent_profiles::config_env(data_dir, agent, account) {
+        Some((key, value)) => spawn.env(key, value),
+        None => return spawn,
+    };
+    // EXP-1533: a profile holding a long-lived setup token runs on it — no
+    // refresh grant to lose, so the run cannot be signed out under it.
+    match long_lived_env(data_dir, agent, account) {
         Some((key, value)) => spawn.env(key, value),
         None => spawn,
     }
+}
+
+/// EXP-1533 — the `CLAUDE_CODE_OAUTH_TOKEN` pair of a claude profile that
+/// holds a valid setup token ([`crate::claude_token`]).
+pub fn long_lived_env(data_dir: &Path, agent: CodingAgent, account: Option<&str>) -> Option<(String, String)> {
+    if agent != CodingAgent::Claude {
+        return None;
+    }
+    let dir = crate::agent_profiles::account_dir(data_dir, Some(agent), account)?;
+    crate::claude_token::env(&dir)
 }
 
 /// EXP-981: the env var that pins the model claude's SUBAGENTS run on. Claude
@@ -1764,12 +1824,19 @@ fn transient_api_error(err: &ApiError) -> bool {
 }
 
 /// The launch's redactor secrets: the team servers' values plus a team
-/// agent key (the device key is the host's own, masked already).
-fn launch_secrets(team_mcp: &ResolvedMcp, scope: &SessionKeyScope, key: &str) -> McpSecrets {
+/// agent key (the device key is the host's own, masked already), plus
+/// (EXP-1533) the profile's long-lived claude token the run is handed.
+fn launch_secrets(
+    team_mcp: &ResolvedMcp,
+    scope: &SessionKeyScope,
+    key: &str,
+    long_lived: Option<(String, String)>,
+) -> McpSecrets {
     let mut values = team_mcp.secret_values();
     if matches!(scope, SessionKeyScope::AgentTeam(_)) {
         values.push(key.to_string());
     }
+    values.extend(long_lived.map(|(_, token)| token));
     McpSecrets::new(values)
 }
 
@@ -2188,7 +2255,12 @@ fn prepare_session(
             system_append,
             context_layers,
             servers: team_mcp.servers.clone(),
-            mcp_secrets: launch_secrets(&team_mcp, &key_scope, &personal_key),
+            mcp_secrets: launch_secrets(
+                &team_mcp,
+                &key_scope,
+                &personal_key,
+                long_lived_env(&deps.data_dir, options.agent, options.account.as_deref()),
+            ),
             confine_to,
         },
         seed_message_id: None,
@@ -2819,7 +2891,12 @@ fn prepare_resume(
             system_append,
             context_layers,
             servers: team_mcp.servers.clone(),
-            mcp_secrets: launch_secrets(&team_mcp, &key_scope, &personal_key),
+            mcp_secrets: launch_secrets(
+                &team_mcp,
+                &key_scope,
+                &personal_key,
+                long_lived_env(&deps.data_dir, options.agent, options.account.as_deref()),
+            ),
             confine_to,
         },
         seed_message_id: resume.message_id.clone(),
@@ -3419,7 +3496,6 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: Some(true),
             acp_note: None,
@@ -5361,6 +5437,66 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     /// resume): the resume runs on the target profile, the transcript is
     /// HANDED OVER into that profile's own `projects` tree, no credential
     /// travels, and (EXP-935) the continue instruction closes the turn.
+    /// EXP-1532 (#FEED-181): the start pick moved a walled launch onto the
+    /// login with the most headroom, which the usage cache still called
+    /// healthy but `auth status` found signed out — and the start died. Now
+    /// that verdict is stamped into the cache and the pick runs again.
+    #[test]
+    fn a_start_pick_on_a_signed_out_login_moves_to_the_next_working_one() {
+        let dir = temp_dir("verified-pick");
+        let walled = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let stale = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let working = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let mut cache = crate::usage_cache::load(&dir.0);
+        let reset = (chrono::Utc::now() + chrono::Duration::days(2)).to_rfc3339();
+        for (id, weekly) in [(&walled.id, 100u8), (&stale.id, 0), (&working.id, 30)] {
+            cache.insert(
+                crate::usage_cache::entry_key("claude", id),
+                crate::usage_cache::AgentCacheEntry {
+                    account: Some(crate::agent_accounts::AgentAccount {
+                        signed_in: true,
+                        ..Default::default()
+                    }),
+                    health: Some("ok".to_string()),
+                    usage: Some(crate::agent_usage::AgentUsage {
+                        fetched_at: "NOW".to_string(),
+                        stale: false,
+                        windows: vec![crate::agent_usage::UsageWindow {
+                            key: "weekly".to_string(),
+                            label: "Week".to_string(),
+                            percent: weekly,
+                            resets_at: Some(reset.clone()),
+                        }],
+                    }),
+                    ..Default::default()
+                },
+            );
+        }
+        crate::usage_cache::save(&dir.0, &cache);
+
+        let probed = std::cell::RefCell::new(Vec::new());
+        let mut account = Some(walled.id.clone());
+        let pick = pick_verified_account(&mut account, &dir.0, true, CodingAgent::Claude, None, |id| {
+            probed.borrow_mut().push(id.to_string());
+            id == stale.id
+        })
+        .expect("moved off the walled login");
+        assert_eq!(account.as_deref(), Some(working.id.as_str()));
+        assert_eq!(pick.to, working.id);
+        assert_eq!(*probed.borrow(), vec![stale.id.clone(), working.id.clone()]);
+        let snapshot = crate::agent_usage::profile_usage_snapshot(CodingAgent::Claude, &dir.0);
+        let row = snapshot.iter().find(|row| row.profile_id == stale.id).unwrap();
+        assert!(!row.signed_in);
+        assert_eq!(row.health, crate::agent_accounts::Health::SignedOut);
+
+        // A PINNED login that is signed out moves too, rotation off or on.
+        let mut account = Some(stale.id.clone());
+        let pick = pick_verified_account(&mut account, &dir.0, false, CodingAgent::Claude, None, |_| false)
+            .expect("moved off the signed-out pin");
+        assert_eq!(account.as_deref(), Some(working.id.as_str()));
+        assert!(pick.message.ends_with("is signed out"), "{}", pick.message);
+    }
+
     #[test]
     fn a_resume_hands_the_transcript_to_the_target_account() {
         let dir = temp_dir("resume-switch");

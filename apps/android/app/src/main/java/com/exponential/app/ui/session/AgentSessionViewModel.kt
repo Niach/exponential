@@ -1,5 +1,6 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.domain.ComposerSend
 import com.exponential.app.domain.Chats
 import android.net.Uri
 import android.os.SystemClock
@@ -88,6 +89,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
 
 // EXP-554: the steer composer's own PendingSteerImage became the shared
 // `PendingAttachment` (domain/PendingAttachment.kt), which the comment
@@ -208,7 +210,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                     }
                 }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** EXP-656: when our own `devices` shape last completed a poll — presence
      *  derived from an unrefreshed cursor is unknown, never offline. */
@@ -248,7 +250,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 ),
             )
         }
-    }.stateIn(
+    }.flowOn(Dispatchers.Default).stateIn(
         viewModelScope,
         SharingStarted.WhileSubscribed(5_000),
         SessionDevicePresentation.Unknown,
@@ -264,7 +266,7 @@ class AgentSessionViewModel @AssistedInject constructor(
      */
     val hostDeviceOffline: StateFlow<Boolean> = combine(hostDevice, session) { device, row ->
         device.offline && row != null && row.status == DomainContract.sessionStatusRunning
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /**
      * EXP-909: the synced `devices` row of the machine this run is on — the
@@ -293,21 +295,21 @@ class AgentSessionViewModel @AssistedInject constructor(
         auth.userId,
     ) { device, now, userId ->
         device?.toSteerDevice(now, userId)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** EXP-1334: the host machine reads the per-run `computerUse` flag (the
      *  "+" menu's Computer use row). */
     val hostCanToggleComputerUse: StateFlow<Boolean> = hostSteerDevice
         .map { it?.canToggleComputerUse == true }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** The host device's synced launch defaults — the composer's model pin
      *  falls back to them before the relay names the model in force. */
     val hostLaunchDefaults: StateFlow<DeviceLaunchDefaults?> = hostDeviceRow
         .map { parseLaunchDefaults(it?.launchDefaults) }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-1291: the issues the session's THREAD links (`session_issues` on its
@@ -330,12 +332,12 @@ class AgentSessionViewModel @AssistedInject constructor(
                 }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The thread's first issue (null for an issue-less session). */
     val issue: StateFlow<IssueEntity?> = issues
         .map { it.firstOrNull() }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-688: the host machine's sign-in for the SAME agent — the Usage
@@ -349,7 +351,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     ) { row, device ->
         val agent = row?.cli?.takeIf { it.isNotBlank() } ?: return@combine null
         AgentUsagePresentation.parseAccounts(device?.agentAccounts)?.get(agent)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-849 phase 3: everything the mid-session account switch gates on,
@@ -387,7 +389,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 ?: row.deviceId,
             currentAccount = row.account,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionAccountSwitchState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionAccountSwitchState())
 
     /**
      * EXP-1252: the Device pin's rows — THE launch composer's machines for the
@@ -420,7 +422,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             label = SessionDeviceMove.pinLabel(rows, row.deviceId),
             deviceId = row.deviceId,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionDeviceMoveState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SessionDeviceMoveState())
 
     /**
      * EXP-484/EXP-909: the rate-limit windows the Usage overlay heads with —
@@ -448,7 +450,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         val ambient = AgentUsagePresentation.parseUsageMap(device?.agentUsage)?.get(agent)
         val current = switch.options.firstOrNull { it.current } ?: return@combine ambient
         current.usage ?: ambient.takeIf { current.active }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-909: one on-demand usage refresh when the overlay OPENS — the same
@@ -522,6 +524,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                 }
             }
         }
+        // EXP-1521: filtering + sorting every issue is off the main thread.
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
@@ -561,7 +565,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }
         .map { users -> users.map { MentionMember(it.name ?: it.email, it.email) } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * Probed sizes of the linked issue's attachments (REV2-79) — the feed
@@ -581,7 +585,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }
         .map { rows -> AttachmentDims.fromRows(rows) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AttachmentDims.Empty)
 
     val currentUserId: StateFlow<String?> = auth.userId
 
@@ -595,6 +599,37 @@ class AgentSessionViewModel @AssistedInject constructor(
     val connected: StateFlow<Boolean> = connection.connected
 
     val activity: StateFlow<ActivityFeedState> = connection.activity
+
+    /**
+     * EXP-1521: the composer's slice of [activity]. A working agent re-sends
+     * its `turn` slot every couple of seconds (the clock, the tokens,
+     * "Writing…"); read whole, every tick recomposed the composer, its field
+     * included, which on a phone was a micro-stall mid-word. This emits only
+     * when the composer's own inputs change.
+     */
+    data class ComposerActivity(val turnState: String, val compacting: Boolean, val asking: Boolean)
+
+    val composerActivity: StateFlow<ComposerActivity> = activity
+        .map(::composerActivityOf)
+        .distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), composerActivityOf(activity.value))
+
+    /** EXP-1521: the Dock's slice of [activity] (same reason as [composerActivity]). */
+    data class DockActivity(
+        val feed: List<com.exponential.app.domain.AgentFeedItem>,
+        val queue: List<QueuedMessage>,
+        val taskList: List<com.exponential.app.domain.TaskListEntry>,
+        val backgroundTasks: List<com.exponential.app.domain.BackgroundTask>,
+        val rateLimit: com.exponential.app.domain.SessionRateLimitState?,
+        val turnState: String,
+        val compacting: com.exponential.app.domain.CompactionState?,
+    )
+
+    val dockActivity: StateFlow<DockActivity> = activity
+        .map(::dockActivityOf)
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), dockActivityOf(activity.value))
 
     /** EXP-773: an ENDED run's transcript is fetched from the machine that ran
      *  it — this is that fetch's status. Null on a live run. */
@@ -611,7 +646,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     private val _uploadError = MutableStateFlow<String?>(null)
     val steerImageError: StateFlow<String?> = combine(_uploadError, connection.steerImageError) { own, relay ->
         own ?: relay
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** A failed `sessions.send` / `sessions.unqueue` — FEED-79: the error
      *  toast `Couldn't send the message`, raised once by the screen. */
@@ -640,6 +675,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             messages.filter { it.authorKind == DomainContract.messageAuthorKindAgent }.maxOfOrNull { it.createdAt }
         }
         .distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
@@ -651,6 +687,8 @@ class AgentSessionViewModel @AssistedInject constructor(
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
         .map { rows -> SessionTree.composerReplies(codingSessionId, rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
+        // EXP-1521: per-message card JSON parsing, off the main thread.
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _replyPending = MutableStateFlow(false)
@@ -719,29 +757,42 @@ class AgentSessionViewModel @AssistedInject constructor(
                     issues,
                     session,
                 ) { tree, messages, links, linked, row ->
-                    val me = row ?: return@combine null
-                    val sessions = tree.map(SessionTree::session)
-                    val rootRow = sessions.firstOrNull { it.id == root } ?: SessionTree.session(me)
-                    val mine = sessions.firstOrNull { it.id == me.id } ?: SessionTree.session(me)
-                    val titles = SessionTree.sessionTitles(
-                        listOf(rootRow, mine).distinctBy { it.id },
-                        links.map(SessionTree::sessionIssue),
-                        linked.map { SessionTree.issue(it) },
-                        messages,
-                    )
-                    val title = titles.getValue(rootRow.id)
-                    val name = titles.getValue(mine.id)
-                    Header(threadTitle = title, sessionName = name)
-                }
+                    com.exponential.app.domain.perfTrace("AgentSessionViewModel.header") { headerOf(root, tree, messages, links, linked, row) }
+                    // EXP-1522: every message write re-derives the titles over
+                    // the whole tree's messages: off the main thread.
+                }.flowOn(kotlinx.coroutines.Dispatchers.Default)
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    private fun headerOf(
+        root: String,
+        tree: List<SessionEntity>,
+        messages: List<SessionTree.Message>,
+        links: List<SessionIssueEntity>,
+        linked: List<com.exponential.app.data.db.IssueEntity>,
+        row: SessionEntity?,
+    ): Header? {
+        val me = row ?: return null
+        val sessions = tree.map(SessionTree::session)
+        val rootRow = sessions.firstOrNull { it.id == root } ?: SessionTree.session(me)
+        val mine = sessions.firstOrNull { it.id == me.id } ?: SessionTree.session(me)
+        val titles = SessionTree.sessionTitles(
+            listOf(rootRow, mine).distinctBy { it.id },
+            links.map(SessionTree::sessionIssue),
+            linked.map { SessionTree.issue(it) },
+            messages,
+        )
+        val title = titles.getValue(rootRow.id)
+        val name = titles.getValue(mine.id)
+        return Header(threadTitle = title, sessionName = name)
+    }
 
     /** S-3: the synced agent definitions by id (the origin link's mark). */
     val agentMarks: StateFlow<Map<String, com.exponential.app.data.db.AgentDefinitionEntity>> =
         dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() }
             .map { rows -> rows.associateBy { it.id } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** S-3: the session page's `origin` link ([root] = the target is a
      *  root: it opens as its thread, else as its session view). */
@@ -790,7 +841,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             }
         }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-1291: the viewer's OWN messages the server still holds for this
@@ -807,7 +858,8 @@ class AgentSessionViewModel @AssistedInject constructor(
                 val opened = com.exponential.app.data.sealed.SealedContent.openMessage(row.rootId, row.body, row.card)
                 QueuedMessage(id = row.id, text = opened.locked?.let(com.exponential.app.domain.SealedPlaceholder::copy) ?: opened.body)
             }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        // EXP-1522: opening a sealed body is native crypto: off the main thread.
+    }.flowOn(kotlinx.coroutines.Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The composer's typed text — held by the connection, so it survives a
      *  reconnect, a back-tap and a rotation alike. */
@@ -823,14 +875,14 @@ class AgentSessionViewModel @AssistedInject constructor(
     val sessionConfig: StateFlow<SessionConfigState?> = connection.activity
         .map { it.config }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** EXP-746: this run's context window + spend, same latest-wins rule —
      *  the Usage sheet's "Context" block. Null when the engine reports none. */
     val sessionUsage: StateFlow<SessionUsageState?> = connection.activity
         .map { it.usage }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** EXP-1051: how that window is laid out — the device's attribution of
      *  the context it filled before the first turn, the second half of the
@@ -839,7 +891,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     val sessionContextLayout: StateFlow<List<ContextSegment>?> = connection.activity
         .map { it.contextLayout }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-724: the curated slash commands the `/` menu should offer for the
@@ -857,7 +909,7 @@ class AgentSessionViewModel @AssistedInject constructor(
             text,
             SlashCommands.agentId(row?.cli, config != null),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** NEW-2: the session's team's prompts, the `/` menu's rows after the
      *  builtins (the synced, body-less `prompts`). */
@@ -879,7 +931,7 @@ class AgentSessionViewModel @AssistedInject constructor(
     /** #EXP-1434: the "+" menu's Prompts › rows = the team's prompts in the
      *  `/` menu's order. */
     val promptRows: StateFlow<List<com.exponential.app.domain.SlashPrompt>> =
-        teamPrompts.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        teamPrompts.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * NEW-2: THE `/` menu's rows ×4 = the builtins [slashMatches] offers,
@@ -893,7 +945,7 @@ class AgentSessionViewModel @AssistedInject constructor(
         teamPrompts,
     ) { text, row, config, prompts ->
         SlashCommands.candidates(text, SlashCommands.agentId(row?.cli, config != null), prompts)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _promptFailure = MutableStateFlow<com.exponential.app.ui.components.FailedAction?>(null)
     /** FEED-79: a picked prompt whose body could not load, raised once. */
@@ -1109,8 +1161,10 @@ class AgentSessionViewModel @AssistedInject constructor(
             _sendRefusal.value = SlashCommands.COMMAND_WITH_ATTACHMENTS
             return
         }
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
+        // EXP-1522: on the store's scope, not the ViewModel's: backing out
+        // right after Send must not cancel the upload or the send.
+        store.launchDetached {
+            val accountId = auth.activeAccountId.value ?: return@launchDetached
             _sending.value = true
             _uploadError.value = null
             try {
@@ -1130,7 +1184,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                             t,
                             if (image.isImage) "The image could not be uploaded" else "The file could not be uploaded",
                         )
-                        return@launch
+                        return@launchDetached
                     }
                     ids += id
                 }
@@ -1142,10 +1196,12 @@ class AgentSessionViewModel @AssistedInject constructor(
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
                     _sendError.value = trpcErrorMessage(t, "")
-                    return@launch
+                    return@launchDetached
                 }
-                for (index in images.indices.reversed()) connection.removePendingImage(index)
-                connection.setDraft("")
+                // EXP-1537 (composer-send.json): the text clears only if the
+                // field still holds what went out; exactly the sent files
+                // leave, one picked or removed meanwhile is left alone.
+                connection.settleSend(ComposerSend.Outcome.Sent, text, images)
             } finally {
                 _sending.value = false
             }
@@ -1324,13 +1380,14 @@ class AgentSessionViewModel @AssistedInject constructor(
         .scopedQuery(emptyList<MessageEntity>()) { it.messageDao().observeBySession(codingSessionId) }
         .map { rows -> SessionTree.sessionCardRows(rows.map { SessionTree.message(it, codingSessionId) }) }
         .distinctUntilChanged()
+        .flowOn(kotlinx.coroutines.Dispatchers.Default)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The plan / question rows of [sessionCards] (the dock's sources). */
     val toolAsks: StateFlow<List<SessionTree.ThreadRow>> = sessionCards
         .map { cards -> cards.filter { it.first.kind != AskDock.SessionCardKind.Surface }.map { it.second } }
         .distinctUntilChanged()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Answer a tool-posted card; [settled] = whether the call went through
      *  (a failure toasts `Couldn't answer the <thing>`). */
@@ -1426,4 +1483,20 @@ internal fun AgentSessionViewModel.ConfigurePicks.dropSettledBy(row: SessionEnti
         ultracode = row.ultracode,
         computerUse = row.computerUse,
     ),
+)
+
+internal fun composerActivityOf(state: ActivityFeedState) = AgentSessionViewModel.ComposerActivity(
+    turnState = state.turnState,
+    compacting = state.compacting != null,
+    asking = com.exponential.app.domain.activeQuestionIds(state.feed).isNotEmpty(),
+)
+
+internal fun dockActivityOf(state: ActivityFeedState) = AgentSessionViewModel.DockActivity(
+    feed = state.feed,
+    queue = state.queue,
+    taskList = state.taskList,
+    backgroundTasks = state.backgroundTasks,
+    rateLimit = state.rateLimit,
+    turnState = state.turnState,
+    compacting = state.compacting,
 )

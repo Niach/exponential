@@ -58,7 +58,9 @@ public enum ComposerMenu {
         public var temporary: Bool
         /// The device can change here (launch while temporary).
         public var device: Bool
-        /// The login can change here (launch while temporary).
+        /// The login can change here (launch while temporary; #EXP-1535 a
+        /// session or an agent chat while its device is online and the
+        /// viewer steers it: the pick = the session account switch).
         public var account: Bool
         /// The model can change here (launch while temporary; a session or
         /// an agent chat whose agent switches models).

@@ -24,6 +24,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.components.Blocking
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 // Powers the Board tab: the board menu the bottom strip morphs into
 // (#EXP-1384, AppNavHost) and the Issues tab root's bootstrap — the
@@ -90,7 +92,7 @@ class HomeViewModel @Inject constructor(
             // group ⇒ at least one team (blocks include boardless teams).
             activeAccountHasTeam = activeGroup != null,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), HomeState())
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error

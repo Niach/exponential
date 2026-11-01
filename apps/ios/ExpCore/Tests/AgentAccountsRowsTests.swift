@@ -186,7 +186,8 @@ final class AgentAccountsRowsTests: XCTestCase {
                 {"claude":{"signedIn":true,"email":"work@acme.test","checkedAt":"2026-08-28T11:00:00.000Z",
                  "profiles":[
                    {"id":"5e5e5e5e","label":"Default","signedIn":true,"email":"work@acme.test","plan":"max","active":true,
-                    "checkedAt":"2026-08-28T11:10:00.000Z","lastLoginAt":"2026-08-28T10:00:00.000Z"},
+                    "checkedAt":"2026-08-28T11:10:00.000Z","lastLoginAt":"2026-08-28T10:00:00.000Z",
+                    "tokenExpiresAt":"2027-08-28T10:00:00.000Z"},
                    {"id":"0a1b2c3d","label":"Personal","signedIn":true,"email":"home@acme.test","active":false,
                     "usage":\(usageJson("2026-08-28T11:20:00.000Z", "weekly", 61))},
                    {"id":"9f9f9f9f","signedIn":false,"active":false}
@@ -205,6 +206,8 @@ final class AgentAccountsRowsTests: XCTestCase {
         // The active profile without numbers of its own reads the old slot.
         XCTAssertEqual(AgentAccountsRows.peakPercent(work.usage), 42)
         XCTAssertEqual(work.checkedAt, "2026-08-28T11:10:00.000Z")
+        // EXP-1533: the long-lived login's expiry rides the row.
+        XCTAssertEqual(work.tokenExpiresAt, "2027-08-28T10:00:00.000Z")
 
         let personal = rows[1]
         XCTAssertEqual(AgentAccountsRows.loginLabel(personal), "home@acme.test")
@@ -213,6 +216,7 @@ final class AgentAccountsRowsTests: XCTestCase {
         XCTAssertEqual(AgentAccountsRows.peakPercent(personal.usage), 61)
         // No probe stamp of its own: the account's.
         XCTAssertEqual(personal.checkedAt, "2026-08-28T11:00:00.000Z")
+        XCTAssertNil(personal.tokenExpiresAt)
 
         let old = rows[2]
         XCTAssertFalse(old.signedIn)
@@ -399,6 +403,75 @@ final class AgentAccountsRowsTests: XCTestCase {
             AgentAccountsRows.signOutConfirmCopy(account: "me@example.com", device: "mint"),
             "Sign me@example.com out on mint? The login stays listed so it can sign in again; the account itself is untouched."
         )
+    }
+
+    // EXP-1533: a claude login offers the long-lived entry right after Sign
+    // in — "Keep signed in" until its row carries `tokenExpiresAt`, then
+    // "Renew long-lived login" (byte-identical ×4). Other agents: none.
+    func testTheChipMenuOffersTheLongLivedLoginOnClaudeOnly() throws {
+        func chip(
+            _ agent: String,
+            signedIn: Bool = true,
+            tokenExpiresAt: String? = nil
+        ) -> AgentProfileUsageRow {
+            AgentProfileUsageRow(
+                key: "dev:\(agent):work",
+                deviceId: "dev",
+                deviceLabel: "mint",
+                mine: true,
+                online: true,
+                agent: agent,
+                profileId: "work",
+                active: true,
+                signedIn: signedIn,
+                email: "me@example.com",
+                plan: nil,
+                usage: nil,
+                checkedAt: nil,
+                health: signedIn ? .ok : .signedOut,
+                tokenExpiresAt: tokenExpiresAt
+            )
+        }
+        XCTAssertEqual(AgentAccountsRows.chipLongLivedLabel(chip("claude")), "Keep signed in")
+        XCTAssertEqual(
+            AgentAccountsRows.chipLongLivedLabel(chip("claude", signedIn: false)),
+            "Keep signed in"
+        )
+        XCTAssertEqual(
+            AgentAccountsRows.chipLongLivedLabel(
+                chip("claude", tokenExpiresAt: "2027-10-01T10:00:00.000Z")
+            ),
+            "Renew long-lived login"
+        )
+        // An empty stamp is no token.
+        XCTAssertEqual(
+            AgentAccountsRows.chipLongLivedLabel(chip("claude", tokenExpiresAt: "")),
+            "Keep signed in"
+        )
+        XCTAssertNil(AgentAccountsRows.chipLongLivedLabel(chip("codex")))
+        XCTAssertNil(
+            AgentAccountsRows.chipLongLivedLabel(
+                chip("codex", tokenExpiresAt: "2027-10-01T10:00:00.000Z")
+            )
+        )
+    }
+
+    // EXP-1533: `tokenExpiresAt` decodes off a profile entry, and a garbled
+    // one degrades to nil without throwing the profile away.
+    func testAProfileDecodesItsTokenExpiry() throws {
+        let decoder = JSONDecoder()
+        let held = try decoder.decode(
+            AgentAccountProfile.self,
+            from: Data(#"{"id":"a","tokenExpiresAt":"2027-10-01T10:00:00.000Z"}"#.utf8)
+        )
+        XCTAssertEqual(held.tokenExpiresAt, "2027-10-01T10:00:00.000Z")
+        let none = try decoder.decode(AgentAccountProfile.self, from: Data(#"{"id":"b"}"#.utf8))
+        XCTAssertNil(none.tokenExpiresAt)
+        let garbled = try decoder.decode(
+            AgentAccountProfile.self, from: Data(#"{"id":"c","tokenExpiresAt":7}"#.utf8)
+        )
+        XCTAssertEqual(garbled.id, "c")
+        XCTAssertNil(garbled.tokenExpiresAt)
     }
 
     // MARK: - Signing in: the landing by email

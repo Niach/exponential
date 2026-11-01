@@ -3,3 +3,5 @@
 - Ny app åbner editoren med det samme, og agenten navngiver din app
 - Arbejdslinjen viser, hvilket værktøj agenten skriver, og hvor længe
 - Hurtigsvar over tekstfeltet er nemmere at læse
+- Apps får fanerne Chat, Data, Versioner og Indstillinger i editoren
+- Indstillinger › MCP er én side til dine MCP-servere, appværktøjer og aktivitet

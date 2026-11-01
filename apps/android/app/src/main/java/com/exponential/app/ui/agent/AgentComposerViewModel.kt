@@ -38,6 +38,8 @@ import com.exponential.app.domain.steerAttachmentRefusal
 import com.exponential.app.domain.uploadedImageIds
 import com.exponential.app.domain.uploadedSteerFiles
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.ComposerSend
+import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isInlineImage
 import com.exponential.app.ui.components.DEFAULT_AGENT
@@ -68,6 +70,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import com.exponential.app.domain.AgentHome
 import com.exponential.app.domain.FeedbackStates
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 // EXP-825: the ONE launcher's state — the Agent page composer. It replaced the
 // three-tab Start-coding sheet (Issues | Actions | Chat, EXP-257/EXP-615) and
@@ -186,6 +190,7 @@ class AgentComposerViewModel @Inject constructor(
     holder: DatabaseHolder,
     selection: TeamSelection,
     private val steerLaunch: SteerLaunchDelegate,
+    private val store: SteerConnectionStore,
     private val imagesApi: IssueImagesApi,
     private val issuesApi: IssuesApi,
     private val mcpServersApi: McpServersApi,
@@ -216,7 +221,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     val teamId: StateFlow<String?> =
         routeTeamIdFlow(dbFlow, savedStateHandle, selection.selectedId)
-            .stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, selection.selectedId.value)
 
     // ── The shared launch rails ─────────────────────────────────────────────
     val steerEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
@@ -254,7 +259,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     val candidateDevices: StateFlow<List<SteerDevice>?> = steerLaunch.devices
         .map { devices -> devices?.filter { it.hasRunnableAgent } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // ── Subject ─────────────────────────────────────────────────────────────
     private val _subject = MutableStateFlow<ComposerSubject?>(null)
@@ -267,11 +272,11 @@ class AgentComposerViewModel @Inject constructor(
      */
     val allIssues: StateFlow<List<IssueEntity>> =
         dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val allRelations: StateFlow<List<IssueRelationEntity>> =
         dbFlow.scopedQuery(emptyList<IssueRelationEntity>()) { it.issueRelationDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * EXP-980: what still BLOCKS the picked issues — the open `blocks`
@@ -291,7 +296,7 @@ class AgentComposerViewModel @Inject constructor(
         // empty seeds; eager keeps them live for the composer's lifetime.
         // [submit] does NOT read this flow's `.value` (a combine lands a hop
         // behind its sources): it recomputes from the pools on the tap.
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /**
      * SLOP-3: every synced board; an issue's repository is its board's
@@ -299,7 +304,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     private val allBoards: StateFlow<List<BoardEntity>> =
         dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     // ── Home (EXP-1253, composer-home.json) ─────────────────────────────────
     /** The caller's user-row name: the greeting's `{name}` (null = none synced). */
@@ -307,7 +312,7 @@ class AgentComposerViewModel @Inject constructor(
         .flatMapLatest { (db, userId) ->
             if (db == null || userId == null) flowOf(null) else db.userDao().observeById(userId).map { it?.name }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * Whether THIS team has a live board; null until the boards have synced.
@@ -315,7 +320,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     val teamHasBoard: StateFlow<Boolean?> = combine(dbFlow, allBoards, teamId) { db, boards, team ->
         if (db == null || team == null) null else boards.any { it.teamId == team && it.deletedAt == null }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // ── Draft ───────────────────────────────────────────────────────────────
     private val _draft = MutableStateFlow("")
@@ -411,16 +416,45 @@ class AgentComposerViewModel @Inject constructor(
                 _starting.value = null
                 timeoutToastId?.let { _dismissToast.value = it }
                 timeoutToastId = null
-                clearSentDraft()
                 _openSessionId.value = id
             }
         }
     }
 
-    private fun clearSentDraft() {
-        _images.value = emptyList()
-        _draft.value = ""
-        _subject.value = null
+    /**
+     * EXP-1537 (composer-send.json): an accepted send leaves what was typed
+     * or picked while it was in flight. [text] / [sent] = the field and its
+     * files when Send was pressed; the subject clears if it is still the one
+     * that went out.
+     */
+    private fun settleSentDraft(text: String, sent: List<PendingAttachment>, subject: ComposerSubject?) {
+        val after = ComposerSend.settle(ComposerSend.Outcome.Sent, text, sent, _draft.value, _images.value)
+        _draft.value = after.text
+        _images.value = after.attachments
+        if (_subject.value == subject) _subject.value = null
+    }
+
+    /**
+     * Upload [images] against [teamId] in order, each id stamped on the live
+     * pick (by key: one added or removed meanwhile is left alone) and on the
+     * returned copy, so a retry only uploads the rest.
+     */
+    private suspend fun uploadPending(
+        accountId: String,
+        teamId: String,
+        images: List<PendingAttachment>,
+    ): List<PendingAttachment> = images.map { image ->
+        if (image.uploadedId != null) return@map image
+        val uploaded = imagesApi.uploadTeamSessionImage(
+            accountId,
+            teamId,
+            image.bytes,
+            image.filename,
+            image.contentType,
+        )
+        val stamped = image.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename)
+        _images.value = _images.value.map { if (it.key == image.key) stamped else it }
+        stamped
     }
 
     // ── Launch options (EXP-437 seeding) ────────────────────────────────────
@@ -434,7 +468,7 @@ class AgentComposerViewModel @Inject constructor(
      */
     val device: StateFlow<SteerDevice?> = combine(candidateDevices, _launch) { devices, draft ->
         LaunchDeviceRules.resolve(devices.orEmpty(), draft.requestedDeviceId, draft.pickedDeviceId)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
      * EXP-836: why the machine a play button NAMED is not the one this run
@@ -445,7 +479,7 @@ class AgentComposerViewModel @Inject constructor(
     val deviceRequestNote: StateFlow<String?> =
         combine(_launch, device, steerLaunch.registry) { draft, settled, registry ->
             LaunchDeviceRules.requestNote(draft.requestedDeviceId, settled?.deviceId, registry)
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     // The machine whose defaults currently seed the options — a re-poll that
     // re-emits the SAME device must not stomp the user's edits (EXP-437).
@@ -485,7 +519,7 @@ class AgentComposerViewModel @Inject constructor(
                 }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /**
      * EXP-892: the composer's `#` menu server half — `issues.search` over the
@@ -513,7 +547,7 @@ class AgentComposerViewModel @Inject constructor(
             }
         }
         .map { users -> users.map { MentionMember(it.name ?: it.email, it.email) } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     init {
         applySeed(seed)
@@ -756,7 +790,7 @@ class AgentComposerViewModel @Inject constructor(
      *  `launch_defaults.computerUse`. */
     val computerUse: StateFlow<Boolean> = combine(_computerUsePick, device) { pick, d ->
         pick ?: (d?.launchDefaults?.computerUse == true)
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     fun setComputerUse(value: Boolean) {
         _computerUsePick.value = value
@@ -813,10 +847,11 @@ class AgentComposerViewModel @Inject constructor(
         deviceId: String,
         text: String?,
         attachmentIds: List<String>,
+        // EXP-1537: a submit passes the subject Send found, not the live one.
+        subject: ComposerSubject? = _subject.value,
     ): SessionsSendInput {
         val draft = _launch.value
         val agent = draft.agent
-        val subject = _subject.value
         return SessionsSendInput.root(
             teamId = teamId,
             deviceId = deviceId,
@@ -856,48 +891,41 @@ class AgentComposerViewModel @Inject constructor(
         val teamId = teamId.value ?: return
         val accountId = auth.activeAccountId.value ?: return
         val label = target.deviceLabel.ifBlank { target.deviceId }
-        viewModelScope.launch {
+        // EXP-1537: what goes out is the composer as Send found it; the field
+        // stays editable meanwhile.
+        val draftText = _draft.value
+        val images = _images.value
+        val subject = _subject.value
+        // EXP-1537: on the store's scope, not the ViewModel's: leaving the
+        // screen right after Send must not cancel the uploads or the start.
+        store.launchDetached {
             _sending.value = true
             timeoutToastId?.let { _dismissToast.value = it }
             timeoutToastId = null
             _starting.value = ComposerStarting(label, System.currentTimeMillis())
             var accepted = false
             try {
-                try {
-                    var current = _images.value
-                    for ((index, image) in current.withIndex()) {
-                        if (image.uploadedId == null) {
-                            val uploaded = imagesApi.uploadTeamSessionImage(
-                                accountId,
-                                teamId,
-                                image.bytes,
-                                image.filename,
-                                image.contentType,
-                            )
-                            current = current.mapIndexed { i, entry ->
-                                if (i == index) entry.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename) else entry
-                            }
-                            _images.value = current
-                        }
-                    }
+                val sent = try {
+                    uploadPending(accountId, teamId, images)
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
                     _uploadFailure.value = trpcErrorMessage(t, "")
-                    return@launch
+                    return@launchDetached
                 }
-                val uploadedSet = _images.value
                 val text = AgentComposerPrompt.build(
-                    _draft.value,
-                    uploadedSet.uploadedImageIds(),
-                    uploadedSet.uploadedSteerFiles(),
+                    draftText,
+                    sent.uploadedImageIds(),
+                    sent.uploadedSteerFiles(),
                 )
                 val input = sendInput(
                     teamId = teamId,
                     deviceId = target.deviceId,
                     text = text,
-                    attachmentIds = uploadedSet.mapNotNull { it.uploadedId },
+                    attachmentIds = sent.mapNotNull { it.uploadedId },
+                    subject = subject,
                 )
                 accepted = steerLaunch.send(input, label) != null
+                if (accepted) settleSentDraft(draftText, sent, subject)
             } finally {
                 _sending.value = false
                 if (!accepted) _starting.value = null
@@ -916,45 +944,33 @@ class AgentComposerViewModel @Inject constructor(
     private fun submitToAgent(agentId: String, issueIds: List<String>?) {
         val teamId = teamId.value ?: return
         val accountId = auth.activeAccountId.value ?: return
-        viewModelScope.launch {
+        val draftText = _draft.value
+        val images = _images.value
+        val subject = _subject.value
+        store.launchDetached {
             _sending.value = true
             try {
-                try {
-                    var current = _images.value
-                    for ((index, image) in current.withIndex()) {
-                        if (image.uploadedId == null) {
-                            val uploaded = imagesApi.uploadTeamSessionImage(
-                                accountId,
-                                teamId,
-                                image.bytes,
-                                image.filename,
-                                image.contentType,
-                            )
-                            current = current.mapIndexed { i, entry ->
-                                if (i == index) entry.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename) else entry
-                            }
-                            _images.value = current
-                        }
-                    }
+                val sent = try {
+                    uploadPending(accountId, teamId, images)
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
                     _uploadFailure.value = trpcErrorMessage(t, "")
-                    return@launch
+                    return@launchDetached
                 }
-                val uploadedSet = _images.value
                 val text = AgentComposerPrompt.build(
-                    _draft.value,
-                    uploadedSet.uploadedImageIds(),
-                    uploadedSet.uploadedSteerFiles(),
+                    draftText,
+                    sent.uploadedImageIds(),
+                    sent.uploadedSteerFiles(),
                 ).orEmpty()
-                steerLaunch.send(
+                val accepted = steerLaunch.send(
                     SessionsSendInput.toAgent(
                         agentId = agentId,
                         text = text,
-                        attachmentIds = uploadedSet.mapNotNull { it.uploadedId },
+                        attachmentIds = sent.mapNotNull { it.uploadedId },
                         issueIds = issueIds,
                     ),
-                )
+                ) != null
+                if (accepted) settleSentDraft(draftText, sent, subject)
             } finally {
                 _sending.value = false
             }

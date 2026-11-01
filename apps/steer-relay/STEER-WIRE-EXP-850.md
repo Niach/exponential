@@ -16,7 +16,11 @@ with `error content_refused`, and mints no publisher or viewer tickets. It
 keeps device presence (`online`), the `check_in` nudge, the server's
 secret-gated kill / interrupt / compact (sent down the device's CONTROL
 socket as `{t, sessionId}`, the verdict coming back as `compact_verdict`),
-and the eTalk voice call frames. Where this document says "the relay" about
+and the eTalk voice call frames. **#EXP-1525 (P2P stabilisation):** the relay
+is back as eNet's FALLBACK carrier, ciphertext only: a viewer's `tunnel`
+socket and the host's control socket exchange exactly these envelopes,
+SEALED to the session tree key (`steer-enet.json` `fallback`); the relay
+routes them by tunnel id and never reads them. Where this document says "the relay" about
 replay order, latest-wins slots or dropped frames, read "the device's
 journal" and "the receiving client".
 

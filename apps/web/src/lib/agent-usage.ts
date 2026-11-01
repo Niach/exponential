@@ -620,6 +620,9 @@ export interface AgentProfileUsageRow {
   unmonitored: boolean
   /** The "as of …" fallback when the usage is stale or absent. */
   checkedAt: string | null
+  /** EXP-1533: the long-lived claude login's expiry (ISO), null when the
+   *  profile holds none. */
+  tokenExpiresAt: string | null
 }
 
 type UsageDeviceRow = Pick<
@@ -685,6 +688,7 @@ export function deviceLoginRows(
         usage,
         unmonitored: profile.unmonitored === true,
         checkedAt: profile.checkedAt ?? account?.checkedAt ?? null,
+        tokenExpiresAt: profile.tokenExpiresAt || null,
       })
     }
   }

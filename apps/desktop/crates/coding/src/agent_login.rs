@@ -24,8 +24,9 @@
 //! address gets the fresh credential, else the staging dir becomes a new
 //! profile. A login never touches an existing profile (or the ambient
 //! login) before it is known WHO signed in, so signing in as A from B's
-//! "Sign in" refreshes A and leaves B alone. [`import_ambient`] moves the
-//! CLI's own ambient login into a profile by the same rules.
+//! "Sign in" refreshes A and leaves B alone. Nothing ever copies a credential
+//! in: the CLI's own ambient login is never imported (EXP-1532, every profile
+//! signs in on its own).
 
 use std::path::{Path, PathBuf};
 
@@ -116,11 +117,18 @@ pub fn sign_out_in(
         ));
     };
     match agent {
-        CodingAgent::Claude => logout_in(
-            settings,
-            agent,
-            agent_profiles::config_env(data_dir, agent, Some(profile_id)).as_ref(),
-        ),
+        CodingAgent::Claude => {
+            // EXP-1533: a long-lived token goes too, or the profile would stay
+            // signed in on it.
+            crate::claude_token::remove(&home).map_err(|err| {
+                format!("Could not remove the long-lived Claude login: {err}")
+            })?;
+            logout_in(
+                settings,
+                agent,
+                agent_profiles::config_env(data_dir, agent, Some(profile_id)).as_ref(),
+            )
+        }
         CodingAgent::Codex => remove_codex_credential(&home).map(|_| ()),
     }
 }
@@ -146,9 +154,6 @@ pub enum LoginTarget {
     /// reads it: the login still commits into whichever profile its EMAIL
     /// names.
     Profile(String),
-    /// Move the ambient login into a profile ([`import_ambient`]); nothing is
-    /// spawned.
-    Import,
 }
 
 impl LoginTarget {
@@ -156,7 +161,7 @@ impl LoginTarget {
     pub fn intended(&self) -> Option<&str> {
         match self {
             LoginTarget::Profile(id) => Some(id.as_str()),
-            LoginTarget::Add | LoginTarget::Import => None,
+            LoginTarget::Add => None,
         }
     }
 }
@@ -166,17 +171,30 @@ impl LoginTarget {
 pub struct LoginRequest {
     pub agent: CodingAgent,
     pub target: LoginTarget,
+    /// EXP-1533: `longLived: "true"` — mint a `claude setup-token` for the
+    /// target profile instead of a browser login (claude only, profile
+    /// required: [`parse_login_payload`] refuses anything else).
+    pub long_lived: bool,
 }
 
 /// The sentences both hosts refuse a remote login with (the clients show a
 /// failed row's `result` verbatim).
 pub const UNKNOWN_AGENT: &str = "This machine does not know that agent.";
 pub const MALFORMED_PAYLOAD: &str = "Malformed command payload.";
+/// EXP-1532: an old client's `agent_login {import: "true"}`. Importing copied
+/// a LIVE credential whose single-use refresh token the CLI still running on
+/// the ambient login rotated, so the profile's copy died; it is gone.
+pub const IMPORT_REMOVED: &str = "Import was removed: sign this account in on this device instead.";
+/// EXP-1533: a `longLived` login names no claude profile of this machine.
+pub const LONG_LIVED_NEEDS_PROFILE: &str = "A long-lived login needs a Claude account on this machine.";
 
 /// Parse an `agent_login` payload: `{agent, switch?: "true"|"false",
-/// profileId?, import?: "true"}`. `switch` is still validated but means
-/// nothing any more (a login runs in a fresh dir, so there is nothing to sign
-/// out of first); `profileId` blank or the retired `system` reads as absent.
+/// profileId?}`. `switch` is still validated but means nothing any more (a
+/// login runs in a fresh dir, so there is nothing to sign out of first);
+/// `profileId` blank or the retired `system` reads as absent. The retired
+/// `import: "true"` is refused with [`IMPORT_REMOVED`]. EXP-1533:
+/// `longLived: "true"` needs claude and a `profileId`
+/// ([`LONG_LIVED_NEEDS_PROFILE`]).
 /// `Err` carries the refusal sentence the command completes with.
 pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, String> {
     let raw_agent = payload["agent"].as_str().unwrap_or_default();
@@ -190,22 +208,82 @@ pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, 
     if !matches!(payload["switch"].as_str().unwrap_or("false"), "true" | "false") {
         return Err(MALFORMED_PAYLOAD.to_string());
     }
-    let import = match payload["import"].as_str().unwrap_or("false") {
-        "true" => true,
-        "false" => false,
+    match payload["import"].as_str().unwrap_or("false") {
+        "true" => return Err(IMPORT_REMOVED.to_string()),
+        "false" => {}
         _ => return Err(MALFORMED_PAYLOAD.to_string()),
-    };
+    }
     let profile_id = payload["profileId"]
         .as_str()
         .filter(|id| !agent_profiles::is_unpinned(Some(id)))
         .map(|id| id.trim().to_string());
-    let target = match (profile_id, import) {
-        (Some(_), true) => return Err(MALFORMED_PAYLOAD.to_string()),
-        (None, true) => LoginTarget::Import,
-        (Some(id), false) => LoginTarget::Profile(id),
-        (None, false) => LoginTarget::Add,
+    let target = match profile_id {
+        Some(id) => LoginTarget::Profile(id),
+        None => LoginTarget::Add,
     };
-    Ok(LoginRequest { agent, target })
+    let long_lived = match payload["longLived"].as_str().unwrap_or("false") {
+        "true" => true,
+        "false" => false,
+        _ => return Err(MALFORMED_PAYLOAD.to_string()),
+    };
+    if long_lived && (agent != CodingAgent::Claude || target == LoginTarget::Add) {
+        return Err(LONG_LIVED_NEEDS_PROFILE.to_string());
+    }
+    Ok(LoginRequest { agent, target, long_lived })
+}
+
+/// EXP-1533 — the long-lived login of claude profile `profile_id`: `claude
+/// setup-token` run INSIDE the profile's config dir (it stores nothing
+/// there; the dir only spares it a first-run screen), with the profile's
+/// config-dir pair. `Err` is the refusal sentence.
+pub fn long_lived_plan(
+    settings: &Settings,
+    data_dir: &Path,
+    profile_id: &str,
+    remote: bool,
+) -> Result<LoginPlan, String> {
+    let agent = CodingAgent::Claude;
+    let env = agent_profiles::config_env(data_dir, agent, Some(profile_id))
+        .ok_or_else(|| LONG_LIVED_NEEDS_PROFILE.to_string())?;
+    let command = eagent::login::setup_token_command(settings.resolved_path_for(agent), remote);
+    let mut spawn = SpawnSpec::new(command.program).args(command.args);
+    spawn.env = command.env;
+    spawn.env.push(env);
+    Ok(LoginPlan { spawn, title: command.title })
+}
+
+/// EXP-1533 — the token `claude setup-token` printed on `lines`, if it is
+/// there yet: the host keeps the latest scrape and stores it once the CLI
+/// is done ([`store_setup_token`]).
+pub fn scrape_setup_token(lines: &[String]) -> Option<(String, Option<i64>)> {
+    eagent::login::scrape_setup_token(lines)
+}
+
+/// EXP-1533 — store a scraped setup token in claude profile `profile_id`
+/// (0600) and stamp the profile's `lastLoginAt`, so an open sign-in dialog
+/// lands exactly as a browser sign-in does. Returns the expiry (ISO); the
+/// token itself never leaves this function.
+pub fn store_setup_token(
+    data_dir: &Path,
+    profile_id: &str,
+    scraped: (String, Option<i64>),
+) -> Result<String, String> {
+    let agent = CodingAgent::Claude;
+    let dir = agent_profiles::profile_dir(data_dir, agent, profile_id)
+        .ok_or_else(|| LONG_LIVED_NEEDS_PROFILE.to_string())?;
+    let (token, lifetime) = scraped;
+    let token = crate::claude_token::SetupToken::minted(
+        token,
+        chrono::Utc::now(),
+        lifetime.unwrap_or(crate::claude_token::TOKEN_LIFETIME_SECS),
+    );
+    crate::claude_token::write(&dir, &token)
+        .map_err(|err| format!("Could not store the long-lived Claude login: {err}"))?;
+    if let Err(err) = agent_profiles::stamp_login(data_dir, agent, profile_id, None) {
+        log::warn!("agent_login: the long-lived login stamp was not recorded ({profile_id}): {err}");
+    }
+    crate::usage_cache::forget_profile(data_dir, agent.id(), profile_id);
+    Ok(token.expires_at)
 }
 
 /// The `{email} was already added. Refreshed it.` warning (the device-doctor
@@ -214,7 +292,7 @@ pub fn already_added(email: &str) -> String {
     format!("{email} was already added. Refreshed it.")
 }
 
-/// Where a sign-in or an import landed.
+/// Where a sign-in landed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoginCommit {
     pub agent: CodingAgent,
@@ -223,7 +301,7 @@ pub struct LoginCommit {
     /// Who signed in, when the CLI says.
     pub email: Option<String>,
     /// An EXISTING profile was refreshed that the person did not aim at (an
-    /// "Add account"/Import that found its email already here, or a "Sign
+    /// "Add account" that found its email already here, or a "Sign
     /// in" on one profile that signed in as another's address).
     pub duplicate: bool,
 }
@@ -234,18 +312,6 @@ impl LoginCommit {
         self.duplicate
             .then(|| self.email.as_deref().map(already_added))
             .flatten()
-    }
-
-    /// An Import's plain result text: `Imported {email}.`, or the duplicate
-    /// warning when the login was already here.
-    pub fn import_result_text(&self) -> String {
-        if let Some(warning) = self.duplicate_warning() {
-            return warning;
-        }
-        match &self.email {
-            Some(email) => format!("Imported {email}."),
-            None => format!("Imported the {} login.", self.agent.label()),
-        }
     }
 }
 
@@ -446,75 +512,6 @@ fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::remove_file(from)
 }
 
-/// IMPORT: move `agent`'s AMBIENT login (`~/.claude`, `~/.codex`) into a
-/// profile — the same commit-by-email as a sign-in ([`commit_staging`]), with
-/// no intended profile (an existing same-email profile = duplicate). The
-/// ambient login is SIGNED OUT afterwards by deleting the store it was read
-/// from — never `claude auth logout` / `codex logout`, which would revoke the
-/// credential that just moved.
-pub fn import_ambient(settings: &Settings, data_dir: &Path, agent: CodingAgent) -> Result<LoginCommit, String> {
-    let nothing = || format!("There is no {} login to import on this machine.", agent.label());
-    let (staging, _) = begin_login(data_dir, agent)?;
-    match agent {
-        CodingAgent::Claude => {
-            let status = crate::doctor::probe_claude_auth_status_in(
-                &settings.resolved_path_for(agent),
-                &terminal::pty::login_path(),
-                None,
-            );
-            let Some(status) = status.filter(|status| status.logged_in) else {
-                abandon_login(agent, &staging);
-                return Err(nothing());
-            };
-            let store = match crate::claude_oauth::read_store(None) {
-                crate::claude_oauth::StoreRead::Found(store) => store,
-                crate::claude_oauth::StoreRead::Missing => {
-                    abandon_login(agent, &staging);
-                    return Err(nothing());
-                }
-                crate::claude_oauth::StoreRead::Denied => {
-                    abandon_login(agent, &staging);
-                    return Err(format!(
-                        "The {} credential store refused the read.",
-                        agent.label()
-                    ));
-                }
-            };
-            if let Err(err) = crate::claude_oauth::write_profile_credential(&staging, &store.document) {
-                abandon_login(agent, &staging);
-                return Err(format!("Could not store the login: {err}"));
-            }
-            if let Some(ambient) = crate::claude_trust::claude_config_path(None) {
-                copy_oauth_account(&ambient, &staging.join(CLAUDE_STATE_FILE));
-            }
-            let commit = commit_staging(settings, data_dir, agent, &staging, status.email, None)?;
-            if let Err(err) = crate::claude_oauth::delete_store(&store.source) {
-                log::warn!("agent_login: the imported ambient claude login stayed in place: {err}");
-            }
-            Ok(commit)
-        }
-        CodingAgent::Codex => {
-            let Some(auth) = crate::codex_trust::codex_home(None)
-                .map(|home| home.join(CODEX_AUTH_FILE))
-                .filter(|auth| auth.is_file())
-            else {
-                abandon_login(agent, &staging);
-                return Err(nothing());
-            };
-            if let Err(err) = std::fs::copy(&auth, staging.join(CODEX_AUTH_FILE)) {
-                abandon_login(agent, &staging);
-                return Err(format!("Could not store the login: {err}"));
-            }
-            let email = codex_identity(&auth).email;
-            let commit = commit_staging(settings, data_dir, agent, &staging, email, None)?;
-            if let Err(err) = std::fs::remove_file(&auth) {
-                log::warn!("agent_login: the imported ambient codex login stayed in place: {err}");
-            }
-            Ok(commit)
-        }
-    }
-}
-
 /// Who a codex `auth.json` is signed in as: the `email` claim of its
 /// `tokens.id_token` (a JWT payload, read WITHOUT verifying — identity only,
 /// never trusted for anything else) and the ChatGPT plan beside it.
@@ -662,13 +659,16 @@ mod tests {
 
     /// The payload's shapes, and the refusals: a blank/`system` `profileId`
     /// reads as absent (Add account), `switch` is validated and otherwise
-    /// meaningless, `import` is its own target and never combines with a
-    /// profile.
+    /// meaningless, and the retired `import` (EXP-1532) is refused with its
+    /// own sentence.
     #[test]
-    fn login_payload_parses_add_profile_or_import() {
+    fn login_payload_parses_add_or_profile_and_refuses_import() {
         let add = parse_login_payload(&serde_json::json!({"agent": "claude", "switch": "true"}))
             .unwrap();
-        assert_eq!(add, LoginRequest { agent: CodingAgent::Claude, target: LoginTarget::Add });
+        assert_eq!(
+            add,
+            LoginRequest { agent: CodingAgent::Claude, target: LoginTarget::Add, long_lived: false }
+        );
         let existing = parse_login_payload(&serde_json::json!({
             "agent": "codex", "switch": "false", "profileId": " 0badf00d "
         }))
@@ -683,10 +683,16 @@ mod tests {
             .unwrap();
             assert_eq!(parsed.target, LoginTarget::Add, "{blank:?}");
         }
-        let import = parse_login_payload(&serde_json::json!({"agent": "codex", "import": "true"}))
-            .unwrap();
-        assert_eq!(import.target, LoginTarget::Import);
-        assert_eq!(import.target.intended(), None);
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "codex", "import": "true"})),
+            Err(IMPORT_REMOVED.to_string())
+        );
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "codex", "import": "false"}))
+                .unwrap()
+                .target,
+            LoginTarget::Add
+        );
 
         // Refusals.
         assert_eq!(
@@ -709,8 +715,72 @@ mod tests {
             parse_login_payload(&serde_json::json!({
                 "agent": "claude", "profileId": "0badf00d", "import": "true"
             })),
+            Err(IMPORT_REMOVED.to_string())
+        );
+    }
+
+    /// EXP-1533: `longLived` is claude + a profile only; the token a
+    /// setup-token run printed lands 0600 in that profile, stamps its
+    /// `lastLoginAt` (the dialogs' landing) and goes with a sign-out.
+    #[test]
+    fn a_long_lived_login_needs_a_claude_profile_and_stores_its_token() {
+        let parsed = parse_login_payload(&serde_json::json!({
+            "agent": "claude", "profileId": "0badf00d", "longLived": "true"
+        }))
+        .unwrap();
+        assert!(parsed.long_lived);
+        assert_eq!(parsed.target, LoginTarget::Profile("0badf00d".into()));
+        for payload in [
+            serde_json::json!({"agent": "claude", "longLived": "true"}),
+            serde_json::json!({"agent": "codex", "profileId": "0badf00d", "longLived": "true"}),
+        ] {
+            assert_eq!(parse_login_payload(&payload), Err(LONG_LIVED_NEEDS_PROFILE.to_string()));
+        }
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "claude", "longLived": "yes"})),
             Err(MALFORMED_PAYLOAD.to_string())
         );
+
+        let dir = scratch_dir("long-lived");
+        let settings = Settings::default();
+        assert_eq!(
+            long_lived_plan(&settings, &dir, "0badf00d", true).err(),
+            Some(LONG_LIVED_NEEDS_PROFILE.to_string())
+        );
+        let profile = agent_profiles::create(&dir, CodingAgent::Claude).unwrap();
+        let plan = long_lived_plan(&settings, &dir, &profile.id, true).unwrap();
+        assert_eq!(plan.spawn.args, vec!["setup-token".to_string()]);
+        assert!(plan.spawn.env.contains(&("BROWSER".to_string(), "true".to_string())));
+        let home = agent_profiles::profile_dir(&dir, CodingAgent::Claude, &profile.id).unwrap();
+        assert!(plan
+            .spawn
+            .env
+            .contains(&("CLAUDE_CONFIG_DIR".to_string(), home.to_string_lossy().into_owned())));
+
+        let screen: Vec<String> = ["Your OAuth token (valid for 1 year):", "", "sk-ant-oat01-secret-123456"]
+            .iter()
+            .map(|line| line.to_string())
+            .collect();
+        let scraped = scrape_setup_token(&screen).unwrap();
+        let expires = store_setup_token(&dir, &profile.id, scraped).unwrap();
+        assert!(!expires.contains("secret"));
+        let stored = crate::claude_token::valid(&home).unwrap();
+        assert_eq!(stored.token, "sk-ant-oat01-secret-123456");
+        assert_eq!(stored.expires_at, expires);
+        assert!(agent_profiles::get(&dir, CodingAgent::Claude, &profile.id)
+            .unwrap()
+            .last_login_at
+            .is_some());
+
+        // A sign-out takes the token with it (the CLI's own logout then runs
+        // a binary that does not exist: its refusal is beside the point).
+        let missing = Settings {
+            claude_path: dir.join("no-claude").to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let _ = sign_out_in(&missing, &dir, CodingAgent::Claude, &profile.id);
+        assert_eq!(crate::claude_token::read(&home), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A codex `auth.json` names its login by the id token's claims, read
@@ -819,24 +889,6 @@ mod tests {
         assert!(!staging.exists());
         assert_eq!(agent_profiles::list(&dir, agent).len(), 3);
         let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
-    fn an_import_result_names_the_login_or_warns_about_a_duplicate() {
-        let commit = LoginCommit {
-            agent: CodingAgent::Claude,
-            profile_id: "0badf00d".into(),
-            email: Some("dev@acme.test".into()),
-            duplicate: false,
-        };
-        assert_eq!(commit.import_result_text(), "Imported dev@acme.test.");
-        let duplicate = LoginCommit { duplicate: true, ..commit.clone() };
-        assert_eq!(
-            duplicate.import_result_text(),
-            "dev@acme.test was already added. Refreshed it."
-        );
-        let unnamed = LoginCommit { email: None, ..commit };
-        assert_eq!(unnamed.import_result_text(), "Imported the Claude Code login.");
     }
 
     /// The fixture's copy, byte for byte.

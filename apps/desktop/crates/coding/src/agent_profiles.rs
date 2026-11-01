@@ -13,8 +13,8 @@
 //! sign-in COMMITS into the profile already signed in as that address
 //! ([`find_by_email`], `agent_login::commit_login`), so one email is one
 //! profile. The AMBIENT login (the CLI's own default dir) is never a profile
-//! and never used by a run, a usage probe or a launch: the doctor only
-//! reports it as importable.
+//! and never used by a run, a usage probe or a launch, nor ever imported
+//! (EXP-1532).
 //!
 //! The index also carries the device's per-agent LAST USED login
 //! ([`active_profile`], EXP-1158) — the login an unnamed launch runs on and

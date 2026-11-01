@@ -79,8 +79,6 @@ class AccountsHeaderIndexTest {
         // Null profile = "Add account"; a blank id spells the same.
         assertEquals("login:a:claude:new", agentLoginCommandKey("a", "claude", null))
         assertEquals(agentLoginCommandKey("a", "claude", " "), agentLoginCommandKey("a", "claude", null))
-        // An import is its own slot per machine × agent.
-        assertEquals("import:a:claude", agentImportCommandKey("a", "claude"))
         // The code slot is the same sign-in under its own prefix.
         assertEquals("login:a:claude:work", agentLoginCommandKey("a", "claude", "work"))
         assertEquals("login-code:a:claude:work", agentLoginCodeCommandKey("a", "claude", "work"))

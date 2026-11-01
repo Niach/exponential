@@ -22,6 +22,8 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 data class InboxGroup(
     val issue: IssueEntity,
@@ -246,7 +248,7 @@ class InboxViewModel @Inject constructor(
         activeTeam,
     ) { notifications, issues, teams, boards, team ->
         buildInboxState(activeTeamNotifications(notifications, issues, boards, team), issues, teams)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxState())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), InboxState())
 
     fun markGroupRead(group: InboxGroup) = markRead(group.notifications)
 

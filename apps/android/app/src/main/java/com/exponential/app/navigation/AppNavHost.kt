@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -622,6 +623,15 @@ private fun AuthenticatedNav(
         } }
     }
 
+    // The NavHost builder below must capture nothing that changes: a new
+    // builder lambda rebuilds the whole route graph, and this shell
+    // recomposes on every navigation (Back included) and sync tick.
+    val activeAccountIdLatest = rememberUpdatedState(activeAccountId)
+    val cloudAlreadyAddedLatest = rememberUpdatedState(cloudAlreadyAdded)
+    val currentBoardIdLatest = rememberUpdatedState(currentBoardId)
+    val liveRunsByTeamLatest = rememberUpdatedState(liveRunsByTeam)
+    val unreadCountLatest = rememberUpdatedState(unreadCount)
+    val onSetInstanceUrlLatest = rememberUpdatedState(onSetInstanceUrl)
     Box(modifier = Modifier.fillMaxSize()) {
     CompositionLocalProvider(
         LocalBottomBarSuppression provides barSuppression,
@@ -682,11 +692,11 @@ private fun AuthenticatedNav(
             // switcher; picking another board swaps it in place (no push).
             val selectedTeamId by teamSelection.selectedId.collectAsStateWithLifecycle()
             IssueListScreen(
-                boardId = currentBoardId,
+                boardId = currentBoardIdLatest.value,
                 mode = IssueListMode.Root,
                 // EXP-1075: the switcher SHEET marks the teams holding MY
                 // live runs (EXP-1210: the pill wears no dot).
-                liveRunsByTeam = liveRunsByTeam,
+                liveRunsByTeam = liveRunsByTeamLatest.value,
                 selectedTeamId = selectedTeamId,
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 // Thread 58cb32df: the gear moved to the Team tab.
@@ -698,7 +708,7 @@ private fun AuthenticatedNav(
                 // home; the compose form the hidden FAB would have opened.
                 onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
                 onNewIssue = {
-                    currentBoardId?.let { navController.openIssueDraft(it) }
+                    currentBoardIdLatest.value?.let { navController.openIssueDraft(it) }
                 },
                 // Thread 58cb32df: the board's Drafts chip reopens a draft.
                 onOpenDraft = { boardId, draftId -> navController.openIssueDraft(boardId, draftId = draftId) },
@@ -765,7 +775,7 @@ private fun AuthenticatedNav(
                 // Thread 58cb32df: the header's inbox circle pushes the inbox.
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
                 onOpenAgentSettings = { id -> navController.navigate(Routes.agentSettings(id)) },
-                inboxUnread = unreadCount > 0,
+                inboxUnread = unreadCountLatest.value > 0,
                 // #EXP-1388: the Archived entry pushes the Archived page.
                 onOpenArchived = { navController.navigate(Routes.CHATS_ARCHIVED) { launchSingleTop = true } },
             )
@@ -777,7 +787,7 @@ private fun AuthenticatedNav(
                 onOpenThread = { id -> navController.navigate(Routes.thread(id)) },
                 onOpenAgent = { id -> navController.navigate(Routes.agentDm(id)) },
                 onOpenInbox = { navController.navigate(MainTabs.INBOX) { launchSingleTop = true } },
-                inboxUnread = unreadCount > 0,
+                inboxUnread = unreadCountLatest.value > 0,
                 view = com.exponential.app.domain.Chats.ChatListView.Archived,
                 onBack = { navController.popBackStack() },
             )
@@ -836,14 +846,14 @@ private fun AuthenticatedNav(
         composable("add-server") {
             InstanceScreen(
                 onContinue = { url ->
-                    onSetInstanceUrl(url)
+                    onSetInstanceUrlLatest.value(url)
                     navController.navigate("add-server-login") {
                         popUpTo("add-server") { inclusive = true }
                     }
                 },
                 showCancel = true,
                 onCancel = { navController.popBackStack() },
-                cloudAlreadyAdded = cloudAlreadyAdded,
+                cloudAlreadyAdded = cloudAlreadyAddedLatest.value,
             )
         }
         composable("add-server-login") {
@@ -939,8 +949,9 @@ private fun AuthenticatedNav(
             val boardId = entry.arguments?.getString("boardId").orEmpty()
             // Remembering the opened board drives the share picker's default.
             LaunchedEffect(boardId) {
-                if (boardId.isNotBlank() && activeAccountId != null) {
-                    teamSelection.rememberLastBoard(activeAccountId, boardId)
+                val accountId = activeAccountIdLatest.value
+                if (boardId.isNotBlank() && accountId != null) {
+                    teamSelection.rememberLastBoard(accountId, boardId)
                 }
             }
             IssueListScreen(

@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.flowOn
 
 /**
  * EXP-1169 join rule, the same at every invite-accept surface: a caller who
@@ -110,7 +112,7 @@ class DeviceSetupViewModel @Inject constructor(
 
     val devices: StateFlow<List<SteerDevice>?> =
         ownDevices.flow()
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private var mintJob: Job? = null
     private var approveJob: Job? = null

@@ -3,3 +3,5 @@
 - Nova aplikacija odmah otvara uređivač, a agent joj daje ime
 - Radni redak pokazuje koji alat agent piše i koliko dugo
 - Brzi odgovori iznad polja za unos lakše se čitaju
+- Aplikacije u uređivaču dobivaju kartice Chat, Podaci, Verzije i Postavke
+- Postavke › MCP jedna je stranica za MCP poslužitelje, alate aplikacija i aktivnost

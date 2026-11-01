@@ -3,3 +3,5 @@
 - Nouvelle app ouvre l'éditeur tout de suite, et l'agent donne un nom à votre app
 - La ligne d'activité indique quel outil l'agent est en train d'écrire, et depuis combien de temps
 - Les réponses rapides au-dessus du champ de saisie sont plus lisibles
+- Les apps ont des onglets Chat, Données, Versions et Réglages dans l'éditeur
+- Réglages › MCP réunit vos serveurs MCP, les outils des apps et l'activité sur une page

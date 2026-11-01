@@ -161,9 +161,11 @@ struct ThreadStripGroupSheet: View {
 /// `ComposerMenu.composerMenuLayout`, fixture-locked ×4) — the composer's
 /// ONLY tool: Photo or file (closes the sheet, the host floats THE Photo |
 /// File GlassMenu) · Issue › (THE issue search list as a pushed page; a pick
-/// inserts `#IDENT` at the caret) · Model › (THE model picker's rows as a
-/// pushed page, while the agent switches models). A running session never
-/// moves device or login here, and the work picks are the launch's.
+/// inserts `#IDENT` at the caret) · Account › (#EXP-1535: THE account
+/// picker's rows; a pick = the usage wall's session account switch) · Model ›
+/// (THE model picker's rows as a pushed page, while the agent switches
+/// models). A running session never moves device here, and the work picks
+/// are the launch's.
 struct ThreadComposerPlusMenu: View {
     let conditions: ComposerMenu.Conditions
     /// A session's "+" or an agent chat's (composer-menu.json `surface`).
@@ -173,6 +175,9 @@ struct ThreadComposerPlusMenu: View {
     /// The Model row's value (the picked model) and its pick.
     var modelValue: String?
     var onPickModel: (String) -> Void = { _ in }
+    /// #EXP-1535: the Account page (the session account switch); nil = no
+    /// Account row (`conditions.account` is false then).
+    var account: SessionComposerFooter.AccountMenu?
     /// The team whose issues the Issue page searches; nil = no page.
     var teamId: String?
     /// The Issue page's pick (the host inserts `#IDENT` at the caret).
@@ -240,6 +245,19 @@ struct ThreadComposerPlusMenu: View {
                 value: modelValue.map { [$0] } ?? [],
                 onChange: { picked in picked.first.map(onPickModel) }
             )
+        case .account:
+            // #EXP-1535: THE account picker's rows (brand mark, email, the
+            // health hint and the EXP-992 limit bars), the current login
+            // checked; a pick = the session account switch.
+            if let account {
+                AccountPickerContent(
+                    options: account.options,
+                    value: account.current?.key,
+                    onChange: account.onPick,
+                    mark: { AgentBrandMark.image($0) },
+                    disabledKeys: account.disabledKeys
+                )
+            }
         case .prompts:
             ComposerPromptsList(prompts: prompts, onPick: onPickPrompt)
         default:
@@ -265,13 +283,22 @@ struct ThreadComposerPlusMenu: View {
                 ComposerMenuRowLabel(
                     row: row,
                     label: row.label(codex: agent == "codex"),
-                    value: row.id == .model ? modelValue.map(LaunchVocabulary.modelLabel) : nil
+                    value: value(row.id)
                 )
             }
             .buttonStyle(.plain)
             .disabled(disabled)
             .opacity(disabled ? 0.45 : 1)
             .accessibilityIdentifier(ComposerMenu.rowTestId(row.id))
+        }
+    }
+
+    /// A submenu row's current value: the picked label.
+    private func value(_ id: ComposerMenu.RowId) -> String? {
+        switch id {
+        case .model: modelValue.map(LaunchVocabulary.modelLabel)
+        case .account: account?.current?.email
+        default: nil
         }
     }
 }

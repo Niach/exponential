@@ -31,6 +31,9 @@ const mocks = vi.hoisted(() => ({
   dismissReplies: vi.fn(),
   promptGet: vi.fn(),
   prompts: [] as { id: string; name: string; icon: string | null; sortOrder: number }[],
+  // #EXP-1535: THE session account switch (its own tests pin the rules).
+  accountSwitch: null as unknown,
+  switchTo: vi.fn(),
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -59,6 +62,18 @@ vi.mock(`@/lib/collections`, () => ({
   sessionCollection: {
     utils: { awaitTxId: (...args: unknown[]) => mocks.awaitTxId(...args) as Promise<void> },
   },
+}))
+vi.mock(`@/components/session-account-switch`, () => ({
+  useSessionAccountSwitch: () =>
+    mocks.accountSwitch ?? {
+      canSteer: false,
+      deviceOnline: false,
+      blocked: null,
+      switching: false,
+      options: [],
+      value: null,
+      switchTo: mocks.switchTo,
+    },
 }))
 vi.mock(`@/hooks/use-mcp-servers`, () => ({
   useMcpServers: () => ({ servers: [] }),
@@ -246,6 +261,58 @@ describe(`SessionComposer / menu (NEW-2)`, () => {
   })
 })
 
+// EXP-1537 (fixtures/composer-send.json): the field owns its text while a
+// send is in flight; a success clears only what went out.
+describe(`SessionComposer send in flight (EXP-1537)`, () => {
+  function deferredSend() {
+    let resolve!: (value: { txid: number; sessionId: string }) => void
+    let reject!: (error: Error) => void
+    mocks.send.mockImplementation(
+      () =>
+        new Promise((res, rej) => {
+          resolve = res
+          reject = rej
+        })
+    )
+    return { resolve: (value = { txid: 1, sessionId: `s1` }) => resolve(value), reject: (error: Error) => reject(error) }
+  }
+
+  it(`text typed while the send was in flight stays`, async () => {
+    const pending = deferredSend()
+    const field = renderComposer()
+    type(field, `Ship it`)
+    pressEnter(field)
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
+    type(field, `Ship it and then the docs`)
+    await act(async () => pending.resolve())
+    await waitFor(() => expect(mocks.send.mock.calls[0]![0]).toMatchObject({ text: `Ship it` }))
+    expect(field.value).toBe(`Ship it and then the docs`)
+  })
+
+  it(`an untouched field clears once the send lands`, async () => {
+    const pending = deferredSend()
+    const field = renderComposer()
+    type(field, `Ship it`)
+    pressEnter(field)
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
+    expect(field.value).toBe(`Ship it`)
+    await act(async () => pending.resolve())
+    await waitFor(() => expect(field.value).toBe(``))
+  })
+
+  it(`a failed send keeps what is in the field now`, async () => {
+    const pending = deferredSend()
+    const field = renderComposer()
+    type(field, `Ship it`)
+    pressEnter(field)
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(1))
+    type(field, `Ship it now`)
+    await act(async () => pending.reject(new Error(`down`)))
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalled())
+    expect(field.value).toBe(`Ship it now`)
+  })
+})
+
 // Radix opens a dropdown on the trigger's pointer DOWN.
 function pointerOpen(element: HTMLElement) {
   act(() => {
@@ -276,6 +343,38 @@ describe(`SessionComposer, the one composer (EXP-1334)`, () => {
     expect(click).not.toHaveBeenCalled()
     expect(rowIds()).toEqual([`add-file`, `implement-issue`, `model`])
     click.mockRestore()
+  })
+
+  // #EXP-1535: Account › while the device is online and the viewer steers
+  // the session; a pick = THE session account switch.
+  it(`Account › offers the session's logins and a pick runs the account switch`, () => {
+    mocks.accountSwitch = {
+      canSteer: true,
+      deviceOnline: true,
+      blocked: null,
+      switching: false,
+      options: [
+        { key: `claude:a`, agent: `claude`, email: `a@example.com` },
+        { key: `claude:b`, agent: `claude`, email: `b@example.com` },
+      ],
+      value: `claude:a`,
+      switchTo: mocks.switchTo,
+    }
+    try {
+      renderComposer()
+      openPlus()
+      expect(rowIds()).toEqual([`add-file`, `implement-issue`, `account`, `model`])
+      expect(screen.getByTestId(`agent-composer-menu-account`).textContent).toContain(`a@example.com`)
+      act(() => {
+        fireEvent.click(screen.getByTestId(`agent-composer-menu-account`))
+      })
+      act(() => {
+        fireEvent.click(screen.getByText(`b@example.com`))
+      })
+      expect(mocks.switchTo).toHaveBeenCalledWith(`claude:b`)
+    } finally {
+      mocks.accountSwitch = null
+    }
   })
 
   // #EXP-1434: Prompts › while the team has one; a pick inserts the body

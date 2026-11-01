@@ -1237,7 +1237,11 @@ fn login_chip(
         .as_ref()
         .and_then(coding::account_option::account_limits);
     let actions = if device.actionable() && !inert {
-        chip_actions(login.signed_in, login.health)
+        chip_actions(
+            login.signed_in,
+            login.health,
+            (login.agent == coding::CodingAgent::Claude.id()).then_some(login.token_expires_at.is_some()),
+        )
     } else {
         Vec::new()
     };
@@ -1305,6 +1309,14 @@ fn login_chip(
                                 own,
                                 agent,
                                 Some(profile_id.clone()),
+                                window,
+                                cx,
+                            ),
+                            ChipAction::KeepSignedIn { .. } => crate::agent_login::keep_signed_in_on_device(
+                                device_id.clone(),
+                                device_label.clone(),
+                                own,
+                                profile_id.clone(),
                                 window,
                                 cx,
                             ),
@@ -1578,6 +1590,7 @@ mod tests {
             checked_at: None,
             health: coding::agent_accounts::Health::Ok,
             unmonitored: false,
+            token_expires_at: None,
         }
     }
 

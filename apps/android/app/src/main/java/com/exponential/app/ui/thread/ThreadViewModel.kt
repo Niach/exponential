@@ -134,12 +134,12 @@ class ThreadViewModel @Inject constructor(
     /** The synced root row; null while loading or once it is gone. */
     val root: StateFlow<SessionEntity?> =
         dbFlow.scopedQuery<SessionEntity?>(null) { it.sessionDao().observeById(rootId) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** Every session of the tree (the root + its children), creation order. */
     val tree: StateFlow<List<SessionEntity>> =
         dbFlow.scopedQuery(emptyList<SessionEntity>()) { it.sessionDao().observeTree(rootId) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The thread's linked issues, in the thread's order (the header chips). */
     val issues: StateFlow<List<IssueEntity>> = combine(
@@ -148,12 +148,12 @@ class ThreadViewModel @Inject constructor(
     ) { links, all ->
         val byId = all.associateBy { it.id }
         links.mapNotNull { byId[it.issueId] }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The thread's pull requests (opening order) — the Guide's PRs. */
     val pullRequests: StateFlow<List<PullRequestEntity>> =
         dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeByRoot(rootId) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The team's pull requests — the open-stack walk behind the Guide's
      *  `Merge stack` (a stack may reach PRs outside this thread). */
@@ -162,7 +162,7 @@ class ThreadViewModel @Inject constructor(
             .flatMapLatest { (db, team) ->
                 if (db == null || team == null) flowOf(emptyList()) else db.pullRequestDao().observeByTeam(team)
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** S-3 (session-thread.json `chatModeCases`): an agent conversation
      *  paints chat bubbles (`threadChatMode`), a thread its transcript. */
@@ -170,7 +170,7 @@ class ThreadViewModel @Inject constructor(
         com.exponential.app.domain.SessionTree.threadChatMode(it?.agentId) ==
             com.exponential.app.domain.SessionTree.ThreadChatMode.Bubbles
     }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** NEW-2: an agent conversation's DEFINITION row (`sessions.agent_id`):
      *  the header's coloured icon + name come from it, not the session. */
@@ -186,7 +186,7 @@ class ThreadViewModel @Inject constructor(
                     }
                 }
             }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** #EXP-1380 (chats.json PERF): the tree's messages, keyed through
      *  their conversations — the transcript reads THIS tree, never every
@@ -205,7 +205,7 @@ class ThreadViewModel @Inject constructor(
      *  the SAME [treeMessages] the view builds from (review of #1218: the
      *  tree's rows are queried once, never twice). */
     val messages: StateFlow<List<SessionTree.Message>> =
-        treeMessages.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        treeMessages.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** EXP-1341: the sessions the tree's cards name outside the tree (an
      *  agent channel's `thread_started` → another root): their rows + the
@@ -255,7 +255,7 @@ class ThreadViewModel @Inject constructor(
     val agentMarks: StateFlow<Map<String, com.exponential.app.data.db.AgentDefinitionEntity>> =
         dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.AgentDefinitionEntity>()) { it.agentDefinitionDao().observeAll() }
             .map { rows -> rows.associateBy { it.id } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val referencedTitleMessages: Flow<List<SessionTree.Message>> = referencedSessions
         .map { rows -> rows.map { it.id }.sorted() }
@@ -367,11 +367,11 @@ class ThreadViewModel @Inject constructor(
      *  its representative issue. */
     val pullRequestIssues: StateFlow<List<PullRequestIssueEntity>> =
         dbFlow.scopedQuery(emptyList<PullRequestIssueEntity>()) { it.pullRequestIssueDao().observeAll() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Every synced issue (the stack rail's row names). */
     val syncedIssues: StateFlow<List<IssueEntity>> =
-        allIssues.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        allIssues.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The previous build's rows by id: an unchanged row keeps its INSTANCE,
      *  so the transcript's items skip recomposition (chats.json PERF). */
@@ -524,7 +524,7 @@ class ThreadViewModel @Inject constructor(
     /** Start on…: the team's ONLINE machines (the synced devices shape). */
     val startDevices: StateFlow<List<SteerDevice>> = steerDeviceFlow(dbFlow, teamIdFlow(), auth.userId)
         .map { devices -> devices.orEmpty().filter { it.online } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private fun teamIdFlow(): Flow<String?> = root.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged()
 
@@ -564,6 +564,13 @@ class ThreadViewModel @Inject constructor(
             }
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** EXP-1521: whether the chat has a live tail at all (the screen reads
+     *  this; only the tail reads [liveActivity]). */
+    val hasLiveTail: StateFlow<Boolean> = liveActivity
+        .map { it != null }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     override fun onCleared() {
         releaseTail()
@@ -626,7 +633,7 @@ class ThreadViewModel @Inject constructor(
                     .map { members -> members.any { it.userId == user && it.role == "owner" } }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** The ROOT's device name (the header subtitle); null = none / unknown. */
     val rootDeviceLabel: StateFlow<String?> = combine(
@@ -634,7 +641,7 @@ class ThreadViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList()) { it.deviceDao().observeAll() },
     ) { deviceId, devices ->
         deviceId?.let { id -> devices.firstOrNull { it.deviceId == id }?.label?.takeIf { label -> label.isNotBlank() } }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The header "+": link issues to the thread. */
     fun linkIssues(issueIds: List<String>) {
@@ -653,7 +660,7 @@ class ThreadViewModel @Inject constructor(
     val users: StateFlow<Map<String, UserEntity>> =
         dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() }
             .map { rows -> rows.associateBy { it.id } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     private val teamId: Flow<String?> = root.map { it?.teamId?.takeIf { id -> id.isNotEmpty() } }.distinctUntilChanged()
 
@@ -664,7 +671,7 @@ class ThreadViewModel @Inject constructor(
             if (team == null) flowOf(emptyList())
             else dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeByTeam(team) }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** EXP-1307: the viewer is a member of the thread's team (the Guide
      *  `…`'s Close PR, `SessionTree.guideMenuEntries`). */
@@ -674,7 +681,7 @@ class ThreadViewModel @Inject constructor(
             else dbFlow.scopedQuery(emptyList()) { it.teamMemberDao().observeByTeam(team) }
                 .map { members -> members.any { it.userId == user } }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** EXP-1307: the Guide `…`'s Close PR (after its confirm), without
      *  merging; a failure toasts `Couldn't close the PR`. */
@@ -693,7 +700,7 @@ class ThreadViewModel @Inject constructor(
             else dbFlow.scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeByTeam(team) }
         }
         .map { rows -> if (rows.isEmpty()) IssueStatusResolver.builtinDefaults else IssueStatusResolver.teamStatuses(rows) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueStatusResolver.builtinDefaults)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), IssueStatusResolver.builtinDefaults)
 
     /** The team's issues as search rows — the "+"'s Link an issue list. */
     val linkCandidates: StateFlow<List<IssueRefTarget>> = combine(allIssues, teamBoards, statuses) { issues, boards, resolved ->
@@ -701,13 +708,13 @@ class ThreadViewModel @Inject constructor(
         issues.filter { it.boardId in boardIds }
             .sortedByDescending { it.createdAt }
             .map { issueRefTarget(it, resolved) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Where the "+"'s New issue files: the first linked issue's board, else
      *  the team's first board; null = nowhere (the row disables). */
     val newIssueBoardId: StateFlow<String?> = combine(issues, teamBoards) { linked, boards ->
         linked.firstOrNull()?.boardId ?: boards.firstOrNull()?.id
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** EXP-892: `issues.search` over the team behind the local rows. */
     suspend fun searchIssues(query: String): List<IssueRefTarget> {

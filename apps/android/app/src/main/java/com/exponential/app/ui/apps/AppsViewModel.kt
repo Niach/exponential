@@ -51,6 +51,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import at.exponential.ui.json.JsonValue
+import kotlinx.coroutines.flow.flowOn
 
 // VAPP-110 (fixtures/apps.json, web `hooks/use-apps.ts`): the SELECTED team's
 // APPS off the synced `apps` shape (trashed rows hidden; Exponential ships no
@@ -108,12 +109,12 @@ class AppsViewModel @Inject constructor(
             if (db == null || team == null) flowOf(null) else db.appDao().observeByTeam(team).map { rows -> rows }
         }
         .map { rows -> rows?.let { Apps.sortApps(it.map(AppEntity::toListEntry)) } }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val me: StateFlow<String?> = auth.userId
 
     val isOwner: StateFlow<Boolean> = dbFlow.isOwnerOf(selection.selectedId, auth.userId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy
@@ -216,34 +217,34 @@ class AppEditorViewModel @Inject constructor(
     val app: StateFlow<AppListEntry?> =
         dbFlow.scopedQuery<AppEntity?>(null) { it.appDao().observeById(appId) }
             .map { it?.toListEntry() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** VAPP-120: a team OWNER (the only one who grants tools; with the
      *  creator, who may rename, describe and delete). */
     val isOwner: StateFlow<Boolean> = dbFlow.isOwnerOf(app.map { it?.teamId }.distinctUntilChanged(), auth.userId)
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** VAPP-120: the app's synced `granted_tools` (the Settings sheet's switches). */
     val grantedTools: StateFlow<List<String>> =
         dbFlow.scopedQuery<AppEntity?>(null) { it.appDao().observeById(appId) }
             .map { AppActions.grantedList(it?.grantedTools) }
             .distinctUntilChanged()
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** VAPP-121: the app's synced records (Export's switch + rows). */
     val records: StateFlow<List<AppRecordEntity>> =
         dbFlow.scopedQuery(emptyList<AppRecordEntity>()) { it.appRecordDao().observeByApp(appId) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Newest first. */
     val versions: StateFlow<List<AppVersionEntity>> =
         dbFlow.scopedQuery(emptyList<AppVersionEntity>()) { it.appVersionDao().observeByApp(appId) }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val users: StateFlow<Map<String, UserEntity>> =
         dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() }
             .map { rows -> rows.associateBy { it.id } }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     /** The caller's editor session ROOT for the app (null = none yet). */
     val root: StateFlow<SessionEntity?> = combine(
@@ -251,13 +252,13 @@ class AppEditorViewModel @Inject constructor(
         auth.userId,
     ) { rows, me ->
         if (me == null) null else rows.firstOrNull { it.appId == appId && it.userId == me && it.parentId == null }
-    }.distinctUntilChanged().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+    }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** The device the FIRST send runs on: my default online one, else the first. */
     val deviceId: StateFlow<String?> =
         steerDeviceFlow(dbFlow, app.map { it?.teamId }.distinctUntilChanged(), auth.userId)
             .map { devices -> LaunchDeviceRules.resolve(devices.orEmpty().filter { it.online }, null, null)?.deviceId }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending

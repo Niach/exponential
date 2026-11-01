@@ -24,8 +24,6 @@ data class DeviceDoctorItem(
     val state: String,
     val detail: String? = null,
     val action: String? = null,
-    /** The email of the agent's AMBIENT login, which the device can import. */
-    val import: String? = null,
 )
 
 data class DeviceDoctor(
@@ -64,7 +62,6 @@ fun parseDeviceDoctor(raw: String?): DeviceDoctor? {
             state = item.str("state") ?: return@mapNotNull null,
             detail = item.str("detail"),
             action = item.str("action"),
-            import = item.str("import")?.trim()?.takeIf { it.isNotEmpty() },
         )
     }
     return DeviceDoctor(checkedAt = obj.str("checkedAt"), items = items, displays = parseDisplays(obj), desktopAudio = parseDesktopAudio(obj))
@@ -124,11 +121,6 @@ data class DoctorRow(
     val actionLabel: String? = null,
     /** The ONE filled pill of the block. */
     val primary: Boolean = false,
-    /**
-     * The OFFERED import (the ambient login's email; null when none, or not
-     * offered on this device): a plain pill BEFORE the action pill.
-     */
-    val importEmail: String? = null,
 )
 
 data class DoctorGroup(
@@ -162,7 +154,6 @@ object DeviceReadiness {
     const val ACTION_INSTALL = "install"
     const val ACTION_UPDATE = "update"
     const val ACTION_SIGN_IN = "sign_in"
-    const val ACTION_IMPORT = "import"
     const val ACTION_GRANT = "grant"
 
     /** Fixture `groups`, in block order. */
@@ -195,13 +186,10 @@ object DeviceReadiness {
         ACTION_INSTALL to Action("Install", remote = false),
         ACTION_UPDATE to Action("Update", remote = true),
         ACTION_SIGN_IN to Action("Sign in", remote = true),
-        ACTION_IMPORT to Action("Import", remote = true),
         ACTION_GRANT to Action("Open System Settings", remote = false),
     )
 
-    /** Fixture `copy`: the import confirm and the duplicate sign-in toast. */
-    fun importTitle(email: String): String = "Import $email?"
-    const val IMPORT_BODY = "Your login moves into Exponential. Sign in again outside of it."
+    /** Fixture `copy`: the duplicate sign-in toast. */
     fun alreadyAdded(email: String): String = AgentAccountsRows.alreadyAddedToast(email)
 
     fun label(key: String): String = LABELS[key] ?: key
@@ -223,16 +211,6 @@ object DeviceReadiness {
     private fun offered(action: String?, remote: Boolean): String? {
         val spec = action?.let(ACTIONS::get) ?: return null
         return action.takeIf { !remote || spec.remote }
-    }
-
-    /**
-     * An agent row's import pill: offered on the device itself always, on
-     * ANOTHER device only when `import` is remote.
-     */
-    private fun offeredImport(item: DeviceDoctorItem, remote: Boolean): String? {
-        val email = item.import ?: return null
-        if (!remote) return email
-        return email.takeIf { ACTIONS[ACTION_IMPORT]?.remote == true }
     }
 
     /**
@@ -298,7 +276,6 @@ object DeviceReadiness {
                         action = action,
                         actionLabel = action?.let { ACTIONS[it]?.label },
                         primary = primary,
-                        importEmail = offeredImport(item, remote),
                     )
                 }
             }
@@ -368,7 +345,6 @@ object DeviceReadiness {
             action = action,
             actionLabel = action?.let { ACTIONS[it]?.label },
             primary = action != null,
-            importEmail = offeredImport(item, remote),
         )
     }
 }

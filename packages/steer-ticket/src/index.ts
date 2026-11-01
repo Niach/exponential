@@ -19,7 +19,11 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 // VAPP-43: `publisher` and `viewer` are gone with the relay's session rooms
 // (session content travels over eNet); the relay 401s them like any unknown
 // role.
-export type SteerRole = `control` | `caller` | `call_host`
+// #EXP-1525: `tunnel` = a viewer's SEALED fallback carrier for one session
+// (fixtures/steer-enet.json `fallback`): the relay pipes ciphertext between
+// it and the control socket of the session's host device (`deviceId` under
+// `deviceOwnerId`), never reading a byte of it.
+export type SteerRole = `control` | `caller` | `call_host` | `tunnel`
 
 // EXP-312 / VAPP-43: the old `perm`, `name`, `sessionId` and `live` claims
 // are GONE with the session tickets.
@@ -46,6 +50,8 @@ export interface SteerTicketClaims {
   /** NEW-55: the agent the call talks to (caller tickets): forwarded in the
    * `call_ring` so the voice device knows whose conversation to open. */
   agentId?: string
+  /** #EXP-1525: on a TUNNEL ticket, the session it carries. */
+  sessionId?: string
   role: SteerRole
   /** Unix seconds. */
   iat: number

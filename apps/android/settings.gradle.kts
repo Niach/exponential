@@ -22,6 +22,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "exponential-android"
 include(":app")
+// EXP-1521/1522: frame-timing Macrobenchmarks against the `benchmark` build type.
+include(":macrobenchmark")
 
 // VAPP-89: the Exponential UI SDK primitives, included by path (SLOP-18
 // convergence: the app's generic composables wrap them).

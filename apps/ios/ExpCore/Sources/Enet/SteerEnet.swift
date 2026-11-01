@@ -9,6 +9,8 @@ import os
 // `enet_steer.rs`. The viewer joins the session's device here; since VAPP-43
 // the steer relay carries no session content, so a viewer that can't join has
 // NO FEED (`SteerEnetNoFeed`) and shows its existing states instead.
+// #EXP-1528: unless the sealed relay tunnel (SteerTunnel.swift) carries it:
+// eNet stays primary, the relay is the fallback (SteerFeedCarriers).
 
 private let logger = Logger(subsystem: "at.exponential", category: "SteerEnet")
 
@@ -453,7 +455,8 @@ public enum SteerEnetJoiner {
         carrier: SteerEnetCarrier,
         accountId: String,
         sessionId: String,
-        timeout: Duration = .milliseconds(SteerEnet.joinTimeoutMs)
+        timeout: Duration = .milliseconds(SteerEnet.joinTimeoutMs),
+        onFirstFrame: (@Sendable () -> Void)? = nil
     ) async -> SteerEnetJoinOutcome {
         guard await carrier.ready() else { return .noFeed(.noNode) }
         let endpoints: [String]
@@ -467,7 +470,7 @@ public enum SteerEnetJoiner {
         let deadline = ContinuousClock.now + timeout
         for peer in endpoints {
             let link = await carrier.open(sessionId: sessionId, peer: peer)
-            let result = await attempt(link: link, carrier: carrier, deadline: deadline)
+            let result = await attempt(link: link, carrier: carrier, deadline: deadline, onFirstFrame: onFirstFrame)
             switch result {
             case let .joined(replay):
                 return .joined(link, replay: replay)
@@ -484,7 +487,12 @@ public enum SteerEnetJoiner {
 
     private enum Attempt: Sendable { case joined([String]), refused, timedOut }
 
-    private static func attempt(link: SteerEnetLink, carrier: SteerEnetCarrier, deadline: ContinuousClock.Instant) async -> Attempt {
+    private static func attempt(
+        link: SteerEnetLink,
+        carrier: SteerEnetCarrier,
+        deadline: ContinuousClock.Instant,
+        onFirstFrame: (@Sendable () -> Void)?
+    ) async -> Attempt {
         let peer = link.peer
         let body = SteerEnet.encode(sessionId: link.sessionId, frames: [SteerEnet.joinFrame])
         return await withTaskGroup(of: Attempt?.self) { group in
@@ -499,6 +507,8 @@ public enum SteerEnetJoiner {
                 }
                 var replay: [String] = []
                 while let frames = await link.next() {
+                    // #EXP-1528: the device answers (the stall timer stops).
+                    if replay.isEmpty { onFirstFrame?() }
                     for (index, frame) in frames.enumerated() {
                         if let code = SteerEnet.errorCode(frame),
                            code == "no_such_session" || code == "unauthorized" {

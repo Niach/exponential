@@ -59,6 +59,23 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
     expect(resign.created[0]).toMatchObject({ profileId: `p1` })
   })
 
+  // EXP-1533: "Keep signed in" — the same command, flagged long-lived.
+  it(`passes longLived through to the command`, async () => {
+    const keep = deps([{ status: `done`, result: URL_RESULT }])
+    await deviceAccountLogin(
+      { deviceId: `dev`, agent: `claude`, profileId: `p1`, longLived: true },
+      keep.built
+    )
+    expect(keep.created[0]).toEqual({
+      deviceId: `dev`,
+      kind: `agent_login`,
+      agent: `claude`,
+      switch: false,
+      profileId: `p1`,
+      longLived: true,
+    })
+  })
+
   it(`hands back the commandId when the machine has not answered in time`, async () => {
     const { built } = deps([{}])
     const result = await deviceAccountLogin({ deviceId: `dev`, agent: `claude` }, built)

@@ -81,6 +81,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import io.ktor.http.HttpStatusCode
+import kotlinx.coroutines.flow.flowOn
 
 /** A pick held in memory until the create (parent / share mode). */
 data class HeldFile(val key: String, val uri: Uri, val filename: String)
@@ -191,7 +192,7 @@ class IssueDraftViewModel @Inject constructor(
 
     val board: StateFlow<BoardEntity?> = combine(allBoards, boardIdFlow) { boards, id ->
         id?.let { boards.firstOrNull { b -> b.id == it } }
-    }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     private val teamId = board.map { it?.teamId }.distinctUntilChanged()
 
@@ -203,40 +204,40 @@ class IssueDraftViewModel @Inject constructor(
     /** Same-team boards — the board chip shows with 2+. */
     val teamBoards: StateFlow<List<BoardEntity>> = combine(allBoards, teamId) { boards, team ->
         if (team == null) emptyList() else boards.filter { it.teamId == team }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val labels: StateFlow<List<LabelEntity>> = teamQuery(emptyList()) { db, team -> db.labelDao().observeByTeam(team) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     val statuses: StateFlow<List<ResolvedIssueStatus>> =
         teamQuery(emptyList()) { db, team -> db.issueStatusDao().observeByTeam(team) }
             .map { rows ->
                 if (rows.isEmpty()) IssueStatusResolver.builtinDefaults else IssueStatusResolver.teamStatuses(rows)
             }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, IssueStatusResolver.builtinDefaults)
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, IssueStatusResolver.builtinDefaults)
 
     private val members = teamQuery(emptyList()) { db, team -> db.teamMemberDao().observeByTeam(team) }
 
     /** The team's member users — assignee picker + @-mention vocabulary (EXP-487). */
     val teamUsers: StateFlow<List<UserEntity>> = teamQuery(emptyList()) { db, team -> db.userDao().observeByTeam(team) }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** #EXP-1383: the team's agents, the assignee picker's rows after the members. */
     val teamAgents: StateFlow<List<com.exponential.app.data.db.AgentDefinitionEntity>> =
         teamQuery(emptyList()) { db, team -> db.agentDefinitionDao().observeByTeam(team) }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** S-3: the assignee picker's agents: another member's Assistant is never
      *  one (`visibleAgent`); an assignment to it still reads off [teamAgents]. */
     val assignableAgents: StateFlow<List<com.exponential.app.data.db.AgentDefinitionEntity>> =
         combine(teamAgents, auth.userId) { rows, me ->
             rows.filter { com.exponential.app.domain.AgentSettings.Assistant.visibleAgent(it.role, it.ownerId, me) }
-        }.stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+        }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
     /** EXP-50: the lone member of a solo team — hides the assignee chip. */
     val soloMemberId: StateFlow<String?> = members
         .map { rows -> rows.map { it.userId }.singleOrNull() }
-        .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     val permissions: StateFlow<TeamPermissions> = combine(
         teamQuery(null) { db, team -> db.teamDao().observeById(team) },
@@ -251,7 +252,7 @@ class IssueDraftViewModel @Inject constructor(
             isMember = userId != null && rows.any { it.userId == userId },
             memberRole = rows.firstOrNull { it.userId == userId }?.role,
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamPermissions.Denied)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), TeamPermissions.Denied)
 
     /** `#IDENTIFIER` autocomplete: the target team's issues, newest first. */
     val issueRefCandidates: StateFlow<List<IssueRefTarget>> = combine(
@@ -263,12 +264,12 @@ class IssueDraftViewModel @Inject constructor(
         issues.filter { it.boardId in ids }
             .sortedByDescending { it.createdAt }
             .map { issueRefTarget(it, statusRows) }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The issue this one is filed under (parent mode) — the parent line. */
     val parentIssue: StateFlow<IssueEntity?> = dbFlow
         .flatMapLatest { db -> if (db == null || parentId == null) flowOf(null) else db.issueDao().observeById(parentId) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     suspend fun searchIssueRefs(query: String): List<IssueRefTarget> {
         val accountId = auth.activeAccountId.value ?: return emptyList()

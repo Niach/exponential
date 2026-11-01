@@ -4,9 +4,10 @@
 // `error no_such_session` (or `unauthorized`, or a send that never lands)
 // the next → the first `activity_synced` wins. No carrier, no endpoint,
 // every endpoint refused, or no `activity_synced` within joinTimeoutMs =
-// null = NO FEED: since VAPP-43 the steer relay carries no session content,
-// so the store shows its existing no-feed states (`starting` for a live row,
-// `ended` with the device-offline copy for an ended one).
+// null = no feed on eNet: steer-feed.ts then tries the sealed relay tunnel
+// (EXP-1527), and only when that fails too the store shows its existing
+// no-feed states (`starting` for a live row, `ended` with the device-offline
+// copy for an ended one).
 //
 // A won attempt is handed to the store as a WebSocket-shaped object
 // (`EnetSteerSocket`): the store sends and parses the steer `{t, ...}`
@@ -41,7 +42,12 @@ export type EnetSteerDeps = {
   forSession: (sessionId: string) => Promise<SteerEndpoint[]>
   joinTimeoutMs?: number
   staleMs?: number
+  /** EXP-1527: why an attempt had no feed (connection analytics). */
+  noFeed?: (why: EnetNoFeed) => void
 }
+
+/** Why eNet had no feed (connStats `errorClasses`). */
+export type EnetNoFeed = `no_node` | `no_endpoint` | `refused` | `join_timeout`
 
 /** The eNet feed went silent past a re-join (or a send never landed): the
  *  store redials silently, eNet again. */
@@ -53,13 +59,18 @@ const JOIN: SteerFrame = { t: `join`, channel: `activity` }
 
 type Outcome = { kind: `joined`; frames: SteerFrame[] } | { kind: `refused` } | { kind: `timeout` }
 
-/** One eNet attempt for a dial; null = no feed (there is no fallback). */
+/** One eNet attempt for a dial; null = no feed on eNet (steer-feed.ts falls
+ *  back to the sealed relay tunnel). */
 export async function openEnetSteer(sessionId: string, deps: EnetSteerDeps): Promise<EnetSteerSocket | null> {
   const joinTimeoutMs = deps.joinTimeoutMs ?? STEER_ENET_JOIN_TIMEOUT_MS
+  const noFeed = (why: EnetNoFeed) => {
+    deps.noFeed?.(why)
+    return null
+  }
   const carrier = await deps.carrier().catch(() => undefined)
-  if (!carrier) return null
+  if (!carrier) return noFeed(`no_node`)
   const endpoints = await withDeadline(deps.forSession(sessionId), joinTimeoutMs).catch(() => undefined)
-  if (!endpoints || endpoints.length === 0) return null
+  if (!endpoints || endpoints.length === 0) return noFeed(`no_endpoint`)
   for (const { endpointId } of endpoints) {
     const release = carrier.allow(endpointId)
     const buffered: SteerFrame[] = []
@@ -89,9 +100,9 @@ export async function openEnetSteer(sessionId: string, deps: EnetSteerDeps): Pro
     }
     void carrier.send(endpointId, encodeSteerEnvelope(sessionId, [{ t: `leave` }])).catch(() => {})
     release()
-    if (result.kind === `timeout`) return null
+    if (result.kind === `timeout`) return noFeed(`join_timeout`)
   }
-  return null
+  return noFeed(`refused`)
 }
 
 /** The viewer-side rule: only the joined session, only from the joined endpoint. */

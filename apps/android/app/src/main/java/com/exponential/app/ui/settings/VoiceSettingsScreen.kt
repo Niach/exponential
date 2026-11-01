@@ -87,6 +87,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.flowOn
 
 /**
  * NEW-67 (voice plan v3, V1): Settings → Personal → Voice (`voice.json`, the
@@ -159,11 +160,11 @@ class VoiceSettingsViewModel @Inject constructor(
     var failure by mutableStateOf<FailedAction?>(null)
 
     private val devices: StateFlow<List<DeviceEntity>> = db.deviceDao().observeAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val agents: StateFlow<List<AgentDefinitionEntity>> = db.agentDefinitionDao().observeAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
     private val teams: StateFlow<List<TeamEntity>> = db.teamDao().observeAll()
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The page's vocabulary: picker options + the names the copy needs. */
     data class Vocabulary(
@@ -205,7 +206,7 @@ class VoiceSettingsViewModel @Inject constructor(
             doctors = own.associate { it.deviceId to parseDeviceDoctor(it.doctor) },
             online = own.filter { DeviceLiveness.isOnline(it.lastSeenAt, now) }.map { it.deviceId }.toSet(),
         )
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Vocabulary())
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), Vocabulary())
 
     init {
         load()
@@ -651,8 +652,7 @@ internal fun VoiceSettingsForm(
  * NEW-57 (`meeting.json`): Meeting mode, Desktop audio and (while it picks
  * or leaves out apps, and the device can pick apps) Apps: their own group,
  * no header, directly under the tray group. Turning
- * Meeting mode on only opens THE consent prompt (the doctor's Import
- * confirm, [GlassAlert]); Start = `voice.startMeeting`, off = `voice.stopMeeting`.
+ * Meeting mode on only opens THE consent prompt (a [GlassAlert]); Start = `voice.startMeeting`, off = `voice.stopMeeting`.
  */
 @Composable
 private fun MeetingRows(
