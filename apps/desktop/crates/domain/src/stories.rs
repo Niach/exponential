@@ -66,6 +66,9 @@ pub struct StoryViewerSpec {
     pub inset: StoryViewerInset,
     /// #EXP-1463: a picture frame's modal is at least this wide.
     pub min_width: f32,
+    /// #EXP-1523: the footer's content is at most this share of the
+    /// viewer's height and scrolls inside itself past it.
+    pub footer_max_fraction: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]

@@ -476,7 +476,7 @@ pub(crate) fn overlay(window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         navigate: true,
     };
     let content = story_content(story, frame, picture, message.as_ref(), &handlers, &images, window, cx);
-    let panel = story_panel(ring, &frames, at, picture, fraction, avatar, content, handlers, cx);
+    let panel = story_panel(ring, &frames, at, picture, fraction, size.height as f32, avatar, content, handlers, cx);
     let focus = cx.global::<Viewer>().focus.clone()?;
     Some(layer(panel, focus, (px(size.width as f32), px(size.height as f32)), window))
 }
@@ -763,6 +763,7 @@ fn gallery_counter(picture: usize, count: usize) -> Div {
 /// title + description floating over the top scrim, the footer under it
 /// (over the bottom scrim on a cover / picture). `avatar` sits inside the
 /// ring's StoryRing at the header size (stories.json VIEWER LOOK).
+/// `height` = the modal's (its footer caps at `footerMaxFraction` of it).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn story_panel(
     ring: &StoryRing,
@@ -770,6 +771,7 @@ pub(crate) fn story_panel(
     index: usize,
     picture: usize,
     fraction: f32,
+    height: f32,
     avatar: AnyElement,
     content: StoryContent,
     handlers: PanelHandlers,
@@ -917,7 +919,10 @@ pub(crate) fn story_panel(
                 v_flex()
                     .id("story-footer")
                     .relative()
-                    .max_h(px(spec.height * 0.55))
+                    // #EXP-1523: never taller than `footerMaxFraction` of the
+                    // modal; a long one scrolls inside itself.
+                    .max_h(px(height * spec.footer_max_fraction))
+                    .overflow_y_scroll()
                     .bg(scrim_fill())
                     .occlude()
                     .cursor_default()

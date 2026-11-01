@@ -84,7 +84,7 @@ final class StoriesTests: XCTestCase {
             ]
         )
         let viewer = try XCTUnwrap(f["viewer"] as? [String: Any])
-        XCTAssertEqual(viewer.keys.sorted(), ["height", "inset", "minWidth", "radius", "scrimFade", "scrimHeight", "width"])
+        XCTAssertEqual(viewer.keys.sorted(), ["footerMaxFraction", "height", "inset", "minWidth", "radius", "scrimFade", "scrimHeight", "width"])
         XCTAssertEqual(num(viewer["width"]), Stories.Viewer.width)
         XCTAssertEqual(num(viewer["height"]), Stories.Viewer.height)
         XCTAssertEqual(num(viewer["radius"]), Stories.Viewer.radius)
@@ -92,6 +92,7 @@ final class StoriesTests: XCTestCase {
         XCTAssertEqual(num(viewer["scrimFade"]), Stories.Viewer.scrimFade)
         XCTAssertEqual(viewer["inset"] as? [String: Double], ["x": Stories.Viewer.insetX, "y": Stories.Viewer.insetY])
         XCTAssertEqual(num(viewer["minWidth"]), Stories.Viewer.minWidth)
+        XCTAssertEqual(num(viewer["footerMaxFraction"]), Stories.Viewer.footerMaxFraction)
         XCTAssertEqual(f["row"] as? [String: Double], [
             "itemWidth": Stories.Row.itemWidth, "gap": Stories.Row.gap,
             "labelGap": Stories.Row.labelGap, "padBottom": Stories.Row.padBottom,
