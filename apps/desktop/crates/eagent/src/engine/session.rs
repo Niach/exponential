@@ -271,6 +271,11 @@ impl EngineSession {
         self.0.ctx.blocked.lock().ok().and_then(|wall| wall.clone())
     }
 
+    /// EXP-1532: the latest turn failed because the login is signed out.
+    pub fn signed_out(&self) -> bool {
+        self.0.ctx.signed_out.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// EXP-1280: is Exponential's plan flag on (`None` = the agent
     /// advertised no modes)?
     pub fn plan_mode(&self) -> Option<bool> {
@@ -538,6 +543,7 @@ fn build_ctx(spec: SessionSpec) -> Arc<SessionCtx> {
         compaction: Arc::new(Mutex::new(super::compaction::CompactionPolicy::default())),
         last_activity: Mutex::new(std::time::Instant::now()),
         seed_retry: std::sync::atomic::AtomicBool::new(false),
+        signed_out: std::sync::atomic::AtomicBool::new(false),
         turns_started: std::sync::atomic::AtomicU64::new(0),
         busy_at_shutdown: std::sync::atomic::AtomicBool::new(false),
         api_retry: Mutex::new(super::api_retry::ApiRetry::new()),

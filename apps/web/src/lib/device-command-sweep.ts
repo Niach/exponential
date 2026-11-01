@@ -17,6 +17,7 @@ import { and, inArray, lte } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { deviceCommands } from "@/db/schema"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
+import { runConnStatsRetention } from "@/lib/steer-conn-stats"
 
 // The states devices.completeCommand can leave behind — the only ones a
 // device will never act on again. Keep in lockstep with that mutation.
@@ -95,10 +96,13 @@ async function sweep(): Promise<void> {
   const startMs = performance.now()
   try {
     const result = await runDeviceCommandSweep()
+    // EXP-1530: the same hourly pass expires P2P connection analytics rows
+    // past `connStats.retentionDays`.
+    const stats = await runConnStatsRetention()
     reportSchedulerRun(`device-command-sweep`, {
       ok: true,
       durationMs: performance.now() - startMs,
-      detail: `${result.commandsDeleted} deleted`,
+      detail: `${result.commandsDeleted} deleted, ${stats.connEventsDeleted} conn events expired`,
     })
     if (result.commandsDeleted > 0) {
       console.log(

@@ -7,8 +7,7 @@
 //! - **The row model** ([`sections`], [`row_for`], [`blocking_row`]) — pure,
 //!   fixture-locked below: groups as bands with their tag, one row per item
 //!   (state glyph + tone, label, the device-written detail, at most ONE
-//!   action pill — plus, for an agent with an ambient login to take over, an
-//!   `Import` pill before it), the `computer_use` item as the switch row, permission rows
+//!   action pill), the `computer_use` item as the switch row, permission rows
 //!   indented and hidden while their parent is off. `local` decides which
 //!   actions are offered: on the device itself every one, for ANOTHER device
 //!   only the fixture's `remote` ones.
@@ -119,10 +118,6 @@ pub(crate) struct ReadinessRow {
     /// A permission row under its parent.
     pub indent: bool,
     pub pill: Option<RowPill>,
-    /// The item's `import`: the email of the agent's AMBIENT login, which the
-    /// row offers to import (its pill renders before the action pill, only
-    /// where the host can run it — [`BlockProps::offer_import`]).
-    pub import: Option<String>,
 }
 
 /// One group band and its rows.
@@ -335,7 +330,6 @@ pub(crate) fn bare_switch_row(on: bool) -> ReadinessRow {
         switch: Some(on),
         indent: false,
         pill: None,
-        import: None,
     }
 }
 
@@ -385,7 +379,6 @@ fn build_row(
         switch: is_switch.then(|| switch_on.unwrap_or(item.state != DoctorState::Off)),
         indent: item.parent.is_some(),
         pill: if is_switch { None } else { pill },
-        import: if is_switch { None } else { item.import.clone() },
     }
 }
 
@@ -514,9 +507,6 @@ pub(crate) fn agent_for(key: &str) -> Option<CodingAgent> {
 
 /// A pill click: the row's key and its action.
 pub(crate) type ActionHandler = Rc<dyn Fn(&str, DoctorAction, &mut Window, &mut App)>;
-/// An Import pill click: the row's key and the ambient login's email. The
-/// handler confirms first ([`confirm_import`]).
-pub(crate) type ImportHandler = Rc<dyn Fn(&str, &str, &mut Window, &mut App)>;
 /// The computer-use switch.
 pub(crate) type ToggleHandler = Rc<dyn Fn(bool, &mut Window, &mut App)>;
 
@@ -535,10 +525,6 @@ pub(crate) struct BlockProps {
     /// Element-id prefix (two blocks may share a window).
     pub id: SharedString,
     pub on_action: Option<ActionHandler>,
-    /// Whether rows carrying an `import` show the Import pill (off only in the
-    /// inert styleguide specimens that leave it unset).
-    pub offer_import: bool,
-    pub on_import: Option<ImportHandler>,
     pub on_toggle: Option<ToggleHandler>,
     /// Row keys whose action is running (the pill shows its spinner).
     pub busy: HashSet<String>,
@@ -639,20 +625,6 @@ pub(crate) fn render_row(
                     .child(SharedString::from(row.detail.clone().unwrap_or_default())),
             )
             .children(extras.trailing.take());
-        if let Some(email) = row.import.clone().filter(|_| props.offer_import) {
-            let mut button = surface::glass_pill_button(
-                SharedString::from(format!("{id}-import-{}", row.key)),
-                surface::PillSize::Sm,
-                cx,
-            )
-            .label(DoctorAction::Import.label())
-            .disabled(props.on_import.is_none());
-            if let Some(on_import) = props.on_import.clone() {
-                let key = row.key.clone();
-                button = button.on_click(move |_, window, cx| on_import(&key, &email, window, cx));
-            }
-            line = line.child(button);
-        }
         if let Some(pill) = row.pill {
             let pill_id = SharedString::from(format!("{id}-action-{}", row.key));
             let busy = props.busy.contains(&row.key);
@@ -837,9 +809,6 @@ pub(crate) fn run_local_action(key: &str, action: DoctorAction, _window: &mut Wi
                 crate::agent_login::open_login_tab(agent, None, cx);
             }
         }
-        // The Import pill runs through [`BlockProps::on_import`] (it confirms
-        // first); it is never a row's action.
-        DoctorAction::Import => {}
         DoctorAction::Grant if key == KEY_MICROPHONE => grant_microphone(cx),
         DoctorAction::Grant if key == KEY_DESKTOP_AUDIO => grant_desktop_audio(cx),
         DoctorAction::Grant => {
@@ -978,112 +947,8 @@ pub(crate) fn run_remote_action(
             window,
             cx,
         ),
-        DoctorAction::Install | DoctorAction::Import | DoctorAction::Grant => {}
+        DoctorAction::Install | DoctorAction::Grant => {}
     }
-}
-
-/// The Import confirm (the fixture's `importTitle` / `importBody`, buttons
-/// Cancel / Import), then `then`.
-pub(crate) fn confirm_import(
-    email: &str,
-    window: &mut Window,
-    cx: &mut App,
-    then: impl Fn(&mut Window, &mut App) + 'static,
-) {
-    let spec = crate::native_dialog::AlertSpec::new(
-        device_doctor::import_title(email),
-        device_doctor::IMPORT_BODY,
-        DoctorAction::Import.label(),
-    )
-    .on_ok(move |window, cx| {
-        then(window, cx);
-        true
-    });
-    crate::native_dialog::open_alert(window, cx, spec);
-}
-
-/// The Import pill on THIS device: confirm, then move the ambient login into
-/// a profile right here.
-pub(crate) fn run_local_import(key: &str, email: &str, window: &mut Window, cx: &mut App) {
-    let Some(agent) = agent_for(key) else {
-        return;
-    };
-    confirm_import(email, window, cx, move |_, cx| {
-        crate::agent_login::import_ambient_login(agent, cx)
-    });
-}
-
-/// The Import pill for ANOTHER device:
-/// confirm, queue `agent_login {agent, import: true}`, and say how it went
-/// once the machine answers — `Imported {email}.`, or the already-added
-/// warning, or its failure sentence.
-pub(crate) fn remote_import_handler(device_id: String, device_label: SharedString) -> ImportHandler {
-    Rc::new(move |key, email, window, cx| {
-        let Some(agent) = agent_for(key) else {
-            return;
-        };
-        let (device_id, device_label) = (device_id.clone(), device_label.clone());
-        confirm_import(email, window, cx, move |_, cx| {
-            queue_remote_import(device_id.clone(), device_label.clone(), agent, cx)
-        });
-    })
-}
-
-/// How long a queued remote import is watched for its answer.
-const IMPORT_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-
-fn queue_remote_import(device_id: String, device_label: SharedString, agent: CodingAgent, cx: &mut App) {
-    let Some(trpc) = crate::queries::trpc_client(cx) else {
-        return;
-    };
-    crate::toast::show_in_active_window(
-        crate::toast::Toast::info(format!("Importing the {} login on {device_label}…", agent.label())),
-        cx,
-    );
-    cx.spawn(async move |cx| {
-        let queued = cx
-            .background_executor()
-            .spawn(async move {
-                api::devices::create_agent_login_command(&trpc, &device_id, agent.id(), None, true)
-            })
-            .await;
-        let command_id = match queued {
-            Ok(created) => created.id,
-            Err(err) => {
-                let _ = cx.update(|cx| {
-                    crate::action_error::failed_action_err("import", "the login", &err, cx)
-                });
-                return;
-            }
-        };
-        let started = std::time::Instant::now();
-        while started.elapsed() < IMPORT_ANSWER_TIMEOUT {
-            cx.background_executor().timer(std::time::Duration::from_secs(2)).await;
-            let Some(trpc) = cx.update(|cx| crate::queries::trpc_client(cx)) else {
-                return;
-            };
-            let id = command_id.clone();
-            let row = cx
-                .background_executor()
-                .spawn(async move { api::devices::get_command(&trpc, &id) })
-                .await;
-            let Ok(row) = row else { continue };
-            if !row.is_terminal() {
-                continue;
-            }
-            let text = row.result.clone().unwrap_or_default();
-            let toast = if row.status == "failed" {
-                crate::action_error::failed_toast("import", "the login", Some(text))
-            } else if text.ends_with("was already added. Refreshed it.") {
-                crate::toast::Toast::warning(text)
-            } else {
-                crate::toast::Toast::success(text)
-            };
-            let _ = cx.update(|cx| crate::toast::show_in_active_window(toast, cx));
-            return;
-        }
-    })
-    .detach();
 }
 
 /// THIS device's computer-use switch: `Settings.computer_use` through the
@@ -1106,8 +971,6 @@ pub(crate) fn local_props(id: impl Into<SharedString>, cx: &App) -> BlockProps {
     BlockProps {
         id: id.into(),
         on_action: Some(Rc::new(run_local_action)),
-        offer_import: true,
-        on_import: Some(Rc::new(run_local_import)),
         on_toggle: Some(Rc::new(|on, _window, cx| set_local_computer_use(on, cx))),
         busy: local_busy(cx),
         extras: HashMap::new(),
@@ -1115,22 +978,19 @@ pub(crate) fn local_props(id: impl Into<SharedString>, cx: &App) -> BlockProps {
     }
 }
 
-/// A remote block's wiring for `device_id` (remote actions and the Import
-/// pill; the switch is the host's, it owns the launch-defaults write).
+/// A remote block's wiring for `device_id` (remote actions; the switch is the
+/// host's, it owns the launch-defaults write).
 pub(crate) fn remote_props(
     id: impl Into<SharedString>,
     device_id: String,
     device_label: SharedString,
     _cx: &App,
 ) -> BlockProps {
-    let on_import = remote_import_handler(device_id.clone(), device_label.clone());
     BlockProps {
         id: id.into(),
         on_action: Some(Rc::new(move |key, action, window, cx| {
             run_remote_action(device_id.clone(), device_label.clone(), key, action, window, cx)
         })),
-        offer_import: true,
-        on_import: Some(on_import),
         ..BlockProps::default()
     }
 }
@@ -1247,14 +1107,6 @@ mod tests {
                             .map(|action| serde_json::from_value(action.clone()).unwrap())
                     };
                     assert_eq!(row.pill.map(|pill| pill.action), expected, "{name}: {}", row.key);
-                    // The Import offer rides the item, local and remote alike
-                    // (the host decides whether the pill shows).
-                    assert_eq!(
-                        row.import.as_deref(),
-                        case["importPills"].get(row.key.as_str()).and_then(Value::as_str),
-                        "{name}: {}",
-                        row.key
-                    );
                     if row.pill.is_some_and(|pill| pill.primary) {
                         primaries += 1;
                         if local {
@@ -1416,8 +1268,7 @@ mod tests {
         assert_eq!(fixture["copy"]["skip"], SKIP);
         assert_eq!(fixture["copy"]["recheck"], RECHECK);
         assert_eq!(fixture["copy"]["continue"], CONTINUE);
-        assert_eq!(fixture["actions"]["import"]["label"], DoctorAction::Import.label());
-        assert!(DoctorAction::Import.remote());
+        assert!(fixture["actions"].get("import").is_none(), "EXP-1532: no import");
         for key in ["git", "claude"] {
             assert!(install_url(key).unwrap().starts_with("https://"));
         }

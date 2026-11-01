@@ -1,7 +1,12 @@
 package com.exponential.app.data.steer
 
+import android.os.SystemClock
 import android.util.Log
+import com.exponential.app.AppConstants
+import com.exponential.app.BuildConfig
 import com.exponential.app.data.api.InstallsApi
+import com.exponential.app.data.api.STEER_CLIENT
+import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.SessionEntity
@@ -10,14 +15,21 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.enet.EnetNodeManager
+import com.exponential.app.data.sealed.SealedFfi
+import com.exponential.app.data.sealed.SealedKeys
+import io.ktor.client.HttpClient
 import javax.inject.Inject
+import javax.inject.Named
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -39,6 +51,8 @@ class SteerConnectionStore @Inject constructor(
     private val syncManager: SyncManager,
     private val enetNodes: EnetNodeManager,
     private val installsApi: InstallsApi,
+    private val steerApi: SteerApi,
+    @Named(STEER_CLIENT) private val steerClient: HttpClient,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
@@ -62,6 +76,13 @@ class SteerConnectionStore @Inject constructor(
     /// park the moment it happened (EXP-625).
     private var foreground = false
 
+    /// EXP-1529: connection analytics, posted under the active account
+    /// (the events name no account, user, team or session).
+    private val connStats = SteerConnStatsClient(post = { events ->
+        val accountId = auth.activeAccountId.value
+        if (accountId != null) steerApi.recordConnStats(accountId, events)
+    })
+
     init {
         // Every reason the shapes have to suspect they're behind (app
         // foreground, a network coming back, a DNS change, a push, a
@@ -78,6 +99,22 @@ class SteerConnectionStore @Inject constructor(
                 live.forEach { it.kick("sync-kick") }
             }
         }
+        // EXP-1524: a session opened before the account's eNet node was up
+        // (a notification cold start) dials the moment it is, instead of
+        // waiting out its Starting backoff.
+        scope.launch {
+            combine(auth.activeAccountId, enetNodes.ready) { id, ready -> id != null && id in ready }
+                .distinctUntilChanged()
+                .filter { it }
+                .collect {
+                    val live = synchronized(lock) {
+                        if (foreground) connections.values.toList() else emptyList()
+                    }
+                    if (live.isEmpty()) return@collect
+                    Log.i(TAG, "enet-ready -> ${live.size} connection(s)")
+                    live.forEach { it.kick("enet-ready") }
+                }
+        }
     }
 
     /// Get (or open) the connection for a coding session and count the caller
@@ -87,7 +124,12 @@ class SteerConnectionStore @Inject constructor(
             val connection = connections.getOrPut(codingSessionId) {
                 SteerConnection(
                     codingSessionId = codingSessionId,
-                    transport = EnetSteerTransport(enetDialer()),
+                    // EXP-1529: eNet first, the sealed relay tunnel as its fallback.
+                    transport = FallbackSteerTransport(
+                        enet = EnetSteerTransport(enetDialer()),
+                        relay = tunnelDialer(),
+                        nowMs = { SystemClock.elapsedRealtime() },
+                    ),
                     sessionFlow = accountDatabaseFlow(auth, holder)
                         .scopedQuery<SessionEntity?>(null) {
                             it.sessionDao().observeById(codingSessionId)
@@ -97,6 +139,8 @@ class SteerConnectionStore @Inject constructor(
                     auth = auth,
                     // EXP-1522: a long replay folds off the main thread.
                     foldDispatcher = Dispatchers.Default,
+                    stats = connStats,
+                    version = AppConstants.VERSION_NAME,
                 )
             }
             connection.refCount += 1
@@ -104,8 +148,8 @@ class SteerConnectionStore @Inject constructor(
         }
     }
 
-    /// VAPP-33: steer over the active account's eNet node. VAPP-43: the only
-    /// feed; the steer relay carries no session content.
+    /// VAPP-33: steer over the active account's eNet node, the PRIMARY
+    /// carrier; the relay carries only the sealed fallback (EXP-1529).
     private fun enetDialer() = EnetSteerDialer(
         node = { auth.activeAccountId.value?.let(enetNodes::peer) },
         discover = { sessionId ->
@@ -113,6 +157,44 @@ class SteerConnectionStore @Inject constructor(
             installsApi.forSession(accountId, sessionId).map { it.endpointId }
         },
     )
+
+    /// EXP-1529: the sealed relay leg (fixtures/steer-enet.json `fallback`
+    /// AVAILABILITY): the root's seal key + the tree secret of its current
+    /// epoch this install holds, then a `steer.tunnelTicket`.
+    private fun tunnelDialer() = RelayTunnelDialer(
+        sealer = ::sealerFor,
+        ticket = { sessionId ->
+            val accountId = auth.activeAccountId.value ?: error("No active account")
+            val result = steerApi.tunnelTicket(accountId, sessionId)
+            val ticket = result.ticket
+            val url = result.url
+            when {
+                result.disabled -> TunnelTicket.Disabled
+                ticket != null && url != null -> TunnelTicket.Granted(ticket, dialUrl(url))
+                else -> TunnelTicket.Unavailable
+            }
+        },
+        wire = KtorTunnelWire(steerClient),
+    )
+
+    private suspend fun sealerFor(sessionId: String): SteerSealer? {
+        val accountId = auth.activeAccountId.value ?: return null
+        val sessions = holder.database(accountId).sessionDao()
+        val row = sessions.getById(sessionId) ?: return null
+        val rootId = row.rootId.ifEmpty { row.id }
+        val root = if (rootId == row.id) row else sessions.getById(rootId) ?: return null
+        val publicKey = root.sealPublicKey ?: return null
+        val epoch = root.sealEpoch ?: 1
+        if (SealedKeys.of(rootId)[epoch] == null) return null
+        return TreeSteerSealer(SealedFfi, publicKey, epoch) { SealedKeys.of(rootId) }
+    }
+
+    /// The capture-only authority rewrite, exactly like the voice call's dial.
+    private fun dialUrl(url: String): String =
+        SteerTestHooks.relayAuthority
+            ?.takeIf { BuildConfig.DEBUG }
+            ?.let { withRelayAuthority(url, it) }
+            ?: url
 
     /// Detach one screen. The connection itself keeps running — that IS the
     /// point — unless it has nothing left to do, which is the moment its feed
@@ -159,6 +241,8 @@ class SteerConnectionStore @Inject constructor(
                 connections.values.toList().forEach { it.resume() }
                 null
             } else {
+                // EXP-1529: the analytics go out before the process may sleep.
+                connStats.flush()
                 scope.launch {
                     delay(BACKGROUND_PARK_DELAY_MS)
                     // Commit the park under the same lock the foreground path
@@ -169,6 +253,8 @@ class SteerConnectionStore @Inject constructor(
                         if (!isActive) return@launch
                         connections.values.toList().forEach { it.park() }
                     }
+                    // The parks just closed their views (`ended`).
+                    connStats.flush()
                 }
             }
         }
@@ -180,6 +266,7 @@ class SteerConnectionStore @Inject constructor(
         synchronized(lock) {
             connections.values.forEach { it.close() }
             connections.clear()
+            connStats.flush()
         }
     }
 

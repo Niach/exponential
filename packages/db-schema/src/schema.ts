@@ -1077,10 +1077,6 @@ export interface DeviceAgentAccount {
    * the top-level row only. The device settings' Update section shows it
    * beside the per-agent "Update" control. */
   version?: string
-  /** Present iff the agent CLI's AMBIENT login (~/.claude, ~/.codex) is
-   * signed in. Runs never use it; the doctor offers to Import (move) it into
-   * a profile. */
-  importable?: { email?: string; plan?: string }
 }
 export interface DeviceAgentProfileEntry {
   id: string
@@ -1101,6 +1097,9 @@ export interface DeviceAgentProfileEntry {
    * out into a probe per login. Absent = monitored. */
   unmonitored?: boolean
   usage?: DeviceAgentUsage
+  /** EXP-1533: when this claude login's long-lived `claude setup-token`
+   * login stops working (ISO); present while the profile holds one. */
+  tokenExpiresAt?: string
 }
 
 /** EXP-849: the four health values, byte-identical with the desktop's
@@ -1158,6 +1157,8 @@ export const deviceAgentProfileSchema = z.object({
   // own probe cap) — the row is identity-only, and the clients say so rather
   // than rendering an empty bar as "0%".
   unmonitored: z.boolean().nullish(),
+  // EXP-1533: the long-lived claude login's expiry (ISO).
+  tokenExpiresAt: z.string().max(64).nullish(),
   usage: z
     .object({
       fetchedAt: z.string().max(64).nullish(),
@@ -1198,13 +1199,8 @@ export const deviceAgentAccountsSchema = z.record(
       profiles: z.array(deviceAgentProfileSchema.nullish()).nullish(),
       // The install's CLI version (`DeviceAgentAccount.version`).
       version: z.string().max(64).nullish(),
-      // `DeviceAgentAccount.importable`.
-      importable: z
-        .object({
-          email: z.string().max(320).nullish(),
-          plan: z.string().max(64).nullish(),
-        })
-        .nullish(),
+      // EXP-1532: an old device's retired `importable` is stripped (zod
+      // objects drop unknown keys).
     })
     .nullish()
 )
@@ -1277,7 +1273,6 @@ export const deviceDoctorActions = [
   `install`,
   `update`,
   `sign_in`,
-  `import`,
   `grant`,
 ] as const
 export type DeviceDoctorKey = (typeof deviceDoctorKeys)[number]
@@ -1293,9 +1288,6 @@ export interface DeviceDoctorItem {
   state: DeviceDoctorState | (string & {})
   detail?: string
   action?: DeviceDoctorAction | (string & {})
-  /** The agent's AMBIENT login email: renders an `import` pill before the
-   * action pill. */
-  import?: string
 }
 /** NEW-59: one display as the device reports it (the OS's order, pixels). */
 export interface DeviceDisplay {
@@ -1342,7 +1334,7 @@ export const deviceDoctorItemSchema = z.object({
     .nullish()
     .transform((v) => (v == null ? v : v.slice(0, 120))),
   action: z.string().max(32).nullish(),
-  import: z.string().max(320).nullish(),
+  // EXP-1532: an old device's retired `import` is stripped.
 })
 export const deviceDoctorSchema = z.object({
   checkedAt: z.string().max(64),
@@ -3263,6 +3255,40 @@ export const conversionEvents = pgTable(
   ]
 )
 
+// EXP-1530: P2P connection analytics (SERVER-ONLY, admin console; never
+// synced, no shape proxy). One row per accepted eCore envelope posted to
+// `connStats.record` (fixtures/steer-enet.json `connStats`). Privacy-safe by
+// construction: NO user, team, session or device column. `id` = the client's
+// envelope id (ON CONFLICT DO NOTHING makes a retried flush idempotent).
+// Rows older than `connStats.retentionDays` are deleted by the periodic sweep
+// (lib/steer-conn-stats.ts).
+export const steerConnectionEvents = pgTable(
+  `steer_connection_events`,
+  {
+    id: varchar({ length: 64 }).primaryKey(),
+    // The client's clock (envelope `at`); bucketing uses received_at.
+    at: timestamp({ withTimezone: true }).notNull(),
+    receivedAt: timestamp(`received_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    kind: varchar({ length: 32 }).notNull(),
+    phase: varchar({ length: 16 }).notNull(),
+    platform: varchar({ length: 16 }).notNull(),
+    version: varchar({ length: 64 }).notNull(),
+    outcome: varchar({ length: 16 }).notNull(),
+    path: varchar({ length: 32 }),
+    firstFrameMs: integer(`first_frame_ms`),
+    errorClass: varchar(`error_class`, { length: 32 }),
+    fallbacks: integer(),
+    reconnects: integer(),
+    durationMs: integer(`duration_ms`),
+    failures: jsonb().$type<Record<string, number>>(),
+  },
+  (table) => [
+    index(`idx_steer_connection_events_received`).on(table.receivedAt),
+  ]
+)
+
 // EXP-759: durable per-user client-platform ledger (SERVER-ONLY, admin
 // console; never synced — no shape proxy). Touched by lib/auth/resolve-bearer.ts
 // on every authenticated API request (in-process throttled): natives identify
@@ -3877,6 +3903,9 @@ export type UserNotificationPrefs = InferSelectModel<
 >
 export type EmailDelivery = InferSelectModel<typeof emailDeliveries>
 export type ConversionEvent = InferSelectModel<typeof conversionEvents>
+export type SteerConnectionEventRow = InferSelectModel<
+  typeof steerConnectionEvents
+>
 export type UserClientPlatformRow = InferSelectModel<typeof userClientPlatforms>
 export type WidgetConfig = InferSelectModel<typeof widgetConfigs>
 export type WidgetSubmission = InferSelectModel<typeof widgetSubmissions>

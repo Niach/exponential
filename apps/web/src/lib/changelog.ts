@@ -25,6 +25,32 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-claude-long-lived-login`,
+    date: `2026-11-01`,
+    title: `Keep a Claude login signed in`,
+    summary: `A Claude account can hold a one-year login that no other sign-in can sign out.`,
+    body: `- **Keep signed in**: the menu of a Claude account under a device starts a long-lived login; open the link and paste the code like any sign-in.
+- **Renew**: an account that already has one offers Renew long-lived login.
+- **Trade-off**: a long-lived login shows no usage of its own; the account keeps the email it last signed in with.`,
+  },
+  {
+    id: `2026-11-01-agent-logins-stay-signed-in`,
+    date: `2026-11-01`,
+    title: `Agent logins stay signed in`,
+    summary: `A thread moves to another signed-in account when its login signs out, and Import is gone.`,
+    body: `- **No more copied logins**: Import is removed; every account signs in on its own device, so one copy can no longer sign another out.
+- **Automatic switch**: a new or running thread whose login is signed out continues on another healthy account on that device.
+- **Honest health**: a login whose refresh failed shows Needs re-login right away instead of OK.`,
+  },
+  {
+    id: `2026-11-01-steady-live-sessions`,
+    date: `2026-11-01`,
+    title: `Steadier live sessions`,
+    summary: `A live session keeps streaming when the direct connection to its device stalls or drops.`,
+    body: `- **Direct first**: your app still connects straight to the device running the session.
+- **Encrypted fallback**: when that connection stalls or drops, the session keeps streaming through our server, end-to-end encrypted, and moves back once the direct connection returns.`,
+  },
+  {
     id: `2026-10-31-app-preview-phone`,
     date: `2026-10-31`,
     title: `Preview apps as a phone`,

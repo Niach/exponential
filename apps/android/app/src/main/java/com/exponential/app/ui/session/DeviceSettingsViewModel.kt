@@ -6,7 +6,6 @@ import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.api.DeviceCommandDto
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
-import com.exponential.app.data.api.agentImportCommand
 import com.exponential.app.data.api.agentLoginCodeCommand
 import com.exponential.app.data.api.agentLoginCommand
 import com.exponential.app.data.api.agentUpdateCommand
@@ -98,9 +97,6 @@ fun agentLoginCodeCommandKey(
     profileId: String?,
 ): String = LOGIN_CODE_KEY_PREFIX + agentLoginSlot(deviceId, agent, profileId)
 
-/** One import (`agent_login` with `import`) command's key; its result is plain text. */
-fun agentImportCommandKey(deviceId: String, agent: String): String = "import:$deviceId:$agent"
-
 /** One `agent_update` command's key in [DeviceSettingsViewModel.commandStates] (EXP-1196). */
 fun agentUpdateCommandKey(deviceId: String, agent: String): String = "update:$deviceId:$agent"
 
@@ -149,7 +145,7 @@ class DeviceSettingsViewModel @Inject constructor(
     val defaultsBusy: StateFlow<Boolean> = _defaultsBusy
 
     // FEED-79: a failed write or device command (rename, defaults, sharing,
-    // the default flag, update / import / sign-in) is ONE error toast. Several
+    // the default flag, update / sign-in) is ONE error toast. Several
     // surfaces may watch one instance, so a host [claimFailure]s it first.
     private val _failure = MutableStateFlow<FailedAction?>(null)
     val failure: StateFlow<FailedAction?> = _failure
@@ -307,30 +303,17 @@ class DeviceSettingsViewModel @Inject constructor(
          * abandoned sign-in's late result never lands in another sheet.
          */
         profileId: String? = null,
+        /** EXP-1533: a long-lived claude login (`claude setup-token`). */
+        longLived: Boolean = false,
     ) {
         issueCommand(
             key = agentLoginCommandKey(deviceId, agent, profileId),
-            command = agentLoginCommand(deviceId, agent, switchAccount, profileId),
+            command = agentLoginCommand(deviceId, agent, switchAccount, profileId, longLived),
             deviceOnline = deviceOnline,
             verb = "start",
             thing = "the sign-in",
-        )
-    }
-
-    /**
-     * The readiness block's `import` pill (after its confirm): the machine
-     * MOVES [agent]'s ambient login into a profile (`agent_login` with
-     * `import`). Keyed per device × agent ([agentImportCommandKey]); the
-     * device answers with a plain sentence, and the new login rides the next
-     * heartbeat.
-     */
-    fun agentImport(deviceId: String, agent: String, deviceOnline: Boolean) {
-        issueCommand(
-            key = agentImportCommandKey(deviceId, agent),
-            command = agentImportCommand(deviceId, agent),
-            deviceOnline = deviceOnline,
-            verb = "import",
-            thing = "the login",
+            // The toast's Retry re-queues the SAME login (long-lived included).
+            retry = { agentLogin(deviceId, agent, switchAccount, deviceOnline, profileId, longLived) },
         )
     }
 

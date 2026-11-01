@@ -31,7 +31,7 @@ vi.mock(`@/lib/trpc-client`, () => ({ trpc: {} }))
 
 // EXP-621: the per-session steer connection store — the socket, feed and
 // composer draft all outlive the view. These tests drive it with a fake
-// feed socket (the injected `openEnet` seam) and fake timers.
+// feed socket (the injected `openFeed` seam) and fake timers.
 
 class FakeSocket {
   readyState = 0 // CONNECTING
@@ -91,7 +91,7 @@ function makeStore(overrides?: {
   const store = createSteerSessionStore(
     `session-1`,
     {
-      openEnet: async () => {
+      openFeed: async () => {
         if (overrides?.feed && !overrides.feed()) return null
         const socket = new FakeSocket()
         sockets.push(socket)
@@ -498,8 +498,8 @@ describe(`connection lifecycle`, () => {
   })
 
   it(`no feed on an ended row = ended with the device-offline copy`, async () => {
-    const openEnet = vi.fn(async () => null)
-    const store = createSteerSessionStore(`session-1`, { openEnet })
+    const openFeed = vi.fn(async () => null)
+    const store = createSteerSessionStore(`session-1`, { openFeed })
     store.noteSessionStatus(`ended`)
     store.noteDeviceLabel(`buildbox`)
     store.connect()
@@ -508,7 +508,7 @@ describe(`connection lifecycle`, () => {
       kind: `ended`,
       detail: `buildbox is offline. The transcript lives on that machine.`,
     })
-    expect(openEnet).toHaveBeenCalledTimes(1)
+    expect(openFeed).toHaveBeenCalledTimes(1)
     store.dispose()
   })
 
@@ -633,7 +633,7 @@ describe(`connection lifecycle`, () => {
   })
 
   it(`the device-offline copy without a device name`, async () => {
-    const store = createSteerSessionStore(`session-1`, { openEnet: async () => null })
+    const store = createSteerSessionStore(`session-1`, { openFeed: async () => null })
     store.noteSessionStatus(`ended`)
     store.connect()
     await vi.advanceTimersByTimeAsync(0)
@@ -3322,8 +3322,9 @@ describe(`wait tool rows (§1)`, () => {
   })
 })
 
-// VAPP-33/VAPP-43: the real eNet viewer over a fake carrier. eNet is the only
-// carrier: when it gives nothing there is NO FEED (no relay fallback).
+// VAPP-33/VAPP-43: the real eNet viewer over a fake carrier, alone (no relay
+// leg: when it gives nothing there is NO FEED). The sealed relay fallback is
+// lib/enet/steer-feed.test.ts (EXP-1527).
 describe(`steer over eNet`, () => {
   function enetStore(answer: (frames: SteerFrame[]) => SteerFrame[] | `fail` | null) {
     const listeners = new Set<(from: string, body: Uint8Array) => void>()
@@ -3347,7 +3348,7 @@ describe(`steer over eNet`, () => {
       },
     }
     const store = createSteerSessionStore(`session-1`, {
-      openEnet: async (id) =>
+      openFeed: async (id) =>
         (await openEnetSteer(id, {
           carrier: async () => carrier,
           forSession: async () => [{ endpointId: `dev`, kind: `desktop` }],

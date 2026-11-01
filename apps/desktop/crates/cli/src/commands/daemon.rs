@@ -1539,7 +1539,7 @@ fn reconcile_stale_sessions(ctx: &Ctx, reclaim: bool) -> HashSet<String> {
 const ROTATION_BEAT: Duration = Duration::from_secs(5);
 
 /// One live run's wall in the rotation's vocabulary — `None` unless the
-/// wall is a rate limit. `account` = the run registry's recorded login (a
+/// wall is a rate limit or (EXP-1532) a signed-out login. `account` = the run registry's recorded login (a
 /// legacy record names none); no record at all is a run a switch could not
 /// resume (a repo-less scratch run with a record rotates, EXP-1292).
 fn walled_run(
@@ -1550,7 +1550,7 @@ fn walled_run(
     record: Option<&coding::run_registry::RunRecord>,
     idle: bool,
 ) -> Option<coding::account_rotation::WalledRun> {
-    (blocked.kind == "rate_limit").then(|| coding::account_rotation::WalledRun {
+    coding::account_rotation::rotation_wall(&blocked.kind).then(|| coding::account_rotation::WalledRun {
         session_id: session_id.to_string(),
         chain_key: worktree.to_string_lossy().into_owned(),
         agent,

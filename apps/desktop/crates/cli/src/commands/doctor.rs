@@ -132,14 +132,6 @@ fn row(indent: usize, item: &DoctorItem, label: &str) -> String {
             line.push_str(&format!("  ({hint})"));
         }
     }
-    // An ambient login (`~/.claude`, `~/.codex`) the device can take over.
-    if let Some(email) = &item.import {
-        line.push_str(&format!(
-            "  ({} {email} from the app: Devices → this device → {})",
-            DoctorAction::Import.label().to_lowercase(),
-            DoctorAction::Import.label()
-        ));
-    }
     line.trim_end().to_string()
 }
 
@@ -263,18 +255,5 @@ mod tests {
                 .to_string()
         ));
         assert!(!lines.iter().any(|line| line.contains("Remote desktop")));
-    }
-
-    /// An ambient login to import rides its row, after the sign-in hint.
-    #[test]
-    fn renders_the_import_offer() {
-        let lines = render_block(&case(5), None);
-        assert!(
-            lines.contains(
-                &"  ! Claude Code         Signed out  (sign in from the app: Devices → this device → Sign in)  (import dev@acme.test from the app: Devices → this device → Import)"
-                    .to_string()
-            ),
-            "{lines:?}"
-        );
     }
 }

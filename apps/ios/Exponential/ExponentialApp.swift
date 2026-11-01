@@ -36,7 +36,11 @@ struct ExponentialApp: App {
                 // answers in one round trip.
                 .onChange(of: scenePhase) { _, newPhase in
                     switch newPhase {
-                    case .background: dependencies.syncManager.sceneDidEnterBackground()
+                    case .background:
+                        dependencies.syncManager.sceneDidEnterBackground()
+                        // #EXP-1528: the connection analytics go out on the way out.
+                        let connStats = dependencies.connStats
+                        Task { await connStats.flush() }
                     case .active:
                         dependencies.syncManager.sceneDidBecomeActive()
                         // The steer sockets rarely survive a suspension either

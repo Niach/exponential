@@ -878,15 +878,14 @@ describe(`device logins (EXP-909)`, () => {
         { mine: true, online: false }
       )
     ).toEqual([])
-    // Never a synthesized ambient row off the top-level fields, even when the
-    // CLI's own login is signed in (that one is only `importable`).
+    // Never a synthesized ambient row off the top-level fields.
     expect(
       deviceLoginRows(
         {
           deviceId: `mint`,
           deviceLabel: `mint`,
           agentAccounts: {
-            claude: { signedIn: false, importable: { email: `dev@acme.test` } },
+            claude: { signedIn: false, email: `dev@acme.test` },
           },
           agentUsage: {
             claude: { fetchedAt: `2026-08-28T11:55:00.000Z`, windows: [] },

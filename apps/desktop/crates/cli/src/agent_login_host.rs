@@ -49,17 +49,22 @@
 //! re-probe on the way out re-reads the profile index, so a new profile
 //! rides the next heartbeat by itself.
 //!
-//! `import: "true"` moves the machine's AMBIENT login into a profile
-//! (`import_ambient`, the same commit by email) — no PTY at all — and
-//! completes with a plain sentence (`Imported {email}.`, or the
-//! already-added warning).
+//! EXP-1533: `longLived: "true"` (claude, with a `profileId`) runs `claude
+//! setup-token` inside that profile's dir instead: the same link and code
+//! hand-off, then the one-year token it prints is scraped off the grid and
+//! stored in the profile ([`agent_login::store_setup_token`]). Nothing is
+//! committed by email, and the command's result never carries the token.
+//!
+//! The retired `import: "true"` (EXP-1532: nothing ever copies the
+//! machine's AMBIENT login into a profile) is refused by the payload parse:
+//! the command completes ok:false with `agent_login::IMPORT_REMOVED`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use coding::agent_login::{self, LoginProgress, LoginTarget};
+use coding::agent_login::{self, LoginProgress};
 use coding::{CodingAgent, Settings};
 use steer::agent_login_driver::{observe_login_screen, LoginObservation};
 use terminal::emulator::Emulator;
@@ -129,8 +134,8 @@ pub fn run(
     codes: CodeInbox,
     doctor_soon: Arc<AtomicBool>,
 ) {
-    // An unknown agent or a malformed payload is refused with the sentence
-    // the clients show verbatim.
+    // An unknown agent, a malformed payload or the retired import is refused
+    // with the sentence the clients show verbatim.
     let request = match agent_login::parse_login_payload(&command.payload) {
         Ok(request) => request,
         Err(message) => {
@@ -140,6 +145,7 @@ pub fn run(
     };
     let agent = request.agent;
     let target = request.target;
+    let long_lived = request.long_lived;
 
     // The redelivery gate. Claimed here, on the serialized worker, so two
     // pulls of the same id can never both pass it.
@@ -161,12 +167,11 @@ pub fn run(
     let thread = std::thread::Builder::new()
         .name("exp-agent-login".to_string())
         .spawn(move || {
-            let outcome = match &target {
-                LoginTarget::Import => Some(match agent_login::import_ambient(&settings, &data_dir, agent) {
-                    Ok(commit) => (true, commit.import_result_text()),
-                    Err(message) => (false, message),
-                }),
-                LoginTarget::Add | LoginTarget::Profile(_) => sign_in(
+            let outcome = match (long_lived, target.intended()) {
+                (true, Some(profile)) => {
+                    sign_in_long_lived(&trpc, &settings, &data_dir, profile, &command_id, &codes)
+                }
+                _ => sign_in(
                     &trpc,
                     &settings,
                     &data_dir,
@@ -222,18 +227,11 @@ fn sign_in(
     // EXP-765: the slot the requester's code lands in while this login runs.
     // Keyed by agent — one login per agent at a time is what the server's
     // pending-dedupe already guarantees.
-    let (code_tx, code_rx) = flume::unbounded::<String>();
-    if let Ok(mut inbox) = codes.lock() {
-        inbox.insert(agent.id().to_string(), code_tx.clone());
-    }
-    let run = drive(trpc, settings, agent, &env, command_id, &code_rx);
-    if let Ok(mut inbox) = codes.lock() {
-        // Only OUR slot — a login started after this one exited must keep
-        // its own.
-        if inbox.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
-            inbox.remove(agent.id());
-        }
-    }
+    // Always a remote sign-in here (EXP-695): the daemon must never pop a
+    // browser on the machine — the requester opens the published link.
+    let mut plan = agent_login::login_plan(settings, agent, true);
+    plan.spawn.env.push(env);
+    let run = drive_with_inbox(trpc, &plan, agent, command_id, codes, false);
     if !run.signed_in {
         agent_login::abandon_login(agent, &staging);
         return run.completion;
@@ -253,28 +251,87 @@ fn sign_in(
     }
 }
 
+/// EXP-1533 — one remote LONG-LIVED sign-in of claude profile `profile`:
+/// `claude setup-token` in the profile's dir, driven like any sign-in, then
+/// the token it printed is stored in the profile. Returns the completion
+/// still owed, `None` when the command already completed with the link.
+fn sign_in_long_lived(
+    trpc: &Arc<api::trpc::TrpcClient>,
+    settings: &Settings,
+    data_dir: &std::path::Path,
+    profile: &str,
+    command_id: &str,
+    codes: &CodeInbox,
+) -> Option<(bool, String)> {
+    let plan = match agent_login::long_lived_plan(settings, data_dir, profile, true) {
+        Ok(plan) => plan,
+        Err(message) => return Some((false, message)),
+    };
+    let run = drive_with_inbox(trpc, &plan, CodingAgent::Claude, command_id, codes, true);
+    let Some(scraped) = run.setup_token else {
+        log::info!("agent_login: the long-lived sign-in ended without a token ({profile})");
+        return run.completion;
+    };
+    match agent_login::store_setup_token(data_dir, profile, scraped) {
+        Ok(expires_at) => {
+            log::info!("agent_login: claude long-lived login stored ({profile}, until {expires_at})");
+            run.completion.map(|_| (true, "Signed in".to_string()))
+        }
+        Err(message) => {
+            log::warn!("agent_login: {message}");
+            run.completion.map(|_| (false, message))
+        }
+    }
+}
+
+/// [`drive`] with the agent's code slot registered for the run's lifetime.
+fn drive_with_inbox(
+    trpc: &Arc<api::trpc::TrpcClient>,
+    plan: &agent_login::LoginPlan,
+    agent: CodingAgent,
+    command_id: &str,
+    codes: &CodeInbox,
+    scrape_token: bool,
+) -> DriveOutcome {
+    // EXP-765: the slot the requester's code lands in while this login runs.
+    // Keyed by agent — one login per agent at a time is what the server's
+    // pending-dedupe already guarantees.
+    let (code_tx, code_rx) = flume::unbounded::<String>();
+    if let Ok(mut inbox) = codes.lock() {
+        inbox.insert(agent.id().to_string(), code_tx.clone());
+    }
+    let run = drive(trpc, plan, agent, command_id, &code_rx, scrape_token);
+    if let Ok(mut inbox) = codes.lock() {
+        // Only OUR slot — a login started after this one exited must keep
+        // its own.
+        if inbox.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
+            inbox.remove(agent.id());
+        }
+    }
+    run
+}
+
 /// What [`drive`] saw.
 struct DriveOutcome {
     /// The completion still owed (`None` = completed early with the link).
     completion: Option<(bool, String)>,
     /// The CLI exited cleanly: there is a login to commit.
     signed_in: bool,
+    /// EXP-1533: the setup token the grid showed last (a long-lived run).
+    setup_token: Option<(String, Option<i64>)>,
 }
 
-/// Run the login to its end, inside the staging dir `env` points the CLI's
-/// config-dir variable at.
+/// Run the login `plan` to its end (its env points the CLI's config-dir
+/// variable at the staging dir, or a long-lived run's profile dir).
+/// `scrape_token` = watch the grid for the token `claude setup-token` prints.
 fn drive(
     trpc: &Arc<api::trpc::TrpcClient>,
-    settings: &Settings,
+    plan: &agent_login::LoginPlan,
     agent: CodingAgent,
-    env: &(String, String),
     command_id: &str,
     code_rx: &flume::Receiver<String>,
+    scrape_token: bool,
 ) -> DriveOutcome {
-    // Always a remote sign-in here (EXP-695): the daemon must never pop a
-    // browser on the machine — the requester opens the published link.
-    let mut plan = agent_login::login_plan(settings, agent, true);
-    plan.spawn.env.push(env.clone());
     let mut emulator = Emulator::new(COLS, ROWS);
     let mut pty = match pty::open(&plan.spawn, COLS, ROWS) {
         Ok(pty) => pty,
@@ -283,6 +340,7 @@ fn drive(
             return DriveOutcome {
                 completion: Some((false, format!("Could not start {} on this machine.", agent.id()))),
                 signed_in: false,
+                setup_token: None,
             };
         }
     };
@@ -309,6 +367,7 @@ fn drive(
     // its two threads linger on the machine forever.
     let mut exited = false;
     let mut clean_exit = false;
+    let mut setup_token = None;
     loop {
         std::thread::sleep(POLL_INTERVAL);
         // Nobody paints this grid — the wakes exist only to keep the read
@@ -318,6 +377,11 @@ fn drive(
         // before it ever prints a link.
         let _ = emulator.drain_events(&mut |reply| pty.writer_write(reply));
         let lines = emulator.screen_lines();
+        if scrape_token {
+            if let Some(found) = agent_login::scrape_setup_token(&lines) {
+                setup_token = Some(found);
+            }
+        }
 
         if !published {
             match observe_login_screen(agent.id(), &lines) {
@@ -373,11 +437,19 @@ fn drive(
     if !exited {
         pty.kill();
     }
+    // EXP-1533: the token is the CLI's LAST output — one more read once the
+    // read loop has drained it, or an exit right after printing loses it.
+    if scrape_token {
+        std::thread::sleep(POLL_INTERVAL);
+        if let Some(found) = agent_login::scrape_setup_token(&emulator.screen_lines()) {
+            setup_token = Some(found);
+        }
+    }
 
     let signed_in = clean_exit && failure.is_none();
     if published {
         // Already completed the moment the link appeared.
-        return DriveOutcome { completion: None, signed_in };
+        return DriveOutcome { completion: None, signed_in, setup_token };
     }
     // A failed row's `result` IS the error caption on every client — plain
     // text, never the JSON the success path publishes. (A clean exit with no
@@ -388,6 +460,7 @@ fn drive(
             failure.unwrap_or_else(|| "The sign-in ended before a link appeared".to_string()),
         )),
         signed_in,
+        setup_token,
     }
 }
 
@@ -439,10 +512,10 @@ mod tests {
 
     /// An unknown agent never reaches a PTY, with the sentence the clients
     /// show verbatim. The same parse reads the target: Add account, an
-    /// intended profile, or an import.
+    /// intended profile; the retired import is refused (EXP-1532).
     #[test]
     fn only_claude_and_codex_are_runnable_agents() {
-        use coding::agent_login::parse_login_payload;
+        use coding::agent_login::{parse_login_payload, LoginTarget};
         // EXP-849: a retired agent id is simply unknown now.
         assert_eq!(
             parse_login_payload(&serde_json::json!({"agent": "pi", "switch": "false"})),
@@ -459,9 +532,10 @@ mod tests {
         .unwrap();
         assert_eq!(codex.agent, CodingAgent::Codex);
         assert_eq!(codex.target, LoginTarget::Profile("0badf00d".to_string()));
-        let import = parse_login_payload(&serde_json::json!({"agent": "claude", "import": "true"}))
-            .unwrap();
-        assert_eq!(import.target, LoginTarget::Import);
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "claude", "import": "true"})),
+            Err("Import was removed: sign this account in on this device instead.".to_string())
+        );
         // An unknown agent is refused before its target is looked at.
         assert!(parse_login_payload(&serde_json::json!({
             "agent": "gemini", "import": "true"

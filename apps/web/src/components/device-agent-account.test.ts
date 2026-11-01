@@ -4,7 +4,9 @@
 // the same three strings on every client.
 import { describe, expect, it } from "vitest"
 import {
+  ACTION_KEEP_SIGNED_IN,
   ACTION_REMOVE,
+  ACTION_RENEW_LONG_LIVED,
   ACTION_SIGN_IN,
   ACTION_SIGN_OUT,
   accountChipActionable,
@@ -48,30 +50,66 @@ function device(patch: Partial<SteerDevice> = {}): SteerDevice {
 }
 
 describe(`accountChipActions`, () => {
-  // The order is fixed ×4: sign in, sign out, remove.
+  // The order is fixed ×4: sign in, keep signed in (claude), sign out,
+  // remove.
   it(`offers the repairs that state allows`, () => {
+    const codex = (patch: Partial<AccountChipRow> = {}) =>
+      chip({ agent: `codex`, ...patch })
     // Signed out or expired: the sign-in leads, and (EXP-944) the removal
     // rides along — a dead profile is exactly what people want gone. A
     // signed-out login has nothing to sign out of.
     expect(
       accountChipActions(
-        chip({ signedIn: false, active: true, health: `signed_out` })
+        codex({ signedIn: false, active: true, health: `signed_out` })
       )
     ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
     // A revoked credential still signs out (EXP-1137): that is how it leaves.
     expect(
-      accountChipActions(chip({ health: `needs_relogin` }))
+      accountChipActions(codex({ health: `needs_relogin` }))
     ).toEqual([ACTION_SIGN_IN, ACTION_SIGN_OUT, ACTION_REMOVE])
     // Healthy: sign out + remove, last used or not (EXP-1158: nothing picks
     // the login the machine starts on).
+    expect(accountChipActions(codex())).toEqual([
+      ACTION_SIGN_OUT,
+      ACTION_REMOVE,
+    ])
+    expect(accountChipActions(codex({ active: true }))).toEqual([
+      ACTION_SIGN_OUT,
+      ACTION_REMOVE,
+    ])
+  })
+
+  // EXP-1533: a claude login offers its long-lived sign-in right after
+  // "Sign in" — "Keep signed in" without one, "Renew" while it holds one.
+  it(`offers claude's long-lived login after Sign in`, () => {
+    expect(
+      accountChipActions(chip({ signedIn: false, health: `signed_out` }))
+    ).toEqual([ACTION_SIGN_IN, ACTION_KEEP_SIGNED_IN, ACTION_REMOVE])
+    expect(accountChipActions(chip({ health: `needs_relogin` }))).toEqual([
+      ACTION_SIGN_IN,
+      ACTION_KEEP_SIGNED_IN,
+      ACTION_SIGN_OUT,
+      ACTION_REMOVE,
+    ])
     expect(accountChipActions(chip())).toEqual([
+      ACTION_KEEP_SIGNED_IN,
       ACTION_SIGN_OUT,
       ACTION_REMOVE,
     ])
-    expect(accountChipActions(chip({ active: true }))).toEqual([
-      ACTION_SIGN_OUT,
-      ACTION_REMOVE,
-    ])
+    expect(
+      accountChipActions(chip({ tokenExpiresAt: `2027-11-01T00:00:00.000Z` }))
+    ).toEqual([ACTION_RENEW_LONG_LIVED, ACTION_SIGN_OUT, ACTION_REMOVE])
+    // Never on codex, token or not.
+    expect(
+      accountChipActions(
+        chip({ agent: `codex`, tokenExpiresAt: `2027-11-01T00:00:00.000Z` })
+      )
+    ).toEqual([ACTION_SIGN_OUT, ACTION_REMOVE])
+  })
+
+  it(`labels the long-lived entries byte-identically ×4`, () => {
+    expect(ACTION_KEEP_SIGNED_IN).toBe(`Keep signed in`)
+    expect(ACTION_RENEW_LONG_LIVED).toBe(`Renew long-lived login`)
   })
 })
 

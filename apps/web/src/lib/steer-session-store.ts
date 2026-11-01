@@ -65,6 +65,11 @@ import {
 } from "@exp/domain-contract/steer-enet"
 
 import { CLOSE_ENET_LOST, openEnetSteer } from "@/lib/enet/steer-enet-viewer"
+import { connStatsBuffer, SteerViewStats } from "@/lib/enet/conn-stats"
+import { currentKeyHolder } from "@/lib/enet/current-key-holder"
+import { openSteerFeed, type FeedStats, type SteerFeedClose } from "@/lib/enet/steer-feed"
+import type { TunnelDeps, TunnelSocket, TunnelTicket } from "@/lib/enet/steer-tunnel"
+import { sessionCollection } from "@/lib/collections"
 
 // EXP-621: the viewer connection to the session's feed, lifted OUT of
 // AgentSessionView into a module-level per-session store (the pattern of
@@ -694,18 +699,57 @@ export interface AddDraftImagesResult {
 }
 
 interface SteerStoreDeps {
-  /** VAPP-33: the feed over eNet's chat channel, joined and shaped like a
-   *  WebSocket; null = NO FEED (VAPP-43: there is no relay fallback). */
-  openEnet: (codingSessionId: string) => Promise<WebSocket | null>
+  /** VAPP-33 + EXP-1527: the session feed, joined and shaped like a
+   *  WebSocket: eNet first, the sealed relay tunnel as its fallback
+   *  (lib/enet/steer-feed.ts); null = NO FEED on both carriers. */
+  openFeed: (codingSessionId: string, stats?: FeedStats) => Promise<WebSocket | null>
+  /** EXP-1527: one connection-analytics view per store (none in tests). */
+  viewStats?: () => SteerViewStats
+}
+
+const quiet = { context: { skipErrorToast: true } }
+
+// #EXP-1530 lands `connStats.record` beside this client; typed here until
+// the router carries it (an older server: the post fails, silently).
+type ConnStatsApi = {
+  connStats: { record: { mutate: (input: { events: unknown[] }, opts: typeof quiet) => Promise<unknown> } }
+}
+const connStatsApi = trpc as unknown as ConnStatsApi
+
+type KeyedRow = { id: string; rootId: string | null; sealPublicKey?: string | null; sealEpoch?: number | null }
+
+/** The ROOT's current seal key, when this install holds its secret. */
+function tunnelKeys(sessionId: string) {
+  const row = sessionCollection.get(sessionId) as KeyedRow | undefined
+  const root = row ? (sessionCollection.get(row.rootId ?? row.id) as KeyedRow | undefined) : undefined
+  if (!root?.sealPublicKey || !root.sealEpoch) return null
+  const keys = currentKeyHolder()?.keysFor(root.id)
+  if (!keys?.has(root.sealEpoch)) return null
+  return { epoch: root.sealEpoch, publicKey: root.sealPublicKey, keys }
+}
+
+const tunnelDeps: TunnelDeps = {
+  keys: tunnelKeys,
+  ticket: (sessionId) => trpc.steer.tunnelTicket.mutate({ sessionId }, quiet) as Promise<TunnelTicket>,
+  socket: (url) => new WebSocket(url) as unknown as TunnelSocket,
 }
 
 const defaultDeps: SteerStoreDeps = {
-  openEnet: async (codingSessionId) =>
-    (await openEnetSteer(codingSessionId, {
-      carrier: currentSteerCarrier,
-      forSession: (id) =>
-        trpc.installs.forSession.query({ sessionId: id }, { context: { skipErrorToast: true } }),
+  openFeed: async (codingSessionId, stats) =>
+    (await openSteerFeed(codingSessionId, {
+      enet: (id, noFeed) =>
+        openEnetSteer(id, {
+          carrier: currentSteerCarrier,
+          forSession: (sessionId) => trpc.installs.forSession.query({ sessionId }, quiet),
+          noFeed,
+        }),
+      tunnel: typeof WebSocket === `undefined` ? null : tunnelDeps,
+      stats,
     })) as unknown as WebSocket | null,
+  viewStats: () => {
+    const buffer = connStatsBuffer((events) => connStatsApi.connStats.record.mutate({ events }, quiet))
+    return new SteerViewStats((event) => buffer.record(event))
+  },
 }
 
 export interface SteerSessionStore {
@@ -798,6 +842,8 @@ export function createSteerSessionStore(
   onDispose?: () => void
 ): InternalSteerSessionStore {
   let disposed = false
+  /** EXP-1527: this view's connection analytics (one per store). */
+  const viewStats = deps.viewStats?.()
   // Bumped per dial so a superseded socket's callbacks are inert.
   let generation = 0
   let ws: WebSocket | null = null
@@ -1932,13 +1978,14 @@ export function createSteerSessionStore(
       commit()
     }
 
-    // VAPP-43: eNet is the only carrier (its own deadlines: joinTimeoutMs).
-    // No endpoint, no node, every endpoint refused or no `activity_synced`
-    // in time = NO FEED, shown with the existing states: a row still alive
+    // VAPP-43 + EXP-1527: eNet first, the sealed relay tunnel when eNet
+    // stalls or has no feed (steer-feed.ts). Both failing = NO FEED, shown
+    // with the existing states: a row still alive
     // waits in `starting` and redials on the backoff, an ended row is over
     // and its transcript sits on a machine this viewer cannot reach, until
     // the device comes back (VAPP-169: the redial holds the phase).
-    const sock = await deps.openEnet(sessionId).catch(() => null)
+    viewStats?.start()
+    const sock = await deps.openFeed(sessionId, viewStats).catch(() => null)
     if (disposed || gen !== generation) {
       sock?.close()
       return
@@ -2117,7 +2164,9 @@ export function createSteerSessionStore(
       const wasDrop = droppedAt !== null || (!terminalError && phase.kind === `live`)
       if (!terminalError && wasDrop) {
         if (droppedAt === null) {
-          droppedAt = Date.now()
+          // EXP-1527: down since the LAST carrier went (the relay may have
+          // tried to carry on first).
+          droppedAt = (event as SteerFeedClose).downSince ?? Date.now()
           failedRedials = -1 // the drop itself is no failed redial
         }
         if (holdDrop()) return
@@ -2518,6 +2567,7 @@ export function createSteerSessionStore(
       generation++
       ws?.close()
       ws = null
+      viewStats?.end()
       onDispose?.()
     },
     _subscriberCount: () => listeners.size,

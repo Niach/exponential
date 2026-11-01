@@ -173,11 +173,6 @@ pub struct AgentAccount {
     /// signed out when there is none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<AgentProfileEntry>,
-    /// The agent's AMBIENT login (`~/.claude`, `~/.codex`), present only while
-    /// it is signed in. Never used by a run: the device doctor offers to
-    /// IMPORT it into a profile (`agent_login::import_ambient`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub importable: Option<Importable>,
     /// The agent CLI's installed version as the doctor last read it
     /// (`2.1.281`, the bare triple `parse_version_output` keeps); the device
     /// settings' Update section shows it beside the per-agent "Update"
@@ -185,16 +180,6 @@ pub struct AgentAccount {
     /// lands on a `profiles` row. Absent only when the doctor named none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
-}
-
-/// [`AgentAccount::importable`]: who the ambient login is signed in as.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", default)]
-pub struct Importable {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub email: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub plan: Option<String>,
 }
 
 /// One profile's row inside [`AgentAccount::profiles`] — the account
@@ -213,7 +198,7 @@ pub struct AgentProfileEntry {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub active: bool,
     pub checked_at: String,
-    /// When a sign-in or an import last COMMITTED into this profile (ISO).
+    /// When a sign-in last COMMITTED into this profile (ISO).
     /// Clients pair an open sign-in dialog with the row it landed on by this
     /// stamp moving.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -229,6 +214,11 @@ pub struct AgentProfileEntry {
     /// monitored, so the common payload is unchanged.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unmonitored: bool,
+    /// EXP-1533: when this claude login's long-lived `claude setup-token`
+    /// login stops working (ISO). Present while the profile holds one,
+    /// expired or not; clients offer "Renew long-lived login" on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_expires_at: Option<String>,
 }
 
 impl AgentProfileEntry {
@@ -241,7 +231,6 @@ impl AgentProfileEntry {
             checked_at: self.checked_at.clone(),
             health: self.health.clone(),
             profiles: Vec::new(),
-            importable: None,
             // A login row never names the install's version; the doctor
             // stamps it onto the top-level row last.
             version: None,
@@ -338,23 +327,12 @@ pub fn accounts_key(accounts: &AgentAccounts) -> String {
                         profile.health().as_str(),
                         profile.unmonitored,
                         usage_fingerprint(profile.usage.as_ref())
-                    )
+                    ) + profile.token_expires_at.as_deref().unwrap_or_default()
                 })
                 .collect::<Vec<_>>()
                 .join(",");
-            let importable = account
-                .importable
-                .as_ref()
-                .map(|found| {
-                    format!(
-                        "{}/{}",
-                        found.email.as_deref().unwrap_or_default(),
-                        found.plan.as_deref().unwrap_or_default()
-                    )
-                })
-                .unwrap_or_default();
             format!(
-                "{agent}:{}:{}:{}:{}:{importable}:{profiles}",
+                "{agent}:{}:{}:{}:{}:{profiles}",
                 account.signed_in,
                 account.email.as_deref().unwrap_or_default(),
                 account.plan.as_deref().unwrap_or_default(),
@@ -534,17 +512,10 @@ mod tests {
         assert_eq!(accounts_key(&base), accounts_key(&removed));
 
         // A sign-in committing into a login moves it even when nothing else
-        // did (same email: the "already added, refreshed" case), and so does
-        // an ambient login appearing to import.
+        // did (same email: the "already added, refreshed" case).
         let mut refreshed = with_profile.clone();
         refreshed.get_mut("claude").unwrap().profiles[0].last_login_at = Some("T2".into());
         assert_ne!(accounts_key(&with_profile), accounts_key(&refreshed));
-        let mut importable = base.clone();
-        importable.get_mut("claude").unwrap().importable = Some(Importable {
-            email: Some("dev@acme.test".into()),
-            plan: None,
-        });
-        assert_ne!(accounts_key(&base), accounts_key(&importable));
     }
 
     /// The wire shape of a profile row: camelCase, `active` only when true,
@@ -574,6 +545,17 @@ mod tests {
             serde_json::to_string(&signed_out).unwrap(),
             r#"{"id":"4e5f6a7b","signedIn":false,"checkedAt":"T"}"#
         );
+        // EXP-1533: a long-lived login names its expiry, camelCase.
+        let long_lived = AgentProfileEntry {
+            id: "0a1b2c3d".into(),
+            checked_at: "T".into(),
+            token_expires_at: Some("2027-11-01T00:00:00.000Z".into()),
+            ..AgentProfileEntry::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&long_lived).unwrap(),
+            r#"{"id":"0a1b2c3d","signedIn":false,"checkedAt":"T","tokenExpiresAt":"2027-11-01T00:00:00.000Z"}"#
+        );
         // A legacy row's `label` is read past, never kept.
         let legacy: AgentProfileEntry =
             serde_json::from_str(r#"{"id":"4e5f6a7b","label":"Work","signedIn":false}"#).unwrap();
@@ -585,15 +567,10 @@ mod tests {
         assert!(serde_json::to_string(&account).unwrap().contains(r#""profiles":[{"id":"4e5f6a7b""#));
         let decoded: AgentAccount = serde_json::from_str(r#"{"signedIn":true}"#).unwrap();
         assert!(decoded.profiles.is_empty());
-        // The ambient login to import: present only when set, never null.
-        assert!(!serde_json::to_string(&account).unwrap().contains("importable"));
-        account.importable = Some(Importable {
-            email: Some("dev@acme.test".into()),
-            plan: None,
-        });
-        assert!(serde_json::to_string(&account)
-            .unwrap()
-            .contains(r#""importable":{"email":"dev@acme.test"}"#));
+        // EXP-1532: an old row's retired `importable` is read past, never kept.
+        let old: AgentAccount =
+            serde_json::from_str(r#"{"signedIn":false,"importable":{"email":"dev@acme.test"}}"#).unwrap();
+        assert!(!serde_json::to_string(&old).unwrap().contains("importable"));
     }
 
     /// EXP-849 — the four-value health vocabulary: the wire tokens, the

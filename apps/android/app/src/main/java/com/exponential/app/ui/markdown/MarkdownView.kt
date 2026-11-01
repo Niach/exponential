@@ -82,7 +82,7 @@ fun MarkdownView(
 ) {
     if (markdown.isBlank()) return
     val blocks = remember(markdown, softBreaksAsNewlines) {
-        MarkdownParser.parse(markdown, softBreaksAsNewlines)
+        MarkdownParser.parseCached(markdown, softBreaksAsNewlines)
     }
     val issueRefs = LocalIssueRefs.current
     // The whole rendered document is one selection scope (EXP-534): long-press
@@ -207,9 +207,10 @@ val LocalAttachmentLinkOpener = compositionLocalOf<((String) -> Unit)?> { null }
 @Composable
 private fun TextBlockView(rich: RichText, issueRefs: IssueRefHandler?) {
     if (rich.isEmpty) return
-    val lines = rich.lines
-    val attrs = (lines.indices).map { rich.paragraphs.getOrElse(it) { ParagraphAttrs.PLAIN } }
-    val lineMarks = lineLocalMarks(rich)
+    // EXP-1521: split + per-line marks once per text, not per recomposition.
+    val lines = remember(rich) { rich.lines }
+    val attrs = remember(rich) { (lines.indices).map { rich.paragraphs.getOrElse(it) { ParagraphAttrs.PLAIN } } }
+    val lineMarks = remember(rich) { lineLocalMarks(rich) }
 
     // Group consecutive code-block lines so they render in one rounded box,
     // and consecutive quote lines behind one continuous left bar (EXP-246).
@@ -267,7 +268,9 @@ private fun QuoteBlockView(
             texts.forEachIndexed { index, text ->
                 key(index) {
                     ChipText(
-                        line = annotateLine(text, marks[index], issueRefs, mentions, autolink, inlineCode, bare, appLinks),
+                        line = remember(text, marks[index], issueRefs, mentions, autolink, inlineCode, bare, appLinks) {
+                            annotateLine(text, marks[index], issueRefs, mentions, autolink, inlineCode, bare, appLinks)
+                        },
                         style = body.copy(color = MdStyle.Blockquote),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
                     )
@@ -309,7 +312,7 @@ private fun LineView(
     val body = LocalMarkdownBodyStyle.current
     when (a.kind) {
         BlockKind.Heading -> ChipText(
-            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
+            line = rememberAnnotatedLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
             // A chat body derives its headings from the body (h1 =
             // `card.headingScale` × it); a document keeps the editor's scale.
             style = if (body == MdStyle.body) MdStyle.heading(a.headingLevel) else MdStyle.chatHeading(a.headingLevel, body),
@@ -333,7 +336,7 @@ private fun LineView(
                 Spacer(Modifier.padding(vertical = 2.dp))
             } else {
                 ChipText(
-                    line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
+                    line = rememberAnnotatedLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
                     style = body,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 )
@@ -392,7 +395,7 @@ private fun ListItemView(
             )
         }
         ChipText(
-            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
+            line = rememberAnnotatedLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
             style = body,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -406,6 +409,11 @@ private fun ListItemView(
  */
 @Composable
 internal fun ChipText(line: AnnotatedLine, style: TextStyle, modifier: Modifier = Modifier) {
+    if (line.chips.isEmpty()) {
+        // EXP-1521: no chip to paint, no layout to keep (most lines).
+        Text(text = line.text, style = style, modifier = modifier)
+        return
+    }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     Text(
         text = line.text,
@@ -413,6 +421,21 @@ internal fun ChipText(line: AnnotatedLine, style: TextStyle, modifier: Modifier 
         onTextLayout = { layout = it },
         modifier = modifier.drawIssueRefChips(line.chips) { layout },
     )
+}
+
+/** EXP-1521: [annotateLine] (regex passes + the annotated string) once per input. */
+@Composable
+private fun rememberAnnotatedLine(
+    text: String,
+    marks: List<InlineMark>,
+    issueRefs: IssueRefHandler?,
+    mentions: MentionResolver?,
+    autolink: Boolean,
+    inlineCode: MdStyle.InlineCodeStyle,
+    bare: Boolean,
+    appLinks: AppLinkHandler?,
+): AnnotatedLine = remember(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks) {
+    annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks)
 }
 
 // --- Annotated-string builder with natively-tappable links (read-only). ---

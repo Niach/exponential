@@ -143,7 +143,10 @@ fun ThreadScreen(
     val isMember by viewModel.isMember.collectAsStateWithLifecycle()
     val startDevices by viewModel.startDevices.collectAsStateWithLifecycle()
     val suggestionPending by viewModel.suggestionPending.collectAsStateWithLifecycle()
-    val liveActivity by viewModel.liveActivity.collectAsStateWithLifecycle()
+    // EXP-1521: only WHETHER there is a live tail; the tail collects the
+    // relay state itself, so the agent's `turn` ticks recompose the tail
+    // alone, never the whole chat (transcript and composer).
+    val hasLiveTail by viewModel.hasLiveTail.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
     val notice by viewModel.notice.collectAsStateWithLifecycle()
     val noticeToaster = LocalToaster.current
@@ -467,7 +470,7 @@ fun ThreadScreen(
                     null
                 },
                 suggestions = suggestionActions,
-                tail = liveActivity?.let { activity -> { SessionLiveTail(activity, root) } },
+                tail = if (hasLiveTail) { { ThreadLiveTail(viewModel, root) } } else null,
             )
         }
     }
@@ -1007,4 +1010,11 @@ private fun ThreadHeaderMerge(
         ),
         modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE),
     )
+}
+
+/** EXP-1521: the chat's live tail, the ONE place that reads the relay state. */
+@Composable
+private fun ThreadLiveTail(viewModel: ThreadViewModel, root: com.exponential.app.data.db.SessionEntity?) {
+    val activity by viewModel.liveActivity.collectAsStateWithLifecycle()
+    activity?.let { SessionLiveTail(it, root) }
 }

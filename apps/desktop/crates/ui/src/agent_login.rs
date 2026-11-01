@@ -31,16 +31,22 @@
 //! back as an `agent_login_code` command; [`enter_remote_code`] finds the
 //! agent's live login tab in [`LoginTabs`] and types it there.
 //!
-//! IMPORT (`agent_login {agent, import: "true"}`, or the doctor's Import pill
-//! here) moves the agent's AMBIENT login into a profile by the same commit,
-//! with no tab at all ([`import_ambient_login`]).
+//! EXP-1533: "Keep signed in" runs `claude setup-token` INSIDE the chosen
+//! profile's dir instead ([`start_long_lived`], locally or off an
+//! `agent_login {longLived}`): the same tab, link and code hand-off; the
+//! one-year token it prints is scraped off the grid and stored in the
+//! profile, and the tab closes on a clean exit. Nothing commits by email.
+//!
+//! There is no import (EXP-1532): an old client's `agent_login {agent,
+//! import: "true"}` is refused by the payload parse
+//! (`agent_login::IMPORT_REMOVED`); every profile signs in on its own.
 
 use crate::toast::Toast;
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use gpui::{
@@ -152,16 +158,9 @@ pub(crate) fn open_login_tab(agent: CodingAgent, intended: Option<String>, cx: &
     start(agent, target, None, cx);
 }
 
-/// Import `agent`'s AMBIENT login on this machine (the doctor's Import pill,
-/// after its confirm).
-pub(crate) fn import_ambient_login(agent: CodingAgent, cx: &mut App) {
-    start(agent, LoginTarget::Import, None, cx);
-}
-
 /// EXP-484 (D): run an `agent_login` device command. The payload was already
 /// validated and claimed by [`crate::device_sync`]; this opens the same tab
-/// the local button does and answers the command the moment a URL is up (an
-/// import answers with its outcome sentence).
+/// the local button does and answers the command the moment a URL is up.
 pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut App) {
     // The beat already refused a malformed payload; this is the belt.
     let request = match agent_login::parse_login_payload(&command.payload) {
@@ -172,6 +171,14 @@ pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut
             return;
         }
     };
+    let remote = RemoteLogin {
+        command_id: command.id.clone(),
+        published: Arc::new(AtomicBool::new(false)),
+    };
+    if let (true, Some(profile)) = (request.long_lived, request.target.intended()) {
+        start_long_lived(profile.to_string(), Some(remote), cx);
+        return;
+    }
     start(
         request.agent,
         request.target,
@@ -192,7 +199,7 @@ fn answer_unstarted(remote: Option<&RemoteLogin>, ok: bool, message: String, cx:
     }
 }
 
-/// What a committed sign-in or import says here: the duplicate warning, or
+/// What a committed sign-in says here: the duplicate warning, or
 /// the plain line.
 fn commit_toast(commit: &agent_login::LoginCommit, fallback: String) -> Toast {
     match commit.duplicate_warning() {
@@ -201,7 +208,7 @@ fn commit_toast(commit: &agent_login::LoginCommit, fallback: String) -> Toast {
     }
 }
 
-/// The one sequence: (import, done) | codex fetch → staging dir → login tab
+/// The one sequence: codex fetch → staging dir → login tab
 /// → grid watch → commit on a clean exit → re-probe. Deferred, because the
 /// caller is typically inside its own window's update and
 /// [`crate::coding_flow::any_terminal_dock`] has to update windows to find
@@ -213,30 +220,6 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
     // the requester gets the link through the command result instead.
     let mut plan = agent_login::login_plan(&settings, agent, remote.is_some());
     cx.spawn(async move |cx| {
-        if target == LoginTarget::Import {
-            let imported = {
-                let (settings, data_dir) = (settings.clone(), data_dir.clone());
-                cx.background_executor()
-                    .spawn(async move { agent_login::import_ambient(&settings, &data_dir, agent) })
-                    .await
-            };
-            let _ = cx.update(|cx| {
-                match imported {
-                    Ok(commit) => {
-                        let text = commit.import_result_text();
-                        notify(commit_toast(&commit, text.clone()), cx);
-                        answer_unstarted(remote.as_ref(), true, text, cx);
-                    }
-                    Err(message) => {
-                        notify(crate::action_error::failed_toast("import", "the login", Some(message.clone())), cx);
-                        answer_unstarted(remote.as_ref(), false, message, cx);
-                    }
-                }
-                let hub = CodingHub::global(cx);
-                CodingHub::refresh_agent_usage(&hub, cx);
-            });
-            return;
-        }
         // EXP-1232: a managed Codex sign-in fetches the pinned build first
         // (one toast; the doctor row reads Downloading… meanwhile). A failed
         // fetch answers the requester and starts nothing.
@@ -290,15 +273,50 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
         let run = LoginRun {
             agent,
             settings,
-            staging,
+            staging: Some(staging),
             intended: target.intended().map(str::to_string),
             remote,
+            long_lived: false,
+            setup_token: Mutex::new(None),
             finished: AtomicBool::new(false),
             tab: OnceLock::new(),
         };
         let _ = cx.update(|cx| spawn_login_tab(plan, run, cx));
     })
     .detach();
+}
+
+/// EXP-1533 — the long-lived claude login of `profile` on THIS machine:
+/// `claude setup-token` in the profile's dir, in a login tab like any
+/// sign-in (`remote` = answer that `agent_login` command with the link).
+fn start_long_lived(profile: String, remote: Option<RemoteLogin>, cx: &mut App) {
+    let agent = CodingAgent::Claude;
+    let settings = CodingHub::global(cx).read(cx).settings.clone();
+    let data_dir = crate::coding_flow::coding_data_dir(cx);
+    let plan = match agent_login::long_lived_plan(&settings, &data_dir, &profile, remote.is_some()) {
+        Ok(plan) => plan,
+        Err(message) => {
+            notify(
+                crate::action_error::failed_toast("sign in", agent.label(), Some(message.clone())),
+                cx,
+            );
+            answer_unstarted(remote.as_ref(), false, message, cx);
+            return;
+        }
+    };
+    let run = LoginRun {
+        agent,
+        settings,
+        staging: None,
+        intended: Some(profile),
+        remote,
+        long_lived: true,
+        setup_token: Mutex::new(None),
+        finished: AtomicBool::new(false),
+        tab: OnceLock::new(),
+    };
+    // Deferred like [`start`]: the caller is inside a window's update.
+    cx.defer(move |cx| spawn_login_tab(plan, run, cx));
 }
 
 /// One in-flight login run. Its FINISH edge fires exactly once, from
@@ -315,11 +333,17 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
 struct LoginRun {
     agent: CodingAgent,
     settings: coding::Settings,
-    /// The fresh dir the CLI signs in inside; committed (or dropped) on finish.
-    staging: PathBuf,
-    /// The profile the person clicked "Sign in" on (`None` = Add account).
+    /// The fresh dir the CLI signs in inside; committed (or dropped) on
+    /// finish. `None` for a long-lived run (it runs in the profile's dir).
+    staging: Option<PathBuf>,
+    /// The profile the person clicked "Sign in" on (`None` = Add account);
+    /// a long-lived run's profile.
     intended: Option<String>,
     remote: Option<RemoteLogin>,
+    /// EXP-1533: a `claude setup-token` run for `intended`.
+    long_lived: bool,
+    /// EXP-1533: the token the grid showed last (never logged).
+    setup_token: Mutex<Option<(String, Option<i64>)>>,
     finished: AtomicBool,
     /// EXP-765: the tab this run opened — set once it exists, so `finish`
     /// can drop exactly this entry from [`LoginTabs`].
@@ -327,6 +351,18 @@ struct LoginRun {
 }
 
 impl LoginRun {
+    /// EXP-1533: keep the setup token `lines` show, if any.
+    fn note_screen(&self, lines: &[String]) {
+        if !self.long_lived {
+            return;
+        }
+        if let Some(found) = agent_login::scrape_setup_token(lines) {
+            if let Ok(mut slot) = self.setup_token.lock() {
+                *slot = Some(found);
+            }
+        }
+    }
+
     /// The run ended: answer an unanswered remote command, release the
     /// in-flight claim, then — on a CLEAN exit — COMMIT the login by email
     /// (the commit drops the landed login's cached usage, so it is read
@@ -344,7 +380,13 @@ impl LoginRun {
         }
         self.answer_remote("The sign-in ended before a link appeared.", cx);
         let agent = self.agent;
-        let staging = self.staging.clone();
+        if self.long_lived {
+            self.finish_long_lived(cx);
+            return;
+        }
+        let Some(staging) = self.staging.clone() else {
+            return;
+        };
         if !clean {
             cx.background_executor()
                 .spawn(async move { agent_login::abandon_login(agent, &staging) })
@@ -382,6 +424,39 @@ impl LoginRun {
         .detach();
     }
 
+    /// EXP-1533: store the token the run printed in its profile (whatever
+    /// the exit said: a printed token is a minted one) and re-probe.
+    fn finish_long_lived(&self, cx: &mut App) {
+        let agent = self.agent;
+        let scraped = self.setup_token.lock().ok().and_then(|mut slot| slot.take());
+        let (Some(scraped), Some(profile)) = (scraped, self.intended.clone()) else {
+            log::info!("[agent-login] the long-lived sign-in ended without a token");
+            return;
+        };
+        let data_dir = crate::coding_flow::coding_data_dir(cx);
+        cx.spawn(async move |cx| {
+            let stored = cx
+                .background_executor()
+                .spawn(async move { agent_login::store_setup_token(&data_dir, &profile, scraped) })
+                .await;
+            let _ = cx.update(|cx| {
+                match stored {
+                    Ok(_) => notify(
+                        Toast::info(format!("{} sign-in finished — rechecking.", agent.label())),
+                        cx,
+                    ),
+                    Err(message) => notify(
+                        crate::action_error::failed_toast("sign in", agent.label(), Some(message)),
+                        cx,
+                    ),
+                }
+                let hub = CodingHub::global(cx);
+                CodingHub::refresh_agent_usage(&hub, cx);
+            });
+        })
+        .detach();
+    }
+
     /// The run never got off the ground (no window, a failed spawn): answer
     /// the requester with WHY and release the claim, without the re-probe
     /// and the "finished" notification an actual run earns.
@@ -390,7 +465,9 @@ impl LoginRun {
             return;
         }
         self.answer_remote(message, cx);
-        let (agent, staging) = (self.agent, self.staging.clone());
+        let (agent, Some(staging)) = (self.agent, self.staging.clone()) else {
+            return;
+        };
         cx.background_executor()
             .spawn(async move { agent_login::abandon_login(agent, &staging) })
             .detach();
@@ -440,6 +517,26 @@ fn spawn_login_tab(plan: coding::LoginPlan, run: LoginRun, cx: &mut App) {
         let exit_run = Arc::clone(&run);
         let exit_manager = manager.clone();
         let exit_hook: terminal::tab::ExitHook = Box::new(move |tab, exit, cx| {
+            // EXP-1533: the token is the CLI's LAST output — read the grid a
+            // beat after the exit (outside the manager's update), then
+            // finish and close the tab so the token does not linger on it.
+            if exit_run.long_lived {
+                let (run, manager, success) = (Arc::clone(&exit_run), exit_manager.clone(), exit.success);
+                cx.spawn(async move |cx| {
+                    cx.background_executor().timer(POLL).await;
+                    let _ = cx.update(|cx| {
+                        if let Some((lines, _)) = tab_state(&manager, tab, cx) {
+                            run.note_screen(&lines);
+                        }
+                        run.finish(success, cx);
+                        if success {
+                            manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+                        }
+                    });
+                })
+                .detach();
+                return;
+            }
             exit_run.finish(exit.success, cx);
             if exit.success {
                 let manager = exit_manager.clone();
@@ -492,7 +589,7 @@ fn watch_login(
     run: Arc<LoginRun>,
     cx: &mut App,
 ) {
-    if run.remote.is_none() {
+    if run.remote.is_none() && !run.long_lived {
         return; // nothing to watch: a local claude/codex login
     }
     let agent = run.agent;
@@ -511,6 +608,12 @@ fn watch_login(
                 let _ = cx.update(|cx| run.finish(false, cx));
                 return;
             };
+            // EXP-1533: a long-lived run watches for its token to the end
+            // (its exit hook reads the grid once more and finishes it).
+            run.note_screen(&lines);
+            if !running && run.long_lived {
+                return;
+            }
             if !running {
                 // Exited but kept open: the exit hook normally finished the
                 // run already — stop polling instead of burning the whole
@@ -522,6 +625,9 @@ fn watch_login(
             }
             if let Some(remote) = run.remote.as_ref() {
                 if remote.published.load(Ordering::SeqCst) {
+                    if run.long_lived {
+                        continue;
+                    }
                     return;
                 }
                 match steer::agent_login_driver::observe_login_screen(agent.id(), &lines) {
@@ -536,7 +642,9 @@ fn watch_login(
                                 complete(&remote.command_id, true, progress.to_result_text(), cx)
                             });
                         }
-                        return;
+                        // The next tick stops (a long-lived run keeps
+                        // watching for its token).
+                        continue;
                     }
                     // Defensive: `--claudeai` skips the method picker, but a
                     // CLI that shows one anyway is one Enter from the URL.
@@ -555,7 +663,9 @@ fn watch_login(
                             let _ = cx
                                 .update(|cx| complete(&remote.command_id, false, message, cx));
                         }
-                        return;
+                        // The next tick stops (a long-lived run keeps
+                        // watching for its token).
+                        continue;
                     }
                     steer::agent_login_driver::LoginObservation::Nothing => {}
                 }
@@ -574,7 +684,7 @@ fn watch_login(
                             )
                         });
                     }
-                    return;
+                    continue;
                 }
             }
         }
@@ -732,7 +842,33 @@ pub(crate) fn sign_in_on_device(
         open_login_tab(agent, intended, cx);
         return;
     }
-    open_login_dialog(device_id, device_label, agent, intended, window, cx);
+    open_login_dialog(device_id, device_label, agent, intended, false, window, cx);
+}
+
+/// EXP-1533 — "Keep signed in" / "Renew long-lived login" on claude login
+/// `profile_id` of `device`: a login tab here, or the remote sign-in dialog
+/// queuing `agent_login {longLived}` on another of mine.
+pub(crate) fn keep_signed_in_on_device(
+    device_id: String,
+    device_label: SharedString,
+    own: bool,
+    profile_id: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    if own {
+        start_long_lived(profile_id, None, cx);
+        return;
+    }
+    open_login_dialog(
+        device_id,
+        device_label,
+        CodingAgent::Claude,
+        Some(profile_id),
+        true,
+        window,
+        cx,
+    );
 }
 
 /// A remote sign-in's landing (accounts contract E): the dialog captures each
@@ -835,6 +971,7 @@ pub(crate) fn open_login_dialog(
     device_label: SharedString,
     agent: CodingAgent,
     intended: Option<String>,
+    long_lived: bool,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -846,7 +983,7 @@ pub(crate) fn open_login_dialog(
     let spec = native_dialog::DialogSpec::new(title, size(px(460.), px(180.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
-            LoginDialogView::new(device_id, device_label, agent, intended, window, cx)
+            LoginDialogView::new(device_id, device_label, agent, intended, long_lived, window, cx)
         });
         native_dialog::DialogContent::new(view)
     });
@@ -859,6 +996,8 @@ struct LoginDialogView {
     /// The profile the person aimed at (`None` = Add account) — kept so "Try
     /// again" re-queues the SAME login, and read by the duplicate warning.
     intended: Option<String>,
+    /// EXP-1533: the request is a long-lived claude login of `intended`.
+    long_lived: bool,
     state: LoginDialogState,
     /// EXP-940: which attempt the phases belong to. A retry bumps it, so the
     /// abandoned attempt's poll and its timeout land on a stale generation and
@@ -885,6 +1024,7 @@ impl LoginDialogView {
         device_label: SharedString,
         agent: CodingAgent,
         intended: Option<String>,
+        long_lived: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -933,6 +1073,7 @@ impl LoginDialogView {
             device_label,
             agent,
             intended,
+            long_lived,
             state: LoginDialogState::Queueing,
             attempt: 0,
             poll: None,
@@ -969,6 +1110,7 @@ impl LoginDialogView {
         let device_id = self.device_id.clone();
         let agent = self.agent;
         let intended = self.intended.clone();
+        let long_lived = self.long_lived;
         self.poll = Some(cx.spawn_in(window, async move |this, cx| {
             // A fresh client per call: `TrpcClient` is not shareable, and
             // building one is a token-provider lookup, not a connection.
@@ -980,13 +1122,17 @@ impl LoginDialogView {
                 .spawn({
                     let device_id = device_id.clone();
                     async move {
-                        api::devices::create_agent_login_command(
-                            &trpc,
-                            &device_id,
-                            agent.id(),
-                            intended.as_deref(),
-                            false,
-                        )
+                        match (long_lived, intended.as_deref()) {
+                            (true, Some(profile)) => {
+                                api::devices::create_long_lived_login_command(&trpc, &device_id, profile)
+                            }
+                            _ => api::devices::create_agent_login_command(
+                                &trpc,
+                                &device_id,
+                                agent.id(),
+                                intended.as_deref(),
+                            ),
+                        }
                         .map(|created| created.id)
                     }
                 })

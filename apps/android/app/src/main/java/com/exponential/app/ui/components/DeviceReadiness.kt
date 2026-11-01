@@ -51,8 +51,7 @@ import com.exponential.app.ui.theme.TextEmphasis
 // row, drawn only while the switch is on (the host binds it beside the switch).
 
 /**
- * The whole block. [onAction] runs a row's offered action; [onImport] its
- * offered import (after [ImportLoginConfirm]; null = no import pills);
+ * The whole block. [onAction] runs a row's offered action;
  * [onComputerUseChange] = the switch's write (null disables it). [busyKeys] =
  * rows whose action is in flight (their pill spins). [computerUseModel] + [onComputerUseModelChange]
  * (EXP-1236) add the model picker as the switch band's last row while the
@@ -67,7 +66,6 @@ fun DeviceReadinessBlock(
     busyKeys: Set<String> = emptySet(),
     computerUseModel: String? = null,
     onComputerUseModelChange: ((String) -> Unit)? = null,
-    onImport: ((DoctorRow) -> Unit)? = null,
     /** NEW-59: the device's reported displays (`doctor.displays`). */
     workScreenDisplays: List<com.exponential.app.domain.WorkScreenDisplay>? = null,
     /** NEW-59: the stored Work screen (null = Auto). */
@@ -106,7 +104,6 @@ fun DeviceReadinessBlock(
                             row = row,
                             onAction = onAction,
                             busy = row.key in busyKeys,
-                            onImport = onImport,
                         )
                     }
                 }
@@ -155,17 +152,14 @@ fun DeviceReadinessRow(
     verticalPadding: Dp = 12.dp,
     /** The own-device list's caption size (null = the block's bodyLarge). */
     labelStyle: TextStyle? = null,
-    /** The row's offered import (null = no import pill). */
-    onImport: ((DoctorRow) -> Unit)? = null,
 ) {
-    val importEmail = row.importEmail?.takeIf { showAction && onImport != null }
     Row(
         modifier = modifier
             .fillMaxWidth()
             .testTag("device-readiness-row-${row.key}")
             .padding(
                 start = horizontalPadding + if (row.indented) 20.dp else 0.dp,
-                end = if (showAction && (row.action != null || importEmail != null)) {
+                end = if (showAction && row.action != null) {
                     12.dp
                 } else {
                     horizontalPadding
@@ -198,15 +192,6 @@ fun DeviceReadinessRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
-        // The import pill rides BEFORE the action pill, always plain.
-        if (importEmail != null) {
-            GlassPill(
-                DeviceReadiness.ACTIONS[DeviceReadiness.ACTION_IMPORT]?.label.orEmpty(),
-                size = PillSize.Sm,
-                onClick = { onImport?.invoke(row) },
-                modifier = Modifier.testTag("device-readiness-import-${row.key}"),
-            )
-        }
         val label = row.actionLabel
         if (showAction && row.action != null && label != null) {
             GlassPill(
@@ -220,32 +205,6 @@ fun DeviceReadinessRow(
             )
         }
     }
-}
-
-/**
- * The import pill's confirm (fixture `importTitle` / `importBody`): import
- * MOVES the ambient login, so it never fires straight off the pill.
- */
-@Composable
-fun ImportLoginConfirm(
-    email: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    GlassAlert(
-        title = DeviceReadiness.importTitle(email),
-        body = DeviceReadiness.IMPORT_BODY,
-        onDismiss = onDismiss,
-        trailing = listOf(
-            GlassAlertAction("Cancel", onClick = onDismiss),
-            GlassAlertAction(
-                DeviceReadiness.ACTIONS[DeviceReadiness.ACTION_IMPORT]?.label.orEmpty(),
-                primary = true,
-                onClick = onConfirm,
-            ),
-        ),
-        defaultAction = 0,
-    )
 }
 
 /** The fixture glyphs by CONCEPT: check / alert / dash / x. */
@@ -313,9 +272,8 @@ fun DeviceNotReadyRow(
     val commands: DeviceSettingsViewModel = hiltViewModel()
     val states by commands.commandStates.collectAsStateWithLifecycle()
     var loginTarget by remember { mutableStateOf<AgentLoginTarget?>(null) }
-    var importTarget by remember { mutableStateOf<DoctorRow?>(null) }
     val updateState = states[agentUpdateCommandKey(device.deviceId, row.key)]
-    // FEED-79: a failed update / import is the ViewModel's error toast.
+    // FEED-79: a failed update is the ViewModel's error toast.
     val failure by commands.failure.collectAsStateWithLifecycle()
     ClaimedFailedActionToast(failure, commands::claimFailure)
     Column(modifier = modifier.testTag("launch-not-ready-row")) {
@@ -333,17 +291,6 @@ fun DeviceNotReadyRow(
                         loginTarget = AgentLoginTarget(device = device, agent = it.key)
                 }
             },
-            onImport = { importTarget = it },
-        )
-    }
-    importTarget?.let { target ->
-        ImportLoginConfirm(
-            email = target.importEmail.orEmpty(),
-            onConfirm = {
-                commands.agentImport(device.deviceId, target.key, device.online)
-                importTarget = null
-            },
-            onDismiss = { importTarget = null },
         )
     }
     loginTarget?.let { target ->

@@ -1270,6 +1270,16 @@ fn apply_health(
         if !signed_in {
             return crate::agent_accounts::Health::SignedOut;
         }
+        // EXP-1533: runs spend a valid long-lived token, which no refresh
+        // can rotate away: the browser login's 401 (or dead grant) does not
+        // make this login need a re-login.
+        if agent == CodingAgent::Claude.id()
+            && crate::agent_profiles::profile_dir(data_dir, CodingAgent::Claude, profile)
+                .and_then(|dir| crate::claude_token::valid(&dir))
+                .is_some()
+        {
+            return crate::agent_accounts::Health::Ok;
+        }
         cache
             .get(&usage_cache::entry_key(agent, profile))
             .and_then(|entry| entry.health.as_deref())
@@ -1562,6 +1572,7 @@ fn claude_keep_alive_step_at(
             wrote,
         } => {
             usage_cache::note_refresh_ok(entry, expires_at_ms, now);
+            entry.relogin_required = false;
             match wrote {
                 // The keychain refused cleanly and the rotated pair went to
                 // `<root>/.credentials.json` instead. Nothing is lost, but the
@@ -1585,6 +1596,9 @@ fn claude_keep_alive_step_at(
             expires_at_ms,
         } => {
             usage_cache::note_credential_expiry(entry, expires_at_ms);
+            // EXP-1532: the store holds a grant nobody has seen die — a
+            // fresh login landed in this profile since.
+            entry.relogin_required = false;
             // A document with no (or a non-numeric) `expiresAt` cannot be
             // scheduled off its expiry, and `refresh_if_expiring` never POSTs
             // on a guess: without the hour backoff the `None` gate would
@@ -1621,12 +1635,12 @@ fn claude_keep_alive_step_at(
             // (the precheck has to see the token to recognise it), so the
             // same long backoff applies.
             //
-            // ACCEPTED CONSEQUENCE: `apply_outcome` flips health back to `ok`
-            // if a later usage GET on the still-live ACCESS token succeeds —
-            // health is the probe's fact (EXP-849) and we do not fight it.
-            // The persisted dead marker is what matters; `needs_relogin`
-            // returns for good with the first 401 after the access token
-            // expires, which is the truth arriving a few hours late.
+            // EXP-1532: and it STAYS `needs_relogin` through a usage GET that
+            // still succeeds on the live ACCESS token. Letting that flip it
+            // back to `ok` (the EXP-849 rule) was #FEED-175: a login whose
+            // grant was spent read healthy for hours while every new run
+            // died "Not logged in" — and the start pick kept choosing it.
+            entry.relogin_required = true;
             usage_cache::note_refresh_failed(
                 entry,
                 now,
@@ -2082,7 +2096,6 @@ mod tests {
             account: Some(AgentAccount::default()),
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: None,
             acp_note: None,
@@ -2096,7 +2109,6 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: None,
             acp_note: None,
@@ -2181,7 +2193,6 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: None,
             acp_note: None,
@@ -2200,7 +2211,6 @@ mod tests {
                 }),
                 usage_eligible: false,
                 signed_in_profile: None,
-                importable: None,
                 profiles: vec![probe(MAIN)],
                 acp: None,
                 acp_note: None,
@@ -2540,7 +2550,6 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
-            importable: None,
             profiles: Vec::new(),
             acp: None,
             acp_note: None,
@@ -2558,7 +2567,6 @@ mod tests {
                 }),
                 usage_eligible: true,
                 signed_in_profile: None,
-                importable: None,
                 profiles: vec![probe(MAIN)],
                 acp: None,
                 acp_note: None,
@@ -3368,6 +3376,25 @@ mod tests {
             "{unmonitored:?}"
         );
         assert!(!unmonitored.contains(&MAIN.to_string()));
+
+        // EXP-1533: a valid long-lived token outranks the browser login's
+        // `needs_relogin`; an expired one does not.
+        let home = crate::agent_profiles::profile_dir(&dir, CodingAgent::Claude, &ids[0]).unwrap();
+        let now = chrono::Utc::now();
+        let token = |minted| crate::claude_token::SetupToken::minted(
+            "sk-ant-oat01-test-token".into(),
+            minted,
+            crate::claude_token::TOKEN_LIFETIME_SECS,
+        );
+        crate::claude_token::write(&home, &token(now)).unwrap();
+        apply_health(&mut accounts, &cache, &dir);
+        let health = |accounts: &AgentAccounts| {
+            accounts["claude"].profiles.iter().find(|row| row.id == ids[0]).unwrap().health()
+        };
+        assert_eq!(health(&accounts), Health::Ok);
+        crate::claude_token::write(&home, &token(now - chrono::Duration::days(400))).unwrap();
+        apply_health(&mut accounts, &cache, &dir);
+        assert_eq!(health(&accounts), Health::NeedsRelogin);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

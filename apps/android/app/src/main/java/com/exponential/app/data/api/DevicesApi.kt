@@ -346,12 +346,16 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
  * The login lands on the profile whose EMAIL it signs in as (a new email adds
  * one); [profileId] only names the login the sign-in was FOR, so the device can
  * tell a duplicate apart. Absent = "Add account".
+ *
+ * EXP-1533: [longLived] (claude, with a [profileId]) mints a one-year
+ * `claude setup-token` login through the same link + code flow.
  */
 fun agentLoginCommand(
     deviceId: String,
     agent: String,
     switchAccount: Boolean,
     profileId: String? = null,
+    longLived: Boolean = false,
 ): JsonObject =
     buildJsonObject {
         put("deviceId", deviceId)
@@ -359,20 +363,7 @@ fun agentLoginCommand(
         put("agent", agent)
         put("switch", switchAccount)
         profileId?.trim()?.takeIf { it.isNotEmpty() }?.let { put("profileId", it) }
-    }
-
-/**
- * The import form of `agent_login`: the machine MOVES [agent]'s ambient login
- * into a profile (an existing same-email profile is refreshed, else a new one).
- * The device completes it with a plain
- * sentence (`Imported {email}.` or why not).
- */
-fun agentImportCommand(deviceId: String, agent: String): JsonObject =
-    buildJsonObject {
-        put("deviceId", deviceId)
-        put("kind", "agent_login")
-        put("agent", agent)
-        put("import", true)
+        if (longLived) put("longLived", true)
     }
 
 /**

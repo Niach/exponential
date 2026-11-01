@@ -956,7 +956,7 @@ describe(`resolveStartAccount (EXP-1138 gate split)`, () => {
       resolveStartAccount(
         {
           agentAccounts: {
-            claude: { signedIn: false, importable: { email: `dev@acme.test` } },
+            claude: { signedIn: false, email: `dev@acme.test` },
           } as never,
         },
         `claude`

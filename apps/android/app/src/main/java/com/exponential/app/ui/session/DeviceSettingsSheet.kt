@@ -35,7 +35,6 @@ import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.domain.DeviceReadiness
-import com.exponential.app.domain.DoctorRow
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.ClaimedFailedActionToast
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
@@ -46,7 +45,6 @@ import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
-import com.exponential.app.ui.components.ImportLoginConfirm
 import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.LaunchOptionsSection
 import com.exponential.app.ui.components.LaunchOptionsVariant
@@ -167,8 +165,6 @@ fun DeviceSettingsSheet(
     var confirmRemove by remember { mutableStateOf(false) }
     // The readiness block's `sign_in`: the ONE remote sign-in sheet.
     var loginTarget by remember { mutableStateOf<AgentLoginTarget?>(null) }
-    // The block's `import`: its confirm, then `agent_login` with `import`.
-    var importTarget by remember { mutableStateOf<DoctorRow?>(null) }
 
     // Live reseeds. The name only re-seeds while the field is idle, the
     // defaults only while nothing of theirs is queued or in flight — otherwise
@@ -370,7 +366,7 @@ fun DeviceSettingsSheet(
                 // ── Readiness (EXP-1196/1218/1219) ──────────────────────
                 // THE device readiness block, off the synced doctor — a phone
                 // is always ANOTHER device, so only `update` and `sign_in`
-                // carry a pill (plus `import`). The Computer use switch is the block's own
+                // carry a pill. The Computer use switch is the block's own
                 // row and rides the same whole-object defaults save. An older
                 // build (doctor = null) renders no block, just the switch.
                 val doctor = device.doctor
@@ -389,7 +385,6 @@ fun DeviceSettingsSheet(
                             remote = true,
                             computerUseOn = computerUse,
                         ),
-                        onImport = { row -> importTarget = row },
                         onAction = { row ->
                             when (row.action) {
                                 DeviceReadiness.ACTION_UPDATE ->
@@ -604,17 +599,6 @@ fun DeviceSettingsSheet(
             target = target,
             onDismiss = { loginTarget = null },
             liveDevice = device,
-        )
-    }
-
-    importTarget?.let { target ->
-        ImportLoginConfirm(
-            email = target.importEmail.orEmpty(),
-            onConfirm = {
-                viewModel.agentImport(device.deviceId, target.key, device.online)
-                importTarget = null
-            },
-            onDismiss = { importTarget = null },
         )
     }
 

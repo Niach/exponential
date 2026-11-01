@@ -57,6 +57,8 @@ internal data class AgentLoginTarget(
     val device: SteerDevice,
     val agent: String,
     val profileId: String? = null,
+    /** EXP-1533: the claude login's long-lived sign-in (`agent_login` with `longLived`). */
+    val longLived: Boolean = false,
 )
 
 /**
@@ -126,6 +128,7 @@ internal fun AgentLoginSheet(
             switchAccount = false,
             deviceOnline = device.online,
             profileId = target.profileId,
+            longLived = target.longLived,
         )
     }
 

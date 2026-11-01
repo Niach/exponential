@@ -651,8 +651,7 @@ internal fun VoiceSettingsForm(
  * NEW-57 (`meeting.json`): Meeting mode, Desktop audio and (while it picks
  * or leaves out apps, and the device can pick apps) Apps: their own group,
  * no header, directly under the tray group. Turning
- * Meeting mode on only opens THE consent prompt (the doctor's Import
- * confirm, [GlassAlert]); Start = `voice.startMeeting`, off = `voice.stopMeeting`.
+ * Meeting mode on only opens THE consent prompt (a [GlassAlert]); Start = `voice.startMeeting`, off = `voice.stopMeeting`.
  */
 @Composable
 private fun MeetingRows(

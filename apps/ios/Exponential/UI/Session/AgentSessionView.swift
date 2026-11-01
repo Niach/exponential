@@ -3976,6 +3976,8 @@ extension AppDependencies {
         // an earlier one.
         model.devicesApi = devicesApi
         model.steerEnet = installNode?.steer
+        model.steerTunnel = steerTunnelApi
+        model.connStats = connStats
         return model
     }
 }

@@ -460,6 +460,9 @@ struct AgentsView: View {
                     noAccount: row.noAccount,
                     readOnly: !device.isMine,
                     onSignIn: { signIn(device, agent: $0.agent, profileId: $0.profileId) },
+                    onKeepSignedIn: {
+                        signIn(device, agent: $0.agent, profileId: $0.profileId, longLived: true)
+                    },
                     onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) },
                     onSignOut: { signOutAccountTarget = AccountRemoveTarget(row: $0) }
                 )
@@ -511,13 +514,20 @@ struct AgentsView: View {
         .flatRow()
     }
 
-    /// The sign-in sheet on ONE login (a chip's menu or an attention line).
-    private func signIn(_ device: SteerDevice, agent: String, profileId: String?) {
+    /// The sign-in sheet on ONE login (a chip's menu or an attention line);
+    /// `longLived` (EXP-1533) = the chip's "Keep signed in".
+    private func signIn(
+        _ device: SteerDevice,
+        agent: String,
+        profileId: String?,
+        longLived: Bool = false
+    ) {
         loginTarget = AgentLoginTarget(
             deviceId: device.deviceId,
             deviceLabel: deviceName(device),
             agent: agent,
-            profileId: profileId
+            profileId: profileId,
+            longLived: longLived
         )
     }
 

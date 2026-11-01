@@ -48,6 +48,8 @@ pub use eagent::atomic_config;
 pub mod argv;
 pub mod cargo_target_gc;
 pub mod claude_oauth;
+// EXP-1533: a profile's long-lived `claude setup-token` login.
+pub mod claude_token;
 pub use eagent::claude_trust;
 pub mod clone_manager;
 pub use eagent::codex_app_server;
@@ -123,7 +125,7 @@ pub use account_option::{
     carried_account_option, flatten_accounts, last_used_account_option, parse_account_option_key, AccountLimits,
     AccountModelLimit, AccountOption,
 };
-pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry, Health, Importable};
+pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry, Health};
 pub use agent_profiles::{profile_id, AgentProfile};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
 pub use agent_usage::{

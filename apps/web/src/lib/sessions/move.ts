@@ -156,3 +156,55 @@ async function carriedAccount(
   if (!profile?.email) return undefined
   return carriedAccountOption(options, { agent: agent as `claude`, email: profile.email })?.id
 }
+
+/** #FEED-182 (#EXP-1532): the login a CHILD started on ANOTHER device than
+ *  its parent runs on. Profile ids are device-local, so neither the parent's
+ *  account nor an id the caller copied from the parent's device means
+ *  anything there. `requested` (a profile id OR an email) must name a login
+ *  signed in and healthy for `agent` on the target, else the send is
+ *  refused naming the logins that are; without one, the parent's login is
+ *  carried by email, else null (the device picks a working login itself). */
+export async function childAccountOnDevice(
+  parent: Session,
+  agent: string,
+  target: { deviceId: string; ownerId: string },
+  requested: string | undefined
+): Promise<string | null> {
+  const row = await loadDeviceRow(target.deviceId, target.ownerId)
+  // A device that reported no logins is unknowable here: its own launch
+  // gate decides, so nothing foreign is pinned on it.
+  if (!row?.agentAccounts || Object.keys(row.agentAccounts).length === 0) return null
+  const options = flattenAccounts(row).filter(
+    (option) => option.agent === agent && option.health !== `signed_out` && option.health !== `needs_relogin`
+  )
+  if (requested) {
+    const wanted = requested.trim().toLowerCase()
+    const byId = options.find((option) => option.id === requested.trim())
+    const byEmail = options.find((option) => option.email.trim().toLowerCase() === wanted)
+    // An id from the PARENT's device: the same login there, by email.
+    const carried = byId || byEmail ? undefined : await carriedProfile(parent, agent, requested.trim(), options)
+    const hit = byId ?? byEmail ?? carried
+    if (hit) return hit.id
+    const names = options.map((option) => option.email).filter(Boolean)
+    throw new TRPCError({
+      code: `BAD_REQUEST`,
+      message: names.length
+        ? `Account "${requested}" is not signed in for ${agent} on ${deviceName(row, target.deviceId)}. Signed in there: ${names.join(`, `)}.`
+        : `${deviceName(row, target.deviceId)} has no signed-in login for ${agent}.`,
+    })
+  }
+  return (await carriedAccount(parent, agent, options)) ?? null
+}
+
+/** A profile id of `session`'s OWN device, carried to `options` by email. */
+async function carriedProfile(
+  session: Session,
+  agent: string,
+  profileId: string,
+  options: ReturnType<typeof flattenAccounts>
+) {
+  const source = await loadDeviceRow(session.deviceId, await sessionDeviceOwner(session))
+  const profile = source?.agentAccounts?.[agent]?.profiles?.find((entry) => entry?.id === profileId)
+  if (!profile?.email) return undefined
+  return carriedAccountOption(options, { agent: agent as `claude`, email: profile.email })
+}

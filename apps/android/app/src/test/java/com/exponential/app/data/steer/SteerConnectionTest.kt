@@ -223,7 +223,13 @@ class SteerConnectionTest {
             waitUntil("a reconnecting phase") {
                 connection.phase.value.let { it is AgentPhase.Closed && it.reconnecting }
             }
-            assertEquals(listOf(JOIN_FRAME), transport.awaitOpen().sent.toList())
+            // The redial opening a second socket IS the loop surviving. Its join
+            // goes out on the dial's own thread right after `open` hands the
+            // socket over (here the timer thread the backoff resumed on), so
+            // wait for it instead of racing it.
+            val redial = transport.awaitOpen()
+            waitUntil("the redial's join") { redial.sent.isNotEmpty() }
+            assertEquals(listOf(JOIN_FRAME), redial.sent.toList())
         } finally {
             connection.close()
         }

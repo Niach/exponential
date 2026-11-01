@@ -27,6 +27,7 @@ import { promptsRouter } from "@/lib/trpc/prompts"
 import { appsRouter } from "@/lib/trpc/apps"
 import { agentsRouter } from "@/lib/trpc/agents"
 import { steerRouter } from "@/lib/trpc/steer"
+import { connStatsRouter } from "@/lib/trpc/conn-stats"
 import { devicesRouter } from "@/lib/trpc/devices"
 import { installsRouter } from "@/lib/trpc/installs"
 import { sessionKeysRouter } from "@/lib/trpc/session-keys"
@@ -63,6 +64,8 @@ export const appRouter = router({
   apps: appsRouter,
   agents: agentsRouter,
   steer: steerRouter,
+  // EXP-1530: P2P connection analytics (ingest + the admin dashboard).
+  connStats: connStatsRouter,
   devices: devicesRouter,
   // EXP-1457 / VAPP-37: the eNet install registry.
   installs: installsRouter,
