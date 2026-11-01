@@ -1,11 +1,12 @@
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, sql } from "drizzle-orm"
+import { and, desc, eq, ne, sql } from "drizzle-orm"
 import { isPersistent } from "@exp/domain-contract/session-kind"
 import { db } from "@/db/connection"
 import { devices, events, sessions, type Device, type Session } from "@/db/schema"
 import { carriedAccountOption, flattenAccounts } from "@/lib/accounts/account-option"
 import { sessionDeviceOwner } from "@/lib/sessions/host"
 import { effectiveCli, resolveSessionDevice } from "@/lib/sessions/send"
+import { visibilityMove } from "@/lib/session-device-move"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { emitEventInTx } from "@/lib/events"
 import type { Tx } from "@/lib/sessions/tx"
@@ -85,20 +86,30 @@ export interface MoveTarget {
   ownerId: string
   /** The login to run on there (a profile id of the target), else null. */
   account: string | null
+  /** The visibility the session has there (its own, or the target's when a
+   *  queued root adopts it, `visibilityMove`). */
+  shared: boolean
 }
 
 /**
  * The target of a move: visible to the session's STARTER exactly like a new
  * session's device (own, or shared with the team), the SAME visibility
- * (`shared`) as the session, online (when `requireOnline`) and signed in
- * for the session's agent. `account` = an explicit pick (must be a
+ * (`shared`) as the session (or the one a queued root adopts,
+ * `visibilityMove`), online (when `requireOnline`) and signed in for the
+ * session's agent. `account` = an explicit pick (must be a
  * signed-in login of that agent there), else the source's login carried by
  * email (`carriedAccountOption`), else null.
  */
 export async function resolveMoveTarget(
   session: Session,
   deviceId: string,
-  opts: { account?: string | null; requireOnline: boolean; now?: Date }
+  opts: {
+    account?: string | null
+    requireOnline: boolean
+    now?: Date
+    /** Who moves it (`visibilityMove`); unset = never adopts. */
+    moverId?: string
+  }
 ): Promise<MoveTarget> {
   let device: Awaited<ReturnType<typeof resolveSessionDevice>>
   try {
@@ -108,7 +119,18 @@ export async function resolveMoveTarget(
     if (e instanceof TRPCError && e.code === `FORBIDDEN`) throw e
     throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MOVE_COPY.visibility })
   }
-  if (device.shared !== session.shared) {
+  const shared = visibilityMove({
+    sessionShared: session.shared,
+    targetShared: device.shared,
+    queuedRoot:
+      opts.moverId !== undefined &&
+      session.status === `queued` &&
+      session.parentId === null &&
+      !(await hasSubSessions(session.id)),
+    targetIsStarters: device.ownerId === session.userId,
+    moverIsStarter: opts.moverId === session.userId,
+  })
+  if (shared === null) {
     throw new TRPCError({ code: `PRECONDITION_FAILED`, message: MOVE_COPY.visibility })
   }
   const row = await loadDeviceRow(deviceId, device.ownerId)
@@ -140,7 +162,17 @@ export async function resolveMoveTarget(
     name: deviceName(row, deviceId),
     ownerId: device.ownerId,
     account,
+    shared,
   }
+}
+
+async function hasSubSessions(rootId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: sessions.id })
+    .from(sessions)
+    .where(and(eq(sessions.rootId, rootId), ne(sessions.id, rootId)))
+    .limit(1)
+  return !!row
 }
 
 /** The source's login (by email, off its host device's report) on the

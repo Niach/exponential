@@ -26,6 +26,7 @@ import {
   REASON_STEER,
   REASON_VISIBILITY,
   sessionDeviceMoveRows,
+  visibilityMove,
 } from "@/lib/session-device-move"
 
 const repoRoot = join(import.meta.dirname, `..`, `..`, `..`, `..`)
@@ -251,5 +252,39 @@ describe(`device-move copy`, () => {
       expect(value).not.toContain(`\\`)
       expect(value.trim()).toBe(value)
     }
+  })
+})
+
+// #FEED-177 (#EXP-1536 B3): "This device is shared differently, so the
+// session can't move here" (930b6eb8 → 98b9eaa8) for a QUEUED session
+// whose box went offline: a queued root moves to any of its starter's own
+// machines in the team and takes that machine's sharing.
+describe(`visibilityMove (the server's rule)`, () => {
+  const base = {
+    sessionShared: false,
+    targetShared: true,
+    queuedRoot: true,
+    targetIsStarters: true,
+    moverIsStarter: true,
+  }
+
+  it(`keeps the visibility when the target matches it, whatever the session`, () => {
+    expect(visibilityMove({ ...base, targetShared: false, queuedRoot: false })).toBe(false)
+    expect(
+      visibilityMove({ ...base, sessionShared: true, queuedRoot: false, targetIsStarters: false })
+    ).toBe(true)
+  })
+
+  it(`a queued root adopts its starter's own machine's sharing (FEED-177)`, () => {
+    expect(visibilityMove(base)).toBe(true)
+    expect(visibilityMove({ ...base, sessionShared: true, targetShared: false })).toBe(false)
+  })
+
+  it(`refuses the rest: a live or crowded tree, a teammate's box, a teammate making it private`, () => {
+    expect(visibilityMove({ ...base, queuedRoot: false })).toBeNull()
+    expect(visibilityMove({ ...base, targetIsStarters: false })).toBeNull()
+    expect(
+      visibilityMove({ ...base, sessionShared: true, targetShared: false, moverIsStarter: false })
+    ).toBeNull()
   })
 })
