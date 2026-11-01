@@ -23,6 +23,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -65,6 +68,12 @@ class EnetNodeManager @Inject constructor(
     private val installIds = ConcurrentHashMap<String, String>()
     private val holderWake = Channel<Unit>(Channel.CONFLATED)
 
+    // EXP-1524: the accounts whose node is registered AND has loaded its
+    // allowlist. Before that a node can neither reach a teammate's device
+    // (no relay address, EXP-1471) nor hear its replies (allowlist empty).
+    private val _ready = MutableStateFlow<Set<String>>(emptySet())
+    val ready: StateFlow<Set<String>> = _ready.asStateFlow()
+
     // accountId -> userId of the signed-in accounts, and their team ids.
     @Volatile private var accounts: Map<String, String> = emptyMap()
     @Volatile private var teamIds: Map<String, Set<String>> = emptyMap()
@@ -96,8 +105,14 @@ class EnetNodeManager @Inject constructor(
     /** This install's registry id for [accountId] once its node registered (the sealed writers' `installId`). */
     fun installId(accountId: String): String? = installIds[accountId]
 
-    /** [accountId]'s running eNet node, once it started (VAPP-33: the steer viewer's carrier). */
-    fun peer(accountId: String): PeerNode? = nodes[accountId]?.node
+    /**
+     * [accountId]'s eNet node once it is [ready] (VAPP-33: the steer viewer's
+     * carrier). EXP-1524: a node that only just started is not handed out: a
+     * notification cold start dialed the device through it with an empty
+     * allowlist and sat on the send timeout instead of retrying once ready.
+     */
+    fun peer(accountId: String): PeerNode? =
+        if (accountId in _ready.value) nodes[accountId]?.node else null
 
     /** Runs a holder pass now (a key was just created, or a screen lacks one). */
     fun wakeHolders() {
@@ -155,6 +170,7 @@ class EnetNodeManager @Inject constructor(
                     }
                 }
                 if (!node.refreshAccess(teamIds[accountId].orEmpty())) failed = true
+                if (node.installId != null && node.node != null) _ready.value = _ready.value + accountId
             } catch (err: CancellationException) {
                 throw err
             } catch (err: Throwable) {
@@ -219,6 +235,7 @@ class EnetNodeManager @Inject constructor(
     }
 
     private suspend fun stopQuietly(accountId: String) {
+        _ready.value = _ready.value - accountId
         holders.remove(accountId)
         installIds.remove(accountId)
         val node = nodes.remove(accountId) ?: return
