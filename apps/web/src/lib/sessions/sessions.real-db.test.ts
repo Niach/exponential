@@ -1953,6 +1953,58 @@ describe.skipIf(!ready.ok)(`NEW-1: moving a session to another device`, async ()
     expect(await row(fresh.sessionId)).toMatchObject({ deviceId: w.target, status: `queued` })
   })
 
+  it(`#FEED-177: a QUEUED root off an offline box moves to its starter's team-shared box and takes its sharing`, async () => {
+    const w = await moveWorld()
+    // 930b6eb8 → 98b9eaa8: the private run's box went offline before it
+    // claimed; the starter's other machine is shared with the team.
+    const shared = `dev-s-${id8()}`
+    await db.insert(devices).values({
+      userId: w.owner,
+      deviceId: shared,
+      label: `s-box`,
+      kind: `server`,
+      version: `0.14.74`,
+      sharedTeamIds: [w.teamId],
+      agentAccounts: signedIn(`ps`, `me@move.test`),
+    })
+    const queued = await sendSession({
+      userId: w.owner,
+      input: { teamId: w.teamId, deviceId: w.deviceId, cli: `claude`, account: `pa`, text: `not yet` },
+    })
+    expect(await row(queued.sessionId)).toMatchObject({ shared: false, status: `queued` })
+    await db.update(devices).set({ lastSeenAt: new Date(Date.now() - 3_600_000) }).where(eq(devices.deviceId, w.deviceId))
+    await sendSession({ userId: w.owner, input: { sessionId: queued.sessionId, deviceId: shared } })
+    expect(await row(queued.sessionId)).toMatchObject({ deviceId: shared, shared: true, status: `queued`, account: `ps` })
+    // A teammate may steer it now, but never make it private again.
+    await expect(
+      sendSession({ userId: w.mate, input: { sessionId: queued.sessionId, deviceId: w.target } })
+    ).rejects.toMatchObject({ message: MOVE_COPY.visibility })
+    // Its starter may (their own personal box).
+    await sendSession({ userId: w.owner, input: { sessionId: queued.sessionId, deviceId: w.target } })
+    expect(await row(queued.sessionId)).toMatchObject({ deviceId: w.target, shared: false })
+
+    // A private root never lands on a teammate's shared box.
+    const mateBox = `dev-ms-${id8()}`
+    await db.insert(devices).values({
+      userId: w.mate,
+      deviceId: mateBox,
+      label: `mate-box`,
+      kind: `server`,
+      version: `0.14.74`,
+      sharedTeamIds: [w.teamId],
+      agentAccounts: signedIn(`pm`, `mate@move.test`),
+    })
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: queued.sessionId, deviceId: mateBox } })
+    ).rejects.toMatchObject({ message: MOVE_COPY.visibility })
+    // A tree with a sub-session keeps its one visibility.
+    await sendSession({ userId: w.owner, input: { parentId: queued.sessionId, deviceId: w.target, text: `kid` } })
+    await expect(
+      sendSession({ userId: w.owner, input: { sessionId: queued.sessionId, deviceId: shared } })
+    ).rejects.toMatchObject({ message: MOVE_COPY.visibility })
+    expect(await row(queued.sessionId)).toMatchObject({ deviceId: w.target, shared: false })
+  })
+
   it(`a LIVE row ends and continues on the target on its branch; children and watchers follow`, async () => {
     const w = await moveWorld()
     const issueId = await w.issue(`Moving work`)

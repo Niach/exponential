@@ -931,7 +931,7 @@ type MovePlan =
   | { kind: `none` }
   | { kind: `direct` | `relocate`; target: MoveTarget }
 
-async function planMove(session: Session, input: SessionsSendInput): Promise<MovePlan> {
+async function planMove(session: Session, input: SessionsSendInput, moverId: string): Promise<MovePlan> {
   const deviceId = input.deviceId
   if (deviceId === undefined || deviceId === session.deviceId) return { kind: `none` }
   if (session.status === `ended` && !isPersistent(session)) return { kind: `none` }
@@ -939,6 +939,7 @@ async function planMove(session: Session, input: SessionsSendInput): Promise<Mov
   const target = await resolveMoveTarget(session, deviceId, {
     account: input.account ?? null,
     requireOnline: true,
+    moverId: session.status === `queued` ? moverId : undefined,
   })
   return { kind: session.status === `queued` ? `direct` : `relocate`, target }
 }
@@ -952,8 +953,10 @@ function moveRaced(): never {
  *  made for: a row the device claimed since is CONFLICT, never re-targeted). */
 async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
   // #EXP-1259: the plan read the target outside this transaction; the
-  // share is re-read under its lock before the row names the box.
-  await resolveSessionDeviceInTx(tx, session.userId, session.teamId, target.deviceId)
+  // share is re-read under its lock before the row names the box (a
+  // visibility the plan adopted must still be the box's).
+  const device = await resolveSessionDeviceInTx(tx, session.userId, session.teamId, target.deviceId)
+  if (target.shared !== session.shared && device.shared !== target.shared) moveRaced()
   const from = deviceName(
     await loadDeviceRow(session.deviceId, await sessionDeviceOwner(session)),
     session.deviceId
@@ -963,13 +966,19 @@ async function applyDirectMove(tx: Tx, session: Session, target: MoveTarget) {
     .set({
       deviceId: target.deviceId,
       account: target.account,
+      // #FEED-177: a queued root takes its new box's sharing (`visibilityMove`).
+      shared: target.shared,
       updatedAt: new Date(),
     })
     .where(
       and(
         eq(sessions.id, session.id),
         eq(sessions.deviceId, session.deviceId),
-        eq(sessions.status, `queued`)
+        eq(sessions.status, `queued`),
+        // A sub-session started since the plan pins the tree's visibility.
+        ...(target.shared === session.shared
+          ? []
+          : [sql`NOT EXISTS (SELECT 1 FROM sessions s WHERE s.root_id = ${session.id} AND s.id <> ${session.id})`])
       )
     )
     .returning({ id: sessions.id })
@@ -1075,7 +1084,7 @@ async function messageSession(
   const picks = runnerPicks(input)
 
   const hasMessage = !!input.text?.trim() || !!input.attachmentIds?.length
-  const move = await planMove(target, input)
+  const move = await planMove(target, input, userId)
   // EXP-1323: another session's message over its MCP key is ITS input
   // (agent-authored, pending like a person's: the target wakes and reads
   // it). Over tRPC the header never speaks for a session: a person's
