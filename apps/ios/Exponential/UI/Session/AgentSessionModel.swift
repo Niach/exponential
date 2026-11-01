@@ -1466,8 +1466,8 @@ final class AgentSessionModel {
             let root = row.isRoot ? row : try SessionQueries.session(db: db, id: row.rootId)
             let title = try SessionTree.sessionTitle(db: db, session: row)
             let threadTitle = try root.map { try SessionTree.sessionTitle(db: db, session: $0) }
-            let hasSubSessions = row.isRoot
-                && (try SessionQueries.tree(db: db, rootId: row.id)).contains { $0.id != row.id }
+            let hasSubSessions = try row.isRoot
+                && SessionQueries.tree(db: db, rootId: row.id).contains { $0.id != row.id }
             return (row, root, title, threadTitle, hasSubSessions)
         }
         sessionObservationTask = Task { [weak self] in
