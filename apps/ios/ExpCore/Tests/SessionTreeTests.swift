@@ -205,6 +205,18 @@ final class SessionTreeTests: XCTestCase {
         return ["root": surface.root.any, "data": surface.data?.any ?? NSNull()] as [String: Any]
     }
 
+    private func questionJSON(_ row: ThreadQuestionRow) -> [String: Any] {
+        var object: [String: Any] = [
+            "type": "question", "id": row.id, "sessionId": row.sessionId, "question": row.question,
+            "options": row.options.map(json), "custom": row.custom, "multi": row.multi,
+            "surface": json(row.surface), "answer": json(row.answer),
+            "answers": row.answers.map { $0 as Any } ?? NSNull(), "surfaceData": row.surfaceData?.any ?? NSNull(),
+            "answered": row.answered,
+        ]
+        if row.dismissed == true { object["dismissed"] = true }
+        return object
+    }
+
     private func json(_ row: ThreadRow) -> [String: Any] {
         switch row {
         case let .message(id, author, authorId, body, queued, authorSessionId, xref):
@@ -225,13 +237,7 @@ final class SessionTreeTests: XCTestCase {
                 },
             ]
         case let .question(row):
-            [
-                "type": "question", "id": row.id, "sessionId": row.sessionId, "question": row.question,
-                "options": row.options.map(json), "custom": row.custom, "multi": row.multi,
-                "surface": json(row.surface), "answer": json(row.answer),
-                "answers": row.answers.map { $0 as Any } ?? NSNull(), "surfaceData": row.surfaceData?.any ?? NSNull(),
-                "answered": row.answered,
-            ]
+            questionJSON(row)
         case let .plan(row):
             [
                 "type": "plan", "id": row.id, "sessionId": row.sessionId, "plan": row.plan,
