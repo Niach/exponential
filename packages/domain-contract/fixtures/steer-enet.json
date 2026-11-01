@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-33: steer over eNet's chat channel (`exp/enet/chat/1`, acked, ONE ordered stream per peer) between a viewer install and the install RUNNING the session. The steer frames themselves are unchanged (apps/steer-relay/src/protocol.ts + STEER-WIRE-EXP-850.md); only the carrier moves. ENVELOPE: one chat message = UTF-8 JSON `{t:\"exp-steer\", v:1, sessionId, frames:[...]}`, frames = wire frame OBJECTS (never strings), applied in array order, envelopes in chat order. `parse` rules (every receiver): t must be `exp-steer`, v must be 1, sessionId a non-empty string, frames a NON-EMPTY array of objects each with a string `t` (the wire frames' own tag, exactly the relay's `{t:\"input\",data}` etc.); anything else is not a steer envelope (ignored, acked). A frame whose `t` the receiver does not know is skipped, the rest of the envelope still applies. VIEWER → DEVICE frames: `join {channel:\"activity\"}`, `leave`, and the relay client frames `input`, `answer`, `interrupt`, `unqueue`, `set_config`, `set_mode`, `kill`, `history_page {requestId, beforeSeq, limit}` (its session is the envelope's). Frames go out exactly as on the relay socket (e.g. `{t:\"join\",channel:\"activity\"}`, `{t:\"answer\",questionId,keys,text?}`). DEVICE → VIEWER: on `join` = `activity_reset`, the journal replay (`activity {event, seq}` in `replay_seq` order: the log, then the latest-wins slots), then `activity_synced {firstSeq, lastSeq, truncated?}` (the end-of-replay marker, exactly the relay's: firstSeq/lastSeq = the seqs of the first and last LOG entry (the latest-wins slots do not count), both 0 when the log is empty; `truncated: true` when the journal evicted or firstSeq > 0, absent otherwise); afterwards every recorded event live as `activity {event, seq}`; `history_chunk {requestId, events, seqs, done}` to the asker only; `keepalive` every `keepaliveMs` to every joined viewer; `bye {outcome}` when the run ends (the viewer is dropped); `error {code}` with `no_such_session` (this install neither runs the session live nor holds its stored journal: the viewer tries its next endpoint) or `unauthorized` (the access rule). STORED REPLAY (VAPP-43, replaces the relay's `history_request` + lingering rooms): a `join` for a session this install does not run live but whose journal file it holds (EXP-773 `{data_dir}/journal/<sessionId>.jsonl`) is answered from the file under the same access rule, the audience (team, starter, shared) read off the device's synced `sessions` row (no row = `no_such_session`): `activity_reset`, the file's whole replay (`read_journal_seq`), `activity_synced` (`truncated` absent: nothing was evicted), then, for an ENDED row, `bye {outcome:\"history\"}` (the viewer is dropped); for a row still alive (idle: its run went away between turns) the viewer stays joined: `keepalive`s, `history_page` answered from the file, and once the run's publisher comes back on this install every such viewer is handed to it as a fresh join (`activity_reset` + full replay). A re-sent `join` restarts the feed (activity_reset + full replay), exactly like a relay reconnect. BATCHING (the device): a viewer's feed drains its queue into one envelope while the serialized envelope stays ≤ `batchMaxBytes`; a frame that alone passes it goes in an envelope of its own; an envelope over `chatMaxBytes` (enet-core MAX_CHAT_MESSAGE) is never sent (the frame is dropped and logged). A failed or timed-out (`sendTimeoutMs`) send drops the viewer. DISCOVERY: the viewer calls tRPC `installs.forSession {sessionId}` → `[{endpointId, kind}]` = the non-revoked `desktop`/`daemon` installs whose `device_id` = the session's `device_id`, newest `last_seen_at` first, only for a caller who can see the session (the visibility rule: starter, or `shared` + team member). It sends `join` to the first; on `error no_such_session` the next; no endpoint, no node, every endpoint refused, or no `activity_synced` within `joinTimeoutMs` = NO FEED: since VAPP-43 the steer relay carries no session content, so there is no fallback. The viewer shows its EXISTING states with their existing copy: a row still alive = `starting` (\"The live stream isn't up yet. The desktop may still be connecting.\") and redials on its backoff; an ended row = `ended` with the device-offline copy (\"{device} is offline. The transcript lives on that machine.\"). A viewer that sees no frame for `staleMs` re-sends `join`. OFFLINE REDIAL (VAPP-169): the device-offline `ended` is NOT terminal: the viewer keeps the session open and redials (discovery + `join`, the same path) when the session's device flips ONLINE in presence (the synced devices row), on a wakeup (app foreground, network back) and every `staleMs` while that copy shows (presence lags, or is off). The redial holds the phase (no `connecting` flash); NO FEED again = the same copy, a feed = the transcript (a stored replay ending in `bye history` = the plain `ended`, a run that came back = `live`). An `ended` reached by `bye` (the transcript is on screen) never redials; a `starting` row cuts its backoff short on a presence flip online or a wakeup and otherwise redials on its backoff, never on the stale timer. A presence flip OFFLINE never dials. SUBSCRIPTIONS (EXP-1487, the viewer install): several viewers of one session on one install (the desktop agent screen's transcript and its root composer) share the device's ONE feed for that endpoint: every subscriber gets every frame of the session from that device (fan-out, never a replace), a `join` from any of them restarts the shared feed for all (`activity_reset` + replay, each applies it), and only the LAST subscriber of the session to that device sends `leave`. A second viewer never ends the first's feed. LOST BANNER (EXP-1487): a feed that was live and drops (a failed send, a closed subscription, the stale timer, NO FEED or an error on the redial) redials SILENTLY on its backoff: the phase holds (the transcript stays, no \"Connection lost\", no `connecting` flash); a successful join resets the count. The \"Connection lost\" banner (with Reconnect) shows only once the feed has been down at least `lostBanner.graceMs` since the drop AND at least `lostBanner.failedRedials` redials since the drop failed; until then the drop is invisible. An ended row's device-offline copy and `starting` keep their own rules above. `lostBanner` cases: {downMs (since the drop), failedRedials} → show. NO FEED, EMPTY TRANSCRIPT (EXP-1487): what a viewer with nothing to show says while NO FEED holds, keyed on the synced row: an ENDED row = the device-offline copy above; a BUSY row (a turn is running) = `starting` (spinner + \"The agent is starting. Waiting for the live stream…\"); a row that is NOT busy and not ended (idle, waiting for its next message, or on an open question: `needsInput`) is never `starting`: it shows the `idle` empty state (no spinner) with `noFeedIdle.title` / `noFeedIdle.text` (web's existing \"No live transcript\" state) while it keeps redialing on its backoff; a feed replaces it with the transcript. `noFeed` cases: {ended, busy, needsInput} → state (`offline`, `starting`, `idle`). `offlineRedial` cases: {phase (`offline` = the device-offline ended, `ended` = ended by `bye`, `starting`), trigger (`presenceOnline`, `presenceOffline`, `staleTimer`, `wakeup`)} → redial. ACCESS (the device, per envelope): the sender endpoint's user comes from the registry list of the SESSION's team (`installs.list {teamId: sessions.team_id}` entries; an endpoint known only from another team the device's user shares with the sender does NOT count); unknown endpoint = refused; the starter (`sessions.user_id`) = allowed; another user = allowed only when the session is `shared` (being in that team's list = a member). `access` cases: {viewerUserId (null = endpoint not in the session team's registry list), starterUserId, shared} → allowed. VIEWER SIDE: device frames arrive as chat messages the DEVICE dials (each side sends on its own outbound stream, so the viewer's allowlist must hold the device's endpoint: the same team registry); the viewer applies only envelopes whose sessionId it joined AND whose sender is the endpoint it joined, every other steer envelope is ignored. `parse` cases: {body (the chat body as a JSON value, or bodyText for a raw string)} → {ok, sessionId?, types? (the frames' `t` tags kept, in order)}. `batch` cases: frame sizes in bytes (each frame's serialized JSON length) with the envelope overhead `overhead` (the serialized envelope with an empty frames array) and one comma per extra frame → the groups as frame indexes; `dropped` = indexes over chatMaxBytes even alone.",
+  "$comment": "VAPP-33: steer over eNet's chat channel (`exp/enet/chat/1`, acked, ONE ordered stream per peer) between a viewer install and the install RUNNING the session. The steer frames themselves are unchanged (apps/steer-relay/src/protocol.ts + STEER-WIRE-EXP-850.md); only the carrier moves. ENVELOPE: one chat message = UTF-8 JSON `{t:\"exp-steer\", v:1, sessionId, frames:[...]}`, frames = wire frame OBJECTS (never strings), applied in array order, envelopes in chat order. `parse` rules (every receiver): t must be `exp-steer`, v must be 1, sessionId a non-empty string, frames a NON-EMPTY array of objects each with a string `t` (the wire frames' own tag, exactly the relay's `{t:\"input\",data}` etc.); anything else is not a steer envelope (ignored, acked). A frame whose `t` the receiver does not know is skipped, the rest of the envelope still applies. VIEWER → DEVICE frames: `join {channel:\"activity\"}`, `leave`, and the relay client frames `input`, `answer`, `interrupt`, `unqueue`, `set_config`, `set_mode`, `kill`, `history_page {requestId, beforeSeq, limit}` (its session is the envelope's). Frames go out exactly as on the relay socket (e.g. `{t:\"join\",channel:\"activity\"}`, `{t:\"answer\",questionId,keys,text?}`). DEVICE → VIEWER: on `join` = `activity_reset`, the journal replay (`activity {event, seq}` in `replay_seq` order: the log, then the latest-wins slots), then `activity_synced {firstSeq, lastSeq, truncated?}` (the end-of-replay marker, exactly the relay's: firstSeq/lastSeq = the seqs of the first and last LOG entry (the latest-wins slots do not count), both 0 when the log is empty; `truncated: true` when the journal evicted or firstSeq > 0, absent otherwise); afterwards every recorded event live as `activity {event, seq}`; `history_chunk {requestId, events, seqs, done}` to the asker only; `keepalive` every `keepaliveMs` to every joined viewer; `bye {outcome}` when the run ends (the viewer is dropped); `error {code}` with `no_such_session` (this install neither runs the session live nor holds its stored journal: the viewer tries its next endpoint) or `unauthorized` (the access rule). STORED REPLAY (VAPP-43, replaces the relay's `history_request` + lingering rooms): a `join` for a session this install does not run live but whose journal file it holds (EXP-773 `{data_dir}/journal/<sessionId>.jsonl`) is answered from the file under the same access rule, the audience (team, starter, shared) read off the device's synced `sessions` row (no row = `no_such_session`): `activity_reset`, the file's whole replay (`read_journal_seq`), `activity_synced` (`truncated` absent: nothing was evicted), then, for an ENDED row, `bye {outcome:\"history\"}` (the viewer is dropped); for a row still alive (idle: its run went away between turns) the viewer stays joined: `keepalive`s, `history_page` answered from the file, and once the run's publisher comes back on this install every such viewer is handed to it as a fresh join (`activity_reset` + full replay). A re-sent `join` restarts the feed (activity_reset + full replay), exactly like a relay reconnect. BATCHING (the device): a viewer's feed drains its queue into one envelope while the serialized envelope stays ≤ `batchMaxBytes`; a frame that alone passes it goes in an envelope of its own; an envelope over `chatMaxBytes` (enet-core MAX_CHAT_MESSAGE) is never sent (the frame is dropped and logged). A failed or timed-out (`sendTimeoutMs`) send drops the viewer. DISCOVERY: the viewer calls tRPC `installs.forSession {sessionId}` → `[{endpointId, kind}]` = the non-revoked `desktop`/`daemon` installs whose `device_id` = the session's `device_id`, newest `last_seen_at` first, only for a caller who can see the session (the visibility rule: starter, or `shared` + team member). It sends `join` to the first; on `error no_such_session` the next; no endpoint, no node, every endpoint refused, or no `activity_synced` within `joinTimeoutMs` = NO FEED on eNet: the viewer falls back to the SEALED RELAY TUNNEL (`fallback` below, EXP-P2P) and shows NO FEED only when that carrier fails too. The viewer shows its EXISTING states with their existing copy: a row still alive = `starting` (\"The live stream isn't up yet. The desktop may still be connecting.\") and redials on its backoff; an ended row = `ended` with the device-offline copy (\"{device} is offline. The transcript lives on that machine.\"). A viewer that sees no frame for `staleMs` re-sends `join`. OFFLINE REDIAL (VAPP-169): the device-offline `ended` is NOT terminal: the viewer keeps the session open and redials (discovery + `join`, the same path) when the session's device flips ONLINE in presence (the synced devices row), on a wakeup (app foreground, network back) and every `staleMs` while that copy shows (presence lags, or is off). The redial holds the phase (no `connecting` flash); NO FEED again = the same copy, a feed = the transcript (a stored replay ending in `bye history` = the plain `ended`, a run that came back = `live`). An `ended` reached by `bye` (the transcript is on screen) never redials; a `starting` row cuts its backoff short on a presence flip online or a wakeup and otherwise redials on its backoff, never on the stale timer. A presence flip OFFLINE never dials. SUBSCRIPTIONS (EXP-1487, the viewer install): several viewers of one session on one install (the desktop agent screen's transcript and its root composer) share the device's ONE feed for that endpoint: every subscriber gets every frame of the session from that device (fan-out, never a replace), a `join` from any of them restarts the shared feed for all (`activity_reset` + replay, each applies it), and only the LAST subscriber of the session to that device sends `leave`. A second viewer never ends the first's feed. LOST BANNER (EXP-1487): a feed that was live and drops (a failed send, a closed subscription, the stale timer, NO FEED or an error on the redial) redials SILENTLY on its backoff: the phase holds (the transcript stays, no \"Connection lost\", no `connecting` flash); a successful join resets the count. The \"Connection lost\" banner (with Reconnect) shows only once the feed has been down at least `lostBanner.graceMs` since the drop AND at least `lostBanner.failedRedials` redials since the drop failed; until then the drop is invisible. An ended row's device-offline copy and `starting` keep their own rules above. `lostBanner` cases: {downMs (since the drop), failedRedials} → show. NO FEED, EMPTY TRANSCRIPT (EXP-1487): what a viewer with nothing to show says while NO FEED holds, keyed on the synced row: an ENDED row = the device-offline copy above; a BUSY row (a turn is running) = `starting` (spinner + \"The agent is starting. Waiting for the live stream…\"); a row that is NOT busy and not ended (idle, waiting for its next message, or on an open question: `needsInput`) is never `starting`: it shows the `idle` empty state (no spinner) with `noFeedIdle.title` / `noFeedIdle.text` (web's existing \"No live transcript\" state) while it keeps redialing on its backoff; a feed replaces it with the transcript. `noFeed` cases: {ended, busy, needsInput} → state (`offline`, `starting`, `idle`). `offlineRedial` cases: {phase (`offline` = the device-offline ended, `ended` = ended by `bye`, `starting`), trigger (`presenceOnline`, `presenceOffline`, `staleTimer`, `wakeup`)} → redial. ACCESS (the device, per envelope): the sender endpoint's user comes from the registry list of the SESSION's team (`installs.list {teamId: sessions.team_id}` entries; an endpoint known only from another team the device's user shares with the sender does NOT count); unknown endpoint = refused; the starter (`sessions.user_id`) = allowed; another user = allowed only when the session is `shared` (being in that team's list = a member). `access` cases: {viewerUserId (null = endpoint not in the session team's registry list), starterUserId, shared} → allowed. VIEWER SIDE: device frames arrive as chat messages the DEVICE dials (each side sends on its own outbound stream, so the viewer's allowlist must hold the device's endpoint: the same team registry); the viewer applies only envelopes whose sessionId it joined AND whose sender is the endpoint it joined, every other steer envelope is ignored. `parse` cases: {body (the chat body as a JSON value, or bodyText for a raw string)} → {ok, sessionId?, types? (the frames' `t` tags kept, in order)}. `batch` cases: frame sizes in bytes (each frame's serialized JSON length) with the envelope overhead `overhead` (the serialized envelope with an empty frames array) and one comma per extra frame → the groups as frame indexes; `dropped` = indexes over chatMaxBytes even alone.",
   "tag": "exp-steer",
   "version": 1,
   "batchMaxBytes": 262144,
@@ -41,11 +41,7 @@
         "t": "exp-steer",
         "v": 1,
         "sessionId": "s1",
-        "frames": [
-          { "t": "activity_reset" },
-          { "t": "activity", "seq": 0, "event": { "kind": "narration", "text": "hi" } },
-          { "t": "activity_synced", "firstSeq": 0, "lastSeq": 0 }
-        ]
+        "frames": [{ "t": "activity_reset" }, { "t": "activity", "seq": 0, "event": { "kind": "narration", "text": "hi" } }, { "t": "activity_synced", "firstSeq": 0, "lastSeq": 0 }]
       },
       "ok": true,
       "sessionId": "s1",
@@ -69,7 +65,15 @@
   ],
   "batch": [
     { "name": "everything fits", "overhead": 50, "batchMaxBytes": 1000, "chatMaxBytes": 4000, "sizes": [100, 100, 100], "groups": [[0, 1, 2]], "dropped": [] },
-    { "name": "split at the budget (overhead + sizes + commas)", "overhead": 50, "batchMaxBytes": 300, "chatMaxBytes": 4000, "sizes": [100, 100, 100, 100], "groups": [[0, 1], [2, 3]], "dropped": [] },
+    {
+      "name": "split at the budget (overhead + sizes + commas)",
+      "overhead": 50,
+      "batchMaxBytes": 300,
+      "chatMaxBytes": 4000,
+      "sizes": [100, 100, 100, 100],
+      "groups": [[0, 1], [2, 3]],
+      "dropped": []
+    },
     { "name": "exactly the budget fits", "overhead": 49, "batchMaxBytes": 300, "chatMaxBytes": 4000, "sizes": [125, 125], "groups": [[0, 1]], "dropped": [] },
     { "name": "a big frame goes alone", "overhead": 50, "batchMaxBytes": 300, "chatMaxBytes": 4000, "sizes": [100, 2000, 100], "groups": [[0], [1], [2]], "dropped": [] },
     { "name": "a frame over the chat cap is dropped", "overhead": 50, "batchMaxBytes": 300, "chatMaxBytes": 4000, "sizes": [100, 5000, 100], "groups": [[0, 2]], "dropped": [1] }
@@ -101,5 +105,345 @@
     { "name": "a starting backoff is cut short by a wakeup", "phase": "starting", "trigger": "wakeup", "redial": true },
     { "name": "a starting row redials on its backoff, not the stale timer", "phase": "starting", "trigger": "staleTimer", "redial": false },
     { "name": "a starting row ignores the device going offline", "phase": "starting", "trigger": "presenceOffline", "redial": false }
-  ]
+  ],
+  "fallback": {
+    "$comment": "SEALED RELAY FALLBACK (P2P stabilisation, 2026-11-01). eNet stays the PRIMARY carrier; the steer relay comes back as a FALLBACK that carries CIPHERTEXT ONLY, used automatically when eNet stalls or drops, never raced against it. CARRIER: the same exp-steer envelopes (every rule above: join, replay, live, keepalive, bye, error, history_page, batching) ride a relay TUNNEL instead of an eNet chat stream; every envelope is SEALED to the session TREE key (fixtures/sealed-content.json): tunnel `data` = `v1:<epoch>:<b64url push_seal(tree_public, utf8(envelope JSON))>` (the sealed-value grammar after the body prefix; opened with openBody(`exp-sealed:` + data)), in both directions; a data that does not open (noKey, refused, malformed, unsupported) or does not parse as an envelope of the tunnel's session is dropped. The relay sees the sessionId, the tunnel id and the ciphertext, nothing else. AVAILABILITY (the viewer): the relay leg exists only when the ROOT has a seal key (`sessions.seal_public_key`) AND this install holds the tree secret of its current epoch AND tRPC `steer.tunnelTicket {sessionId}` returns a ticket (the caller passes the visibility rule and the session's host device is online on the relay with `tunnel: 1`); otherwise it is `relayUnavailable` and the viewer behaves exactly as eNet-only. TICKET: role `tunnel`, claims {sub (the viewer user), team, sessionId, deviceId (the host's steer device id), deviceOwnerId}; the relay admits it only while that device's control socket announced `tunnel: 1`, else answers `{t:\"tunnel_error\", code}` (`device_offline` | `device_unsupported`) and closes. WIRE: viewer socket <-> relay = `{t:\"sealed\", data}` both ways (+ `tunnel_error` relay -> viewer). Relay <-> device CONTROL socket: `online {deviceId, tunnel: 1}` (an older device omits it), relay -> device `tunnel_open {tunnelId, sessionId, userId}` then `tunnel_data {tunnelId, data}` per viewer frame, `tunnel_close {tunnelId}` when the viewer socket goes; device -> relay `tunnel_data {tunnelId, data}` (forwarded to that viewer socket as `sealed`) and `tunnel_close {tunnelId}` (the relay closes the viewer socket). `tunnelId` = relay-minted, unique per viewer socket. A data longer than `tunnelMaxDataBytes` is dropped. THE DEVICE treats a tunnel exactly like an eNet viewer endpoint: the access rule with viewerUserId = the tunnel's `userId` (the relay took it from the server-minted ticket), the same live fan-out, stored replay, keepalive and bye; a device without the tree secret answers nothing but `tunnel_close`. THE RULE (every viewer, `carrierCases`, reducer `steerCarrierStep(state, event) -> {state, actions}`): state = {active: `none` | `enet` | `relay`, relay: `closed` | `open`}. `start` dials eNet and arms the stall timer (`stallMs`); `stall` (no eNet frame by then) or `enetNoFeed` (no endpoint, refused, no node, join timeout) while nothing is active opens the relay; a drop of the active eNet feed opens (or re-joins) the relay AT ONCE and redials eNet on its backoff; while the relay is active eNet keeps redialing in the background (`redialEnetLater`) and the eNet feed's `activity_reset` takes over (`apply`), the relay closing once that feed delivers `activity_synced`; frames apply only from the active carrier (`apply`) and are dropped otherwise (`drop`); a carrier's `activity_reset` with nothing active makes it active. Steering frames (input, answer, interrupt, ...) go out on the ACTIVE carrier. VISIBLE STATE: carriers are invisible: the phase, the transcript and the copy never name one; the lostBanner rule counts from the moment NEITHER carrier is active and counts failed redials of BOTH; NO FEED (noFeed above) = both failed (eNet no feed and relay unavailable, dropped or not synced within joinTimeoutMs).",
+    "stallMs": 2500,
+    "tunnelMaxDataBytes": 1572864,
+    "relayRetryMs": [1000, 3000, 10000, 30000],
+    "tunnelErrorCodes": ["device_offline", "device_unsupported"]
+  },
+  "carrierCases": [
+    {
+      "name": "open: eNet first, the stall timer armed",
+      "state": { "active": "none", "relay": "closed" },
+      "event": "start",
+      "next": { "active": "none", "relay": "closed" },
+      "actions": ["dialEnet", "armStall"]
+    },
+    {
+      "name": "eNet delivers within the stall: no relay at all",
+      "state": { "active": "none", "relay": "closed" },
+      "event": "enetReset",
+      "next": { "active": "enet", "relay": "closed" },
+      "actions": ["apply"]
+    },
+    {
+      "name": "eNet replay finishes",
+      "state": { "active": "enet", "relay": "closed" },
+      "event": "enetSynced",
+      "next": { "active": "enet", "relay": "closed" },
+      "actions": ["apply"]
+    },
+    {
+      "name": "eNet stalls: the relay opens",
+      "state": { "active": "none", "relay": "closed" },
+      "event": "stall",
+      "next": { "active": "none", "relay": "open" },
+      "actions": ["openRelay"]
+    },
+    {
+      "name": "the stall timer after eNet won does nothing",
+      "state": { "active": "enet", "relay": "closed" },
+      "event": "stall",
+      "next": { "active": "enet", "relay": "closed" },
+      "actions": []
+    },
+    {
+      "name": "eNet has no feed before the stall: relay at once, eNet keeps redialing",
+      "state": { "active": "none", "relay": "closed" },
+      "event": "enetNoFeed",
+      "next": { "active": "none", "relay": "open" },
+      "actions": ["openRelay", "redialEnetLater"]
+    },
+    {
+      "name": "eNet no feed with the relay already opening",
+      "state": { "active": "none", "relay": "open" },
+      "event": "enetNoFeed",
+      "next": { "active": "none", "relay": "open" },
+      "actions": ["redialEnetLater"]
+    },
+    {
+      "name": "eNet arrives first after all: it wins",
+      "state": { "active": "none", "relay": "open" },
+      "event": "enetReset",
+      "next": { "active": "enet", "relay": "open" },
+      "actions": ["apply"]
+    },
+    {
+      "name": "the late relay reset while eNet is active is dropped",
+      "state": { "active": "enet", "relay": "open" },
+      "event": "relayReset",
+      "next": { "active": "enet", "relay": "open" },
+      "actions": ["drop"]
+    },
+    {
+      "name": "eNet synced closes the stand-by relay",
+      "state": { "active": "enet", "relay": "open" },
+      "event": "enetSynced",
+      "next": { "active": "enet", "relay": "closed" },
+      "actions": ["apply", "closeRelay"]
+    },
+    {
+      "name": "the relay delivers first: it becomes active",
+      "state": { "active": "none", "relay": "open" },
+      "event": "relayReset",
+      "next": { "active": "relay", "relay": "open" },
+      "actions": ["apply"]
+    },
+    {
+      "name": "relay frames apply while it is active",
+      "state": { "active": "relay", "relay": "open" },
+      "event": "relaySynced",
+      "next": { "active": "relay", "relay": "open" },
+      "actions": ["apply"]
+    },
+    {
+      "name": "eNet mid-stream drop: relay at once, eNet redials",
+      "state": { "active": "enet", "relay": "closed" },
+      "event": "enetDropped",
+      "next": { "active": "none", "relay": "open" },
+      "actions": ["openRelay", "redialEnetLater"]
+    },
+    {
+      "name": "eNet drop before the stand-by relay closed: re-join it",
+      "state": { "active": "enet", "relay": "open" },
+      "event": "enetDropped",
+      "next": { "active": "none", "relay": "open" },
+      "actions": ["rejoinRelay", "redialEnetLater"]
+    },
+    {
+      "name": "a background eNet redial failing while on the relay",
+      "state": { "active": "relay", "relay": "open" },
+      "event": "enetNoFeed",
+      "next": { "active": "relay", "relay": "open" },
+      "actions": ["redialEnetLater"]
+    },
+    {
+      "name": "eNet comes back while on the relay: it takes over",
+      "state": { "active": "relay", "relay": "open" },
+      "event": "enetReset",
+      "next": { "active": "enet", "relay": "open" },
+      "actions": ["apply"]
+    },
+    {
+      "name": "the relay drops while active: retry it, eNet keeps redialing",
+      "state": { "active": "relay", "relay": "open" },
+      "event": "relayDropped",
+      "next": { "active": "none", "relay": "closed" },
+      "actions": ["reopenRelayLater"]
+    },
+    {
+      "name": "the stand-by relay dropping under eNet is nothing",
+      "state": { "active": "enet", "relay": "open" },
+      "event": "relayDropped",
+      "next": { "active": "enet", "relay": "closed" },
+      "actions": []
+    },
+    {
+      "name": "no relay leg (keyless tree, no secret, device offline or older): eNet only",
+      "state": { "active": "none", "relay": "open" },
+      "event": "relayUnavailable",
+      "next": { "active": "none", "relay": "closed" },
+      "actions": []
+    },
+    {
+      "name": "relay unavailable while eNet is active",
+      "state": { "active": "enet", "relay": "open" },
+      "event": "relayUnavailable",
+      "next": { "active": "enet", "relay": "closed" },
+      "actions": []
+    },
+    {
+      "name": "a stray relay frame with nothing open is dropped",
+      "state": { "active": "none", "relay": "closed" },
+      "event": "relaySynced",
+      "next": { "active": "none", "relay": "closed" },
+      "actions": ["drop"]
+    }
+  ],
+  "connStats": {
+    "$comment": "CONNECTION ANALYTICS (privacy-safe: no content, no user, team, session or device id ever leaves). Every viewer (web, desktop, iOS, Android) and every device serving a feed records eCore event envelopes (packages/ecore `envelope`: {v:1, id, kind, at, source, data}, sessionId OMITTED) and posts them in batches (<= `batchMax`, every `flushMs` and on app background / page hide) to tRPC `connStats.record {events}`; the server validates each against `fields`, drops what fails, stores accepted rows in `steer_connection_events` (no user column) and deletes rows older than `retentionDays`. KINDS: `steer.view` = one per viewer OPEN of a session feed (source `steer-viewer`), recorded twice: phase `settled` once the first frame is applied or `settleAfterMs` passed without one (outcome `ok` | `failed`), and phase `ended` when the viewer closes (with durationMs, fallbacks, reconnects, failures; a view killed with the app has only `settled`). `steer.serve` = one per feed a DEVICE served (source `steer-device`), phase `ended`, path = the carrier it served on. FIELDS: platform (`web` | `desktop` | `ios` | `android` | `cli`), version (the app version string), path (`direct` = an eNet direct iroh path, `iroh_relay` = eNet through an iroh relay, `server_fallback` = the sealed relay tunnel; the carrier that delivered the FIRST frame; absent on a failed settle), firstFrameMs (open -> the first applied frame), errorClass (the LAST failure: `errorClasses`), fallbacks (times the relay leg opened), reconnects (feed restarts after a first frame), durationMs, failures ({errorClass: count}). DASHBOARD (admin, web-only): per platform and version over a window (24h / 7d / 30d): views (settled), success rate (ok / settled), p50 and p95 firstFrameMs of ok settles, fallback rate (ended views with fallbacks > 0, plus settles whose path is server_fallback, over views). Targets: success >= 99%, p95 first frame < 2000 ms, fallback rare.",
+    "kinds": ["steer.view", "steer.serve"],
+    "sources": ["steer-viewer", "steer-device"],
+    "phases": ["settled", "ended"],
+    "platforms": ["web", "desktop", "ios", "android", "cli"],
+    "paths": ["direct", "iroh_relay", "server_fallback"],
+    "outcomes": ["ok", "failed"],
+    "errorClasses": [
+      "no_endpoint",
+      "no_node",
+      "refused",
+      "unauthorized",
+      "join_timeout",
+      "stale",
+      "send_failed",
+      "closed",
+      "no_key",
+      "device_offline",
+      "device_unsupported",
+      "ticket_failed",
+      "relay_closed",
+      "other"
+    ],
+    "settleAfterMs": 10000,
+    "flushMs": 60000,
+    "batchMax": 50,
+    "retentionDays": 30,
+    "versionMax": 64,
+    "validCases": [
+      {
+        "name": "an ok settle over eNet direct",
+        "event": {
+          "v": 1,
+          "id": "e1",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "data": { "phase": "settled", "platform": "ios", "version": "0.14.80", "outcome": "ok", "path": "direct", "firstFrameMs": 640 }
+        },
+        "valid": true
+      },
+      {
+        "name": "a failed settle has no path",
+        "event": {
+          "v": 1,
+          "id": "e2",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "data": { "phase": "settled", "platform": "web", "version": "0.20.8", "outcome": "failed", "errorClass": "join_timeout" }
+        },
+        "valid": true
+      },
+      {
+        "name": "an ended view with a fallback",
+        "event": {
+          "v": 1,
+          "id": "e3",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "data": {
+            "phase": "ended",
+            "platform": "android",
+            "version": "0.14.80",
+            "outcome": "ok",
+            "path": "server_fallback",
+            "firstFrameMs": 2900,
+            "durationMs": 120000,
+            "fallbacks": 1,
+            "reconnects": 2,
+            "failures": { "stale": 1, "closed": 1 }
+          }
+        },
+        "valid": true
+      },
+      {
+        "name": "a device's served feed",
+        "event": {
+          "v": 1,
+          "id": "e4",
+          "kind": "steer.serve",
+          "at": 1793500000000,
+          "source": "steer-device",
+          "data": { "phase": "ended", "platform": "cli", "version": "0.14.91", "outcome": "ok", "path": "server_fallback", "durationMs": 5000 }
+        },
+        "valid": true
+      },
+      {
+        "name": "a session id never travels",
+        "event": {
+          "v": 1,
+          "id": "e5",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "sessionId": "s1",
+          "data": { "phase": "settled", "platform": "ios", "version": "1", "outcome": "ok", "path": "direct", "firstFrameMs": 1 }
+        },
+        "valid": false
+      },
+      {
+        "name": "an unknown path",
+        "event": {
+          "v": 1,
+          "id": "e6",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "data": { "phase": "settled", "platform": "ios", "version": "1", "outcome": "ok", "path": "carrier_pigeon", "firstFrameMs": 1 }
+        },
+        "valid": false
+      },
+      {
+        "name": "an ok settle without its path",
+        "event": {
+          "v": 1,
+          "id": "e7",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "data": { "phase": "settled", "platform": "ios", "version": "1", "outcome": "ok", "firstFrameMs": 1 }
+        },
+        "valid": false
+      },
+      {
+        "name": "an unknown error class",
+        "event": {
+          "v": 1,
+          "id": "e8",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "data": { "phase": "settled", "platform": "ios", "version": "1", "outcome": "failed", "errorClass": "the user's prompt text" }
+        },
+        "valid": false
+      },
+      {
+        "name": "an unknown data key (content must never ride along)",
+        "event": {
+          "v": 1,
+          "id": "e9",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "data": { "phase": "settled", "platform": "ios", "version": "1", "outcome": "ok", "path": "direct", "firstFrameMs": 1, "title": "secret" }
+        },
+        "valid": false
+      },
+      {
+        "name": "a negative time",
+        "event": {
+          "v": 1,
+          "id": "e10",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "data": { "phase": "settled", "platform": "ios", "version": "1", "outcome": "ok", "path": "direct", "firstFrameMs": -5 }
+        },
+        "valid": false
+      },
+      { "name": "another kind", "event": { "v": 1, "id": "e11", "kind": "session.turn_ended", "at": 1793500000000, "source": "steer-viewer", "data": {} }, "valid": false }
+    ],
+    "aggregateCases": [
+      {
+        "name": "success, percentiles and fallback rate",
+        "rows": [
+          { "phase": "settled", "outcome": "ok", "path": "direct", "firstFrameMs": 100 },
+          { "phase": "settled", "outcome": "ok", "path": "direct", "firstFrameMs": 200 },
+          { "phase": "settled", "outcome": "ok", "path": "iroh_relay", "firstFrameMs": 300 },
+          { "phase": "settled", "outcome": "ok", "path": "server_fallback", "firstFrameMs": 2800 },
+          { "phase": "settled", "outcome": "failed", "errorClass": "join_timeout" },
+          { "phase": "ended", "outcome": "ok", "path": "direct", "fallbacks": 1, "durationMs": 1000 }
+        ],
+        "views": 5,
+        "successRate": 0.8,
+        "p50FirstFrameMs": 200,
+        "p95FirstFrameMs": 2800,
+        "fallbackRate": 0.4
+      }
+    ],
+    "$aggregateRule": "views = settled rows; successRate = ok settled / views; percentiles = nearest-rank over ok settled firstFrameMs (rank = ceil(p * n), 1-based); fallbackRate = (settled rows with path server_fallback + ended rows with fallbacks > 0 whose path is not server_fallback) / views; every value null when views = 0."
+  }
 }
