@@ -541,6 +541,29 @@ function boundMacroCases(): ComponentCase[] {
  *  (EXP-1259: the pending Button paints `pendingLabel`). */
 const STATE_CASES: Record<string, Record<string, Record<string, unknown>>> = {
   Button: { "loading=true+pendingLabel": { loading: true, pendingLabel: `Submitting` } },
+  // EXP-1548: wider than its box: the table scrolls sideways, cells wrap,
+  // the `truncate` column keeps one line with an ellipsis.
+  Table: { wide: wideTableProps() },
+}
+
+/** EXP-1548: a table whose columns need more than a phone's width. */
+function wideTableProps(): Record<string, unknown> {
+  return {
+    columns: [
+      { key: `issue`, label: `Issue`, width: 96 },
+      { key: `title`, label: `Title` },
+      { key: `board`, label: `Board` },
+      { key: `assignee`, label: `Assignee` },
+      { key: `status`, label: `Status`, type: `badge` },
+      { key: `summary`, label: `Summary`, truncate: true },
+      { key: `estimate`, label: `Estimate`, type: `number`, align: `end` },
+    ],
+    rows: [
+      { id: `a`, issue: `APP-9`, title: `Fix crash when uploading HEIC photos from the share sheet`, board: `Mobile`, assignee: `Alice Lindqvist`, status: `In progress`, summary: `The share extension hands over a file URL the uploader cannot read once the sheet closes`, estimate: 3 },
+      { id: `b`, issue: `APP-21`, title: `Offline queue for issue edits`, board: `Sync`, assignee: `Bob Okafor`, status: `Todo`, summary: `Edits made without a connection are lost on relaunch`, estimate: 8 },
+      { id: `c`, issue: `APP-18`, title: `Reduce cold start below 800 ms`, board: `Performance`, assignee: `Chen Wei`, status: `Done`, summary: `Defer the sync bootstrap until after the first frame`, estimate: 5 },
+    ],
+  }
 }
 
 /** Every visible component: its example, then every enum value of every enum
@@ -771,6 +794,11 @@ const SPECIMEN_EXTRA: Record<string, { label: string; node: NestedNode }[]> = {
   Text: [{
     label: `fontFamily · serif`,
     node: { id: `serif`, component: `Text`, props: { text: `The quick brown fox jumps over the lazy dog.`, variant: `lead` }, style: { fontFamily: `$type.family.serif` } },
+  }],
+  // EXP-1548: a table wider than the page scrolls sideways; cells wrap.
+  Table: [{
+    label: `wide · scrolls`,
+    node: { id: `wide`, component: `Table`, props: wideTableProps() },
   }],
   Input: [{
     label: `label · none`,

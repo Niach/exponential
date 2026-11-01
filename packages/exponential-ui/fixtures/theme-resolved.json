@@ -4627,8 +4627,9 @@
           "cell": [
             {
               "style": {
-                "height": "$control.row",
-                "paddingHorizontal": "$spacing.sm"
+                "minHeight": "$control.row",
+                "paddingHorizontal": "$spacing.sm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -4636,7 +4637,7 @@
                 "density": "compact"
               },
               "style": {
-                "height": "$control.rowCompact"
+                "minHeight": "$control.rowCompact"
               }
             }
           ],
@@ -11327,8 +11328,9 @@
           "cell": [
             {
               "style": {
-                "height": "$control.row",
-                "paddingHorizontal": "$spacing.sm"
+                "minHeight": "$control.row",
+                "paddingHorizontal": "$spacing.sm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -11336,7 +11338,7 @@
                 "density": "compact"
               },
               "style": {
-                "height": "$control.rowCompact"
+                "minHeight": "$control.rowCompact"
               }
             }
           ],
@@ -18368,8 +18370,9 @@
           "cell": [
             {
               "style": {
-                "height": "$control.row",
-                "paddingHorizontal": "$spacing.sm"
+                "minHeight": "$control.row",
+                "paddingHorizontal": "$spacing.sm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -18377,7 +18380,7 @@
                 "density": "compact"
               },
               "style": {
-                "height": "$control.rowCompact"
+                "minHeight": "$control.rowCompact"
               }
             }
           ],
@@ -25199,8 +25202,9 @@
           "cell": [
             {
               "style": {
-                "height": "$control.row",
-                "paddingHorizontal": "$spacing.sm"
+                "minHeight": "$control.row",
+                "paddingHorizontal": "$spacing.sm",
+                "paddingVertical": "$spacing.xs"
               }
             },
             {
@@ -25208,7 +25212,7 @@
                 "density": "compact"
               },
               "style": {
-                "height": "$control.rowCompact"
+                "minHeight": "$control.rowCompact"
               }
             }
           ],

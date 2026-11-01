@@ -4,6 +4,7 @@
 // dates by value, booleans false-first, text by a numeric, base-sensitivity
 // collator in the surface locale, ties in source order.
 
+import { TABLE_COLUMN_MIN } from "../layout"
 import { num } from "./coerce"
 
 export interface TableColumn {
@@ -19,6 +20,24 @@ export interface TableColumn {
   width?: number
   align?: `start` | `center` | `end`
   sortable?: boolean
+  /** EXP-1548: one line with an ellipsis; cells wrap otherwise. */
+  truncate?: boolean
+}
+
+/** The checkbox column of a `multiple` table: as wide as the checkbox. */
+const CHECK_COLUMN = `var(--xui-control-checkbox, 16px)`
+
+/** Every row's grid columns (round 2 §7): a fixed `width` keeps its px, the
+ *  rest share the width, EXP-1548: never under `tableColumnMin`. */
+export function tableTemplate(columns: readonly TableColumn[], multiple: boolean): string {
+  return [multiple ? CHECK_COLUMN : null, ...columns.map((c) => (c.width ? `${c.width}px` : `minmax(${TABLE_COLUMN_MIN}px, 1fr)`))].filter(Boolean).join(` `)
+}
+
+/** EXP-1548: the narrowest the columns fit in: header and body are at least
+ *  this wide, so a narrower table scrolls (its root is the scroller). */
+export function tableMinWidth(columns: readonly TableColumn[], multiple: boolean): string {
+  const px = columns.reduce((sum, c) => sum + (c.width ? num(c.width) : TABLE_COLUMN_MIN), 0)
+  return multiple ? `calc(${px}px + ${CHECK_COLUMN})` : `${px}px`
 }
 
 export interface TableSort {

@@ -33,6 +33,30 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Waiting**: the thread header shows each question or plan still waiting; tap one to jump to it.`,
   },
   {
+    id: `2026-11-01-wide-tables-scroll`,
+    date: `2026-11-01`,
+    title: `Wide tables scroll`,
+    summary: `A table wider than its space scrolls sideways, and its cells wrap instead of cutting off.`,
+    body: `- **Scroll sideways**: an app's table with more columns than fit keeps every column readable and scrolls horizontally.
+- **Wrapping cells**: long cell text wraps onto more lines; a column can still ask for one line with an ellipsis.`,
+  },
+  {
+    id: `2026-11-01-smooth-long-plans-desktop`,
+    date: `2026-11-01`,
+    title: `Long plans scroll smoothly on desktop`,
+    summary: `A thread with a very long plan card scrolls without lag in the desktop app.`,
+    body: `- **Smooth scrolling**: the desktop app now lays out only the part of a long plan that is on screen, so scrolling past many sections, tables and pictures stays fluid.
+- **Same look**: plans look exactly as before.`,
+  },
+  {
+    id: `2026-11-01-wider-chat-column`,
+    date: `2026-11-01`,
+    title: `A wider chat`,
+    summary: `Chats are 100 px wider on desktop and web, and the reply box lines up with them.`,
+    body: `- **More room**: plans and previews in a chat get 100 px more width in the desktop app and on web.
+- **One edge**: the reply box is exactly as wide as the conversation above it.`,
+  },
+  {
     id: `2026-11-01-composer-home-same-everywhere`,
     date: `2026-11-01`,
     title: `The new-chat screen looks the same everywhere`,

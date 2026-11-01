@@ -594,7 +594,7 @@
         },
         "width": {
           "type": "number",
-          "description": "A fixed width in px; otherwise columns share the width."
+          "description": "A fixed width in px; otherwise columns share the width, never under 120 (a wider table scrolls)."
         },
         "align": {
           "type": "enum",
@@ -618,6 +618,11 @@
         "decimals": {
           "type": "number",
           "description": "Fixed fraction digits of a number, currency or percent column."
+        },
+        "truncate": {
+          "type": "boolean",
+          "default": false,
+          "description": "One line with an ellipsis; cells wrap otherwise."
         }
       }
     },
@@ -3546,7 +3551,7 @@
         "*"
       ],
       "slotScope": "row",
-      "description": "A data table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
+      "description": "A table of typed columns: sorting, selection, widths, alignment, windowed; `slot` columns render components.",
       "props": {
         "columns": {
           "type": "array",
@@ -3614,7 +3619,7 @@
         "stickyHeader": {
           "type": "boolean",
           "default": false,
-          "description": "Keeps the header visible while the rows scroll."
+          "description": "Pins the header while rows scroll."
         }
       },
       "events": [

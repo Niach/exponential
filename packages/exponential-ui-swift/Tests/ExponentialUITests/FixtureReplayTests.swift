@@ -21,8 +21,18 @@ final class FixtureReplayTests: XCTestCase {
         XCTAssertEqual(m.frames.count, m.nodes.count)
         XCTAssertGreaterThan(m.surfaceSize.height, 1000)
         XCTAssertLessThanOrEqual(m.stats.upcalls, 3)
-        // Every visible main-tree node has a frame inside the surface.
-        for n in m.nodes where !n.hidden && n.layer == 0 {
+        // Every visible main-tree node has a frame inside the surface, but a
+        // Table's content: EXP-1548, it scrolls sideways inside the table.
+        let byIndex = Dictionary(m.nodes.map { ($0.index, $0) }, uniquingKeysWith: { a, _ in a })
+        func inTable(_ n: NodeInfo) -> Bool {
+            var p = n.parent
+            while let i = p, let a = byIndex[i] {
+                if a.component == "Table" { return true }
+                p = a.parent
+            }
+            return false
+        }
+        for n in m.nodes where !n.hidden && n.layer == 0 && !inTable(n) {
             let f = m.frame(n.index)
             XCTAssertGreaterThanOrEqual(f.minX, -0.01, n.id)
             XCTAssertLessThanOrEqual(f.maxX, m.surfaceSize.width + 0.01, n.id)
