@@ -3,6 +3,7 @@ package com.exponential.app.data.db
 import com.exponential.app.data.auth.AuthRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -31,4 +32,17 @@ fun accountDatabaseFlow(auth: AuthRepository, holder: DatabaseHolder): Flow<Expo
 fun <T> Flow<ExponentialDatabase?>.scopedQuery(
     empty: T,
     query: (ExponentialDatabase) -> Flow<T>,
-): Flow<T> = flatMapLatest { db -> if (db == null) flowOf(empty) else query(db) }
+): Flow<T> = flatMapLatest { db ->
+    if (db == null) flowOf(empty) else query(db).catch { e -> if (isClosedDatabase(db, e)) emit(empty) else throw e }
+}
+
+/**
+ * #EXP-1599: a query that was in flight while its account's database closed
+ * (a login sweeping the pending account's DB, a removed or switched account).
+ * The scoping above is about to move on to the new database; the stale one
+ * reads as empty instead of throwing "connection pool has been closed" into a
+ * ViewModel's scope, which killed the app (state chains run off the main
+ * thread since #1540, so they race the close).
+ */
+internal fun isClosedDatabase(db: ExponentialDatabase, e: Throwable): Boolean =
+    e is IllegalStateException && !db.isOpen

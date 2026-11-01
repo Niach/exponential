@@ -5,6 +5,11 @@ import androidx.room.Room
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /// Multi-account database holder. Maintains one open Room instance per
 /// signed-in account (`exponential-<accountId>-v2.db`), keyed by accountId.
@@ -46,10 +51,25 @@ class DatabaseHolder @Inject constructor(
 
     /// Close one account's Room instance. The underlying .db file stays on
     /// disk; use `deleteFiles(accountId)` to also wipe it.
+    ///
+    /// #EXP-1599: the instance leaves the map at once (the next `database()`
+    /// opens a fresh one) but closes after [CLOSE_GRACE_MS]. Account-scoped
+    /// flows run their queries off the main thread and only re-scope once the
+    /// account change reaches them; closing under a query in flight threw
+    /// "connection pool has been closed" and killed the app, on every login
+    /// (the pending account's DB is swept then) and every account removal.
     fun close(accountId: String) {
-        synchronized(lock) {
-            instances.remove(accountId)?.close()
+        val db = synchronized(lock) { instances.remove(accountId) } ?: return
+        closer.launch {
+            delay(CLOSE_GRACE_MS)
+            db.close()
         }
+    }
+
+    private val closer = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private companion object {
+        const val CLOSE_GRACE_MS = 10_000L
     }
 
     fun deleteFiles(accountId: String) {
