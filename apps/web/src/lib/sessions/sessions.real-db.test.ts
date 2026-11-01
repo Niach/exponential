@@ -1283,6 +1283,106 @@ describe.skipIf(!ready.ok)(`EXP-1397: Guide ownership across PRs`, async () => {
     expect(guide.find((e) => e.topic === `Alpha`)?.prUrl).toBeUndefined()
   })
 
+  it(`#EXP-1540: a later push credited to nobody withdraws the earlier credit`, async () => {
+    const { attributePush } = await import(`@/lib/sessions/push-attribution`)
+    const t = await thread()
+    const a = await t.kid(`exp/stale`)
+    const b = await t.kid(`exp/stale`)
+    await db.update(sessions).set({ status: `running`, repositoryId: t.repo.id }).where(inArray(sessions.id, [a, b]))
+    await t.write(a, `Alpha`, { text: `A's work.` })
+    const t1 = new Date(Date.now() - 60_000)
+    const t2 = new Date(Date.now() - 30_000)
+    await db.update(sessions).set({ busy: true }).where(eq(sessions.id, a))
+    expect(await attributePush({ fullName: t.repo.fullName, branch: `exp/stale`, at: t1 })).toBe(a)
+    // Both idle now; B pushes: nobody is credited, and A's credit is gone.
+    await db.update(sessions).set({ busy: false }).where(eq(sessions.id, a))
+    expect(await attributePush({ fullName: t.repo.fullName, branch: `exp/stale`, at: t2 })).toBeNull()
+    expect(await row(a)).toMatchObject({ pushedBranch: null, pushedAt: null })
+
+    const pr = await t.pr(1, null, `exp/stale`)
+    await applyPullRequestMerged({ pullRequestId: pr.id })
+    expect((await t.guide()).find((e) => e.topic === `Alpha`)?.prUrl).toBeUndefined()
+  })
+
+  it(`#EXP-1540: a push is dated by its payload; a redelivered older push never overrides a newer credit`, async () => {
+    const { attributePush } = await import(`@/lib/sessions/push-attribution`)
+    const t = await thread()
+    const a = await t.kid(`exp/redeliver`)
+    const b = await t.kid(`exp/redeliver`)
+    await db.update(sessions).set({ status: `running`, repositoryId: t.repo.id }).where(inArray(sessions.id, [a, b]))
+    await t.write(a, `Alpha`, { text: `A's work.` })
+    await t.write(b, `Beta`, { text: `B's work.` })
+    const t0 = new Date(Date.now() - 90_000)
+    const t1 = new Date(Date.now() - 60_000)
+    const t2 = new Date(Date.now() - 30_000)
+    const push = (at: Date) => attributePush({ fullName: t.repo.fullName, branch: `exp/redeliver`, at })
+    await db.update(sessions).set({ busy: true }).where(eq(sessions.id, b))
+    expect(await push(t2)).toBe(b)
+    expect((await row(b)).pushedAt).toEqual(t2)
+    // B's own older push, redelivered: B's credit stays at t2.
+    expect(await push(t1)).toBeNull()
+    expect((await row(b)).pushedAt).toEqual(t2)
+    // An older uncredited push never withdraws the newer credit.
+    await db.update(sessions).set({ busy: false }).where(eq(sessions.id, b))
+    expect(await push(t0)).toBeNull()
+    expect((await row(b)).pushedAt).toEqual(t2)
+    // An older push redelivered while A is busy: A is dated t1, B stays the head's author.
+    await db.update(sessions).set({ busy: true }).where(eq(sessions.id, a))
+    expect(await push(t1)).toBe(a)
+    expect((await row(a)).pushedAt).toEqual(t1)
+
+    const pr = await t.pr(1, null, `exp/redeliver`)
+    await applyPullRequestMerged({ pullRequestId: pr.id })
+    const guide = await t.guide()
+    expect(guide.find((e) => e.topic === `Beta`)?.prUrl).toBe(pr.url)
+    expect(guide.find((e) => e.topic === `Alpha`)?.prUrl).toBeUndefined()
+  })
+
+  it(`#EXP-1540: only the delivering installation's repository counts`, async () => {
+    const { attributePush } = await import(`@/lib/sessions/push-attribution`)
+    const t = await thread()
+    const other = await thread()
+    const installation = 100_000 + Math.floor(Math.random() * 1_000_000)
+    await db.update(repositories).set({ installationId: installation }).where(eq(repositories.id, t.repo.id))
+    // Another team registered the same full name under another installation.
+    const [theirs] = await db
+      .insert(repositories)
+      .values({ teamId: other.w.teamId, fullName: t.repo.fullName, installationId: installation + 1 })
+      .returning({ id: repositories.id })
+    const mine = await t.kid(`exp/scoped`)
+    const foreign = await other.kid(`exp/scoped`)
+    await db.update(sessions).set({ status: `running`, repositoryId: t.repo.id }).where(eq(sessions.id, mine))
+    await db.update(sessions).set({ status: `running`, repositoryId: theirs!.id }).where(eq(sessions.id, foreign))
+    // Unscoped, the two teams' sessions are ambiguous.
+    expect(await attributePush({ fullName: t.repo.fullName, branch: `exp/scoped` })).toBeNull()
+    expect(await attributePush({ fullName: t.repo.fullName, branch: `exp/scoped`, installationId: installation })).toBe(
+      mine
+    )
+    expect((await row(foreign)).pushedAt).toBeNull()
+    expect(
+      await attributePush({ fullName: t.repo.fullName, branch: `exp/scoped`, installationId: installation + 1 })
+    ).toBe(foreign)
+    expect((await row(mine)).pushedBranch).toBe(`exp/scoped`)
+  })
+
+  it(`#EXP-1540: an ended session is credited for two minutes after it ended`, async () => {
+    const { attributePush, PUSH_GRACE_MS } = await import(`@/lib/sessions/push-attribution`)
+    const t = await thread()
+    const a = await t.kid(`exp/grace`)
+    const now = new Date()
+    const ended = (ms: number) =>
+      db
+        .update(sessions)
+        .set({ status: `ended`, endedAt: new Date(now.getTime() - ms), repositoryId: t.repo.id })
+        .where(eq(sessions.id, a))
+    const push = () => attributePush({ fullName: t.repo.fullName, branch: `exp/grace`, now })
+    await ended(PUSH_GRACE_MS + 1_000)
+    expect(await push()).toBeNull()
+    await ended(PUSH_GRACE_MS - 1_000)
+    expect(await push()).toBe(a)
+    expect(await row(a)).toMatchObject({ pushedBranch: `exp/grace`, pushedAt: now })
+  })
+
   it(`an explicit prUrl: null sticks across rewrites; a NEW topic takes the open PR`, async () => {
     const t = await thread()
     const a = await t.kid(`exp/a`)

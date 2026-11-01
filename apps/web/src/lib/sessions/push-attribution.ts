@@ -1,4 +1,4 @@
-import { and, eq, gte, inArray, isNotNull, or, sql } from "drizzle-orm"
+import { and, eq, gte, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { repositories, sessions } from "@/db/schema"
 import { soleHeadSession, type GuideTreeRow } from "@/lib/sessions/guide-entries"
@@ -48,10 +48,61 @@ export function headSession(
   return pusher?.id ?? soleHeadSession(tree, name)
 }
 
+/** #EXP-1540: the repositories a `push` delivery is about: its full name,
+ *  bound to the delivering installation or still unbound (the
+ *  `installation_repositories` heal's rule). The same full name may be
+ *  registered by several teams; another installation's row never counts. */
+export function pushedRepositoryIds(args: { fullName: string; installationId?: number | null }) {
+  const name = eq(repositories.fullName, args.fullName)
+  return db
+    .select({ id: repositories.id })
+    .from(repositories)
+    .where(
+      args.installationId == null
+        ? name
+        : and(name, or(isNull(repositories.installationId), eq(repositories.installationId, args.installationId)))
+    )
+}
+
+/** #EXP-1540: when a push happened, from its own payload (a redelivered
+ *  old push is never "now"): the head commit's timestamp, else the
+ *  repository's `pushed_at` (unix seconds), else undefined. Never later
+ *  than `now` (a skewed clock must not pin the credit). */
+export function pushTime(
+  payload: { head_commit?: { timestamp?: string } | null; repository?: { pushed_at?: number | string } },
+  now: Date = new Date()
+): Date | undefined {
+  const parse = (value: unknown): Date | null => {
+    if (typeof value === `number`) return new Date(value * 1000)
+    if (typeof value === `string` && value) return new Date(value)
+    return null
+  }
+  for (const value of [payload.head_commit?.timestamp, payload.repository?.pushed_at]) {
+    const at = parse(value)
+    if (at && !Number.isNaN(at.getTime())) return at > now ? now : at
+  }
+  return undefined
+}
+
 /** #EXP-1540: credits a GitHub `push` of `branch` in `fullName` to its
- *  session (`pushAuthor`): `pushed_branch` + `pushed_at`, server-only. Returns the credited session, if any. */
-export async function attributePush(args: { fullName: string; branch: string; now?: Date }): Promise<string | null> {
+ *  session (`pushAuthor`): `pushed_branch` + `pushed_at` (the push's own
+ *  time `at`; only ever moves forward, so a redelivery or an out-of-order
+ *  delivery never overwrites a newer credit), server-only. A push credited
+ *  to nobody withdraws every older credit for that branch: the head's
+ *  latest push is then nobody's, and `headSession` falls back. Returns the
+ *  credited session, if any. */
+export async function attributePush(args: {
+  fullName: string
+  branch: string
+  installationId?: number | null
+  /** When the push happened (`pushTime`); defaults to `now`. */
+  at?: Date
+  /** When the delivery arrived: the ended grace window's clock. */
+  now?: Date
+}): Promise<string | null> {
   const now = args.now ?? new Date()
+  const at = args.at ?? now
+  const repos = pushedRepositoryIds(args)
   const candidates = await db
     .select({
       id: sessions.id,
@@ -64,10 +115,7 @@ export async function attributePush(args: { fullName: string; branch: string; no
     .where(
       and(
         eq(sessions.branch, args.branch),
-        inArray(
-          sessions.repositoryId,
-          db.select({ id: repositories.id }).from(repositories).where(eq(repositories.fullName, args.fullName))
-        ),
+        inArray(sessions.repositoryId, repos),
         or(
           inArray(sessions.status, [`running`, `idle`]),
           and(
@@ -79,12 +127,28 @@ export async function attributePush(args: { fullName: string; branch: string; no
       )
     )
   const id = pushAuthor(candidates, now)
-  if (!id) return null
   // Never the session's `updated_at` (the stuck clock, sync traffic):
   // `update_updated_at` honours the transaction-local GUC (brief.ts).
-  await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     await tx.execute(sql`SELECT set_config('exponential.preserve_timestamps', 'on', true)`)
-    await tx.update(sessions).set({ pushedBranch: args.branch, pushedAt: now }).where(eq(sessions.id, id))
+    if (!id) {
+      await tx
+        .update(sessions)
+        .set({ pushedBranch: null, pushedAt: null })
+        .where(
+          and(
+            eq(sessions.pushedBranch, args.branch),
+            inArray(sessions.repositoryId, pushedRepositoryIds(args)),
+            lt(sessions.pushedAt, at)
+          )
+        )
+      return null
+    }
+    const credited = await tx
+      .update(sessions)
+      .set({ pushedBranch: args.branch, pushedAt: at })
+      .where(and(eq(sessions.id, id), or(isNull(sessions.pushedAt), lt(sessions.pushedAt, at))))
+      .returning({ id: sessions.id })
+    return credited.length > 0 ? id : null
   })
-  return id
 }
