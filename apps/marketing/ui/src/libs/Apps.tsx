@@ -162,9 +162,9 @@ export default function Apps({ path }: PageProps) {
           <DocsTable
             head={[`Package`, `Registry`, ``]}
             rows={[
-              [<code key="n">exponential-apps</code>, `crates.io`, PLANNED],
-              [<code key="n">@exponential_app/apps</code>, `npm`, PLANNED],
-              [<code key="n">at.exponential:apps</code>, `Maven Central`, PLANNED],
+              [<code key="n">eapps</code>, `crates.io`, PLANNED],
+              [<code key="n">@exponential_app/eapps</code>, `npm`, PLANNED],
+              [<code key="n">at.exponential:eapps</code>, `Maven Central`, PLANNED],
               [<code key="n">ExponentialApps</code>, `SwiftPM`, PLANNED],
             ]}
           />

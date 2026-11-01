@@ -20,7 +20,7 @@ The rest of this spec turns that rule into the missing pieces:
 - several screens per app;
 - triggers;
 - an offline outbox;
-- the `exponential-apps` crate for Spezl and eDE.
+- the `eapps` crate for Spezl and eDE.
 
 ![Stunden, one illustrative app built on the platform: a simple time tracker (eUI mock, web)](apps/time-tracker.webp)
 
@@ -131,7 +131,7 @@ Nothing here may become a workflow engine: "standalone automations" and "workflo
 
 ![Stunden on a phone: the same package, phone navigation (eUI mock, web-mobile)](apps/time-tracker-phone.webp)
 
-Needs: C24 offline outbox, C25 the `exponential-apps` crate, C26 widget templates + slots (#VAPP-64), C27 form-factor conditions.
+Needs: C24 offline outbox, C25 the `eapps` crate, C26 widget templates + slots (#VAPP-64), C27 form-factor conditions.
 
 ### 1.8 Sharing, templates, marketplace
 
@@ -182,7 +182,7 @@ Needs: C2, C13.
 | C22 | Inbound webhooks | ❌ | 🆕 A3 |
 | C23 | Run-as identity for unattended runs | ❌ | 🆕 A1 |
 | C24 | Offline outbox for record writes | 🟡 natives read offline, writes need the network | 🆕 O1 |
-| C25 | `exponential-apps` crate (host, query, store, broker executor) | ❌ (#EXP-1420 open item) | 🆕 S1, S2 |
+| C25 | `eapps` crate (host, query, store, broker executor) | ❌ (#EXP-1420 open item) | 🆕 S1, S2 |
 | C26 | Widget templates + slots (eDE, home screen) | ❌ | #VAPP-64, NEW-107 |
 | C27 | Form-factor / responsive templates | 🟡 `@media` conditions, `Sidebar.collapseBelow` | 🆕 U1 |
 | C28 | Template gallery | 🟡 four editor starters | 🆕 P2 |
@@ -681,7 +681,7 @@ Self-hosted gets everything: the broker is the same image (`ghcr.io/niach/expone
 | Desktop | Full shape | Online | 🟡 |
 | iOS (GRDB), Android (Room) | Full shape | Online | 🟡 |
 | Spezl | Local sqlite + eNet records space | Local first | #YO-32 |
-| eDE | Through the `exponential-apps` crate (Exponential or Spezl store) | Same | 🆕 S4 |
+| eDE | Through the `eapps` crate (Exponential or Spezl store) | Same | 🆕 S4 |
 
 **🆕 O1, the outbox.** On desktop and the natives, a record write is applied locally at once and queued:
 
@@ -714,7 +714,7 @@ The web stays online-only. Issue and comment writes have their own NEW-13.
 **Spezl** (#YO-1, #YO-4 shared format ✅, #YO-32):
 
 1. The records query and the persistent `RecordStore` trait **inside eUI**, not in Exponential's `domain-contract` (S1). Spezl's eUI 0.2.0 lacks `month/by/sum/user` and only has `MemoryRecordStore`.
-2. The **`exponential-apps` crate** (S2, #EXP-1420): `AppHost` (package validation, bindings, policy), the query evaluator (eui-core), a `RecordStore` trait with sqlite and eNet implementations, the `exposes` executor on `emcp` (records/action/upstream), the migration runner.
+2. The **`eapps` crate** (S2, #EXP-1420): `AppHost` (package validation, bindings, policy), the query evaluator (eui-core), a `RecordStore` trait with sqlite and eNet implementations, the `exposes` executor on `emcp` (records/action/upstream), the migration runner.
 3. A keychain `Vault` and loopback serving (#YO-32).
 4. `exponential.*` actions become an **`exponential` upstream** (`ExponentialConnector`) when the person connects an Exponential account. Without one, the action is unavailable.
 5. Multi-user app state (#YO-27, parked) maps to eNet spaces later. Without it, Spezl apps are personal: the kind policy collapses to "me".
@@ -771,7 +771,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 6: Everywhere**
 
 - **O1** Offline outbox for record writes (desktop, iOS, Android). (C24)
-- **S2 ★** `exponential-apps` crate + release (`exponential-apps-v*`). (C25)
+- **S2 ★** `eapps` crate + release (`eapps-v*`). (C25)
 - **S3** Spezl runs eApps: #YO-32 on S2 (keychain vault, loopback, `exponential` upstream).
 - **S4** eDE widgets + apps on the crate. Depends on #VAPP-64 and NEW-107. (C26)
 - **U3** `Calendar` / `Timeline`: styleguide first, then eUI. (C29)
