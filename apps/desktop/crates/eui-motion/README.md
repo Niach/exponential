@@ -110,6 +110,52 @@ the WASM and FFI replays; `fixtures/motion-validate.json` pins refusals;
   two fixes: `"parent": null` accepted, the eval registers a theme font like
   hosts do), raw Lottie 30/30; mean output 1.1k vs 3.2k tokens.
 
+## Painting a Motion (M3, EXP-1604): the contract for every renderer
+
+A painter paints the packed display list and nothing else. It never
+interprets Lottie, the dialect or the clock itself.
+
+1. **Source → Lottie.** `layers` (the dialect: the node's props `size`, `fps`,
+   `duration`, `start`, `time`, `layers`, `assets`, `markers` are the document)
+   → `compile`; `lottie` as is; `src` (an attachment URL) fetched by the host
+   (`.json`, or `.lottie` → `dotlottie::read`, the first animation). A load
+   failure shows the poster area empty and records an issue; never a crash.
+2. **Load** with slot overrides: every `$color.<token>` slot of the file gets
+   the theme's resolved colour (`{"$color.primary": {"p": {"a": 0, "k": [r, g,
+   b, a]}}}`); `"$mode": "dark"` in dark mode (resolves `{light, dark}`
+   pairs); the node's `slots` prop last. Reload when the theme or mode
+   changes. Register the theme's text fonts (`add_font`) for text layers.
+3. **Clock**: `set_playback(props JSON)` with `autoplay`, `loop`, `plays`,
+   `direction`, `speed`, `segment`, `marker`, `poster`; per frame `tick(ms
+   since play started)`. A bound/literal `progress` overrides the clock
+   (`progress_frame`). `play: false` freezes the clock where it is.
+   Reduced motion, `autoplay: false`, off-screen, hidden window or app in
+   the background → `poster_frame()`, no ticking. At most 60 fps (the
+   display's rate when lower). At most 8 Motions animate per surface (tree
+   order); the rest show their poster. A finished finite loop stops ticking.
+4. **Box**: the node's style sizes it; unstyled, the composition's px size,
+   shrinking to the available width (aspect kept). `fit`: `contain`
+   (default, centred), `cover` (centred, clipped), `fill` (stretched).
+   Clip to the box. Transparent background.
+5. **Paint the list** in the box with the fit transform, at device
+   resolution (`scale × devicePixelRatio`). Ops: see Display list. `layer`
+   = an offscreen group (the composition-space clip path under its
+   transform), composited on `pop` with `alpha` and `blend`; filters run on
+   the group before compositing, sigmas and offsets × the fit scale.
+   `dst-in`/`dst-out`/`luma-*` apply wherever the clip's coverage is non-zero
+   (no fading at anti-aliased clip edges). Strokes: width, caps, joins,
+   miter limit, dashes in the op's local space (the transform scales them).
+   Gradients: linear; radial = two-point conical with the focal circle
+   radius 0. Images: the decoded asset (data URL or attachment) into
+   `0,0,width,height`.
+6. **Accessibility**: role image named by `label`; hidden without one;
+   never focusable.
+7. **Parity**: `conformance/motion/parity/<case>@<frame>.png` are the raster's
+   paints of every `fixtures/motion-frames.json` case at 160×160 (contain,
+   transparent). Each renderer paints the same packed lists at 160×160 and
+   must match within 2/255 per channel on ≥ 99 % of pixels (anti-aliasing
+   differs). The clock replays `fixtures/motion-playback.json`.
+
 ## Limits
 
 2 MB source, 5,000 shapes, 120 s, 100,000 vertices per frame. Expressions

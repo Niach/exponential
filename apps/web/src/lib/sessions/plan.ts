@@ -7,6 +7,7 @@ import {
   type NestedNode,
   type ReduceResult,
 } from "@exponential_app/eui"
+import { motionPropsProblems } from "@exponential_app/eui/motion/server"
 import {
   MESSAGE_BODY_MAX,
   PLAN_CARD_DESCRIPTION_MAX,
@@ -299,7 +300,29 @@ export function validateCardSurface(surface: CardSurfaceInput | undefined): Card
     const more = result.issues.length > 10 ? `; and ${result.issues.length - 10} more` : ``
     throw bad(`surface is not valid in the Exponential UI core catalog: ${listed.join(`; `)}${more}`)
   }
+  // EXP-1604: a Motion's animation is checked by the engine itself (the
+  // WASM): the dialect compiles, Lottie has no expressions and fits the limits.
+  const motion = motionProblems(root as unknown as MotionWalkNode)
+  if (motion.length > 0) {
+    throw bad(`surface has an invalid Motion: ${motion.slice(0, 5).join(`; `)}${motion.length > 5 ? `; and ${motion.length - 5} more` : ``}`)
+  }
   return { root, data: surface.data ?? null }
+}
+
+type MotionWalkNode = { id?: string; component?: string; props?: Record<string, unknown>; children?: unknown; slots?: Record<string, unknown> }
+
+/** Every Motion node's problems, `<id>: <problem>`. */
+export function motionProblems(node: MotionWalkNode): string[] {
+  const out: string[] = []
+  const walk = (n: MotionWalkNode) => {
+    if (n.component === `Motion`) {
+      for (const problem of motionPropsProblems(n.props ?? {})) out.push(`${n.id ?? `Motion`}: ${problem}`)
+    }
+    if (Array.isArray(n.children)) for (const child of n.children) if (child && typeof child === `object`) walk(child as MotionWalkNode)
+    for (const slot of Object.values(n.slots ?? {})) if (slot && typeof slot === `object`) walk(slot as MotionWalkNode)
+  }
+  walk(node)
+  return out
 }
 
 /** `exponential_plan_propose`'s card (pure; BAD_REQUEST names the fix). */

@@ -4598,6 +4598,65 @@
                 ]
               },
               {
+                "id": "motion",
+                "component": "Motion",
+                "props": {
+                  "size": [
+                    48,
+                    48
+                  ],
+                  "duration": 1000,
+                  "progress": 0.25,
+                  "label": "Loading",
+                  "layers": [
+                    {
+                      "type": "shape",
+                      "transform": {
+                        "position": [
+                          24,
+                          24
+                        ],
+                        "rotation": {
+                          "keys": [
+                            {
+                              "t": 0,
+                              "v": 0
+                            },
+                            {
+                              "t": 1000,
+                              "v": 360
+                            }
+                          ]
+                        }
+                      },
+                      "shapes": [
+                        {
+                          "type": "ellipse",
+                          "size": [
+                            36,
+                            36
+                          ]
+                        },
+                        {
+                          "type": "trim",
+                          "end": 70
+                        },
+                        {
+                          "type": "stroke",
+                          "color": "$color.primary",
+                          "width": 4
+                        }
+                      ]
+                    }
+                  ]
+                },
+                "children": [],
+                "style": {
+                  "width": "48px",
+                  "height": "48px"
+                }
+              },
+              {
                 "id": "call",
                 "component": "Box",
                 "props": {},

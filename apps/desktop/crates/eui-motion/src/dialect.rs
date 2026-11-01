@@ -133,6 +133,7 @@ fn compile_color(v: &Value, path: &str, issues: &mut Vec<Issue>) -> Option<(Vec<
     }
 }
 
+#[cfg_attr(not(feature = "decompile"), allow(dead_code))]
 pub(crate) fn decompile_color(k: &[f64], sid: Option<&str>) -> Value {
     if let Some(sid) = sid {
         if sid.starts_with("$color.") {
@@ -167,6 +168,7 @@ impl Bez {
         json!({"c": self.closed, "v": pts(&self.v), "i": pts(&self.i), "o": pts(&self.o)})
     }
 
+    #[cfg_attr(not(feature = "decompile"), allow(dead_code))]
     pub(crate) fn from_json(v: &Value) -> Option<Bez> {
         let v = match v {
             Value::Array(a) => a.first()?,

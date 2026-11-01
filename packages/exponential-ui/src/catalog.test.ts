@@ -73,14 +73,16 @@ describe(`components`, () => {
     const round6 = [`Outline`, `Mosaic`]
     // EXP-1586: the zoomable picture of every image viewer.
     const zoom = [`ZoomableImage`]
+    // EXP-1604: eUI Motion.
+    const motion = [`Motion`]
     // Round 4 (VAPP-103): the names round 3 folded are REMOVED, not aliased.
     const removed = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
-    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice, ...round5, ...round6, ...zoom]) expect(coreCatalog.components[name], name).toBeDefined()
+    for (const name of [...expected, ...round1, ...round2, ...round3, ...batch, ...trace, ...plan, ...dock, ...layout, ...voice, ...round5, ...round6, ...zoom, ...motion]) expect(coreCatalog.components[name], name).toBeDefined()
     for (const name of removed) expect(coreCatalog.components[name], name).toBeUndefined()
     for (const def of Object.values(coreCatalog.components)) expect(`deprecated` in def).toBe(false)
     const hidden = [`TreeGuides`] // round 3: a Row part, never authored
-    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + 1) // + the Unknown placeholder
-    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length - hidden.length)
+    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + motion.length + 1) // + the Unknown placeholder
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length + batch.length + trace.length + plan.length + dock.length + layout.length + voice.length + round5.length + round6.length + zoom.length + motion.length - hidden.length)
   })
 
   test(`kinds follow the issue's table`, () => {
@@ -124,6 +126,7 @@ describe(`components`, () => {
       }
       const excluded = def.group === `overlay` || def.group === `media` || name === `Chart` || name === `Sparkline` || rarer.includes(name)
       if (name === `Icon` || name === `Avatar`) continue // the two media natives every list needs
+      if (name === `Motion`) continue // EXP-1584: animations are app-shaped (loaders, success states)
       expect(lite.includes(name), name).toBe(!excluded)
     }
     expect(lite).toContain(`Icon`)

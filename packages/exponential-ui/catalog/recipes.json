@@ -15,6 +15,7 @@
     "Text": { "parts": ["root"], "props": ["variant", "tone"] },
     "Markdown": { "parts": ["root", "paragraph", "heading", "link", "code", "codeBlock", "quote", "table", "listItem"], "props": [] },
     "Image": { "parts": ["root", "fallback"], "props": ["fit"] },
+    "Motion": { "parts": ["root"], "props": ["fit"] },
     "Icon": { "parts": ["root"], "props": ["size", "tone"] },
     "Video": { "parts": ["root", "controls", "poster"], "props": ["autoplay"] },
     "AudioPlayer": { "parts": ["root", "controls", "track"], "props": [] },

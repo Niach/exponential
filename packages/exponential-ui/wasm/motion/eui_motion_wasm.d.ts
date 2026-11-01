@@ -11,6 +11,10 @@ export class MotionPlayer {
      * Register a font (TTF/OTF bytes) for text layers without glyphs.
      */
     addFont(family: string, data: Uint8Array): void;
+    /**
+     * Whether a finite loop count has played out at `elapsedMs`.
+     */
+    done(elapsed_ms: number): boolean;
     frameRate(): number;
     height(): number;
     /**
@@ -30,9 +34,25 @@ export class MotionPlayer {
     constructor(source: string, slots: string);
     outPoint(): number;
     /**
+     * The still frame (reduced motion, paused, before play).
+     */
+    posterFrame(): number;
+    /**
+     * The frame a bound progress (0–1) shows.
+     */
+    progressFrame(progress: number): number;
+    /**
      * Sample `frame` into the packed f32 encoding (a copy into JS memory).
      */
     sample(frame: number): Float32Array;
+    /**
+     * Set the playback props (JSON: autoplay, loop, direction, speed, segment, poster).
+     */
+    setPlayback(json: string): void;
+    /**
+     * The frame `elapsedMs` after play started; NaN-free. `done()` tells a finished finite loop.
+     */
+    tick(elapsed_ms: number): number;
     /**
      * The non-fatal findings as a JSON array.
      */
@@ -57,6 +77,7 @@ export interface InitOutput {
     readonly __wbg_motionplayer_free: (a: number, b: number) => void;
     readonly compile: (a: number, b: number) => [number, number];
     readonly motionplayer_addFont: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly motionplayer_done: (a: number, b: number) => number;
     readonly motionplayer_frameRate: (a: number) => number;
     readonly motionplayer_height: (a: number) => number;
     readonly motionplayer_images: (a: number) => [number, number];
@@ -65,7 +86,11 @@ export interface InitOutput {
     readonly motionplayer_needsFonts: (a: number) => number;
     readonly motionplayer_new: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly motionplayer_outPoint: (a: number) => number;
+    readonly motionplayer_posterFrame: (a: number) => number;
+    readonly motionplayer_progressFrame: (a: number, b: number) => number;
     readonly motionplayer_sample: (a: number, b: number) => any;
+    readonly motionplayer_setPlayback: (a: number, b: number, c: number) => void;
+    readonly motionplayer_tick: (a: number, b: number) => number;
     readonly motionplayer_warnings: (a: number) => [number, number];
     readonly motionplayer_width: (a: number) => number;
     readonly validate: (a: number, b: number) => [number, number];

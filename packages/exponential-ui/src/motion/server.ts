@@ -2,7 +2,14 @@
 // checks before accepting a Motion node: the inline dialect compiles, inline
 // Lottie passes the engine's validator (expressions refused, the limits),
 // `src` names an attachment. Pure over the synchronously loaded WASM.
-import { motionWasmSync, type MotionIssue } from "./wasm"
+import { gunzipSync } from "node:zlib"
+import { MOTION_WASM_GZ_BASE64 } from "../../wasm/motion/bytes"
+import { initMotionWasm, type MotionBindings, type MotionIssue } from "./wasm"
+
+/** Servers and tests: instantiate synchronously from the embedded module. */
+export function motionWasmSync(): MotionBindings {
+  return initMotionWasm(gunzipSync(Buffer.from(MOTION_WASM_GZ_BASE64, `base64`)))
+}
 
 /** The dialect fields a Motion node carries inline (its props are the document). */
 export const MOTION_DIALECT_KEYS = [`size`, `fps`, `duration`, `start`, `time`, `name`, `layers`, `assets`, `markers`, `lottie`] as const

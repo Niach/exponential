@@ -28,6 +28,26 @@ pub fn import(root: &Value, overrides: &Map<String, Value>) -> Animation {
     for (k, v) in overrides {
         slots.insert(k.clone(), v.get("p").unwrap_or(v));
     }
+    // `{"$mode": "dark"}`: `{light, dark}` colours (slots `ld:<light>:<dark>`)
+    // take their dark half unless the host overrode the slot itself.
+    let dark = overrides.get("$mode").and_then(Value::as_str) == Some("dark");
+    let mut owned: Vec<(String, Value)> = Vec::new();
+    if let Some(Value::Object(s)) = root.get("slots") {
+        for sid in s.keys() {
+            let Some(rest) = sid.strip_prefix("ld:") else { continue };
+            if overrides.contains_key(sid) {
+                continue;
+            }
+            let pick = if dark { rest.split(':').nth(1) } else { rest.split(':').next() };
+            if let Some(c) = pick.and_then(crate::dialect::parse_hex) {
+                owned.push((sid.clone(), Value::Array(c.iter().map(|x| Value::from(*x)).collect())));
+            }
+        }
+    }
+    let owned: Vec<(String, Value)> = owned.into_iter().map(|(k, v)| (k, serde_json::json!({"a": 0, "k": v}))).collect();
+    for (k, v) in &owned {
+        slots.insert(k.clone(), v);
+    }
     let mut anim = Animation {
         width: num(root, "w", 0.0),
         height: num(root, "h", 0.0),
