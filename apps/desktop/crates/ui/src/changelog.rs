@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-composer-home-same-everywhere",
+    date: "2026-11-01",
+    title: "The new-chat screen looks the same everywhere",
+    summary: "Starting a chat looks the same on web, desktop, iPhone and Android.",
+    body: r#"- **Issue chips**: issues you attach wrap like on the web, long titles end in "…", and the ✕ always shows.
+- **The + menu**: the same rows on every platform, and Computer use only appears for a device that supports it.
+- **iPhone**: the composer is as tall as on the web, and a tap anywhere in it opens the keyboard."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_153: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-chats-look-the-same",
     date: "2026-11-01",
     title: "Chats look the same everywhere",
