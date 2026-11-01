@@ -745,6 +745,8 @@ pub(crate) struct AgentProfileUsageRow {
     /// EXP-849: the machine holds more logins of this agent than it collects
     /// usage for, and this is one of the extras — identity only, no numbers.
     pub unmonitored: bool,
+    /// EXP-1533: the login's long-lived claude token expiry, when it holds one.
+    pub token_expires_at: Option<String>,
 }
 
 /// `Some(trimmed)` for a non-blank string — the wire uses "absent" and "empty
@@ -825,6 +827,7 @@ pub(crate) fn agent_profile_usage_rows(
                 checked_at: None,
                 health: coding::agent_accounts::Health::Unknown,
                 unmonitored: false,
+                token_expires_at: None,
             };
             let profiles = account.map(|account| account.profiles.as_slice()).unwrap_or(&[]);
             for profile in profiles {
@@ -848,6 +851,7 @@ pub(crate) fn agent_profile_usage_rows(
                         .or_else(|| account.and_then(|a| non_empty(Some(&a.checked_at)))),
                     health: profile.health(),
                     unmonitored: profile.unmonitored,
+                    token_expires_at: profile.token_expires_at.clone(),
                     ..base(&profile.id)
                 });
             }
@@ -1018,6 +1022,9 @@ pub(crate) fn usage_caption(state: UsageState, as_of: Option<&str>) -> Option<St
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ChipAction {
     SignIn,
+    /// EXP-1533: a claude login's long-lived `claude setup-token` sign-in;
+    /// `renew` = the login already holds one.
+    KeepSignedIn { renew: bool },
     SignOut,
     Remove,
 }
@@ -1026,6 +1033,8 @@ impl ChipAction {
     pub(crate) fn label(self) -> &'static str {
         match self {
             ChipAction::SignIn => "Sign in",
+            ChipAction::KeepSignedIn { renew: false } => "Keep signed in",
+            ChipAction::KeepSignedIn { renew: true } => "Renew long-lived login",
             ChipAction::SignOut => "Sign out",
             ChipAction::Remove => "Remove account",
         }
@@ -1034,6 +1043,7 @@ impl ChipAction {
     pub(crate) fn icon(self) -> crate::icons::ExpIcon {
         match self {
             ChipAction::SignIn => crate::icons::registry::UI_SIGN_IN,
+            ChipAction::KeepSignedIn { .. } => crate::icons::registry::UI_CLOCK,
             ChipAction::SignOut => crate::icons::registry::UI_SIGN_OUT,
             ChipAction::Remove => crate::icons::registry::UI_DELETE,
         }
@@ -1049,17 +1059,26 @@ impl ChipAction {
 /// in this fixed order:
 ///
 /// * a sign-in: signed out, or a credential that expired here;
+/// * EXP-1533, keep signed in (renew once it holds one): claude only —
+///   `long_lived` is `Some(holds a token)` for a claude login, else `None`;
 /// * EXP-1137, sign out: signed in — the row stays;
 /// * remove: always (EXP-944: signed out or not — a dead login is the one
 ///   people most want gone).
 ///
 /// The caller shows the menu only on an actionable device (mine, and this
 /// install or online); elsewhere the chip is a STATEMENT, not a control.
-pub(crate) fn chip_actions(signed_in: bool, health: coding::agent_accounts::Health) -> Vec<ChipAction> {
+pub(crate) fn chip_actions(
+    signed_in: bool,
+    health: coding::agent_accounts::Health,
+    long_lived: Option<bool>,
+) -> Vec<ChipAction> {
     let signs_in = !signed_in || health == coding::agent_accounts::Health::NeedsRelogin;
     let mut out = Vec::new();
     if signs_in {
         out.push(ChipAction::SignIn);
+    }
+    if let Some(renew) = long_lived {
+        out.push(ChipAction::KeepSignedIn { renew });
     }
     if signed_in {
         out.push(ChipAction::SignOut);
@@ -1774,6 +1793,7 @@ mod tests {
                 checked_at: None,
                 health: coding::agent_accounts::Health::from_signed_in(signed_in),
                 unmonitored: false,
+                token_expires_at: None,
             }
         };
         assert_eq!(attention_rank(&row("Air", "claude", "4e5f6a7b", false, 0)), 0);
@@ -1850,6 +1870,7 @@ mod tests {
             checked_at: None,
             health: coding::agent_accounts::Health::Ok,
             unmonitored: false,
+            token_expires_at: None,
         }
     }
 
@@ -1956,16 +1977,29 @@ mod tests {
         use coding::agent_accounts::Health;
         // Signed out: the sign-in leads, the removal rides along.
         assert_eq!(
-            chip_actions(false, Health::SignedOut),
+            chip_actions(false, Health::SignedOut, None),
             vec![ChipAction::SignIn, ChipAction::Remove]
         );
         // Healthy: sign out and remove (EXP-1158: no entry picks a start's login).
-        assert_eq!(chip_actions(true, Health::Ok), vec![ChipAction::SignOut, ChipAction::Remove]);
+        assert_eq!(chip_actions(true, Health::Ok, None), vec![ChipAction::SignOut, ChipAction::Remove]);
         // A revoked credential still signs out: that is how it leaves.
         assert_eq!(
-            chip_actions(true, Health::NeedsRelogin),
+            chip_actions(true, Health::NeedsRelogin, None),
             vec![ChipAction::SignIn, ChipAction::SignOut, ChipAction::Remove]
         );
+        // EXP-1533: a claude login keeps signed in right after the sign-in,
+        // and renews once it holds a long-lived login.
+        assert_eq!(
+            chip_actions(false, Health::SignedOut, Some(false)),
+            vec![ChipAction::SignIn, ChipAction::KeepSignedIn { renew: false }, ChipAction::Remove]
+        );
+        assert_eq!(
+            chip_actions(true, Health::Ok, Some(true)),
+            vec![ChipAction::KeepSignedIn { renew: true }, ChipAction::SignOut, ChipAction::Remove]
+        );
+        assert_eq!(ChipAction::KeepSignedIn { renew: false }.label(), "Keep signed in");
+        assert_eq!(ChipAction::KeepSignedIn { renew: true }.label(), "Renew long-lived login");
+        assert!(!ChipAction::KeepSignedIn { renew: true }.destructive());
         assert!(ChipAction::SignOut.destructive() && ChipAction::Remove.destructive());
         assert!(!ChipAction::SignIn.destructive());
         assert_eq!(ChipAction::SignOut.label(), "Sign out");

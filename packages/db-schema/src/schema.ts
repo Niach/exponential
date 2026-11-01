@@ -1097,6 +1097,9 @@ export interface DeviceAgentProfileEntry {
    * out into a probe per login. Absent = monitored. */
   unmonitored?: boolean
   usage?: DeviceAgentUsage
+  /** EXP-1533: when this claude login's long-lived `claude setup-token`
+   * login stops working (ISO); present while the profile holds one. */
+  tokenExpiresAt?: string
 }
 
 /** EXP-849: the four health values, byte-identical with the desktop's
@@ -1154,6 +1157,8 @@ export const deviceAgentProfileSchema = z.object({
   // own probe cap) — the row is identity-only, and the clients say so rather
   // than rendering an empty bar as "0%".
   unmonitored: z.boolean().nullish(),
+  // EXP-1533: the long-lived claude login's expiry (ISO).
+  tokenExpiresAt: z.string().max(64).nullish(),
   usage: z
     .object({
       fetchedAt: z.string().max(64).nullish(),

@@ -161,8 +161,13 @@ function DeviceLoginChip({
       device={device}
       row={row}
       accountLabel={label}
-      onSignIn={() =>
-        requestAgentLogin({ device, agent: row.agent, profileId: row.profileId })
+      onSignIn={(opts) =>
+        requestAgentLogin({
+          device,
+          agent: row.agent,
+          profileId: row.profileId,
+          ...(opts?.longLived ? { longLived: true } : {}),
+        })
       }
       header={limits ? <LoginLimits row={row} now={now} /> : undefined}
       trigger={chip}

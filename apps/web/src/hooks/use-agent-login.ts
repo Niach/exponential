@@ -36,6 +36,9 @@ export interface AgentLoginState {
  * only uses this for its duplicate check. */
 export interface AgentLoginProfileTarget {
   profileId?: string
+  /** EXP-1533: a one-year `claude setup-token` login for `profileId` (claude
+   *  only) — the same link + code round trip as a browser sign-in. */
+  longLived?: boolean
 }
 
 export interface AgentLogin {
@@ -172,6 +175,7 @@ export function useAgentLogin({
       agent,
       switch: switchAccount,
       ...(target.profileId ? { profileId: target.profileId } : {}),
+      ...(target.longLived ? { longLived: true } : {}),
     })
   }
 

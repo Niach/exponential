@@ -673,6 +673,36 @@ pub fn create_agent_login_command(
     )
 }
 
+/// EXP-1533 — `devices.createCommand` for a LONG-LIVED claude login of
+/// `profile_id` on one of the caller's own machines: the same `agent_login`
+/// (link + code hand-off), flagged `longLived`, so the machine runs `claude
+/// setup-token` in that profile and keeps the one-year token it prints.
+pub fn create_long_lived_login_command(
+    trpc: &TrpcClient,
+    device_id: &str,
+    profile_id: &str,
+) -> Result<CreatedCommand, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+        profile_id: &'a str,
+        long_lived: bool,
+    }
+    trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_login",
+            agent: "claude",
+            profile_id: profile_id.trim(),
+            long_lived: true,
+        },
+    )
+}
+
 /// `devices.createCommand` for an `agent_login_code` (EXP-765) — hand the
 /// authorization code claude's browser page showed back to the machine whose
 /// `agent_login` is still waiting for it at "Paste code here if prompted".
@@ -1304,6 +1334,19 @@ mod tests {
             let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
             assert!(request.ends_with(r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude"}"#));
         }
+    }
+
+    /// EXP-1533: a long-lived login is claude's `agent_login` on a profile,
+    /// flagged `longLived`.
+    #[test]
+    fn long_lived_login_command_posts_the_profile_and_the_flag() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-ll"}}}"#);
+        let created = create_long_lived_login_command(&client(&base), "dev-1", "0a1b2c3d").unwrap();
+        assert_eq!(created.id, "cmd-ll");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","profileId":"0a1b2c3d","longLived":true}"#
+        ));
     }
 
     /// EXP-765: the code goes back as its own command kind, beside the agent

@@ -248,6 +248,15 @@ fun AgentsScreen(
                                             profileId = profileId,
                                         )
                                     },
+                                    // EXP-1533: the same sheet, queuing a long-lived login.
+                                    onKeepSignedIn = { row ->
+                                        loginTarget = AgentLoginTarget(
+                                            device = device,
+                                            agent = row.agent,
+                                            profileId = row.profileId,
+                                            longLived = true,
+                                        )
+                                    },
                                     onAddAccount = { addAccountDevice = device },
                                     onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
                                 )
@@ -531,6 +540,8 @@ private fun MachineRow(
     onSignOutAccount: (AgentProfileUsageRow) -> Unit,
     /** Run the agent's own sign-in here (agent, profile) — the login sheet owns the flow. */
     onSignIn: (String, String?) -> Unit,
+    /** EXP-1533: a claude login's "Keep signed in" / "Renew long-lived login". */
+    onKeepSignedIn: (AgentProfileUsageRow) -> Unit = {},
     onAddAccount: () -> Unit,
     /** The attention card's Update pill: the existing update-now request. */
     onUpdate: () -> Unit,
@@ -723,6 +734,7 @@ private fun MachineRow(
                             onRemove = { onRemoveAccount(login) },
                             onSignOut = { onSignOutAccount(login) },
                             onSignIn = { onSignIn(login.agent, login.profileId) },
+                            onKeepSignedIn = { onKeepSignedIn(login) },
                         )
                     }
                 }
@@ -833,6 +845,7 @@ private fun DeviceLoginChip(
     onRemove: () -> Unit,
     onSignOut: () -> Unit,
     onSignIn: () -> Unit,
+    onKeepSignedIn: () -> Unit,
 ) {
     val nowMs = rememberUsageClock()
     val label = AgentAccountsRows.loginLabel(row)
@@ -895,6 +908,10 @@ private fun DeviceLoginChip(
                         menuOpen = false
                         onSignIn()
                     },
+                    onKeepSignedIn = {
+                        menuOpen = false
+                        onKeepSignedIn()
+                    },
                     onRemove = {
                         menuOpen = false
                         onRemove()
@@ -922,6 +939,7 @@ private fun AccountChipMenuItems(
     actions: List<String>,
     busy: Boolean,
     onSignIn: () -> Unit,
+    onKeepSignedIn: () -> Unit,
     onRemove: () -> Unit,
     onSignOut: () -> Unit,
 ) {
@@ -932,6 +950,14 @@ private fun AccountChipMenuItems(
                 leadingIcon = { Icon(ExpIcons.uiSignIn, contentDescription = null) },
                 enabled = !busy,
                 onClick = onSignIn,
+            )
+            AgentAccountsRows.ACTION_KEEP_SIGNED_IN,
+            AgentAccountsRows.ACTION_RENEW_LONG_LIVED,
+            -> GlassMenuItem(
+                text = { Text(action) },
+                leadingIcon = { Icon(ExpIcons.uiClock, contentDescription = null) },
+                enabled = !busy,
+                onClick = onKeepSignedIn,
             )
             AgentAccountsRows.ACTION_SIGN_OUT -> GlassMenuItem(
                 text = { Text(action) },

@@ -214,6 +214,11 @@ pub struct AgentProfileEntry {
     /// monitored, so the common payload is unchanged.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub unmonitored: bool,
+    /// EXP-1533: when this claude login's long-lived `claude setup-token`
+    /// login stops working (ISO). Present while the profile holds one,
+    /// expired or not; clients offer "Renew long-lived login" on it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_expires_at: Option<String>,
 }
 
 impl AgentProfileEntry {
@@ -322,7 +327,7 @@ pub fn accounts_key(accounts: &AgentAccounts) -> String {
                         profile.health().as_str(),
                         profile.unmonitored,
                         usage_fingerprint(profile.usage.as_ref())
-                    )
+                    ) + profile.token_expires_at.as_deref().unwrap_or_default()
                 })
                 .collect::<Vec<_>>()
                 .join(",");
@@ -539,6 +544,17 @@ mod tests {
         assert_eq!(
             serde_json::to_string(&signed_out).unwrap(),
             r#"{"id":"4e5f6a7b","signedIn":false,"checkedAt":"T"}"#
+        );
+        // EXP-1533: a long-lived login names its expiry, camelCase.
+        let long_lived = AgentProfileEntry {
+            id: "0a1b2c3d".into(),
+            checked_at: "T".into(),
+            token_expires_at: Some("2027-11-01T00:00:00.000Z".into()),
+            ..AgentProfileEntry::default()
+        };
+        assert_eq!(
+            serde_json::to_string(&long_lived).unwrap(),
+            r#"{"id":"0a1b2c3d","signedIn":false,"checkedAt":"T","tokenExpiresAt":"2027-11-01T00:00:00.000Z"}"#
         );
         // A legacy row's `label` is read past, never kept.
         let legacy: AgentProfileEntry =

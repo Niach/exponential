@@ -176,6 +176,12 @@ data class AgentAccountProfile(
     @SerialName("health") val health: String? = null,
     @SerialName("usage") val usage: AgentUsage? = null,
     @SerialName("lastLoginAt") val lastLoginAt: String? = null,
+    /**
+     * EXP-1533: set (ISO) while the profile holds a long-lived claude login
+     * (`claude setup-token`, one year): the menu offers "Renew long-lived
+     * login" instead of "Keep signed in".
+     */
+    @SerialName("tokenExpiresAt") val tokenExpiresAt: String? = null,
 )
 
 /**

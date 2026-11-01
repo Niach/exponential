@@ -117,11 +117,18 @@ pub fn sign_out_in(
         ));
     };
     match agent {
-        CodingAgent::Claude => logout_in(
-            settings,
-            agent,
-            agent_profiles::config_env(data_dir, agent, Some(profile_id)).as_ref(),
-        ),
+        CodingAgent::Claude => {
+            // EXP-1533: a long-lived token goes too, or the profile would stay
+            // signed in on it.
+            crate::claude_token::remove(&home).map_err(|err| {
+                format!("Could not remove the long-lived Claude login: {err}")
+            })?;
+            logout_in(
+                settings,
+                agent,
+                agent_profiles::config_env(data_dir, agent, Some(profile_id)).as_ref(),
+            )
+        }
         CodingAgent::Codex => remove_codex_credential(&home).map(|_| ()),
     }
 }
@@ -164,6 +171,10 @@ impl LoginTarget {
 pub struct LoginRequest {
     pub agent: CodingAgent,
     pub target: LoginTarget,
+    /// EXP-1533: `longLived: "true"` — mint a `claude setup-token` for the
+    /// target profile instead of a browser login (claude only, profile
+    /// required: [`parse_login_payload`] refuses anything else).
+    pub long_lived: bool,
 }
 
 /// The sentences both hosts refuse a remote login with (the clients show a
@@ -174,12 +185,16 @@ pub const MALFORMED_PAYLOAD: &str = "Malformed command payload.";
 /// a LIVE credential whose single-use refresh token the CLI still running on
 /// the ambient login rotated, so the profile's copy died; it is gone.
 pub const IMPORT_REMOVED: &str = "Import was removed: sign this account in on this device instead.";
+/// EXP-1533: a `longLived` login names no claude profile of this machine.
+pub const LONG_LIVED_NEEDS_PROFILE: &str = "A long-lived login needs a Claude account on this machine.";
 
 /// Parse an `agent_login` payload: `{agent, switch?: "true"|"false",
 /// profileId?}`. `switch` is still validated but means nothing any more (a
 /// login runs in a fresh dir, so there is nothing to sign out of first);
 /// `profileId` blank or the retired `system` reads as absent. The retired
-/// `import: "true"` is refused with [`IMPORT_REMOVED`].
+/// `import: "true"` is refused with [`IMPORT_REMOVED`]. EXP-1533:
+/// `longLived: "true"` needs claude and a `profileId`
+/// ([`LONG_LIVED_NEEDS_PROFILE`]).
 /// `Err` carries the refusal sentence the command completes with.
 pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, String> {
     let raw_agent = payload["agent"].as_str().unwrap_or_default();
@@ -206,7 +221,69 @@ pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, 
         Some(id) => LoginTarget::Profile(id),
         None => LoginTarget::Add,
     };
-    Ok(LoginRequest { agent, target })
+    let long_lived = match payload["longLived"].as_str().unwrap_or("false") {
+        "true" => true,
+        "false" => false,
+        _ => return Err(MALFORMED_PAYLOAD.to_string()),
+    };
+    if long_lived && (agent != CodingAgent::Claude || target == LoginTarget::Add) {
+        return Err(LONG_LIVED_NEEDS_PROFILE.to_string());
+    }
+    Ok(LoginRequest { agent, target, long_lived })
+}
+
+/// EXP-1533 — the long-lived login of claude profile `profile_id`: `claude
+/// setup-token` run INSIDE the profile's config dir (it stores nothing
+/// there; the dir only spares it a first-run screen), with the profile's
+/// config-dir pair. `Err` is the refusal sentence.
+pub fn long_lived_plan(
+    settings: &Settings,
+    data_dir: &Path,
+    profile_id: &str,
+    remote: bool,
+) -> Result<LoginPlan, String> {
+    let agent = CodingAgent::Claude;
+    let env = agent_profiles::config_env(data_dir, agent, Some(profile_id))
+        .ok_or_else(|| LONG_LIVED_NEEDS_PROFILE.to_string())?;
+    let command = eagent::login::setup_token_command(settings.resolved_path_for(agent), remote);
+    let mut spawn = SpawnSpec::new(command.program).args(command.args);
+    spawn.env = command.env;
+    spawn.env.push(env);
+    Ok(LoginPlan { spawn, title: command.title })
+}
+
+/// EXP-1533 — the token `claude setup-token` printed on `lines`, if it is
+/// there yet: the host keeps the latest scrape and stores it once the CLI
+/// is done ([`store_setup_token`]).
+pub fn scrape_setup_token(lines: &[String]) -> Option<(String, Option<i64>)> {
+    eagent::login::scrape_setup_token(lines)
+}
+
+/// EXP-1533 — store a scraped setup token in claude profile `profile_id`
+/// (0600) and stamp the profile's `lastLoginAt`, so an open sign-in dialog
+/// lands exactly as a browser sign-in does. Returns the expiry (ISO); the
+/// token itself never leaves this function.
+pub fn store_setup_token(
+    data_dir: &Path,
+    profile_id: &str,
+    scraped: (String, Option<i64>),
+) -> Result<String, String> {
+    let agent = CodingAgent::Claude;
+    let dir = agent_profiles::profile_dir(data_dir, agent, profile_id)
+        .ok_or_else(|| LONG_LIVED_NEEDS_PROFILE.to_string())?;
+    let (token, lifetime) = scraped;
+    let token = crate::claude_token::SetupToken::minted(
+        token,
+        chrono::Utc::now(),
+        lifetime.unwrap_or(crate::claude_token::TOKEN_LIFETIME_SECS),
+    );
+    crate::claude_token::write(&dir, &token)
+        .map_err(|err| format!("Could not store the long-lived Claude login: {err}"))?;
+    if let Err(err) = agent_profiles::stamp_login(data_dir, agent, profile_id, None) {
+        log::warn!("agent_login: the long-lived login stamp was not recorded ({profile_id}): {err}");
+    }
+    crate::usage_cache::forget_profile(data_dir, agent.id(), profile_id);
+    Ok(token.expires_at)
 }
 
 /// The `{email} was already added. Refreshed it.` warning (the device-doctor
@@ -588,7 +665,10 @@ mod tests {
     fn login_payload_parses_add_or_profile_and_refuses_import() {
         let add = parse_login_payload(&serde_json::json!({"agent": "claude", "switch": "true"}))
             .unwrap();
-        assert_eq!(add, LoginRequest { agent: CodingAgent::Claude, target: LoginTarget::Add });
+        assert_eq!(
+            add,
+            LoginRequest { agent: CodingAgent::Claude, target: LoginTarget::Add, long_lived: false }
+        );
         let existing = parse_login_payload(&serde_json::json!({
             "agent": "codex", "switch": "false", "profileId": " 0badf00d "
         }))
@@ -637,6 +717,70 @@ mod tests {
             })),
             Err(IMPORT_REMOVED.to_string())
         );
+    }
+
+    /// EXP-1533: `longLived` is claude + a profile only; the token a
+    /// setup-token run printed lands 0600 in that profile, stamps its
+    /// `lastLoginAt` (the dialogs' landing) and goes with a sign-out.
+    #[test]
+    fn a_long_lived_login_needs_a_claude_profile_and_stores_its_token() {
+        let parsed = parse_login_payload(&serde_json::json!({
+            "agent": "claude", "profileId": "0badf00d", "longLived": "true"
+        }))
+        .unwrap();
+        assert!(parsed.long_lived);
+        assert_eq!(parsed.target, LoginTarget::Profile("0badf00d".into()));
+        for payload in [
+            serde_json::json!({"agent": "claude", "longLived": "true"}),
+            serde_json::json!({"agent": "codex", "profileId": "0badf00d", "longLived": "true"}),
+        ] {
+            assert_eq!(parse_login_payload(&payload), Err(LONG_LIVED_NEEDS_PROFILE.to_string()));
+        }
+        assert_eq!(
+            parse_login_payload(&serde_json::json!({"agent": "claude", "longLived": "yes"})),
+            Err(MALFORMED_PAYLOAD.to_string())
+        );
+
+        let dir = scratch_dir("long-lived");
+        let settings = Settings::default();
+        assert_eq!(
+            long_lived_plan(&settings, &dir, "0badf00d", true).err(),
+            Some(LONG_LIVED_NEEDS_PROFILE.to_string())
+        );
+        let profile = agent_profiles::create(&dir, CodingAgent::Claude).unwrap();
+        let plan = long_lived_plan(&settings, &dir, &profile.id, true).unwrap();
+        assert_eq!(plan.spawn.args, vec!["setup-token".to_string()]);
+        assert!(plan.spawn.env.contains(&("BROWSER".to_string(), "true".to_string())));
+        let home = agent_profiles::profile_dir(&dir, CodingAgent::Claude, &profile.id).unwrap();
+        assert!(plan
+            .spawn
+            .env
+            .contains(&("CLAUDE_CONFIG_DIR".to_string(), home.to_string_lossy().into_owned())));
+
+        let screen: Vec<String> = ["Your OAuth token (valid for 1 year):", "", "sk-ant-oat01-secret-123456"]
+            .iter()
+            .map(|line| line.to_string())
+            .collect();
+        let scraped = scrape_setup_token(&screen).unwrap();
+        let expires = store_setup_token(&dir, &profile.id, scraped).unwrap();
+        assert!(!expires.contains("secret"));
+        let stored = crate::claude_token::valid(&home).unwrap();
+        assert_eq!(stored.token, "sk-ant-oat01-secret-123456");
+        assert_eq!(stored.expires_at, expires);
+        assert!(agent_profiles::get(&dir, CodingAgent::Claude, &profile.id)
+            .unwrap()
+            .last_login_at
+            .is_some());
+
+        // A sign-out takes the token with it (the CLI's own logout then runs
+        // a binary that does not exist: its refusal is beside the point).
+        let missing = Settings {
+            claude_path: dir.join("no-claude").to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let _ = sign_out_in(&missing, &dir, CodingAgent::Claude, &profile.id);
+        assert_eq!(crate::claude_token::read(&home), None);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A codex `auth.json` names its login by the id token's claims, read

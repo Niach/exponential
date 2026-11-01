@@ -548,10 +548,25 @@ impl DoctorReport {
                     crate::usage_cache::entry_key(agent.id(), &profile.id),
                     eligible,
                 );
+                // EXP-1533: a long-lived login names its expiry, and a
+                // token-only profile (its browser login gone) keeps the
+                // email it last signed in as: the token names nobody.
+                let token = match agent {
+                    CodingAgent::Claude => crate::agent_profiles::profile_dir(data_dir, agent, &profile.id)
+                        .and_then(|dir| crate::claude_token::read(&dir)),
+                    CodingAgent::Codex => None,
+                };
+                let email = account.email.clone().or_else(|| {
+                    token
+                        .as_ref()
+                        .filter(|_| account.signed_in)
+                        .and_then(|_| crate::agent_profiles::known_email(data_dir, agent, &profile.id))
+                });
                 rows.push(crate::agent_accounts::AgentProfileEntry {
                     id: profile.id.clone(),
                     signed_in: account.signed_in,
-                    email: account.email.clone(),
+                    email,
+                    token_expires_at: token.map(|token| token.expires_at),
                     plan: account.plan.clone(),
                     active: Some(&profile.id) == active.as_ref(),
                     checked_at: now.to_string(),
@@ -923,16 +938,26 @@ fn probe_profile_full(
     };
     let config = Some((key, config_dir));
     match agent {
-        CodingAgent::Claude => match probe_claude_auth_status_in(program, path_env, config) {
-            Some(status) => (
-                Some(status.logged_in),
-                ProfileAuth {
-                    account: status.account(now),
-                    usage_eligible: status.usage_eligible(),
-                },
-            ),
-            None => (None, ProfileAuth { account: signed_out(now), usage_eligible: false }),
-        },
+        CodingAgent::Claude => {
+            let (raw, mut auth) = match probe_claude_auth_status_in(program, path_env, config) {
+                Some(status) => (
+                    Some(status.logged_in),
+                    ProfileAuth {
+                        account: status.account(now),
+                        usage_eligible: status.usage_eligible(),
+                    },
+                ),
+                None => (None, ProfileAuth { account: signed_out(now), usage_eligible: false }),
+            };
+            // EXP-1533: a valid long-lived token signs the profile in, whatever
+            // its browser login says (runs spend the token). Usage stays the
+            // browser login's: the token cannot read it.
+            if crate::claude_token::valid(config_dir).is_some() {
+                auth.account.signed_in = true;
+                return (Some(true), auth);
+            }
+            (raw, auth)
+        }
         CodingAgent::Codex => {
             let raw = probe_codex_auth_in(program, path_env, config);
             let authed = raw.unwrap_or(false);
@@ -966,6 +991,8 @@ pub(crate) fn probe_profile_signed_in(
     let key = crate::agent_profiles::config_env_var(agent)?;
     let config = Some((key, config_dir));
     match agent {
+        // EXP-1533: a valid long-lived token is a sign-in without a probe.
+        CodingAgent::Claude if crate::claude_token::valid(config_dir).is_some() => Some(true),
         CodingAgent::Claude => {
             probe_claude_auth_status_in(program, path_env, config).map(|status| status.logged_in)
         }

@@ -20,6 +20,8 @@ export interface DeviceAccountLoginInput {
   agent: string
   /** The login this sign-in is FOR (a re-login); absent = add an account. */
   profileId?: string
+  /** EXP-1533: a one-year `claude setup-token` login for `profileId`. */
+  longLived?: boolean
   code?: string
   commandId?: string
 }
@@ -36,7 +38,13 @@ export interface DeviceAccountLoginDeps {
   /** `devices.createCommand` — refuses a device that is not the caller's. */
   createCommand: (
     input:
-      | ({ deviceId: string; kind: `agent_login`; agent: string; switch: false } & AgentLoginProfileTarget)
+      | ({
+          deviceId: string
+          kind: `agent_login`
+          agent: string
+          switch: false
+          longLived?: boolean
+        } & AgentLoginProfileTarget)
       | { deviceId: string; kind: `agent_login_code`; agent: string; code: string }
   ) => Promise<{ id: string }>
   getCommand: (commandId: string) => Promise<DeviceCommandRow>
@@ -163,6 +171,7 @@ export async function deviceAccountLogin(
     agent,
     switch: false,
     ...(input.profileId ? { profileId: input.profileId } : {}),
+    ...(input.longLived ? { longLived: true } : {}),
   })
   return describe(await waitFor(id, deps, LOGIN_WAIT_MS))
 }

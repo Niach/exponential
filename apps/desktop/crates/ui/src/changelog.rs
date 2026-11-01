@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-claude-long-lived-login",
+    date: "2026-11-01",
+    title: "Keep a Claude login signed in",
+    summary: "A Claude account can hold a one-year login that no other sign-in can sign out.",
+    body: r#"- **Keep signed in**: the menu of a Claude account under a device starts a long-lived login; open the link and paste the code like any sign-in.
+- **Renew**: an account that already has one offers Renew long-lived login.
+- **Trade-off**: a long-lived login shows no usage of its own; the account keeps the email it last signed in with."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_142: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-agent-logins-stay-signed-in",
     date: "2026-11-01",
     title: "Agent logins stay signed in",

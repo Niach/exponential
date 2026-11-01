@@ -38,6 +38,7 @@ class AgentAccountsRowsTest {
         checkedAt: String? = null,
         health: AgentHealth = AgentHealthRules.derived(signedIn),
         active: Boolean = true,
+        tokenExpiresAt: String? = null,
     ) = AgentProfileUsageRow(
         key = "$deviceId:$agent:$profileId",
         deviceId = deviceId,
@@ -53,6 +54,7 @@ class AgentAccountsRowsTest {
         plan = plan,
         usage = usage,
         checkedAt = checkedAt,
+        tokenExpiresAt = tokenExpiresAt,
     )
 
     private fun usage(fetchedAt: String, percent: Int, stale: Boolean = false) = AgentUsage(
@@ -141,6 +143,7 @@ class AgentAccountsRowsTest {
                   "profiles":[
                     {"id":"p-dev","label":"Default","active":true,"signedIn":true,"email":"dev@acme.test","plan":"max","checkedAt":"2026-08-28T11:10:00.000Z"},
                     {"id":"work","label":"Work","active":false,"signedIn":true,"email":"alex@northwind.dev","plan":"team",
+                     "tokenExpiresAt":"2027-11-01T00:00:00.000Z",
                      "usage":${usageJson("2026-08-28T11:50:00.000Z", "weekly", 9)}},
                     {"id":"old","active":false,"signedIn":false}
                   ]}}
@@ -167,6 +170,9 @@ class AgentAccountsRowsTest {
         assertEquals(9, AgentAccountsRows.peakPercent(work.usage))
         // No own stamp: the account's probe stamp is the fallback.
         assertEquals("2026-08-28T11:00:00.000Z", work.checkedAt)
+        // EXP-1533: a long-lived login carries its expiry; the others none.
+        assertEquals("2027-11-01T00:00:00.000Z", work.tokenExpiresAt)
+        assertNull(active.tokenExpiresAt)
         // An inactive profile with no address: "No email", no fallback numbers.
         val old = rows[2]
         assertEquals("No email", AgentAccountsRows.loginLabel(old))
@@ -305,19 +311,19 @@ class AgentAccountsRowsTest {
         // dir and the credential's state never decided whether that is possible.
         val signedOut = chip(signedIn = false, active = true, health = AgentHealth.SignedOut)
         assertEquals(
-            listOf("Sign in", "Remove account"),
+            listOf("Sign in", "Keep signed in", "Remove account"),
             AgentAccountsRows.chipActions(signedOut),
         )
         val expired = chip(signedIn = true, active = false, health = AgentHealth.NeedsRelogin)
         assertEquals(
-            listOf("Sign in", "Sign out", "Remove account"),
+            listOf("Sign in", "Keep signed in", "Sign out", "Remove account"),
             AgentAccountsRows.chipActions(expired),
         )
         // EXP-1158: healthy, last used or not, the menu is the same — there
         // is no "make it the default" entry any more.
         listOf(true, false).forEach { active ->
             assertEquals(
-                listOf("Sign out", "Remove account"),
+                listOf("Keep signed in", "Sign out", "Remove account"),
                 AgentAccountsRows.chipActions(
                     chip(signedIn = true, active = active, health = AgentHealth.Ok),
                 ),
@@ -337,7 +343,7 @@ class AgentAccountsRowsTest {
         // The last used login is removable like any other: every row is a
         // profile dir Exponential created.
         assertEquals(
-            listOf("Sign out", "Remove account"),
+            listOf("Keep signed in", "Sign out", "Remove account"),
             AgentAccountsRows.chipActions(other),
         )
     }
@@ -374,6 +380,41 @@ class AgentAccountsRowsTest {
         assertEquals(
             listOf("Sign in", "Remove account"),
             all(chip(signedIn = false, active = false, health = AgentHealth.SignedOut)),
+        )
+    }
+
+    // EXP-1533: a claude login offers the long-lived sign-in right after
+    // "Sign in" (before "Sign out"); renewed once the row carries an expiry.
+    // Codex never does.
+    @Test
+    fun `a claude login offers the long-lived sign-in`() {
+        assertEquals(
+            listOf("Renew long-lived login", "Sign out", "Remove account"),
+            AgentAccountsRows.chipActions(
+                row(deviceId = "mint", agent = "claude", tokenExpiresAt = "2027-11-01T00:00:00.000Z"),
+            ),
+        )
+        assertEquals(
+            listOf("Sign in", "Renew long-lived login", "Remove account"),
+            AgentAccountsRows.chipActions(
+                row(
+                    deviceId = "mint",
+                    agent = "claude",
+                    signedIn = false,
+                    tokenExpiresAt = "2027-11-01T00:00:00.000Z",
+                ),
+            ),
+        )
+        // A blank expiry is no long-lived login.
+        assertEquals(
+            listOf("Keep signed in", "Sign out", "Remove account"),
+            AgentAccountsRows.chipActions(row(deviceId = "mint", agent = "claude", tokenExpiresAt = "")),
+        )
+        assertEquals(
+            listOf("Sign out", "Remove account"),
+            AgentAccountsRows.chipActions(
+                row(deviceId = "mint", agent = "codex", tokenExpiresAt = "2027-11-01T00:00:00.000Z"),
+            ),
         )
     }
 
