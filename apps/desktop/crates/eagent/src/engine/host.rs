@@ -2310,6 +2310,18 @@ fn handle_command(
             gate_or_start(cx, ctx, session_id, text, prompt, turns, Some(message_id))
         }
         EngineCommand::AnswerCard { question_id, card } => {
+            // #EXP-1561: a dismissed card whose elicitation step takes no
+            // free text declines the ask whole (the #NEW-79 withdraw path),
+            // so the agent never waits on it.
+            let mut out = MapOut::default();
+            let declined = ctx.with_mapper(|mapper| {
+                mapper.card_declines(&question_id, &card).and_then(|ask_id| mapper.withdraw_ask(&ask_id, &mut out))
+            });
+            if let Some(key) = declined {
+                ctx.dispatch(out);
+                ctx.asks.resolve(&key, AskOutcome::Cancelled);
+                return true;
+            }
             let Some(mapped) = ctx.with_mapper(|mapper| mapper.card_answer(&question_id, &card))
             else {
                 log::info!(

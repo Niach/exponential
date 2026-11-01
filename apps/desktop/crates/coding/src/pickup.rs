@@ -930,6 +930,11 @@ fn sealed_card_of(message_id: &str) -> Option<(String, serde_json::Value)> {
 /// sealed one this process knows (or sealing is impossible now: the
 /// plaintext answer goes as ever).
 fn sealed_answer(input: &api::sessions::AnswerInput) -> Option<serde_json::Value> {
+    // #EXP-1561: a dismiss carries no answer; the server stamps the clear
+    // fields beside the envelope.
+    if input.dismissed == Some(true) {
+        return None;
+    }
     let (session_id, card) = sealed_card_of(&input.message_id)?;
     let answered = answered_card(&card, input)?;
     let sealed = crate::sealing::seal_card_or_plain(&session_id, &answered);
@@ -6384,6 +6389,42 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
+    }
+
+    /// #EXP-1561: a DISMISSED tool card reaches the agent as its dismissed
+    /// line (plan-card.json `answerText.dismissedPlan` / `dismissedQuestion`):
+    /// never an approval, never fresh.
+    #[test]
+    fn a_dismissed_tool_card_is_delivered_as_its_dismissed_line() {
+        let plan = serde_json::json!({"kind": "plan", "plan": "1. One", "decision": "dismissed", "fresh": false, "dismissed": true});
+        let question = serde_json::json!({"kind": "question", "question": "Which?", "options": ["A"], "dismissed": true});
+        assert!(is_answered_tool_card(&tool_card("p1", "l1", plan.clone())));
+        assert!(!card_approved(&plan) && !card_fresh(&plan));
+        let actions = Pass::new(
+            vec![session("l1", "idle", DEV, "t")],
+            vec![tool_card("p1", "l1", plan), tool_card("q1", "l1", question)],
+        )
+        .live("l1", LiveView::default())
+        .run();
+        let delivered: Vec<(&str, &str, bool, bool)> = actions
+            .iter()
+            .filter_map(|action| match action {
+                PickupAction::DeliverAnswer { message_id, text, approved, fresh, .. } => {
+                    Some((message_id.as_str(), text.as_str(), *approved, *fresh))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            delivered,
+            vec![
+                ("p1", "Plan dismissed: it no longer needs a decision. Don't wait for it; carry on.", false, false),
+                ("q1", "Dismissed: \"Which?\" no longer needs an answer. Don't wait for it; carry on.", false, false),
+            ],
+            "{actions:?}"
+        );
+        let input = api::sessions::AnswerInput { message_id: "q1".into(), dismissed: Some(true), ..Default::default() };
+        assert_eq!(sealed_answer(&input), None, "a dismiss re-seals nothing");
     }
 
     fn superseded_plan() -> serde_json::Value {

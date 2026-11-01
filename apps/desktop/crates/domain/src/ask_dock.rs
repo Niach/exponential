@@ -27,6 +27,8 @@ pub struct AskDockCopy {
     pub cancel: String,
     /// FEED-140: a plan the agent replaced with a newer one.
     pub superseded: String,
+    /// #EXP-1561: a person dismissed it (waiting-cards.json).
+    pub dismissed: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -96,6 +98,10 @@ pub fn plan_decision_label(decision: &str, fresh: bool) -> String {
     // FEED-140: a plan the agent replaced with a newer one.
     if decision == "superseded" {
         return ASK_DOCK.copy.superseded.clone();
+    }
+    // #EXP-1561: a person dismissed it (waiting-cards.json).
+    if decision == "dismissed" {
+        return ASK_DOCK.copy.dismissed.clone();
     }
     let wants_fresh = decision == "approved" && fresh;
     plan_options()
@@ -379,6 +385,7 @@ mod tests {
                 answers: None,
                 surface_data: None,
                 answered: row["answered"].as_bool().unwrap(),
+                dismissed: None,
             },
             _ => SessionThreadRow::Event { id: s("id"), event: String::new(), text: String::new(), session_id: None },
         }

@@ -296,6 +296,7 @@ mod tests {
             answers: None,
             surface_data: None,
             answered,
+            dismissed: None,
         }
     }
 }
