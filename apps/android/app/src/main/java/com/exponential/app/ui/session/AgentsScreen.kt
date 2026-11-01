@@ -5,7 +5,12 @@ import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -36,6 +41,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -54,6 +61,8 @@ import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DevicesList
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.Prompts
+import com.exponential.app.domain.SessionTree
+import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.AddDeviceSheet
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
@@ -80,7 +89,7 @@ import com.exponential.app.ui.issue.compactRelativeTime
 import com.exponential.app.ui.issue.relativeTime
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
-import com.exponential.app.ui.theme.flatRow
+import com.exponential.app.ui.theme.glassCard
 import kotlinx.coroutines.delay
 
 /**
@@ -111,6 +120,11 @@ import kotlinx.coroutines.delay
  * A-16 (`devices-list.json`) flattened that again: one LINE per device, its
  * logins as chips, every problem behind ONE attention icon ([DevicesList.row]),
  * online rows first and the offline ones under a muted label.
+ *
+ * EXP-1560 made each section a GRID of device cards ([DeviceCard]): the
+ * logins as brand-mark icons badged where they need a fix, the update line
+ * and the settings behind the card's `⋯`; the attention icon and the gear
+ * are gone.
  */
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
@@ -200,6 +214,10 @@ fun AgentsScreen(
                     icon = ExpIcons.navDevices,
                 )
             } else if (steerOn) {
+                // EXP-1560: the grid's columns come from the section's
+                // content width (the page less its 16 + 16 inset).
+                BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val columns = DevicesList.columns((maxWidth - 32.dp).value.toInt())
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxSize().testTag("devices-list"),
@@ -216,8 +234,7 @@ fun AgentsScreen(
                         }
                     }
                     when {
-                        // null = still loading: skeleton rows in the machine
-                        // row's geometry (EXP-1275).
+                        // null = still loading: skeleton rows (EXP-1275).
                         ownDevices == null -> item(key = "__machines_loading__") {
                             SkeletonRows(rows = 2, rowHeight = 56.dp, dot = false)
                         }
@@ -225,11 +242,11 @@ fun AgentsScreen(
                             EmptyState(EmptyStateCopy.devices)
                         }
                         else -> {
-                            // A-16: online rows first in the list's own order,
+                            // A-16: online cards first in the list's own order,
                             // then the offline ones under a muted label, dimmed.
                             val (onlineOwn, offlineOwn) = DevicesList.grouped(ownDevices) { it.online }
-                            val ownRow: @Composable (SteerDevice) -> Unit = { device ->
-                                MachineRow(
+                            val ownCard: @Composable (SteerDevice) -> Unit = { device ->
+                                DeviceCard(
                                     device = device,
                                     latestVersions = latestVersions,
                                     commandStates = accountCommandStates,
@@ -261,24 +278,28 @@ fun AgentsScreen(
                                     onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
                                 )
                             }
-                            items(onlineOwn, key = { "dev_${it.deviceId}" }) { ownRow(it) }
+                            if (onlineOwn.isNotEmpty()) {
+                                item(key = "__machines_online_grid__") {
+                                    DeviceGrid(onlineOwn, columns, key = { "dev_${it.deviceId}" }, card = ownCard)
+                                }
+                            }
                             if (offlineOwn.isNotEmpty()) {
                                 item(key = "__machines_offline__") { OfflineLabel() }
-                                items(offlineOwn, key = { "dev_${it.deviceId}" }) { ownRow(it) }
+                                item(key = "__machines_offline_grid__") {
+                                    DeviceGrid(offlineOwn, columns, key = { "dev_${it.deviceId}" }, card = ownCard)
+                                }
                             }
                         }
                     }
-                    // Teammates' machines carry no gear — the registry row is
-                    // not this user's to curate. FEED-149: a team OWNER gets
-                    // Remove in its slot on a row shared into the SELECTED
-                    // team (the list is cross-team, EXP-1186), which drops
-                    // that share from it. A-16: read-only — chips preview
-                    // their limits but open no menu, no `+`, no actions.
+                    // Teammates' cards are read-only: the account icons only
+                    // preview, no `+`, no actions. FEED-149: a team OWNER's ⋯
+                    // holds Remove on a card shared into the SELECTED team (the
+                    // list is cross-team, EXP-1186), which drops that share.
                     if (teamDevices.isNotEmpty()) {
                         item(key = "__team_machines_header__") { SectionHeader(DevicesList.Copy.TEAM) }
                         val (onlineTeam, offlineTeam) = DevicesList.grouped(teamDevices) { it.online }
-                        val teamRow: @Composable (SteerDevice) -> Unit = { device ->
-                            MachineRow(
+                        val teamCard: @Composable (SteerDevice) -> Unit = { device ->
+                            DeviceCard(
                                 device = device,
                                 latestVersions = latestVersions,
                                 commandStates = accountCommandStates,
@@ -295,12 +316,19 @@ fun AgentsScreen(
                                     ?.let { { dropShareTarget = device } },
                             )
                         }
-                        items(onlineTeam, key = { "shared_${it.deviceId}" }) { teamRow(it) }
+                        if (onlineTeam.isNotEmpty()) {
+                            item(key = "__team_machines_online_grid__") {
+                                DeviceGrid(onlineTeam, columns, key = { "shared_${it.deviceId}" }, card = teamCard)
+                            }
+                        }
                         if (offlineTeam.isNotEmpty()) {
                             item(key = "__team_machines_offline__") { OfflineLabel() }
-                            items(offlineTeam, key = { "shared_${it.deviceId}" }) { teamRow(it) }
+                            item(key = "__team_machines_offline_grid__") {
+                                DeviceGrid(offlineTeam, columns, key = { "shared_${it.deviceId}" }, card = teamCard)
+                            }
                         }
                     }
+                }
                 }
             }
         }
@@ -506,33 +534,65 @@ private fun OfflineLabel() {
 }
 
 /**
- * A-16 (`devices-list.json`): ONE line per device, nothing folds and no
- * warning is written inline. The kind glyph, the name, the version (warning
- * tone when outdated), the default star and the Shared tag, the status line
- * under the name; then one chip per login (brand mark + label + ` · plan`
- * when the label is an email), wrapping; then the attention icon when
- * [DevicesList.row] lists anything; then the settings gear (own registered
- * rows; FEED-149: a team owner's Remove keeps its slot on a teammate's row).
+ * EXP-1560 (`devices-list.json` `card`): one section's devices as a GRID of
+ * [columns] equal cards, [DevicesList.Card.GAP] both ways; a short last row
+ * keeps its cards at the column width.
+ */
+@Composable
+private fun DeviceGrid(
+    devices: List<SteerDevice>,
+    columns: Int,
+    key: (SteerDevice) -> String,
+    card: @Composable (SteerDevice) -> Unit,
+) {
+    val gap = DevicesList.Card.GAP.dp
+    Column(verticalArrangement = Arrangement.spacedBy(gap)) {
+        devices.chunked(columns).forEach { row ->
+            Row(
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(gap),
+            ) {
+                row.forEach { device ->
+                    key(key(device)) {
+                        Box(modifier = Modifier.weight(1f).fillMaxHeight()) { card(device) }
+                    }
+                }
+                repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
+            }
+        }
+    }
+}
+
+/**
+ * EXP-1560 (`devices-list.json`): THE device card — the glass card surface,
+ * padding [DevicesList.Card.PADDING], two rows.
  *
- * A chip TAP opens the account menu (Sign in / Sign out / Remove account,
- * [AgentAccountsRows.chipActions]) with that login's limit bars at its top; a
- * teammate's chip only previews the bars. Own, online rows with an agent to
- * add end the chips with a ghost `+`. Offline rows render dimmed.
+ * TOP: the name (truncating) + `v{version}` (warning tone when the caller's
+ * own device is outdated) + the default star, over the status line and the
+ * `Shared` tag (a phone is never a registered device, so `This device` never
+ * applies on this client); top-right the ghost `⋯` opening THE menu: the
+ * update line (disabled, muted), `Update` (a server's update action), Device
+ * settings (own registered). A teammate's card holds only a team owner's
+ * Remove from this team; with nothing to hold, no `⋯`.
+ *
+ * BOTTOM: the logins as brand-mark icons ([DeviceLoginIcon]), the run-mark
+ * amber badge on every login with a login attention item; past
+ * [DevicesList.Card.MAX_ACCOUNT_ICONS] a ghost `⋯` reveals the rest in place;
+ * own, online cards with an agent to add end with a ghost `+`.
  *
  * The device's health is never summarised from its agents: an agent with no
- * login profile (a CLI installed, never signed in) badges nothing — only
- * login profiles count.
+ * login profile (a CLI installed, never signed in) badges nothing.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun MachineRow(
+private fun DeviceCard(
     device: SteerDevice,
     latestVersions: DeviceLatestVersions,
-    /** EXP-849: this machine's account commands in flight, keyed by chip. */
+    /** EXP-849: this machine's account commands in flight, keyed by login. */
     commandStates: Map<String, DeviceCommandUiState>,
     /** A rename/remove/update on this machine is in flight. */
     deviceBusy: Boolean,
-    /** The gear: opens this machine's settings sheet (own registered rows). */
+    /** Device settings: opens this machine's settings sheet (own registered). */
     onOpenSettings: () -> Unit,
     /** The logins this machine holds — null while the list is still loading. */
     logins: List<AgentProfileUsageRow>?,
@@ -543,14 +603,15 @@ private fun MachineRow(
     /** EXP-1533: a claude login's "Keep signed in" / "Renew long-lived login". */
     onKeepSignedIn: (AgentProfileUsageRow) -> Unit = {},
     onAddAccount: () -> Unit,
-    /** The attention card's Update pill: the existing update-now request. */
+    /** The ⋯ menu's Update: the existing update-now request. */
     onUpdate: () -> Unit,
-    /** FEED-149: a team owner's Remove on a teammate's shared row; null = none. */
+    /** FEED-149: a team owner's Remove on a teammate's shared card; null = none. */
     onRemoveShare: (() -> Unit)? = null,
 ) {
     val online = device.online
     val mine = device.isMine
     val blockedCaption = LaunchDeviceRules.blockedCaption(device)
+    val nowMs = rememberUsageClock()
     // A server runs the CLI, a desktop the IDE — each compares against its own
     // channel's advertised latest.
     val latest = if (device.isServer) latestVersions.cli else latestVersions.desktop
@@ -571,6 +632,7 @@ private fun MachineRow(
                     profileId = login.profileId,
                     label = AgentAccountsRows.loginLabel(login),
                     health = login.health,
+                    limitHit = DevicesList.limitHit(login.usage, nowMs),
                 )
             },
         ),
@@ -579,26 +641,23 @@ private fun MachineRow(
     // machine would hold the commands until it wakes, which reads as a dead tap.
     val actionable = mine && online
     val canAdd = actionable && AgentAccountsRows.addableAgents(device).isNotEmpty()
+    val updateItem = listRow.attention.firstOrNull {
+        it.kind == DevicesList.Kind.Update || it.kind == DevicesList.Kind.UpdateQueued
+    }
+    val canSettings = mine && device.registered
+    val hasMenu = if (mine) updateItem != null || canSettings else onRemoveShare != null
+    var expanded by remember(device.deviceId) { mutableStateOf(false) }
+    val gap = 4.dp
     Column(
         modifier = Modifier
-            .fillMaxWidth()
-            .alpha(if (online) 1f else 0.5f)
-            .flatRow()
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV)
-            .testTag("device-row"),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .fillMaxSize()
+            .alpha(if (online) 1f else 0.6f)
+            .glassCard()
+            .padding(DevicesList.Card.PADDING.dp)
+            .testTag("device-card"),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                deviceIcon(device),
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            )
-            Spacer(Modifier.width(12.dp))
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -642,17 +701,6 @@ private fun MachineRow(
                             modifier = Modifier.size(13.dp),
                         )
                     }
-                    // A phone is never a registered device, so the
-                    // `This device` tag never applies on this client.
-                    if (mine && device.sharedTeamIds.isNotEmpty()) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            "Shared",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            maxLines = 1,
-                        )
-                    }
                 }
                 Spacer(Modifier.height(2.dp))
                 Row(
@@ -684,69 +732,77 @@ private fun MachineRow(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
+                    if (mine && device.sharedTeamIds.isNotEmpty()) {
+                        Text(
+                            "Shared",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                        )
+                    }
                 }
             }
-            if (listRow.attention.isNotEmpty()) {
-                DeviceAttentionButton(
-                    items = listRow.attention,
+            if (hasMenu) {
+                DeviceActionsMenu(
+                    updateItem = updateItem,
                     updateBusy = deviceBusy || device.updateRequested,
                     onUpdate = onUpdate,
-                    onSignIn = onSignIn,
-                )
-            }
-            // The gear (EXP-909 follow-up): own REGISTERED rows only, always
-            // visible on touch. FEED-149: a team owner's Remove keeps its slot.
-            if (device.registered && mine) {
-                CircleIconButton(
-                    ExpIcons.navSettings,
-                    contentDescription = "Device settings",
-                    onClick = onOpenSettings,
-                    borderless = true,
-                    modifier = Modifier.testTag("device-settings-button"),
-                )
-            } else if (onRemoveShare != null) {
-                CircleIconButton(
-                    ExpIcons.uiDelete,
-                    contentDescription = "Remove ${device.displayLabel} from this team",
-                    onClick = onRemoveShare,
-                    borderless = true,
-                    modifier = Modifier.testTag("device-remove-share-button"),
+                    onOpenSettings = onOpenSettings.takeIf { canSettings },
+                    onRemoveShare = onRemoveShare.takeIf { !mine },
                 )
             }
         }
-        // The chips, inset under the name, wrapping.
         FlowRow(
-            modifier = Modifier.fillMaxWidth().padding(start = 30.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(gap),
+            verticalArrangement = Arrangement.spacedBy(gap),
         ) {
             when {
                 // Never reported (or the list is still loading): say so rather
                 // than claiming the machine holds nothing.
                 logins == null || device.agentAccounts == null -> LoginHint(DevicesList.Copy.CHECKING)
                 listRow.noAccount -> LoginHint(DevicesList.Copy.NO_ACCOUNT)
-                else -> logins.forEach { login ->
-                    key(login.key) {
-                        DeviceLoginChip(
-                            row = login,
-                            actionable = actionable,
-                            state = commandStates[deviceLoginCommandKey(login)],
-                            onRemove = { onRemoveAccount(login) },
-                            onSignOut = { onSignOutAccount(login) },
-                            onSignIn = { onSignIn(login.agent, login.profileId) },
-                            onKeepSignedIn = { onKeepSignedIn(login) },
+                else -> {
+                    val icons = DevicesList.accountIcons(logins.size, expanded)
+                    logins.take(icons.visible).forEach { login ->
+                        key(login.key) {
+                            DeviceLoginIcon(
+                                row = login,
+                                item = listRow.attention.firstOrNull {
+                                    it.kind == DevicesList.Kind.Login &&
+                                        it.agent == login.agent && it.profileId == login.profileId
+                                },
+                                actionable = actionable,
+                                state = commandStates[deviceLoginCommandKey(login)],
+                                onRemove = { onRemoveAccount(login) },
+                                onSignOut = { onSignOutAccount(login) },
+                                onSignIn = { onSignIn(login.agent, login.profileId) },
+                                onKeepSignedIn = { onKeepSignedIn(login) },
+                            )
+                        }
+                    }
+                    if (icons.more) {
+                        CircleIconButton(
+                            ExpIcons.uiMore,
+                            contentDescription = DevicesList.Copy.MORE_ACCOUNTS,
+                            onClick = { expanded = true },
+                            borderless = true,
+                            size = DevicesList.Card.ICON_SIZE.dp,
+                            glyphSize = DevicesList.Card.MARK_SIZE.dp,
+                            modifier = Modifier.testTag("device-more-accounts"),
                         )
                     }
                 }
             }
             // EXP-909: "Add account" is OFFERED or ABSENT, never disabled.
             if (canAdd) {
-                GlassPill(
-                    "",
-                    size = PillSize.Sm,
-                    icon = ExpIcons.uiAdd,
-                    onClick = onAddAccount,
+                CircleIconButton(
+                    ExpIcons.uiAdd,
                     contentDescription = DevicesList.Copy.ADD_ACCOUNT,
+                    onClick = onAddAccount,
+                    borderless = true,
+                    size = DevicesList.Card.ICON_SIZE.dp,
+                    glyphSize = DevicesList.Card.MARK_SIZE.dp,
                     modifier = Modifier.testTag("add-account"),
                 )
             }
@@ -754,7 +810,7 @@ private fun MachineRow(
     }
 }
 
-/** The muted caption in the chip slot: `Checking…` / `No account`. */
+/** The muted caption in the icon row: `Checking…` / `No account`. */
 @Composable
 private fun LoginHint(text: String) {
     Text(
@@ -766,80 +822,94 @@ private fun LoginHint(text: String) {
 }
 
 /**
- * A-16: the attention icon (warning tone) and its small card — one line per
- * item, its text left and its one action pill right (none when null).
+ * EXP-1560: the card's ghost `⋯` (`copy.deviceActions`) and THE menu — the
+ * update line as a disabled muted row, `Update` (only for the update action;
+ * waits while one is requested), Device settings; on a teammate's card only
+ * the owner's Remove from this team.
  */
 @Composable
-private fun DeviceAttentionButton(
-    items: List<DevicesList.AttentionItem>,
+private fun DeviceActionsMenu(
+    updateItem: DevicesList.AttentionItem?,
     updateBusy: Boolean,
     onUpdate: () -> Unit,
-    onSignIn: (String, String?) -> Unit,
+    onOpenSettings: (() -> Unit)?,
+    onRemoveShare: (() -> Unit)?,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
         CircleIconButton(
-            ExpIcons.uiWarning,
-            contentDescription = DevicesList.Copy.ATTENTION,
+            ExpIcons.uiMore,
+            contentDescription = DevicesList.Copy.DEVICE_ACTIONS,
             onClick = { open = true },
-            tint = NeedsInputAmber,
             borderless = true,
-            modifier = Modifier.testTag("device-attention"),
+            size = DevicesList.Card.ICON_SIZE.dp,
+            glyphSize = DevicesList.Card.MARK_SIZE.dp,
+            modifier = Modifier.testTag("device-actions"),
         )
         GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            Column(
-                modifier = Modifier
-                    .widthIn(min = 220.dp, max = 320.dp)
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-                    .testTag("device-attention-card"),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                items.forEach { item ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+            updateItem?.let { item ->
+                GlassMenuItem(
+                    text = {
                         Text(
                             item.text,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.weight(1f, fill = false),
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )
-                        item.action?.let { action ->
-                            Spacer(Modifier.width(10.dp))
-                            GlassPill(
-                                DevicesList.actionLabel(action),
-                                size = PillSize.Sm,
-                                icon = when (action) {
-                                    DevicesList.Action.Update -> ExpIcons.uiUpdate
-                                    DevicesList.Action.SignIn -> ExpIcons.uiSignIn
-                                },
-                                tint = NeedsInputAmber,
-                                enabled = !(action == DevicesList.Action.Update && updateBusy),
-                                onClick = {
-                                    open = false
-                                    when (action) {
-                                        DevicesList.Action.Update -> onUpdate()
-                                        DevicesList.Action.SignIn ->
-                                            item.agent?.let { agent -> onSignIn(agent, item.profileId) }
-                                    }
-                                },
-                            )
-                        }
-                    }
+                    },
+                    enabled = false,
+                    onClick = {},
+                )
+                if (item.action == DevicesList.Action.Update) {
+                    GlassMenuItem(
+                        text = { Text(DevicesList.Copy.UPDATE) },
+                        leadingIcon = { Icon(ExpIcons.uiUpdate, contentDescription = null) },
+                        enabled = !updateBusy,
+                        onClick = {
+                            open = false
+                            onUpdate()
+                        },
+                        modifier = Modifier.testTag("device-update"),
+                    )
                 }
+            }
+            onOpenSettings?.let { open1 ->
+                GlassMenuItem(
+                    text = { Text(DevicesList.Copy.SETTINGS) },
+                    leadingIcon = { Icon(ExpIcons.navSettings, contentDescription = null) },
+                    onClick = {
+                        open = false
+                        open1()
+                    },
+                    modifier = Modifier.testTag("device-settings-button"),
+                )
+            }
+            onRemoveShare?.let { remove ->
+                GlassMenuItem(
+                    text = { Text(DevicesList.Copy.REMOVE_FROM_TEAM) },
+                    leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
+                    destructive = true,
+                    onClick = {
+                        open = false
+                        remove()
+                    },
+                    modifier = Modifier.testTag("device-remove-share-button"),
+                )
             }
         }
     }
 }
 
 /**
- * A-16: ONE login of one machine as a chip — the brand mark, the login's
- * identity ([AgentAccountsRows.loginLabel], never a status) and ` · plan`
- * when that identity is the email. A tap opens the account menu with the
- * login's limit bars at its top; on a teammate's (or an offline) machine the
- * menu holds the bars alone.
+ * EXP-1560: ONE login of one machine as an icon — a ghost
+ * [DevicesList.Card.ICON_SIZE] square holding the agent's brand mark, THE
+ * run-mark amber badge when the login has a login attention [item]. A tap
+ * opens the account menu headed by the email (else the label), the plan
+ * muted, the item's status line in warning tone, then the usage windows; on
+ * a teammate's (or an offline) machine the menu is that preview alone.
  */
 @Composable
-private fun DeviceLoginChip(
+private fun DeviceLoginIcon(
     row: AgentProfileUsageRow,
+    item: DevicesList.AttentionItem?,
     actionable: Boolean,
     state: DeviceCommandUiState?,
     onRemove: () -> Unit,
@@ -852,48 +922,79 @@ private fun DeviceLoginChip(
     val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
     var menuOpen by remember { mutableStateOf(false) }
     val actions = if (actionable) AgentAccountsRows.chipActions(row) else emptyList()
-    // The `· plan` tail only when the label is already the EMAIL: a login that
-    // has nothing but its plan must not read "max · max".
-    val planTail = row.plan?.takeIf { row.email != null }
+    // The plan line only when the header is the EMAIL: a login that has
+    // nothing but its plan must not read "max" twice.
+    val plan = row.plan?.takeIf { row.email != null }
+    val status = item?.status?.let { DevicesList.Copy.STATUS[it] }
     val description = buildString {
         append("${agentLabel(row.agent)}, $label")
-        planTail?.let { append(", $it") }
-        AgentAccountsRows.healthBadge(row)?.let { append(", ${it.lowercase()}") }
+        plan?.let { append(", $it") }
+        status?.let { append(", ${it.lowercase()}") }
     }
     Box {
-        GlassPill(
-            if (planTail != null) "$label · $planTail" else label,
-            size = PillSize.Sm,
-            loading = busy,
-            onClick = { menuOpen = true },
-            leading = {
-                Icon(
-                    agentIconPainter(row.agent),
-                    contentDescription = null,
-                    modifier = Modifier.size(13.dp),
-                    tint = agentIconTint(row.agent),
+        Box(
+            modifier = Modifier
+                .size(DevicesList.Card.ICON_SIZE.dp)
+                .clip(CircleShape)
+                .clickable(role = Role.Button) { menuOpen = true }
+                .semantics { contentDescription = description }
+                .testTag("device-login-icon"),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (busy) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(DevicesList.Card.MARK_SIZE.dp - 2.dp),
+                    strokeWidth = 1.5.dp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                 )
-            },
-            contentDescription = description,
-            modifier = Modifier.testTag("device-login-chip"),
-        )
+            } else {
+                AgentRunMark(
+                    agent = row.agent,
+                    state = if (item != null) SessionTree.SessionState.NeedsYou else null,
+                    size = DevicesList.Card.MARK_SIZE.dp,
+                    badgeSize = 7.dp,
+                    badgeRing = GlassTokens.OpaqueCardFill,
+                )
+            }
+        }
         GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-            // The login's bars at the menu's top (the account picker's limit
-            // preview); the caption ladder when there are none.
             val age = AgentUsagePresentation.usageAge(row.usage, nowMs)
             val asOf = age ?: row.checkedAt?.takeIf { it.isNotBlank() }
                 ?.let(::relativeTime)?.takeIf { it.isNotEmpty() }?.let { "as of $it" }
             Column(
                 modifier = Modifier
                     .width(260.dp)
-                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .testTag("device-login-preview"),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                if (row.usage?.windows?.isNotEmpty() == true) {
-                    Column(modifier = Modifier.alpha(if (age != null) 0.5f else 1f)) {
-                        AgentUsageMini(usage = row.usage, nowMs = nowMs)
-                    }
-                    if (age != null) LoginHint(age)
+                Text(
+                    row.email ?: label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                plan?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                    )
+                }
+                status?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NeedsInputAmber,
+                        maxLines = 1,
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                val usage = row.usage
+                if (usage != null && usage.windows.isNotEmpty()) {
+                    UsageWindows(usage = usage)
                 } else if (row.signedIn && asOf == null) {
                     LoginHint(DevicesList.Copy.CHECKING)
                 } else {
