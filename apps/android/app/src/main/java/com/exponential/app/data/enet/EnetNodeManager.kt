@@ -116,6 +116,9 @@ class EnetNodeManager @Inject constructor(
      * until QUIC's idle timeout.
      */
     fun networkChange(reason: String) {
+        // EXP-1590: a node that failed to start retries now (the network that
+        // just came back is usually why it failed), not on its backoff.
+        if (failures > 0) wake.trySend(Unit)
         val running = nodes.values.filter { it.node != null }
         if (running.isEmpty()) return
         Log.i(TAG, "network change ($reason) -> ${running.size} node(s)")
@@ -186,11 +189,13 @@ class EnetNodeManager @Inject constructor(
         }
     }
 
+    // EXP-1590: failed passes in a row (0 = the last pass went through).
+    @Volatile private var failures = 0
+
     private suspend fun loop() {
-        var retry = false
         while (true) {
-            withTimeoutOrNull(if (retry) RETRY_MS else REFRESH_MS) { wake.receive() }
-            val job = scope.launch { lock.withLock { retry = reconcile() } }
+            withTimeoutOrNull(EnetRetry.waitMs(failures, REFRESH_MS)) { wake.receive() }
+            val job = scope.launch { lock.withLock { failures = if (reconcile()) failures + 1 else 0 } }
             pass = job
             job.join()
         }
@@ -222,7 +227,8 @@ class EnetNodeManager @Inject constructor(
                 throw err
             } catch (err: Throwable) {
                 failed = true
-                Log.w(TAG, "eNet node for an account failed: ${err.javaClass.simpleName}")
+                // EXP-1590: the message names the call that timed out ("register timed out").
+                Log.w(TAG, "eNet node for an account failed: ${err.javaClass.simpleName}: ${err.message}")
             }
         }
         return failed
@@ -258,9 +264,9 @@ class EnetNodeManager @Inject constructor(
             crypto = EnetFfi,
             label = Build.MODEL,
             platform = "Android ${Build.VERSION.RELEASE}",
-            register = { input -> withTimeoutOrNull(CALL_TIMEOUT_MS) { api.register(accountId, input) } ?: error("register timed out") },
+            register = { input -> withTimeoutOrNull(START_CALL_TIMEOUT_MS) { api.register(accountId, input) } ?: error("register timed out") },
             listTeam = { teamId ->
-                withTimeoutOrNull(CALL_TIMEOUT_MS) { api.list(accountId, teamId).map { it.endpointId } } ?: error("list timed out")
+                withTimeoutOrNull(START_CALL_TIMEOUT_MS) { api.list(accountId, teamId).map { it.endpointId } } ?: error("list timed out")
             },
             startNode = { id -> FfiPeerNode.start(id) },
         )
@@ -339,10 +345,26 @@ class EnetNodeManager @Inject constructor(
         private const val TAG = "EnetNodes"
         /** The allowlist refresh cadence (#VAPP-37: on start + every 10 minutes). */
         const val REFRESH_MS = 10 * 60 * 1000L
-        private const val RETRY_MS = 60 * 1000L
         /** The tree-key holder cadence (sealed-content.json: on start + every minute while online). */
         const val HOLDER_MS = 60 * 1000L
         private const val CALL_TIMEOUT_MS = 20_000L
+        /** EXP-1590: register / list on the node's start path: a hung call gives
+         *  way to a fast retry ([EnetRetry]) instead of holding the node down. */
+        private const val START_CALL_TIMEOUT_MS = 8_000L
         private const val REVOKE_TIMEOUT_MS = 3_000L
     }
+}
+
+/**
+ * EXP-1590: how long the node loop waits before its next pass. After a failed
+ * pass it retries on a short backoff (a cold start's first `installs.register`
+ * can time out while the network or the server is still waking), never a flat
+ * minute: 1 s, 3 s, 10 s, 30 s, then every 60 s. A pass that went through
+ * waits [refreshMs] (the allowlist refresh) or the next wake.
+ */
+internal object EnetRetry {
+    val BACKOFF_MS = listOf(1_000L, 3_000L, 10_000L, 30_000L, 60_000L)
+
+    fun waitMs(failures: Int, refreshMs: Long): Long =
+        if (failures <= 0) refreshMs else BACKOFF_MS[minOf(failures, BACKOFF_MS.size) - 1]
 }
