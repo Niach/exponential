@@ -1,5 +1,6 @@
 package com.exponential.app.ui.components
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -29,6 +30,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,6 +60,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import com.exponential.app.domain.Dock
 import com.exponential.app.domain.PlanPage
+import com.exponential.app.domain.perfTraceBegin
+import com.exponential.app.domain.perfTraceEnd
 import com.exponential.app.domain.ToastStack
 import com.exponential.app.ui.components.picker.InlinePickerSlot
 import com.exponential.app.ui.components.picker.InlinePickerSlotRows
@@ -138,6 +142,13 @@ fun DockCards(
 ) {
     var expanded by remember { mutableStateOf(initialExpanded) }
     val view = Dock.dock(rows, expanded, openId)
+    // #EXP-1538: open → first card, for :macrobenchmark (`Dock.openToVisible`).
+    val traceCookie = remember { DOCK_TRACE_COOKIES++.also { perfTraceBegin(DOCK_OPEN_TRACE, it) } }
+    val traced = remember { booleanArrayOf(false) }
+    if (!traced[0] && rows.isNotEmpty()) {
+        traced[0] = true
+        perfTraceEnd(DOCK_OPEN_TRACE, traceCookie)
+    }
     // Release train 2026-10-23 (N-12 F2): the open card vanished (the run
     // ended, the ask was answered): forget its id, or a later row with the
     // same fixed id (`tasks`, `queued`, `banner:*`) reopens the sheet unasked.
@@ -166,6 +177,9 @@ fun DockCards(
         DockSheet(row = open, onDismiss = close) { scope -> sheet(open, scope, close) }
     }
 }
+
+private const val DOCK_OPEN_TRACE = "Dock.openToVisible"
+private var DOCK_TRACE_COOKIES = 0
 
 /**
  * The pile: every card placed by [ToastStack.stackLayout] (measured heights),
@@ -202,13 +216,21 @@ fun DockPile(
             .height(boxHeight)
             .testTag(Dock.TestIds.PILE),
     ) {
-        rows.forEachIndexed { index, row ->
+        rows.forEachIndexed { index, row -> key(row.id) {
             val item = layout.items[index]
             val front = row.id == frontId
             val offset by animateDpAsState(item.offset.dp, spec, label = "dock-card-offset")
             val floatSpec = Motion.slow<Float>(reduce)
             val scale by animateFloatAsState(item.scale.toFloat(), floatSpec, label = "dock-card-scale")
             val alpha by animateFloatAsState(if (item.visible) 1f else 0f, floatSpec, label = "dock-card-alpha")
+            // #EXP-1538 (dock.json `motion.enter`): every card, the ones there
+            // when the view opens included, fades in rising `stack.gap` into
+            // its place, decelerating; reduce motion = the fade only.
+            val enter = remember { Animatable(0f) }
+            LaunchedEffect(Unit) {
+                enter.animateTo(1f, Motion.standard(reduceMotion = false, easing = DesignTokens.Motion.Ease.Decelerate))
+            }
+            val rise = with(density) { Dock.STACK.gap.dp.toPx() }
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -216,7 +238,8 @@ fun DockPile(
                     .graphicsLayer {
                         scaleX = scale
                         scaleY = scale
-                        this.alpha = alpha
+                        this.alpha = alpha * enter.value
+                        if (!reduce) translationY = (1f - enter.value) * rise.toFloat()
                         transformOrigin = TransformOrigin(0.5f, 0f)
                     }
                     .onSizeChanged { size -> if (heights[row.id] != size.height) heights[row.id] = size.height },
@@ -237,7 +260,7 @@ fun DockPile(
                     },
                 )
             }
-        }
+        } }
     }
 }
 

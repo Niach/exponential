@@ -836,10 +836,25 @@ export function mergeHeldIntoDraft(draft: string, held: readonly string[]): stri
 }
 
 // Exported for tests; app code goes through acquireSteerSession.
+/** #EXP-1538 (dock.json LOCAL FIRST): the stream's latest-wins slots the
+ *  Dock draws, kept per session past the store's reap so a re-opened view
+ *  draws them in its first frame, until the live replay restates them. */
+export interface SteerDockSlots {
+  taskList: TaskListEntry[]
+  backgroundTasks: BackgroundTask[]
+  queue: QueuedMessage[]
+  compacting: CompactionState | null
+  rateLimit: SessionRateLimitState | null
+}
+
 export function createSteerSessionStore(
   sessionId: string,
   deps: SteerStoreDeps = defaultDeps,
-  onDispose?: () => void
+  /** `lastKnown` = the Dock slots to seed the session's next store with
+   *  (null = nothing to keep: the run is over, or nothing was showing). */
+  onDispose?: (lastKnown: SteerDockSlots | null) => void,
+  /** #EXP-1538: the last-known Dock slots of a previous store. */
+  seed?: SteerDockSlots | null
 ): InternalSteerSessionStore {
   let disposed = false
   /** EXP-1527: this view's connection analytics (one per store). */
@@ -885,12 +900,12 @@ export function createSteerSessionStore(
    *  echo of a message it just sent) belongs directly after it. */
   let currentSeq = 0
   let latestDiff: string | null = null
-  let compacting: CompactionState | null = null
+  let compacting: CompactionState | null = seed?.compacting ?? null
   let config: SessionConfigState | null = null
   let usage: SessionUsageState | null = null
   // EXP-1051: the context-window layout, latest-wins beside `usage`.
   let contextLayout: ContextSegment[] | null = null
-  let rateLimit: SessionRateLimitState | null = null
+  let rateLimit: SessionRateLimitState | null = seed?.rateLimit ?? null
   // EXP-848: idle until the publisher says otherwise.
   let turnState: TurnState = `ended`
   // EXP-850 §5: the turn's start and its token count — both unknown until a
@@ -901,14 +916,20 @@ export function createSteerSessionStore(
   let turnWriting: WorkingWriting | null = null
   // EXP-850 §2/§3: the two new latest-wins slots. `workflows` is keyed per
   // workflow id, in first-appearance order (a Map preserves insertion order).
-  let backgroundTasks: BackgroundTask[] = []
+  let backgroundTasks: BackgroundTask[] = seed?.backgroundTasks ?? []
   // EXP-1324: when this client first saw each background task id — kept
   // across replays, so a reconnect never restarts a task's elapsed time.
   const backgroundFirstSeen = new Map<string, number>()
+  for (const task of backgroundTasks) {
+    if (task.startedAt !== undefined) backgroundFirstSeen.set(task.id, task.startedAt)
+  }
   // EXP-927: the agent's own task list, latest-wins whole.
-  let taskList: TaskListEntry[] = []
+  let taskList: TaskListEntry[] = seed?.taskList ?? []
   // EXP-861: the device-held queue, the seventh latest-wins slot.
-  let queue: QueuedMessage[] = []
+  let queue: QueuedMessage[] = seed?.queue ?? []
+  /** #EXP-1538: false while `queue` is a seeded last-known copy the stream
+   *  has not restated: it is shown, never handed back to the draft. */
+  let queueRestated = !seed
   let workflows = new Map<string, WorkflowState>()
   let compactionTimer: ReturnType<typeof setTimeout> | null = null
   let answerStates: AnswerStates = {}
@@ -1025,6 +1046,10 @@ export function createSteerSessionStore(
    *  draft keeps its place; the queued text lands after a blank line. */
   const restoreQueueToDraft = (): boolean => {
     if (queue.length === 0) return false
+    if (!queueRestated) {
+      queue = []
+      return false
+    }
     draftText = mergeHeldIntoDraft(draftText, queue.map((entry) => entry.text))
     queue = []
     commitDraft()
@@ -1090,6 +1115,8 @@ export function createSteerSessionStore(
       Math.max(0, COMPACTION_TIMEOUT_MS - (Date.now() - startedAt))
     )
   }
+  // #EXP-1538: a seeded fold still expires from its own start.
+  if (compacting) armCompactionBackstop(compacting.startedAt)
 
   /** Returns whether the phase actually changed — a per-frame commit on an
    *  already-live store would notify (and re-render) once per replayed
@@ -1506,6 +1533,7 @@ export function createSteerSessionStore(
         const messages = parseQueue(event)
         if (!messages) return
         queue = messages
+        queueRestated = true
         // A message this client echoed that the engine is HOLDING: the strip
         // is its only home until delivery, so the echo row goes (see
         // takeQueuedEchoes — otherwise a delivery past ECHO_TTL_MS doubles it).
@@ -1689,6 +1717,7 @@ export function createSteerSessionStore(
     taskList = []
     // EXP-861: the replay restates the device's queue too.
     queue = []
+    queueRestated = true
     workflows = new Map()
     clearCompaction()
     // Seeded BEFORE the fold so a replayed `answer_ack`/`question_resolved`
@@ -2554,6 +2583,12 @@ export function createSteerSessionStore(
     dispose() {
       if (disposed) return
       disposed = true
+      // #EXP-1538: what the Dock showed outlives the store, unless the run
+      // is over (an ended session shows none of it).
+      const lastKnown: SteerDockSlots | null =
+        sessionStatus === `ended` || phase.kind === `ended`
+          ? null
+          : { taskList, backgroundTasks, queue, compacting, rateLimit }
       clearRetryTimer()
       clearDialTimers()
       clearCompaction()
@@ -2568,7 +2603,7 @@ export function createSteerSessionStore(
       ws?.close()
       ws = null
       viewStats?.end()
-      onDispose?.()
+      onDispose?.(lastKnown)
     },
     _subscriberCount: () => listeners.size,
     _scheduleReap() {
@@ -2597,6 +2632,9 @@ export function createSteerSessionStore(
 type RegistryStore = ReturnType<typeof createSteerSessionStore>
 
 const stores = new Map<string, RegistryStore>()
+/** #EXP-1538: each reaped store's last-known Dock slots, seeded into the
+ *  session's next store (which then owns them). */
+const lastKnownDock = new Map<string, SteerDockSlots>()
 
 // EXP-625: the wakeups. A backgrounded tab (or a phone whose browser froze
 // the page) comes back with sockets the OS quietly killed; nothing in the
@@ -2631,12 +2669,15 @@ function detachWakeups() {
 export function acquireSteerSession(sessionId: string): SteerSessionStore {
   let store = stores.get(sessionId)
   if (!store) {
-    store = createSteerSessionStore(sessionId, defaultDeps, () => {
+    store = createSteerSessionStore(sessionId, defaultDeps, (lastKnown) => {
       stores.delete(sessionId)
+      if (lastKnown) lastKnownDock.set(sessionId, lastKnown)
+      else lastKnownDock.delete(sessionId)
       // The owner's turn log was folded from this store's feed: it goes too.
       releaseTurnLog(sessionId)
       if (stores.size === 0) detachWakeups()
-    })
+    }, lastKnownDock.get(sessionId))
+    lastKnownDock.delete(sessionId)
     stores.set(sessionId, store)
     attachWakeups()
   }
@@ -2659,4 +2700,5 @@ export function retainSteerSessions(keep: ReadonlySet<string>): void {
 /** Sign-out hygiene: close every background connection immediately. */
 export function disposeAllSteerSessions(): void {
   for (const store of [...stores.values()]) store.dispose()
+  lastKnownDock.clear()
 }

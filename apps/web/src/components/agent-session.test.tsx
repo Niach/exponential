@@ -347,6 +347,27 @@ describe(`AgentSessionView Queue`, () => {
   })
 })
 
+// #EXP-1538 (dock.json LOCAL FIRST): the store's last-known slots draw in
+// the first frame while the stream connects; an ended session shows none.
+describe(`AgentSessionView Dock local first`, () => {
+  const tasks = [{ content: `Measuring on the Galaxy A54`, status: `in_progress` as const }]
+
+  it(`draws THE Queue in the first render while the stream connects, and measures it`, () => {
+    performance.clearMeasures()
+    snapshot = snap({ phase: { kind: `connecting` }, connected: false, taskList: tasks })
+    render(<AgentSessionView session={session} />)
+    expect(screen.getByTestId(`dock-card`).dataset.kind).toBe(`tasks`)
+    const [measure] = performance.getEntriesByName(`dock:open-to-visible`)
+    expect(measure).toBeTruthy()
+  })
+
+  it(`an ended session shows none of the stream's slots`, () => {
+    snapshot = snap({ phase: { kind: `ended` }, taskList: tasks, rateLimit: { status: `limited`, resetsAt: Date.now() + 60_000 } as SteerSessionSnapshot[`rateLimit`] })
+    render(<AgentSessionView session={{ ...session, status: `ended` } as SessionRow} />)
+    expect(screen.queryByTestId(`dock-card`)).toBeNull()
+  })
+})
+
 describe(`AgentSessionView tool-posted cards (EXP-1280)`, () => {
   const planMessage = (over: Record<string, unknown> = {}) => ({
     id: `m-plan`,
