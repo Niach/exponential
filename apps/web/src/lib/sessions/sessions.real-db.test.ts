@@ -1057,7 +1057,8 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
         repositoryId: repo!.id,
         number,
         url,
-        head: `exp/h-${number}`,
+        // #EXP-1402: the default follows the PR on the writer's head.
+        head: number === 40 || number === 41 ? `exp/session-child` : `exp/h-${number}`,
         base: `master`,
         state,
       })
@@ -1068,6 +1069,9 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
 
     // No PR yet: untagged. Once the child has an open PR, a new topic is
     // that PR's, and a rewrite of an untagged one takes the tag too.
+    // FEED-166 (1): a MERGED PR (or one on another head) is never a default.
+    await pr(40, child.sessionId, `merged`)
+    await pr(42, child.sessionId)
     await writeGuide({ userId: w.owner, sessionId: child.sessionId, topic: `Before`, text: `Untagged.`, files: [`a.ts`] })
     expect((await entry(`Before`))?.prUrl).toBeUndefined()
     const url = await pr(41, child.sessionId)
@@ -1093,6 +1097,8 @@ describe.skipIf(!ready.ok)(`thread issues, the Guide and the trigger mirrors`, (
     const cont = await sendSession({ userId: w.owner, input: { sessionId: child.sessionId, text: `again` } })
     expect(cont.sessionId).not.toBe(child.sessionId)
     expect((await row(cont.sessionId)).branch).toBe(`exp/session-child`)
+    // #EXP-1402: the lineage, not the branch, makes it the same logical session.
+    expect((await row(cont.sessionId)).continuedFromId).toBe(child.sessionId)
     await writeGuide({ userId: w.owner, sessionId: cont.sessionId, topic: `Before`, text: `Rewritten.` })
     expect(await entry(`Before`)).toMatchObject({ text: `Rewritten.`, sessionId: cont.sessionId, prUrl: url })
     expect((await row(root.sessionId)).guide!.filter((e) => e.topic === `Before`)).toHaveLength(1)

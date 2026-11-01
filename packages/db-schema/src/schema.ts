@@ -2001,6 +2001,12 @@ export const sessions = pgTable(
       .notNull()
       .references((): AnyPgColumn => sessions.id, { onDelete: `cascade` }),
     depth: integer().notNull().default(0),
+    // SERVER-ONLY (#EXP-1402): the ENDED row this one continues (written by
+    // `sessions.send` when an ended child continues as a sibling, or a moved
+    // root as its child). A logical session = this lineage, never `branch`.
+    continuedFromId: uuid(`continued_from_id`).references((): AnyPgColumn => sessions.id, {
+      onDelete: `set null`,
+    }),
     // NEW-2: the agent this is a conversation session OF (a root; one per
     // (agent, user_id)); its children carry nothing (they resolve through
     // the root). NULL = a thread.

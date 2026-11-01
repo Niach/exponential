@@ -120,6 +120,8 @@ pub struct HubSession {
     pub agent_id: Option<String>,
     /// The agent whose session started this root.
     pub started_by_agent_id: Option<String>,
+    /// #EXP-1402: the ended sibling this row continues (its lineage).
+    pub continued_from_id: Option<String>,
     pub device_id: String,
     pub status: Status,
     pub busy: bool,

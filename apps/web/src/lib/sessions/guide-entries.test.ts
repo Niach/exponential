@@ -15,6 +15,7 @@ import {
   ownedByAny,
   ownedBySubtree,
   removeGuideEntries,
+  soleHeadSession,
   stampUntaggedGuideEntries,
   upsertGuidePicture,
   upsertGuideText,
@@ -178,22 +179,31 @@ describe(`PR helpers`, () => {
   })
 })
 
-// EXP-1397: ownership follows the logical session (its continuations).
+// EXP-1397/#EXP-1402: ownership follows the logical session: the
+// `continuedFromId` lineage, never the branch.
 describe(`logicalSessionIds`, () => {
   const tree = [
-    { id: `root`, parentId: null, branch: `exp/root`, status: `idle` },
-    { id: `c1`, parentId: `root`, branch: `exp/kid`, status: `ended` },
-    { id: `c2`, parentId: `root`, branch: `exp/kid`, status: `ended` },
-    { id: `c3`, parentId: `root`, branch: `exp/kid`, status: `running` },
-    { id: `other`, parentId: `root`, branch: `exp/other`, status: `ended` },
-    { id: `g`, parentId: `c1`, branch: `exp/g`, status: `ended` },
+    { id: `root`, parentId: null, status: `idle` },
+    { id: `c1`, parentId: `root`, status: `ended` },
+    { id: `c2`, parentId: `root`, continuedFromId: `c1`, status: `ended` },
+    { id: `c3`, parentId: `root`, continuedFromId: `c2`, status: `running` },
+    // Same branch as c1..c3 but no lineage: never theirs.
+    { id: `other`, parentId: `root`, status: `ended` },
+    { id: `g`, parentId: `c1`, status: `ended` },
   ]
 
-  it(`is the row and every ended row on its branch`, () => {
-    expect(logicalSessionIds(`c3`, tree)).toEqual([`c3`, `c1`, `c2`])
+  it(`is the row, the ended rows it continues and the rows continuing it`, () => {
+    expect(logicalSessionIds(`c3`, tree)).toEqual([`c3`, `c2`, `c1`])
+    // An ended predecessor's logical session reaches its running continuation.
+    expect(logicalSessionIds(`c1`, tree)).toEqual([`c1`, `c2`, `c3`])
     expect(logicalSessionIds(`other`, tree)).toEqual([`other`])
-    // No branch yet: only itself.
-    expect(logicalSessionIds(`x`, [{ id: `x`, parentId: `root`, branch: null, status: `queued` }])).toEqual([`x`])
+    expect(logicalSessionIds(`x`, [{ id: `x`, parentId: `root`, status: `queued` }])).toEqual([`x`])
+  })
+
+  it(`never takes a sibling continuation of a shared predecessor`, () => {
+    const forked = [...tree, { id: `c4`, parentId: `root`, continuedFromId: `c2`, status: `running` }]
+    expect(logicalSessionIds(`c4`, forked)).toEqual([`c4`, `c2`, `c1`])
+    expect(logicalSessionIds(`c3`, forked)).toEqual([`c3`, `c2`, `c1`])
   })
 
   it(`owns and reaches across the chain`, () => {
@@ -203,5 +213,61 @@ describe(`logicalSessionIds`, () => {
     // A predecessor's child is in the continuation's subtree.
     expect(ownedBySubtree(mine, tree)({ sessionId: `g` } as GuideEntry)).toBe(true)
     expect(ownedBySubtree(mine, tree)({ sessionId: `root` } as GuideEntry)).toBe(false)
+  })
+})
+
+// FEED-156: continuation c91709c1 of ended 308a43e7 (same branch, PR #1257).
+describe(`FEED-156: a continuation owns its predecessor's topics`, () => {
+  const tree = [
+    { id: `574977b3`, parentId: null, status: `idle` },
+    { id: `308a43e7`, parentId: `574977b3`, status: `ended` },
+    { id: `c91709c1`, parentId: `574977b3`, continuedFromId: `308a43e7`, status: `running` },
+  ]
+  const owned = ownedByAny(logicalSessionIds(`c91709c1`, tree))
+  const stale: GuideEntry = { ...text(`Summary`, `Old.`), sessionId: `308a43e7`, at: 1 }
+
+  it(`removes the predecessor's topic`, () => {
+    const { results } = removeGuideEntries([stale], { topic: `Summary` }, owned)
+    expect(results).toEqual([])
+  })
+
+  it(`a same-name write replaces the row instead of adding a second`, () => {
+    const out = upsertGuideText([stale], `Summary`, `New.`, undefined, { at: 2, sessionId: `c91709c1` }, owned)!
+    expect(out).toHaveLength(1)
+    expect(out[0]).toMatchObject({ topic: `Summary`, text: `New.`, sessionId: `c91709c1` })
+  })
+
+  it(`and folds the duplicates an earlier write left behind`, () => {
+    const dup: GuideEntry = { ...text(`Summary`, `Dup.`), sessionId: `c91709c1`, at: 3 }
+    const foreign: GuideEntry = { ...text(`Summary`, `Theirs.`), sessionId: `elsewhere`, at: 4 }
+    const out = upsertGuideText([stale, foreign, dup], `Summary`, `New.`, undefined, { at: 5, sessionId: `c91709c1` }, owned)!
+    expect(out.map((row) => row.text)).toEqual([`New.`, `Theirs.`])
+  })
+})
+
+describe(`#EXP-1402: the explicit untag and the stamp guard`, () => {
+  it(`prUrl: null is remembered across rewrites and never stamped`, () => {
+    const first = upsertGuideText(null, `T`, `a`, undefined, { at: 1, sessionId: `s`, prUrl: null })!
+    expect(first[0]!.untagged).toBe(true)
+    const again = upsertGuideText(first, `T`, `b`, undefined, { at: 2, sessionId: `s` })!
+    expect(again[0]!.untagged).toBe(true)
+    expect(stampUntaggedGuideEntries(again, `https://github.com/o/r/pull/1`).changed).toBe(false)
+    // Tagging clears the marker.
+    const tagged = upsertGuideText(again, `T`, `c`, undefined, { at: 3, sessionId: `s`, prUrl: `https://github.com/o/r/pull/2` })!
+    expect(tagged[0]!.untagged).toBeUndefined()
+  })
+
+})
+
+describe(`soleHeadSession`, () => {
+  it(`resolves a head only when one lineage sits on it`, () => {
+    const one = [
+      { id: `a`, parentId: null, status: `ended`, branch: `exp/x` },
+      { id: `b`, parentId: null, continuedFromId: `a`, status: `running`, branch: `exp/x` },
+    ]
+    expect(soleHeadSession(one, `exp/x`)).toBe(`b`)
+    expect(soleHeadSession(one, `exp/y`)).toBeNull()
+    const two = [...one, { id: `c`, parentId: null, status: `running`, branch: `exp/x` }]
+    expect(soleHeadSession(two, `exp/x`)).toBeNull()
   })
 })

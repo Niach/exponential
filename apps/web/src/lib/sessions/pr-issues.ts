@@ -8,11 +8,10 @@ import { isSealedBody } from "@/lib/sessions/sealed"
 // EXP-1334/NEW-1: the issues a PR closes when `pr_open` names none. A
 // session's issues are the rows it HOLDS; the PR belongs to ONE session of
 // the tree, so it closes its SUBTREE's share: the rows its subtree holds
-// plus the tree's issues its start message names as `#IDENT`. The root's
-// own PR takes the whole thread; a child finding no share takes the rows
-// held outside every OTHER live subtree (the root's own rows), so the one
-// session doing the work keeps them when a review or fix-up child sits
-// beside it. Done work (an issue a merged PR closed) is never re-linked.
+// plus the tree's issues its start message names as `#IDENT` (the root's
+// subtree = the whole thread). #EXP-1402 (FEED-166): a child with no share
+// links NOTHING, never the thread's other issues (merging would close
+// them). Done work (an issue a merged PR closed) is never re-linked.
 // EXP-1458: a SEALED start message is never parsed; its clear
 // `ref_issue_ids` (the writer's `refIssueIds`) names the issues instead, and
 // a plaintext one honours them beside its `#IDENT`s.
@@ -43,7 +42,7 @@ export function pickPrIssues(opts: {
   rootId: string
   sessionId: string | null
   links: ReadonlyArray<{ issueId: string; identifier: string; sessionId: string }>
-  tree: ReadonlyArray<{ id: string; parentId: string | null; status?: string }>
+  tree: ReadonlyArray<{ id: string; parentId: string | null }>
   startText: string | null
   /** EXP-1458: the start message's `ref_issue_ids`. */
   startRefIssueIds?: readonly string[] | null
@@ -55,20 +54,12 @@ export function pickPrIssues(opts: {
   const subtree = subtreeOf(opts.tree, opts.sessionId)
   const named = new Set(extractIssueRefs(opts.startText ?? ``))
   const refs = new Set(opts.startRefIssueIds ?? [])
-  const share = opts.links
-    .filter(
-      (link) => subtree.has(link.sessionId) || named.has(link.identifier.toUpperCase()) || refs.has(link.issueId)
-    )
-    .map((link) => link.issueId)
-  if (share.length > 0) return unique(share)
-  // Nothing of its own: the rows no OTHER live subtree holds (the root's).
-  const others = new Set<string>()
-  for (const node of opts.tree) {
-    if (node.id === opts.rootId || subtree.has(node.id) || node.status === `ended`) continue
-    if (node.parentId === opts.rootId) for (const id of subtreeOf(opts.tree, node.id)) others.add(id)
-  }
   return unique(
-    opts.links.filter((link) => !others.has(link.sessionId)).map((link) => link.issueId)
+    opts.links
+      .filter(
+        (link) => subtree.has(link.sessionId) || named.has(link.identifier.toUpperCase()) || refs.has(link.issueId)
+      )
+      .map((link) => link.issueId)
   )
 }
 

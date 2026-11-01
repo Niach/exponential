@@ -39,23 +39,54 @@ export function ownedByAny(sessionIds: readonly string[]): GuideEntryFilter {
 export interface GuideTreeRow {
   id: string
   parentId: string | null
-  branch?: string | null
+  /** #EXP-1402: the ended row this one continues (`sessions.send`). */
+  continuedFromId?: string | null
   status?: string | null
 }
 
-/** EXP-1397: the ids of `sessionId`'s logical session: itself and every
- *  ENDED row of the tree it continues — a continuation (an ended child's
- *  sibling, a moved session) keeps the branch, and so the worktree. */
+/** EXP-1397/#EXP-1402: the ids of `sessionId`'s logical session: itself,
+ *  the ENDED rows it continues (its `continuedFromId` chain) and the rows
+ *  continuing it, never a sibling continuation of a shared predecessor nor
+ *  a row that merely sits on the same branch (FEED-156). */
 export function logicalSessionIds(sessionId: string, tree: readonly GuideTreeRow[]): string[] {
-  const self = tree.find((row) => row.id === sessionId)
-  const branch = self?.branch?.trim()
-  if (!branch) return [sessionId]
-  return [
-    sessionId,
-    ...tree
-      .filter((row) => row.id !== sessionId && row.status === `ended` && row.branch?.trim() === branch)
-      .map((row) => row.id),
-  ]
+  const byId = new Map(tree.map((row) => [row.id, row]))
+  const ids = [sessionId]
+  const seen = new Set(ids)
+  for (let at = byId.get(sessionId)?.continuedFromId; at && !seen.has(at); ) {
+    const row = byId.get(at)
+    if (!row || row.status !== `ended`) break
+    ids.push(at)
+    seen.add(at)
+    at = row.continuedFromId
+  }
+  const later = new Set([sessionId])
+  for (let grew = true; grew; ) {
+    grew = false
+    for (const row of tree) {
+      if (row.continuedFromId && later.has(row.continuedFromId) && !seen.has(row.id)) {
+        ids.push(row.id)
+        seen.add(row.id)
+        later.add(row.id)
+        grew = true
+      }
+    }
+  }
+  return ids
+}
+
+/** #EXP-1402: the session a head branch resolves to when a PR names none:
+ *  the newest row on it (`tree` oldest first), only when every row on it
+ *  is that row's logical session (else null: the newest of two lineages
+ *  may not be the PR's author). */
+export function soleHeadSession(
+  tree: readonly (GuideTreeRow & { branch?: string | null })[],
+  head: string
+): string | null {
+  const onHead = tree.filter((row) => row.branch?.trim() === head.trim())
+  const newest = onHead.at(-1)
+  if (!newest) return null
+  const lineage = new Set(logicalSessionIds(newest.id, tree))
+  return onHead.every((row) => lineage.has(row.id)) ? newest.id : null
 }
 
 /** EXP-1351: a REMOVE reaches the caller's whole subtree, so the root can
@@ -152,6 +183,8 @@ export function upsertGuideText(
         ? null
         : (results[index]?.prUrl ?? null)
       : meta.prUrl?.trim() || null
+  // #EXP-1402: an explicit `prUrl: null` is remembered, so no PR stamps it.
+  const untagged = meta.prUrl === undefined ? index !== -1 && results[index]?.untagged === true : !prUrl
   const entry: GuideEntry = {
     topic,
     label: null,
@@ -161,6 +194,7 @@ export function upsertGuideText(
     text,
     ...(kept.length ? { files: kept } : {}),
     ...(prUrl ? { prUrl } : {}),
+    ...(untagged && !prUrl ? { untagged: true } : {}),
     at: meta.at,
     sessionId: meta.sessionId,
   }
@@ -170,6 +204,12 @@ export function upsertGuideText(
     else results.splice(first, 0, entry)
   } else {
     results[index] = entry
+    // FEED-156: ONE text entry per topic and logical owner: a same-name
+    // write drops the owner's duplicates (a predecessor's, filed beside it).
+    for (let at = results.length - 1; at > index; at -= 1) {
+      const row = results[at]
+      if (isTextEntry(row) && row?.topic === topic && owned(row)) results.splice(at, 1)
+    }
   }
   const mine = (rows: readonly GuideEntry[]) =>
     rows.filter((row) => row === entry || owned(row))
@@ -306,7 +346,8 @@ export function canonicalGithubPrUrl(raw: string): string | null {
 
 /** When a session opens a NEW PR, the text topics it filed without a
  *  `prUrl` belong to that PR: tag them, so a later stacked PR's body never
- *  claims them. Only the writer's own (`owns`). */
+ *  claims them. Only the writer's own (`owns`), never a deliberate untag
+ *  (#EXP-1402). */
 export function stampUntaggedGuideEntries(
   results: readonly GuideEntry[] | null,
   prUrl: string,
@@ -315,7 +356,7 @@ export function stampUntaggedGuideEntries(
   let changed = false
   const next = (results ?? []).map((row) => {
     if (!isTextEntry(row) || (typeof row.prUrl === `string` && row.prUrl.trim())) return row
-    if (!owns(row)) return row
+    if (row.untagged === true || !owns(row)) return row
     changed = true
     return { ...row, prUrl }
   })

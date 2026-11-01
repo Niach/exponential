@@ -428,6 +428,7 @@ struct NewSession {
     shared: bool,
     device_id: String,
     started_by_agent_id: Option<String>,
+    continued_from_id: Option<String>,
 }
 
 fn insert_session(ctx: &mut Ctx, row: NewSession) -> Step<HubSession> {
@@ -447,6 +448,7 @@ fn insert_session(ctx: &mut Ctx, row: NewSession) -> Step<HubSession> {
         shared: row.shared,
         agent_id: None,
         started_by_agent_id: row.started_by_agent_id,
+        continued_from_id: row.continued_from_id,
         device_id: row.device_id,
         status: Status::Queued,
         busy: false,
@@ -550,6 +552,7 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
             shared: data.shared.unwrap_or(true),
             device_id,
             started_by_agent_id: caller_tree_agent(&ctx.state, caller),
+            continued_from_id: None,
         },
     )?;
     // #FEED-185: a sealed start keys its new tree (the server creates its key at epoch 1, createTreeKeyInTx).
@@ -582,6 +585,7 @@ fn start_child(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> S
             shared: root.shared,
             device_id: data.device_id.clone().unwrap_or_else(|| parent.device_id.clone()),
             started_by_agent_id: None,
+            continued_from_id: None,
         },
     )?;
     let message_id = post_send(ctx, &child.id, data.text.as_deref().unwrap_or(""), data.sealed == Some(true), caller)?;
@@ -678,6 +682,7 @@ fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> 
             shared: root.shared,
             device_id: data.device_id.clone().unwrap_or_else(|| target.device_id.clone()),
             started_by_agent_id: None,
+            continued_from_id: Some(target.id.clone()),
         },
     )?;
     let message_id = post_send(ctx, &child.id, text_, sealed, caller)?;
