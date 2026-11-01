@@ -379,6 +379,8 @@ interface SendData {
   shared?: boolean
   text?: string
   sealed?: boolean
+  /** #FEED-173: the issues a new thread starts on (its work when it has no text). */
+  issueIds?: string[]
   /** The id a fresh thread or a continuation takes. */
   freshId?: string
 }
@@ -387,6 +389,8 @@ function startRoot(ctx: Ctx, data: SendData, caller: HubSession | null): StepRes
   const callerRoot = caller ? (ctx.state.sessions[caller.rootId] ?? null) : null
   const deviceId = data.deviceId ?? (callerRoot && treeAgentId(callerRoot) ? callerRoot.deviceId : undefined)
   if (!deviceId) refuse(`invalid`, `Pick a device for the new session`)
+  // #FEED-173: a start with nothing to work on (no text, no issues) is refused, never an empty thread.
+  if (!data.text?.trim() && !data.sealed && !data.issueIds?.length) refuse(`invalid`, copy.startNeedsWork)
   const id = data.id ?? data.freshId ?? ``
   const root = insertSession(ctx, {
     id,

@@ -10,6 +10,7 @@ import watchdog from "@exp/eagent/fixtures/watchdog.json"
 import { ASSISTANT_SILENT_EVENTS } from "@/lib/agents/assistant-chat"
 import { TRIGGER_COPY } from "@/lib/agents/triggers"
 import { agentReuseRefusal } from "./agent-reuse"
+import { START_NEEDS_WORK } from "./send"
 import { askHiddenText, askText, BUS_COPY, privateText, REPORT_FALLBACK } from "./bus"
 import { BACKGROUND_STUCK_MINUTES, silentMinutes } from "./watchdog"
 import {
@@ -72,6 +73,9 @@ describe(`eagent spec: the server's copy`, () => {
         BUS_COPY.session_blocked({ kind: `rate_limit`, agent: null, since: ``, ...blocked })
       )
     }
+  })
+  it(`send refusals`, () => {
+    expect(rules.copy.startNeedsWork).toBe(START_NEEDS_WORK)
   })
   it(`private leads`, () => {
     expect(rules.copy.privateReplyLead).toBe(PRIVATE_REPLY_LEAD)

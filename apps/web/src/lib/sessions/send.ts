@@ -694,6 +694,29 @@ async function applyWakeOn(tx: Tx, caller: Session | null, input: SessionsSendIn
   await watchSessions(tx, caller.id, input.wakeOn)
 }
 
+/** #FEED-173/#FEED-174: a send naming no session (sessionId, agentId,
+ *  appId, parentId) and carrying no work for a new thread (text,
+ *  attachments, a prompt, issues). Spec copy: packages/eagent rules
+ *  `copy.startNeedsWork`. */
+export const START_NEEDS_WORK = `Name the session to message (sessionId, agentId, appId or parentId), or give the new thread a text or issues; wakeOn alone watches from your own session`
+
+function startsNothing(input: SessionsSendInput): boolean {
+  if (input.sessionId || input.agentId || input.appId || input.parentId) return false
+  return !input.text?.trim() && !input.attachmentIds?.length && !input.promptId && !input.issueIds?.length
+}
+
+/** #FEED-173/#FEED-174: `{wakeOn}` with no target and nothing to start
+ *  registers the wake on the CALLING session (the core's `send.watch`);
+ *  without `wakeOn` such a send is refused. Never an empty thread. */
+async function watchOnly(caller: Session | null, input: SessionsSendInput): Promise<SendOutcome> {
+  if (!input.wakeOn?.length) throw new TRPCError({ code: `BAD_REQUEST`, message: START_NEEDS_WORK })
+  return db.transaction(async (tx) => {
+    const txid = await generateTxId(tx)
+    await applyWakeOn(tx, caller, input)
+    return { sessionId: caller!.id, messageId: null, status: caller!.status, txid, queued: null }
+  })
+}
+
 /** EXP-1328: extra writes inside the send's own transaction (a suggestion
  *  card stamps its item there, so a refused stamp rolls the start back). */
 export type SendWithin = (
@@ -761,6 +784,8 @@ export async function sendSession(args: {
       outcome = await messageApp(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
     } else if (input.parentId) {
       outcome = await startChild(starter, uploaderIds, input, caller, extras, args.viaMcp === true)
+    } else if (startsNothing(input)) {
+      outcome = await watchOnly(caller, input)
     } else {
       outcome = await startRoot(starter, uploaderIds, input, caller, args.viaMcp === true)
     }
