@@ -43,7 +43,8 @@
     "eval:render": "bun run ./eval/render.ts",
     "eval:natives": "bun run ./eval/natives.ts",
     "eval:parity": "bun run ./eval/parity.ts",
-    "size": "bun run ./release/size.ts"
+    "size": "bun run ./release/size.ts",
+    "motion:parity": "bun run ./scripts/motion-parity.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
