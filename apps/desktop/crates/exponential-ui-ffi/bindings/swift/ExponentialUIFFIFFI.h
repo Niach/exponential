@@ -1331,6 +1331,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_voice_wave_json(RustBuffer input_js
 uint8_t uniffi_exponential_ui_ffi_fn_func_week_start(RustBuffer locale, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_ZOOM_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_ZOOM_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_zoom_json(RustBuffer request_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_FFI_EXPONENTIAL_UI_FFI_RUSTBUFFER_ALLOC
 #define UNIFFI_FFIDEF_FFI_EXPONENTIAL_UI_FFI_RUSTBUFFER_ALLOC
 RustBuffer ffi_exponential_ui_ffi_rustbuffer_alloc(uint64_t size, RustCallStatus *_Nonnull out_status
@@ -1978,6 +1983,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_voice_wave_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_WEEK_START
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_WEEK_START
 uint16_t uniffi_exponential_ui_ffi_checksum_func_week_start(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_ZOOM_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_ZOOM_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_zoom_json(void
     
 );
 #endif

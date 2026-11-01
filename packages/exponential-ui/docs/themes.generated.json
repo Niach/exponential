@@ -2628,6 +2628,23 @@
       ]
     },
     {
+      "name": "ZoomableImage",
+      "kind": "native",
+      "parts": [
+        "root",
+        "image",
+        "pill",
+        "zoomOut",
+        "percent",
+        "zoomIn",
+        "divider",
+        "fit"
+      ],
+      "props": [
+        "controls"
+      ]
+    },
+    {
       "name": "Icon",
       "kind": "native",
       "parts": [

@@ -262,6 +262,51 @@ over a caption label) across the full width. Tree guides (a Row's
 `guides` part, filled by the core) draw at 14 px columns with a 3 px
 rounded elbow and a 1 px bridge above the row.
 
+## Zoomable pictures (EXP-1586)
+
+`ZoomableImage` paints through the `ZoomableImageView` primitive, which an
+app can also embed directly (the iOS lightbox). Every number comes from
+the core: the primitive has no binary, so it takes the core's entry as
+`maths:` (`ZoomMaths.core` from `ExponentialUI` = the FFI's `zoomJson`).
+
+```swift
+import ExponentialUI            // ZoomMaths.core
+import ExponentialUIPrimitives  // ZoomableImageView, ZoomPill, ZoomController
+
+// An Image / UIImage at its pixel size, THE default pill:
+ZoomableImageView(uiImage: shot, maths: .core, scale: $scale, onTap: { chrome.toggle() })
+ZoomableImageView(image: image, naturalSize: CGSize(width: 1440, height: 900), maths: .core)
+// A loader (spinner meanwhile); the natural size must be known:
+ZoomableImageView(naturalSize: size, maths: .core, resetID: attachmentId, load: { await load() })
+// ANY content laid out at the natural size (a 25k px capture drawn as
+// strips under Core Animation's texture cap):
+ZoomableImageView(naturalSize: size, maths: .core, initial: .auto, controls: .auto, resetID: id,
+                  onZoom: { e in print(e.scale, e.atFit) }) {
+    StripStack(strips: strips)
+}
+// A custom pill reads the ZoomController (view, percent, bounds, atRest,
+// menuItems, menuOpen) and calls zoomIn / zoomOut / fit / select / toggleMenu:
+ZoomableImageView(naturalSize: size, maths: .core, content: { … }, pill: { c in MyPill(c) })
+```
+
+Parameters: `initial` (`auto` = fitWidth for a tall picture, `fit`,
+`fitWidth`, `actual`), `maxScale` (nil = 8), `controls` (`auto` shows the
+pill on appear and hides it after 2 s idle, a tap toggles it; `always`;
+`none`), `scale` (written after each settled zoom, followed when set
+outside), `resetID` (a new value = the rest view, no animation),
+`reducedMotion`, `motion` (the spring-back / step animation), `label` (the
+alt; the picture is one adjustable image element whose value is the
+percent), `keyboard` (take focus and read `+ = - 0 1`; the painter routes
+keys through the surface focus as `command`), `cornerRadius`, `onZoom
+{scale, atFit}`, `onTap`. `ZoomPill(controller:style:strings:glyph:)` is
+THE pill (− / percent / + / divider / fit; the percent opens its own Menu
+panel, never a system menu); `ZoomPillStyle.standard(tokens)` is the
+neutral look, the painter fills one from the theme's recipes. Input: pinch
+(rubber band past the limits, spring back on release), a drag only along an
+axis with pan room (none at rest, so a parent pager gets the swipe), the
+core's momentum, double tap, ⌘/ctrl-scroll and trackpad pinch about the
+pointer, plain scroll pans while zoomed.
+
 ## Overlays
 
 Overlays are CORE LAYERS (contract §5), painted inside the surface at the

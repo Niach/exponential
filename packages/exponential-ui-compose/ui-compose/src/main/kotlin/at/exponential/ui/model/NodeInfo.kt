@@ -112,7 +112,7 @@ class NodeInfo(n: FfiNode) {
             accessibility?.get("label")?.string?.takeIf { it.isNotEmpty() }?.let { return it }
             fun s(k: String): String? = props.shownText(k).ifEmpty { null }
             return when (component) {
-                "Image", "Video" -> s("alt") ?: s("title")
+                "Image", "Video", "ZoomableImage" -> s("alt") ?: s("title")
                 "Avatar" -> s("name")
                 "Box", "Extension" -> s("label") ?: s("title")
                 "Spinner" -> s("label")

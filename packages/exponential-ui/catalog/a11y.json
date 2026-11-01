@@ -213,6 +213,11 @@
       "notes": "img (alt = name; decorative when alt is empty)",
       "keys": []
     },
+    "ZoomableImage": {
+      "role": "img",
+      "notes": "img (alt = name), focusable; the zoom pill's buttons are named `$string.zoomOut`, `$string.zoomIn`, `$string.zoomToFit` (pressed while at rest) and the percent button `$string.zoomLevel` (its value = the percent, opening a menu whose first row is `$string.zoomFit`)",
+      "keys": ["+ / =: zoom in a step", "-: zoom out a step", "0: back to the opening zoom", "1: 100%"]
+    },
     "Icon": {
       "role": "img",
       "notes": "img when labelled, hidden otherwise",

@@ -247,14 +247,20 @@ fun LargeCommentAttachments(
                         model = attachment.url,
                         contentDescription = attachment.filename,
                         contentScale = ContentScale.Fit,
+                        // EXP-1586: a known size = the aspect box under the
+                        // height cap (a tall picture narrows instead of
+                        // overflowing the cap and bleeding over the comment's
+                        // header: fillMaxWidth + heightIn + aspectRatio can't
+                        // all hold, so the image measured past 480dp and was
+                        // centred over its neighbours).
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = LargeImageMaxHeight)
                             .then(
                                 if (width != null && height != null && width > 0 && height > 0) {
-                                    Modifier.aspectRatio(width.toFloat() / height.toFloat())
-                                } else {
                                     Modifier
+                                        .heightIn(max = LargeImageMaxHeight)
+                                        .aspectRatio(width.toFloat() / height.toFloat())
+                                } else {
+                                    Modifier.fillMaxWidth().heightIn(max = LargeImageMaxHeight)
                                 },
                             )
                             .clip(LargeImageShape)

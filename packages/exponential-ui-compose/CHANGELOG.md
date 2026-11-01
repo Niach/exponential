@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1586: the `ZoomableImage` native: the picture zooms and pans on the core's maths (`zoomJson`, replayed against `fixtures/zoom.json`): pinch about the fingers with the rubber band, a one-finger pan only along an axis with room (a swipe without x room stays the host's), the core's momentum, double tap, ctrl/⌘-wheel, the keys `+ = - 0 1`; THE pill (− / percent with the preset Menu / + / fit) from the `ZoomableImage/*` and `Menu/*` recipes; `zoom {scale, atFit}` (the core writes a bound `scale` back) and `tap`; a set `scale` zooms there. The primitives gain `ZoomableImageView` (any content laid out at the natural size, or a `Painter` / `ImageBitmap`), `ZoomableImageState` and the `ZoomMath` interface (`CoreZoomMath` in `eui-compose`).
 - EXP-1493: the Carousel `counter` pill paints at the track's top-END corner (the core's frame, mirrored under RTL); the current page dot takes the `indicator` recipe's `selected` state (neutral: primary), the others its base.
 
 ## 0.3.0 (2026-10-31)

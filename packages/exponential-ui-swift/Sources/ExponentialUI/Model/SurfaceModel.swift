@@ -116,6 +116,9 @@ public final class SurfaceModel {
     public internal(set) var groupFocus: [String: Int] = [:]
     /// The category / slice a Chart's tooltip shows (chart slot → index).
     public internal(set) var chartHover: [Int: Int] = [:]
+    /// EXP-1586: the last zoom key routed to a focused ZoomableImage (by
+    /// node index; the painter applies each serial once).
+    public internal(set) var zoomCommands: [Int: ZoomCommand] = [:]
 
     /// The host's width (the view's geometry), visible height and card bound.
     @ObservationIgnored public internal(set) var width: CGFloat = 0

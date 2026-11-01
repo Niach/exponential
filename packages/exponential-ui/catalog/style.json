@@ -176,5 +176,26 @@
     "hintGap": 12,
     "placeholderIcon": "ui-scan",
     "placeholderIconSize": 32
+  },
+  "zoomableImage": {
+    "$comment": "EXP-1586: the ZoomableImage native. THE MATHS COMES FROM THE CORE: src/zoom.ts (the Rust core's `zoom` ports it; fixtures/zoom.json locks it). THE BOX: as wide as its parent; its height = the style height, else width \u00d7 naturalHeight / naturalWidth (capped at the width for a TALL picture, so a full-page capture opens as a landscape window onto its top), else 16:9; the picture clips to it. A view = {scale, x, y}: scale = displayed px per image px (1 = 100%: one image pixel per point), x/y = the picture's top-left in the viewport. FIT = min(1, vw/iw, vh/ih) (never upscales) = the minimum scale; the maximum = max(fit, maxScale). REST = the scale it opens at: `fit`, `fitWidth` = min(1, vw/iw), `actual` = 1, `auto` = fitWidth when the picture is TALL (w/h < tallAspect) else fit. An axis where the scaled picture is no larger than the viewport is CENTRED; otherwise x is clamped to [vw \u2212 sw, 0] (no letterbox shows); rest views of a tall picture start at the top. Zoom keeps the anchor point fixed (the cursor, the fingers' midpoint, the double-tap point, the viewport centre for keys and the pill). Wheel with \u2318/ctrl (or a trackpad pinch) = factor exp(\u2212deltaY \u00d7 wheelRate) (lines \u00d7 wheelLinePx first); a plain wheel PANS. Steps (+ / \u2212 / the pill) = the next `presets` entry strictly above / below the current scale (fit joins the ladder), clamped. Double tap / click: at rest \u2192 max(1, 2 \u00d7 rest) capped at the max, about the point; otherwise \u2192 the rest view. Keys: + = step up, \u2212 = step down, 0 = the rest view, 1 = 100% about the centre. Drag past an edge = the overshoot through rubberBand(o, d) = (1 \u2212 1 / (o \u00d7 rubber / d + 1)) \u00d7 d (d = the viewport's extent on that axis), released = the clamped view (sprung with motion.standard; reduced motion snaps). A pinch past the min/max rubber-bands the scale the same way (d = the limit). Mouse-drag momentum: v(t) = v0 \u00d7 e^(\u2212t/momentumTauMs), travel = v0 \u00d7 \u03c4 \u00d7 (1 \u2212 e^(\u2212t/\u03c4)), stopping at the edges; touch and trackpads use the platform's own inertia. Pan ROOM = an axis whose scaled picture is larger than the viewport: a horizontal swipe with no x room belongs to the host (paging); with room the picture pans. A new src = the rest view; a resize at rest = the new rest view, zoomed = the same scale about the viewport centre, clamped. THE PILL (controls auto/always): one glass capsule bottom-centre `pill.inset` above the picture's bottom edge: Button ghost icon-sm `ui-minus`, the percent (round(scale \u00d7 100) + '%', tabular, a ghost button opening THE Menu of `menuPresets` (0 = Fit, the rest view; outside [min, max] dropped)), Button ghost icon-sm `ui-add`, a hairline divider, Button ghost icon-sm `ui-fullscreen` (pressed = the rest view; drawn ACTIVE while at rest). \u2212 is disabled at the min, + at the max. `auto` shows it on appear and hides it autoHideMs after the last pointer move / zoom / focus inside (kept while hovered or focused; a touch tap on the picture toggles it); `none` never draws it.",
+    "tallAspect": 0.3333333333333333,
+    "maxScale": 8,
+    "presets": [0.25, 0.33, 0.5, 0.67, 1, 1.5, 2, 3, 4, 6, 8],
+    "menuPresets": [0, 0.5, 1, 2, 4],
+    "doubleTapFactor": 2,
+    "wheelRate": 0.002,
+    "wheelLinePx": 16,
+    "rubber": 0.55,
+    "momentumTauMs": 325,
+    "autoHideMs": 2000,
+    "pill": {
+      "height": 36,
+      "inset": 16,
+      "padding": 4,
+      "gap": 2,
+      "percentMinWidth": 56,
+      "dividerHeight": 16
+    }
   }
 }

@@ -4,7 +4,9 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.BitmapRegionDecoder
+import android.graphics.Matrix
 import android.graphics.Rect
+import android.media.ExifInterface
 import android.os.Build
 import android.util.LruCache
 import androidx.compose.runtime.Composable
@@ -24,6 +26,7 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import java.io.ByteArrayInputStream
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -96,8 +99,9 @@ sealed interface TallImageSource {
     data class Failed(val message: String) : TallImageSource
     /** Bytes the region decoder cannot read (a GIF): Coil draws the picture. */
     data object Unsupported : TallImageSource
-    /** ONE decoder for every region the composable asks for; recycled when it leaves. */
-    class Regions(val decoder: BitmapRegionDecoder) : TallImageSource
+    /** ONE decoder for every region the composable asks for; recycled when it leaves.
+     *  [orientation] = the bytes' EXIF orientation (1 = as stored; a camera photo's 6 = 90° CW). */
+    class Regions(val decoder: BitmapRegionDecoder, val orientation: Int = 1) : TallImageSource
 }
 
 class TallImageLoad(val source: TallImageSource, val retry: () -> Unit)
@@ -109,15 +113,19 @@ class TallImageLoad(val source: TallImageSource, val retry: () -> Unit)
  * the load is replaced or the composable leaves.
  */
 @Composable
-fun rememberTallImage(entry: SessionResultEntry): TallImageLoad {
+fun rememberTallImage(entry: SessionResultEntry): TallImageLoad = rememberTallImage(entry.attachmentId)
+
+/** EXP-1586: the same load for any attachment (THE picture viewer's pages). */
+@Composable
+fun rememberTallImage(attachmentId: String): TallImageLoad {
     val context = LocalContext.current
-    var attempt by remember(entry.attachmentId) { mutableIntStateOf(0) }
-    val source by produceState<TallImageSource>(TallImageSource.Loading, entry.attachmentId, attempt) {
+    var attempt by remember(attachmentId) { mutableIntStateOf(0) }
+    val source by produceState<TallImageSource>(TallImageSource.Loading, attachmentId, attempt) {
         value = TallImageSource.Loading
-        value = runCatching { loadTallImageBytes(context, entry.attachmentId) }.fold(
+        value = runCatching { loadTallImageBytes(context, attachmentId) }.fold(
             onSuccess = { bytes ->
-                withContext(Dispatchers.Default) { openTallRegionDecoder(bytes) }
-                    ?.let { TallImageSource.Regions(it) }
+                withContext(Dispatchers.Default) { openTallRegionDecoder(bytes)?.let { it to exifOrientation(bytes) } }
+                    ?.let { (decoder, orientation) -> TallImageSource.Regions(decoder, orientation) }
                     ?: TallImageSource.Unsupported
             },
             onFailure = { TallImageSource.Failed(trpcErrorMessage(it, "Couldn't load this picture.")) },
@@ -131,6 +139,16 @@ fun rememberTallImage(entry: SessionResultEntry): TallImageLoad {
     }
     return remember(current) { TallImageLoad(current, retry = { attempt++ }) }
 }
+
+/** The bytes' EXIF orientation (1…8), 1 when they carry none. */
+private fun exifOrientation(bytes: ByteArray): Int = runCatching {
+    ExifInterface(ByteArrayInputStream(bytes))
+        .getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        .takeIf { it in 1..8 }
+}.getOrNull() ?: 1
+
+/** True when EXIF [orientation] swaps the picture's axes (5…8). */
+fun exifSwapsAxes(orientation: Int): Boolean = orientation in 5..8
 
 /** Null when the bytes are not an image the region decoder reads. */
 private fun openTallRegionDecoder(bytes: ByteArray): BitmapRegionDecoder? = runCatching {
@@ -159,4 +177,47 @@ fun decodeTallRegion(decoder: BitmapRegionDecoder, top: Int, rows: Int, targetWi
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
         decoder.decodeRegion(Rect(0, top, width, bottom), options)
+    }.getOrNull()
+
+/**
+ * EXP-1586: rows [top, top + rows) of the picture AS SHOWN (after its EXIF
+ * [orientation]), at subsample [sample]: the stored region under that band,
+ * decoded and turned upright. Null for an empty band or a recycled decoder.
+ */
+fun decodeOrientedBand(decoder: BitmapRegionDecoder, orientation: Int, top: Int, rows: Int, sample: Int): Bitmap? =
+    runCatching {
+        val width = decoder.width
+        val height = decoder.height
+        if (width <= 0 || height <= 0 || rows <= 0) return null
+        // A shown row band is a stored row band (1–4) or a stored column band (5–8).
+        val rect = when (orientation) {
+            3, 4 -> Rect(0, maxOf(0, height - top - rows), width, height - top)
+            5, 6 -> Rect(top, 0, minOf(width, top + rows), height)
+            7, 8 -> Rect(maxOf(0, width - top - rows), 0, width - top, height)
+            else -> Rect(0, top, width, minOf(height, top + rows))
+        }
+        if (rect.isEmpty) return null
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = maxOf(1, sample)
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        val stored = decoder.decodeRegion(rect, options) ?: return null
+        val matrix = Matrix().apply {
+            when (orientation) {
+                2 -> postScale(-1f, 1f)
+                3 -> postRotate(180f)
+                4 -> postScale(1f, -1f)
+                5 -> { postRotate(90f); postScale(-1f, 1f) }
+                6 -> postRotate(90f)
+                7 -> { postRotate(90f); postScale(1f, -1f) }
+                8 -> postRotate(270f)
+            }
+        }
+        if (matrix.isIdentity) {
+            stored
+        } else {
+            Bitmap.createBitmap(stored, 0, 0, stored.width, stored.height, matrix, true).also {
+                if (it !== stored) stored.recycle()
+            }
+        }
     }.getOrNull()

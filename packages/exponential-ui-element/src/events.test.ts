@@ -357,3 +357,41 @@ describe(`Carousel counter + thumbnails`, () => {
     expect(thumbs[0]!.getAttribute(`aria-current`)).toBeNull()
   })
 })
+
+// EXP-1586: the ZoomableImage paints through the Solid painter inside the
+// element; a pill press zooms one step about the centre and the settled
+// `zoom {scale, atFit}` reaches `xui-action`, a key zooms too.
+describe(`ZoomableImage`, () => {
+  const zoomable: NestedNode = {
+    id: `z`,
+    component: `ZoomableImage`,
+    props: { src: `https://example.com/a.png`, alt: `Shot`, naturalWidth: 1200, naturalHeight: 800, controls: `always` },
+    on: { zoom: { event: { name: `zoomed` } } },
+  } as NestedNode
+
+  afterEach(() => {
+    delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth
+    delete (HTMLElement.prototype as { clientHeight?: number }).clientHeight
+  })
+
+  it(`+ and the pill's zoom in fire zoom {scale, atFit}; the percent follows`, async () => {
+    Object.defineProperty(HTMLElement.prototype, `clientWidth`, { configurable: true, get: () => 600 })
+    Object.defineProperty(HTMLElement.prototype, `clientHeight`, { configurable: true, get: () => 400 })
+    const seen: SurfaceActionDetail[] = []
+    const el = mount(fixture(zoomable))
+    el.addEventListener(`xui-action`, (e) => void seen.push(e.detail))
+    await tick()
+    const percent = () => el.querySelector(`[data-xui-part="ZoomableImage/percent"]`)?.textContent
+    expect(percent()).toBe(`50%`)
+    el.querySelector<HTMLButtonElement>(`[data-xui-part="ZoomableImage/zoomIn"]`)!.click()
+    await tick()
+    expect(percent()).toBe(`67%`)
+    fire(el.querySelector(`[data-xui-id="z"]`), `keydown`, { key: `0` })
+    await tick()
+    expect(percent()).toBe(`50%`)
+    expect(seen.map((d) => [d.event, d.name, d.payload])).toEqual([
+      [`zoom`, `zoomed`, { scale: 0.67, atFit: false }],
+      [`zoom`, `zoomed`, { scale: 0.5, atFit: true }],
+    ])
+  })
+})

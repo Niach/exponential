@@ -549,7 +549,7 @@ export function TooltipNative(props: NativeProps): JSX.Element {
 // Menu (round 3: ONE native for press and context menus)
 // ---------------------------------------------------------------------------
 
-interface MenuItem {
+export interface MenuItem {
   label?: string
   value?: string
   kind?: `item` | `checkbox` | `separator` | `label` | `submenu`
@@ -914,15 +914,77 @@ function createMenuRoot(props: NativeProps, part: PartFn, close: () => void, ope
 function PressMenuOpening(props: NativeProps): JSX.Element {
   const ctx = useSurfaceContext()
   const part = parts(props)
-  const items = () => objects<MenuItem>(props.props.items)
   const label = () => str(props.props.label)
   const icon = () => str(props.props.icon)
   const [open, setOpen] = createSignal(false)
   const hasChild = () => props.node.children.length > 0
+  return (
+    <PressMenu
+      part={part}
+      emit={props.emit}
+      scope={props.scope}
+      items={objects<MenuItem>(props.props.items)}
+      raws={objects<Record<string, unknown>>(props.node.props.items)}
+      open={open}
+      setOpen={setOpen}
+      trigger={(t) => (
+        <div {...overlayRootProps(props.rootProps, true, props.node.children[0] ?? null)}>
+          <Show
+            when={hasChild()}
+            fallback={
+              // Round 2 §7: the default trigger = an outline button with the
+              // icon (when set) and the label (`$string.menu` without one and
+              // without an icon), no chevron.
+              <button ref={t.ref} {...t.attrs()} {...part(`trigger`, open() && `open`)} aria-label={label() || ctx.t(`menu`)} onPointerDown={t.onPointerDown} onKeyDown={t.onKeyDown}>
+                {icon() ? <IconGlyph icons={ctx.host.icons} name={icon()} class="xui-icon" width={16} height={16} /> : null}
+                {label() || !icon() ? <span>{label() || ctx.t(`menu`)}</span> : null}
+              </button>
+            }
+          >
+            <span ref={t.ref} class="xui-trigger" {...t.attrs()} onPointerDown={t.onPointerDown} onKeyDown={t.onKeyDown}>
+              {props.children}
+            </span>
+          </Show>
+        </div>
+      )}
+    />
+  )
+}
+
+/** What a press menu's trigger wires (`PressMenu`): its element, Radix's
+ *  trigger attributes and the pointer / key opening. */
+export interface PressMenuTrigger {
+  ref: (el: HTMLElement) => void
+  attrs: () => Attrs
+  onPointerDown: (e: PointerEvent) => void
+  onKeyDown: (e: KeyboardEvent) => void
+}
+
+/** THE press opening of the Menu (Radix DropdownMenu's root + trigger
+ *  behaviour, the modal content in the overlay layer) around a trigger the
+ *  painter draws: the Menu native's, and a native that opens THE Menu from
+ *  its own part (EXP-1586: the ZoomableImage's percent). `part` = the Menu's
+ *  parts; `emit` receives the rows' `select`. */
+export function PressMenu(props: {
+  part: PartFn
+  emit: NativeProps[`emit`]
+  scope: string
+  items: MenuItem[]
+  raws: Record<string, unknown>[]
+  open: Accessor<boolean>
+  setOpen: (open: boolean) => void
+  side?: Side
+  align?: `start` | `center` | `end`
+  trigger: (t: PressMenuTrigger) => JSX.Element
+}): JSX.Element {
+  const ctx = useSurfaceContext()
+  const open = () => props.open()
+  const setOpen = (next: boolean) => props.setOpen(next)
   const triggerId = createUniqueId()
   const contentId = createUniqueId()
   const [trigger, setTrigger] = createSignal<HTMLElement>()
-  const root = createMenuRoot(props, part, () => setOpen(false), `press`)
+  useKeyboardTracking()
+  const root: MenuRoot = { close: () => setOpen(false), dir: () => ctx.direction, overlay: `Menu`, openOn: `press`, part: props.part, emit: props.emit, scope: () => props.scope }
   const presence = createPresence(open)
   let interactedOutside = false
   const triggerAttrs = (): Attrs => ({
@@ -947,30 +1009,13 @@ function PressMenuOpening(props: NativeProps): JSX.Element {
   }
   return (
     <MenuRootContext.Provider value={root}>
-      <div {...overlayRootProps(props.rootProps, true, props.node.children[0] ?? null)}>
-        <Show
-          when={hasChild()}
-          fallback={
-            // Round 2 §7: the default trigger = an outline button with the
-            // icon (when set) and the label (`$string.menu` without one and
-            // without an icon), no chevron.
-            <button ref={setTrigger} {...triggerAttrs()} {...part(`trigger`, open() && `open`)} aria-label={label() || ctx.t(`menu`)} onPointerDown={onPointerDown} onKeyDown={onKeyDown}>
-              {icon() ? <IconGlyph icons={ctx.host.icons} name={icon()} class="xui-icon" width={16} height={16} /> : null}
-              {label() || !icon() ? <span>{label() || ctx.t(`menu`)}</span> : null}
-            </button>
-          }
-        >
-          <span ref={setTrigger} class="xui-trigger" {...triggerAttrs()} onPointerDown={onPointerDown} onKeyDown={onKeyDown}>
-            {props.children}
-          </span>
-        </Show>
-      </div>
+      {props.trigger({ ref: setTrigger, attrs: triggerAttrs, onPointerDown, onKeyDown })}
       <LayerPortal mount={ctx.portal}>
         <Show when={presence.mounted()}>
           <MenuContent
             anchor={trigger()}
-            side="bottom"
-            align="start"
+            side={props.side ?? `bottom`}
+            align={props.align ?? `start`}
             sideOffset={OVERLAY_OFFSET}
             dir={root.dir()}
             kind={menuKind(root)}
@@ -978,7 +1023,7 @@ function PressMenuOpening(props: NativeProps): JSX.Element {
             id={contentId}
             labelledBy={triggerId}
             state={() => (open() ? `open` : `closed`)}
-            attrs={() => ({ ...part(`content`, open() && `open`), "data-xui-overlay": `Menu`, "data-open-on": `press` })}
+            attrs={() => ({ ...props.part(`content`, open() && `open`), "data-xui-overlay": `Menu`, "data-open-on": `press` })}
             setContent={(el) => el && presence.ref(el)}
             onDismiss={() => setOpen(false)}
             onInteractOutside={(e) => {
@@ -992,7 +1037,7 @@ function PressMenuOpening(props: NativeProps): JSX.Element {
               e.preventDefault()
             }}
           >
-            <MenuEntries items={items()} raws={objects<Record<string, unknown>>(props.node.props.items)} path="" />
+            <MenuEntries items={props.items} raws={props.raws} path="" />
           </MenuContent>
         </Show>
       </LayerPortal>

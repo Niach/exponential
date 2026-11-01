@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1586: the ZoomableImage native (`controls::ZoomableImage`, also a standalone gpui view for the IDE's lightbox): ⌘/ctrl-wheel and trackpad pinch zoom about the pointer, a plain wheel pans with room, drag with rubber band, spring-back and momentum, double click, `+ = − 0 1`, delayed single-click `tap`, THE zoom pill with its percent Menu, `controls` auto/always/none, `zoom {scale, atFit}` writing the bound `scale`; all maths through `eui_core::zoom`. The `ui-fullscreen` glyph.
+
 ## 0.3.0 (2026-10-31)
 
 - VAPP-180 (with the SDK): a package's `exposes` and `upstreams`, validated by the core.

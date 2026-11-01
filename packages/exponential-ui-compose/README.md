@@ -151,6 +151,7 @@ Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tes
 - **Segmented.** One leaf painted from the `Segmented/item` recipe (`segmented`, `toggles`, `outline`); a tap selects through the core (single, or the toggled set when `multiple`). `bar` (the old TabBar) fills the row, each item a column of the `icon` part over a caption `label`, every item a tab with the current page selected.
 - **Menu.** The core's layer, as gpui and SwiftUI paint it: action rows, checkbox rows with the `Menu.check` glyph (a checkbox to TalkBack), separators, group labels, and a submenu as its own layer beside its row (one level; an outside tap on it closes only the submenu). `openOn: press` opens from its ONE child (or the default outline Button); `contextmenu` from a long press on the child.
 - **Carousel (round 6).** `counter` = the core's out-of-flow Text pill over the track (tabular figures, `pointerEvents: none`, hidden from TalkBack); `thumbnails` = the core's strip of pressable 52 x 52 boxes (a press goes through the Carousel's press path = `change {page}`); the strip's own scroller keeps the current thumbnail in view (`nearest`, never an ancestor's scroller). Outline and Mosaic are macros: nothing of their own.
+- **ZoomableImage (EXP-1586).** The primitives' `ZoomableImageView` on `CoreZoomMath` (every number = the core's `zoomJson`). The box: as wide as offered, the natural aspect (a TALL picture no taller than wide), else 16:9. Touch: pinch about the fingers (rubber band, sprung back on the theme's `motion.standard`, reduced motion snaps); one finger pans only along an axis with room, consuming nothing otherwise, so a parent `HorizontalPager` pages a picture at rest; the core's momentum on release; double tap; a single tap fires `tap` (and toggles an `auto` pill). Mouse: ctrl/⌘ + wheel zooms about the pointer (64 dp per wheel step), a plain wheel pans when zoomed. Focused: `+ = - 0 1`. THE pill = the `ZoomableImage/*` recipes with the host's built-in icons; the percent opens the preset Menu drawn from the `Menu/*` recipes in a popup above the pill (never the platform dropdown). `zoom {scale, atFit}` after each settled zoom change (the core writes a bound `scale` back first: two-way); a `scale` the author or its binding sets zooms there about the centre (the first one without animation, no event). The box is the core's (`width: 100%` + the natural `aspectRatio`, a TALL picture square).
 - **Tree guides.** A `Row` with `depth` reserves `depth × 14` dp and paints the guides the core computed: the 1 dp line of column i at x = i·14 + 7, a 3 dp rounded elbow into a stub to the column's edge, verticals overshooting the row's top by 1 dp so they cross a Section divider; mirrored in RTL.
 - **Text fields.** Input, Textarea, Composer and the inline fields (NumberField / ChipInput `input`, Select `search`) are host-owned `BasicTextField`s (`OwnedTextField`):
   - the view owns its `TextFieldValue`;
@@ -158,6 +159,32 @@ Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tes
   - a model write (an echo, the composer clearing) reloads the view only when `FieldState.writeGeneration` moves.
 - **Interaction states.** Press, focus and hover reach the core as the node's states (`setStates`), so recipes' `hover` / `pressed` and `:hover` styles restyle it. A mouse hovers pressables, the nodes the core marks `hoverStyled` (a `:hover` style block or a hover recipe rule), triggers, text fields and nodes with a transition (gpui's set).
 - **Unbound values.** The core keeps every unbound control's value (round 1) and restyles its parts; the painter's mirror only bridges the press until the next pass.
+
+## Embedding the zoomable picture (EXP-1586)
+
+`ZoomableImageView` (`:ui-compose-primitives`) is the native's input routing and pill on its own, for an app's own viewer (the Exponential app's lightbox). The maths is an argument: pass `CoreZoomMath` from `:ui-compose`.
+
+```kotlin
+val state = rememberZoomableImageState(CoreZoomMath)
+ZoomableImageView(
+    naturalSize = Size(1440f, 900f),          // image px = dp at 100 %
+    state = state,
+    modifier = Modifier.fillMaxSize(),
+    initial = ZoomInitial.Auto,               // Fit | FitWidth | Actual
+    maxScale = 8f,
+    controls = ZoomControls.Auto,             // Always | None
+    contentKey = url,                         // a new key = back to rest, no animation
+    contentDescription = "Screenshot",
+    onZoom = { scale, atRest -> },            // after each settled zoom change
+    onTap = { },                              // a single tap
+    appearance = ZoomPillAppearance(ZoomLooks.fromTokens(tokens), icons = ZoomIcons(), labels = ZoomLabels()),
+    motion = ZoomMotion(tween(180, easing = ZoomableImageState.STANDARD_EASE), reduced = false),
+) { MyStrip(Modifier.fillMaxSize()) }        // any content, laid out at the natural size
+```
+
+- `ZoomableImageView(painter, contentDescription, state, …)` and `ZoomableImageView(bitmap, …)` take the natural size from the picture.
+- `ZoomableImageState`: `view` (`scale`, `x`, `y`), `scale`, `atRest`, `bounds`, `percent`, `frame`, `rest`; `zoomTo(scale, anchor?, animated, report)`, `step(±1)`, `reset()`, `key(k)`, `animateTo(view)`, `cancel()`.
+- `ZoomLooks` styles each `ZoomPart` (pill, buttons, divider, Menu, rows, check) per `ZoomPartState`; `ZoomIcons` draws the glyphs; `ZoomPillMetrics` defaults to style.json `zoomableImage.pill` + `autoHideMs`.
 
 ## Overlays
 

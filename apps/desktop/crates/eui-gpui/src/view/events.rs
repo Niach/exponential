@@ -703,6 +703,14 @@ impl SurfaceView {
             }
         }
         let focused = self.focused.and_then(|i| self.cache.node(i)).cloned();
+        // EXP-1586: + = − 0 1 zoom a focused ZoomableImage (its view takes
+        // them first when the window delivers the key).
+        if let Some(n) = focused.as_ref().filter(|n| n.component == "ZoomableImage") {
+            let id = n.id.clone();
+            if self.zoom_key(&id, typed.filter(|t| !t.is_empty()).unwrap_or(key), window, cx) {
+                return true;
+            }
+        }
         let in_field = focused.as_ref().is_some_and(is_text_field);
         let rtl = self.rtl;
         // EXP-1259: Tab in a search list's field picks its highlighted row.

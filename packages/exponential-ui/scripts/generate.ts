@@ -22,6 +22,7 @@
 //   fixtures/text-shimmer.json            EXP-1324: text colour × mode → the Text shimmer colours
 //   fixtures/voice-wave.json              NEW-77: size × activity × level × bands × time → the VoiceWave rings (VAPP-162: + the bars)
 //   fixtures/qr-code.json                 VAPP-162: value × level → the QrCode matrix
+//   fixtures/zoom.json                    EXP-1586: picture × viewport × input → the ZoomableImage view
 //   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
 //   + the theme outputs of scripts/generate-themes.ts (VAPP-92)
 //   + the round-4 fixture of scripts/generate-round4.ts (round4-contract.json)
@@ -47,6 +48,7 @@ import { BIND_FUNCTION_NAMES, bindRowSlot, bindTree, hasRowSlots, isDataSchema, 
 import { tokenizeCode, CODE_LANGUAGE_NAMES } from "../src/code"
 import { textShimmer } from "../src/text-shimmer"
 import { voiceWave, voiceWaveBars, type VoiceWaveBarsInput, type VoiceWaveInput } from "../src/voice-wave"
+import * as zoom from "../src/zoom"
 import { qrMatrix } from "../src/qr-code"
 import { A11Y_ROLES, COMPONENT_A11Y } from "../src/a11y"
 import { STRING_IDS, DEFAULT_STRINGS } from "../src/strings"
@@ -1226,6 +1228,92 @@ function qrCases(file: QrCaseFile) {
   return { ...file, cases: file.cases.map((c) => ({ name: c.name, value: c.value, level: c.level, expected: qrMatrix(c.value, c.level) })) }
 }
 
+// EXP-1586: fixtures/zoom.json — the inputs are hand-written (named frames,
+// `from: "rest"` = the frame's rest view), `expected` = src/zoom.ts.
+type ZoomCase = Record<string, unknown> & { name?: string; frame?: string; from?: zoom.ZoomView | `rest`; viewport?: zoom.ZoomSize }
+interface ZoomCaseFile { frames: Record<string, zoom.ZoomFrame>; [group: string]: unknown }
+
+function zoomCases(file: ZoomCaseFile) {
+  const frameOf = (c: ZoomCase): zoom.ZoomFrame => {
+    const base = file.frames[c.frame ?? ``]
+    if (!base) throw new Error(`zoom.json: unknown frame ${c.frame}`)
+    return c.viewport ? { ...base, viewport: c.viewport } : base
+  }
+  const fromOf = (c: ZoomCase, f: zoom.ZoomFrame) => (c.from === `rest` || c.from === undefined ? zoom.zoomRestView(f) : (c.from as zoom.ZoomView))
+  const group = (key: string, run: (c: ZoomCase) => unknown) =>
+    (file[key] as ZoomCase[]).map((c) => {
+      const { expected: _drop, ...input } = c
+      return { ...input, expected: run(c) }
+    })
+  return {
+    $comment: `${HEADER} EXP-1586: the ZoomableImage maths (catalog/style.json \`zoomableImage\`; src/zoom.ts, the Rust core's \`zoom\`). Inputs hand-written: \`frames\` = named {natural, viewport, initial?, maxScale?}, a case names its frame (\`viewport\` overrides it) and \`from\` = a view {scale, x, y} or "rest" (zoomRestView). \`rest\` = {fit: zoomFitScale, limits: zoomLimits, restScale: zoomRestScale, view: zoomRestView, tall: zoomIsTall}; \`clamp\` = zoomClamp; \`zoomTo\` = zoomTo; \`wheel\` = zoomWheel (⌘/ctrl); \`scroll\` = zoomScroll (a plain wheel); \`ladder\` = zoomLadder; \`steps\` = zoomStepScale; \`doubleTap\` = zoomDoubleTap; \`keys\` = zoomKey (null = not a zoom key); \`rubberBand\` = zoomRubberBand; \`drag\` = zoomDrag (held); \`pinch\` = zoomPinch (held); \`momentum\` = zoomMomentum; \`momentumActive\` = zoomMomentumActive; \`panRoom\` = zoomPanRoom; \`resize\` = zoomResize; \`percent\` = [scale, zoomPercent]; \`menu\` = zoomMenu (fit label "Fit"); \`bounds\` = zoomBounds. Compare numbers within 1e-6.`,
+    frames: file.frames,
+    rest: group(`rest`, (c) => {
+      const f = frameOf(c)
+      return { fit: zoom.zoomFitScale(f), limits: zoom.zoomLimits(f), restScale: zoom.zoomRestScale(f), view: zoom.zoomRestView(f), tall: zoom.zoomIsTall(f.natural) }
+    }),
+    clamp: group(`clamp`, (c) => zoom.zoomClamp(c.view as zoom.ZoomView, frameOf(c))),
+    zoomTo: group(`zoomTo`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomTo(fromOf(c, f), c.scale as number, c.anchor as zoom.ZoomPoint, f)
+    }),
+    wheel: group(`wheel`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomWheel(fromOf(c, f), c.deltaY as number, c.mode as zoom.WheelDeltaMode, c.anchor as zoom.ZoomPoint, f)
+    }),
+    scroll: group(`scroll`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomScroll(fromOf(c, f), c.deltaX as number, c.deltaY as number, f)
+    }),
+    ladder: group(`ladder`, (c) => zoom.zoomLadder(frameOf(c))),
+    steps: group(`steps`, (c) => zoom.zoomStepScale(c.scale as number, c.direction as 1 | -1, frameOf(c))),
+    doubleTap: group(`doubleTap`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomDoubleTap(fromOf(c, f), c.point as zoom.ZoomPoint, f)
+    }),
+    keys: group(`keys`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomKey(fromOf(c, f), c.key as string, f)
+    }),
+    rubberBand: group(`rubberBand`, (c) => zoom.zoomRubberBand(c.overshoot as number, c.extent as number)),
+    drag: group(`drag`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomDrag(fromOf(c, f), c.dx as number, c.dy as number, f)
+    }),
+    pinch: group(`pinch`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomPinch(fromOf(c, f), c.factor as number, c.anchor as zoom.ZoomPoint, f)
+    }),
+    momentum: group(`momentum`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomMomentum(fromOf(c, f), c.vx as number, c.vy as number, c.t as number, f)
+    }),
+    momentumActive: group(`momentumActive`, (c) => zoom.zoomMomentumActive(c.vx as number, c.vy as number, c.t as number)),
+    panRoom: group(`panRoom`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomPanRoom(fromOf(c, f), f)
+    }),
+    resize: group(`resize`, (c) => {
+      const f = frameOf(c)
+      const from = c.fromViewport as zoom.ZoomSize
+      const start = c.from === `rest` ? zoom.zoomRestView({ ...f, viewport: from }) : (c.from as zoom.ZoomView)
+      return zoom.zoomResize(start, from, f)
+    }),
+    percent: (file.percent as (number | [number, string])[]).map((p) => {
+      const s = Array.isArray(p) ? p[0] : p
+      return [s, zoom.zoomPercent(s)]
+    }),
+    menu: group(`menu`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomMenu(fromOf(c, f), f, `Fit`)
+    }),
+    bounds: group(`bounds`, (c) => {
+      const f = frameOf(c)
+      return zoom.zoomBounds(fromOf(c, f), f)
+    }),
+  }
+}
+
 function promptBudget() {
   const full = catalogPrompt()
   const liteText = catalogPrompt({ lite: true })
@@ -1245,7 +1333,8 @@ function promptBudget() {
     // NEW-77: VoiceWave, the measured 7,410.
     // VAPP-162 (a named budget exception): MessageBubble, CallSurface, Plan, QrCode, QrScanner + Segmented orientation, Button hold, VoiceWave variant: +1,967 chars / +490 tokens after trimming every new description; the budget is the measured total (7,900), no slack.
     // EXP-1495 (a named budget exception): Outline, Mosaic + Carousel counter/thumbnails: +134 tokens after trimming the new descriptions; the measured total (8,034), no slack.
-    budgetTokens: 8034,
+    // EXP-1586 (a named budget exception): ZoomableImage, +97 tokens after trimming every new description; the measured total (8,131), no slack.
+    budgetTokens: 8131,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },
@@ -1326,6 +1415,7 @@ function renderFiles(): Record<string, string> {
     "fixtures/text-shimmer.json": json(shimmerCases(readJson<ShimmerCaseFile>(`fixtures/text-shimmer.json`))),
     "fixtures/voice-wave.json": json(voiceWaveCases(readJson<VoiceWaveCaseFile>(`fixtures/voice-wave.json`))),
     "fixtures/qr-code.json": json(qrCases(readJson<QrCaseFile>(`fixtures/qr-code.json`))),
+    "fixtures/zoom.json": json(zoomCases(readJson<ZoomCaseFile>(`fixtures/zoom.json`))),
     "fixtures/specimens.json": json(renderSpecimens(cases, readJson<NestedNode>(`fixtures/demo-surface.json`))),
     ...themeOutputs,
     // VAPP-91: the host fixtures (inputs hand-written, expected filled).

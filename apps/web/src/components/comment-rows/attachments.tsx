@@ -226,6 +226,11 @@ export function CommentAttachments({
         alt={preview?.filename}
         label={preview?.filename ?? `Attachment`}
         kind={previewKind}
+        naturalSize={
+          preview?.width && preview.height
+            ? { width: preview.width, height: preview.height }
+            : null
+        }
         poster={
           preview?.posterStorageKey
             ? buildAttachmentPosterUrl(preview.id)

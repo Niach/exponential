@@ -136,6 +136,12 @@ struct A11yInfo: Equatable {
             info.label = name
             info.traits = .isImage
             return info
+        case ("ZoomableImage", _):
+            // EXP-1586 (a11y.json): the picture is an adjustable img named
+            // by `alt` with the percent as its value, the pill's buttons
+            // name themselves (`ZoomableImageView`, `ZoomPill`).
+            info.passthrough = true
+            return info
         case ("QrScanner", _):
             // VAPP-162: the viewfinder names itself (`QrScannerLeaf`: the
             // label, `cameraUnavailable` appended while no camera shows).

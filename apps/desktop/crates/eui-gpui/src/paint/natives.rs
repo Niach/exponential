@@ -749,7 +749,7 @@ pub fn focal_bounds(fit: &str, bx: (f32, f32, f32, f32), image: (f32, f32), foca
 
 /// The decoded image of a source if it loaded (`Some(Err)` = it failed;
 /// `None` = still loading, the view repaints when it lands).
-fn render_image(source: &ImageSource, window: &mut Window, cx: &mut App) -> Option<Result<Arc<RenderImage>, ()>> {
+pub(crate) fn render_image(source: &ImageSource, window: &mut Window, cx: &mut App) -> Option<Result<Arc<RenderImage>, ()>> {
     match source {
         ImageSource::Resource(r) => window.use_asset::<gpui::ImgResourceLoader>(r, cx).map(|r| r.map_err(|_| ())),
         ImageSource::Image(i) => {

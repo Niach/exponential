@@ -318,6 +318,17 @@
       "running",
       "done",
       "declined"
+    ],
+    "zoomInitial": [
+      "auto",
+      "fit",
+      "fitWidth",
+      "actual"
+    ],
+    "zoomControls": [
+      "auto",
+      "always",
+      "none"
     ]
   },
   "defs": {
@@ -969,7 +980,10 @@
     "Toast.icon.success": "ui-success",
     "Toast.icon.warning": "ui-warning",
     "Toast.icon.error": "ui-error",
-    "Unknown.root": "ui-warning"
+    "Unknown.root": "ui-warning",
+    "ZoomableImage.zoomOut": "ui-minus",
+    "ZoomableImage.zoomIn": "ui-add",
+    "ZoomableImage.fit": "ui-fullscreen"
   },
   "components": {
     "Box": {
@@ -1596,6 +1610,55 @@
           "type": "style"
         }
       }
+    },
+    "ZoomableImage": {
+      "kind": "native",
+      "group": "media",
+      "lite": false,
+      "children": "none",
+      "props": {
+        "src": {
+          "type": "url",
+          "required": true,
+          "bindable": true
+        },
+        "alt": {
+          "type": "string",
+          "required": true,
+          "bindable": true
+        },
+        "naturalWidth": {
+          "type": "number"
+        },
+        "naturalHeight": {
+          "type": "number"
+        },
+        "initial": {
+          "type": "enum",
+          "enum": "zoomInitial",
+          "default": "auto"
+        },
+        "maxScale": {
+          "type": "number",
+          "default": 8
+        },
+        "controls": {
+          "type": "enum",
+          "enum": "zoomControls",
+          "default": "auto"
+        },
+        "scale": {
+          "type": "number",
+          "bindable": true
+        },
+        "style": {
+          "type": "style"
+        }
+      },
+      "events": [
+        "zoom",
+        "tap"
+      ]
     },
     "Icon": {
       "kind": "native",

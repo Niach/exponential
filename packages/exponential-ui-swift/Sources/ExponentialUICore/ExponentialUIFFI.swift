@@ -7529,6 +7529,20 @@ public func weekStart(locale: String) -> UInt8  {
     )
 })
 }
+/**
+ * EXP-1586: the ZoomableImage maths. `request_json` = `{op, frame:
+ * {natural, viewport, initial?, maxScale?}, from?: view | "rest", …}`, the
+ * op named like the fixtures/zoom.json group it answers (see
+ * `eui_core::zoom::zoom_request`); the result is that group's `expected`
+ * shape (a view `{scale, x, y}` for the gestures). `{"error": …}` on bad input.
+ */
+public func zoomJson(requestJson: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_zoom_json(
+        FfiConverterString.lower(requestJson),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -7738,6 +7752,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_week_start() != 43637) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_zoom_json() != 60442) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale() != 12162) {

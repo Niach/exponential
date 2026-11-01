@@ -1,5 +1,6 @@
 import SwiftUI
 import ExponentialUICore
+import ExponentialUIPrimitives
 
 /// Keyboard focus and the `catalog/a11y.json` keys (gpui `view/events.rs`
 /// `handle_key` and friends): Tab order = PAINT order with roving tab stops
@@ -216,6 +217,13 @@ extension SurfaceModel {
         switch (n.component, owner, n.part) {
         case ("Segmented", _, _):
             return segmentedKey(n, key: key, step: stepHV)
+        case ("ZoomableImage", _, nil):
+            // EXP-1586 (a11y.json): + / = in, - out, 0 rest, 1 100%; the
+            // painter runs them through the core (`zoom.keys`).
+            let k = typed ?? key
+            guard ["+", "=", "-", "−", "_", "0", "1"].contains(k) else { return false }
+            zoomCommands[n.index] = ZoomCommand(serial: (zoomCommands[n.index]?.serial ?? 0) + 1, key: k)
+            return true
         case ("Chart", _, nil) where !n.isSparkline:
             let count = Self.chartPointCount(n.props)
             guard count > 0 else { return false }

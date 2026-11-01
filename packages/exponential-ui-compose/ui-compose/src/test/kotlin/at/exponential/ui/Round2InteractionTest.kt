@@ -190,6 +190,127 @@ class Round2InteractionTest {
         assertEquals(emptyList<String>(), cases.filter { it.second != null }.map { "${it.first}: ${it.second}" })
     }
 
+    /** EXP-1586: every fixtures/zoom.json group through the painter's request builder and `zoomJson`. */
+    @Test
+    fun theZoomFixtureReplaysThroughTheFacade() {
+        val cases = Round2Suites.zoom()
+        val groups = cases.map { it.first.substringBefore(' ') }.toSet()
+        assertEquals(
+            setOf("rest", "clamp", "zoomTo", "wheel", "scroll", "ladder", "steps", "doubleTap", "keys", "rubberBand", "drag", "pinch", "momentum", "momentumActive", "panRoom", "resize", "percent", "menu", "bounds"),
+            groups,
+        )
+        assertTrue(cases.size >= 90)
+        assertEquals(emptyList<String>(), cases.filter { it.second != null }.map { "${it.first}: ${it.second}" })
+    }
+
+    /**
+     * EXP-1586: the typed [at.exponential.ui.compose.CoreZoomMath] the
+     * painter drives (Float views) lands on the fixture's numbers: the rest
+     * views, the double taps, the pinches and the menus.
+     */
+    @Test
+    fun theTypedZoomMathAnswersLikeTheFixture() {
+        val f = Fixtures.json("zoom.json")
+        val math = at.exponential.ui.compose.CoreZoomMath
+        fun frame(c: JsonValue): at.exponential.ui.primitives.ZoomFrame {
+            val fr = f["frames"]!![c["frame"]!!.string!!]!!
+            val vp = c["viewport"] ?: fr["viewport"]!!
+            return at.exponential.ui.primitives.ZoomFrame(
+                fr["natural"]!!["width"]!!.number!!.toFloat(), fr["natural"]!!["height"]!!.number!!.toFloat(),
+                vp["width"]!!.number!!.toFloat(), vp["height"]!!.number!!.toFloat(),
+                at.exponential.ui.primitives.ZoomInitial.of(fr["initial"]?.string), fr["maxScale"]?.number?.toFloat(),
+            )
+        }
+        fun from(c: JsonValue, fr: at.exponential.ui.primitives.ZoomFrame) = c["from"]?.takeIf { it is JsonValue.Obj }?.let {
+            at.exponential.ui.primitives.ZoomView(it["scale"]!!.number!!.toFloat(), it["x"]!!.number!!.toFloat(), it["y"]!!.number!!.toFloat())
+        } ?: math.rest(fr).view
+        fun near(name: String, want: JsonValue, got: at.exponential.ui.primitives.ZoomView) {
+            assertEquals("$name scale", want["scale"]!!.number!!, got.scale.toDouble(), 1e-3)
+            assertEquals("$name x", want["x"]!!.number!!, got.x.toDouble(), 1e-2)
+            assertEquals("$name y", want["y"]!!.number!!, got.y.toDouble(), 1e-2)
+        }
+        for (c in f["rest"]!!.array!!) {
+            val fr = frame(c)
+            val r = math.rest(fr)
+            val want = c["expected"]!!
+            near("rest ${c["name"]}", want["view"]!!, r.view)
+            assertEquals(want["restScale"]!!.number!!, r.restScale.toDouble(), 1e-5)
+            assertEquals(want["tall"]!!.bool, r.tall)
+        }
+        for (c in f["doubleTap"]!!.array!!) {
+            val fr = frame(c)
+            val p = c["point"]!!
+            near("doubleTap ${c["name"]}", c["expected"]!!, math.doubleTap(from(c, fr), androidx.compose.ui.geometry.Offset(p["x"]!!.number!!.toFloat(), p["y"]!!.number!!.toFloat()), fr))
+        }
+        for (c in f["pinch"]!!.array!!) {
+            val fr = frame(c)
+            val a = c["anchor"]!!
+            near("pinch ${c["name"]}", c["expected"]!!, math.pinch(from(c, fr), c["factor"]!!.number!!.toFloat(), androidx.compose.ui.geometry.Offset(a["x"]!!.number!!.toFloat(), a["y"]!!.number!!.toFloat()), fr))
+        }
+        for (c in f["menu"]!!.array!!) {
+            val fr = frame(c)
+            val got = math.menu(from(c, fr), fr, "Fit")
+            val want = c["expected"]!!.array!!
+            assertEquals(want.map { it["label"]!!.string }, got.map { it.label })
+            assertEquals(want.map { it["checked"]!!.bool }, got.map { it.checked })
+            assertEquals(want.map { it["scale"]?.takeIf { s -> s is JsonValue.Num }?.number?.toFloat() }, got.map { it.scale })
+        }
+        assertEquals("35%", math.percent(0.347222f))
+        assertTrue(math.isTall(780f, 25094f))
+        assertTrue(!math.isTall(1440f, 900f))
+    }
+
+    /** EXP-1586: the painter's copy of style.json `zoomableImage` (the pill geometry, autoHideMs) and the strings. */
+    @Test
+    fun theZoomPillNumbersAreStyleJsons() {
+        val style = JsonValue.parse(java.io.File(Fixtures.dir, "../catalog/style.json").readText())["zoomableImage"]!!
+        val pill = style["pill"]!!
+        val spec = at.exponential.ui.compose.ZoomSpec
+        assertEquals(pill["height"]!!.number!!.toFloat(), spec.PILL_HEIGHT)
+        assertEquals(pill["inset"]!!.number!!.toFloat(), spec.PILL_INSET)
+        assertEquals(pill["padding"]!!.number!!.toFloat(), spec.PILL_PADDING)
+        assertEquals(pill["gap"]!!.number!!.toFloat(), spec.PILL_GAP)
+        assertEquals(pill["percentMinWidth"]!!.number!!.toFloat(), spec.PERCENT_MIN_WIDTH)
+        assertEquals(pill["dividerHeight"]!!.number!!.toFloat(), spec.DIVIDER_HEIGHT)
+        assertEquals(style["autoHideMs"]!!.number!!.toLong(), spec.AUTO_HIDE_MS)
+        // The primitives' defaults (an app embedding the view) are the same numbers.
+        val d = at.exponential.ui.primitives.ZoomPillMetrics()
+        assertEquals(spec.PILL_HEIGHT, d.height.value)
+        assertEquals(spec.PILL_INSET, d.inset.value)
+        assertEquals(spec.PERCENT_MIN_WIDTH, d.percentMinWidth.value)
+        assertEquals(spec.AUTO_HIDE_MS, d.autoHideMs)
+        val m = model("""{"id":"x","component":"Text","props":{"text":"x"}}""")
+        val labels = at.exponential.ui.primitives.ZoomLabels()
+        assertEquals(listOf(labels.zoomIn, labels.zoomOut, labels.zoomToFit, labels.zoomLevel, labels.zoomFit), listOf("zoomIn", "zoomOut", "zoomToFit", "zoomLevel", "zoomFit").map { m.string(it) })
+    }
+
+    /**
+     * EXP-1586 THE BOX (the measurer's rule): as wide as its column, the
+     * natural aspect; a TALL picture no taller than wide; no natural size
+     * = 16:9; a style height wins.
+     */
+    @Test
+    fun aZoomableImageBoxTakesTheNaturalAspect() {
+        val shaper = robolectricShaper(at.exponential.ui.measure.FontResolver { null }, 1f)
+        fun box(props: String, style: String = "{}", width: Float = 400f): androidx.compose.ui.geometry.Rect {
+            val m = SurfaceModel("z", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), Host(), CoroutineScope(Dispatchers.Unconfined)) { shaper }
+            m.setNested("""{"id":"root","component":"Stack","children":[{"id":"z","component":"ZoomableImage","props":{"src":"https://example.com/a.png","alt":"A",$props},"style":$style}]}""")
+            m.setViewport(width, 800f)
+            return m.frame(m.idx("z"))
+        }
+        val wide = box(""""naturalWidth":1440,"naturalHeight":900""")
+        assertEquals(400f, wide.width, 0.5f)
+        assertEquals(250f, wide.height, 0.5f)
+        val tall = box(""""naturalWidth":780,"naturalHeight":25094""")
+        assertEquals(400f, tall.height, 0.5f)
+        val portrait = box(""""naturalWidth":600,"naturalHeight":900""")
+        assertEquals(600f, portrait.height, 0.5f)
+        val unknown = box(""""controls":"none"""")
+        assertEquals(225f, unknown.height, 0.5f)
+        val fixed = box(""""naturalWidth":1440,"naturalHeight":900""", """{"height":300}""")
+        assertEquals(300f, fixed.height, 0.5f)
+    }
+
     @Test
     fun aVoiceWaveTakesItsRecipeBoxOpacityAndPartColours() {
         val tree = """{"id":"root","component":"Box","children":[

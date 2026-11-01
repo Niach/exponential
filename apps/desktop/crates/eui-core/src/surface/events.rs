@@ -630,6 +630,14 @@ impl Surface {
                     }
                 }
             }
+            // EXP-1586: a settled zoom writes the bound `scale` (two-way),
+            // then fires `zoom {scale, atFit}`.
+            ("ZoomableImage", None, "zoom") => {
+                if let Some(scale) = payload.as_ref().and_then(|p| p.get("scale")).filter(|s| s.is_number()).cloned() {
+                    out.extend(self.write_through(&owner_id, "scale", scale));
+                }
+                out.extend(self.fire(&owner_id, "zoom", payload));
+            }
             ("Form", _, "submit") => out.extend(self.submit_form(&owner_id)),
             ("Input" | "Textarea" | "NumberField" | "Select" | "DatePicker" | "TimePicker" | "ChipInput", _, "blur") => {
                 if self.validate_on(&owner_id) == "blur" {

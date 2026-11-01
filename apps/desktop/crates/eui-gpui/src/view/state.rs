@@ -246,6 +246,8 @@ pub fn is_focusable(n: &PlacedNode) -> bool {
         ("Box", Some("row")) if owner == "Table" => n.pressable,
         _ if is_text_field(n) => true,
         ("Slider", Some("track")) | ("Box", Some("indicator")) | ("Segmented", _) | ("Composer", _) => true,
+        // EXP-1586: the keys zoom while it is focused (a11y.json).
+        ("ZoomableImage", None) => true,
         // Arrow keys move its tooltip between categories (a11y.json); a
         // sparkline has no tooltip and is no tab stop (as on the web).
         ("Chart", None) => !is_sparkline(n),
@@ -364,6 +366,8 @@ pub fn a11y_label(n: &PlacedNode, strings: &StringTable) -> Option<SharedString>
     }
     let s = match n.component.as_str() {
         "Image" | "Video" => str_of(n, "alt").or_else(|| str_of(n, "title")),
+        // EXP-1586: an img named by its alt (a11y.json).
+        "ZoomableImage" => str_of(n, "alt"),
         "Avatar" => str_of(n, "name"),
         "Box" | "Extension" => str_of(n, "label").or_else(|| str_of(n, "title")).or_else(|| str_of(n, "text")),
         "Spinner" => str_of(n, "label").or_else(|| strings.get("loading").map(String::as_str)),
@@ -481,7 +485,7 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Box", Some("handle")) if owner == "Resizable" => Role::Splitter,
         ("Resizable", None) => Role::Group,
         ("Box", Some("section")) if owner == "List" => Role::Heading,
-        ("Image" | "Avatar" | "Video" | "Chart", _) => Role::Image,
+        ("Image" | "Avatar" | "Video" | "Chart" | "ZoomableImage", _) => Role::Image,
         ("Icon", _) if str_of(n, "label").is_some() => Role::Image,
         ("Ring" | "Spinner", _) => Role::ProgressIndicator,
         // NEW-77: an img named by its label; decorative without one.

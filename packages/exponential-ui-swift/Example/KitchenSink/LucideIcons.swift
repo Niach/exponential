@@ -98,6 +98,7 @@ enum LucideIcons {
         "nav-terminal": "square-terminal",
         "nav-threads": "list-tree",
         "notification-agent-message": "bot",
+        "notification-agent-signed-out": "log-out",
         "notification-issue-assigned": "user-plus",
         "notification-issue-comment": "message-square",
         "notification-issue-created": "circle-dot",

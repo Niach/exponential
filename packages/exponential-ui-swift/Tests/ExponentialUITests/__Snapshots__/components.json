@@ -30803,5 +30803,133 @@
         "id" : "voice-wave-child"
       }
     ]
+  },
+  "ZoomableImage\/controls=always" : {
+    "height" : 243.75,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "ZoomableImage",
+        "frame" : [
+          0,
+          0,
+          390,
+          243.75
+        ],
+        "id" : "zoomable-image"
+      }
+    ]
+  },
+  "ZoomableImage\/controls=auto" : {
+    "height" : 243.75,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "ZoomableImage",
+        "frame" : [
+          0,
+          0,
+          390,
+          243.75
+        ],
+        "id" : "zoomable-image"
+      }
+    ]
+  },
+  "ZoomableImage\/controls=none" : {
+    "height" : 243.75,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "ZoomableImage",
+        "frame" : [
+          0,
+          0,
+          390,
+          243.75
+        ],
+        "id" : "zoomable-image"
+      }
+    ]
+  },
+  "ZoomableImage\/example" : {
+    "height" : 243.75,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "ZoomableImage",
+        "frame" : [
+          0,
+          0,
+          390,
+          243.75
+        ],
+        "id" : "zoomable-image"
+      }
+    ]
+  },
+  "ZoomableImage\/initial=actual" : {
+    "height" : 243.75,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "ZoomableImage",
+        "frame" : [
+          0,
+          0,
+          390,
+          243.75
+        ],
+        "id" : "zoomable-image"
+      }
+    ]
+  },
+  "ZoomableImage\/initial=auto" : {
+    "height" : 243.75,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "ZoomableImage",
+        "frame" : [
+          0,
+          0,
+          390,
+          243.75
+        ],
+        "id" : "zoomable-image"
+      }
+    ]
+  },
+  "ZoomableImage\/initial=fit" : {
+    "height" : 243.75,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "ZoomableImage",
+        "frame" : [
+          0,
+          0,
+          390,
+          243.75
+        ],
+        "id" : "zoomable-image"
+      }
+    ]
+  },
+  "ZoomableImage\/initial=fitWidth" : {
+    "height" : 243.75,
+    "nodes" : [
+      {
+        "bg" : "#00000000",
+        "component" : "ZoomableImage",
+        "frame" : [
+          0,
+          0,
+          390,
+          243.75
+        ],
+        "id" : "zoomable-image"
+      }
+    ]
   }
 }

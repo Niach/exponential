@@ -837,6 +837,24 @@ pub fn voice_wave_json(input_json: String) -> String {
     })
 }
 
+/// EXP-1586: the ZoomableImage maths. `request_json` = `{op, frame:
+/// {natural, viewport, initial?, maxScale?}, from?: view | "rest", …}`, the
+/// op named like the fixtures/zoom.json group it answers (see
+/// `eui_core::zoom::zoom_request`); the result is that group's `expected`
+/// shape (a view `{scale, x, y}` for the gestures). `{"error": …}` on bad input.
+#[uniffi::export]
+pub fn zoom_json(request_json: String) -> String {
+    shield("zoom_json", || "{}".to_string(), || {
+        let out = serde_json::from_str::<serde_json::Value>(&request_json)
+            .map_err(|e| e.to_string())
+            .and_then(|req| eui_core::zoom::zoom_request(&req));
+        match out {
+            Ok(v) => serde_json::to_string(&v).unwrap_or_default(),
+            Err(e) => serde_json::json!({ "error": e }).to_string(),
+        }
+    })
+}
+
 /// VAPP-162: the VoiceWave `variant: bars` meter for one frame. `input_json`
 /// = `{size: "sm"|"md"|"lg"|"xl", activity, level?, bands?, elapsed?,
 /// reducedMotion?}`; the result is `{width, height, phase, bars: [{x, y,

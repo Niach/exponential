@@ -1,6 +1,5 @@
 import ExpCore
 import ExpUI
-import QuickLook
 import SwiftUI
 import UIKit
 
@@ -36,9 +35,10 @@ struct SessionInlinePicture: View {
 
 /// One published picture as a tappable tile with its caption line under it —
 /// the Results face's tile (EXP-879) and, at the inline height, the
-/// transcript's `sessions_show` tile (EXP-1172). A tap opens Quick Look over
-/// the download-to-temp path the comment strips use; a TALL picture
-/// (EXP-1128) opens `TallImageViewerSheet` instead.
+/// transcript's `sessions_show` tile (EXP-1172). A tap opens THE picture
+/// viewer (EXP-1586, the zoomable lightbox web and desktop open for a lone
+/// Results picture); a TALL one (EXP-1128) opens there at fit-width from its
+/// top.
 struct SessionResultPictureTile: View {
     let entry: SessionResultEntry
     let height: CGFloat
@@ -47,16 +47,16 @@ struct SessionResultPictureTile: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
 
-    @State private var previewURL: URL?
-    @State private var downloading = false
-    /// EXP-1128: the tall picture the scroll viewer shows, nil when closed.
-    @State private var tallPreview: TallPreview?
+    /// EXP-1586: the open viewer, nil when closed.
+    @State private var viewer: PictureViewerSet?
 
     var body: some View {
         let width = sessionResultTileWidth(entry, height: height)
         VStack(alignment: .leading, spacing: 4) {
             Button {
-                preview(entry)
+                viewer = PictureViewerSet(items: [
+                    PictureViewerItem(id: entry.attachmentId, src: entry.url, label: entry.label),
+                ])
             } label: {
                 SessionResultTile(
                     entry: entry,
@@ -64,8 +64,7 @@ struct SessionResultPictureTile: View {
                     height: height,
                     baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
                     accountId: accountId,
-                    httpClient: deps.httpClient,
-                    isLoading: downloading
+                    httpClient: deps.httpClient
                 )
             }
             .buttonStyle(.plain)
@@ -82,56 +81,8 @@ struct SessionResultPictureTile: View {
                 ? "\(entry.topic), \(caption), tall"
                 : "\(entry.topic), \(caption)"
         )
-        .quickLookPreview($previewURL)
-        .sheet(item: $tallPreview) { preview in
-            TallImageViewerSheet(entry: preview.entry)
-        }
+        .pictureViewer($viewer)
     }
-
-    // MARK: - Quick Look
-
-    /// Same contract as the comment strip's: the bytes land in a
-    /// per-attachment temp folder and are reused on a second tap.
-    private func preview(_ entry: SessionResultEntry) {
-        if sessionResultIsTall(entry) {
-            tallPreview = TallPreview(entry: entry)
-            return
-        }
-        guard !downloading else { return }
-        downloading = true
-        Task {
-            let url = await download(entry)
-            downloading = false
-            if let url { previewURL = url }
-        }
-    }
-
-    private func download(_ entry: SessionResultEntry) async -> URL? {
-        let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("attachments", isDirectory: true)
-            .appendingPathComponent(entry.attachmentId, isDirectory: true)
-        // The blob carries no filename — an id-named `.png` is enough for
-        // Quick Look to pick its image preview.
-        let destination = directory.appendingPathComponent("\(entry.attachmentId).png")
-        if FileManager.default.fileExists(atPath: destination.path) { return destination }
-        do {
-            let data = try await deps.attachmentsApi.download(
-                accountId: accountId,
-                relativeUrl: entry.url
-            )
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            try data.write(to: destination, options: .atomic)
-            return destination
-        } catch {
-            return nil
-        }
-    }
-}
-
-/// EXP-1128: the tall viewer's sheet item, keyed by the attachment.
-private struct TallPreview: Identifiable {
-    let entry: SessionResultEntry
-    var id: String { entry.attachmentId }
 }
 
 /// One published screenshot at the page's tile size, skinned like a posted
@@ -146,7 +97,6 @@ private struct SessionResultTile: View {
     let baseURL: URL?
     let accountId: String
     let httpClient: HTTPClient?
-    let isLoading: Bool
 
     @Environment(\.displayScale) private var displayScale
     @State private var image: UIImage?
@@ -187,11 +137,6 @@ private struct SessionResultTile: View {
                     .padding(6)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     .allowsHitTesting(false)
-            }
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
             }
         }
         .frame(width: width, height: height)

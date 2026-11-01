@@ -1,5 +1,5 @@
 // FEED-128: the native component map (React's natives/index.ts): every
-// `kind: native` of the core catalog, the SAME 51 keys in React's order
+// `kind: native` of the core catalog, the SAME 52 keys in React's order
 // (`owners.ts` NATIVE_ORDER). Each natives file exports its own record;
 // a native no file paints yet is painted by `Pending` (natives.test.ts
 // gates the map against the catalog and the owners table).
@@ -27,6 +27,7 @@ import { NATIVES_RESIZABLE } from "./resizable"
 import { NATIVES_SEARCH } from "./search"
 import { NATIVES_SELECT } from "./select"
 import { NATIVES_TABLE } from "./table"
+import { NATIVES_ZOOMABLE_IMAGE } from "./zoomable-image"
 
 const PROVIDED: Record<string, Component<NativeProps>> = {
   Box: BoxNative,
@@ -52,6 +53,7 @@ const PROVIDED: Record<string, Component<NativeProps>> = {
   ...NATIVES_SEARCH,
   ...NATIVES_SELECT,
   ...NATIVES_TABLE,
+  ...NATIVES_ZOOMABLE_IMAGE,
 }
 
 export const NATIVES: Record<string, Component<NativeProps>> = Object.fromEntries(NATIVE_ORDER.map((name) => [name, PROVIDED[name] ?? Pending]))

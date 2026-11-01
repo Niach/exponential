@@ -164,6 +164,8 @@ public struct NodeInfo: Identifiable, Sendable {
         switch (component, part) {
         case ("Slider", "track"), ("Box", "indicator"), ("Segmented", _), ("Composer", _): return true
         case ("Chart", nil): return !isSparkline
+        // EXP-1586: the picture takes the zoom keys.
+        case ("ZoomableImage", nil): return true
         case ("Button", _), ("Link", _), ("Toggle", _): return true
         default: return pressable
         }

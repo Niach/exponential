@@ -487,6 +487,44 @@
         "aspectRatio": 1.7777778
       }
     },
+    "ZoomableImage": {
+      "props": {
+        "src": {
+          "description": "The image URL."
+        },
+        "alt": {
+          "description": "The accessibility description."
+        },
+        "naturalWidth": {
+          "description": "Pixel width."
+        },
+        "naturalHeight": {
+          "description": "Pixel height."
+        },
+        "initial": {
+          "description": "auto = fitWidth when tall."
+        },
+        "maxScale": {
+          "description": "Largest zoom."
+        },
+        "controls": {
+          "description": "The zoom pill."
+        },
+        "scale": {
+          "description": "1 = 100%."
+        },
+        "style": {
+          "description": "Extra Box styles for the viewport."
+        }
+      },
+      "description": "A picture that zooms (pinch, ⌘-wheel, double-tap) and pans.",
+      "example": {
+        "src": "https://example.com/screenshot.png",
+        "alt": "Screenshot",
+        "naturalWidth": 1440,
+        "naturalHeight": 900
+      }
+    },
     "Icon": {
       "props": {
         "name": {

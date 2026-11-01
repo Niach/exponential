@@ -52,6 +52,38 @@ export { displayString, englishFormatter, intlFormatter, formatFunctions, format
 export type { Formatter, NumberOptions, DateOptions, DateStyle, PluralCategory, RelativeUnit, ZoneOffset } from "./format"
 export { templateItemKeys, tableRowKeys, templateInstances, itemExtents, itemOffsets, virtualWindow, scrollOffsetForIndex, scrollOffsetForItem, instanceSegment, listSections, sectionRows, stickyHeader, templateBudget, templateSiteKey, WINDOW_OVERSCAN } from "./list"
 export type { TemplateInstance, TemplateBudget, WindowRange, ScrollAlign, ListSection } from "./list"
+export {
+  ZOOM,
+  zoomIsTall,
+  zoomFitScale,
+  zoomLimits,
+  zoomRestScale,
+  zoomRestView,
+  zoomClamp,
+  zoomAtRest,
+  zoomTo,
+  zoomCentre,
+  zoomWheelFactor,
+  zoomWheel,
+  zoomScroll,
+  zoomLadder,
+  zoomStepScale,
+  zoomStep,
+  zoomDoubleTapScale,
+  zoomDoubleTap,
+  zoomKey,
+  zoomRubberBand,
+  zoomDrag,
+  zoomPinch,
+  zoomMomentum,
+  zoomMomentumActive,
+  zoomPanRoom,
+  zoomResize,
+  zoomPercent,
+  zoomMenu,
+  zoomBounds,
+} from "./zoom"
+export type { ZoomFrame, ZoomInitial, ZoomMenuItem, ZoomPoint, ZoomSize, ZoomView, WheelDeltaMode } from "./zoom"
 export { normalizeSizes, resizePanels, keyboardResize, panelExtents, dragDelta, RESIZE_STEP, PANEL_MIN, RESIZE_HANDLE_HIT } from "./resizable"
 export type { PanelLimits, ResizeKey } from "./resizable"
 export { nodeDirections, physicalTextAlign, nodeTextAlign } from "./direction"

@@ -320,6 +320,7 @@ function MarkdownImageNodeView({
         src={fullSizeSrc}
         alt={alt}
         label={imageLabel}
+        naturalSize={width && height ? { width, height } : null}
       />
     </NodeViewWrapper>
   )

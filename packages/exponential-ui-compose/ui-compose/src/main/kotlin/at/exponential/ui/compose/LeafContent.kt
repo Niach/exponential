@@ -33,6 +33,8 @@ fun LeafContent(context: LeafContext) {
         "Icon" -> IconLeaf(cx)
         "Avatar" -> AvatarLeaf(cx)
         "Image" -> ImageLeaf(cx)
+        // EXP-1586: the zoomable picture + THE pill.
+        "ZoomableImage" -> ZoomableImageLeaf(cx)
         "Video" -> VideoLeaf(cx)
         "AudioPlayer" -> AudioLeaf(cx)
         "Spinner" -> LeafFrame {

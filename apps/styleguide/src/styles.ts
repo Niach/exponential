@@ -375,6 +375,8 @@ body.actual figure.shot img { max-height: none; max-width: none; }
 .view.component[data-view="stack-merge-choice-dialog"] .cmp-demo { width: min(100%, calc(32rem + 42px)); }
 .view.component[data-view="draft-leave-dialog"] .cmp-demo { width: min(100%, calc(28rem + 42px)); }
 .view.component[data-view="meeting-consent"] .cmp-demo { width: min(100%, calc(28rem + 42px)); }
+/* EXP-1586: the zoom specimens draw the desktop twin's 640×400 box. */
+.view.component[data-view="zoomable-image"] .cmp-demo { width: min(100%, calc(640px + 42px)); }
 .cmp-status { margin-top: 22px; border-collapse: collapse; font-size: 12px; }
 .cmp-status th {
   width: 64px;

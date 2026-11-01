@@ -1458,6 +1458,117 @@
       "macro": null
     },
     {
+      "name": "ZoomableImage",
+      "kind": "native",
+      "group": "media",
+      "lite": false,
+      "specimenId": "exponential-ui-zoomable-image",
+      "description": "A picture that zooms (pinch, ⌘-wheel, double-tap) and pans.",
+      "children": "none",
+      "slots": [],
+      "events": [
+        "zoom",
+        "tap"
+      ],
+      "basic": [],
+      "props": [
+        {
+          "name": "src",
+          "type": "url",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The image URL."
+        },
+        {
+          "name": "alt",
+          "type": "string",
+          "required": true,
+          "bindable": true,
+          "responsive": false,
+          "description": "The accessibility description."
+        },
+        {
+          "name": "naturalWidth",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Pixel width."
+        },
+        {
+          "name": "naturalHeight",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Pixel height."
+        },
+        {
+          "name": "initial",
+          "type": "auto | fit | fitWidth | actual",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "auto",
+          "description": "auto = fitWidth when tall."
+        },
+        {
+          "name": "maxScale",
+          "type": "number",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": 8,
+          "description": "Largest zoom."
+        },
+        {
+          "name": "controls",
+          "type": "auto | always | none",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "auto",
+          "description": "The zoom pill."
+        },
+        {
+          "name": "scale",
+          "type": "number",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "1 = 100%."
+        },
+        {
+          "name": "style",
+          "type": "style",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Extra Box styles for the viewport."
+        }
+      ],
+      "accessibility": {
+        "role": "img",
+        "notes": "img (alt = name), focusable; the zoom pill's buttons are named `$string.zoomOut`, `$string.zoomIn`, `$string.zoomToFit` (pressed while at rest) and the percent button `$string.zoomLevel` (its value = the percent, opening a menu whose first row is `$string.zoomFit`)",
+        "keys": [
+          "+ / =: zoom in a step",
+          "-: zoom out a step",
+          "0: back to the opening zoom",
+          "1: 100%"
+        ]
+      },
+      "example": {
+        "id": "example",
+        "component": "ZoomableImage",
+        "src": "https://example.com/screenshot.png",
+        "alt": "Screenshot",
+        "naturalWidth": 1440,
+        "naturalHeight": 900
+      },
+      "macro": null
+    },
+    {
       "name": "Icon",
       "kind": "native",
       "group": "media",

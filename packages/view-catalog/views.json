@@ -3725,6 +3725,39 @@
       }
     },
     {
+      "id": "exponential-ui-zoomable-image",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · ZoomableImage",
+      "blurb": "A picture that zooms (pinch, ⌘-wheel, double-tap) and pans, with the zoom pill. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/zoomable-image/.",
+      "order": 106,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-zoomable-image",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-zoomable-image"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-zoomable-image",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-zoomable-image",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-qr-scanner",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · QrScanner",

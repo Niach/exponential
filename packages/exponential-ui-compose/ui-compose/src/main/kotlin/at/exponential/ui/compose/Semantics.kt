@@ -278,6 +278,9 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
             }
         }
         c == "QrScanner" -> this
+        // EXP-1586 (a11y.json `ZoomableImage`): the painter names the picture
+        // (an image, alt = name, focusable) and the pill's buttons itself.
+        c == "ZoomableImage" -> this
         c == "Link" -> {
             val index = node.index
             clearAndSetSemantics {

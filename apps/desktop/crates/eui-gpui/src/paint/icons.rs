@@ -41,6 +41,8 @@ pub enum Glyph {
     Error,
     Back,
     Star,
+    /// EXP-1586: the ZoomableImage pill's fit button (`ui-fullscreen`).
+    Fullscreen,
     Placeholder,
 }
 
@@ -71,6 +73,7 @@ impl Glyph {
             Glyph::Error => IconName::CircleX,
             Glyph::Back => IconName::ArrowLeft,
             Glyph::Star => IconName::Star,
+            Glyph::Fullscreen => IconName::Maximize,
             Glyph::Play | Glyph::Stop | Glyph::Clock | Glyph::Placeholder => return None,
         })
     }
@@ -104,6 +107,7 @@ impl Glyph {
             "ui-back" => Glyph::Back,
             "ui-star" | "star" => Glyph::Star,
             "ui-image" => Glyph::Image,
+            "ui-fullscreen" => Glyph::Fullscreen,
             "ui-icon-placeholder" => Glyph::Placeholder,
             _ => return None,
         })

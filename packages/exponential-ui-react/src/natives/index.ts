@@ -25,6 +25,7 @@ import { SearchListNative } from "./search"
 import { SelectNative } from "./select"
 import { TableNative } from "./table"
 import { IconNative, MarkdownNative, TextNative } from "./text"
+import { ZoomableImageNative } from "./zoomable-image"
 
 
 export const NATIVES: Record<string, ComponentType<NativeProps>> = {
@@ -35,6 +36,7 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   Markdown: MarkdownNative,
   CodeBlock: CodeBlockNative,
   Image: ImageNative,
+  ZoomableImage: ZoomableImageNative,
   Icon: IconNative,
   Video: VideoNative,
   AudioPlayer: AudioPlayerNative,

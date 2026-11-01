@@ -28,6 +28,7 @@ enum BuiltinIcons {
         "Table.sortIcon.asc": "ui-chevron-up", "Table.sortIcon.desc": "ui-chevron-down", "TimePicker.trigger": "ui-clock",
         "Toast.close": "ui-close", "Toast.icon.info": "ui-info", "Toast.icon.success": "ui-success",
         "Toast.icon.warning": "ui-warning", "Toast.icon.error": "ui-error", "Unknown.root": "ui-warning",
+        "ZoomableImage.zoomOut": "ui-minus", "ZoomableImage.zoomIn": "ui-add", "ZoomableImage.fit": "ui-fullscreen",
     ]
 
     /// The icon name of a built-in slot (`Table.sortIcon.asc`).
@@ -58,6 +59,7 @@ enum BuiltinIcons {
         case "ui-file", "file": "file"
         case "ui-add", "plus": "plus"
         case "ui-minus", "minus": "minus"
+        case "ui-fullscreen", "maximize-2": "maximize-2"
         case "ui-info", "info": "info"
         case "ui-success", "circle-check", "trace-task-done": "circle-check"
         case "ui-warning", "triangle-alert": "triangle-alert"

@@ -93,7 +93,7 @@ fn in_rounded_rect(px: f32, py: f32, (x, y, w, h, r, _): (f32, f32, f32, f32, f3
 
 /// A stand-in picture = the web's SVG: a diagonal gradient `from` → `to`
 /// (bounding-box diagonal, top left → bottom right) under the bar + panel.
-fn picture_png(from: [u8; 3], to: [u8; 3], w: u32, h: u32) -> Vec<u8> {
+pub(crate) fn picture_png(from: [u8; 3], to: [u8; 3], w: u32, h: u32) -> Vec<u8> {
     let (sx, sy) = (w as f32 / PICTURE_SIZE.0 as f32, h as f32 / PICTURE_SIZE.1 as f32);
     let image = image::RgbaImage::from_fn(w, h, |x, y| {
         let (cx, cy) = (x as f32 + 0.5, y as f32 + 0.5);

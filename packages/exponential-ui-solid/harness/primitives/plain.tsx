@@ -67,6 +67,7 @@ import {
   TableRow,
   Textarea,
   VoiceWave,
+  ZoomableImage,
 } from "../../src/primitives"
 
 const ROW = { display: `flex`, flexWrap: `wrap`, alignItems: `center`, gap: 8 }
@@ -76,6 +77,8 @@ const TEXT_SIZES = [`default`, `xs`, `sm`, `lg`, `inline`] as const
 const ICON_SIZES = [`icon`, `icon-sm`, `icon-xs`, `icon-lg`] as const
 const PICTURE = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'%3E%3Crect width='16' height='10' fill='%2360a5fa'/%3E%3C/svg%3E`
 const PICTURE_ALT = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 10'%3E%3Crect width='16' height='10' fill='%23f97316'/%3E%3C/svg%3E`
+// EXP-1586: a full-page capture's shape (390 × 3000), banded so its top shows.
+const TALL_PICTURE = `data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 39 300' preserveAspectRatio='none'%3E%3Crect width='39' height='300' fill='%23f97316'/%3E%3Crect width='39' height='40' fill='%2360a5fa'/%3E%3C/svg%3E`
 const SOURCE = `import { tokenizeCode } from "@exponential_app/eui"\n\nconst lines = tokenizeCode(source, \`ts\`)\nexport default lines.length\n`
 const noop = () => {}
 const DOT = { display: `block`, borderRadius: 9999, background: `#2563eb` }
@@ -461,6 +464,15 @@ export const SPECIMENS: Record<string, () => JSX.Element> = {
       </div>
       <CarouselThumbnails count={4} urls={[PICTURE, PICTURE_ALT, null, PICTURE, PICTURE]} page={1} onPageChange={noop} />
       <CarouselThumbnails count={8} urls={[]} page={0} />
+    </div>
+  ),
+  // EXP-1586: at rest (fit, the pill at its min), a tall picture at
+  // fit-width on its square box, and one without the pill.
+  "plain/zoomable-image": () => (
+    <div style={css({ ...COLUMN, width: 480 })}>
+      <ZoomableImage src={PICTURE} alt="Wide" naturalWidth={1600} naturalHeight={1000} controls="always" />
+      <ZoomableImage src={TALL_PICTURE} alt="Tall" naturalWidth={390} naturalHeight={3000} controls="always" />
+      <ZoomableImage src={PICTURE} alt="Plain" naturalWidth={1600} naturalHeight={1000} controls="none" style={{ height: 120 }} />
     </div>
   ),
 }

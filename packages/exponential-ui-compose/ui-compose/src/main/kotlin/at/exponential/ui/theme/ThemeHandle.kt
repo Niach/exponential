@@ -131,6 +131,9 @@ class ThemeHandle(val theme: Theme) {
     /** A `motion` token (ms). */
     fun motion(name: String): Float? = tokens["motion"]?.get(name)?.number?.toFloat()
 
+    /** EXP-1586: an `ease` token (`standard`, `decelerate`, …): the cubic bezier's four numbers. */
+    fun ease(name: String): List<Float>? = tokens["ease"]?.get(name)?.array?.mapNotNull { it.number?.toFloat() }?.takeIf { it.size == 4 }
+
     /** The resolved theme's token groups, parsed once. */
     private val tokens: JsonValue by lazy { JsonValue.parse(theme.resolvedJson())["tokens"] ?: JsonValue.Null }
 
