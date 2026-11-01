@@ -1008,6 +1008,7 @@ private fun ThreadHeaderMerge(
             onMergeStack = { changesVm.mergePr(stack = true) },
         ),
         modifier = Modifier.testTag(SessionTree.ThreadCopy.TEST_ID_GUIDE_MERGE),
+        header = true,
     )
 }
 

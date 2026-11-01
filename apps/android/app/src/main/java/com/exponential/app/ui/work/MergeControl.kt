@@ -122,12 +122,19 @@ fun MergeCircle(merge: ChangesMergeControl, tag: String, modifier: Modifier = Mo
  * Same confirm / stack flow as [MergeCapsule]; spins while merging.
  */
 @Composable
-fun MergePill(merge: ChangesMergeControl, modifier: Modifier = Modifier) {
+fun MergePill(
+    merge: ChangesMergeControl,
+    modifier: Modifier = Modifier,
+    /** Small glass (the issue PR row) or (EXP-1552) the md PRIMARY pill the
+     *  thread header wears ×4 (web `PullRequestMergePill`, desktop, iOS). */
+    header: Boolean = false,
+) {
     MergeTrigger(merge) { onClick ->
         GlassPill(
             merge.label,
             icon = ExpIcons.prMerged,
-            size = PillSize.Sm,
+            size = if (header) PillSize.Md else PillSize.Sm,
+            primary = header,
             loading = merge.loading,
             enabled = !merge.loading,
             onClick = onClick,

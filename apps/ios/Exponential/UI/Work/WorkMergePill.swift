@@ -113,21 +113,23 @@ struct WorkMergePill: View {
 
     /// S-3: the header's action slot (the header Stop's shape: a plain
     /// toolbar button, the merge glyph before its label).
+    /// EXP-1552: the thread header's Merge = THE md primary `GlassPill` ×4
+    /// (web `PullRequestMergePill`, desktop `.primary()`, Android
+    /// `MergePill(header = true)`).
     private var toolbarButton: some View {
-        Button { showMergeConfirm = true } label: {
-            HStack(spacing: 6) {
-                if merging {
-                    ProgressView().controlSize(.small).tint(.white)
-                } else {
-                    AppIcon(AppIcons.prMerged, size: AppIcon.Size.small, weight: .medium)
-                }
-                Text(label)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
+        GlassPill(
+            label,
+            size: .md,
+            mode: .action { showMergeConfirm = true },
+            primary: true,
+            enabled: !merging
+        ) {
+            if merging {
+                ProgressView().controlSize(.small)
+            } else {
+                AppIcon(AppIcons.prMerged, size: GlassPillSize.md.glyphSize)
             }
-            .foregroundStyle(.white.opacity(TextOpacity.primary))
         }
-        .disabled(merging)
         .fixedSize()
         .accessibilityLabel(label)
         .accessibilityIdentifier(identifier)
