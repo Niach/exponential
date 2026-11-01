@@ -49,6 +49,10 @@ export interface DomainContract {
   commentAudience: { values: readonly string[] }
   notificationType: { values: readonly string[] }
   prState: { values: readonly string[] }
+  prChecksState: { values: readonly string[] }
+  prCheckStatus: { values: readonly string[] }
+  prCheckConclusion: { values: readonly string[] }
+  prChecks: { failingConclusions: readonly string[]; queuedFlagMinutes: number }
   /** A device's agent defaults. */
   deviceAgentDefaults: {
     model: string

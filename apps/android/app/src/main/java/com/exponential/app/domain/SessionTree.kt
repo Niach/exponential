@@ -187,6 +187,7 @@ object SessionTree {
             "trigger_fired" to "Trigger fired: {name}",
             // EXP-1391: a refused merge the server posted into the root.
             "pr_merge_refused" to "Merge of PR {pr} refused",
+            "pr_checks" to "CI on PR {pr}",
         )
         const val TEST_ID_TABS = "thread-tabs"
         const val TEST_ID_CONVERSATION = "thread-conversation"

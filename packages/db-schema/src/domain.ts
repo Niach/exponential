@@ -373,6 +373,26 @@ export const notificationTypeValues = [
 // machine (written by the MCP open_pr tool + the merge webhook/cron).
 export const prStateValues = [`open`, `closed`, `merged`, `draft`] as const
 
+// EXP-1610: CI on a PR, provider-neutral (contract prChecksState /
+// prCheckStatus / prCheckConclusion). GitHub's webhooks write it today,
+// eCode's own CI later.
+export const prChecksStateValues = [`none`, `pending`, `success`, `failure`] as const
+export const prCheckStatusValues = [`queued`, `in_progress`, `completed`] as const
+export const prCheckConclusionValues = [
+  `success`,
+  `failure`,
+  `neutral`,
+  `cancelled`,
+  `skipped`,
+  `timed_out`,
+  `action_required`,
+  `startup_failure`,
+  `stale`,
+] as const
+export type PrChecksState = (typeof prChecksStateValues)[number]
+export type PrCheckStatus = (typeof prCheckStatusValues)[number]
+export type PrCheckConclusion = (typeof prCheckConclusionValues)[number]
+
 
 // EXP-804: the agent's usage wall as coding_sessions row state. NULL = not
 // blocked. A blocked run STAYS `running` — it is still live, steerable and
@@ -1042,6 +1062,9 @@ export const messageEventKindValues = [
   // EXP-1391: a merge GitHub refused, posted into the
   // PR's root session as pending input (it wakes the root).
   `pr_merge_refused`,
+  // EXP-1610: a PR's CI left pending (or a check sat queued too long),
+  // posted into the PR's session as pending input (it wakes it).
+  `pr_checks`,
 ] as const
 export type MessageEventKind = (typeof messageEventKindValues)[number]
 
@@ -1253,8 +1276,12 @@ export type MessageCard =
       event: MessageEventKind
       issueId?: string | null
       pullRequestId?: string | null
-      /** EXP-1413 `pr_merge_refused` by the automerge: the refused head. */
+      /** EXP-1413 `pr_merge_refused` by the automerge: the refused head.
+       *  EXP-1610 `pr_checks`: the head CI ran on. */
       headSha?: string | null
+      /** EXP-1610 `pr_checks`: success | failure (CI left pending) or
+       *  queued (a check sat queued too long). */
+      checksState?: string | null
       sessionId?: string | null
       /** NEW-2 `trigger_fired`: the agent, its trigger, the event row (an
        *  event trigger) and the event's name. */

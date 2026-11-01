@@ -42,6 +42,10 @@ interface Contract {
   commentAudience: Section
   notificationType: Section
   prState: Section
+  prChecksState: Section
+  prCheckStatus: Section
+  prCheckConclusion: Section
+  prChecks: { failingConclusions: string[]; queuedFlagMinutes: number }
   sessionKind: Section
   sessionStatus: Section
   codingSessionBlocked: { kinds: string[]; windows: string[] }
@@ -491,6 +495,10 @@ ${swiftStringArray("commentSourceValues", contract.commentSource.values)}
 ${swiftStringArray("commentAudienceValues", contract.commentAudience.values)}
 ${swiftStringArray("notificationTypeValues", contract.notificationType.values)}
 ${swiftStringArray("prStateValues", contract.prState.values)}
+${swiftStringArray("prChecksStateValues", contract.prChecksState.values)}
+${swiftStringArray("prCheckStatusValues", contract.prCheckStatus.values)}
+${swiftStringArray("prCheckConclusionValues", contract.prCheckConclusion.values)}
+${swiftStringArray("prChecksFailingConclusions", contract.prChecks.failingConclusions)}
 ${swiftStringArray("sessionKindValues", contract.sessionKind.values)}
 ${swiftStringArray("sessionStatusValues", contract.sessionStatus.values)}
 ${swiftStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
@@ -618,6 +626,9 @@ ${swiftNamedValues("commentSource", contract.commentSource.values)}
 ${swiftNamedValues("commentAudience", contract.commentAudience.values)}
 ${swiftNamedValues("notificationType", contract.notificationType.values)}
 ${swiftNamedValues("prState", contract.prState.values)}
+${swiftNamedValues("prChecksState", contract.prChecksState.values)}
+${swiftNamedValues("prCheckStatus", contract.prCheckStatus.values)}
+${swiftNamedValues("prCheckConclusion", contract.prCheckConclusion.values)}
 ${swiftNamedValues("sessionKind", contract.sessionKind.values)}
 ${swiftNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${swiftNamedValues("subscriberSource", contract.subscriberSource.values)}
@@ -658,6 +669,10 @@ ${kotlinStringArray("commentSourceValues", contract.commentSource.values)}
 ${kotlinStringArray("commentAudienceValues", contract.commentAudience.values)}
 ${kotlinStringArray("notificationTypeValues", contract.notificationType.values)}
 ${kotlinStringArray("prStateValues", contract.prState.values)}
+${kotlinStringArray("prChecksStateValues", contract.prChecksState.values)}
+${kotlinStringArray("prCheckStatusValues", contract.prCheckStatus.values)}
+${kotlinStringArray("prCheckConclusionValues", contract.prCheckConclusion.values)}
+${kotlinStringArray("prChecksFailingConclusions", contract.prChecks.failingConclusions)}
 ${kotlinStringArray("sessionKindValues", contract.sessionKind.values)}
 ${kotlinStringArray("sessionStatusValues", contract.sessionStatus.values)}
 ${kotlinStringArray("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
@@ -785,6 +800,9 @@ ${kotlinNamedValues("commentSource", contract.commentSource.values)}
 ${kotlinNamedValues("commentAudience", contract.commentAudience.values)}
 ${kotlinNamedValues("notificationType", contract.notificationType.values)}
 ${kotlinNamedValues("prState", contract.prState.values)}
+${kotlinNamedValues("prChecksState", contract.prChecksState.values)}
+${kotlinNamedValues("prCheckStatus", contract.prCheckStatus.values)}
+${kotlinNamedValues("prCheckConclusion", contract.prCheckConclusion.values)}
 ${kotlinNamedValues("sessionKind", contract.sessionKind.values)}
 ${kotlinNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${kotlinNamedValues("subscriberSource", contract.subscriberSource.values)}
@@ -827,6 +845,10 @@ ${rustStrSlice("commentSourceValues", contract.commentSource.values)}
 ${rustStrSlice("commentAudienceValues", contract.commentAudience.values)}
 ${rustStrSlice("notificationTypeValues", contract.notificationType.values)}
 ${rustStrSlice("prStateValues", contract.prState.values)}
+${rustStrSlice("prChecksStateValues", contract.prChecksState.values)}
+${rustStrSlice("prCheckStatusValues", contract.prCheckStatus.values)}
+${rustStrSlice("prCheckConclusionValues", contract.prCheckConclusion.values)}
+${rustStrSlice("prChecksFailingConclusions", contract.prChecks.failingConclusions)}
 ${rustStrSlice("sessionKindValues", contract.sessionKind.values)}
 ${rustStrSlice("sessionStatusValues", contract.sessionStatus.values)}
 ${rustStrSlice("codingSessionBlockedKinds", contract.codingSessionBlocked.kinds)}
@@ -959,6 +981,9 @@ ${rustNamedValues("commentSource", contract.commentSource.values)}
 ${rustNamedValues("commentAudience", contract.commentAudience.values)}
 ${rustNamedValues("notificationType", contract.notificationType.values)}
 ${rustNamedValues("prState", contract.prState.values)}
+${rustNamedValues("prChecksState", contract.prChecksState.values)}
+${rustNamedValues("prCheckStatus", contract.prCheckStatus.values)}
+${rustNamedValues("prCheckConclusion", contract.prCheckConclusion.values)}
 ${rustNamedValues("sessionKind", contract.sessionKind.values)}
 ${rustNamedValues("sessionStatus", contract.sessionStatus.values)}
 ${rustNamedValues("subscriberSource", contract.subscriberSource.values)}

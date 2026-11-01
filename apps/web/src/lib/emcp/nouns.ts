@@ -192,7 +192,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   { name: `show`, blurb: ``, verb: `show`, alwaysLoad: true },
   {
     name: `pr`,
-    blurb: `Pull requests (name one by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR): open, merge, close, retarget, update, unlink an issue, files.`,
+    blurb: `Pull requests (name one by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR): open, merge, close, retarget, update, unlink an issue, files. Every reply carries checks (the PR's CI); CI finishing wakes the PR's session, so never poll GitHub.`,
     alwaysLoad: true,
     ops: {
       open: `pr_open`,

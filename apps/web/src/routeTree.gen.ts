@@ -59,6 +59,7 @@ import { Route as ApiShapesSessionReadsRouteImport } from './routes/api/shapes/s
 import { Route as ApiShapesSessionIssuesRouteImport } from './routes/api/shapes/session-issues'
 import { Route as ApiShapesPullRequestsRouteImport } from './routes/api/shapes/pull-requests'
 import { Route as ApiShapesPullRequestIssuesRouteImport } from './routes/api/shapes/pull-request-issues'
+import { Route as ApiShapesPullRequestChecksRouteImport } from './routes/api/shapes/pull-request-checks'
 import { Route as ApiShapesPromptsRouteImport } from './routes/api/shapes/prompts'
 import { Route as ApiShapesPinsRouteImport } from './routes/api/shapes/pins'
 import { Route as ApiShapesNotificationsRouteImport } from './routes/api/shapes/notifications'
@@ -401,6 +402,12 @@ const ApiShapesPullRequestIssuesRoute =
   ApiShapesPullRequestIssuesRouteImport.update({
     id: '/api/shapes/pull-request-issues',
     path: '/api/shapes/pull-request-issues',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiShapesPullRequestChecksRoute =
+  ApiShapesPullRequestChecksRouteImport.update({
+    id: '/api/shapes/pull-request-checks',
+    path: '/api/shapes/pull-request-checks',
     getParentRoute: () => rootRouteImport,
   } as any)
 const ApiShapesPromptsRoute = ApiShapesPromptsRouteImport.update({
@@ -954,6 +961,7 @@ export interface FileRoutesByFullPath {
   '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
+  '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
@@ -1090,6 +1098,7 @@ export interface FileRoutesByTo {
   '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
+  '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
@@ -1231,6 +1240,7 @@ export interface FileRoutesById {
   '/api/shapes/pins': typeof ApiShapesPinsRoute
   '/api/shapes/prompts': typeof ApiShapesPromptsRoute
   '/api/shapes/pull-request-issues': typeof ApiShapesPullRequestIssuesRoute
+  '/api/shapes/pull-request-checks': typeof ApiShapesPullRequestChecksRoute
   '/api/shapes/pull-requests': typeof ApiShapesPullRequestsRoute
   '/api/shapes/session-issues': typeof ApiShapesSessionIssuesRoute
   '/api/shapes/session-reads': typeof ApiShapesSessionReadsRoute
@@ -1372,6 +1382,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pins'
     | '/api/shapes/prompts'
     | '/api/shapes/pull-request-issues'
+    | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-requests'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
@@ -1508,6 +1519,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pins'
     | '/api/shapes/prompts'
     | '/api/shapes/pull-request-issues'
+    | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-requests'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
@@ -1648,6 +1660,7 @@ export interface FileRouteTypes {
     | '/api/shapes/pins'
     | '/api/shapes/prompts'
     | '/api/shapes/pull-request-issues'
+    | '/api/shapes/pull-request-checks'
     | '/api/shapes/pull-requests'
     | '/api/shapes/session-issues'
     | '/api/shapes/session-reads'
@@ -1779,6 +1792,7 @@ export interface RootRouteChildren {
   ApiShapesPinsRoute: typeof ApiShapesPinsRoute
   ApiShapesPromptsRoute: typeof ApiShapesPromptsRoute
   ApiShapesPullRequestIssuesRoute: typeof ApiShapesPullRequestIssuesRoute
+  ApiShapesPullRequestChecksRoute: typeof ApiShapesPullRequestChecksRoute
   ApiShapesPullRequestsRoute: typeof ApiShapesPullRequestsRoute
   ApiShapesSessionIssuesRoute: typeof ApiShapesSessionIssuesRoute
   ApiShapesSessionReadsRoute: typeof ApiShapesSessionReadsRoute
@@ -2153,6 +2167,13 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/pull-request-issues'
       fullPath: '/api/shapes/pull-request-issues'
       preLoaderRoute: typeof ApiShapesPullRequestIssuesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/pull-request-checks': {
+      id: '/api/shapes/pull-request-checks'
+      path: '/api/shapes/pull-request-checks'
+      fullPath: '/api/shapes/pull-request-checks'
+      preLoaderRoute: typeof ApiShapesPullRequestChecksRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/prompts': {
@@ -3002,6 +3023,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesPinsRoute: ApiShapesPinsRoute,
   ApiShapesPromptsRoute: ApiShapesPromptsRoute,
   ApiShapesPullRequestIssuesRoute: ApiShapesPullRequestIssuesRoute,
+  ApiShapesPullRequestChecksRoute: ApiShapesPullRequestChecksRoute,
   ApiShapesPullRequestsRoute: ApiShapesPullRequestsRoute,
   ApiShapesSessionIssuesRoute: ApiShapesSessionIssuesRoute,
   ApiShapesSessionReadsRoute: ApiShapesSessionReadsRoute,

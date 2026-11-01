@@ -1,4 +1,6 @@
 import { viaAppOf } from "@/lib/emcp/via-app"
+import { mergeGate, mergeGateText } from "@exp/domain-contract/pr-checks"
+import { loadPullRequestChecks, pullRequestChecksBrief } from "@/lib/integrations/pr-checks"
 import { z } from "zod"
 import { boardIconSchema } from "@exp/db-schema/domain"
 import { TRPCError } from "@trpc/server"
@@ -3023,6 +3025,15 @@ export function registerExponentialTools(
     url: pr.url,
   })
 
+  // EXP-1610: every `pr` op reports the PR's CI (fixtures/pr-checks.json
+  // `brief`); an unsettled one is re-read first (throttled), so a lost
+  // webhook heals on the next op. Never fails the op.
+  const prChecks = (pullRequestId: string, repair = true) =>
+    pullRequestChecksBrief(pullRequestId, { repair }).catch((e: unknown) => {
+      console.error(`[mcp] checks of ${pullRequestId}`, e)
+      return { state: `none` as const, total: 0, failing: [], pending: [] }
+    })
+
   server.registerTool(
     `exponential_pr_open`,
     {
@@ -3067,7 +3078,7 @@ export function registerExponentialTools(
         for (const id of issueIds) noteAgentIssueActivity(id, user.id)
         // EXP-1413: `pr_open` is a yolo edge (quiet while the opener works).
         yoloEdge(own?.rootId)
-        return ok(result)
+        return ok({ ...result, checks: await prChecks(result.pullRequestId) })
       } catch (e) {
         return err(e)
       }
@@ -3077,23 +3088,33 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_merge`,
     {
-      description: `Squash-merge an open PR (via the GitHub App). Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging your own PR never ends your session. Merge a tree root first.`,
+      description: `Squash-merge an open PR (via the GitHub App). Name it by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR. stack lands a stack member and every open PR beneath it. Merging your own PR never ends your session. Merge a tree root first. When the server gates on CI, a red or running check refuses it; force: true merges anyway (only when a person says so).`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         ...prSelector,
         stack: z.boolean().optional(),
+        force: z.boolean().optional(),
       }),
     },
-    async ({ stack, ...selector }) => {
+    async ({ stack, force, ...selector }) => {
       try {
         const { pr, callerSessionId } = await selectPr(selector)
+        const checks = await prChecks(pr.id)
+        // EXP-1610: MERGE_CHECK_GATE (default off) refuses a red or
+        // running gated check; force overrides.
+        if (process.env.MERGE_CHECK_GATE === `true` && !force) {
+          const verdict = mergeGate(await loadPullRequestChecks(pr.id))
+          if (!verdict.ok) {
+            return ok({ ...prRef(pr), merged: false, error: mergeGateText(pr.number, verdict), checks })
+          }
+        }
         const result = await mergePullRequest({
           userId: user.id,
           pullRequestId: pr.id,
           ...(stack !== undefined ? { stack } : {}),
           callerSessionId,
         })
-        return ok({ ...prRef(pr), ...result })
+        return ok({ ...prRef(pr), ...result, checks })
       } catch (e) {
         return err(e)
       }
@@ -3110,7 +3131,7 @@ export function registerExponentialTools(
       try {
         const { pr } = await selectPr(selector)
         await closePullRequestTx({ userId: user.id, pullRequestId: pr.id })
-        return ok({ ...prRef(pr), closed: true })
+        return ok({ ...prRef(pr), closed: true, checks: await prChecks(pr.id, false) })
       } catch (e) {
         return err(e)
       }
@@ -3134,7 +3155,7 @@ export function registerExponentialTools(
           pullRequestId: pr.id,
           ...(base ? { base } : {}),
         })
-        return ok({ ...prRef(pr), ...result })
+        return ok({ ...prRef(pr), ...result, checks: await prChecks(pr.id) })
       } catch (e) {
         return err(e)
       }
@@ -3165,7 +3186,7 @@ export function registerExponentialTools(
           ...(body !== undefined ? { body } : {}),
           ...(draft !== undefined ? { draft } : {}),
         })
-        return ok({ ...prRef(pr), ...(isRecord(result) ? result : {}) })
+        return ok({ ...prRef(pr), ...(isRecord(result) ? result : {}), checks: await prChecks(pr.id) })
       } catch (e) {
         return err(e)
       }
@@ -3192,7 +3213,7 @@ export function registerExponentialTools(
           pullRequestId: pr.id,
           issueId: issueId!,
         })
-        return ok({ ...prRef(pr), issueId, ...result })
+        return ok({ ...prRef(pr), issueId, ...result, checks: await prChecks(pr.id, false) })
       } catch (e) {
         return err(e)
       }
@@ -3210,7 +3231,7 @@ export function registerExponentialTools(
       try {
         const { pr } = await selectPr(selector)
         const result = await pullRequestFiles({ userId: user.id, pullRequestId: pr.id })
-        return ok({ ...prRef(pr), ...result })
+        return ok({ ...prRef(pr), ...result, checks: await prChecks(pr.id) })
       } catch (e) {
         return err(e)
       }

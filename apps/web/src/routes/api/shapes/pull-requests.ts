@@ -20,6 +20,8 @@ export const PULL_REQUEST_COLUMNS = [
   `base_pull_request_id`,
   `state`,
   `merged_at`,
+  // EXP-1610: the aggregate CI state (contract prChecksState).
+  `checks_state`,
   `created_at`,
   `updated_at`,
 ]

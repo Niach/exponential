@@ -1,0 +1,41 @@
+{
+  "$comment": "EXP-1610 (server half of #EXP-1608): CI on a pull request, provider-neutral. ROWS: `pull_request_checks` = one row per check NAME at the PR's head commit (`head_sha`, `name`, `status` contract prCheckStatus, `conclusion` contract prCheckConclusion or null while running, `required` = a required check of the base branch, `started_at`, `completed_at`, `details_url` = the logs link); a newer head replaces the older head's rows, a late delivery for an older head is dropped. `pull_requests.checks_state` = the aggregate (contract prChecksState, `aggregate` below: none = no rows, failure wins over pending). Both sync (shape `pull-request-checks`, team-scoped, member-only), so no client calls GitHub. WRITERS: GitHub's `check_run` webhook upserts a row; `check_suite`/`workflow_run` `completed` and the next `exponential_pr` read (throttled, one conditional GET of the head's check runs) repair a missed delivery; never a polling loop. Without the App's checks:read permission nothing is known: state none, never an error. eCode's own CI writes the same rows later. WAKE: when `checks_state` turns success or failure (from pending or none), ONE `pr_checks` event line wakes the PR's session (its opener while live, else the thread's root): `CI on #N: success.` / `CI on #N: failure (name (logs url), …).` (`wakeText`), once per PR, head and state. A check still queued `queuedFlagMinutes` (contract prChecks) after it was created is flagged ONCE the same way (`queuedText`). MCP: every `exponential_pr` op returns `checks` = {state, total, failing[{name, url, required}], pending[names]} (`brief`). `pr merge` reports them; with MERGE_CHECK_GATE=true (default off) it refuses while a gated check is red or running (`gate`: the required checks when the base names any, else every check; red first) with `gateText`, and `force: true` merges anyway. Agents never poll api.github.com: they end their turn and the bus wakes them. #EXP-1611 adds the UI x4 (checks list, Merge pill) on this fixture.",
+  "aggregate": [
+    { "name": "no checks", "checks": [], "expected": "none" },
+    { "name": "all green", "checks": [{ "name": "gate", "status": "completed", "conclusion": "success" }, { "name": "lint", "status": "completed", "conclusion": "skipped" }], "expected": "success" },
+    { "name": "one running", "checks": [{ "name": "gate", "status": "completed", "conclusion": "success" }, { "name": "e2e", "status": "in_progress", "conclusion": null }], "expected": "pending" },
+    { "name": "queued counts as running", "checks": [{ "name": "android", "status": "queued", "conclusion": null }], "expected": "pending" },
+    { "name": "red wins over running", "checks": [{ "name": "gate", "status": "completed", "conclusion": "failure" }, { "name": "e2e", "status": "in_progress", "conclusion": null }], "expected": "failure" },
+    { "name": "cancelled is red", "checks": [{ "name": "gate", "status": "completed", "conclusion": "cancelled" }], "expected": "failure" },
+    { "name": "neutral is not red", "checks": [{ "name": "info", "status": "completed", "conclusion": "neutral" }], "expected": "success" }
+  ],
+  "githubStatus": [
+    { "github": "queued", "expected": "queued" },
+    { "github": "waiting", "expected": "queued" },
+    { "github": "requested", "expected": "queued" },
+    { "github": "pending", "expected": "queued" },
+    { "github": "in_progress", "expected": "in_progress" },
+    { "github": "completed", "expected": "completed" }
+  ],
+  "gate": [
+    { "name": "nothing known", "checks": [], "expected": { "ok": true } },
+    { "name": "green", "checks": [{ "name": "gate", "status": "completed", "conclusion": "success", "required": true }], "expected": { "ok": true } },
+    { "name": "required running", "checks": [{ "name": "gate", "status": "in_progress", "conclusion": null, "required": true }, { "name": "docs", "status": "completed", "conclusion": "failure", "required": false }], "expected": { "ok": false, "reason": "pending", "names": ["gate"] } },
+    { "name": "required red first", "checks": [{ "name": "gate", "status": "completed", "conclusion": "failure", "required": true }, { "name": "e2e", "status": "queued", "conclusion": null, "required": true }], "expected": { "ok": false, "reason": "failing", "names": ["gate"] } },
+    { "name": "no required = every check", "checks": [{ "name": "lint", "status": "completed", "conclusion": "timed_out" }], "expected": { "ok": false, "reason": "failing", "names": ["lint"] } }
+  ],
+  "wakeText": [
+    { "number": 12, "state": "success", "failing": [], "expected": "CI on #12: success." },
+    { "number": 12, "state": "failure", "failing": [{ "name": "gate", "detailsUrl": "https://github.com/o/r/actions/runs/1" }, { "name": "lint" }], "expected": "CI on #12: failure (gate (https://github.com/o/r/actions/runs/1), lint)." }
+  ],
+  "queuedText": [
+    { "number": 7, "names": ["android-emulator"], "expected": "CI on #7: android-emulator queued for 30+ minutes; no runner picked it up. Tell a person if it stays queued." }
+  ],
+  "gateText": [
+    { "number": 3, "verdict": { "ok": false, "reason": "failing", "names": ["gate"] }, "expected": "PR #3 has failing checks: gate. Read them, fix and push; merge again when CI is green (force: true merges anyway, only when a person says so)." },
+    { "number": 3, "verdict": { "ok": false, "reason": "pending", "names": ["gate", "e2e"] }, "expected": "PR #3 still has checks running: gate, e2e. Do not poll: Exponential wakes this session when CI finishes. Merge then (force: true merges anyway, only when a person says so)." }
+  ],
+  "brief": [
+    { "state": "failure", "checks": [{ "name": "gate", "status": "completed", "conclusion": "failure", "required": true, "detailsUrl": "https://x/1" }, { "name": "e2e", "status": "in_progress", "conclusion": null }], "expected": { "state": "failure", "total": 2, "failing": [{ "name": "gate", "url": "https://x/1", "required": true }], "pending": ["e2e"] } }
+  ]
+}
