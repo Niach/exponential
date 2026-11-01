@@ -2,6 +2,7 @@ package com.exponential.app.domain
 
 import java.io.File
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -55,7 +56,7 @@ class AppsTest {
         assertEquals(null, fixture["layoutCases"])
         val cases = fixture["editorTabCases"]!!.jsonArray.map { it.jsonObject }
         assert(cases.isNotEmpty())
-        fun opt(case: JsonObject, key: String) = case[key]!!.let { if (it is kotlinx.serialization.json.JsonNull) null else it.jsonPrimitive.content }
+        fun opt(case: JsonObject, key: String) = case[key]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
         for (case in cases) {
             val pick = Apps.editorTab(opt(case, "requested"), case["phone"]!!.jsonPrimitive.content.toBooleanStrict())
             assertEquals(case.toString(), Apps.EditorTabPick(case["tab"]!!.jsonPrimitive.content, opt(case, "sheet")), pick)
@@ -161,6 +162,17 @@ class AppsTest {
         assertEquals("Viewing v3", Apps.viewing(3))
         assertEquals("Restored v2 as v5", Apps.restored(2, 5))
         assertEquals("Delete Team dashboard?", Apps.deleteTitle("Team dashboard"))
+    }
+
+    @Test
+    fun `previewTemplate replays the fixture`() {
+        for (case in fixture["templateCases"]!!.jsonArray.map { it.jsonObject }) {
+            val templates = case["templates"]!!.jsonArray.map { it.jsonPrimitive.content }
+            val picked = case["picked"]!!.jsonPrimitive.let { if (it is JsonNull) null else it.content }
+            val shown = case["shown"]!!.jsonPrimitive.let { if (it is JsonNull) null else it.content }
+            assertEquals(case["list"]!!.jsonArray.map { it.jsonPrimitive.content }, Apps.previewTemplates(templates))
+            assertEquals(shown, Apps.previewTemplate(templates, picked))
+        }
     }
 
     @Test
