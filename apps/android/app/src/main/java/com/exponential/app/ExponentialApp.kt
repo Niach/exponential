@@ -82,6 +82,9 @@ class ExponentialApp : Application(), SingletonImageLoader.Factory {
                 // resume() on each of them. Adding a kick of either kind here
                 // buys nothing and costs a second redial per open session.
                 syncManager.setForeground(true)
+                // EXP-1531: the network may have changed while we were away:
+                // the eNet nodes re-probe and migrate their paths.
+                enetNodeManager.networkChange("foreground")
                 // Same gate for the live steer sockets (EXP-621): they are
                 // app-held now, so backgrounding parks them after their own
                 // grace window and coming back revives them.

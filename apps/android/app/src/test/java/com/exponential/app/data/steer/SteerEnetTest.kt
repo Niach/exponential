@@ -56,6 +56,8 @@ class SteerEnetTest {
     private class FakeNode(override val endpointId: String = "viewer") : PeerNode {
         private val flow = MutableSharedFlow<PeerChat>(extraBufferCapacity = 256)
         override val chats = flow
+        val drops = MutableSharedFlow<String>(extraBufferCapacity = 16)
+        override val disconnects = drops
         val sent = CopyOnWriteArrayList<Pair<String, JsonObject>>()
         @Volatile var device: FakeNode.(peer: String, envelope: SteerEnvelope) -> Unit = { _, _ -> }
         @Volatile var refuse: (String) -> Boolean = { false }
@@ -356,6 +358,56 @@ class SteerEnetTest {
         node.deliver("dev-a", SESSION, """{"t":"bye","outcome":"ended"}""")
         assertEquals("bye", tag(socket.next()))
         assertTrue(withTimeout(2_000) { socket.incoming.receiveCatching() }.isClosed)
+    }
+
+    // ── EXP-1487 SUBSCRIPTIONS / EXP-1531 a lost peer ───────────────────
+
+    @Test
+    fun onlyTheLastSocketOfASessionAndDeviceSendsLeave() = runBlocking {
+        // A replaced dial cancelled while the newer one is joined must not
+        // end the newer feed: the device keys viewers by endpoint.
+        val node = FakeNode().apply { serve(live = "dev-a") }
+        val first = dialer(node, listOf("dev-a"))!!.open(SESSION)!!
+        val second = dialer(node, listOf("dev-a"))!!.open(SESSION)!!
+        first.cancel()
+        delay(150)
+        assertEquals(listOf("join", "join"), node.sentTypes("dev-a"))
+        // The newer feed still gets the device's frames.
+        repeat(3) { second.next() }
+        node.deliver("dev-a", SESSION, """{"t":"keepalive"}""")
+        assertEquals("keepalive", tag(second.next()))
+        second.cancel()
+        withTimeout(2_000) { while (node.sentTypes("dev-a").size < 3) delay(5) }
+        assertEquals(listOf("join", "join", "leave"), node.sentTypes("dev-a"))
+    }
+
+    @Test
+    fun aDisconnectOfTheJoinedPeerEndsTheFeedAtOnce() = runBlocking {
+        val node = FakeNode().apply { serve(live = "dev-a") }
+        // staleMs far beyond the test: only the disconnect can end it.
+        val slow = EnetSteerDialer(
+            node = { node },
+            discover = { listOf("dev-a") },
+            timings = fast.copy(staleMs = 60_000),
+            dispatcher = Dispatchers.Default,
+        )
+        val socket = slow.open(SESSION)!!
+        try {
+            repeat(3) { socket.next() }
+            // Another peer's disconnect is not this feed's.
+            check(node.drops.tryEmit("dev-b"))
+            delay(50)
+            node.deliver("dev-a", SESSION, """{"t":"keepalive"}""")
+            assertEquals("keepalive", tag(socket.next()))
+            check(node.drops.tryEmit("dev-a"))
+            assertTrue(withTimeout(1_000) { socket.incoming.receiveCatching() }.isClosed)
+            assertEquals("peer disconnected", socket.closeReason())
+        } finally {
+            socket.cancel()
+        }
+        // An ended feed sends no leave.
+        delay(100)
+        assertEquals(listOf("join"), node.sentTypes("dev-a"))
     }
 
     // ── the connection over eNet ────────────────────────────────────────

@@ -822,3 +822,88 @@ impl steer::EnetViewerSource for Redial {
         Ok(self.endpoints.lock().unwrap().clone())
     }
 }
+
+/// EXP-1531: eNet dies UNDER a live feed (every connection between viewer
+/// and device closes). The viewer notices at once through the node's
+/// `PeerDisconnected` (not after `staleMs` = 75 s of silence), redials
+/// silently (the phase holds: no `connecting`, no "Connection lost") and
+/// is live on eNet again once the link is back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_feed_whose_enet_link_dies_mid_stream_is_dropped_at_once_and_comes_back() {
+    use steer::{ViewerEvent, ViewerPhase};
+    let dir = std::env::temp_dir().join(format!("enet-steer-link-dies-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let registry = Arc::new(Registry::default());
+    let device = start(&registry, &dir, "frank", InstallKind::Daemon);
+    let viewer = start(&registry, &dir, "frank", InstallKind::Desktop);
+    for install in [&device, &viewer] {
+        tokio::time::timeout(WAIT, install.passes_at_least(1)).await.unwrap();
+    }
+    for install in [&device, &viewer] {
+        install.refresh();
+        tokio::time::timeout(WAIT, install.passes_at_least(2)).await.unwrap();
+    }
+    let d = device.node().unwrap();
+    let v = viewer.node().unwrap();
+    d.add_ticket(&v.ticket());
+    v.add_ticket(&d.ticket());
+
+    let session_id = format!("sess-link-dies-{}", std::process::id());
+    let runtime: &SteerRuntime = Box::leak(Box::new(SteerRuntime::new().unwrap()));
+    let recorded = Arc::new(Recorded::default());
+    let publisher = steer::publish(
+        runtime,
+        PublishSpec {
+            session_id: session_id.clone(),
+            audience: Some(coding::SteerAudience {
+                team_id: "team-1".into(),
+                starter_user_id: "frank".into(),
+                shared: false,
+            }),
+            ..Default::default()
+        },
+        hooks(&recorded),
+    );
+    publisher.activity_sender().send(ActivityEvent::narration("before"));
+    wait_until(|| enet_steer::has_room(&session_id)).await;
+
+    let (events_tx, events) = flume::unbounded();
+    let source = Source { node: Some(Arc::clone(&v)), endpoints: vec![enet::endpoint_hex(&d.endpoint_id())] };
+    let handle = steer::spawn_viewer(runtime, Some(Arc::new(source)), session_id.clone(), events_tx);
+    while !matches!(next_event(&events).await, ViewerEvent::Synced { .. }) {}
+    assert!(v.is_connected(&d.endpoint_id()));
+    assert_eq!(v.path_kind(&d.endpoint_id()).map(|p| p.as_str()), Some("direct"));
+
+    // Kill eNet mid-stream: every connection between the two closes.
+    assert!(v.disconnect(&d.endpoint_id()) >= 2, "one chat stream each way");
+    let dropped_at = std::time::Instant::now();
+    let mut seen = Vec::new();
+    loop {
+        let event = next_event(&events).await;
+        let dropped = matches!(event, ViewerEvent::Connected(false));
+        seen.push(event);
+        if dropped {
+            break;
+        }
+    }
+    assert!(dropped_at.elapsed() < Duration::from_secs(5), "drop noticed after {:?}", dropped_at.elapsed());
+
+    // Back on eNet: a fresh replay, then live events again.
+    publisher.activity_sender().send(ActivityEvent::narration("after the drop"));
+    loop {
+        let event = next_event(&events).await;
+        let done = matches!(&event, ViewerEvent::Activity(_, ActivityEvent::Narration { text, .. }) if text == "after the drop");
+        seen.push(event);
+        if done {
+            break;
+        }
+    }
+    assert!(seen.contains(&ViewerEvent::Connected(true)), "re-joined");
+    assert!(!seen.contains(&ViewerEvent::Phase(ViewerPhase::Connecting)), "a silent redial");
+    assert!(!seen.iter().any(|event| matches!(event, ViewerEvent::Phase(ViewerPhase::Ended { .. }))));
+    assert!(v.is_connected(&d.endpoint_id()));
+    handle.shutdown();
+    publisher.shutdown(Some("exit:0".into()));
+    let _ = std::fs::remove_dir_all(&dir);
+}

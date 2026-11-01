@@ -253,7 +253,11 @@ public final class SteerFeedCarriers {
 
     private func enetDialed(_ outcome: SteerEnetJoinOutcome, token: Int) {
         guard !finished, token == enetToken else {
-            if case let .joined(link, _) = outcome { link.close(sendLeave: true) }
+            // EXP-1487 / #EXP-1531: a dial superseded by a newer one sends no
+            // `leave` (its `join` may already have landed and the device keys
+            // viewers by endpoint); a finished feed leaves, unless another
+            // link of this install still reads it (`SteerEnetLink.close`).
+            if case let .joined(link, _) = outcome { link.close(sendLeave: finished) }
             return
         }
         enetDialing = false

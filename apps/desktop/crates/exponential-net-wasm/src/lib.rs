@@ -98,6 +98,9 @@ fn event_js(e: net::Event) -> JsValue {
             ("peer", JsValue::from_str(&peer.to_string())),
             ("alpn", JsValue::from_str(&String::from_utf8_lossy(&alpn))),
         ]),
+        net::Event::PeerDisconnected { peer } => {
+            obj(&[kind("peerDisconnected"), ("peer", JsValue::from_str(&peer.to_string()))])
+        }
     }
 }
 
@@ -189,6 +192,29 @@ impl WasmNode {
         future_to_promise(async move {
             let m = node.send_chat(peer(&to)?, body).await.map_err(err)?;
             Ok(obj(&[("id", bytes(&m.id)), ("timestampMs", JsValue::from_f64(m.timestamp_ms as f64))]))
+        })
+    }
+
+    /// EXP-1531: how `id` is reached right now: `"direct"` | `"iroh_relay"`
+    /// (a browser is always relayed today), `undefined` = no open connection.
+    #[wasm_bindgen(js_name = pathKind)]
+    pub fn path_kind(&self, id: String) -> Result<Option<String>, JsValue> {
+        Ok(self.node.path_kind(&peer(&id)?).map(|p| p.as_str().to_string()))
+    }
+
+    /// Whether any connection to `id` is open.
+    #[wasm_bindgen(js_name = isConnected)]
+    pub fn is_connected(&self, id: String) -> Result<bool, JsValue> {
+        Ok(self.node.is_connected(&peer(&id)?))
+    }
+
+    /// Call on `online` / tab visible again: iroh re-probes the network.
+    #[wasm_bindgen(js_name = networkChange)]
+    pub fn network_change(&self) -> js_sys::Promise {
+        let node = self.node.clone();
+        future_to_promise(async move {
+            node.network_change().await;
+            Ok(JsValue::UNDEFINED)
         })
     }
 

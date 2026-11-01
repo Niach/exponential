@@ -13,7 +13,10 @@ vi.mock(`@/lib/trpc`, async (importOriginal) => ({
   generateTxId: vi.fn(async () => 42),
 }))
 
-import { sessionKeysRouter, treeReaders } from "@/lib/trpc/session-keys"
+vi.mock(`@/lib/trpc/devices`, () => ({ nudgeDevice: vi.fn() }))
+
+import { nudgeMissingWraps, sessionKeysRouter, treeReaders } from "@/lib/trpc/session-keys"
+import { nudgeDevice } from "@/lib/trpc/devices"
 import { createFakeDb, type FakeDb } from "@/lib/emcp/upstream/test-db"
 import { generateTreeKey, unwrapTreeKey, wrapTreeKey } from "@exp/domain-contract/sealed-content"
 import fixture from "@exp/domain-contract/fixtures/sealed-content.json"
@@ -272,6 +275,40 @@ describe(`sessionKeys.pending + wrap + mine`, () => {
     await caller(`u2`).wrap({ installId: I2, wraps: [{ rootId: R2, epoch: 1, targetInstallId: I1B, wrapped }] })
     const [mine] = await caller(`u1`).mine({ installId: I1B })
     expect(unwrapTreeKey(Buffer.from(fixture.install.secret, `hex`), mine!.wrapped)).toEqual(tree.secret)
+  })
+})
+
+describe(`EXP-1531: a reader missing its wrap wakes the holders`, () => {
+  beforeEach(async () => {
+    vi.mocked(nudgeDevice).mockClear()
+    // u3's daemon holds R2's key: its device is the holder to wake.
+    await caller(`u2`).create({
+      rootId: R2,
+      installId: I2,
+      epoch: 1,
+      publicKey: PUBLIC,
+      wraps: [
+        { installId: I2, wrapped: WRAP },
+        { installId: I3D, wrapped: WRAP },
+      ],
+    })
+  })
+
+  it(`nudges the holder devices of a root the reader lacks, throttled; never for a held root or a non-reader`, async () => {
+    const at = 1_000_000_000
+    expect(await nudgeMissingWraps(db as never, I1A, [R2], [], at)).toEqual([R2])
+    expect(nudgeDevice).toHaveBeenCalledWith(`u3`, `box-3`)
+    expect(await nudgeMissingWraps(db as never, I1A, [R2], [], at + 1_000)).toEqual([])
+    expect(await nudgeMissingWraps(db as never, I1A, [R2], [], at + 10_000)).toEqual([R2])
+    // Held already, keyless, or not a reader (team B): nothing.
+    expect(await nudgeMissingWraps(db as never, I1B, [R2], [{ rootId: R2, epoch: 1 }], at)).toEqual([])
+    expect(await nudgeMissingWraps(db as never, I1B, [R4], [], at)).toEqual([])
+    expect(await nudgeMissingWraps(db as never, I4, [R2], [], at)).toEqual([])
+  })
+
+  it(`mine with rootIds triggers it`, async () => {
+    expect(await caller(`u1`).mine({ installId: I1B, rootIds: [R2] })).toEqual([])
+    await vi.waitFor(() => expect(nudgeDevice).toHaveBeenCalledWith(`u3`, `box-3`))
   })
 })
 

@@ -832,6 +832,14 @@ async fn log_events(inner: Arc<Inner>, mut events: tokio::sync::mpsc::UnboundedR
     while let Some(event) = events.recv().await {
         match event {
             Event::Chat { from, message } => receive_chat(&inner, &from, &message.body),
+            // EXP-1531: a dead link drops its feeds now, not at a timeout.
+            Event::PeerDisconnected { peer } => {
+                let node = lock(&inner.node).clone();
+                if let Some(node) = node {
+                    let closed = crate::enet_steer::peer_disconnected(&node, peer);
+                    log::info!("enet: link to {} closed ({closed} viewer subscriptions dropped)", endpoint_hex(&peer));
+                }
+            }
             Event::PeerRefused { peer, .. } => {
                 log::info!("enet: refused {}", endpoint_hex(&peer));
                 // Maybe a teammate's install registered after our last

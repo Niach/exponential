@@ -24,9 +24,12 @@ node = ["dep:iroh", "dep:iroh-gossip", "dep:iroh-blobs", "dep:iroh-tickets", "de
 fs-store = ["node", "iroh-blobs/fs-store"]
 
 [dependencies]
-# default features OFF: no portmapper, no metrics; `tls-ring` = the rustls
-# crypto provider (`presets::Minimal`), the one that also builds for wasm.
-iroh = { version = "1.4", default-features = false, features = ["tls-ring"], optional = true }
+# default features OFF: no metrics; `tls-ring` = the rustls crypto provider
+# (`presets::Minimal`), the one that also builds for wasm. `portmapper`
+# (EXP-1531): UPnP / NAT-PMP / PCP mappings on the home router, so a peer
+# behind a hard NAT still gets a DIRECT path instead of staying on the iroh
+# relay (iroh gates the dependency off in the browser itself).
+iroh = { version = "1.4", default-features = false, features = ["tls-ring", "portmapper"], optional = true }
 iroh-gossip = { version = "0.101", default-features = false, features = ["net"], optional = true }
 iroh-blobs = { version = "0.104", default-features = false, optional = true }
 iroh-tickets = { version = "1", optional = true }

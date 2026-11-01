@@ -10,8 +10,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 
 /** One chat message a peer sent this node: its endpoint id and the body. */
@@ -29,6 +31,19 @@ interface PeerNode {
 
     /** Every chat message from now on (VAPP-33: consumers filter by the body's tag). */
     val chats: SharedFlow<PeerChat>
+
+    /**
+     * EXP-1531: the endpoint id of a peer whose LAST connection just closed
+     * (hung up, or the 10 s QUIC idle timeout found it dead).
+     */
+    val disconnects: Flow<String> get() = emptyFlow()
+
+    /** EXP-1531: how [peer] is reached now, `direct` | `iroh_relay` (connStats `path`); null = no open connection. */
+    fun pathKind(peer: String): String? = null
+
+    /** EXP-1531: re-probe the network and migrate paths (app foreground, network back). */
+    suspend fun networkChange() = Unit
+
     suspend fun shutdown()
 }
 
@@ -49,14 +64,26 @@ class FfiPeerNode(val node: EnetNode) : PeerNode {
     private val pump = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val _chats = MutableSharedFlow<PeerChat>()
     override val chats: SharedFlow<PeerChat> = _chats
+    private val _disconnects = MutableSharedFlow<String>(extraBufferCapacity = 64)
+    override val disconnects: SharedFlow<String> = _disconnects
+
+    override fun pathKind(peer: String): String? = runCatching { node.pathKind(peer) }.getOrNull()
+
+    override suspend fun networkChange() {
+        node.networkChange()
+    }
 
     init {
         // The ONE consumer of nextEvent: a chat goes to whoever collects
-        // [chats] now (nobody = dropped); every other event is not ours yet.
+        // [chats] now (nobody = dropped), a lost peer to [disconnects]
+        // (EXP-1531); every other event is not ours yet.
         pump.launch {
             while (true) {
-                val event = node.nextEvent() ?: break
-                if (event is EnetEvent.Chat) _chats.emit(PeerChat(event.from, event.message.body))
+                when (val event = node.nextEvent() ?: break) {
+                    is EnetEvent.Chat -> _chats.emit(PeerChat(event.from, event.message.body))
+                    is EnetEvent.PeerDisconnected -> _disconnects.emit(event.peer)
+                    else -> Unit
+                }
             }
         }
     }
@@ -139,6 +166,14 @@ class InstallNode(
         diff.revoke.forEach(running::revoke)
         diff.allow.forEach(running::allow)
         return complete
+    }
+
+    /** EXP-1531: the connStats `path` to [endpointId] (`direct` | `iroh_relay`), null = not connected or no node. */
+    fun pathKind(endpointId: String): String? = node?.pathKind(endpointId)
+
+    /** EXP-1531: tells the running node the network may have changed. */
+    suspend fun networkChange() {
+        node?.networkChange()
     }
 
     suspend fun stop() {

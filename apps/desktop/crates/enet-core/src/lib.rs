@@ -39,6 +39,8 @@ mod event;
 #[cfg(feature = "node")]
 mod identity;
 #[cfg(feature = "node")]
+mod links;
+#[cfg(feature = "node")]
 mod node;
 pub mod push;
 pub mod sealed;
@@ -65,7 +67,9 @@ pub use event::{CallEndReason, Event};
 #[cfg(feature = "node")]
 pub use identity::Identity;
 #[cfg(feature = "node")]
-pub use node::Node;
+pub use links::PathKind;
+#[cfg(feature = "node")]
+pub use node::{Node, IDLE_TIMEOUT, KEEP_ALIVE};
 pub use push::{push_open, push_seal, PushKeypair};
 #[cfg(feature = "node")]
 pub use records::{Clock, Record, SpaceId, GOSSIP_ALPN, MAX_RECORD_KEY, MAX_RECORD_VALUE, RECORDS_SYNC_ALPN};

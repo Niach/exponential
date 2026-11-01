@@ -30,4 +30,8 @@ pub enum Event {
     CallEnded { call: CallId, reason: CallEndReason },
     /// An incoming connection was refused by the access policy.
     PeerRefused { peer: EndpointId, alpn: Vec<u8> },
+    /// EXP-1531: the last open connection to `peer` closed (it hung up, the
+    /// QUIC idle timeout found it dead, or the network changed under it).
+    /// The next send dials afresh; a viewer treats its feed as dropped now.
+    PeerDisconnected { peer: EndpointId },
 }

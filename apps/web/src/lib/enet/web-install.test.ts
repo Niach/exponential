@@ -271,4 +271,33 @@ describe(`WebInstall`, () => {
     expect(node.allowed.has(`a1`)).toBe(true)
     await install.stop()
   })
+
+  it(`EXP-1531: peerDisconnected reaches its listeners; pathKind and networkChange guard an old build`, async () => {
+    const { enet, nodes } = fakeEnet()
+    const install = new WebInstall(`u1`, { loadEnet: async () => enet, api: fakeApi({}), store: memoryStore() })
+    expect(install.pathKind(`dev`)).toBeNull()
+    await install.start()
+    const node = nodes[0]!
+    const gone: string[] = []
+    const off = install.onPeerDisconnected((peer) => gone.push(peer))
+    node.emit({ kind: `peerDisconnected`, peer: `dev` })
+    off()
+    node.emit({ kind: `peerDisconnected`, peer: `late` })
+    expect(gone).toEqual([`dev`])
+
+    // An older wasm build has neither method.
+    expect(install.pathKind(`dev`)).toBeNull()
+    expect(() => install.networkChange()).not.toThrow()
+
+    const probes = vi.fn(async () => {})
+    node.pathKind = (id) => (id === `dev` ? `direct` : undefined)
+    node.networkChange = probes
+    expect(install.pathKind(`dev`)).toBe(`direct`)
+    expect(install.pathKind(`other`)).toBeNull()
+    install.networkChange()
+    expect(probes).toHaveBeenCalledTimes(1)
+    await install.stop()
+    install.networkChange()
+    expect(probes).toHaveBeenCalledTimes(1)
+  })
 })

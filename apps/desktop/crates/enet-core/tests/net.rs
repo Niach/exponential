@@ -3,7 +3,7 @@
 
 use std::time::Duration;
 
-use enet_core::{CallEndReason, Clock, Event, Identity, NetConfig, NetError, Node, Record, Ticket};
+use enet_core::{CallEndReason, Clock, Event, Identity, NetConfig, NetError, Node, PathKind, Record, Ticket, IDLE_TIMEOUT};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 const WAIT: Duration = Duration::from_secs(20);
@@ -364,4 +364,99 @@ async fn chat_to_a_restarted_peer_does_not_wait_on_the_dead_link() {
     assert!(started.elapsed() < Duration::from_secs(5), "waited {:?} on the dead link", started.elapsed());
     a.shutdown().await.unwrap();
     b2.shutdown().await.unwrap();
+}
+
+/// EXP-1531: a live link reports its path (localhost = direct) and a peer
+/// that hangs up raises `PeerDisconnected` at once.
+#[tokio::test(flavor = "multi_thread")]
+async fn path_kind_and_disconnect_on_close() {
+    let (a, mut ea) = node().await;
+    let (b, _eb) = node().await;
+    pair(&a, &b);
+    assert_eq!(a.path_kind(&b.endpoint_id()), None, "no connection yet");
+    a.send_chat(b.endpoint_id(), b"hi".to_vec()).await.unwrap();
+    assert!(a.is_connected(&b.endpoint_id()));
+    assert_eq!(a.path_kind(&b.endpoint_id()), Some(PathKind::Direct));
+    assert_eq!(PathKind::Direct.as_str(), "direct");
+    assert_eq!(PathKind::IrohRelay.as_str(), "iroh_relay");
+    let gone = b.endpoint_id();
+    b.shutdown().await.unwrap();
+    let started = std::time::Instant::now();
+    next_matching(&mut ea, |e| matches!(e, Event::PeerDisconnected { peer } if peer == gone).then_some(())).await;
+    assert!(started.elapsed() < Duration::from_secs(3), "close took {:?}", started.elapsed());
+    assert!(!a.is_connected(&gone));
+    assert_eq!(a.path_kind(&gone), None);
+    a.shutdown().await.unwrap();
+}
+
+/// EXP-1531: a peer that vanishes mid-stream WITHOUT a close (killed app,
+/// suspended phone, dead Wi-Fi) is detected by the QUIC idle timeout, not
+/// after the 20 s ack wait or the viewer's 75 s stale timer.
+#[tokio::test(flavor = "multi_thread")]
+async fn peer_killed_mid_stream_is_detected_within_the_idle_timeout() {
+    let (a, mut ea) = node().await;
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let b = rt.spawn(async move { Node::start(NetConfig::local_only(), Identity::generate()).await.unwrap() }).await.unwrap();
+    pair(&a, &b);
+    let to_a = a.endpoint_id();
+    let b = rt
+        .spawn(async move {
+            b.send_chat(to_a, b"frame".to_vec()).await.unwrap();
+            b
+        })
+        .await
+        .unwrap();
+    a.send_chat(b.endpoint_id(), b"join".to_vec()).await.unwrap();
+    let gone = b.endpoint_id();
+    // Gone without a close: its runtime dies under it.
+    std::mem::forget(b);
+    tokio::task::spawn_blocking(move || rt.shutdown_background()).await.unwrap();
+    let started = std::time::Instant::now();
+    next_matching(&mut ea, |e| matches!(e, Event::PeerDisconnected { peer } if peer == gone).then_some(())).await;
+    let took = started.elapsed();
+    assert!(took <= IDLE_TIMEOUT + Duration::from_secs(3), "dead link detected after {took:?}");
+    assert!(!a.is_connected(&gone));
+    a.shutdown().await.unwrap();
+}
+
+/// EXP-1531: steer talks both ways on two chat links (each side sends on its
+/// own outbound stream). A peer's FIRST dial is not a restart: alternating
+/// directions must keep reusing both links, not close the other side's link
+/// on every turn (a reconnect ping-pong that re-sent in-flight messages).
+#[tokio::test(flavor = "multi_thread")]
+async fn alternating_directions_keep_both_links() {
+    let (a, mut ea) = node().await;
+    let (b, mut eb) = node().await;
+    pair(&a, &b);
+    let (ia, ib) = (a.endpoint_id(), b.endpoint_id());
+    a.send_chat(ib, b"join".to_vec()).await.unwrap();
+    let a_link = a.chat_link_id(&ib).expect("a's link");
+    b.send_chat(ia, b"replay".to_vec()).await.unwrap();
+    let b_link = b.chat_link_id(&ia).expect("b's link");
+    for round in 0..3u8 {
+        a.send_chat(ib, vec![b'i', round]).await.unwrap();
+        b.send_chat(ia, vec![b'f', round]).await.unwrap();
+    }
+    assert_eq!(a.chat_link_id(&ib), Some(a_link), "a kept its link");
+    assert_eq!(b.chat_link_id(&ia), Some(b_link), "b kept its link");
+    // Every message arrived exactly once.
+    let mut at_b = Vec::new();
+    while at_b.len() < 4 {
+        let body = next_matching(&mut eb, |e| match e {
+            Event::Chat { message, .. } => Some(message.body),
+            _ => None,
+        })
+        .await;
+        at_b.push(body);
+    }
+    assert_eq!(at_b, vec![b"join".to_vec(), vec![b'i', 0], vec![b'i', 1], vec![b'i', 2]]);
+    let mut at_a = 0;
+    while at_a < 4 {
+        next_matching(&mut ea, |e| matches!(e, Event::Chat { .. }).then_some(())).await;
+        at_a += 1;
+    }
+    let extra = tokio::time::timeout(Duration::from_millis(300), ea.recv()).await;
+    assert!(!matches!(extra, Ok(Some(Event::Chat { .. }))), "no duplicate");
+    a.shutdown().await.unwrap();
+    b.shutdown().await.unwrap();
 }

@@ -71,9 +71,16 @@ public final class EnetInstallNode: InstallNodeDriver {
         case nil: return nil
         case let .chat(from, message)?: return .chat(from: from, body: message.body)
         case let .peerRefused(peer, _)?: return .peerRefused(peer: peer)
+        case let .peerDisconnected(peer)?: return .peerDisconnected(peer: peer)
         case _?: return .other
         }
     }
+
+    public func pathKind(peer: String) -> String? {
+        try? node.pathKind(peer: peer)
+    }
+
+    public func networkChange() async { await node.networkChange() }
 }
 #endif
 
