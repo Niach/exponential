@@ -8,6 +8,7 @@ import { issueMenuProps } from "@/components/issue-context-menu/attr"
 import {
   Checkbox,
   ListRow,
+  SkeletonRows,
   TREE_INDENT,
   TreeGuides,
   treeGuides,
@@ -59,6 +60,7 @@ export function BoardIssueListPane({
   bulkTeamId,
   selectedIds = EMPTY_SELECTION,
   onSelectedIdsChange: setSelectedIds = noopSetSelectedIds,
+  isLoading = false,
 }: {
   groups: IssueGroup[]
   teamSlug: string
@@ -80,6 +82,9 @@ export function BoardIssueListPane({
    *  a dispatcher: the prune and the keyboard handlers update functionally. */
   selectedIds?: Set<string>
   onSelectedIdsChange?: React.Dispatch<React.SetStateAction<Set<string>>>
+  /** EXP-1550: the rows have not synced yet — skeletons, never the empty
+   *  state (feedback-states.json). */
+  isLoading?: boolean
 }) {
   // Folded groups, per status row, for as long as the pane is mounted — the
   // big list's rule (`IssueList`'s `collapsedGroups`).
@@ -230,8 +235,10 @@ export function BoardIssueListPane({
       className="flex-1 overflow-y-auto p-2"
       data-testid="board-issue-pane"
     >
-      {visible.length === 0 && (
-        <Empty id="board-issues" />
+      {isLoading ? (
+        <SkeletonRows rowHeight={28} />
+      ) : (
+        visible.length === 0 && <Empty id="board-issues" />
       )}
       {visible.map((group) => {
         const open = !collapsed.has(group.status.id)

@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-01-look-audit-fixes",
+    date: "2026-11-01",
+    title: "Settings and lists tidied up on every platform",
+    summary: "My issues loads reliably on the web, and a few labels now read the same everywhere.",
+    body: r#"- **My issues**: on the web, the list shows loading rows while it syncs instead of a brief "No issues".
+- **Settings**: the leftover "When a PR merges, end its sessions" switch and the page subtitle are gone.
+- **Same words everywhere**: the back button and image viewer say Stories, the phones' Account screen is titled Account, and iOS shows PR numbers without a thousands separator."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_150: ChangelogEntry = ChangelogEntry {
     id: "2026-11-01-desktop-dialogs-in-window",
     date: "2026-11-01",
     title: "Desktop looks like the web app",

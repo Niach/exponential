@@ -116,30 +116,6 @@ export const componentStyles = `
 }
 .cmp-row-shell input.value::placeholder { color: var(--fg-50); }
 
-/* --------------------------------------------------------------- switch */
-.cmp-switch {
-  position: relative;
-  flex: none;
-  width: 36px;
-  height: 20px;
-  border-radius: 9999px;
-  background: var(--active);
-  transition: background var(--dur) var(--ease);
-}
-.cmp-switch::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
-  background: var(--fg);
-  transition: transform var(--dur) var(--ease);
-}
-.cmp-switch.on { background: var(--primary); }
-.cmp-switch.on::after { background: var(--primary-fg); transform: translateX(16px); }
-
 /* ------------------------------------------------------------- rich tab */
 /* The STRIP tab — desktop's top tab strip and session bar, web's agent dock.
    Not a pill: it carries a status, an identifier and a close, and a dozen of

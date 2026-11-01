@@ -378,50 +378,6 @@ impl IssuesPane {
             );
         }
 
-        // EXP-711: merge ends the PR's live coding sessions by default
-        // (EXP-498); the switch turns that off team-wide. Web parity: the
-        // third row of the same card, label only.
-        let ends_sessions = team.ends_sessions_on_merge();
-        let team_id = team.id.clone();
-        let switch_pane = pane.clone();
-        group_rows.push(
-            crate::surface::glass_row_shell()
-                .justify_between()
-                .child(
-                    // Label + state only — no explanatory sub-hint.
-                    div()
-                        .min_w_0()
-                        .text_sm()
-                        .child("When a PR merges, end its sessions"),
-                )
-                .child(
-                    crate::controls::web_switch("pr-automation-end-sessions")
-                        .checked(ends_sessions)
-                        .on_click(move |checked: &bool, _window, cx| {
-                            let team_id = team_id.clone();
-                            let enabled = *checked;
-                            let pane = switch_pane.clone();
-                            let Some(trpc) = crate::queries::trpc_client(cx) else {
-                                return;
-                            };
-                            cx.spawn(async move |cx| {
-                                let result = cx
-                                    .background_executor()
-                                    .spawn(async move {
-                                        api::statuses::statuses_set_end_sessions_on_merge(
-                                            &trpc, &team_id, enabled,
-                                        )
-                                    })
-                                    .await;
-                                let _ = pane.update(cx, |this, cx| {
-                                    this.set_pr_automation_error(result, cx);
-                                });
-                            })
-                            .detach();
-                        }),
-                ),
-        );
-
         Some(card.child(crate::surface::glass_group_rows(group_rows)))
     }
 }

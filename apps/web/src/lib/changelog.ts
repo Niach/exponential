@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-01-look-audit-fixes`,
+    date: `2026-11-01`,
+    title: `Settings and lists tidied up on every platform`,
+    summary: `My issues loads reliably on the web, and a few labels now read the same everywhere.`,
+    body: `- **My issues**: on the web, the list shows loading rows while it syncs instead of a brief "No issues".
+- **Settings**: the leftover "When a PR merges, end its sessions" switch and the page subtitle are gone.
+- **Same words everywhere**: the back button and image viewer say Stories, the phones' Account screen is titled Account, and iOS shows PR numbers without a thousands separator.`,
+  },
+  {
     id: `2026-11-01-desktop-dialogs-in-window`,
     date: `2026-11-01`,
     title: `Desktop looks like the web app`,

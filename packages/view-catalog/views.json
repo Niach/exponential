@@ -781,7 +781,7 @@
       "web": {
         "route": "/t/$teamSlug/inbox?tab=my-issues",
         "anchor": {
-          "text": "My issues",
+          "text": "Push notification deep links",
           "timeoutMs": 30000
         },
         "settleMs": 1000

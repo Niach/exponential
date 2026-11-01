@@ -81,7 +81,7 @@ struct ServerDetailView: View {
                 .padding(.bottom, 96)
             }
         }
-        .navigationTitle(account?.displayName ?? "Server")
+        .navigationTitle("Account")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear { startObservingUser() }
         .task(id: accountId) { await loadTimezone() }
