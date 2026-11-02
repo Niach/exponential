@@ -786,7 +786,7 @@ final class AgentSessionModel {
         let nextRows = AgentFeed.rows(feed, from: start, workflowIds: workflowIds)
         if nextRows != rows {
             rows = nextRows
-            transcript = TranscriptEntry.entries(nextRows)
+            transcript = TranscriptEntry.entries(nextRows, previous: transcript)
         }
         if feed.count != feedCount { feedCount = feed.count }
         let openTool = AgentFeed.liveToolRowId(feed)
@@ -3145,19 +3145,42 @@ extension AgentSessionModel: SessionComposerDraft {
 /// #EXP-1625: one transcript row as an immutable snapshot — the row, keyed
 /// by its own id, and the gap above it (the shared ladder keys on the row
 /// BEFORE it, so the gap is part of the entry, not a lookup per render).
-struct TranscriptEntry: Identifiable, Equatable {
+/// A class: SwiftUI walks the list (ids, keys) on every pass, and copying a
+/// reference is a retain where copying the row copied its whole payload. An
+/// unchanged row keeps its instance across re-derivations, so the row gate
+/// compares by identity first.
+final class TranscriptEntry: Identifiable, Equatable {
+    let id: Int
     let row: AgentFeedRow
     let gap: AgentTranscriptGap
 
-    var id: Int { row.id }
+    init(row: AgentFeedRow, gap: AgentTranscriptGap) {
+        self.id = row.id
+        self.row = row
+        self.gap = gap
+    }
 
-    static func entries(_ rows: [AgentFeedRow]) -> [TranscriptEntry] {
+    nonisolated static func == (a: TranscriptEntry, b: TranscriptEntry) -> Bool {
+        a === b || (a.id == b.id && a.gap == b.gap && a.row == b.row)
+    }
+
+    /// The entries for `rows`, reusing `previous`'s instance for every row
+    /// that did not move (a diffed update: a live append rebuilds one).
+    static func entries(_ rows: [AgentFeedRow], previous: [TranscriptEntry]) -> [TranscriptEntry] {
+        var old: [Int: TranscriptEntry] = [:]
+        old.reserveCapacity(previous.count)
+        for entry in previous { old[entry.id] = entry }
         var out: [TranscriptEntry] = []
         out.reserveCapacity(rows.count)
         var prev: AgentRowClass?
         for row in rows {
             let cur = row.rowClass
-            out.append(TranscriptEntry(row: row, gap: AgentFeed.transcriptGap(prev: prev, cur: cur)))
+            let gap = AgentFeed.transcriptGap(prev: prev, cur: cur)
+            if let kept = old[row.id], kept.gap == gap, kept.row == row {
+                out.append(kept)
+            } else {
+                out.append(TranscriptEntry(row: row, gap: gap))
+            }
             prev = cur
         }
         return out
