@@ -101,22 +101,25 @@ impl ChatState {
         self.links.lock().expect("chat lock").entry(peer).or_default().clone()
     }
 
-    /// Records `conn` (dialed by its peer); `true` = the peer already had
-    /// another inbound link open to us, so this dial replaces a link it lost.
-    fn accepted(&self, conn: &Connection) -> bool {
+    /// Records `conn` (dialed by its peer) and returns the peer's OTHER open
+    /// inbound links: non-empty = this dial replaces a link it lost.
+    fn accepted(&self, conn: &Connection) -> Vec<Connection> {
         let mut accepted = self.accepted.lock().expect("chat lock");
         let list = accepted.entry(conn.remote_id()).or_default();
         list.retain(|weak| weak.upgrade().is_some_and(|c| c.close_reason().is_none()));
-        let redial = list.iter().any(|weak| weak.upgrade().is_some_and(|c| c.stable_id() != conn.stable_id()));
+        let stale = list.iter().filter_map(|weak| weak.upgrade()).filter(|c| c.stable_id() != conn.stable_id()).collect();
+        list.clear();
         list.push(conn.weak_handle());
-        redial
+        stale
     }
 
     /// The peer dialed us again: close our link to it, a send waiting on it
-    /// fails at once and reconnects.
-    fn peer_redialed(&self, peer: &EndpointId) {
+    /// fails at once and reconnects. EXP-1484: its lost inbound links close
+    /// too: a dead one keeps the dead node's direct path in use, and our
+    /// redial would handshake to that path instead of the peer's new one.
+    fn peer_redialed(&self, peer: &EndpointId, stale: Vec<Connection>) {
         let dialed = self.dialed.lock().expect("chat lock").remove(peer);
-        if let Some(conn) = dialed.and_then(|weak| weak.upgrade()) {
+        for conn in dialed.and_then(|weak| weak.upgrade()).into_iter().chain(stale) {
             conn.close(PEER_REDIALED_CODE.into(), b"peer redialed");
         }
     }
@@ -207,8 +210,9 @@ impl ProtocolHandler for ChatProtocol {
     async fn accept(&self, conn: Connection) -> Result<(), AcceptError> {
         let from = conn.remote_id();
         if let Some(shared) = self.shared.upgrade() {
-            if shared.chat.accepted(&conn) {
-                shared.chat.peer_redialed(&from);
+            let stale = shared.chat.accepted(&conn);
+            if !stale.is_empty() {
+                shared.chat.peer_redialed(&from, stale);
             }
         }
         loop {
