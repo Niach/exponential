@@ -45,6 +45,8 @@ export interface HubSession {
   blocked: Blocked | null
   /** Sessions this one watches (the bus wakes it with their transitions). */
   wakeOn: string[]
+  /** A ROOT's tree key epoch (EXP-1458): non-null = keyed, its tree takes sealed text only (#FEED-185). */
+  sealEpoch: number | null
   createdAt: number
   startedAt: number | null
   endedAt: number | null

@@ -454,6 +454,7 @@ fn insert_session(ctx: &mut Ctx, row: NewSession) -> Step<HubSession> {
         needs_input: false,
         blocked: None,
         wake_on: vec![],
+        seal_epoch: None,
         created_at: ctx.now,
         started_at: None,
         ended_at: None,
@@ -466,11 +467,17 @@ fn insert_session(ctx: &mut Ctx, row: NewSession) -> Step<HubSession> {
 }
 
 /// A send's message: the caller session's input (agent-authored) or a person's; blank = none.
-fn post_send(ctx: &mut Ctx, to: &str, text_: &str, sealed: bool, caller: Option<&HubSession>) -> Option<String> {
+fn post_send(ctx: &mut Ctx, to: &str, text_: &str, sealed: bool, caller: Option<&HubSession>) -> Step<Option<String>> {
     if js::trim(text_).is_empty() {
-        return None;
+        return Ok(None);
     }
-    Some(post(
+    // EXP-1472/#FEED-185: a keyed tree takes no plaintext, not even from its own agent (the hub never reads a sealed
+    // tree); the writer's device seals it (its MCP gateway) or the send fails.
+    let keyed = ctx.state.sessions.get(to).and_then(|row| ctx.state.sessions.get(&row.root_id)).is_some_and(|root| root.seal_epoch.is_some());
+    if !sealed && keyed {
+        return refuse(ErrorCode::Invalid, text(&["plainInSealedTree"]));
+    }
+    Ok(Some(post(
         ctx,
         to,
         Post {
@@ -481,7 +488,7 @@ fn post_send(ctx: &mut Ctx, to: &str, text_: &str, sealed: bool, caller: Option<
             sealed,
             waking: true,
         },
-    ))
+    )))
 }
 
 fn caller_tree_agent(state: &HubState, caller: Option<&HubSession>) -> Option<String> {
@@ -545,7 +552,13 @@ fn start_root(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> St
             started_by_agent_id: caller_tree_agent(&ctx.state, caller),
         },
     )?;
-    let message_id = post_send(ctx, &root.id, data.text.as_deref().unwrap_or(""), data.sealed == Some(true), caller);
+    // #FEED-185: a sealed start keys its new tree (the server creates its key at epoch 1, createTreeKeyInTx).
+    if data.sealed == Some(true) {
+        if let Some(row) = ctx.state.sessions.get_mut(&root.id) {
+            row.seal_epoch = Some(1);
+        }
+    }
+    let message_id = post_send(ctx, &root.id, data.text.as_deref().unwrap_or(""), data.sealed == Some(true), caller)?;
     if let Some(caller) = caller {
         watch_sessions(ctx, &caller.id, std::slice::from_ref(&root.id));
         system_card(ctx, &caller.id, Card::ThreadStarted { session_id: root.id.clone() });
@@ -571,7 +584,7 @@ fn start_child(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> S
             started_by_agent_id: None,
         },
     )?;
-    let message_id = post_send(ctx, &child.id, data.text.as_deref().unwrap_or(""), data.sealed == Some(true), caller);
+    let message_id = post_send(ctx, &child.id, data.text.as_deref().unwrap_or(""), data.sealed == Some(true), caller)?;
     system_card(ctx, &parent.id, Card::Session { session_id: child.id.clone() });
     Ok(sent(child.id, message_id))
 }
@@ -629,7 +642,7 @@ fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> 
     let text_ = data.text.as_deref().unwrap_or("");
     let sealed = data.sealed == Some(true);
     if is_live(&target) || target.agent_id.is_some() {
-        let message_id = post_send(ctx, &target.id, text_, sealed, caller);
+        let message_id = post_send(ctx, &target.id, text_, sealed, caller)?;
         return Ok(sent(target.id, message_id));
     }
     if js::trim(text_).is_empty() {
@@ -646,7 +659,7 @@ fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> 
         row.needs_input = false;
         row.blocked = None;
         row.updated_at = now;
-        let message_id = post_send(ctx, &target.id, text_, sealed, caller);
+        let message_id = post_send(ctx, &target.id, text_, sealed, caller)?;
         return Ok(sent(target.id, message_id));
     };
     // An ended CHILD continues as its sibling: same parent and depth.
@@ -667,7 +680,7 @@ fn send_message(ctx: &mut Ctx, data: &SendData, caller: Option<&HubSession>) -> 
             started_by_agent_id: None,
         },
     )?;
-    let message_id = post_send(ctx, &child.id, text_, sealed, caller);
+    let message_id = post_send(ctx, &child.id, text_, sealed, caller)?;
     system_card(ctx, &parent_id, Card::Session { session_id: child.id.clone() });
     Ok(sent(child.id, message_id))
 }
@@ -1390,6 +1403,13 @@ fn step(ctx: &mut Ctx, event: &HubEvent, data: &Value) -> Step<StepResult> {
         }
         "session.end" => {
             let top = session(&ctx.state, data_str(data, "sessionId"))?;
+            // #FEED-185: a plaintext summary into a keyed tree is refused like a send; an end without one still ends.
+            let summary_sealed = data.get("summarySealed") == Some(&Value::Bool(true));
+            let plain_summary = !js::trim(data_str(data, "summary").unwrap_or("")).is_empty() && !summary_sealed;
+            let keyed = ctx.state.sessions.get(&top.root_id).is_some_and(|root| root.seal_epoch.is_some());
+            if plain_summary && is_live(&top) && keyed {
+                return refuse(ErrorCode::Invalid, text(&["plainInSealedTree"]));
+            }
             let subtree = live_subtree(&ctx.state, &top);
             let named = Named {
                 id: &top.id,

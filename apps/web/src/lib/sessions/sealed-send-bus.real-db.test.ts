@@ -286,6 +286,21 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     await expect(
       sendSession({ userId: w.owner, callerSessionId: childId, viaMcp: true, input: { sessionId: rootId, text: `from an agent` } })
     ).rejects.toThrow(`device "box" (CLI 0.14.94) sent it in clear`)
+    // #FEED-185: a writer already on a sealing release is never told to
+    // update: its key holder was not running; plaintext from the tree's
+    // own agent is still refused (the server never reads a sealed tree).
+    await db.update(devices).set({ version: SEALING_WRITER_MIN_VERSION }).where(eq(devices.deviceId, w.deviceId))
+    const current = sendSession({
+      userId: w.owner,
+      callerSessionId: childId,
+      viaMcp: true,
+      input: { sessionId: rootId, text: `from the tree's own agent` },
+    })
+    await expect(current).rejects.toThrow(
+      `device "box" (CLI ${SEALING_WRITER_MIN_VERSION}) sent it in clear because its key holder was not running`
+    )
+    await expect(current).rejects.not.toThrow(/update/)
+    await db.update(devices).set({ version: `0.14.94` }).where(eq(devices.deviceId, w.deviceId))
     await expect(
       w.host.reply({ sessionId: childId, body: ``, card: { kind: `question`, question: `In clear?`, options: [`Yes`] } as never })
     ).rejects.toThrow(PLAIN_IN_SEALED_TREE_MESSAGE)
@@ -350,6 +365,18 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     await expect(
       endSession({ userId: w.owner, sessionId: child3, sealedReport: { ...sealedReport, summary: `leak` } })
     ).rejects.toThrow(/sealed report/)
+    // #FEED-185: a plaintext summary into the keyed tree is refused (it
+    // would sit on the server in clear) and nothing ends or lands; an end
+    // without a summary still ends.
+    const child4 = (await sendSession({ userId: w.owner, input: { parentId: rootId, text: sealBody(tree.publicKey, 1, `c4`) } })).sessionId
+    const beforePlain = (await messagesOf(child4)).length
+    await expect(endSession({ userId: w.owner, sessionId: child4, summary: `closing words in clear` })).rejects.toThrow(
+      PLAIN_IN_SEALED_TREE_MESSAGE
+    )
+    expect((await row(child4)).status).not.toBe(`ended`)
+    expect((await messagesOf(child4)).length).toBe(beforePlain)
+    await endSession({ userId: w.owner, sessionId: child4 })
+    expect((await row(child4)).status).toBe(`ended`)
     // A sealed summary string never becomes a clear summary.
     await endSession({ userId: w.owner, sessionId: child3, summary: sealBody(tree.publicKey, 1, `words`) })
     expect((await fromChild(rootId, child3)).filter(isReport)).toMatchObject([{ body: REPORT_FALLBACK }])

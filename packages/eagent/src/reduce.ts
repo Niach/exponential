@@ -341,6 +341,7 @@ function insertSession(ctx: Ctx, row: Pick<HubSession, `id` | `parentId` | `root
     needsInput: false,
     blocked: null,
     wakeOn: [],
+    sealEpoch: null,
     createdAt: ctx.now,
     startedAt: null,
     endedAt: null,
@@ -356,6 +357,9 @@ function insertSession(ctx: Ctx, row: Pick<HubSession, `id` | `parentId` | `root
 /** A send's message: the caller session's input (agent-authored) or a person's; blank = none. */
 function postSend(ctx: Ctx, to: HubSession, text: string, sealed: boolean, caller: HubSession | null): string | null {
   if (!text.trim()) return null
+  // EXP-1472/#FEED-185: a keyed tree takes no plaintext, not even from its own agent (the hub never reads a sealed
+  // tree); the writer's device seals it (its MCP gateway) or the send fails.
+  if (!sealed && ctx.state.sessions[to.rootId]?.sealEpoch != null) refuse(`invalid`, copy.plainInSealedTree)
   return post(ctx, to.id, {
     authorKind: caller ? `agent` : `user`,
     authorSessionId: caller?.id ?? null,
@@ -406,6 +410,8 @@ function startRoot(ctx: Ctx, data: SendData, caller: HubSession | null): StepRes
     deviceId: deviceId!,
     startedByAgentId: callerTreeAgent(ctx.state, caller),
   })
+  // #FEED-185: a sealed start keys its new tree (the server creates its key at epoch 1, createTreeKeyInTx).
+  if (data.sealed === true) root.sealEpoch = 1
   const messageId = postSend(ctx, root, data.text ?? ``, data.sealed === true, caller)
   if (caller) {
     watchSessions(ctx, caller.id, [root.id])
@@ -941,6 +947,10 @@ export function reduce(state: HubState, event: HubEvent): Outcome {
         break
       case `session.end`: {
         const top = session(ctx.state, data.sessionId as string)
+        // #FEED-185: a plaintext summary into a keyed tree is refused like a send; an end without one still ends.
+        const summary = (data.summary as string | undefined)?.trim()
+        if (summary && data.summarySealed !== true && isLive(top) && ctx.state.sessions[top.rootId]?.sealEpoch != null)
+          refuse(`invalid`, copy.plainInSealedTree)
         const endedIds = endRows(ctx, liveSubtree(ctx.state, top), {
           id: top.id,
           summary: (data.summary as string | undefined) ?? null,

@@ -1,5 +1,5 @@
 {
-  "$comment": "THE FIELD FAILURES of 2026-10-30/31, replayed so neither implementation regresses. (1) #FEED-172: a crowded thread (8 sub-sessions) asked its team agent a question in a PLAIN message (no card, so no needsInput); the agent's reply forked a fresh thread with no context instead of reaching the asker. Rule: a thread whose tree has the last word with the caller (`awaitsCaller`, reuse.json) is always reused; the crowding rule applies to NEW work only, so once the caller has spoken last its next message may fork again. (2) #EXP-1500: a message was consumed and its turn started, then a self-update killed the run and the new app treated the contended claim as settled, so the run was never continued. From the hub's side the run reads `restarted` (resume) once the living device stops listing it, the consumed message is not redelivered (never nudged), and `resumeMinutes` later the watchdog puts it on a person and wakes the parent once; a message continues it and any device report clears it. (3) INTERRUPTED, NEVER CONTINUED: a host going offline mid-turn is a silent `device_offline` (resume) for as long as the device is away (its presence shows that); the resume clock starts only when it is back, and a run it does not continue within resumeMinutes reaches a person. (4) #FEED-178: threads started with a SEALED first brief replied only \"Waiting for your next message\": the first claim must deliver the first input as the Request whether sealed or not (`brief` names it, sealed: true; the device opens it), consume it, and never hand the device an empty brief while a first input exists. (5) #FEED-173/#FEED-174: `sessions_send {wakeOn}` with no target and no text started an empty untitled root that ran; `wakeOn` alone is `send.watch` on the CALLER, and a start with neither a target nor work (text or issues) is refused (copy.startNeedsWork). (6) #FEED-172 again (85ee1eff, crowded): the asker may be a CHILD of the crowded thread; `awaitsCaller` reads the whole target tree, so the reply lands on the thread and nothing forks. (7) #FEED-158: a private run's report reaches a starter that may not see it as the neutral line: its BODY carries the lead, the read hint and the session id; the card's summary stays the bare lead (the line clients draw), so a device feeding the report to an agent reads the body when it extends the summary (crates/coding pickup `input_text`). The zero-length system row before a run's own report is its `session_ended` card (a card row: empty body by design, drawn from the card ×4).",
+  "$comment": "THE FIELD FAILURES of 2026-10-30/31, replayed so neither implementation regresses. (1) #FEED-172: a crowded thread (8 sub-sessions) asked its team agent a question in a PLAIN message (no card, so no needsInput); the agent's reply forked a fresh thread with no context instead of reaching the asker. Rule: a thread whose tree has the last word with the caller (`awaitsCaller`, reuse.json) is always reused; the crowding rule applies to NEW work only, so once the caller has spoken last its next message may fork again. (2) #EXP-1500: a message was consumed and its turn started, then a self-update killed the run and the new app treated the contended claim as settled, so the run was never continued. From the hub's side the run reads `restarted` (resume) once the living device stops listing it, the consumed message is not redelivered (never nudged), and `resumeMinutes` later the watchdog puts it on a person and wakes the parent once; a message continues it and any device report clears it. (3) INTERRUPTED, NEVER CONTINUED: a host going offline mid-turn is a silent `device_offline` (resume) for as long as the device is away (its presence shows that); the resume clock starts only when it is back, and a run it does not continue within resumeMinutes reaches a person. (4) #FEED-178: threads started with a SEALED first brief replied only \"Waiting for your next message\": the first claim must deliver the first input as the Request whether sealed or not (`brief` names it, sealed: true; the device opens it), consume it, and never hand the device an empty brief while a first input exists. (5) #FEED-173/#FEED-174: `sessions_send {wakeOn}` with no target and no text started an empty untitled root that ran; `wakeOn` alone is `send.watch` on the CALLER, and a start with neither a target nor work (text or issues) is refused (copy.startNeedsWork). (6) #FEED-172 again (85ee1eff, crowded): the asker may be a CHILD of the crowded thread; `awaitsCaller` reads the whole target tree, so the reply lands on the thread and nothing forks. (7) #FEED-158: a private run's report reaches a starter that may not see it as the neutral line: its BODY carries the lead, the read hint and the session id; the card's summary stays the bare lead (the line clients draw), so a device feeding the report to an agent reads the body when it extends the summary (crates/coding pickup `input_text`). The zero-length system row before a run's own report is its `session_ended` card (a card row: empty body by design, drawn from the card ×4). (8) #FEED-185: after a host reboot an agent's sessions_send into its own SEALED tree went out in clear (its daemon wired it to /api/mcp before its key holder ran, #FEED-184) and was refused. Rule: a keyed tree (its root's sealEpoch) takes no plaintext text from any writer, the tree's own agent included: the hub never reads a sealed tree, so the writer's device seals it (its MCP gateway) or the send fails; sealed text lands, a keyless tree still takes plaintext; an end's plaintext summary into a keyed tree is refused the same way (an end without one still ends), and a SEALED start keys its new tree (sealEpoch 1, as the server's createTreeKeyInTx), so plaintext into it is refused too.",
   "cases": [
     {
       "name": "#FEED-172: the team agent's reply to a crowded thread that asked it reaches the thread",
@@ -954,6 +954,195 @@
           }
         }
       ]
+    },
+    {
+      "name": "#FEED-185: a keyed tree refuses plaintext even from its own agent; sealed text lands, a keyless tree still takes plaintext",
+      "given": {
+        "sessions": [
+          {
+            "id": "r1",
+            "sealEpoch": 1,
+            "status": "running"
+          },
+          {
+            "id": "c1",
+            "parentId": "r1"
+          },
+          {
+            "id": "r2"
+          }
+        ]
+      },
+      "steps": [
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 60000,
+            "data": {
+              "sessionId": "c1",
+              "callerId": "r1",
+              "text": "Plain status from the root's agent."
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "This chat is sealed: its messages must be sealed too",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 60000,
+            "data": {
+              "id": "c2",
+              "parentId": "r1",
+              "callerId": "r1",
+              "deviceId": "d1",
+              "text": "A plain brief."
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "This chat is sealed: its messages must be sealed too",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 61000,
+            "data": {
+              "sessionId": "c1",
+              "callerId": "r1",
+              "text": "ev1.status-sealed-to-r1",
+              "sealed": true
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m1",
+              "to": "c1",
+              "authorKind": "agent",
+              "authorSessionId": "r1",
+              "body": "ev1.status-sealed-to-r1",
+              "card": null,
+              "sealed": true,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "c1",
+            "messageId": "m1"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 62000,
+            "data": {
+              "sessionId": "r2",
+              "callerId": "r1",
+              "text": "Plain into a keyless tree."
+            }
+          },
+          "effects": [
+            {
+              "kind": "post",
+              "messageId": "m2",
+              "to": "r2",
+              "authorKind": "agent",
+              "authorSessionId": "r1",
+              "body": "Plain into a keyless tree.",
+              "card": null,
+              "sealed": false,
+              "waking": true
+            }
+          ],
+          "result": {
+            "sessionId": "r2",
+            "messageId": "m2"
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 63000,
+            "data": {
+              "sessionId": "c1",
+              "summary": "Plain closing words."
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "This chat is sealed: its messages must be sealed too",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "send.start",
+            "at": 64000,
+            "data": {
+              "id": "r3",
+              "deviceId": "d1",
+              "text": "ev1.brief-sealed-to-r3",
+              "sealed": true
+            }
+          },
+          "result": {
+            "sessionId": "r3",
+            "messageId": "m3"
+          }
+        },
+        {
+          "event": {
+            "kind": "send.message",
+            "at": 65000,
+            "data": {
+              "sessionId": "r3",
+              "text": "Plain into the sealed start's tree."
+            }
+          },
+          "failure": {
+            "code": "invalid",
+            "message": "This chat is sealed: its messages must be sealed too",
+            "retryable": false
+          }
+        },
+        {
+          "event": {
+            "kind": "session.end",
+            "at": 66000,
+            "data": {
+              "sessionId": "c1"
+            }
+          },
+          "result": {
+            "sessionId": "c1",
+            "endedIds": [
+              "c1"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "messages": {
+          "m1": {
+            "pending": true,
+            "sealed": true
+          }
+        },
+        "sessions": {
+          "r3": {
+            "sealEpoch": 1
+          },
+          "c1": {
+            "status": "ended"
+          }
+        }
+      }
     }
   ]
 }

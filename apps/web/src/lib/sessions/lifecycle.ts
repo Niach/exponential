@@ -9,9 +9,10 @@ import { emitEventInTx } from "@/lib/events"
 import { assertCanSteer, loadSessionForUser, sessionVisibleTo } from "@/lib/sessions/access"
 import { getTeamMember } from "@/lib/auth/membership"
 import { busReport, closeAskMirrorsOf, forgetWatched, type ListenerCopy } from "@/lib/sessions/bus"
-import { validSealedCard } from "@/lib/sessions/sealed"
+import { isSealedBody, validSealedCard } from "@/lib/sessions/sealed"
 import { postAgentMessage, postMovedMessage, postSystemCard } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
+import { assertNotPlainInSealedTree } from "@/lib/sessions/send"
 import { hostedByCondition, hostRowCondition, resolveSessionHost, sessionDeviceOwner } from "@/lib/sessions/host"
 import { getSteerRelayConfig, relayPostInterrupt, relayPostKill } from "@/lib/steer"
 import { contract } from "@exp/domain-contract"
@@ -273,7 +274,10 @@ export async function endSession(args: {
   const result = await db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     // EXP-1458: a sealed tree's closing words ride the sealed report only.
+    // #FEED-185: a plaintext summary into a keyed tree is refused like a
+    // send (it would sit on the server in clear); an end without one ends.
     if (!sealedReport && args.summary?.trim() && session.status !== `ended`) {
+      if (!isSealedBody(args.summary.trim())) await assertNotPlainInSealedTree(tx, session.rootId, session.id)
       await postAgentMessage(tx, session, args.summary.trim())
     }
     const endedIds = await endRowsInTx(tx, await liveSubtree(tx, session), {
