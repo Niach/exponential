@@ -31,3 +31,7 @@
 - Los inicios de sesión desde el móvil vuelven a mostrar el enlace y el código, y un código rechazado lo indica
 - La tarjeta de una cuenta indica qué inicio de sesión está activo
 - Cerrar un inicio de sesión lo detiene en la máquina
+- Añade una llave de acceso en Ajustes › Cuenta › Llaves de acceso
+- La acción de una app guarda todos sus registros juntos o ninguno
+- Las apps muestran su propio valor de reserva donde falta un valor
+- Gráficos, listas, campos desactivados e imágenes en las apps se ven igual que en las demás apps

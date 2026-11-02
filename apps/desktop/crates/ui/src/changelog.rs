@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-app-actions-all-or-nothing",
+    date: "2026-11-02",
+    title: "App actions save all or nothing",
+    summary: "An app's button now saves every record it changes together or none of them, and the Android composer comes back after a shaky start.",
+    body: r#"- **All or nothing**: when an app's action writes several records, they save together; if one is refused, none of them land.
+- **Missing values**: an app shows its own fallback where a value is missing, instead of a blank.
+- **App tests**: an app's own tests run when it is installed, so a broken app is caught before you use it.
+- **Android composer**: the Agent composer comes back on its own when the app started before the network was up."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_175: ChangelogEntry = ChangelogEntry {
     id: "2026-11-02-apps-look-the-same",
     date: "2026-11-02",
     title: "Apps look the same everywhere",

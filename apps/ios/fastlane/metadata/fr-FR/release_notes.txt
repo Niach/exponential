@@ -31,3 +31,7 @@
 - Les connexions lancées depuis le téléphone affichent à nouveau le lien et le code, et un code refusé est signalé
 - La carte d'un compte indique quelle connexion est active
 - Fermer une connexion l'arrête sur la machine
+- Ajoutez une clé d'accès dans Réglages › Compte › Clés d'accès
+- L'action d'une app enregistre tous ses éléments ensemble, ou aucun
+- Les apps affichent leur propre valeur de repli quand une valeur manque
+- Graphiques, listes, champs désactivés et images des apps sont identiques aux autres apps

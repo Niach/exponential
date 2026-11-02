@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-02-app-actions-all-or-nothing`,
+    date: `2026-11-02`,
+    title: `App actions save all or nothing`,
+    summary: `An app's button now saves every record it changes together or none of them, and the Android composer comes back after a shaky start.`,
+    body: `- **All or nothing**: when an app's action writes several records, they save together; if one is refused, none of them land.
+- **Missing values**: an app shows its own fallback where a value is missing, instead of a blank.
+- **App tests**: an app's own tests run when it is installed, so a broken app is caught before you use it.
+- **Android composer**: the Agent composer comes back on its own when the app started before the network was up.`,
+  },
+  {
     id: `2026-11-02-apps-look-the-same`,
     date: `2026-11-02`,
     title: `Apps look the same everywhere`,

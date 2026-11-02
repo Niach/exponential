@@ -31,3 +31,7 @@
 - Gli accessi avviati dal telefono mostrano di nuovo link e codice, e un codice rifiutato viene segnalato
 - La scheda di un account indica quale accesso è attivo
 - Chiudere un accesso lo interrompe sulla macchina
+- Aggiungi una passkey da Impostazioni › Account › Passkey
+- L'azione di un'app salva tutti i suoi record insieme, oppure nessuno
+- Le app mostrano il proprio valore di riserva dove manca un valore
+- Grafici, elenchi, campi disattivati e immagini nelle app appaiono come nelle altre app

@@ -31,3 +31,7 @@
 - Prihlásenia spustené z telefónu opäť zobrazujú odkaz a kód a odmietnutý kód to oznámi
 - Karta účtu ukazuje, ktoré prihlásenie je aktívne
 - Zatvorenie prihlásenia ho na počítači ukončí
+- Pridajte prístupový kľúč v Nastavenia › Účet › Prístupové kľúče
+- Akcia aplikácie uloží všetky svoje záznamy spolu, alebo žiadny
+- Aplikácie zobrazia vlastnú náhradnú hodnotu tam, kde hodnota chýba
+- Grafy, zoznamy, neaktívne polia a obrázky v aplikáciách vyzerajú rovnako ako v ostatných aplikáciách

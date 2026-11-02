@@ -31,3 +31,7 @@
 - Prijave pokrenute s telefona ponovno prikazuju poveznicu i kôd, a odbijeni kôd to javlja
 - Kartica računa pokazuje koja je prijava aktivna
 - Zatvaranje prijave zaustavlja je na računalu
+- Dodajte pristupni ključ u Postavke › Račun › Pristupni ključevi
+- Radnja aplikacije sprema sve svoje zapise zajedno ili nijedan
+- Aplikacije prikazuju vlastitu zamjensku vrijednost gdje vrijednost nedostaje
+- Grafikoni, popisi, onemogućena polja i slike u aplikacijama izgledaju jednako kao u ostalim aplikacijama

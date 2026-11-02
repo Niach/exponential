@@ -31,3 +31,7 @@
 - Inloggningar som startas från telefonen visar länk och kod igen, och en avvisad kod säger det
 - Ett kontos kort visar vilken inloggning som är aktiv
 - Stänger du en inloggning stoppas den på datorn
+- Lägg till en nyckel under Inställningar › Konto › Nycklar
+- En apps åtgärd sparar alla sina poster tillsammans, eller ingen av dem
+- Appar visar sitt eget reservvärde där ett värde saknas
+- Diagram, listor, inaktiverade fält och bilder i appar ser ut som i de andra apparna

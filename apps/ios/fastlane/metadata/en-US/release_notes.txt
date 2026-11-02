@@ -31,3 +31,7 @@
 - Sign-ins started from your phone show their link and code again, and a rejected code says so
 - An account's card says which login is active
 - Closing a sign-in stops it on the machine
+- Add a passkey from Settings › Account › Passkeys
+- An app's action saves all its records together, or none of them
+- Apps show their own fallback where a value is missing
+- Charts, lists, disabled fields and pictures in apps look the same as on the other apps
