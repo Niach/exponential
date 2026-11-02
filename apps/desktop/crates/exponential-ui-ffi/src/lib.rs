@@ -2729,6 +2729,27 @@ pub fn parse_records_query_json(params_json: String, kind: Option<String>) -> Re
     })
 }
 
+/// VAPP-190: the JSON query form (a package's `queries`, the `q` param) →
+/// `{query, issues: [{path, message}]}` (`fixtures/records-query.json`
+/// `jsonCases`). `kind` = a source's own kind, which wins over `from`.
+#[uniffi::export]
+pub fn parse_records_json(query_json: String, kind: Option<String>) -> Result<String, UiError> {
+    guarded("parse_records_json", || {
+        let json: Value = parse(&query_json)?;
+        let (query, issues) = h::parse_records_json(&json, kind.as_deref());
+        Ok(serde_json::json!({"query": query, "issues": issues}).to_string())
+    })
+}
+
+/// VAPP-190: a date's bucket key (`bucket` = day | week | month | quarter |
+/// year: `2026-10-05`, `2026-W41`, `2026-10`, `2026-Q4`, `2026`); null when
+/// the text holds no date that precise or the bucket is unknown
+/// (`bucketCases`).
+#[uniffi::export]
+pub fn date_bucket(date: String, bucket: String) -> Option<String> {
+    shield("date_bucket", || None, || eui_core::dates::DateBucket::parse(&bucket).and_then(|b| eui_core::dates::date_bucket(&date, b)))
+}
+
 /// VAPP-189: `records:<kind>?…` → the records query JSON; null = not a
 /// records source (`sourceCases`).
 #[uniffi::export]

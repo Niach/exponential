@@ -7324,6 +7324,20 @@ public func coreCatalogId() -> String  {
 })
 }
 /**
+ * VAPP-190: a date's bucket key (`bucket` = day | week | month | quarter |
+ * year: `2026-10-05`, `2026-W41`, `2026-10`, `2026-Q4`, `2026`); null when
+ * the text holds no date that precise or the bucket is unknown
+ * (`bucketCases`).
+ */
+public func dateBucket(date: String, bucket: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_date_bucket(
+        FfiConverterString.lower(date),
+        FfiConverterString.lower(bucket),$0
+    )
+})
+}
+/**
  * The function gate: `allow | ask | deny | not_found`. `policy_json` =
  * `{allow?, ask?, deny?, default?}`.
  */
@@ -7577,6 +7591,19 @@ public func parseDateValueJson(valueJson: String)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
     uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(
         FfiConverterString.lower(valueJson),$0
+    )
+})
+}
+/**
+ * VAPP-190: the JSON query form (a package's `queries`, the `q` param) →
+ * `{query, issues: [{path, message}]}` (`fixtures/records-query.json`
+ * `jsonCases`). `kind` = a source's own kind, which wins over `from`.
+ */
+public func parseRecordsJson(queryJson: String, kind: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_parse_records_json(
+        FfiConverterString.lower(queryJson),
+        FfiConverterOptionString.lower(kind),$0
     )
 })
 }
@@ -8061,6 +8088,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_core_catalog_id() != 35263) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_date_bucket() != 2027) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_decide_function() != 53224) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8125,6 +8155,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json() != 60626) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_json() != 4777) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json() != 62724) {

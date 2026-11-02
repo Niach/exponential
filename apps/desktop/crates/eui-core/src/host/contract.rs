@@ -93,7 +93,7 @@ pub fn host_contract() -> Value {
                 "formats": super::records::RECORD_FORMATS,
                 "scheme": rs::RECORDS_SCHEME,
                 "functions": rs::RECORDS_FUNCTIONS,
-                "query": {"sortDefault": rs::RECORDS_SORT_DEFAULT, "orderDefault": rs::RECORDS_ORDER_DEFAULT, "limitDefault": rs::RECORDS_LIMIT_DEFAULT, "limitMax": rs::RECORDS_LIMIT_MAX, "reserved": rs::RECORDS_RESERVED_PARAMS},
+                "query": {"sortDefault": rs::RECORDS_SORT_DEFAULT, "orderDefault": rs::RECORDS_ORDER_DEFAULT, "limitDefault": rs::RECORDS_LIMIT_DEFAULT, "limitMax": rs::RECORDS_LIMIT_MAX, "queryNamePattern": super::package::QUERY_NAME_PATTERN, "reserved": rs::RECORDS_RESERVED_PARAMS},
             },
             "tools": {"idPattern": tools::TOOL_ID_PATTERN, "kinds": tools::TOOL_KINDS, "transports": tools::TOOL_TRANSPORTS, "functionPrefix": tools::TOOL_FUNCTION_PREFIX},
             "exposes": {

@@ -3,7 +3,8 @@ import ExponentialUICore
 @testable import ExponentialUI
 
 /// VAPP-189: `fixtures/records-query.json` through `RecordsQuery` (the
-/// core's one evaluator over the FFI). The TS reference, the Rust core and
+/// core's one evaluator over the FFI; VAPP-190: jsonCases, bucketCases,
+/// JSON valueCases). The TS reference, the Rust core and
 /// Compose's `RecordsQueryTest` replay the same cases.
 final class RecordsQueryTests: XCTestCase {
     func strings(_ v: JSONValue?) -> [String: String] {
@@ -55,9 +56,28 @@ final class RecordsQueryTests: XCTestCase {
         let cases = f["valueCases"]?.array ?? []
         XCTAssertFalse(cases.isEmpty)
         for c in cases {
-            let query = RecordsQuery.parse(params: strings(c["params"]), kind: c["kind"]?.string)
+            let query = c["query"].map { RecordsQuery.parse(json: $0.json, kind: c["kind"]?.string).query } ?? RecordsQuery.parse(params: strings(c["params"]), kind: c["kind"]?.string)
             let value = query.value(rows: rows(c["rows"]), me: c["me"]?.string, now: c["now"]?.string ?? "", names: strings(c["names"]))
             same(value, c["expected"], c["name"]?.string ?? "")
+        }
+    }
+
+    func testJsonCases() throws {
+        let f = try Fixtures.json("records-query.json")
+        let cases = f["jsonCases"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let parsed = RecordsQuery.parse(json: (c["query"] ?? .null).json, kind: c["kind"]?.string)
+            same(.object(["query": parsed.query.structured, "issues": .array(parsed.issues)]), c["expected"], c["name"]?.string ?? "")
+        }
+    }
+
+    func testBucketCases() throws {
+        let f = try Fixtures.json("records-query.json")
+        let cases = f["bucketCases"]?.array ?? []
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            XCTAssertEqual(RecordsQuery.dateBucket(c["date"]?.string ?? "", by: c["bucket"]?.string ?? ""), c["expected"]?.string, "\(c["date"]?.string ?? "") \(c["bucket"]?.string ?? "")")
         }
     }
 
