@@ -59,8 +59,17 @@ internal class FallbackSteerTransport(
 ) : SteerTransport {
     @Volatile var listener: SteerCarrierListener? = null
 
+    /**
+     * The app is in the background: Android 14+ freezes a cached process
+     * ~10 s after it leaves the foreground and cuts its sockets, so a carrier
+     * that fails now failed because of the OS. While paused no relay leg
+     * opens, eNet does not redial, nothing counts as a failure, and a drop
+     * ends the feed (the connection parks it; the foreground redials).
+     */
+    @Volatile var paused: Boolean = false
+
     override suspend fun open(codingSessionId: String): SteerSocket? {
-        val socket = CarrierSteerSocket(codingSessionId, enet, relay, timings, nowMs, dispatcher, listener)
+        val socket = CarrierSteerSocket(codingSessionId, enet, relay, timings, nowMs, dispatcher, listener) { paused }
         return if (socket.start()) socket else null
     }
 }
@@ -88,6 +97,7 @@ internal class CarrierSteerSocket(
     private val nowMs: () -> Long,
     dispatcher: CoroutineDispatcher,
     private val listener: SteerCarrierListener?,
+    private val paused: () -> Boolean = { false },
 ) : SteerSocket {
     private sealed interface Ev {
         data class EnetOpened(val gen: Int, val socket: SteerSocket?) : Ev
@@ -207,7 +217,7 @@ internal class CarrierSteerSocket(
                 val socket = ev.socket
                 if (socket == null) {
                     enetFailed = true
-                    listener?.carrierFailure(enet.lastFailure ?: "no_endpoint")
+                    failure(enet.lastFailure ?: "no_endpoint")
                     run(steerCarrierStep(state, SteerCarrierEvent.EnetNoFeed))
                 } else {
                     enetFailed = false
@@ -228,12 +238,12 @@ internal class CarrierSteerSocket(
                     }
                     is TunnelOpen.Unavailable -> {
                         relayFailed = true
-                        result.errorClass?.let { listener?.carrierFailure(it) }
+                        result.errorClass?.let(::failure)
                         run(steerCarrierStep(state, SteerCarrierEvent.RelayUnavailable))
                     }
                     is TunnelOpen.Failed -> {
                         relayFailed = true
-                        listener?.carrierFailure(result.errorClass)
+                        failure(result.errorClass)
                         run(steerCarrierStep(state, SteerCarrierEvent.RelayDropped))
                     }
                 }
@@ -269,13 +279,14 @@ internal class CarrierSteerSocket(
                     relayGen++
                 }
                 reason = ev.reason
-                listener?.carrierFailure(steerDropClass(ev.carrier, ev.reason))
+                failure(steerDropClass(ev.carrier, ev.reason))
                 Log.i(TAG, "[$sid] ${ev.carrier.wire} dropped (active=${state.active.wire})")
                 val event = if (ev.carrier == SteerActiveCarrier.Enet) SteerCarrierEvent.EnetDropped else SteerCarrierEvent.RelayDropped
                 run(steerCarrierStep(state, event))
             }
             Ev.RedialEnet -> {
                 enetRedial = null
+                if (paused()) return
                 if (state.active != SteerActiveCarrier.Enet && enetDial == null && enetSocket == null) dialEnet()
             }
             Ev.Wake -> {
@@ -372,10 +383,16 @@ internal class CarrierSteerSocket(
         }
     }
 
+    /** One carrier failure for the analytics; none while [paused] (the OS cut it). */
+    private fun failure(errorClass: String) {
+        if (!paused()) listener?.carrierFailure(errorClass)
+    }
+
     private fun openRelay() {
         val dialer = relay
-        if (dialer == null || (!everActive && relayFailed)) {
-            // No relay leg on this install, or it already failed for this open: eNet only.
+        if (dialer == null || paused() || (!everActive && relayFailed)) {
+            // No relay leg on this install, the app is in the background, or
+            // it already failed for this open: eNet only.
             run(steerCarrierStep(state, SteerCarrierEvent.RelayUnavailable))
             return
         }
@@ -404,7 +421,7 @@ internal class CarrierSteerSocket(
     }
 
     private fun redialEnetLater() {
-        if (enetRedial != null || enetDial != null) return
+        if (enetRedial != null || enetDial != null || paused()) return
         val delays = timings.enetRedialMs
         val wait = delays[minOf(enetAttempt, delays.size - 1)]
         enetAttempt++

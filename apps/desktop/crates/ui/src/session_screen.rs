@@ -90,7 +90,7 @@ pub(crate) fn feed_source_for(
 }
 
 /// [`feed_source_for`] against the live state, then the source it names.
-fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, FeedSource) {
+pub(crate) fn resolve_source(session_id: &str, cx: &mut App) -> (SessionFeed, FeedSource) {
     let engine = local_engine(session_id, cx);
     let record =
         coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), session_id);

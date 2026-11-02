@@ -384,6 +384,9 @@ class SteerConnection internal constructor(
     /** EXP-1529: when the last dial's carriers were both down (the lostBanner clock), when it knew. */
     private var lastDownSinceMs: Long? = null
 
+    /** The app is in the background ([setBackground]): a feed that goes down parks instead of redialing. */
+    @Volatile private var background = false
+
     init {
         (transport as? FallbackSteerTransport)?.listener = viewStats
         // VAPP-173: a feed that answered while the row still read ended landed
@@ -476,6 +479,15 @@ class SteerConnection internal constructor(
                     DialOutcome.Closed(t.message)
                 }
                 quiet = false
+                // In the background the OS froze us or cut our sockets: every
+                // redial (and the relay fallback) would only fail on it and
+                // count as `no_endpoint` / `ticket_failed`. Park instead; the
+                // foreground redials (prod, 2026-11-01: 13 of 19 Android views).
+                if (background && (outcome == DialOutcome.RetryStarting || (outcome is DialOutcome.Closed && outcome.retryable))) {
+                    Log.i(TAG, "[$sid] feed down in the background: park")
+                    park()
+                    return@launch
+                }
                 when (outcome) {
                     DialOutcome.RetryStarting -> if (droppedAtMs != null) {
                         // EXP-1487: NO FEED on the redial of a dropped live
@@ -591,6 +603,16 @@ class SteerConnection internal constructor(
         }
         val trigger = if (online) SteerRedialTrigger.PresenceOnline else SteerRedialTrigger.PresenceOffline
         if (steerOfflineRedial(phase, trigger)) kick("presence-online")
+    }
+
+    /**
+     * The app left (true) or came back to (false) the foreground. While in
+     * the background the carriers open no relay leg, do not redial and
+     * count no failure, and a feed that goes down parks at once.
+     */
+    internal fun setBackground(on: Boolean) {
+        background = on
+        (transport as? FallbackSteerTransport)?.paused = on
     }
 
     /** Come back to the foreground: whatever state the connection is in, ask
