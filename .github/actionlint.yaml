@@ -1,0 +1,8 @@
+# actionlint (test.yml's `actionlint` job): labels it cannot know.
+self-hosted-runner:
+  labels:
+    # GitHub's custom macOS 27 + Xcode 27 image (build-ios.yml).
+    - xcode-27
+    # Our own runners, picked by pick-runner.yml (.github/runners/README.md).
+    - exp-linux
+    - exp-mac
