@@ -2051,6 +2051,9 @@ export const sessions = pgTable(
     account: varchar({ length: 64 }),
     model: varchar({ length: 64 }),
     effort: varchar({ length: 32 }),
+    // EXP-1583: claude only, the model its SUBAGENTS run on
+    // (`CLAUDE_CODE_SUBAGENT_MODEL`); NULL = the device's own default.
+    subagentModel: varchar(`subagent_model`, { length: 64 }),
     planMode: boolean(`plan_mode`).notNull().default(false),
     computerUse: boolean(`computer_use`).notNull().default(false),
     ultracode: boolean().notNull().default(false),

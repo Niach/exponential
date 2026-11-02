@@ -35,16 +35,23 @@ const AGENT_ITEMS = AGENTS.map((agent) => ({
   icon: getActionIcon(agent),
 }))
 
-/** The "+" menu's first group, straight from the fixture. */
+/** #EXP-1620: a submenu row's current value, muted at the trailing edge
+ *  before the chevron (THE Menu `value`). */
+const DEVICE_VALUE = `Alex's MacBook Pro`
+
+/** The "+" menu's Photo or file, Issue › and Device › rows, straight from
+ *  the fixture (the desktop twin draws the same three). */
+const PLUS_ROWS = [`add-file`, `implement-issue`, `device`]
+
 function plusEntries(): MenuEntry[] {
-  return composerMenu.rows.slice(0, 3).map((row): MenuEntry => {
+  return composerMenu.rows.filter((row) => PLUS_ROWS.includes(row.id ?? ``)).map((row): MenuEntry => {
     const base = {
       id: row.id,
       label: row.label ?? ``,
       icon: conceptIcon(row.icon as IconConcept),
     }
     return row.kind === `submenu`
-      ? { ...base, kind: `submenu`, entries: [] }
+      ? { ...base, kind: `submenu`, entries: [], ...(row.id === `device` ? { value: DEVICE_VALUE } : {}) }
       : { ...base, kind: `item`, onSelect: noop }
   })
 }

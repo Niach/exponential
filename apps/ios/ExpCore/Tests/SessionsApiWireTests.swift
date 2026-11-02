@@ -20,7 +20,7 @@ final class SessionsApiWireTests: XCTestCase {
             deviceId: "dev-1",
             options: SessionLaunchOptions(
                 cli: "claude", account: "p-1", model: "fable", effort: "",
-                computerUse: false, ultracode: true, mcpServerIds: ["m-1"]
+                computerUse: false, ultracode: true, subagentModel: "opus", mcpServerIds: ["m-1"]
             ),
             text: "Fix it",
             attachmentIds: ["att-1"],
@@ -31,9 +31,10 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(
             full.keys.sorted(),
             ["account", "attachmentIds", "cli", "computerUse", "deviceId", "effort",
-             "issueIds", "mcpServerIds", "model", "promptId", "repositoryId", "teamId",
-             "text", "ultracode"]
+             "issueIds", "mcpServerIds", "model", "promptId", "repositoryId", "subagentModel",
+             "teamId", "text", "ultracode"]
         )
+        XCTAssertEqual(full["subagentModel"] as? String, "opus")
         XCTAssertEqual(full["issueIds"] as? [String], ["i-1", "i-2"])
         XCTAssertEqual(full["promptId"] as? String, "p-1")
         XCTAssertEqual(full["effort"] as? String, "")

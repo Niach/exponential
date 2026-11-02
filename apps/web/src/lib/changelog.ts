@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-02-subagents-menu-values`,
+    date: `2026-11-02`,
+    title: `Subagents and menu values`,
+    summary: `Pick the model a new chat's subagents run on from the + menu, and menu rows show their value on the right on every app.`,
+    body: `- **Subagents**: a new Claude chat's + menu has Subagents again, the model its subagents run on.
+- **Menu values**: on the desktop app a menu row shows its current value muted on the right before the arrow (Device, Account, Model, Effort, Checks), like on web and phones.`,
+  },
+  {
     id: `2026-11-02-persist-login`,
     date: `2026-11-02`,
     title: `Persist login`,

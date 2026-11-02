@@ -428,6 +428,8 @@ pub const SHAPES: [ShapeSpec; 33] = [
             "plan_mode",
             "computer_use",
             "ultracode",
+            // EXP-1583: the launch's subagent model.
+            "subagent_model",
             "repository_id",
             "branch",
             "status",
