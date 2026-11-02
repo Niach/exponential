@@ -5097,9 +5097,14 @@ mod tests {
         spawned: Arc<Mutex<Vec<Spawned>>>,
         /// EXP-1334: the launch options each spawn ran with.
         launched: Arc<Mutex<Vec<crate::LaunchOptions>>>,
+        /// Claims key roots and replies seal through the process-global
+        /// seal service: serialised with the tests that install one, so a
+        /// host never keys its roots in another test's fake. Last = dropped last.
+        _serial: crate::sealing::test_support::Serial,
     }
 
     fn host(base: &str, data_dir: &Path, tweak: impl FnOnce(&mut crate::CodingDeps)) -> Host {
+        let serial = crate::sealing::test_support::serial();
         let mut coding = make_deps(
             base,
             data_dir,
@@ -5136,6 +5141,7 @@ mod tests {
             engine,
             spawned,
             launched,
+            _serial: serial,
         }
     }
 
