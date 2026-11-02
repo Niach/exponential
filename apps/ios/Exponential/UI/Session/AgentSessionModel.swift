@@ -106,6 +106,20 @@ final class AgentSessionModel {
     /// the feed per card per frame, and the main thread pinned at 100% for
     /// as long as the replay lasted.
     private(set) var rows: [AgentFeedRow] = []
+    /// #EXP-1625: `rows` as the transcript draws them, one immutable entry
+    /// per row (its identity + the gap above it), re-derived only when the
+    /// rows moved. The view diffs these by id and gates each row on its own
+    /// inputs, so nothing in the body walks or copies the feed.
+    private(set) var transcript: [TranscriptEntry] = []
+    /// #EXP-1625: the feed's length, for the follow pin (reading `feed` in
+    /// the body tracked every feed write and copied the array per frame).
+    private(set) var feedCount = 0
+    /// #EXP-1625: the trailing unsettled tool call (`AgentFeed.liveToolRowId`
+    /// without the phase gate, which the view applies).
+    private(set) var openToolRowId: Int?
+    /// #EXP-1625: the feed's tool calls as the session-card anchoring reads
+    /// them (`AskDock.feedCalls`), derived per feed write, not per render.
+    private(set) var feedCalls: [AskDock.FeedCall] = []
     /// EXP-783: there is transcript ABOVE the rendered window — rows the feed
     /// already holds, or a page only the device has. What the transcript's
     /// "Load earlier" affordance is gated on.
@@ -770,7 +784,15 @@ final class AgentSessionModel {
         // calls" run (the card renders in its place) and its agents' runs are
         // nested INSIDE the card, so the transcript projection drops them.
         let nextRows = AgentFeed.rows(feed, from: start, workflowIds: workflowIds)
-        if nextRows != rows { rows = nextRows }
+        if nextRows != rows {
+            rows = nextRows
+            transcript = TranscriptEntry.entries(nextRows)
+        }
+        if feed.count != feedCount { feedCount = feed.count }
+        let openTool = AgentFeed.liveToolRowId(feed)
+        if openTool != openToolRowId { openToolRowId = openTool }
+        let calls = AskDock.feedCalls(feed)
+        if calls != feedCalls { feedCalls = calls }
         // The runs list keeps the workflow agents — the card looks its own
         // agents' duplicate warnings up here, and (EXP-1225) they are tabs.
         let nextSubagents = AgentFeed.subagents(feed, from: start)
@@ -1587,7 +1609,9 @@ final class AgentSessionModel {
                 do {
                     for try await rows in observation.values(in: pool) {
                         guard let self else { return }
-                        self.deviceRows = rows
+                        // #EXP-1625: every devices-table write (a heartbeat)
+                        // re-emits; an equal list must not invalidate readers.
+                        if rows != self.deviceRows { self.deviceRows = rows }
                         self.rebuildHostDevice()
                     }
                     return
@@ -3115,5 +3139,27 @@ extension AgentSessionModel: SessionComposerDraft {
             filename: filename,
             contentType: contentType
         )
+    }
+}
+
+/// #EXP-1625: one transcript row as an immutable snapshot — the row, keyed
+/// by its own id, and the gap above it (the shared ladder keys on the row
+/// BEFORE it, so the gap is part of the entry, not a lookup per render).
+struct TranscriptEntry: Identifiable, Equatable {
+    let row: AgentFeedRow
+    let gap: AgentTranscriptGap
+
+    var id: Int { row.id }
+
+    static func entries(_ rows: [AgentFeedRow]) -> [TranscriptEntry] {
+        var out: [TranscriptEntry] = []
+        out.reserveCapacity(rows.count)
+        var prev: AgentRowClass?
+        for row in rows {
+            let cur = row.rowClass
+            out.append(TranscriptEntry(row: row, gap: AgentFeed.transcriptGap(prev: prev, cur: cur)))
+            prev = cur
+        }
+        return out
     }
 }

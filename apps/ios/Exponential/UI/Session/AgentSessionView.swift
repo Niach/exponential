@@ -718,13 +718,15 @@ struct AgentSessionView: View {
                             // S-3 (dock.json): a waiting plan or question
                             // stays inline, answerable; it is a story now,
                             // never a DockCard.
-                            let rows = model.rows
+                            // #EXP-1625: the model's immutable row snapshots.
+                            let entries = model.transcript
+                            let lastId = entries.last?.id
                             // EXP-1398 (ask-dock.json `anchorCases`): EVERY
                             // session card draws inline after the call that
                             // posted it (paired per kind), the ones older than
                             // the window up top (web `renderToolCards`).
                             let toolCardAnchors = AskDock.anchorSessionCards(
-                                AskDock.feedCalls(model.feed), cards: sessionCards
+                                model.feedCalls, cards: sessionCards
                             )
                             inlineToolCards(toolCardAnchors.unanchored, model: model)
                             // EXP-787: every row's space above it comes from
@@ -732,14 +734,19 @@ struct AgentSessionView: View {
                             // it — the rows themselves carry no outer margin
                             // any more, so the rhythm is one derivation
                             // instead of a padding per row kind.
-                            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
-                                feedRow(row, isLast: row.id == rows.last?.id)
-                                    .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
-                                        prev: index == 0 ? nil : rows[index - 1].rowClass,
-                                        cur: row.rowClass
-                                    )))
+                            // #EXP-1625: each row sits behind an equality gate
+                            // on its own inputs, so a pass of this list that
+                            // changed nothing for a row (a live tick) never
+                            // re-evaluates it.
+                            ForEach(entries) { entry in
+                                let isLast = entry.id == lastId
+                                TranscriptRowSlot(key: rowKey(entry, isLast: isLast, model: model)) {
+                                    feedRow(entry.row, isLast: isLast)
+                                }
+                                .equatable()
+                                .padding(.top, Self.gapPoints(entry.gap))
                                 inlineToolCards(
-                                    Self.rowItemIds(row).flatMap { toolCardAnchors.anchors[$0] ?? [] },
+                                    Self.rowItemIds(entry.row).flatMap { toolCardAnchors.anchors[$0] ?? [] },
                                     model: model
                                 )
                             }
@@ -757,7 +764,7 @@ struct AgentSessionView: View {
                                     caption: { model.workingCaption(now: $0) }
                                 )
                                     .padding(.top, Self.gapPoints(AgentFeed.transcriptGap(
-                                        prev: rows.last?.rowClass, cur: .tool
+                                        prev: entries.last?.row.rowClass, cur: .tool
                                     )))
                             }
                         }
@@ -821,7 +828,7 @@ struct AgentSessionView: View {
                         }
                     }
                 }
-                .onChange(of: model.feed.count) { _, _ in
+                .onChange(of: model.feedCount) { _, _ in
                     if atBottom {
                         proxy.scrollTo(AgentSessionLayout.bottomAnchor, anchor: .bottom)
                     }
@@ -881,6 +888,49 @@ struct AgentSessionView: View {
         case .tool: DesignTokens.Transcript.gapTool
         case .default: DesignTokens.Transcript.gapDefault
         }
+    }
+
+    /// #EXP-1625: everything `feedRow` draws one row from, as a value. The
+    /// rows that read live or per-view state beyond it (cards, a running
+    /// subagent's clock, a workflow's Work card) are `volatile`: they
+    /// re-evaluate with the list, exactly as before.
+    private func rowKey(_ entry: TranscriptEntry, isLast: Bool, model: AgentSessionModel) -> TranscriptRowKey {
+        let ids = Self.rowItemIds(entry.row)
+        var volatile = false
+        var working = false
+        var callIds: [String] = []
+        switch entry.row {
+        case let .toolRun(items), let .edits(items), let .expRun(items):
+            callIds = items.compactMap(Self.callId)
+        case let .subagentRun(run):
+            volatile = !run.done
+        case .ask:
+            volatile = true
+        case let .single(item):
+            switch item {
+            case .question:
+                volatile = true
+            case .subagent, .thought:
+                working = model.agentWorking
+            case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _):
+                volatile = model.workflow(for: callId) != nil
+                callIds = callId.map { [$0] } ?? []
+            default:
+                break
+            }
+        }
+        let live = model.phase == .live
+        let liveTool = live ? model.openToolRowId.flatMap { ids.contains($0) ? $0 : nil } : nil
+        return TranscriptRowKey(
+            entry: entry,
+            liveTail: isLast && live,
+            liveTool: liveTool,
+            working: working,
+            testResults: callIds.map { model.testResults[$0] },
+            agent: model.catalogAgent,
+            cli: model.session?.cli ?? session.cli,
+            volatile: volatile
+        )
     }
 
     @ViewBuilder
@@ -1059,8 +1109,8 @@ struct AgentSessionView: View {
     /// unsettled row is history, not a tail). EXP-1206: it is its headline
     /// alone. `AgentFeed`'s rule, shared ×4.
     private var liveToolRowId: Int? {
-        guard model?.phase == .live, let feed = model?.feed else { return nil }
-        return AgentFeed.liveToolRowId(feed)
+        guard model?.phase == .live else { return nil }
+        return model?.openToolRowId
     }
 
     /// The nested run behind one workflow agent — a method rather than a
@@ -1086,6 +1136,12 @@ struct AgentSessionView: View {
         let row = model?.session ?? session
         guard row.userId == deps.auth.userId else { return nil }
         return deps.auth.userName
+    }
+
+    /// #EXP-1625: a tool item's wire call id (what `testResults` keys on).
+    private static func callId(_ item: AgentFeedItem) -> String? {
+        guard case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _) = item else { return nil }
+        return callId
     }
 
     /// The feed item ids a transcript row draws (web `rowItemIds`): where a
@@ -1753,7 +1809,10 @@ struct AgentSessionView: View {
                 guard composerMenu(model) == .slash else { return false }
                 slashDismissedFor = model.draftText
                 return true
-            }
+            },
+            // #EXP-1625: the field beside `agent-composer-collapsed` (the
+            // thread's pair is `thread-composer-*`).
+            fieldIdentifier: "agent-composer-field"
         )
         .onChange(of: model.draftText) { _, _ in
             slashHighlight = 0
@@ -4051,6 +4110,41 @@ extension AppDependencies {
     }
 }
 
+
+/// #EXP-1625: what one transcript row renders from. `volatile` rows never
+/// compare equal (they read state the key does not carry).
+struct TranscriptRowKey: Equatable {
+    let entry: TranscriptEntry
+    let liveTail: Bool
+    let liveTool: Int?
+    let working: Bool
+    let testResults: [TestResults?]
+    let agent: String
+    let cli: String?
+    let volatile: Bool
+
+    static func == (a: Self, b: Self) -> Bool {
+        !a.volatile && !b.volatile
+            && a.liveTail == b.liveTail && a.liveTool == b.liveTool && a.working == b.working
+            && a.agent == b.agent && a.cli == b.cli
+            && a.testResults == b.testResults && a.entry == b.entry
+    }
+}
+
+/// #EXP-1625: one transcript row behind an equality gate (`.equatable()`):
+/// a pass of the list whose key for this row is unchanged skips the row's
+/// body, whatever re-ran the list (the closures it builds compare unequal
+/// by construction, so without the gate every visible row re-evaluated).
+struct TranscriptRowSlot<Content: View>: View, Equatable {
+    let key: TranscriptRowKey
+    @ViewBuilder let content: () -> Content
+
+    nonisolated static func == (a: Self, b: Self) -> Bool { a.key == b.key }
+
+    var body: some View {
+        content()
+    }
+}
 
 /// EXP-1358: an observation boundary. SwiftUI tracks `@Observable` reads
 /// per view BODY; a `@ViewBuilder` closure invoked here is read by THIS
