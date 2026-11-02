@@ -393,41 +393,6 @@ private struct ThreadStripTab<Content: View>: View {
     }
 }
 
-/// EXP-1295/1316: the header's title — the nav row's principal item: a
-/// thread's title on ONE line (never tappable, nobody renames a thread) with
-/// the lock glyph when it is private (`!root.shared`), or an agent's icon in
-/// its color before its name (the agent channel). Nothing else: no caption.
-struct ThreadHeaderTitle: View {
-    let title: String
-    var isPrivate = false
-    /// An agent channel's facets (registry icon name + `#rrggbb`).
-    var agentIcon: String?
-    var agentColor: String?
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 6) {
-            if let agentIcon {
-                AppIcon(agentIcon, size: 17, weight: .medium)
-                    .foregroundStyle(Color(hex: agentColor) ?? .white)
-                    .accessibilityHidden(true)
-            }
-            Text(title)
-                .font(.headline)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .accessibilityAddTraits(.isHeader)
-                .accessibilityIdentifier("thread-title")
-            if isPrivate {
-                AppIcon(AppIcons.uiPrivate, size: 13)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .accessibilityLabel("Private")
-                    .accessibilityIdentifier("thread-private")
-            }
-        }
-    }
-}
-
 /// EXP-1373 (chats.json, the chat screen on phones): the header's leading
 /// block — the lead DISC (the agent's icon in its colour, else the run mark:
 /// amber-badged while it needs you, the working mark while busy) and the
@@ -442,6 +407,9 @@ struct ChatHeaderTitle: View {
     var isPrivate = false
     var agentIcon: String?
     var agentColor: String?
+    /// #EXP-1448: the viewer's Assistant wears the brand mark (chats.json),
+    /// never its stored icon.
+    var assistant = false
     var cli: String?
     /// The root's PR states: the lead's PR glyph while nothing works.
     var prStates: [String] = []
@@ -467,7 +435,9 @@ struct ChatHeaderTitle: View {
         HStack(spacing: 10) {
             ZStack {
                 Circle().fill(DesignTokens.Palette.muted)
-                if let agentIcon {
+                if assistant {
+                    ExpLogoMark(size: 18, color: .white)
+                } else if let agentIcon {
                     AppIcon(agentIcon, size: 18, weight: .medium)
                         .foregroundStyle(Color(hex: agentColor) ?? .white)
                 } else {
