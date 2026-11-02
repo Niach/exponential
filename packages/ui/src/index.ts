@@ -210,6 +210,8 @@ export * from "./getting-started-list"
 export * from "./surface-card"
 // Thread 58cb32df: the four chat specimens (styleguide entries + the app's ?dev= captures).
 export * from "./chat-specimens"
+// EXP-1558: the mention-pill, schedule-picker and pr-row boards (styleguide entries + the app's ?dev= captures).
+export * from "./general-specimens"
 // NEW-15: THE phone detail header and its title block (moved from apps/web).
 export * from "./mobile-detail-header"
 export * from "./phone-header-title"

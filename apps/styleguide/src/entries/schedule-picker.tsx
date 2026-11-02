@@ -1,13 +1,6 @@
 import fixture from "@exp/domain-contract/fixtures/schedule-picker.json"
 import { scheduleSummary } from "@exp/domain-contract/schedule-picker"
-import {
-  GlassGroup,
-  GlassTabsRow,
-  ScheduleFields,
-  SubShellHost,
-  TabsTrigger,
-  scheduleDraftFromCron,
-} from "@exp/ui"
+import { SchedulePickerSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -20,13 +13,7 @@ import type { StyleguideEntry } from "./types.ts"
 // express keeps its monospace Cron row until a Repeat is picked. EXP-1363:
 // the minutes repeat (Every 5/10/15/20/30 minutes) has no Time zone row.
 
-const noop = (): void => {}
 const COPY = fixture.copy
-
-const WEEKLY = scheduleDraftFromCron(`0 9 * * 1-5`, `Europe/Vienna`)
-// EXP-1363: the minutes repeat (Every row, no Time zone row).
-const MINUTES = scheduleDraftFromCron(`*/10 * * * *`, `Europe/Vienna`)
-const CUSTOM = scheduleDraftFromCron(`*/10 * * * 1-5`, `Europe/Vienna`)
 
 export const entry: StyleguideEntry = {
   id: `schedule-picker`,
@@ -48,21 +35,5 @@ export const entry: StyleguideEntry = {
       file: `apps/android/app/src/main/java/com/exponential/app/ui/components/ScheduleFields.kt`,
     },
   },
-  island: () => (
-    <SubShellHost className="w-[30rem] space-y-4">
-      <GlassGroup>
-        <GlassTabsRow value="schedule" onValueChange={noop}>
-          <TabsTrigger value="schedule">Schedule</TabsTrigger>
-          <TabsTrigger value="event">On event</TabsTrigger>
-        </GlassTabsRow>
-        <ScheduleFields value={WEEKLY} onChange={noop} />
-      </GlassGroup>
-      <GlassGroup>
-        <ScheduleFields value={MINUTES} onChange={noop} />
-      </GlassGroup>
-      <GlassGroup>
-        <ScheduleFields value={CUSTOM} onChange={noop} />
-      </GlassGroup>
-    </SubShellHost>
-  ),
+  island: () => <SchedulePickerSpecimen full />,
 }

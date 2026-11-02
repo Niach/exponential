@@ -299,9 +299,17 @@
         "settleMs": 600
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_onboarding-join",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_onboarding-join",
+        "lane": "styleguide"
+      },
       "notes": {
-        "ios": "The mobile wizard puts the Create and Join cards on ONE step (TeamSetupView / OnboardingScreen), so this branch is not a screen of its own there — see `onboarding`.",
-        "android": "The mobile wizard puts the Create and Join cards on ONE step (TeamSetupView / OnboardingScreen), so this branch is not a screen of its own there — see `onboarding`."
+        "ios": "EXP-1558: the wizard's choice page (as web) → Join a team, the invite-link form; the live walk as the newcomer, right after sg_onboarding. Nothing is submitted.",
+        "android": "EXP-1558: the wizard's choice page → Join a team (TeamSetupForm's Join page), the invite-link field empty, keyboard down; the live walk as the newcomer, right after sg_onboarding. Nothing is submitted."
       },
       "desktop": {
         "drive": {
@@ -518,10 +526,13 @@
         "drive": {
           "kind": "screen",
           "value": "issue:$APP-5"
+        },
+        "env": {
+          "EXP_DEV_SCROLL_TO": "end"
         }
       },
       "notes": {
-        "desktop": "Same screen as issue-detail; the scroll to the activity feed is manual."
+        "desktop": "EXP-1558: the issue-detail screen with `EXP_DEV_SCROLL_TO=end`: the body parks at its end (the threaded comments, the mention pills and the composer), web's `scrollToComments` frame."
       }
     },
     {
@@ -666,7 +677,7 @@
           "value": "board"
         },
         "env": {
-          "EXP_DEV_SELECT": "APP-11,APP-13,APP-10"
+          "EXP_DEV_SELECT": "APP-6,APP-7,APP-9"
         }
       }
     },
@@ -729,13 +740,14 @@
         },
         "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_COMPOSER_TEXT": "Explain #APP"
+          "EXP_DEV_COMPOSER_TEXT": "Explain #",
+          "EXP_DEV_TYPEAHEAD_QUERY": "APP"
         }
       },
       "notes": {
         "web": "The `#` typeahead itself: `typeIssueRef` types `Explain #` into the Agent composer and then `APP` (the seeded board's key), which lands in the list's own focused input, so the shot is the popover at the caret with every seeded issue, uncapped, under its bottom fade.",
         "web-mobile": "Inherits web: on phones the same `#` opens the list as a bottom sheet with its input focused.",
-        "desktop": "EXP-1557: the `#` typeahead itself, as web: `EXP_DEV_COMPOSER_TEXT=Explain #APP` types into the Agent composer once, so THE search list opens at the caret with `APP` (the seeded board's key) in its own input, every seeded issue uncapped under its bottom fade."
+        "desktop": "EXP-1557/1558: the `#` typeahead itself, as web: `EXP_DEV_COMPOSER_TEXT=Explain #` types into the Agent composer once (after its first paint, so the list opens at the caret), then `EXP_DEV_TYPEAHEAD_QUERY=APP` (the seeded board's key) into the list's own input, every seeded issue uncapped under its bottom fade."
       }
     },
     {
@@ -835,11 +847,25 @@
         },
         "settleMs": 1000
       },
+      "ios": {
+        "shot": "sg_drafts",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_drafts",
+        "lane": "styleguide"
+      },
       "notes": {
         "web-mobile": "Thread 58cb32df: below md the list is the board's Drafts chip, present only while the caller has a draft; an old `/inbox?tab=drafts` link forwards to it.",
-        "ios": "Not captured yet — the iOS drafts list has no UI test in either lane.",
-        "android": "Not captured yet — the Android drafts list has no UI test in either lane.",
-        "desktop": "Not captured yet — the IDE reaches drafts from the sidebar entry and has no EXP_DEV_* drive for it."
+        "ios": "EXP-1558: the live walk taps the board's Drafts chip (as web-mobile), gated on the seed's Untitled draft row.",
+        "android": "EXP-1558: the live walk taps the board's Drafts chip (as web-mobile), gated on the seed's Untitled draft row.",
+        "desktop": "EXP-1558: the Drafts screen (`EXP_DEV_SCREEN=drafts`), the sidebar entry's page."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "drafts"
+        }
       }
     },
     {
@@ -1065,7 +1091,7 @@
       },
       "notes": {
         "web": "`$threadId` resolves to DEMO_THREAD_ID (apps/web/scripts/screenshot-demo.ts): \"Reduce cold start below 800 ms\" with APP-5, APP-10 and FB-3, its child session \"Profile the launch path\" needing input and the question card it asked. Seeded rows only, no relay.",
-        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Threads → the cold-start thread (DEMO_THREAD_ID).",
+        "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: Threads → the cold-start thread (DEMO_THREAD_ID), EXP-1558: at its newest rows (the pending question and the plan card in view).",
         "android": "See ios."
       }
     },
@@ -1175,10 +1201,19 @@
         "recipe": "openAddServer",
         "settleMs": 600
       },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_add-server",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_add-server",
+        "lane": "styleguide"
+      },
       "notes": {
-        "web-mobile": "EXP-1169: the dialog holds the shared device-setup block and opens on phones too. The capture lands with the next screenshot refresh (a declared capture without a committed webp fails shots:check).",
-        "ios": "EXP-1169: AddDeviceSheet (Devices tab pill, readiness fix) holds the same block as the wizard step. See web-mobile for the capture.",
-        "android": "See ios."
+        "web-mobile": "Inherits web (EXP-1169): `openAddServer` opens the same dialog with the shared device-setup block at the phone's width.",
+        "ios": "EXP-1169: AddDeviceSheet (Devices tab pill, readiness fix) holds the same block as the wizard step. EXP-1558: the live walk opens it from the Devices band's Add device pill.",
+        "android": "EXP-1169: AddDeviceSheet holds the same block as the wizard step. EXP-1558: the live walk opens it from the Devices band's Add device pill, gated on the install one-liner."
       },
       "desktop": {
         "drive": {
@@ -1271,10 +1306,18 @@
           "value": "general"
         }
       },
+      "ios": {
+        "shot": "sg_settings-general",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-general",
+        "lane": "styleguide"
+      },
       "notes": {
         "desktop": "EXP-1192: Settings swaps the root sidebar for the settings nav and HIDES the top tab band — a chrome-only band of the same height keeps the window controls. Every settings view shares this.",
-        "ios": "Folded into the one native Team settings screen: see settings-team.",
-        "android": "Folded into the one native Team settings screen: see settings-team."
+        "ios": "EXP-1558: the phone's own General page (settings-nav.json `phone`), opened from the Team tab's General row by the live walk.",
+        "android": "EXP-1558: the phone's own General page (settings-nav.json `phone`), opened from the Team tab's General row by the live walk, gated on the Danger zone's Delete team."
       }
     },
     {
@@ -1298,9 +1341,17 @@
           "value": "members"
         }
       },
+      "ios": {
+        "shot": "sg_settings-members",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-members",
+        "lane": "styleguide"
+      },
       "notes": {
-        "ios": "Folded into the one native Team settings screen: see settings-team.",
-        "android": "Folded into the one native Team settings screen: see settings-team."
+        "ios": "EXP-1558: the phone's own Members page (settings-nav.json `phone`), opened from the Team tab's Members row by the live walk.",
+        "android": "EXP-1558: the phone's own Members page (settings-nav.json `phone`), opened from the Team tab's Members row by the live walk."
       }
     },
     {
@@ -1324,9 +1375,17 @@
           "value": "labels"
         }
       },
+      "ios": {
+        "shot": "sg_settings-labels",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-labels",
+        "lane": "styleguide"
+      },
       "notes": {
-        "ios": "Folded into the one native Team settings screen: see settings-team.",
-        "android": "Folded into the one native Team settings screen: see settings-team."
+        "ios": "EXP-1558: the phone's own Labels page (settings-nav.json `phone`), opened from the Team tab's Labels row by the live walk.",
+        "android": "EXP-1558: the phone's own Labels page (settings-nav.json `phone`), opened from the Team tab's Labels row by the live walk."
       }
     },
     {
@@ -1398,9 +1457,15 @@
       },
       "webMobile": "inherit",
       "notes": {
-        "desktop": "The same pane (SettingsSection::Board(id), EXP-288), but the drive vocabulary addresses settings sections by name and a board pane is keyed by id, so there is nothing stable to drive to.",
+        "desktop": "EXP-1558: the same pane (SettingsSection::Board(id), EXP-288) on the seeded Mobile App board, the row web's `openFirstBoardSettings` opens (`EXP_DEV_SETTINGS=board:$board`).",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "board:$board"
+        }
       }
     },
     {
@@ -1424,9 +1489,17 @@
           "value": "repositories"
         }
       },
+      "ios": {
+        "shot": "sg_settings-repositories",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-repositories",
+        "lane": "styleguide"
+      },
       "notes": {
-        "ios": "Folded into the one native Team settings screen: see settings-team.",
-        "android": "Folded into the one native Team settings screen: see settings-team."
+        "ios": "EXP-1558: the phone's own Repositories page (settings-nav.json `phone`), opened from the Team tab's Repositories row by the live walk.",
+        "android": "EXP-1558: the phone's own Repositories page (settings-nav.json `phone`), opened from the Team tab's Repositories row by the live walk."
       }
     },
     {
@@ -1445,9 +1518,15 @@
       },
       "webMobile": "inherit",
       "notes": {
-        "desktop": "The IDE pane (SettingsSection::Widget, EXP-771) is a read-only list plus a Manage on the web button; configuration stays web-only, so the web shot is the reference.",
+        "desktop": "The IDE pane (SettingsSection::Widget, EXP-771) is a read-only list plus a Manage on the web button; configuration stays web-only, so the web shot is the reference. EXP-1558: driven by `EXP_DEV_SETTINGS=widget`.",
         "ios": "No native section: widget configuration is web-only.",
         "android": "No native section: widget configuration is web-only."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "widget"
+        }
       }
     },
     {
@@ -1555,10 +1634,27 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-assistant-meeting",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-assistant-meeting",
+        "lane": "styleguide"
+      },
       "notes": {
-        "desktop": "The settings drive opens a pane at its top; the Meeting rows sit below the fold and no drive scrolls yet, so desktop is not driven.",
-        "ios": "The sg_settings-assistant specimen covers the Assistant page; no scrolled native shot.",
-        "android": "As iOS: sg_settings-assistant covers the page; no scrolled native shot."
+        "desktop": "EXP-1558: Settings → Assistant (`EXP_DEV_SETTINGS=assistant`) with `EXP_DEV_SCROLL_TO=end`: the pane parks at its end, the Meeting mode, Stop after and Desktop audio rows in frame (web's `scrollToMeetingMode`).",
+        "ios": "EXP-1558: the live walk's Assistant page (sg_settings-assistant) scrolled until its Meeting mode Stop after row is on screen.",
+        "android": "EXP-1558: the walk's Assistant page (sg_settings-assistant) with its Stop after row dragged to the middle (web's `scrollToMeetingMode`)."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "assistant"
+        },
+        "env": {
+          "EXP_DEV_SCROLL_TO": "end"
+        }
       }
     },
     {
@@ -1713,9 +1809,13 @@
         "drive": {
           "kind": "settings",
           "value": "local-repos"
+        },
+        "env": {
+          "EXP_DEV_DISK_FREE": "6657199309"
         }
       },
       "notes": {
+        "desktop": "EXP-1558: a fixed specimen, never the capture Mac's own disk: the lane's repo fixture (`packages/shots/src/repo-fixture.ts`, built under /Users/Shared/Exponential/shots unless `--repos-root` names another root) holds acme/mobile-app with the two kept worktrees of the device-readiness block's low-disk case (exp-session-9497089a, exp-EXP-1375), and `EXP_DEV_DISK_FREE` pins the headroom to that case's 6.2 GB free.",
         "web": "Worktrees live on the device; the web app only queues remove/prune commands to it.",
         "web-mobile": "See web.",
         "ios": "See web.",
@@ -1728,6 +1828,15 @@
       "title": "Settings · Archived boards",
       "blurb": "Boards put away rather than deleted, and the way back. EXP-862 gave web its own page under the settings nav's board list; the 48h pending-deletion card joins the archived list once something is in the trash.",
       "order": 19,
+      "web": {
+        "route": "/t/$teamSlug/settings/boards/archived",
+        "anchor": {
+          "text": "Unarchive",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -1735,8 +1844,8 @@
         }
       },
       "notes": {
-        "web": "EXP-862 gave web its own page at /t/$teamSlug/settings/boards/archived; its capture joins the store with the EXP-865 screenshot refresh.",
-        "web-mobile": "See web.",
+        "web": "EXP-862's own page under the settings nav's board list (owner-only); the anchor is the seeded archived board's Unarchive pill, so the shot never fires on the loading skeleton (the archived list is out of every synced shape and loads over tRPC).",
+        "web-mobile": "Inherits web: the same page at the phone's width.",
         "ios": "Folded into the one native Team settings screen: see settings-team.",
         "android": "Folded into the one native Team settings screen: see settings-team."
       }
@@ -1776,9 +1885,10 @@
       "web": {
         "route": "/t/$teamSlug/settings/mcp/activity",
         "anchor": {
-          "text": "Activity",
+          "testId": "settings-mcp-activity",
           "timeoutMs": 20000
         },
+        "recipe": "waitForMcpActivity",
         "settleMs": 800
       },
       "webMobile": "inherit",
@@ -1789,6 +1899,7 @@
         }
       },
       "notes": {
+        "web": "EXP-1558: `waitForMcpActivity` waits for the settled list (a call row, or the `mcp-activity` empty state), never the skeleton the header alone used to photograph. The rows are the seed's `mcp_calls`.",
         "ios": "The native Activity page (settings-mcp.json activityPage) has no capture wired into the shots pipeline yet.",
         "android": "The native Activity page (settings-mcp.json activityPage) has no capture wired into the shots pipeline yet."
       }
@@ -2051,6 +2162,7 @@
         "anchorDelayMs": 1200
       },
       "notes": {
+        "desktop": "EXP-1558: the lane's repo fixture (`packages/shots/src/repo-fixture.ts`), so every Mac photographs the same commit graph (a merged PR lane, dates relative to the run) and the same two uncommitted edits, never \"Repository not cloned yet\".",
         "web": "Desktop-only: it operates on the machine’s clone.",
         "web-mobile": "See web.",
         "ios": "See web.",
@@ -2103,7 +2215,7 @@
       },
       "notes": {
         "web": "Not a route: the sidebar-footer entry (EXP-88) opens the block in a centred dialog (EXP-1270; the right sheet is gone), and the entry hides once every step is done (EXP-548), so the seed must leave a step open. The same block renders inline on an EMPTY board (`board-empty`) and on the Agent home while the team has no board.",
-        "web-mobile": "The phone sidebar keeps the same entry and dialog; the inline block is `board-empty`’s web-mobile capture.",
+        "web-mobile": "Not captured (EXP-1558): the phone shell has no sidebar (the tab bar replaced it) and no other entry opens the dialog (the natives open it from Settings' Getting started row), so there is nothing to tap; the inline block is `board-empty`’s web-mobile capture.",
         "ios": "Settings’ Getting started row opens the block in a bottom sheet (the same rows, full width, Docs as an icon button).",
         "android": "See ios: the Settings row’s bottom sheet.",
         "desktop": "The rail entry opens the block in its own dialog window (`getting_started::open_dialog`); `EXP_DEV_DIALOG=getting-started` opens it on the active team. The old `getting-started` screen and its tabs are gone."
@@ -2174,11 +2286,17 @@
       "notes": {
         "ios": "VAPP-112: the LIVE walk: the Threads tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row.",
         "android": "VAPP-116: the LIVE walk (signed in, the seeded demo apps): Threads → the header's Apps entry. The phone reaches Apps from the Threads tab (no sidebar).",
-        "desktop": "The IDE has no Apps page: the rail lists the apps as a group (like Agents), and Settings → Apps (`settings-apps`) draws this list band."
+        "desktop": "The IDE has no Apps page: the rail lists the apps as a group (like Agents), and Settings → Apps draws this list band, so EXP-1558 photographs that index (`EXP_DEV_SETTINGS=apps`, the `settings-apps` drive)."
       },
       "android": {
         "shot": "sg_apps",
         "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "apps"
+        }
       }
     },
     {
@@ -2397,11 +2515,21 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "Not captured: the same card (ConsentCard in lib/exponential-ui-host.tsx) sits under the app's preview; the Working hours entry dialog's Post to the issue raises it.",
-        "desktop": "Not captured: the same card over the app screen (exponential_ui_host.rs).",
+        "web": "Not captured (EXP-1558): the recipe `openAppConsent` raises the REAL card (ConsentCard in lib/exponential-ui-host.tsx: the seeded Working hours app, its 'docs, admin' entry on APP-15, the entry dialog's Post to the issue), but the card's Prompt (z-50) paints UNDER the surface's own eUI Dialog (z-51), so the shot shows the entry dialog. Wire `web` back once the card stacks above the surface's dialogs.",
+        "desktop": "EXP-1558: the Working hours app screen (`EXP_DEV_SCREEN=app:working-hours`) with `EXP_DEV_DIALOG=app-consent`: the REAL consent window (exponential_ui_host.rs `consent_hook`, no grants) for the natives' call, exponential.comments.create on APP-15 with 'Logged 8 h: docs, admin'. Never answered.",
         "ios": "The capture-only specimen `-uiTestingStyleguide app-consent` (AppConsentSpecimens): the REAL AppConsentCard over a stand-in surface, asked for exponential.comments.create on APP-15 with the words of actionConsent. The painted app surface exposes no rows to XCUITest, so the live walk cannot raise it.",
         "android": "See ios: the capture-only AppConsentSpecimenScreen in captureOnlyScreens (the Compose painter's rows carry no text semantics for the test either).",
         "web-mobile": "Not captured: the web card at the phone's width."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "app-consent"
+        },
+        "anchorDelayMs": 600,
+        "env": {
+          "EXP_DEV_SCREEN": "app:working-hours"
+        }
       }
     },
     {
@@ -2418,6 +2546,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2434,7 +2563,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2451,6 +2580,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2467,7 +2597,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2484,6 +2614,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2500,7 +2631,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2517,6 +2648,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2533,7 +2665,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2550,6 +2682,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2566,7 +2699,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2583,6 +2716,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2599,7 +2733,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2616,6 +2750,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2632,7 +2767,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2649,6 +2784,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2665,7 +2801,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2682,6 +2818,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2698,7 +2835,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2715,6 +2852,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2731,7 +2869,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2748,6 +2886,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2764,7 +2903,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2781,6 +2920,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2797,7 +2937,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2814,6 +2954,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2830,7 +2971,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2847,6 +2988,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2863,7 +3005,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2880,6 +3022,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2896,7 +3039,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2913,6 +3056,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2929,7 +3073,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2946,6 +3090,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2962,7 +3107,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -2979,6 +3124,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -2995,7 +3141,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -3012,6 +3158,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -3028,7 +3175,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -3045,6 +3192,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -3061,7 +3209,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -3078,6 +3226,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -3094,7 +3243,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -3111,6 +3260,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -3127,7 +3277,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -3144,6 +3294,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -3160,7 +3311,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -3177,6 +3328,7 @@
         },
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "screen",
@@ -3193,7 +3345,7 @@
         "lane": "package"
       },
       "notes": {
-        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+        "web-mobile": "EXP-1558: inherits web: the same specimen route at the phone's width, beside the iOS and Android phone frames."
       }
     },
     {
@@ -4962,9 +5114,16 @@
       "notes": {
         "web": "The styleguide island `session-row` (apps/styleguide/src/entries/session-row.tsx) draws both sizes on the real component; the app views are `agents` and the sidebar.",
         "web-mobile": "See web: the phone's Running list and the Recent sheet draw the big row (`agents` web-mobile).",
-        "desktop": "The desktop styleguide entry `session_row.rs` draws both sizes; the app views are the rail and Recent.",
+        "desktop": "The desktop styleguide entry `session_row.rs` draws both sizes (EXP-1558: `EXP_DEV_SCREEN=styleguide:session-row`, full-window); the app views are the rail and Recent.",
         "android": "See ios: the same live walk in StyleguideScreenshotsTest.",
         "ios": "EXP-1311: the view is THE list row (the session card is `thread`'s). Both phones photograph the live home's Running band over the seeded roots, the row's one phone instance, right after sg_agent-home."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:session-row"
+        },
+        "anchorDelayMs": 1500
       }
     },
     {
@@ -4973,6 +5132,15 @@
       "title": "PR rows",
       "blurb": "ONE PrRow (EXP-1248): a one-line PR row with the ring lead, nested with tree guides for a PR tree and railed top-first down to the base branch for a stack (the Guide's stack card and the Reviews list share it).",
       "order": 6,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=pr-row",
+        "anchor": {
+          "testId": "pr-row-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_pr-row",
         "lane": "styleguide"
@@ -4982,9 +5150,16 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "The styleguide island `pr-row` (apps/styleguide/src/entries/pr-row.tsx); the app views are `reviews` and `guide`.",
-        "web-mobile": "See web: `reviews` and `guide` inherit their phone captures.",
-        "desktop": "The desktop styleguide entry `pr_row.rs`; the app views are Reviews and the Guide."
+        "web": "EXP-1558: the DEV-ONLY `?dev=pr-row` on the Agent route (never parsed in a production build): `@exp/ui` `PrRowSpecimen` (the real `PrList` + `StackRail`), the styleguide entry `pr-row`'s board line for line, inside the app chrome like the desktop styleguide twin.",
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:pr-row` (EXP-1558): the desktop styleguide entry `pr_row.rs` drawn full-window, like mention-pill; the app views are Reviews and the Guide."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:pr-row"
+        },
+        "anchorDelayMs": 1500
       }
     },
     {
@@ -5040,6 +5215,7 @@
         "recipe": "openComposerMenuTemporary",
         "settleMs": 600
       },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_composer-menu",
         "lane": "styleguide"
@@ -5060,7 +5236,7 @@
       },
       "notes": {
         "web": "`openComposerMenuTemporary` picks Temporary session in the agent row and opens the Agent composer's \"+\" dropdown at its root, no submenu open (EXP-1551: the phones' state, so all four photograph one menu).",
-        "web-mobile": "No app capture: on phones the menu is a bottom sheet; the open sheet is the natives' `sg_composer-menu`.",
+        "web-mobile": "Inherits web: `openComposerMenuTemporary` on the phone opens the same + menu as its bottom sheet at the root (the natives' `sg_composer-menu` state).",
         "desktop": "The Agent page (`EXP_DEV_SCREEN=chat`) with `EXP_DEV_COMPOSER_MENU=temporary`: the agent row starts on Temporary session and the \"+\" menu opens at its root, no row lit, once the launch cluster and the shapes are in (EXP-1551: the state all four photograph)."
       }
     },
@@ -5103,11 +5279,29 @@
         "settleMs": 600
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_composer-slash-menu",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_composer-slash-menu",
+        "lane": "styleguide"
+      },
       "notes": {
         "web": "`typeSlashInComposer` types `/` into the home composer.",
-        "ios": "NEW-7: the Home composer's `/` lists the team's prompts under the card (`agent-composer-slash-menu`), a pick = the prompt chip; not captured while the seed inserts legacy `actions` rows only (no `prompts`), which leaves the menu shut.",
-        "android": "NEW-7: the Agent home composer's `/` lists the team's prompts under the card (`agent-composer-slash-menu`); not captured while the seed inserts legacy `actions` rows only (no `prompts`), which leaves the menu shut.",
-        "desktop": "NEW-2: no native prompts screen yet; the native lanes add theirs."
+        "ios": "NEW-7: the Home composer's `/` lists the team's prompts under the card (`agent-composer-slash-menu`), a pick = the prompt chip. EXP-1558: the live walk types `/` into the home composer right after sg_chat (the seed's team prompts).",
+        "android": "EXP-1558: `/` typed into the Agent home composer: the team's prompts under the card (`agent-composer-slash-menu`, gated on the seed's Release train), keyboard down like web.",
+        "desktop": "EXP-1558: the Agent page (`EXP_DEV_SCREEN=chat`) with `EXP_DEV_COMPOSER_TEXT=/` typed into the home composer once its shapes are in: the team's prompts menu, web's `typeSlashInComposer`."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "chat"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_COMPOSER_TEXT": "/"
+        }
       }
     },
     {
@@ -5126,11 +5320,29 @@
         "settleMs": 600
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_session-slash-menu",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_session-slash-menu",
+        "lane": "styleguide"
+      },
       "notes": {
         "web": "`$guideThreadId` = DEMO_GUIDE_THREAD_ID (APP-15's thread: no open question or plan card, so the composer is there, not the ask dock); `typeSlashInSessionComposer` scrolls to the thread's composer and types `/`.",
-        "ios": "NEW-7: the session composer's `/` menu (THE `SlashCommandMenu`: /compact, /model, /effort, then the team's prompts; a prompt's body lands in the draft, `prompts.get`); not captured: the walk never types into a live composer, and the seed has no `prompts` rows.",
-        "android": "NEW-2: no native prompts screen yet; the native lanes add theirs.",
-        "desktop": "NEW-2: no native prompts screen yet; the native lanes add theirs."
+        "ios": "NEW-7: the session composer's `/` menu (THE `SlashCommandMenu`: /compact, /model, /effort, then the team's prompts; a prompt's body lands in the draft, `prompts.get`). EXP-1558: the live walk opens APP-15's thread (after sg_thread-replies), taps the composer capsule and types `/`; nothing is sent.",
+        "android": "EXP-1558: `/` typed into APP-15's thread composer (web's `$guideThreadId`): the builtins (/compact …), then the team's prompts; keyboard down when the menu survives it.",
+        "desktop": "EXP-1558: APP-15's thread (`EXP_DEV_SCREEN=thread:$guideThread`, its one session in place) with `EXP_DEV_COMPOSER_TEXT=/` typed into the session composer once the row synced: the builtins, then the team's prompts."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "thread:$guideThread"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_COMPOSER_TEXT": "/"
+        }
       }
     },
     {
@@ -5927,6 +6139,7 @@
         },
         "settleMs": 800
       },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_feedback-states",
         "lane": "styleguide"
@@ -5944,7 +6157,7 @@
       },
       "notes": {
         "web": "The six kinds only show one at a time in the app and only while work is pending or has failed, so the capture is the DEV-ONLY `?dev=feedback-states` on the Agent route (never parsed in a production build: serve `bun dev`, or a `NODE_ENV=development bun run build` under Bun when Caddy drops vite's module requests): `@exp/ui` `FeedbackStatesSpecimen`, the styleguide entry's board, inside the app chrome.",
-        "web-mobile": "No phone-browser shot: one kind per row, the phone frame holds four of the six; the natives' `sg_feedback-states` are the phone frames.",
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width, the kinds stacked one per row (the frame holds the first ones).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:feedback-states`: the IDE styleguide entry `feedback_states.rs` drawn full-window, every kind on its real `feedback` primitive."
       }
     },
@@ -6004,7 +6217,7 @@
           "timeoutMs": 30000
         },
         "settleMs": 2500,
-        "recipe": "openTraceOutput"
+        "recipe": "scrollToLatestTurn"
       },
       "webMobile": {
         "route": "/t/$teamSlug/sessions/$sessionId",
@@ -6012,7 +6225,8 @@
           "testId": "thread-tabs",
           "timeoutMs": 30000
         },
-        "settleMs": 2500
+        "settleMs": 2500,
+        "recipe": "scrollToLatestTurn"
       },
       "ios": {
         "shot": "sg_session",
@@ -6029,9 +6243,10 @@
         }
       },
       "notes": {
+        "web-mobile": "The phone session view, the same `scrollToLatestTurn` frame (the question card inline above the Queue and the floating composer).",
         "ios": "EXP-1309: the LIVE walk over the seed web/desktop photograph (signed in, the relay stub online), never fixture rows: a session card of the cold-start thread opens DEMO_SESSION_ID (\"Profile the launch path\"), its feed from `screenshots:desktop`, the pending question card in the composer's place.",
         "android": "See ios: the same walk in StyleguideScreenshotsTest.",
-        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id; without the relay the header still renders over a Reconnecting feed, so the anchor is the header's title and the settle lets the feed land. EXP-1324: `openTraceOutput` opens the `./gradlew :app:startupProfile` Trace line onto its Output and centres the tail (the thought, the Explore subagent's badge, the failed benchmark run, the Queue below), as the approved draft shows it."
+        "web": "`$sessionId` resolves to DEMO_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the cold-start thread's child. Its feed is published by `bun run screenshots:desktop` under the same id. EXP-1558: `scrollToLatestTurn` waits for the feed's waiting question card and pins the transcript to its end, the frame every client photographs: the settled Trace lines, the agent's last message with its table, the question card inline, the Queue over the composer."
       }
     },
     {
@@ -6388,6 +6603,15 @@
       "title": "Locked content",
       "blurb": "Sealed session content this install cannot open yet (EXP-1459, sealed-content.json `placeholder`): in a transcript THE glass pill with the lock (\"Waiting for the key\" until a holder wraps the tree key, \"Can't be opened here\" when it never opens), in the chats list the preview italic muted.",
       "order": 53,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=sealed-locked",
+        "anchor": {
+          "testId": "sealed-locked-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_sealed-locked",
         "lane": "styleguide"
@@ -6404,8 +6628,8 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The styleguide entry sealed-locked (SealedLockedSpecimen) is the web picture; a live locked row needs a second browser install without the key.",
-        "web-mobile": "See web.",
+        "web": "EXP-1558: the DEV-ONLY `?dev=sealed-locked` on the Agent route (never parsed in a production build): `@exp/ui` `SealedLockedSpecimen`, the styleguide entry `sealed-locked`'s board line for line, inside the app chrome like the desktop styleguide twin.",
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:sealed-locked`: the IDE styleguide twin (styleguide/entries/sealed_locked.rs) drawn full-window, the web entry's transcript with both pills over the three chat rows (#EXP-1469)."
       }
     },
@@ -6415,6 +6639,15 @@
       "title": "Schedule picker",
       "blurb": "THE schedule rows ×4 (schedule-picker.json): Repeat (Every few minutes · hour · day · week · month), Every / Minute / Time / Days / Day, Time zone only from daily up.",
       "order": 37,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=schedule-picker",
+        "anchor": {
+          "testId": "schedule-picker-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_schedule-picker",
         "lane": "styleguide"
@@ -6431,11 +6664,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "A styleguide specimen (apps/styleguide entry `schedule-picker`); the live web screens are their own views.",
+        "web": "EXP-1558: the DEV-ONLY `?dev=schedule-picker` on the Agent route (never parsed in a production build): `@exp/ui` `SchedulePickerSpecimen` (the real `ScheduleFields`), the styleguide entry `schedule-picker`'s board line for line, inside the app chrome like the desktop styleguide twin.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_schedule-picker.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:schedule-picker`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "See web: the styleguide entry is the phone-wide specimen."
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width."
       }
     },
     {
@@ -6444,6 +6677,15 @@
       "title": "Mention pill",
       "blurb": "THE round @member pill ×4 in every chat's text (thread e4a04d22): a team member's @email paints as the comments' pill with the member's name, an unresolved @x@y.com stays the written text.",
       "order": 40,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=mention-pill",
+        "anchor": {
+          "testId": "mention-pill-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_mention-pill",
         "lane": "styleguide"
@@ -6460,11 +6702,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "A styleguide specimen (apps/styleguide entry `mention-pill`, the real `@exp/ui` `MentionPill`); the live chats are their own views.",
+        "web": "EXP-1558: the DEV-ONLY `?dev=mention-pill` on the Agent route (never parsed in a production build): `@exp/ui` `MentionPillSpecimen` (the real `MentionPill`), the styleguide entry `mention-pill`'s board line for line, inside the app chrome like the desktop styleguide twin.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_mention-pill.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:mention-pill`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "See web: the styleguide entry is the phone-wide specimen."
+        "web-mobile": "Inherits web: the phone frame draws the same specimen at full width."
       }
     },
     {
@@ -6686,13 +6928,16 @@
           "kind": "screen",
           "value": "styleguide:device-readiness"
         },
-        "anchorDelayMs": 1500
+        "anchorDelayMs": 1500,
+        "env": {
+          "EXP_DEV_SPECIMEN_ONLY": "1"
+        }
       },
       "notes": {
         "web": "The DEV-ONLY `?dev=device-readiness` on the Agent route (FEED-160): `@exp/ui` `DeviceReadinessSpecimen`, the natives' specimen line for line (the fixture's low-disk case from another device + the composer row); the full styleguide entry `device-readiness` draws every case. Live in Device settings and the composer.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_device-readiness: the fixture's low-disk case as a phone draws it (remote) + the composer row.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
-        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:device-readiness`: the IDE styleguide twin drawn full-window, the web specimen first (EXP-1557: the low-disk case from another device + the composer row), then every fixture case.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:device-readiness`: the IDE styleguide twin drawn full-window; `EXP_DEV_SPECIMEN_ONLY=1` (EXP-1558) stops it after the web specimen (EXP-1557: the low-disk case from another device + the composer row), the frame web's `?dev=device-readiness` draws.",
         "web-mobile": "Inherits web: the phone frame draws the same specimen at full width."
       }
     },

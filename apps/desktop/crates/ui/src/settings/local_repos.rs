@@ -203,6 +203,14 @@ fn disk_free(_path: &Path) -> Option<(u64, u64)> {
     None
 }
 
+/// EXP-1558 (DEV-ONLY, `EXP_DEV_DISK_FREE=<bytes>`): the headroom the
+/// `settings-worktrees` capture reads instead of the capture Mac's own disk
+/// (its free space is no fact of the product), against a 500 GB disk.
+fn dev_disk_free() -> Option<(u64, u64)> {
+    let free = std::env::var("EXP_DEV_DISK_FREE").ok()?.trim().parse().ok()?;
+    Some((free, 500_000_000_000))
+}
+
 /// Whether `(free, capacity)` is low enough to say so.
 fn disk_is_low(free: u64, capacity: u64) -> bool {
     if capacity == 0 {
@@ -646,7 +654,7 @@ impl LocalReposPane {
                 return Some(reading);
             }
         }
-        let reading = disk_free(root)?;
+        let reading = dev_disk_free().or_else(|| disk_free(root))?;
         self.disk = Some((reading, Instant::now()));
         Some(reading)
     }

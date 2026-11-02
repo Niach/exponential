@@ -9,6 +9,7 @@ import {
   PACKAGE_FORMAT_VERSION,
   RECORDS_FUNCTIONS,
   RECORDS_QUERY,
+  QUERY_NAME_PATTERN,
   RECORDS_RESERVED_PARAMS,
   RECORDS_SCHEME,
   TOOL_ID_PATTERN,
@@ -36,7 +37,8 @@ describe(`package format (VAPP-161)`, () => {
     expect(PACKAGE_FORMAT_VERSION).toBe(host.package.formatVersion)
     expect(RECORDS_SCHEME).toBe(host.package.records.scheme)
     expect([...RECORDS_FUNCTIONS]).toEqual(host.package.records.functions)
-    expect(RECORDS_QUERY).toEqual({ ...host.package.records.query, reserved: undefined } as never)
+    expect(RECORDS_QUERY).toEqual({ ...host.package.records.query, reserved: undefined, queryNamePattern: undefined } as never)
+    expect(QUERY_NAME_PATTERN.source).toBe(host.package.records.query.queryNamePattern)
     expect([...RECORDS_RESERVED_PARAMS]).toEqual(host.package.records.query.reserved)
     expect(TOOL_ID_PATTERN.source).toBe(host.package.tools.idPattern)
     expect(PACKAGE_FILE_SIGNATURE_CONTEXT).toBe(host.package.signature.context)

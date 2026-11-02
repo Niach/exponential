@@ -1474,6 +1474,8 @@ export const sessionsSendInputSchema = z
     account: z.string().min(1).max(64).optional(),
     model: z.string().max(64).optional(),
     effort: z.string().max(32).optional(),
+    // EXP-1583: claude only, a NEW session's subagent model (fixed at start).
+    subagentModel: z.string().max(64).optional(),
     planMode: z.boolean().optional(),
     computerUse: z.boolean().optional(),
     ultracode: z.boolean().optional(),

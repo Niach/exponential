@@ -7264,6 +7264,19 @@ public func chartExtentJson(kind: String, seriesJson: String, min: Double?, max:
 })
 }
 /**
+ * VAPP-191: type-check an expression against `types_json` (name → type,
+ * spelled as JSON: `"number"`, `["date"]`, a row object): `{"type": …}` or
+ * `{"error": "…"}` (`fixtures/expressions.json` `check`).
+ */
+public func checkExpressionJson(expr: String, typesJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_check_expression_json(
+        FfiConverterString.lower(expr),
+        FfiConverterString.lower(typesJson),$0
+    )
+})
+}
+/**
  * A2UI `a2uiClientCapabilities` JSON.
  */
 public func clientCapabilitiesJson(extensionIds: [String]) -> String  {
@@ -7320,6 +7333,20 @@ public func controlGeometryJson(themeJson: String, component: String, propsJson:
 public func coreCatalogId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_core_catalog_id($0
+    )
+})
+}
+/**
+ * VAPP-190: a date's bucket key (`bucket` = day | week | month | quarter |
+ * year: `2026-10-05`, `2026-W41`, `2026-10`, `2026-Q4`, `2026`); null when
+ * the text holds no date that precise or the bucket is unknown
+ * (`bucketCases`).
+ */
+public func dateBucket(date: String, bucket: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_date_bucket(
+        FfiConverterString.lower(date),
+        FfiConverterString.lower(bucket),$0
     )
 })
 }
@@ -7386,6 +7413,24 @@ public func errorMessageJson(code: String, surfaceId: String, message: String, p
         FfiConverterString.lower(surfaceId),
         FfiConverterString.lower(message),
         FfiConverterOptionString.lower(path),$0
+    )
+})
+}
+/**
+ * VAPP-191: evaluate an expression (the CEL subset, `eui_core::cel`) over
+ * `vars_json` (an object): `{"value": …}` or `{"error": "…"}`
+ * (`fixtures/expressions.json` `eval`). `now_ms` = the clock (`None` = the
+ * wall clock), `zone` = the team zone (`None` = UTC), `max_steps` = the
+ * step limit (`None` = 10 000).
+ */
+public func evaluateExpressionJson(expr: String, varsJson: String, nowMs: Double?, zone: HostZone?, maxSteps: UInt32? = nil)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(
+        FfiConverterString.lower(expr),
+        FfiConverterString.lower(varsJson),
+        FfiConverterOptionDouble.lower(nowMs),
+        FfiConverterOptionTypeHostZone.lower(zone),
+        FfiConverterOptionUInt32.lower(maxSteps),$0
     )
 })
 }
@@ -7577,6 +7622,19 @@ public func parseDateValueJson(valueJson: String)throws  -> String?  {
     return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
     uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(
         FfiConverterString.lower(valueJson),$0
+    )
+})
+}
+/**
+ * VAPP-190: the JSON query form (a package's `queries`, the `q` param) →
+ * `{query, issues: [{path, message}]}` (`fixtures/records-query.json`
+ * `jsonCases`). `kind` = a source's own kind, which wins over `from`.
+ */
+public func parseRecordsJson(queryJson: String, kind: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_parse_records_json(
+        FfiConverterString.lower(queryJson),
+        FfiConverterOptionString.lower(kind),$0
     )
 })
 }
@@ -8043,6 +8101,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 41730) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_check_expression_json() != 35251) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json() != 21405) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8061,6 +8122,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_core_catalog_id() != 35263) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_date_bucket() != 2027) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_decide_function() != 53224) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8077,6 +8141,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 45756) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json() != 50260) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 24175) {
@@ -8125,6 +8192,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json() != 60626) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_json() != 4777) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json() != 62724) {

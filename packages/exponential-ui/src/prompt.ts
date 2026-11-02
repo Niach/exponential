@@ -8,6 +8,7 @@
 // the index first and `componentPrompt(name)` on demand, or `only` the
 // components a task needs; eval/ measures what each variant costs.
 
+import { EXPRESSION_CALL_NAMES } from "./cel-names"
 import { CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, catalogView, coreCatalog, isOffered } from "./catalog"
 import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
 
@@ -161,14 +162,23 @@ function defsBlock(defs: Record<string, { description: string; properties: Recor
 const SHORT_TYPES: Readonly<Record<string, string>> = { string: `str`, number: `num`, boolean: `bool`, object: `obj` }
 
 /** Every catalog function as `name(arg:type,…)→returns` (round 4: the
- *  model sees the argument names, not just the function names). */
+ *  model sees the argument names, not just the function names). VAPP-191:
+ *  functions with the same signature share one entry (`add|sub(a:num,b:num)→num`),
+ *  in the order of their first name. The expression functions (mul…
+ *  formatDuration) are reached through `expr` (src/cel.ts) here; the apps
+ *  catalog lists them all. */
 export function functionSignatures(): string[] {
   const { names, core, basic } = coreCatalog.functions
-  return names.map((name) => {
-    const sig = core[name] ?? basic[name]
-    if (!sig) return name
-    return `${name}(${Object.entries(sig.args).map(([a, t]) => `${a}:${SHORT_TYPES[t] ?? t}`).join(`,`)})→${SHORT_TYPES[sig.returns] ?? sig.returns}`
-  })
+  const groups = new Map<string, string[]>()
+  for (const name of names) {
+    if (name !== `expr` && EXPRESSION_CALL_NAMES.includes(name)) continue
+    const sig = (core as Record<string, { args: Record<string, string>; returns: string }>)[name] ?? (basic as Record<string, { args: Record<string, string>; returns: string }>)[name]
+    const key = sig ? `(${Object.entries(sig.args).map(([a, t]) => `${a}:${SHORT_TYPES[t] ?? t}`).join(`,`)})→${SHORT_TYPES[sig.returns] ?? sig.returns}` : ``
+    const group = groups.get(key)
+    if (group && key) group.push(name)
+    else groups.set(key || name, [name])
+  }
+  return [...groups].map(([key, list]) => (key === list[0] ? key : `${list.join(`|`)}${key}`))
 }
 
 /** VAPP-108: one component's full block on demand (the per-component

@@ -13,6 +13,7 @@
 pub mod contract;
 pub mod decoders;
 pub mod exposes;
+pub mod expressions;
 pub mod package;
 pub mod policy;
 pub mod query;
@@ -24,6 +25,7 @@ pub mod sources;
 pub mod tools;
 
 pub use contract::*;
+pub use expressions::{literal_type, record_row_type, records_value_type, schema_type, validate_package_expressions};
 pub use exposes::{expose_action_access, expose_issues, expose_name_destructive, expose_template_paths, validate_package_exposes, validate_upstreams, ExposeIssue};
 pub use decoders::{decode_jsonl, mcp_action_call, messages_from_mcp_result, DecodeIssue, Decoded, JsonlDecoder, SseDecoder};
 pub use package::{
@@ -36,8 +38,8 @@ pub use policy::{
 };
 pub use router::{normalize_path, HostRouter, SurfaceInfo};
 pub use query::{
-    month_days, month_label, parse_records_query, parse_records_source, records_value, records_value_owned, shift_month, RecordRow, RecordRowRef, RecordsContext, RecordsDay, RecordsFilter, RecordsFilterOp, RecordsMonthView, RecordsOrder,
-    RecordsQuery, RecordsSortKey, RECORDS_FILTER_OPS, RECORDS_MONTHS, RECORDS_RESERVED_PARAMS, RECORDS_ROW_KEYS, RECORDS_SCHEME, RECORDS_WEEKDAYS,
+    expand_query_source, fill_query_templates, month_days, month_label, parse_records_json, parse_records_query, parse_records_source, records_value, records_value_owned, shift_month, RecordRow, RecordRowRef, RecordsAggregate, RecordsAggregateOp, RecordsBefore, RecordsContext, RecordsDay, RecordsFilter, RecordsFilterOp, RecordsFilterValue, RecordsGroupKey, RecordsMonthView, RecordsOrder, RecordsQueryIssue, RecordsRunning, RecordsRunningOp,
+    RecordsQuery, RecordsSortKey, RECORDS_AGGREGATE_OPS, RECORDS_AGGREGATE_RESERVED, RECORDS_FILTER_OPS, RECORDS_MONTHS, RECORDS_OP_ALIASES, RECORDS_RUNNING_OPS, RECORDS_RESERVED_PARAMS, RECORDS_ROW_KEYS, RECORDS_SCHEME, RECORDS_WEEKDAYS,
 };
 pub use record_store::RECORDS_FUNCTIONS;
 pub use records::{is_record_kind, validate_record, validate_record_schema, RECORD_FIELD_TYPES, RECORD_FORMATS, RECORD_RESERVED_KEYS};

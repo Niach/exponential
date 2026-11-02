@@ -23,6 +23,7 @@
  * anonymous context — see `needsAuth` in `capture-views.ts`.
  */
 import type { Locator, Page } from "@playwright/test"
+import { emptyStateCopy } from "@/lib/empty-states"
 import {
   DEMO_DEVICE_LABEL,
   DEMO_EMAIL,
@@ -51,6 +52,10 @@ const SEARCH_RESULT_TITLE = `Reduce cold start below 800 ms`
  */
 const ISSUE_REF_PROMPT = `Explain #`
 const ISSUE_REF_TOKEN = `APP`
+
+/** The seeded Working hours entry on APP-15 (seed-screenshots.ts) whose Post
+ *  to the issue raises the consent card. */
+const APP_CONSENT_ENTRY = `docs, admin`
 
 /** Everything a recipe is allowed to know about the instance it is driving. */
 export interface RecipeCtx {
@@ -180,6 +185,33 @@ async function recipeOpenAppImport(page: Page): Promise<void> {
   await importButton.click()
   await page.getByTestId(`app-import-text`).fill(fixture.capture.importText)
   await page.getByTestId(`app-import-issues`).waitFor({ state: `visible`, timeout: 15_000 })
+}
+
+/**
+ * EXP-1558: THE consent card (VAPP-120, app-actions.json) the way a person
+ * raises it, as the natives' specimen words it: the seeded Working hours
+ * app (nothing granted, `grantedTools: []`), its 8 h "docs, admin" entry
+ * on APP-15 opened from the month list, then the entry dialog's Post to the
+ * issue, which asks for `exponential.comments.create`. Never answers it.
+ * The entry is in the seed's October: step the month back until it shows.
+ */
+async function recipeOpenAppConsent(page: Page): Promise<void> {
+  if (!(await appears(page.getByTestId(`app-editor-preview`).filter({ visible: true }), 15_000))) {
+    await recipeOpenAppPreviewTab(page)
+  }
+  const preview = page.getByTestId(`app-editor-preview`).filter({ visible: true }).first()
+  const row = preview.getByText(APP_CONSENT_ENTRY, { exact: true }).filter({ visible: true }).first()
+  for (let step = 0; step < 3 && !(await appears(row, 8_000)); step += 1) {
+    // The month header's first outline icon button is `prev` (the template's
+    // toolbar: prev · month · next).
+    await preview.getByRole(`button`).filter({ hasNotText: /\S/ }).first().click()
+  }
+  await row.waitFor({ timeout: 10_000 })
+  await row.click()
+  const post = page.getByRole(`button`, { name: `Post to the issue`, exact: true })
+  await post.waitFor({ timeout: 15_000 })
+  await post.click()
+  await page.getByTestId(`exponential-ui-consent`).waitFor({ timeout: 15_000 })
 }
 
 async function recipeOpenOnboardingJoin(page: Page): Promise<void> {
@@ -481,6 +513,15 @@ async function recipeExpandFirstDiffFile(page: Page): Promise<void> {
 /** The Agent composer's field, focused (the page autofocuses it on a pointer,
  *  a click covers the phone). */
 async function focusComposer(page: Page): Promise<Locator> {
+  // EXP-1558: first let the agents shape land. The agent row re-picks its
+  // default (the Assistant) when it arrives and the composer starts afresh,
+  // which wiped a draft typed into a cold page (search-list came back as an
+  // empty composer). Soft: a team without agents only has Temporary session.
+  await page
+    .locator(`[data-testid="composer-agent-row"] [data-testid^="composer-agent-"]:not([data-testid="composer-agent-label"])`)
+    .nth(1)
+    .waitFor({ timeout: 15_000 })
+    .catch(() => {})
   const field = page.getByTestId(`agent-composer-field`)
   await field.first().waitFor({ timeout: 30_000 })
   await field.first().click()
@@ -537,6 +578,14 @@ async function recipeOpenComposerMenuTemporary(page: Page): Promise<void> {
   // Park the pointer off the menu: a hovered row would light (and open its
   // submenu) where the other clients light none.
   await page.mouse.move(0, 0)
+  // EXP-1558: on phones the menu is a bottom sheet (a dialog) that focuses
+  // its first row, and the row's focus-visible fill lit "Photo or file" where
+  // the natives' sheet lights none. A blur keeps the sheet open (the focus
+  // trap ignores a focus that leaves for nowhere).
+  await page.evaluate(() => {
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active.getAttribute(`role`) === `menuitem`) active.blur()
+  })
 }
 
 /** NEW-2: the home composer's `/` menu — the team's prompts. */
@@ -596,18 +645,43 @@ async function recipeScrollToWorkCards(page: Page): Promise<void> {
   await centreCard(page, `work-card`)
 }
 
-/** EXP-1324: the transcript's Trace tail as the approved draft shows it —
- *  the `./gradlew :app:startupProfile` line opened onto its Output (the
- *  CodeBlock at sm), centred with the lines around it. Settled rows fold
- *  their output until the reader taps (EXP-1206), so the recipe taps. */
-async function recipeOpenTraceOutput(page: Page): Promise<void> {
-  const toggle = page
-    .getByRole(`button`, { name: `Show the output` })
-    .filter({ visible: true })
-    .filter({ hasText: `startupProfile` })
-  await toggle.first().waitFor({ timeout: 30_000 })
-  await toggle.first().click()
-  await centreCard(page, `session-tool-output`)
+/**
+ * EXP-1558: the raw session view at its LATEST turn, the frame the natives
+ * and desktop photograph (`sg_session`, `session:$session`): the settled
+ * Trace lines, the agent's last message, the waiting question card inline
+ * (ask-dock.json: answerable in the transcript) and the Queue over the
+ * composer. The feed is published by the relay stub and lands after the
+ * header, so the recipe waits for the question card's options, then pins the
+ * transcript's scroller to its end (absolute, like `scrollToComments`), and
+ * again once late rows have laid out.
+ */
+async function recipeScrollToLatestTurn(page: Page): Promise<void> {
+  const option = page.getByTestId(`ask-option`).filter({ visible: true }).last()
+  if (!(await appears(option, 45_000))) {
+    throw new Error(
+      `no waiting question card in the session feed: the relay stub ` +
+        `(bun run screenshots:desktop) publishes it; "No live transcript" = ` +
+        `the stub is not serving this session`
+    )
+  }
+  await scrollToEnd(option)
+  await page.waitForTimeout(600)
+  await scrollToEnd(option)
+  await page.waitForTimeout(400)
+}
+
+/** Scroll every scrolling ancestor of `target` to its end (the first that
+ *  actually moves wins), else the window: an absolute resting point. */
+async function scrollToEnd(target: Locator): Promise<void> {
+  await target.evaluate((node) => {
+    for (let el = node.parentElement; el; el = el.parentElement) {
+      if (el.scrollHeight <= el.clientHeight + 1) continue
+      const before = el.scrollTop
+      el.scrollTop = el.scrollHeight
+      if (el.scrollTop !== before || el.scrollTop > 0) return
+    }
+    window.scrollTo(0, document.documentElement.scrollHeight)
+  })
 }
 
 /** The feed at the code-mode call's Script card (EXP-1279). */
@@ -762,6 +836,26 @@ async function recipeScrollToMeetingMode(page: Page): Promise<void> {
 }
 
 /**
+ * EXP-1558: Settings → MCP → Activity loads its `mcp_calls` over tRPC after
+ * the section header paints, so the header alone photographed the skeleton
+ * rows. Wait for the settled list: a call row, or the empty state when the
+ * instance has no calls (settings-mcp.json `activityPage`).
+ */
+async function recipeWaitForMcpActivity(page: Page): Promise<void> {
+  const root = page.getByTestId(`settings-mcp-activity`).filter({ visible: true }).first()
+  await root.waitFor({ timeout: 20_000 })
+  await root
+    .getByTestId(`mcp-activity-row`)
+    .or(root.getByText(emptyStateCopy(`mcp-activity`).title, { exact: true }))
+    .first()
+    .waitFor({ timeout: 20_000 })
+}
+
+/** EXP-1558: recipes whose photographed state IS a hover; the capturer
+ *  parks the pointer after every other recipe. */
+export const KEEPS_POINTER: ReadonlySet<string> = new Set([`previewDeviceLimits`])
+
+/**
  * The registry itself. Keys are the names `views.json` uses; the view-catalog
  * test parses this literal, so keep it a flat name-to-function table with the
  * closing brace in column 0.
@@ -771,6 +865,7 @@ export const RECIPES: Record<string, Recipe> = {
   openAppPreviewTab: recipeOpenAppPreviewTab,
   openAppExport: recipeOpenAppExport,
   openAppImport: recipeOpenAppImport,
+  openAppConsent: recipeOpenAppConsent,
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openOnboardingInvite: recipeOpenOnboardingInvite,
   openOnboardingDevices: recipeOpenOnboardingDevices,
@@ -792,7 +887,8 @@ export const RECIPES: Record<string, Recipe> = {
   typeSlashInSessionComposer: recipeTypeSlashInSessionComposer,
   scrollToWorkCards: recipeScrollToWorkCards,
   scrollToScriptCard: recipeScrollToScriptCard,
-  openTraceOutput: recipeOpenTraceOutput,
+  scrollToLatestTurn: recipeScrollToLatestTurn,
   scrollToCommentCard: recipeScrollToCommentCard,
   scrollToMeetingMode: recipeScrollToMeetingMode,
+  waitForMcpActivity: recipeWaitForMcpActivity,
 }

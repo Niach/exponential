@@ -291,6 +291,8 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "storage" => Some(S::Storage),
         "archived-boards" => Some(S::ArchivedBoards),
         "repositories" => Some(S::Repositories),
+        // EXP-1558: the Widget pane (the `settings-widget` capture).
+        "widget" => Some(S::Widget),
         "tools" => Some(S::Tools),
         "agent-clis" => Some(S::AgentClis),
         // NEW-6: the Agents index (web `settings/agents`: the agents + the

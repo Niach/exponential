@@ -40,8 +40,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
@@ -63,6 +65,7 @@ import { missingPlaceholder, resolveDriveValue, type DemoIds } from "./ids.ts"
 import { killChild, run, sleep, track, type Child } from "./lib/proc.ts"
 import { captureDbEnv, sharedDevDbArgs } from "./capture-db.ts"
 import { rawShotPath, repoRoot } from "./paths.ts"
+import { buildRepoFixture } from "./repo-fixture.ts"
 
 /** `[[bin]] name` of `apps/desktop/crates/app` — also the CGWindow owner name. */
 export const DEFAULT_PROCESS_NAME = `exp-desktop`
@@ -125,7 +128,9 @@ export interface CaptureDesktopOptions {
    * `<repos_root>/<owner>/<name>` layout. The repo-backed views (files,
    * source-control, terminal, the desktop launcher) read the clone straight off
    * disk, so pointing this at a prepared checkout is the whole difference
-   * between a file tree and "This repository is not cloned yet."
+   * between a file tree and "This repository is not cloned yet." EXP-1558:
+   * unset = the lane builds its own fixture (`repo-fixture.ts`), the same
+   * tree, history and worktrees on every Mac.
    */
   reposRoot?: string
   /**
@@ -398,6 +403,7 @@ export async function captureDesktop(
   const baseUrl = options.baseUrl ?? DEFAULT_BASE_URL
   const processName = options.processName ?? DEFAULT_PROCESS_NAME
   const binary = resolveBinary(options.binary)
+  if (!options.dryRun) assertBinaryFromCheckout(binary)
   const wanted = options.viewIds ? new Set(options.viewIds) : undefined
   const shots: DesktopShotResult[] = []
 
@@ -427,8 +433,12 @@ export async function captureDesktop(
   // machine — the one this lane is running on.
   await pruneStrayDevices()
 
+  // EXP-1558: no repos root given = the deterministic fixture clone, not
+  // whatever this Mac happens to have checked out.
+  const reposRoot = options.reposRoot ?? buildRepoFixture()
+  console.log(`[desktop] repos root: ${reposRoot}${options.reposRoot ? `` : ` (the repo fixture)`}`)
   // One data dir per RUN: a stable device identity across the lane's launches.
-  const dataDir = makeDataDir(options.reposRoot)
+  const dataDir = makeDataDir(reposRoot)
   // Signed-out views get their OWN dirs — see `signedOut`. Tracked so an abort
   // cannot leave them behind.
   const scratchDirs: string[] = []
@@ -513,13 +523,13 @@ export async function captureDesktop(
         teamId: options.ids.teamId,
         dataDir:
           signedOut || onboarding
-            ? scratchDirs[scratchDirs.push(makeDataDir(options.reposRoot)) - 1]!
+            ? scratchDirs[scratchDirs.push(makeDataDir(reposRoot)) - 1]!
             : dataDir,
         // The view's own `env` layers on top: a drive says WHERE the app opens,
         // these say what else is already open when it gets there.
         driveVars: resolved.env,
         zdotdir,
-        shellCwd: options.reposRoot,
+        shellCwd: reposRoot,
         anchorDelayMs: desktop.anchorDelayMs ?? DEFAULT_ANCHOR_DELAY_MS,
         signedOut,
         onboarding,
@@ -900,6 +910,76 @@ export function resolveBinary(binary?: string): string {
       `  Build it first: cd apps/desktop && cargo build --release -p app`,
     ].join(`\n`)
   )
+}
+
+/** EXP-1558: the literal `crates/app/src/main.rs` links into every build (`BUILT_FROM`). */
+export const BUILT_FROM_MARKER = `exp-built-from:`
+const APP_CRATE = `apps/desktop/crates/app`
+
+/**
+ * Which checkout linked `binary`: the `exp-built-from:<dir>` literal, cut at
+ * the app crate's own path (Rust packs string literals back to back, so
+ * there is no terminator to read up to). `undefined` = a build from before
+ * the marker, or not this app at all.
+ */
+export function binaryCheckout(bytes: Uint8Array): string | undefined {
+  const buffer = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const at = buffer.indexOf(BUILT_FROM_MARKER)
+  if (at === -1) return undefined
+  const start = at + BUILT_FROM_MARKER.length
+  const end = buffer.indexOf(`/${APP_CRATE}`, start)
+  if (end === -1 || end - start > 4_096) return undefined
+  return buffer.subarray(start, end).toString(`utf8`)
+}
+
+/** The newest mtime among the desktop's Rust sources and its lockfile. */
+export function newestDesktopSource(root: string = repoRoot()): number {
+  const crates = join(root, `apps/desktop/crates`)
+  let newest = statSync(join(root, `apps/desktop/Cargo.lock`)).mtimeMs
+  for (const entry of readdirSync(crates, { recursive: true, withFileTypes: true })) {
+    if (!entry.isFile() || !(entry.name.endsWith(`.rs`) || entry.name === `Cargo.toml`)) continue
+    // `withFileTypes` + `recursive` hands back the entry's own directory.
+    const dir = (entry as unknown as { parentPath?: string; path?: string }).parentPath ??
+      (entry as unknown as { path: string }).path
+    if (dir.includes(`/target`)) continue
+    newest = Math.max(newest, statSync(join(dir, entry.name)).mtimeMs)
+  }
+  return newest
+}
+
+/**
+ * EXP-1558: refuse a binary this checkout did not build. Every worktree
+ * shares one `CARGO_TARGET_DIR`, so `release/exp-desktop` is whichever
+ * worktree linked last, and a lane that photographed it filed another
+ * branch's UI under this branch's shots. Two cheap checks: the binary's
+ * `exp-built-from:` literal must name THIS checkout, and no desktop source
+ * may be newer than the binary (an edit since the build). A binary without
+ * the literal (built before it existed) only warns.
+ */
+export function assertBinaryFromCheckout(
+  binary: string,
+  root: string = repoRoot(),
+  bytes: Uint8Array = readFileSync(binary)
+): void {
+  const rebuild = `  Rebuild it from this checkout: cargo build --release -p app --manifest-path ${join(root, `apps/desktop/Cargo.toml`)}`
+  const built = binaryCheckout(bytes)
+  if (built === undefined) {
+    console.warn(`[desktop] warning: ${binary} names no checkout (built before EXP-1558?) — cannot tell whose sources it holds`)
+  } else if (built !== root) {
+    throw new Error(
+      [`desktop binary ${binary} was built from ${built}, not this checkout (${root}).`, rebuild].join(`\n`)
+    )
+  }
+  const age = statSync(binary).mtimeMs
+  const newest = newestDesktopSource(root)
+  if (newest > age) {
+    throw new Error(
+      [
+        `desktop binary ${binary} (${new Date(age).toISOString()}) is older than this checkout's newest desktop source (${new Date(newest).toISOString()}).`,
+        rebuild,
+      ].join(`\n`)
+    )
+  }
 }
 
 function describe(env: Record<string, string>): string {

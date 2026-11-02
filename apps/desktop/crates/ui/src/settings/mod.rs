@@ -702,6 +702,9 @@ pub struct SettingsView {
     /// pane share a scroll region now, so the handle lives here and resets to
     /// the top on every section switch (the web's route change does the same).
     scroll: gpui::ScrollHandle,
+    /// EXP-1558 (DEV-ONLY, `EXP_DEV_SCROLL_TO=end`): the column's max offset
+    /// when it was last parked at its end ([`crate::screens::dev_park_at_end`]).
+    dev_parked_end: std::cell::Cell<gpui::Pixels>,
     /// The section shown at the previous render — a transition INTO one of
     /// the Personal server-read panes drops its cache so it refetches
     /// (EXP-369 semantics, re-homed from the old Account screen).
@@ -795,6 +798,7 @@ impl SettingsView {
             api_keys,
             about,
             scroll: gpui::ScrollHandle::new(),
+            dev_parked_end: Default::default(),
             last_section: None,
             shared,
             _subscriptions: subscriptions,
@@ -1020,6 +1024,9 @@ impl Render for SettingsView {
             .flex_shrink_0()
             .bg(row_stroke(cx));
 
+        // EXP-1558 (DEV-ONLY): `settings-assistant-meeting` = the Assistant
+        // pane at its end (the Meeting mode rows), web's `scrollToMeetingMode`.
+        crate::screens::dev_park_at_end(&self.scroll, &self.dev_parked_end, window);
         v_flex()
             .size_full()
             .min_h_0()

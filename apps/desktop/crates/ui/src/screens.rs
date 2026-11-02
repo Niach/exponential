@@ -1026,6 +1026,17 @@ pub(crate) fn take_dev_composer_text() -> Option<String> {
     (!TAKEN.swap(true, Ordering::SeqCst)).then_some(text)
 }
 
+/// EXP-1558 — `EXP_DEV_TYPEAHEAD_QUERY=<text>` types `<text>` into the
+/// first `#` search list's own input once it opens: with
+/// `EXP_DEV_COMPOSER_TEXT=Explain #` the composer keeps `Explain #` and the
+/// list's field reads `APP`, web's `typeIssueRef` state.
+pub(crate) fn take_dev_typeahead_query() -> Option<String> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static TAKEN: AtomicBool = AtomicBool::new(false);
+    let query = std::env::var("EXP_DEV_TYPEAHEAD_QUERY").ok().filter(|query| !query.is_empty())?;
+    (!TAKEN.swap(true, Ordering::SeqCst)).then_some(query)
+}
+
 /// #EXP-1535 — `EXP_DEV_COMPOSER_MENU=session-account` opens a session
 /// composer's "+" menu with its Account submenu open, once (the first
 /// session view whose menu has the Account row).
@@ -1041,6 +1052,8 @@ pub(crate) fn take_dev_session_account_menu() -> bool {
 /// `script-card` capture has it in frame; EXP-1324 `work-card` parks it on
 /// the first workflow's Work card the same way; #EXP-1553 `comment-call-card`
 /// parks it on the first settled `exponential_comments_create` card.
+/// EXP-1558 `end` parks the issue page and the settings page at their end
+/// ([`dev_park_at_end`]): `issue-comments` and `settings-assistant-meeting`.
 /// Read once: the transcript asks every frame.
 pub(crate) fn dev_scroll_to() -> Option<&'static str> {
     static TARGET: std::sync::OnceLock<Option<&'static str>> = std::sync::OnceLock::new();
@@ -1048,8 +1061,33 @@ pub(crate) fn dev_scroll_to() -> Option<&'static str> {
         Some("script-card") => Some("script-card"),
         Some("work-card") => Some("work-card"),
         Some("comment-call-card") => Some("comment-call-card"),
+        Some("end") => Some("end"),
         _ => None,
     })
+}
+
+/// EXP-1558 (DEV-ONLY, `EXP_DEV_SCROLL_TO=end`): park `handle`'s scroller at
+/// its end, re-applied while its content still grows (the activity feed,
+/// a pane's rows landing after sync) or a host reset it to the top (a
+/// settings section resolving to another pane), never otherwise, so a
+/// wheel is not fought. `parked` is the caller's last applied max offset. Keeps
+/// frames coming while it waits: a layout that grew after the last render
+/// would otherwise never be seen.
+pub(crate) fn dev_park_at_end(
+    handle: &gpui::ScrollHandle,
+    parked: &std::cell::Cell<gpui::Pixels>,
+    window: &mut Window,
+) {
+    if dev_scroll_to() != Some("end") {
+        return;
+    }
+    let max = handle.max_offset().y;
+    let reset_to_top = max > gpui::px(0.) && handle.offset().y == gpui::px(0.);
+    if max > parked.get() || reset_to_top {
+        parked.set(max);
+        handle.scroll_to_bottom();
+    }
+    window.request_animation_frame();
 }
 
 impl ScreensPanel {
@@ -2967,7 +3005,9 @@ impl Focusable for ScreensPanel {
 /// `run:<issue-uuid>[,…]` (the composer dialog on those issues) |
 /// `app-export:<slug>` (VAPP-121: that app's Export dialog with Include
 /// records switched on) | `app-import` (New app on its import step holding
-/// the fixture's `capture.importText`, so the server's issue row shows)
+/// the fixture's `capture.importText`, so the server's issue row shows) |
+/// `app-consent` (EXP-1558: THE consent window for the natives'
+/// `sg_app-consent` call, over whatever screen is open)
 /// (anything else = no dialog, logged once).
 /// Each opens EXACTLY ONCE, 1500ms after the state it needs has resolved, so
 /// a capture run lands on the overlay without synthetic input. Never document
@@ -2991,13 +3031,15 @@ enum DevDialog {
     AppExport(String),
     /// VAPP-121: New app on its import step with the capture text.
     AppImport,
+    /// EXP-1558: the consent window for the `sg_app-consent` call.
+    AppConsent,
 }
 
 /// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
 /// in a capture recipe must name its alternatives, not fail silently.
 const DEV_DIALOG_SPECS: &str = "search | create-board | create-team | join-team[:<invite-token>] | add-server | \
     device-settings:<uuid> | duplicate-picker:<issue-uuid> | \
-    run:<issue-uuid>[,<issue-uuid>…] | getting-started | app-export:<slug> | app-import";
+    run:<issue-uuid>[,<issue-uuid>…] | getting-started | app-export:<slug> | app-import | app-consent";
 
 fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
     match spec {
@@ -3008,6 +3050,7 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
         "add-server" => Some(DevDialog::AddServer),
         "getting-started" => Some(DevDialog::GettingStarted),
         "app-import" => Some(DevDialog::AppImport),
+        "app-consent" => Some(DevDialog::AppConsent),
         _ => {
             if let Some(slug) = spec.strip_prefix("app-export:") {
                 let slug = slug.trim();
@@ -3051,6 +3094,7 @@ enum DevDialogTarget {
     GettingStarted,
     AppExport { app_id: String },
     AppImport { team_id: String },
+    AppConsent,
 }
 
 fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
@@ -3071,6 +3115,7 @@ fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
         DevDialogTarget::Composer { seed } => crate::composer_dialog::open(window, cx, seed),
         DevDialogTarget::GettingStarted => crate::getting_started::open_dialog(window, cx),
         DevDialogTarget::AppExport { app_id } => crate::app_export_dialog::open(window, cx, app_id, true),
+        DevDialogTarget::AppConsent => crate::exponential_ui_host::dev_open_consent(cx),
         DevDialogTarget::AppImport { team_id } => crate::app_import_dialog::open_import(
             window,
             cx,
@@ -3170,6 +3215,12 @@ impl ScreensPanel {
                 let team_id = active_team_id(&self.nav, cx);
                 let entry = crate::apps_view::find_app(slug, team_id.as_deref(), cx)?;
                 DevDialogTarget::AppExport { app_id: entry.id }
+            }
+            DevDialog::AppConsent => {
+                if !signed_in {
+                    return None;
+                }
+                DevDialogTarget::AppConsent
             }
             DevDialog::AppImport => {
                 if !signed_in {
@@ -3575,6 +3626,7 @@ mod tests {
         assert_eq!(parse_dev_dialog("app-export:working-hours"), Some(DevDialog::AppExport("working-hours".into())));
         assert_eq!(parse_dev_dialog("app-export:"), None);
         assert_eq!(parse_dev_dialog("app-import"), Some(DevDialog::AppImport));
+        assert_eq!(parse_dev_dialog("app-consent"), Some(DevDialog::AppConsent));
         assert!(DEV_DIALOG_SPECS.contains("app-export:<slug>") && DEV_DIALOG_SPECS.contains("app-import"));
     }
 

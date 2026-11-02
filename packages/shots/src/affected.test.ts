@@ -135,7 +135,8 @@ describe(`desktop attribution`, () => {
     // 58cb32df: the `chat-*` styleguide views share the stem, a harmless
     // over-capture; EXP-1388 added `chat-selection` (the list's bulk bar).
     // EXP-1557: `search-list`'s desktop shot drives the `chat` screen (the
-    // composer's `#` list), so the composer claims it too.
+    // composer's `#` list), so the composer claims it too; EXP-1558 adds
+    // `composer-slash-menu` (its `/` menu) the same way.
     const result = scope(`apps/desktop/crates/ui/src/chat_screen.rs`)
     expect(views(result, `desktop`).sort()).toEqual([
       `agent-home`,
@@ -146,6 +147,7 @@ describe(`desktop attribution`, () => {
       `chat-selection`,
       `chat-transcript`,
       `composer-menu`,
+      `composer-slash-menu`,
       `search-list`,
     ])
   })
@@ -155,9 +157,11 @@ describe(`desktop attribution`, () => {
     // steering view's own module, not the auth glue `session.rs` names.
     // EXP-1259's `work-card`, `script-card` and `comment-call-card` are its
     // feed's cards, so they ride along, and EXP-1299's `session` view and
-    // S-3's `session-xref` link drive the same screen.
+    // S-3's `session-xref` link drive the same screen. EXP-1558: the
+    // `session-row` styleguide twin shares the stem, and `session-slash-menu`
+    // types into this screen's composer.
     const result = scope(`apps/desktop/crates/ui/src/session_screen.rs`)
-    expect(views(result, `desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-xref`])
+    expect(views(result, `desktop`)).toEqual([`steering`, `session-row`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-slash-menu`, `session-xref`])
   })
 
   test(`a component reused across screens still widens`, () => {
@@ -236,6 +240,7 @@ describe(`native attribution`, () => {
       `onboarding-create-team`,
       `onboarding-devices`,
       `onboarding-invite`,
+      `onboarding-join`,
     ])
     expect(nativeViews(result, `ios`)).toEqual([])
   })
@@ -722,7 +727,7 @@ describe(`fail-safe`, () => {
     expect(named.broad).toEqual([])
     // The two ui modules also draw EXP-1259's feed cards; the engine and
     // feed files alone claim the same feed-drawn shots.
-    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-xref`])
+    expect(named.byPlatform.get(`desktop`)).toEqual([`steering`, `session-row`, `work-card`, `script-card`, `comment-call-card`, `session`, `session-slash-menu`, `session-xref`])
     const feedOnly = affectedScope({
       changedFiles: [
         `apps/desktop/crates/steer/src/viewer.rs`,

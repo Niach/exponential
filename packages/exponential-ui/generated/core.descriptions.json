@@ -2981,7 +2981,27 @@
       "formatPercent": "A ratio as a locale percent through the surface Formatter (0.256 → 26%); decimals = fixed fraction digits.",
       "formatRelativeTime": "A date (yyyy-mm-dd, ISO date-time or epoch ms) relative to now (epoch ms or a date; default the clock) through the surface Formatter: 3 minutes ago, yesterday, in 2 hours.",
       "filter": "The items that match, in order: every `where` field equals its value (an empty value matches all) and `query` is a case-insensitive substring of one of `fields` (default every text field); bind a List or Table to it.",
-      "bind": "Action only (VAPP-122): re-follows path from source with params appended as its query (sourceWithParams); the package's sources allowlist applies and the earlier subscription at that path is cancelled."
+      "bind": "Action only (VAPP-122): re-follows path from source with params appended as its query (sourceWithParams); the package's sources allowlist applies and the earlier subscription at that path is cancelled.",
+      "mul": "a * b; numbers only (else no value).",
+      "div": "a / b; no value when b is 0.",
+      "mod": "a % b (sign of a); no value when b is 0.",
+      "round": "Half away from zero, to digits (0..10, default 0).",
+      "floor": "Rounded down.",
+      "ceil": "Rounded up.",
+      "abs": "The absolute value.",
+      "min": "The smallest of values.",
+      "max": "The largest of values.",
+      "today": "Today (YYYY-MM-DD) in the team time zone.",
+      "now": "Now as an ISO instant.",
+      "dateAdd": "date (YYYY-MM-DD or ISO instant) plus n whole units (second minute hour day week month quarter year; a day keeps the local time; month ends clamp).",
+      "dateDiff": "Whole units from a to b (b - a, truncated).",
+      "startOf": "The first day (or instant) of date's day, week (Monday), month, quarter or year.",
+      "endOf": "The last day (or instant) of that unit.",
+      "weekday": "1 = Monday … 7 = Sunday.",
+      "isoWeek": "The ISO week number.",
+      "hours": "minutes / 60.",
+      "formatDuration": "Hours as h:mm or hh:mm (7.5 → 7:30).",
+      "expr": "Evaluates a CEL expression string (docs/package-format.md Expressions) over vars (name → value or binding): \"round(entries.sum / 60, 1)\"."
     },
     "basic": {}
   }

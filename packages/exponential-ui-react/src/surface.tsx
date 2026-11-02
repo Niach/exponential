@@ -224,6 +224,7 @@ function lazyFormatter(locale: string, timeZone: string | undefined): Formatter 
     date: (value, o) => get().date(value, o),
     relativeTime: (value, now) => get().relativeTime(value, now),
     plural: (value) => get().plural(value),
+    offsetMinutes: (ms) => get().offsetMinutes?.(ms) ?? 0,
   }
 }
 

@@ -8,7 +8,7 @@
 // functions run through the SURFACE Formatter (round 2 §3: Intl in the
 // surface locale + time zone). Pure, so the host can run it too.
 
-import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, readPointer, truthy, writePointer } from "@exponential_app/eui"
+import { CORE_FUNCTIONS, EXPRESSION_CALL_NAMES, callExpressionFunction, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, sharedCatalogView, readPointer, truthy, writePointer } from "@exponential_app/eui"
 import type { CatalogView, ExtensionDef, Formatter } from "@exponential_app/eui"
 
 export type DataModel = Record<string, unknown> | unknown[]
@@ -124,6 +124,7 @@ export function memoFormatter(base: Formatter, max = 4096): Formatter {
     date: (value, o) => memo(`d|${o?.format}|${o?.style}|${o?.time}|${valueKey(value)}`, () => base.date(value, o)),
     relativeTime: (value, now) => base.relativeTime(value, now),
     plural: (value) => memo(`l|${value}`, () => base.plural(value)) as ReturnType<Formatter[`plural`]>,
+    ...(base.offsetMinutes ? { offsetMinutes: (ms: number) => base.offsetMinutes!(ms) } : {}),
   }
 }
 
@@ -161,6 +162,18 @@ const FORMAT: Record<string, ClientFunction> = Object.fromEntries(FORMAT_FUNCTIO
  *  an ACTION (`node-view.tsx` runs it), never a value. */
 const CORE: Record<string, ClientFunction> = Object.fromEntries(Object.entries(CORE_FUNCTIONS).map(([name, fn]) => [name, (args: Record<string, unknown>) => fn(args)]))
 
+/** VAPP-191: the expression functions (src/cel.ts) and `expr`, on the
+ *  surface clock and in the surface (team) zone: the formatter's offset. */
+const EXPRESSIONS: Record<string, ClientFunction> = Object.fromEntries(
+  EXPRESSION_CALL_NAMES.map((name) => [
+    name,
+    (args: Record<string, unknown>, ctx: ResolveContext) => {
+      const formatter = formatterOf(ctx)
+      return callExpressionFunction(name, args, { ...(ctx.now ? { now: ctx.now() } : {}), ...(formatter.offsetMinutes ? { offset: (ms: number) => formatter.offsetMinutes!(ms) } : {}) })?.value
+    },
+  ]),
+)
+
 export const CLIENT_FUNCTIONS: Record<string, ClientFunction> = {
   // The contract's `required` (dynamic.ts LOGIC_FUNCTIONS, Rust data.rs):
   // truthy (so `false` and `""` fail, 0 passes) and not an empty array.
@@ -192,6 +205,7 @@ export const CLIENT_FUNCTIONS: Record<string, ClientFunction> = {
   not: ({ value }) => !truthy(value),
   ...CORE,
   ...FORMAT,
+  ...EXPRESSIONS,
 }
 
 /** A prop value with its bindings and calls resolved for one render. Plain

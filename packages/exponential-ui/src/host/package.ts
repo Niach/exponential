@@ -9,11 +9,12 @@ import { matchesPattern } from "./policy"
 import { parseSource } from "./sources"
 import { RECORD_KIND_PATTERN, validateRecordSchema } from "./records"
 import type { RecordKind } from "./records"
-import { RECORDS_SCHEME } from "./query"
+import { RECORDS_SCHEME, parseRecordsJson } from "./query"
 import { validateTools } from "./tools"
 import type { PackageTool } from "./tools"
 import { validatePackageExposes, validateUpstreams } from "./exposes"
 import type { PackageExpose } from "./exposes"
+import { validatePackageExpressions } from "./expressions"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
@@ -80,7 +81,14 @@ export interface AppPackage {
   /** VAPP-180: the MCP server names (the host's, e.g. a team's servers) its
    *  `upstream` bindings call. */
   upstreams?: string[]
+  /** VAPP-190: named JSON records queries (`parseRecordsJson`); a binding
+   *  `records:<kind>?query=<name>&<params>` follows one, its `${param}`
+   *  templates filled from the binding's other params. */
+  queries?: Record<string, unknown>
 }
+
+/** A package query's name. */
+export const QUERY_NAME_PATTERN = /^[a-z][A-Za-z0-9_]{0,31}$/
 
 /** VAPP-161: an extension catalog a package needs: its id, the minimum
  *  `MAJOR.MINOR.PATCH` (caret) and the components it uses from it. */
@@ -201,6 +209,34 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
           issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `records:${parsed.name} names no declared kind` })
       })
     }
+  // VAPP-190: the named queries parse clean, read a declared kind, and a
+  // records binding's `query=` names one of them.
+  if (pkg.queries !== undefined) {
+    if (!isObject(pkg.queries)) issues.push({ path: `/queries`, message: `queries is an object of named queries` })
+    else
+      for (const name of Object.keys(pkg.queries).sort()) {
+        const at = `/queries/${name}`
+        if (!QUERY_NAME_PATTERN.test(name)) issues.push({ path: at, message: `a query name is a letter, then letters, digits and underscores` })
+        const q = (pkg.queries as Record<string, unknown>)[name]
+        for (const issue of parseRecordsJson(q).issues) issues.push({ path: `${at}${issue.path}`, message: issue.message })
+        const from = isObject(q) && typeof q.from === `string` ? q.from.trim() : ``
+        if (from && !from.includes(`\${`) && (!isObject(pkg.records) || !Object.prototype.hasOwnProperty.call(pkg.records, from)))
+          issues.push({ path: `${at}/from`, message: `records:${from} names no declared kind` })
+      }
+  }
+  if (isObject(pkg.templates))
+    for (const [id, template] of Object.entries(pkg.templates)) {
+      if (!isObject(template) || !Array.isArray(template.bindings)) continue
+      template.bindings.forEach((b, i) => {
+        const parsed = isObject(b) && typeof b.source === `string` ? parseSource(b.source) : null
+        const name = parsed?.params.query
+        if (!parsed || name === undefined || (parsed.scheme !== RECORDS_SCHEME && !(parsed.scheme === `exp` && parsed.name === `records`))) return
+        if (!isObject(pkg.queries) || !Object.prototype.hasOwnProperty.call(pkg.queries, name))
+          issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `query ${name} names no package query` })
+      })
+    }
+  // VAPP-191: every expression in a template parses and type-checks.
+  issues.push(...validatePackageExpressions(pkg))
   if (pkg.tools !== undefined) issues.push(...validateTools(pkg.tools))
   if (pkg.upstreams !== undefined) issues.push(...validateUpstreams(pkg.upstreams))
   if (pkg.exposes !== undefined) issues.push(...validatePackageExposes(pkg.exposes, pkg.records, pkg.upstreams))

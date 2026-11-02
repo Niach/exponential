@@ -9,7 +9,15 @@
 # keystore exists — you just cannot upload an unsigned .aab to Play.
 
 require "fileutils"
+require "json"
 require "shellwords"
+
+# EXP-1558: fastlane re-encodes every line the instrumentation prints; under a
+# non-UTF-8 locale a failed walk's report (its em dashes) crashed the lane
+# with `"de" on UTF-16` BEFORE screengrab pulled the shots it took.
+Encoding.default_external = Encoding::UTF_8
+ENV["LC_ALL"] = "en_US.UTF-8" unless ENV["LC_ALL"].to_s.match?(/UTF-?8/i)
+ENV["LANG"] = "en_US.UTF-8" unless ENV["LANG"].to_s.match?(/UTF-?8/i)
 
 default_platform(:android)
 
@@ -143,7 +151,12 @@ platform :android do
     url = ENV["SCREENGRAB_INSTANCE_URL"]
     args << "instanceUrl #{url}" if url
     relay = ENV["SCREENGRAB_STEER_RELAY_URL"]
-    args << "steerRelayUrl #{relay}" if relay
+    # EXP-1558: an isolated capture stack names its relay in SHOTS_RELAY_URL
+    # (`bun run shots`); the emulator reaches the host's localhost at 10.0.2.2.
+    if relay.to_s.strip.empty? && !ENV["SHOTS_RELAY_URL"].to_s.strip.empty?
+      relay = ENV["SHOTS_RELAY_URL"].strip.sub(%r{//(localhost|127\.0\.0\.1)(?=[:/]|\z)}, "//10.0.2.2")
+    end
+    args << "steerRelayUrl #{relay}" unless relay.to_s.strip.empty?
     ids = options[:shots].to_s.split(/[,\s]+/).reject(&:empty?)
     unless ids.empty?
       UI.message("shots: capturing only #{ids.join(', ')}")
@@ -284,6 +297,29 @@ platform :android do
     config[:launch_arguments] = launch_arguments if launch_arguments
     config[:specific_device] = lane_device if lane_device
     with_pinned_status_bar { screengrab(config) }
+    # EXP-1558: the walk failing (Screengrabfile-styleguide keeps going on a
+    # test failure so the shots it took are pulled) still fails the lane.
+    assert_styleguide_shots(options, File.expand_path(config[:output_directory], File.expand_path("..", __dir__)))
+  end
+
+  # EXP-1558: every shot the run owed is in the output dir, else the lane
+  # fails naming the missing ones (the ones written stay for the importer).
+  # A scoped run owes its `shots:` ids, a full one every android styleguide
+  # shot in packages/view-catalog/views.json.
+  def assert_styleguide_shots(options, output_directory)
+    owed = options[:shots].to_s.split(/[,\s]+/).reject(&:empty?)
+    if owed.empty?
+      views = JSON.parse(File.read(File.expand_path("../../../packages/view-catalog/views.json", __dir__)))
+      views = views["views"] if views.is_a?(Hash)
+      owed = views.filter_map do |view|
+        capture = view["android"]
+        capture["shot"] if capture.is_a?(Hash) && capture["lane"] == "styleguide"
+      end
+    end
+    written = Dir.glob(File.join(output_directory, "**", "*.png")).map { |path| File.basename(path, ".png") }
+    missing = owed.uniq - written
+    UI.user_error!("styleguide walk: #{missing.size} shot(s) not taken: #{missing.join(', ')}") unless missing.empty?
+    UI.success("styleguide walk: all #{owed.uniq.size} shot(s) taken")
   end
 
   # Release notes are en-US only: changelogs/<vc>.txt lives under en-US and Play

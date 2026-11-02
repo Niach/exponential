@@ -1013,10 +1013,10 @@ class IssueDetailViewModel @AssistedInject constructor(
         viewModelScope.launch {
             auth.activeAccountId.collectLatest { accountId ->
                 _steerEnabled.value = null
-                _steerEnabled.value = if (accountId == null) {
-                    false
+                if (accountId == null) {
+                    _steerEnabled.value = false
                 } else {
-                    runCatching { steerApi.config(accountId).enabled }.getOrDefault(false)
+                    steerApi.enabled(accountId).collect { _steerEnabled.value = it }
                 }
             }
         }

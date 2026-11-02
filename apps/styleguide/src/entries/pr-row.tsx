@@ -1,4 +1,4 @@
-import { conceptIcon, GlassSectionHeader, PrList, StackRail } from "@exp/ui"
+import { PrRowSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -8,54 +8,6 @@ import type { StyleguideEntry } from "./types.ts"
 // washed, and a hovered member offers the ghost "Merge through here" (pinned
 // on one row here). EXP-1293: one row per `pull_requests` row (the stack edge
 // = `base_pull_request_id`); a thread's Guide draws them.
-
-const ExternalIcon = conceptIcon(`ui-external-link`)
-
-const TREE = [
-  { key: `1250`, identifier: `EXP-1250`, title: `opening tabs closes all at some point` },
-  { key: `1252`, identifier: `EXP-1252`, title: `tabs per team on desktop`, depth: 1 },
-  { key: `1253`, identifier: `EXP-1253`, title: `inbox stepping reuses one tab`, depth: 1 },
-]
-
-const STACK = [
-  { key: `100`, identifier: `VAPP-100`, title: `SwiftUI parity with the round-1/2 contract`, current: true },
-  { key: `98`, identifier: `VAPP-98`, title: `Exponential UI renderer hardening round 1` },
-  { key: `93`, identifier: `VAPP-93`, title: `ui.exponential.at: the Exponential UI site` },
-  { key: `91`, identifier: `VAPP-91`, title: `Exponential UI host API ×4` },
-]
-
-function PrRowSpecimen() {
-  return (
-    <div className="flex w-[640px] max-w-full flex-col gap-4">
-      <div>
-        <GlassSectionHeader label="Exponential" />
-        <PrList rows={TREE.map((row) => ({ ...row, onOpen: () => {} }))} />
-        <StackRail
-          members={STACK}
-          baseBranch="master"
-          word="stack"
-          onOpen={() => {}}
-          onMergeThrough={() => {}}
-          defaultHoveredKey="93"
-        />
-      </div>
-      <div>
-        <GlassSectionHeader label="Not linked to an issue" />
-        <PrList
-          rows={[
-            {
-              key: `1013`,
-              identifier: `#1013`,
-              title: `Dockerfiles: stub the exponential-ui workspace packages`,
-              onOpen: () => {},
-              trailing: <ExternalIcon className="size-3.5 shrink-0 text-muted-foreground" />,
-            },
-          ]}
-        />
-      </div>
-    </div>
-  )
-}
 
 export const entry: StyleguideEntry = {
   id: `pr-row`,
@@ -89,5 +41,5 @@ export const entry: StyleguideEntry = {
       note: `the Guide stack card`,
     },
   },
-  island: () => <PrRowSpecimen />,
+  island: () => <PrRowSpecimen full />,
 }

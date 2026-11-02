@@ -101,6 +101,12 @@ fn low_disk_specimen(cases: &[(String, coding::device_doctor::DeviceDoctor)], cx
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let foreground = cx.theme().foreground;
     let cases = cases();
+    // EXP-1558 (DEV-ONLY, `EXP_DEV_SPECIMEN_ONLY=1`): the specimen alone,
+    // what web's `?dev=device-readiness` draws (the `device-readiness`
+    // capture); the entry itself goes on to every case.
+    if std::env::var("EXP_DEV_SPECIMEN_ONLY").is_ok_and(|value| value == "1") {
+        return div().children(low_disk_specimen(&cases, cx));
+    }
     let mut column = v_flex().gap_8().children(low_disk_specimen(&cases, cx));
     for (index, (name, doctor)) in cases.iter().enumerate() {
         column = column.child(

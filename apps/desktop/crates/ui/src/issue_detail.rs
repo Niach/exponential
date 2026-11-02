@@ -440,6 +440,9 @@ pub struct IssueDetailView {
     /// offset and the title sits above the viewport ("the title vanishes",
     /// EXP-67).
     body_scroll: gpui::ScrollHandle,
+    /// EXP-1558 (DEV-ONLY, `EXP_DEV_SCROLL_TO=end`): the body's max offset
+    /// when it was last parked at its end ([`crate::screens::dev_park_at_end`]).
+    dev_parked_end: std::cell::Cell<gpui::Pixels>,
     /// EXP-1162: where the large title row's bottom edge sits in the body's
     /// CONTENT (measured as it paints, scroll-independent), `None` until the
     /// first paint — what [`domain::detail_chrome::is_title_collapsed`] reads
@@ -609,6 +612,7 @@ impl IssueDetailView {
             widget_submission: None,
             sub_issue_composer: None,
             tab_states: Default::default(),
+            dev_parked_end: Default::default(),
             _subscriptions: subscriptions,
         }
     }
@@ -2077,6 +2081,9 @@ impl IssueDetailView {
 
 impl Render for IssueDetailView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        // EXP-1558 (DEV-ONLY): `issue-comments` = the page at its end (the
+        // activity feed and the composer), web's `scrollToComments`.
+        crate::screens::dev_park_at_end(&self.body_scroll, &self.dev_parked_end, window);
         // Terminal-dock pattern: key context + tracked focus.
         // EXP-282: no base fill — the view sits directly on the window's page
         // gradient (`colors.list` is transparent since EXP-269, so the old

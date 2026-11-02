@@ -620,6 +620,9 @@ pub(crate) struct SteerSessionView {
     /// EXP-1259 (DEV-ONLY, `EXP_DEV_SCROLL_TO=script-card`): the transcript
     /// row the first Script card sat at when the list was last parked on it.
     dev_scrolled_to: Option<usize>,
+    /// EXP-1558 (DEV-ONLY): that row has been centred in the viewport since
+    /// it was last parked (web's `centreCard`).
+    dev_centred: bool,
     /// EXP-776: the frame's issue-chip resolver (EXP-760), built ONCE per
     /// frame over `chip_cache` instead of per prose body. `None` for a run
     /// with no resolvable team.
@@ -866,6 +869,7 @@ impl SteerSessionView {
             working: false,
             journal_seeded: false,
             dev_scrolled_to: None,
+            dev_centred: false,
             chips: None,
             chip_cache: Default::default(),
             focus_handle: cx.focus_handle(),
@@ -1558,15 +1562,19 @@ impl SteerSessionView {
     }
 
     /// EXP-1259 (DEV-ONLY): `EXP_DEV_SCROLL_TO=script-card` parks the
-    /// transcript with its first code-mode Script card near
-    /// the top of the viewport (one row of lead-in) instead of on the tail,
-    /// so the `script-card` capture has the card in frame. Re-applied only
-    /// while that row's index moves (the replay still landing rows above
-    /// it), so a wheel is never fought.
-    fn dev_scroll_to_script_card(&mut self) {
+    /// transcript on its first code-mode Script card instead of on the tail,
+    /// so the `script-card` capture has the card in frame. EXP-1558: then
+    /// CENTRES it in the viewport (which runs under the Dock, as web's
+    /// scroller does), the frame web's `centreCard` recipe photographs.
+    /// Re-applied only while that row's index moves (the replay still
+    /// landing rows above it), so a wheel is never fought.
+    fn dev_scroll_to_script_card(&mut self, window: &mut Window) {
         let Some(target) = crate::screens::dev_scroll_to() else {
             return;
         };
+        if !matches!(target, "script-card" | "work-card" | "comment-call-card") {
+            return;
+        }
         let items = self.feed.items();
         let script_row = self.rows.iter().position(|spec| {
             spec.item_indices().iter().any(|&ix| {
@@ -1592,15 +1600,46 @@ impl SteerSessionView {
             return;
         };
         if self.dev_scrolled_to == Some(row) {
+            // EXP-1558: the second step, once the parked row is measured:
+            // move it from the top edge to the viewport's middle.
+            if !self.dev_centred {
+                let viewport = self.list.viewport_bounds();
+                match self.list.bounds_for_item(row) {
+                    Some(bounds) if viewport.size.height > px(0.) => {
+                        self.list.scroll_by(bounds.center().y - viewport.center().y);
+                        self.dev_centred = true;
+                    }
+                    _ => window.request_animation_frame(),
+                }
+            }
             return;
         }
         self.dev_scrolled_to = Some(row);
-        // One row of lead-in above it: the list's top edge sits under the
-        // status row's fade.
+        self.dev_centred = false;
         self.list.scroll_to(gpui::ListOffset {
-            item_ix: row.saturating_sub(1),
+            item_ix: row,
             offset_in_item: px(0.),
         });
+        window.request_animation_frame();
+    }
+
+    /// EXP-1558 (DEV-ONLY, `EXP_DEV_COMPOSER_TEXT`): type the capture's
+    /// text into this composer once its row (the team's prompts) has synced:
+    /// `/` opens the `/` menu (the `session-slash-menu` capture, web's
+    /// `typeSlashInSessionComposer`). Called by this view's render and by a
+    /// thread screen hosting it as THE root composer.
+    pub(crate) fn dev_type_composer_text(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if !self.row.as_ref().is_some_and(|row| row.team_id.is_some())
+            || !crate::navigation::shapes_ready(cx)
+        {
+            return;
+        }
+        if let Some(text) = crate::screens::take_dev_composer_text() {
+            self.input.update(cx, |state, cx| state.set_value(text, window, cx));
+            self.input.read(cx).focus_handle(cx).focus(window, cx);
+            self.refresh_slash(cx);
+            cx.notify();
+        }
     }
 
     /// Whether the run is over — a merged/ended session offers no Merge
@@ -8085,7 +8124,7 @@ impl SteerSessionView {
     /// A running session never moves device here; the work rows belong to a
     /// start.
     fn render_plus_menu(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        use crate::chat_screen::{composer_menu_rows, titled_row, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
+        use crate::chat_screen::{composer_menu_rows, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
         let view = cx.entity().downgrade();
         let session_id = self.session_id.to_string();
         let surface = if self.row.as_ref().and_then(|row| row.agent_id.as_deref()).is_some_and(|id| !id.is_empty()) {
@@ -8220,7 +8259,7 @@ impl SteerSessionView {
                             continue;
                         };
                         let value = crate::account_switch::current_caption(&targets);
-                        menu.submenu_with_icon(row.icon().map(Icon::new), titled_row(row, value), window, cx, move |mut sub, _, _| {
+                        menu.submenu_with_value(row.icon().map(Icon::new), row.label(), value, window, cx, move |mut sub, _, _| {
                             let agent = context.agent;
                             for target in &targets {
                                 let session_id = context.session_id.clone();
@@ -8259,7 +8298,7 @@ impl SteerSessionView {
                         let picked = model_picked.clone();
                         let view = view.clone();
                         let session_id = session_id.clone();
-                        menu.submenu_with_icon(row.icon().map(Icon::new), titled_row(row, Some(value)), window, cx, move |mut sub, _, _| {
+                        menu.submenu_with_value(row.icon().map(Icon::new), row.label(), Some(value), window, cx, move |mut sub, _, _| {
                             for (label, value) in models {
                                 let view = view.clone();
                                 let session_id = session_id.clone();
@@ -8899,7 +8938,8 @@ impl Render for SteerSessionView {
             let draft = restore_unread_to_draft(&self.input.read(cx).value(), &unsent);
             self.input.update(cx, |state, cx| state.set_value(draft, window, cx));
         }
-        self.dev_scroll_to_script_card();
+        self.dev_scroll_to_script_card(window);
+        self.dev_type_composer_text(window, cx);
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed.
         let strip = self.render_subagent_strip(cx);

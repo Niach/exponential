@@ -410,6 +410,7 @@ export const DEMO_PULL_REQUEST_IDS = {
   scrollRestore: `1d43befb-d260-420e-a7d5-854decaf32da`,
   heicFix: `3310b3c1-dda2-49d4-a555-d119faec9a22`,
   thumbnails: `2e73ddc0-c684-4ee3-8401-f202bd28cd19`,
+  coldStart: `9b6e2d41-7c3a-4f58-a1e9-3d2c8b7f6a05`,
 } as const
 
 /**
