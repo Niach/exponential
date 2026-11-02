@@ -190,6 +190,105 @@ public enum AppRecords {
         return author == viewer
     }
 
+    // MARK: - On-behalf writes (VAPP-188)
+
+    /// The fixture `onBehalf` block: the server's refusals (FORBIDDEN /
+    /// BAD_REQUEST) of a write naming another member as its author.
+    public enum OnBehalf {
+        public static let refusal = "Only a team owner can write for another member"
+        public static let notMember = "The author must be a member of the team"
+    }
+
+    /// `writeAsVerdict`'s answer.
+    public enum WriteAsVerdict: String, Equatable, Sendable {
+        case ok
+        case forbidden
+        case notMember
+    }
+
+    /// May `viewer` (team `role`; nil = not a member) write a record as
+    /// `author` (nil = as themself)? Another member = owners only, and the
+    /// author must be one of `members` (TS `writeAsVerdict`, `writeAsCases`).
+    public static func writeAsVerdict(viewer: String?, role: String?, author: String?, members: [String]) -> WriteAsVerdict {
+        guard let viewer, role != nil else { return .forbidden }
+        guard let author, author != viewer else { return .ok }
+        if role != "owner" { return .forbidden }
+        return members.contains(author) ? .ok : .notMember
+    }
+
+    /// An imported record's author (TS `importAuthor`, `importCases`):
+    /// absent, the importer or a stranger = the importer; another member =
+    /// them when the importer is an owner, else nil (the import is refused).
+    public static func importAuthor(importer: String, role: String?, author: String?, members: [String]) -> String? {
+        guard let author, author != importer, members.contains(author) else { return importer }
+        return role == "owner" ? author : nil
+    }
+
+    /// The `by` cell (TS `recordByline`, `dataTab.bylineCases`): the
+    /// author's name (else `fallback` = `Apps.Copy.byAgent`), `{writer} for
+    /// {author}` when someone else with a name wrote it.
+    public static func recordByline(_ row: Row, names: [String: String], fallback: String) -> String {
+        let authorId = recordAuthor(row)
+        let named = authorId.flatMap { names[$0] } ?? ""
+        let author = named.isEmpty ? fallback : named
+        var writer = ""
+        if let createdBy = row.createdBy, createdBy != authorId {
+            writer = names[createdBy] ?? ""
+        }
+        if writer.isEmpty { return author }
+        return DataTab.Copy.byFor
+            .replacingOccurrences(of: "{writer}", with: writer)
+            .replacingOccurrences(of: "{author}", with: author)
+    }
+
+    /// One option of the owner's Author picker: a member and their name.
+    public struct AuthorOption: Equatable, Sendable {
+        public let id: String
+        public let name: String
+
+        public init(id: String, name: String) {
+            self.id = id
+            self.name = name
+        }
+    }
+
+    /// The Author picker's members by name (case-insensitive, ties by id;
+    /// TS `authorOptions`, `dataTab.authorOptionCases`).
+    public static func authorOptions(_ users: [AuthorOption]) -> [AuthorOption] {
+        users.sorted { a, b in
+            let x = a.name.lowercased()
+            let y = b.name.lowercased()
+            if x != y { return scalarLess(x, y) }
+            return scalarLess(a.id, b.id)
+        }
+    }
+
+    /// The picker's default (the record's author on edit, the viewer on
+    /// create) and what Save sends (the pick when it differs from that base,
+    /// else nil = omit; TS `formAuthor`, `dataTab.formAuthorCases`).
+    public static func formAuthor(viewer: String?, record: Row?, picked: String?) -> FormAuthor {
+        let base: String?
+        if let record {
+            base = recordAuthor(record)
+        } else {
+            base = viewer
+        }
+        var send: String?
+        if let picked, picked != base { send = picked }
+        return FormAuthor(defaultAuthor: base ?? viewer, send: send)
+    }
+
+    /// `formAuthor`'s answer: the picker's default and what Save sends.
+    public struct FormAuthor: Equatable, Sendable {
+        public let defaultAuthor: String?
+        public let send: String?
+
+        public init(defaultAuthor: String?, send: String?) {
+            self.defaultAuthor = defaultAuthor
+            self.send = send
+        }
+    }
+
     private nonisolated(unsafe) static let isoMillis: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -442,6 +541,10 @@ public enum AppRecords {
             public static let none = "None"
             public static let optional = "optional"
             public static let listHint = "Comma-separated"
+            /// VAPP-188: the owner's Author field.
+            public static let author = "Author"
+            /// VAPP-188: an on-behalf row's `by` (`{writer} for {author}`).
+            public static let byFor = "{writer} for {author}"
 
             public static func kindOption(_ kind: String, count: Int) -> String {
                 kindOption

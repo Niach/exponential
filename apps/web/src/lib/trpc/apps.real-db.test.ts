@@ -272,6 +272,76 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(row!.updatedBy).toBe(w.mate)
   })
 
+  // VAPP-188 (app-records.json `onBehalf`): an owner writes for another
+  // member (created_by/updated_by = the owner, author_id = the member) and
+  // may reassign; a member writing for someone else is FORBIDDEN, a
+  // stranger as the author is BAD_REQUEST.
+  it(`records: on-behalf writes are an owner's, with the real writer kept`, async () => {
+    const w = await world()
+    const stranger = await user()
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
+    const appId = created.app.id
+    const forMate = await caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 2 }, author: w.mate })
+    let [row] = await db.select().from(appRecords).where(eq(appRecords.id, forMate.id))
+    expect(row).toMatchObject({ createdBy: w.owner, authorId: w.mate, updatedBy: w.owner })
+    // The mate owns it now: they may patch it, as themself.
+    await caller(w.mate).records.upsert({ id: appId, kind: `entry`, data: { hours: 3 }, recordId: forMate.id, author: w.mate })
+    ;[row] = await db.select().from(appRecords).where(eq(appRecords.id, forMate.id))
+    expect(row).toMatchObject({ createdBy: w.owner, authorId: w.mate, updatedBy: w.mate })
+    // A member may not write for anyone else, on create or update.
+    await expect(caller(w.mate).records.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-06`, hours: 1 }, author: w.owner })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+      message: `Only a team owner can write for another member`,
+    })
+    await expect(caller(w.mate).records.upsert({ id: appId, kind: `entry`, data: { hours: 4 }, recordId: forMate.id, author: w.owner })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    // A stranger can't be an author (the owner's create and reassignment).
+    await expect(caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-06`, hours: 1 }, author: stranger })).rejects.toMatchObject({
+      code: `BAD_REQUEST`,
+      message: `The author must be a member of the team`,
+    })
+    await expect(caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: { hours: 5 }, recordId: forMate.id, author: stranger })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    ;[row] = await db.select().from(appRecords).where(eq(appRecords.id, forMate.id))
+    expect(row).toMatchObject({ authorId: w.mate, data: { date: `2026-10-05`, hours: 3 } })
+    // An owner reassigns the row back to themself.
+    await caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: {}, recordId: forMate.id, author: w.owner })
+    ;[row] = await db.select().from(appRecords).where(eq(appRecords.id, forMate.id))
+    expect(row).toMatchObject({ createdBy: w.owner, authorId: w.owner, updatedBy: w.owner })
+    const live = await db.select({ id: appRecords.id }).from(appRecords).where(eq(appRecords.appId, appId))
+    expect(live).toHaveLength(1)
+  })
+
+  // VAPP-188: an imported record's `author` (onBehalf.importCases).
+  it(`import: record authors resolve against the importing team`, async () => {
+    const w = await world()
+    const stranger = await user()
+    const { buildAppExport, appExportText } = await import(`@exp/domain-contract/app-export`)
+    const file = JSON.parse(appExportText(buildAppExport({ app: { name: `Hours` }, package: RECORDS_PACKAGE, includeRecords: false })))
+    file.records = [
+      { kind: `entry`, data: { date: `2026-10-05`, hours: 1 }, author: w.mate },
+      { kind: `entry`, data: { date: `2026-10-06`, hours: 2 }, author: stranger },
+      { kind: `entry`, data: { date: `2026-10-07`, hours: 3 } },
+    ]
+    const text = JSON.stringify(file)
+    // A member may not import rows for another member.
+    const forOwner = JSON.stringify({ ...file, records: [{ kind: `entry`, data: { date: `2026-10-05`, hours: 1 }, author: w.owner }] })
+    expect((await caller(w.mate).validateImport({ teamId: w.teamId, text: forOwner })).issues).toEqual([
+      { path: `/records/0/author`, message: `Only a team owner can write for another member` },
+    ])
+    await expect(caller(w.mate).import({ teamId: w.teamId, text: forOwner })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    // An owner keeps a member's author; a stranger and none = the importer.
+    expect((await caller(w.owner).validateImport({ teamId: w.teamId, text })).issues).toEqual([])
+    const imported = await caller(w.owner).import({ teamId: w.teamId, text })
+    const rows = await db.select().from(appRecords).where(eq(appRecords.appId, imported.app.id))
+    const byHours = Object.fromEntries(rows.map((r) => [(r.data as { hours: number }).hours, r]))
+    expect(byHours[1]).toMatchObject({ createdBy: w.owner, authorId: w.mate, updatedBy: w.owner })
+    expect(byHours[2]).toMatchObject({ createdBy: w.owner, authorId: w.owner })
+    expect(byHours[3]).toMatchObject({ createdBy: w.owner, authorId: w.owner })
+    // A member importing a stranger's rows keeps them as their own.
+    const theirs = await caller(w.mate).import({ teamId: w.teamId, text: JSON.stringify({ ...file, records: [file.records[1]] }) })
+    const [mine] = await db.select().from(appRecords).where(eq(appRecords.appId, theirs.app.id))
+    expect(mine).toMatchObject({ createdBy: w.mate, authorId: w.mate })
+  })
+
   // VAPP-187: the insert trigger defaults author_id/updated_by to created_by
   // for a writer that names only the creator.
   it(`records: a raw insert's author defaults to its creator`, async () => {

@@ -84,6 +84,36 @@ object AppRecords {
         return author != null && author == viewer
     }
 
+    // VAPP-188 ON-BEHALF (fixture `onBehalf`, locked by AppRecordsTest): who
+    // may name another member as a write's author, and the server's refusals.
+    const val ON_BEHALF_REFUSAL = "Only a team owner can write for another member"
+    const val ON_BEHALF_NOT_MEMBER = "The author must be a member of the team"
+
+    /** [writeAsVerdict]'s answer: `ok` | `forbidden` | `notMember`. */
+    object WriteAs {
+        const val OK = "ok"
+        const val FORBIDDEN = "forbidden"
+        const val NOT_MEMBER = "notMember"
+    }
+
+    /** May [viewer] (team [role]; null = not a member) write a record as
+     *  [author] (null = as themself)? Another member = owners only, and the
+     *  author must be one of [members] (`writeAsCases`). */
+    fun writeAsVerdict(viewer: String?, role: String?, author: String?, members: List<String>): String {
+        if (viewer == null || role == null) return WriteAs.FORBIDDEN
+        if (author == null || author == viewer) return WriteAs.OK
+        if (role != "owner") return WriteAs.FORBIDDEN
+        return if (author in members) WriteAs.OK else WriteAs.NOT_MEMBER
+    }
+
+    /** An imported record's author (`importCases`): absent, the importer or a
+     *  stranger to the team = the importer; another member = them when the
+     *  importer is an owner, else null (the import is refused). */
+    fun importAuthor(importer: String, role: String?, author: String?, members: List<String>): String? {
+        if (author == null || author == importer || author !in members) return importer
+        return if (role == "owner") author else null
+    }
+
     data class Day(val date: String, val day: Int, val weekday: String, var count: Int = 0, var sum: Double = 0.0)
 
     private val MONTH = Regex("^\\d{4}-(0[1-9]|1[0-2])$")
@@ -345,6 +375,8 @@ object AppRecords {
         const val NONE = "None"
         const val OPTIONAL = "optional"
         const val LIST_HINT = "Comma-separated"
+        const val AUTHOR = "Author"
+        const val BY_FOR = "{writer} for {author}"
     }
 
     /** Fixture `dataTab.columns` (the WIDE table's widths, px; phones do not use them). */
@@ -418,6 +450,36 @@ object AppRecords {
 
     fun rowSubtitle(columns: List<String>, row: Row): String =
         columns.drop(1).map { cellText(row.data[it]) }.filter { it.isNotEmpty() }.joinToString(" · ")
+
+    /** VAPP-188: the `by` cell (`bylineCases`): the author's name (else
+     *  [fallback], apps.json `copy.byAgent`), `{writer} for {author}` when
+     *  someone else with a name wrote it. */
+    fun recordByline(row: Row, names: Map<String, String>, fallback: String): String {
+        val authorId = recordAuthor(row)
+        val author = authorId?.let { names[it] }?.takeIf { it.isNotEmpty() } ?: fallback
+        val writer = row.createdBy?.takeIf { it != authorId }?.let { names[it] }?.takeIf { it.isNotEmpty() }
+        return if (writer != null) DataCopy.BY_FOR.replace("{writer}", writer).replace("{author}", author) else author
+    }
+
+    /** VAPP-188: one team member in the owner's Author picker. */
+    data class Member(val id: String, val name: String)
+
+    /** VAPP-188: the owner's Author picker, members by name (case-insensitive,
+     *  ties by id: `authorOptionCases`). */
+    fun authorOptions(users: List<Member>): List<Member> =
+        users.sortedWith(compareBy<Member> { it.name.lowercase(Locale.ROOT) }.thenBy { it.id })
+
+    /** VAPP-188: [formAuthor]'s answer: the picker's [default] and what Save
+     *  sends ([send]; null = omit `author`). */
+    data class FormAuthor(val default: String?, val send: String?)
+
+    /** VAPP-188: the picker's default (the record's author on edit, the viewer
+     *  on create) and what Save sends (the pick when it differs from the
+     *  record's author / the viewer, else null; `formAuthorCases`). */
+    fun formAuthor(viewer: String?, record: Row?, picked: String?): FormAuthor {
+        val base = if (record != null) recordAuthor(record) else viewer
+        return FormAuthor(default = base ?: viewer, send = if (picked != null && picked != base) picked else null)
+    }
 
     object Controls {
         const val TEXT = "text"

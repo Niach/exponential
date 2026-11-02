@@ -3957,18 +3957,19 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_apps_records_upsert`,
     {
-      description: `Create one record of an app (data validated against the kind's schema in its package), or with id patch that record's data (only its author or a team owner). The app's bindings repaint live.`,
+      description: `Create one record of an app (data validated against the kind's schema in its package), or with id patch that record's data (only its author or a team owner). author = a member's user id to write for them (owners only; with id: reassigns). The app's bindings repaint live.`,
       inputSchema: strictInput({
         slug: appSlug,
         teamId: uuidString.optional(),
         kind: z.string().trim().min(1).max(32),
         data: z.record(z.string(), z.unknown()),
         id: uuidString.optional(),
+        author: z.string().min(1).max(64).optional(),
       }),
     },
-    async ({ slug, teamId, kind, data, id }) => {
+    async ({ slug, teamId, kind, data, id, author }) => {
       try {
-        const result = await caller(user, request).apps.records.upsert({ slug, teamId: await appsTeam(teamId), kind, data, recordId: id })
+        const result = await caller(user, request).apps.records.upsert({ slug, teamId: await appsTeam(teamId), kind, data, recordId: id, author })
         return ok({ ok: true, id: result.id, created: result.created })
       } catch (e) {
         return err(e)

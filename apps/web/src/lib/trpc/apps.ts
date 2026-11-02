@@ -13,7 +13,7 @@ import {
   slugify,
 } from "@exp/domain-contract/apps"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { appRecords, appVersions, apps, mcpServers, sessions, type App } from "@/db/schema"
+import { appRecords, appVersions, apps, mcpServers, sessions, teamMembers, type App } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
@@ -21,7 +21,7 @@ import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIss
 import { validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
-import { APP_RECORDS_OWNERSHIP, APP_RECORDS_QUERY, canChangeRecord } from "@exp/domain-contract/app-records"
+import { APP_RECORDS_ON_BEHALF, APP_RECORDS_OWNERSHIP, APP_RECORDS_QUERY, canChangeRecord, importAuthor, recordAuthor, writeAsVerdict } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
@@ -172,7 +172,10 @@ export const appUpdateInputSchema = z.object({
  *  package's rules, then every record against its kind's schema and the
  *  record cap): the issues the import step lists, and the file when there
  *  are none. A package's issue paths sit under `/package` in an app file. */
-export async function checkAppImport(text: string): Promise<ParsedAppImport> {
+export async function checkAppImport(
+  text: string,
+  importer?: { userId: string; role: string | null; members: readonly string[] }
+): Promise<ParsedAppImport> {
   const { issues: structural, file, bare } = parseAppImportShape(text)
   if (!file) return { issues: structural, file: null }
   // VAPP-161: a signed file (the package format's `author` + `signature`)
@@ -190,6 +193,14 @@ export async function checkAppImport(text: string): Promise<ParsedAppImport> {
       for (const issue of validateRecord(schema, record.data)) issues.push({ path: `/records/${i}/data${issue.path === `/` ? `` : issue.path}`, message: issue.message })
       const bytes = packageBytes(record.data)
       if (bytes > APP_RECORD_MAX_BYTES) issues.push({ path: `/records/${i}/data`, message: `is ${bytes} bytes; the cap is ${APP_RECORD_MAX_BYTES}` })
+      // VAPP-188: a record's `author` resolves against the importing team
+      // (app-records.json `onBehalf.importCases`): a stranger = the
+      // importer, another member = owners only.
+      if (importer) {
+        const author = importAuthor(importer.userId, importer.role, record.author, importer.members)
+        if (author === null) issues.push({ path: `/records/${i}/author`, message: APP_RECORDS_ON_BEHALF.refusal })
+        else record.author = author
+      }
     })
   }
   return issues.length > 0 ? { issues, file: null } : { issues: [], file }
@@ -216,6 +227,21 @@ async function takenSlugs(tx: Tx, teamId: string): Promise<string[]> {
     .from(apps)
     .where(and(eq(apps.teamId, teamId), isNull(apps.deletedAt)))
   return rows.map((r) => r.slug)
+}
+
+/** VAPP-188: the team's member ids (an on-behalf author must be one). */
+async function teamMemberIds(db: Pick<Tx, `select`>, teamId: string): Promise<string[]> {
+  const rows = await db.select({ userId: teamMembers.userId }).from(teamMembers).where(eq(teamMembers.teamId, teamId))
+  return rows.map((r) => r.userId)
+}
+
+/** VAPP-188: may the writer name `author` (app-records.json `onBehalf`)?
+ *  Another member = owners only (FORBIDDEN), and a member (BAD_REQUEST). */
+async function assertCanWriteAs(db: Pick<Tx, `select`>, teamId: string, userId: string, role: string, author: string | undefined) {
+  if (author === undefined || author === userId) return
+  const verdict = writeAsVerdict(userId, role, author, role === `owner` ? await teamMemberIds(db, teamId) : [])
+  if (verdict === `forbidden`) throw new TRPCError({ code: `FORBIDDEN`, message: APP_RECORDS_ON_BEHALF.refusal })
+  if (verdict === `notMember`) throw new TRPCError({ code: `BAD_REQUEST`, message: APP_RECORDS_ON_BEHALF.notMember })
 }
 
 /** VAPP-187: a record's author or a team owner may patch/delete it
@@ -331,8 +357,9 @@ export const appsRouter = router({
   validateImport: authedProcedure
     .input(importInputSchema)
     .mutation(async ({ ctx, input }) => {
-      await assertTeamMember(ctx.session.user.id, input.teamId)
-      const { issues, file } = await checkAppImport(input.text)
+      const userId = ctx.session.user.id
+      const member = await assertTeamMember(userId, input.teamId)
+      const { issues, file } = await checkAppImport(input.text, { userId, role: member.role, members: await teamMemberIds(ctx.db, input.teamId) })
       return { issues, name: file?.app.name ?? null, records: file?.records.length ?? 0 }
     }),
 
@@ -344,8 +371,8 @@ export const appsRouter = router({
     .input(importInputSchema)
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id
-      await assertTeamMember(userId, input.teamId)
-      const { issues, file } = await checkAppImport(input.text)
+      const member = await assertTeamMember(userId, input.teamId)
+      const { issues, file } = await checkAppImport(input.text, { userId, role: member.role, members: await teamMemberIds(ctx.db, input.teamId) })
       if (!file) {
         const listed = issues.slice(0, 10).map((issue) => `${issue.path}: ${issue.message}`)
         throw new TRPCError({ code: `BAD_REQUEST`, message: `the app file is invalid: ${listed.join(`; `)}` })
@@ -371,7 +398,7 @@ export const appsRouter = router({
         if (file.records.length > 0) {
           await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`app_records:${input.teamId}`}))`)
           await assertCanCreateAppRecord(input.teamId, tx, file.records.length)
-          await tx.insert(appRecords).values(file.records.map((r) => ({ appId: app!.id, teamId: input.teamId, kind: r.kind, data: r.data, createdBy: userId, authorId: userId, updatedBy: userId })))
+          await tx.insert(appRecords).values(file.records.map((r) => ({ appId: app!.id, teamId: input.teamId, kind: r.kind, data: r.data, createdBy: userId, authorId: r.author ?? userId, updatedBy: userId })))
         }
         return { txid: txId, app: { ...app!, headVersion: number }, records: file.records.length }
       })
@@ -532,9 +559,12 @@ export const appsRouter = router({
         return { records: rows }
       }),
 
-    /** Create a record, or (with `id`) patch that record's data (shallow). */
+    /** Create a record, or (with `id`) patch that record's data (shallow).
+     *  VAPP-188: `author` = an on-behalf write (owners only): the create's
+     *  author, or an update's reassignment; created_by/updated_by stay the
+     *  real writer. */
     upsert: authedProcedure
-      .input(appRefSchema.and(z.object({ kind: kindSchema, data: recordDataSchema, recordId: uuid.optional() })))
+      .input(appRefSchema.and(z.object({ kind: kindSchema, data: recordDataSchema, recordId: uuid.optional(), author: z.string().min(1).max(64).optional() })))
       .mutation(async ({ ctx, input }) => {
         const userId = ctx.session.user.id
         const app = await loadApp(ctx.db, input)
@@ -569,11 +599,19 @@ export const appsRouter = router({
               .for(`update`)
             if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
             assertCanChangeRecord(existing, userId, member.role, `update`)
+            // VAPP-188: an owner may REASSIGN the row (`author` ≠ its author).
+            const reassign = input.author !== undefined && input.author !== recordAuthor(existing)
+            if (reassign) await assertCanWriteAs(tx, app.teamId, userId, member.role, input.author)
             const data = checked({ ...existing.data, ...input.data })
-            await tx.update(appRecords).set({ data, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+            await tx
+              .update(appRecords)
+              .set({ data, ...(reassign ? { authorId: input.author } : {}), updatedBy: userId, updatedAt: new Date() })
+              .where(eq(appRecords.id, existing.id))
             return { txid: txId, id: existing.id, created: false }
           }
           const data = checked(input.data)
+          // VAPP-188: an on-behalf create (owners only; the author a member).
+          await assertCanWriteAs(tx, app.teamId, userId, member.role, input.author)
           // The team's quota, counted in THIS transaction behind the team's
           // lock: concurrent creates at the limit queue here and the second
           // one sees the first's row (no race past `appRecords`).
@@ -581,7 +619,7 @@ export const appsRouter = router({
           await assertCanCreateAppRecord(app.teamId, tx)
           const [row] = await tx
             .insert(appRecords)
-            .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: userId, updatedBy: userId })
+            .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId })
             .returning({ id: appRecords.id })
           return { txid: txId, id: row!.id, created: true }
         })

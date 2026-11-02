@@ -24,10 +24,12 @@ import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.data.db.scopedQuery
 import com.exponential.app.domain.AppActions
 import com.exponential.app.domain.AppExport
+import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.ui.components.FailedAction
+import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.steer.SessionSender
 import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -97,6 +99,12 @@ private fun Flow<ExponentialDatabase?>.roleOf(team: Flow<String?>, userId: Flow<
     combine(this, team) { db, t -> db to t }
         .flatMapLatest { (db, t) -> if (db == null || t == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(t) }
         .combine(userId) { members, me -> if (me == null) null else members.firstOrNull { it.userId == me }?.role }
+
+/** VAPP-188: [team]'s member ids (the owner's Author picker). */
+private fun Flow<ExponentialDatabase?>.memberIdsOf(team: Flow<String?>): Flow<List<String>> =
+    combine(this, team) { db, t -> db to t }
+        .flatMapLatest { (db, t) -> if (db == null || t == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(t) }
+        .map { members -> members.map { it.userId }.distinct() }
 
 /** The Apps list + the New app / Import / Delete writes. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -257,6 +265,13 @@ class AppEditorViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<UserEntity>()) { it.userDao().observeAll() }
             .map { rows -> rows.associateBy { it.id } }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    /** VAPP-188: the app's team members by name (`AppRecords.authorOptions`),
+     *  what an OWNER's Author picker offers. */
+    val authorOptions: StateFlow<List<AppRecords.Member>> =
+        combine(dbFlow.memberIdsOf(app.map { it?.teamId }.distinctUntilChanged()), users) { ids, people ->
+            AppRecords.authorOptions(ids.map { id -> AppRecords.Member(id, userDisplayName(people[id], id)) })
+        }.distinctUntilChanged().flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The caller's editor session ROOT for the app (null = none yet). */
     val root: StateFlow<SessionEntity?> = combine(
@@ -439,8 +454,9 @@ class AppEditorViewModel @Inject constructor(
 
     /** VAPP-178: the Data form's Save = `apps.records.upsert {id, kind, data,
      *  recordId?}` as the viewer (create without [recordId], else a shallow
-     *  patch); [onDone] closes the form. */
-    fun saveRecord(kind: String, data: Map<String, JsonValue>, recordId: String?, onDone: () -> Unit) {
+     *  patch); [onDone] closes the form. VAPP-188: [author] = an owner's
+     *  on-behalf pick (`AppRecords.formAuthor.send`; null = omitted). */
+    fun saveRecord(kind: String, data: Map<String, JsonValue>, recordId: String?, author: String? = null, onDone: () -> Unit) {
         if (_recordSaving.value) return
         val accountId = auth.activeAccountId.value ?: return
         _recordSaving.value = true
@@ -448,7 +464,7 @@ class AppEditorViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val body = Json.parseToJsonElement(JsonValue.Obj(data).orderedJson) as JsonObject
-                api.recordsUpsert(accountId, appId, kind, body, recordId)
+                api.recordsUpsert(accountId, appId, kind, body, recordId, author)
                 onDone()
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t

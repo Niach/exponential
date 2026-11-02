@@ -158,7 +158,7 @@ Needs: C2, C13.
 | ID | Capability | Status | Issue |
 |---|---|---|---|
 | C1 | Record ownership: only the author or an owner edits or deletes | ❌ | 🆕 R1 (approved 30.10, unfiled) |
-| C2 | Writes on behalf of a member (owners), with audit | ❌ | 🆕 R2 (approved 30.10, unfiled) |
+| C2 | Writes on behalf of a member (owners), with audit | ✅ | #VAPP-188 |
 | C3 | Relations between kinds and refs to issues and members | ❌ | 🆕 R5 |
 | C4 | Per-kind read/write policy (private, panel-only) | ❌ | 🆕 R3 |
 | C5 | Group-by on any field, avg/min/max/count, text search | 🟡 sum + month view only | 🆕 Q1 (approved 30.10 as "grouping and maths") |
@@ -266,12 +266,12 @@ Schemas are flat JSON Schema:
 - formats date, date-time, time;
 - enum, min/max, maxLength, required.
 
-### 3.2 Identity of a record (🆕 R1/R2)
+### 3.2 Identity of a record (✅ R1/R2)
 
 | Column | Meaning |
 |---|---|
 | `created_by` (✅) | Who pressed the button. Never changes. |
-| `author_id` (✅ #VAPP-187) | Whose record it is. It defaults to `created_by`. Only an owner may set it to someone else (an on-behalf write; 🆕). |
+| `author_id` (✅ #VAPP-187) | Whose record it is. It defaults to `created_by`. Only an owner may set it to someone else (an on-behalf write; ✅ #VAPP-188: `author` on `records_upsert`, `.app.json` import and the Data tab's Author picker; the row reads "<writer> for <author>" ×4). |
 | `updated_by` (✅ #VAPP-187) | The last writer. |
 | `via_app_id` / `via_client_id` 🆕 | How the write arrived: UI, MCP client, automation, import. |
 
@@ -559,7 +559,7 @@ The UI form is the `handoff` action: "Ask agent to follow up" in m5 admin.
 
 | Who | Can |
 |---|---|
-| Team owner | Everything. Grants `exponential.*` actions, sets `app_access`, publishes, restores, deletes, does on-behalf writes and imports. |
+| Team owner | Everything. Grants `exponential.*` actions, sets `app_access`, publishes, restores, deletes, does on-behalf writes (✅ #VAPP-188) and imports. |
 | App editor 🆕 | Edit the package (today any member can, and a non-owner edit clears grants ✅). Proposal: `apps.editors` (default: creator + owners). Everyone else can only use the app. |
 | Member | Use the app within `app_access` and the kind policy. |
 | Guest 🆕 | Through a public link only (§9.4). |
@@ -595,9 +595,9 @@ The UI form is the `handoff` action: "Ask agent to follow up" in m5 admin.
 
 | Format | Today | Spec |
 |---|---|---|
-| `.app.json` (package ± records, signed) | ✅ #VAPP-121, #VAPP-161 (4 MB, ≤ 2,000 records) | Records carry `author` 🆕, so importing into another team asks for an author mapping. |
+| `.app.json` (package ± records, signed) | ✅ #VAPP-121, #VAPP-161 (4 MB, ≤ 2,000 records) | Records carry `author` (✅ #VAPP-188: kept when the author is a member of the importing team and the importer an owner; a stranger falls back to the importer). 🆕 An explicit author mapping when importing into another team. |
 | CSV / xlsx export | ❌ | **Out of scope** (decided 2026-11-01). Records leave through `.app.json` and MCP: an agent reads `records_list` or an exposed tool and writes whatever file it needs. |
-| CSV / xlsx import | ❌ | 🆕 X2. **Agent path** (now possible): the agent reads the file in a session and calls `records_upsert` with `author` (R2). **Dialog** (later): the file → pick a kind → map columns (auto-matched by name and type) → preview the issues → import in one transaction; idempotent by an optional `externalId`. |
+| CSV / xlsx import | ❌ | 🆕 X2. **Agent path** (now possible): the agent reads the file in a session and calls `records_upsert` with `author` (R2 ✅ #VAPP-188). **Dialog** (later): the file → pick a kind → map columns (auto-matched by name and type) → preview the issues → import in one transaction; idempotent by an optional `externalId`. |
 | JSON (records only) | 🟡 via `records_list` | Covered by `.app.json` |
 
 Example: importing a timesheet workbook (one sheet per month, two members) into the time-tracker app exercises the agent path end to end: on-behalf writes, then the totals computed by the query instead of by spreadsheet formulas. Reports leave over MCP (an exposed tool such as `stunden__month_summary`), not as a file export.
@@ -734,7 +734,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 1: Records you can trust**
 
 - **R1 ★** Record ownership: `author_id`, the default policy `update/delete: author`, owners override. Server, shape, fixture `app-records.json`. (C1)
-- **R2 ★** On-behalf writes: `author` on `records_upsert`, `.app.json` import and the Data tab, owners only. Audit `created_by ≠ author`. (C2)
+- **R2 ★** ✅ #VAPP-188 On-behalf writes: `author` on `records_upsert`, `.app.json` import and the Data tab, owners only. Audit `created_by ≠ author`. (C2)
 - **R3** Per-kind policy (`read/create/update/delete`), with a shape row filter for `read: author`. `app_access` enforced in the UI, tRPC and shape. (C4)
 - **R4** Record history (`app_record_events`), a 10 s undo, the History drawer. (§3.5)
 
