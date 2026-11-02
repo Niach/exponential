@@ -265,6 +265,21 @@ describe.skipIf(!ready.ok)(`EXP-1334 status automation`, () => {
     )
   })
 
+  it(`#EXP-1402: a continuation's PR links what its ended predecessor was briefed on`, async () => {
+    const w = await world()
+    const named = await w.issue(`Named in the predecessor's brief`)
+    const other = await w.issue(`The thread's other`)
+    const rootId = await w.thread([named.id, other.id])
+    const a = (await sendSession({ userId: w.owner, input: { parentId: rootId, text: `implement #${named.identifier}` } }))
+      .sessionId
+    await db.update(sessions).set({ status: `ended` }).where(eq(sessions.id, a))
+    const c = (await sendSession({ userId: w.owner, input: { sessionId: a, text: `fix the lint` } })).sessionId
+    expect(c).not.toBe(a)
+    const [cont] = await db.select({ continuedFromId: sessions.continuedFromId }).from(sessions).where(eq(sessions.id, c))
+    expect(cont?.continuedFromId).toBe(a)
+    expect(await prDefaultIssueIds(db, { rootId, sessionId: c })).toEqual([named.id])
+  })
+
   it(`a stacked PR's issues wait for the stack's bottom to land in the default branch`, async () => {
     const w = await world()
     const bottomIssue = await w.issue(`Bottom`)

@@ -37,6 +37,8 @@ export interface HubSession {
   agentId: string | null
   /** The agent whose session started this root. */
   startedByAgentId: string | null
+  /** #EXP-1402: the ended sibling this row continues (its lineage). */
+  continuedFromId: string | null
   deviceId: string
   status: Status
   busy: boolean

@@ -359,7 +359,9 @@ export async function openPullRequest(args: {
   const threadUrl = root ? await threadUrlFor(repo.teamId, root.id) : null
   // S-3: the PR's pictures = the opener's stories (its logical session and
   // subtree); the body = a server summary + those pictures.
-  const pictures = root ? await loadStoryPictures(root.id, caller?.id ?? null) : []
+  const pictures = root
+    ? await loadStoryPictures(root.id, caller?.id ?? null, { pullRequestId: existing?.id ?? null, head })
+    : []
   const storyBody = async (base: string) =>
     prBodyFromStories({
       title: args.title,
@@ -981,7 +983,7 @@ async function syncPullRequestBodiesNow(rootId: string): Promise<void> {
           title: pr.title ?? ``,
           issues: await linkedIssuesOfPullRequest(pr.id),
           commits: await compareCommitMessages({ repo: repoFullName, base: pr.base, head: pr.head, token }),
-          pictures: await loadStoryPictures(rootId, pr.sessionId),
+          pictures: await loadStoryPictures(rootId, pr.sessionId, { pullRequestId: pr.id, head: pr.head }),
           notRun: pr.notRun,
           storiesUrl: threadUrl,
         })

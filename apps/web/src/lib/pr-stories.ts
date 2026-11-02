@@ -1,13 +1,13 @@
 import { githubFetch } from "@/lib/integrations/github-client"
-import { and, asc, eq, sql } from "drizzle-orm"
+import { and, asc, eq, isNotNull, ne, sql } from "drizzle-orm"
 import { isStoryCard } from "@exp/domain-contract/stories"
 import type { MessageCard } from "@exp/db-schema/domain"
 import { db } from "@/db/connection"
-import { issues, messages, pullRequestIssues, sessions } from "@/db/schema"
+import { issues, messages, pullRequestIssues, pullRequests, sessions } from "@/db/schema"
 import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 import { githubApiHeaders } from "@/lib/integrations/github-app"
 import { appBaseUrl, buildSessionDeepLinkPath } from "@/lib/notification-email-policy"
-import { logicalSessionIds } from "@/lib/sessions/guide-entries"
+import { logicalSessionIds, soleHeadSession, type GuideTreeRow } from "@/lib/sessions/guide-entries"
 import { inSessions, messageSessionId } from "@/lib/sessions/messages"
 import { isSealedCard } from "@/lib/sessions/sealed"
 
@@ -43,24 +43,73 @@ export function storyPicturesOfCard(card: unknown): { label: string; attachmentI
   )
 }
 
-/** The resolved pictures of the story cards the opener's LOGICAL session
- *  and its subtree posted (null opener = the whole tree), oldest first;
- *  sealed cards count through their clear part (`storyPicturesOfCard`). */
-export async function loadStoryPictures(rootId: string, openerSessionId: string | null): Promise<StoryPicture[]> {
-  const tree = await db
-    .select({ id: sessions.id, parentId: sessions.parentId, branch: sessions.branch, status: sessions.status })
-    .from(sessions)
-    .where(eq(sessions.rootId, rootId))
-  const ids = new Set(openerSessionId ? logicalSessionIds(openerSessionId, tree) : tree.map((row) => row.id))
+/** #EXP-1402: the sessions whose stories a PR body shows: the opener's
+ *  LOGICAL session (its continuation lineage) and its subtree, never a
+ *  descendant's subtree that opened a PR of its own (`claimed`: that PR's
+ *  body shows them, FEED-166). Null opener = the whole tree, minus the
+ *  claimed subtrees. */
+export function storySessionIds(
+  tree: readonly GuideTreeRow[],
+  openerSessionId: string | null,
+  claimed: ReadonlySet<string>
+): Set<string> {
+  const mine = openerSessionId
+    ? logicalSessionIds(openerSessionId, tree)
+    : tree.filter((row) => row.parentId === null).map((row) => row.id)
+  const own = new Set(mine)
+  const ids = new Set(mine)
   for (let grew = true; grew; ) {
     grew = false
     for (const row of tree) {
-      if (row.parentId && ids.has(row.parentId) && !ids.has(row.id)) {
-        ids.add(row.id)
-        grew = true
-      }
+      if (!row.parentId || !ids.has(row.parentId) || ids.has(row.id)) continue
+      if (claimed.has(row.id) && !own.has(row.id)) continue
+      ids.add(row.id)
+      grew = true
     }
   }
+  return ids
+}
+
+/** The resolved pictures of the story cards of a PR's sessions
+ *  (`storySessionIds`), oldest first; sealed cards count through their
+ *  clear part (`storyPicturesOfCard`). `pullRequestId` = the PR rendered
+ *  (every OTHER PR of the thread claims its opener's lineage); `head` = its
+ *  branch, the opener of a PR with none when one lineage sits on it. */
+export async function loadStoryPictures(
+  rootId: string,
+  recordedOpenerId: string | null,
+  opts: { pullRequestId?: string | null; head?: string | null } = {}
+): Promise<StoryPicture[]> {
+  const tree = await db
+    .select({
+      id: sessions.id,
+      parentId: sessions.parentId,
+      continuedFromId: sessions.continuedFromId,
+      status: sessions.status,
+      branch: sessions.branch,
+    })
+    .from(sessions)
+    .where(eq(sessions.rootId, rootId))
+    .orderBy(asc(sessions.createdAt))
+  const openerSessionId = recordedOpenerId ?? (opts.head ? soleHeadSession(tree, opts.head) : null)
+  const pullRequestId = opts.pullRequestId ?? null
+  const others = await db
+    .select({ sessionId: pullRequests.sessionId })
+    .from(pullRequests)
+    .where(
+      and(
+        eq(pullRequests.rootSessionId, rootId),
+        isNotNull(pullRequests.sessionId),
+        ...(pullRequestId ? [ne(pullRequests.id, pullRequestId)] : [])
+      )
+    )
+  const claimed = new Set<string>()
+  for (const { sessionId } of others) {
+    if (sessionId && sessionId !== openerSessionId) {
+      for (const id of logicalSessionIds(sessionId, tree)) claimed.add(id)
+    }
+  }
+  const ids = storySessionIds(tree, openerSessionId, claimed)
   if (ids.size === 0) return []
   const rows = await db
     .select({ card: messages.card })

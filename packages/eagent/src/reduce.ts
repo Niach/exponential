@@ -335,6 +335,7 @@ function insertSession(ctx: Ctx, row: Pick<HubSession, `id` | `parentId` | `root
   const created: HubSession = {
     agentId: null,
     startedByAgentId: null,
+    continuedFromId: null,
     status: `queued`,
     busy: false,
     background: false,
@@ -503,6 +504,7 @@ function sendMessage(ctx: Ctx, data: SendData, caller: HubSession | null): StepR
     userId: data.userId ?? caller?.userId ?? target.userId,
     shared: root.shared,
     deviceId: data.deviceId ?? target.deviceId,
+    continuedFromId: target.id,
   })
   const messageId = postSend(ctx, child, text, data.sealed === true, caller)
   systemCard(ctx, target.parentId, { kind: `session`, sessionId: child.id })

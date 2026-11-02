@@ -1564,6 +1564,8 @@ async function continueSession(
     parentId,
     rootId: root.id,
     depth,
+    // #EXP-1402: the lineage a logical session walks (Guide + story ownership).
+    continuedFromId: ended.id,
     branch: ended.branch,
     title: ended.title,
     sealedTitle: ended.sealedTitle,

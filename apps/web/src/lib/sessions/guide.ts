@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server"
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, asc, desc, eq, inArray } from "drizzle-orm"
 import {
   SESSION_RESULT_CAPTION_MAX,
   SESSION_RESULT_FILE_PATH_MAX,
@@ -18,6 +18,7 @@ import {
   isTextEntry,
   logicalSessionIds,
   nextShowLabel,
+  soleHeadSession,
   ownedBy,
   ownedByAny,
   ownedBySubtree,
@@ -64,15 +65,37 @@ interface GuideReach {
 /** EXP-1397: who the writer is in its tree. */
 async function guideReach(tx: Db, session: Session): Promise<GuideReach> {
   const tree = await tx
-    .select({ id: sessions.id, parentId: sessions.parentId, branch: sessions.branch, status: sessions.status })
+    .select({
+      id: sessions.id,
+      parentId: sessions.parentId,
+      continuedFromId: sessions.continuedFromId,
+      status: sessions.status,
+    })
     .from(sessions)
     .where(eq(sessions.rootId, session.rootId))
   const mine = logicalSessionIds(session.id, tree)
   return { mine, owns: ownedByAny(mine), reaches: ownedBySubtree(mine, tree) }
 }
 
-/** EXP-1397: the newest live PR the writer's logical session opened. */
-async function openPullRequestUrl(tx: Tx, rootId: string, mine: string[]): Promise<string | null> {
+/** #EXP-1402: whether a topic's tag names a thread PR that is merged or
+ *  closed (an unknown URL is kept as written). */
+async function isDonePullRequestUrl(tx: Tx, rootId: string, url: string): Promise<boolean> {
+  const [row] = await tx
+    .select({ state: pullRequests.state })
+    .from(pullRequests)
+    .where(and(eq(pullRequests.rootSessionId, rootId), eq(pullRequests.url, url)))
+    .limit(1)
+  return !!row && !(LIVE_PR_STATES as readonly string[]).includes(row.state)
+}
+
+/** EXP-1397/#EXP-1402: the live PR on the writer's CURRENT head (its
+ *  branch, in its repository) its logical session opened: a stack's lower PR
+ *  never claims the next one's topics, another repository's PR never claims
+ *  this one's, and a merged PR is never a default (FEED-166). No branch, or
+ *  no live PR on it yet = none (the PR open stamps the topic later). */
+async function openPullRequestUrl(tx: Tx, rootId: string, mine: string[], session: Session): Promise<string | null> {
+  const head = session.branch?.trim()
+  if (!head) return null
   const [row] = await tx
     .select({ url: pullRequests.url })
     .from(pullRequests)
@@ -80,6 +103,8 @@ async function openPullRequestUrl(tx: Tx, rootId: string, mine: string[]): Promi
       and(
         eq(pullRequests.rootSessionId, rootId),
         inArray(pullRequests.sessionId, mine),
+        eq(pullRequests.head, head),
+        ...(session.repositoryId ? [eq(pullRequests.repositoryId, session.repositoryId)] : []),
         inArray(pullRequests.state, [...LIVE_PR_STATES])
       )
     )
@@ -296,13 +321,27 @@ export async function writeGuide(args: {
             ? prUrl
             : existing
               ? undefined
-              : ((await openPullRequestUrl(tx, lock.rootId, reach.mine)) ?? undefined)
+              : ((await openPullRequestUrl(tx, lock.rootId, reach.mine, lock.session)) ?? undefined)
+        // #EXP-1402: a rewrite whose kept tag names a merged/closed PR
+        // drops it for the open-PR default, so it shows in the live body.
+        const kept = tag === undefined && existing?.prUrl ? existing.prUrl : null
+        const stale = kept ? await isDonePullRequestUrl(tx, lock.rootId, kept) : false
         const written = upsertGuideText(
           lock.guide,
           topic,
           text.trim(),
           args.files === null ? [] : (args.files ?? undefined),
-          { at: Date.now(), sessionId: session.id, ...(tag !== undefined ? { prUrl: tag } : {}) },
+          {
+            at: Date.now(),
+            sessionId: session.id,
+            ...(tag !== undefined ? { prUrl: tag } : {}),
+            ...(stale
+              ? {
+                  stalePrUrl: (url: string) => url === kept,
+                  fallbackPrUrl: await openPullRequestUrl(tx, lock.rootId, reach.mine, lock.session),
+                }
+              : {}),
+          },
           reach.owns
         )
         if (!written) throw guideCapError()
@@ -413,9 +452,11 @@ export async function publishGuidePicture(
 
 /** EXP-1397: a merged PR's logical session's untagged text topics went out
  *  with it: stamped with its URL, they leave every still-open body of the
- *  thread (a body excludes by prUrl only). A PR with no session (UI-opened,
- *  adopted) resolves through its head: the tree's newest session on it.
- *  True = the Guide moved. */
+ *  thread (a body excludes by prUrl only). The PR's recorded session first;
+ *  a PR with none (UI-opened, adopted) resolves through its head, but only
+ *  when ONE logical session sits on it: two live lineages on the same head
+ *  stamp nobody's rather than the newest's (#EXP-1402). True = the Guide
+ *  moved. */
 export async function tagGuideForMergedPullRequest(pr: {
   rootSessionId: string | null
   sessionId: string | null
@@ -425,13 +466,18 @@ export async function tagGuideForMergedPullRequest(pr: {
   if (!pr.rootSessionId) return false
   let sessionId = pr.sessionId
   if (!sessionId) {
-    const [row] = await db
-      .select({ id: sessions.id })
+    const tree = await db
+      .select({
+        id: sessions.id,
+        parentId: sessions.parentId,
+        continuedFromId: sessions.continuedFromId,
+        status: sessions.status,
+        branch: sessions.branch,
+      })
       .from(sessions)
-      .where(and(eq(sessions.rootId, pr.rootSessionId), eq(sessions.branch, pr.head)))
-      .orderBy(desc(sessions.createdAt))
-      .limit(1)
-    sessionId = row?.id ?? null
+      .where(eq(sessions.rootId, pr.rootSessionId))
+      .orderBy(asc(sessions.createdAt))
+    sessionId = soleHeadSession(tree, pr.head)
   }
   if (!sessionId) return false
   return tagGuideForPullRequest({ sessionId, prUrl: pr.url })
@@ -449,7 +495,8 @@ export async function tagGuideForPullRequest(args: { sessionId: string; prUrl: s
     const { results, changed } = stampUntaggedGuideEntries(
       lock.guide,
       canonicalGithubPrUrl(args.prUrl) ?? args.prUrl,
-      (row) => !!row?.sessionId && mine.has(row.sessionId)
+      // #EXP-1402: only server-stamped writes (`sessionId` AND `at`).
+      (row) => !!row?.sessionId && typeof row.at === `number` && mine.has(row.sessionId)
     )
     if (changed) await saveGuide(tx, lock.rootId, results)
     return changed

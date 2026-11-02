@@ -4,7 +4,7 @@ import { pickPrIssues, prDefaultIssueIds, subtreeOf } from "@/lib/sessions/pr-is
 // EXP-1334/NEW-1: a PR closes its SESSION's share of the thread: the rows
 // its subtree HOLDS (a row sits on the session holding the issue) plus the
 // tree's issues its start message names; a child with nothing of its own
-// takes the rows no other live subtree holds (the root's).
+// links nothing (#EXP-1402, FEED-166).
 
 const node = (id: string, parentId: string | null, status = `idle`) => ({ id, parentId, status })
 const link = (issueId: string, identifier: string, sessionId: string) => ({
@@ -51,24 +51,60 @@ describe(`pickPrIssues`, () => {
     expect(pickPrIssues({ rootId: `root`, sessionId: `a1`, links, tree, startText: `` })).toEqual([`i-2`])
   })
 
-  it(`an empty share falls back to the rows no OTHER live subtree holds`, () => {
-    const spare = [link(`i-1`, `EXP-1`, `root`), link(`i-3`, `EXP-3`, `b`)]
-    // a holds nothing: the root's row is free, b's is b's.
-    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: spare, tree, startText: `` })).toEqual([
-      `i-1`,
-    ])
-    // Once b ended, its row is free too.
+  it(`FEED-166: a child with no share links nothing, never the thread's issues`, () => {
+    // The thread holds EXP-1416, NEW-64, NEW-65 on the root; child d19dcb89
+    // holds none and names none: its PR links none of them.
+    const thread = [link(`i-1416`, `EXP-1416`, `root`), link(`i-n64`, `NEW-64`, `root`), link(`i-n65`, `NEW-65`, `b`)]
+    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: thread, tree, startText: `Write the summary` })).toEqual([])
+    // Ended siblings free nothing either.
     const ended = [node(`root`, null), node(`a`, `root`), node(`b`, `root`, `ended`)]
+    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: thread, tree: ended, startText: `` })).toEqual([])
+    // Naming one takes exactly that one.
+    expect(pickPrIssues({ rootId: `root`, sessionId: `a`, links: thread, tree, startText: `Fix #NEW-64` })).toEqual([
+      `i-n64`,
+    ])
+  })
+})
+
+describe(`#EXP-1402: a continuation's share is its lineage's`, () => {
+  // root holds EXP-5; a was started with "implement #EXP-5" and ended; its
+  // continuation c ("fix the lint") opens the PR.
+  const lineage = [
+    node(`root`, null),
+    { ...node(`a`, `root`, `ended`), continuedFromId: null },
+    { ...node(`c`, `root`, `running`), continuedFromId: `a` },
+    node(`b`, `root`),
+    node(`a-kid`, `a`, `ended`),
+  ]
+  const held = [
+    link(`i-5`, `EXP-5`, `root`),
+    link(`i-6`, `EXP-6`, `root`),
+    link(`i-7`, `EXP-7`, `b`),
+    link(`i-8`, `EXP-8`, `a-kid`),
+  ]
+
+  it(`takes what the predecessor named and its subtree held, never the whole thread`, () => {
     expect(
-      pickPrIssues({ rootId: `root`, sessionId: `a`, links: spare, tree: ended, startText: `` })
-    ).toEqual([`i-1`, `i-3`])
+      pickPrIssues({
+        rootId: `root`,
+        sessionId: `c`,
+        links: held,
+        tree: lineage,
+        startText: `fix the lint`,
+        lineageStarts: [{ text: `implement #EXP-5` }],
+      })
+    ).toEqual([`i-5`, `i-8`])
+    // Without the lineage brief it still takes the predecessor's subtree rows.
+    expect(
+      pickPrIssues({ rootId: `root`, sessionId: `c`, links: held, tree: lineage, startText: `fix the lint` })
+    ).toEqual([`i-8`])
   })
 
-  it(`the fallback never takes a row a sibling's subtree holds`, () => {
-    const grouped = [link(`i-2`, `EXP-2`, `b`), link(`i-5`, `EXP-5`, `a`)]
-    expect(pickPrIssues({ rootId: `root`, sessionId: `a1`, links: grouped, tree, startText: `` })).toEqual(
-      []
-    )
+  it(`a moved root in the lineage adds only its own rows`, () => {
+    const moved = [node(`root`, null, `ended`), { ...node(`c`, `root`), continuedFromId: `root` }, node(`b`, `root`)]
+    expect(
+      pickPrIssues({ rootId: `root`, sessionId: `c`, links: held, tree: moved, startText: `go` })
+    ).toEqual([`i-5`, `i-6`])
   })
 })
 
@@ -115,6 +151,37 @@ describe(`EXP-1458: the start message's ref_issue_ids`, () => {
     )
     // i-4 was closed by a merged PR: done work is never re-linked.
     expect(ids).toEqual([`i-1`, `i-3`])
+  })
+})
+
+describe(`#EXP-1402: prDefaultIssueIds reads the lineage's start messages`, () => {
+  const reader = (answers: unknown[][]) => {
+    const queue = [...answers]
+    return {
+      select: () => {
+        const rows = queue.shift() ?? []
+        const chain: Record<string, unknown> = {
+          then: (ok: (value: unknown) => unknown, fail?: (err: unknown) => unknown) => Promise.resolve(rows).then(ok, fail),
+        }
+        for (const method of [`from`, `where`, `innerJoin`, `orderBy`, `limit`]) chain[method] = () => chain
+        return chain
+      },
+    } as never
+  }
+
+  it(`the continuation inherits its ended predecessor's brief`, async () => {
+    const lineage = [node(`root`, null), node(`a`, `root`, `ended`), { ...node(`c`, `root`), continuedFromId: `a` }]
+    const ids = await prDefaultIssueIds(
+      reader([
+        lineage,
+        [link(`i-5`, `EXP-5`, `root`), link(`i-6`, `EXP-6`, `root`)],
+        [{ body: `fix the lint`, refIssueIds: null }],
+        [{ body: `implement #EXP-5`, refIssueIds: null }],
+        [],
+      ]),
+      { rootId: `root`, sessionId: `c` }
+    )
+    expect(ids).toEqual([`i-5`])
   })
 })
 

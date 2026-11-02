@@ -517,6 +517,9 @@ export interface GuideEntry {
   /** EXP-1251: on a TEXT entry, the PR its topic belongs to (a run that
    *  stacks a second PR scopes its topics); absent = every PR of the run. */
   prUrl?: string | null
+  /** #EXP-1402: a deliberate untag (`prUrl: null`), so a PR open or merge
+   *  never stamps the topic; absent = never tagged. */
+  untagged?: boolean
   /** EXP-1284: the session that wrote the entry (stamped server-side on
    *  every write): a thread's ONE Guide holds every session's entries, so
    *  a session block shows its own (`sessionGuideEntries`), a moved session
@@ -542,6 +545,7 @@ export const guideEntrySchema = z.object({
   caption: z.string().max(SESSION_RESULT_CAPTION_MAX).nullish(),
   at: z.number().int().nonnegative().nullish(),
   prUrl: z.string().max(SESSION_RESULT_PR_URL_MAX).nullish(),
+  untagged: z.boolean().nullish(),
 })
 
 // Why a user is subscribed to an issue (issue_subscribers.source, pg enum).

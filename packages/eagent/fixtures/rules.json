@@ -100,6 +100,7 @@
       "shared": true,
       "agentId": null,
       "startedByAgentId": null,
+      "continuedFromId": null,
       "deviceId": "d1",
       "status": "idle",
       "busy": false,

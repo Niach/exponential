@@ -24,13 +24,13 @@ vi.mock(`@/lib/notification-email-policy`, () => ({
   buildSessionDeepLinkPath: (slug: string, id: string) => `/t/${slug}/sessions/${id}`,
 }))
 
-const { loadStoryPictures, storyPicturesOfCard } = await import(`@/lib/pr-stories`)
+const { loadStoryPictures, storyPicturesOfCard, storySessionIds } = await import(`@/lib/pr-stories`)
 
 const sealed = `v1:1:${`A`.repeat(80)}`
 const root = `00000000-0000-4000-8000-000000000001`
 
 const load = async (cards: unknown[]) => {
-  h.results.push([{ id: root, parentId: null, branch: null, status: `idle` }], cards.map((card) => ({ card })))
+  h.results.push([{ id: root, parentId: null, branch: null, status: `idle` }], [], cards.map((card) => ({ card })))
   return (await loadStoryPictures(root, null)).map((p) => [p.label, p.attachmentId, p.url])
 }
 
@@ -88,5 +88,29 @@ describe(`validSealedCard: the clear story flag`, () => {
     const { validSealedCard } = await import(`@/lib/sessions/sealed`)
     expect(validSealedCard({ kind: `surface`, story: false, sealed })).toBe(true)
     expect(validSealedCard({ kind: `surface`, story: `no`, sealed })).toBe(false)
+  })
+})
+
+// #EXP-1402 (FEED-166 (2)): a PR body shows exactly its own sessions' stories.
+describe(`storySessionIds`, () => {
+  // root → a (PR #1302) → a1; root → b (PR #1303, continued as b2); root → c (no PR)
+  const tree = [
+    { id: `root`, parentId: null, status: `idle` },
+    { id: `a`, parentId: `root`, status: `idle` },
+    { id: `a1`, parentId: `a`, status: `idle` },
+    { id: `b`, parentId: `root`, status: `ended` },
+    { id: `b2`, parentId: `root`, continuedFromId: `b`, status: `running` },
+    { id: `c`, parentId: `root`, status: `idle` },
+  ]
+  const sorted = (ids: Set<string>) => [...ids].sort()
+
+  it(`a child's PR shows its lineage and subtree, never a sibling's`, () => {
+    expect(sorted(storySessionIds(tree, `b`, new Set([`a`])))).toEqual([`b`, `b2`])
+    expect(sorted(storySessionIds(tree, `a`, new Set([`b`, `b2`])))).toEqual([`a`, `a1`])
+  })
+
+  it(`the root's PR leaves out the subtrees that opened their own`, () => {
+    expect(sorted(storySessionIds(tree, `root`, new Set([`a`, `b`, `b2`])))).toEqual([`c`, `root`])
+    expect(sorted(storySessionIds(tree, null, new Set([`a`])))).toEqual([`b`, `b2`, `c`, `root`])
   })
 })
