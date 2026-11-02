@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -331,11 +332,21 @@ fun AgentConversationScreen(
                                 .clip(androidx.compose.foundation.shape.CircleShape)
                                 .background(com.exponential.app.ui.theme.DesignTokens.Palette.Muted),
                             contentAlignment = Alignment.Center,
-                        ) { AgentGlyph(icon = row?.icon, color = row?.color, size = 22.dp) }
+                        ) {
+                            // #EXP-1448: the viewer's Assistant wears the brand
+                            // mark (chats.json), never its stored icon.
+                            if (row?.isAssistant == true) {
+                                com.exponential.app.ui.components.ExponentialMark(size = 22.dp, tint = MaterialTheme.colorScheme.onSurface)
+                            } else {
+                                AgentGlyph(icon = row?.icon, color = row?.color, size = 22.dp)
+                            }
+                        }
                     },
                     onBack = onBack,
                     call = if (row == null) null else {
-                        { com.exponential.app.ui.call.AgentCallButton(agentId = viewModel.agentId, agentName = name, agentIcon = row?.icon, agentColor = row?.color) }
+                        // A null icon = the call surface's brand mark (the Assistant's).
+                        val callIcon = if (row.isAssistant) null else row.icon
+                        { com.exponential.app.ui.call.AgentCallButton(agentId = viewModel.agentId, agentName = name, agentIcon = callIcon, agentColor = row.color) }
                     },
                 )
             },

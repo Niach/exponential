@@ -130,10 +130,14 @@ private struct AgentChannelEmpty: View {
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                ThreadHeaderTitle(
+                // THE chat header (Android `ChatHeader`): the agent's disc
+                // (#EXP-1448: the Assistant's = the brand mark) over `Agent`.
+                ChatHeaderTitle(
                     title: agent.name,
+                    subtitle: "Agent",
                     agentIcon: BoardTypeDisplay.iconName(for: agent.icon) ?? SessionTree.ListCopy.agentDefaultIcon,
-                    agentColor: agent.color ?? SessionTree.ListCopy.agentDefaultColor
+                    agentColor: agent.color ?? SessionTree.ListCopy.agentDefaultColor,
+                    assistant: agent.isAssistant
                 )
             }
             // NEW-69 (voice-call.json): the telephone (no `…` before the
@@ -141,7 +145,7 @@ private struct AgentChannelEmpty: View {
             ToolbarItem(placement: .topBarTrailing) {
                 AgentCallButton(
                     agentId: agent.id, agentName: agent.name,
-                    agentIcon: BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color
+                    agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color
                 )
             }
         }

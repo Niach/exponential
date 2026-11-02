@@ -287,6 +287,7 @@ struct ThreadScreen: View {
                     isPrivate: view.isPrivate,
                     agentIcon: rows.isAgent ? rows.agentIcon : nil,
                     agentColor: rows.isAgent ? rows.agentColor : nil,
+                    assistant: rows.isAgent && rows.app == nil && rows.agent?.isAssistant == true,
                     cli: rows.root.cli,
                     prStates: rows.pullRequests.map(\.state),
                     mark: SessionTree.threadRowMarkState(
@@ -319,7 +320,8 @@ struct ThreadScreen: View {
                    let agentId = rows.root.agentId {
                     AgentCallButton(
                         agentId: agentId, agentName: rows.agentName,
-                        agentIcon: BoardTypeDisplay.iconName(for: rows.agent?.icon), agentColor: rows.agent?.color
+                        agentIcon: rows.agent?.isAssistant == true ? nil : BoardTypeDisplay.iconName(for: rows.agent?.icon),
+                        agentColor: rows.agent?.color
                     )
                 }
             }
