@@ -143,6 +143,7 @@ class SteerConnectionStore @Inject constructor(
                     version = AppConstants.VERSION_NAME,
                 )
             }
+            connection.setBackground(!foreground)
             connection.refCount += 1
             return connection
         }
@@ -233,6 +234,7 @@ class SteerConnectionStore @Inject constructor(
         synchronized(lock) {
             this.foreground = foreground
             Log.i(TAG, "foreground=$foreground (${connections.size} connection(s))")
+            connections.values.forEach { it.setBackground(!foreground) }
             parkJob?.cancel()
             parkJob = if (foreground) {
                 // A session that ended while nobody was watching has nothing
@@ -284,5 +286,8 @@ class SteerConnectionStore @Inject constructor(
 // session anything. Deliberately NOT the shape loops' behaviour, which park
 // instantly since EXP-656: a shape loop resumes from a persisted cursor for the
 // price of one GET, while a steer feed resumes by re-joining over eNet and
-// taking a full replay.
-private const val BACKGROUND_PARK_DELAY_MS = 30_000L
+// taking a full replay. But it parks BEFORE Android 14+'s cached-apps freezer
+// (debounce 10 s, `dumpsys activity settings`): the 30 s this used to be never
+// fired on time; the frozen feed died under us (the host's QUIC idle timeout is
+// 10 s) and every overdue redial and relay ticket failed at the next thaw.
+internal const val BACKGROUND_PARK_DELAY_MS = 5_000L

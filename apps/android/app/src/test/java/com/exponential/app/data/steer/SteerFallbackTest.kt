@@ -466,6 +466,74 @@ class SteerFallbackTest {
         assertFalse(events.any { it.toString().contains(SESSION) })
     }
 
+    // ── the background: the OS cut the feed, nothing falls back ────────
+
+    /**
+     * Prod, 2026-11-01 (Android 0.14.89): 13 of 19 views ended with
+     * `{closed: 1, no_endpoint: 2-3, ticket_failed: 3-4}` and as many
+     * fallbacks, all of a phone's views in the same millisecond: the feed
+     * died while the app sat frozen in the background, and every redial and
+     * relay ticket of the fallback failed on the frozen process. A feed that
+     * goes down in the background now parks: no relay dial, no eNet redial,
+     * no failure on the view; the foreground redials it.
+     */
+    @Test
+    fun aFeedThatDropsInTheBackgroundParksWithoutAFallback() = runBlocking {
+        val enet = FakeEnet()
+        val relay = FakeRelay()
+        val transport = fallback(enet, relay, quick.copy(enetRedialMs = listOf(50)))
+        val events = CopyOnWriteArrayList<JsonObject>()
+        val connection = SteerConnection(
+            codingSessionId = SESSION,
+            transport = transport,
+            sessionFlow = MutableStateFlow(row()),
+            json = Json { ignoreUnknownKeys = true },
+            dispatcher = Dispatchers.Unconfined,
+            nowMs = { System.currentTimeMillis() },
+            timings = SteerTimings(startingRetryMs = 50, reconnectBaseMs = 50, reconnectMaxMs = 50, joinAckMs = 2_000),
+            stats = SteerConnStatsSink { events += it },
+            version = "0.0.1-test",
+        )
+        try {
+            connection.connect()
+            waitUntil("live over eNet") { connection.phase.value == AgentPhase.Live && narration(connection).contains("hi") }
+            val first = enet.feeds.receive()
+
+            connection.setBackground(true)
+            first.kill()
+            waitUntil("parked") { connection.phase.value == AgentPhase.Idle }
+            delay(300)
+            assertEquals("no relay leg in the background", 0, relay.dials.get())
+            assertEquals("no eNet redial in the background", 1, enet.dials.get())
+            assertEquals(listOf("settled", "ended"), events.map { it["data"]!!.jsonObject["phase"]!!.jsonPrimitive.content })
+            val ended = events[1]["data"]!!.jsonObject
+            assertEquals(0, ended["fallbacks"]!!.jsonPrimitive.int)
+            assertNull(ended["failures"])
+            assertNull(ended["errorClass"])
+
+            // The foreground redials: a fresh view, eNet first, live again.
+            connection.setBackground(false)
+            connection.resume()
+            waitUntil("live again") { connection.phase.value == AgentPhase.Live && enet.dials.get() == 2 }
+            assertEquals(0, relay.dials.get())
+        } finally {
+            connection.close()
+        }
+        assertTrue(events.all(::steerConnEventValid))
+    }
+
+    @Test
+    fun aPausedTransportOpensNoRelayOnAStall() = runBlocking {
+        val enet = FakeEnet().apply { plan = { null } }
+        val relay = FakeRelay()
+        val transport = fallback(enet, relay).apply { paused = true }
+        val listener = Listener().also { transport.listener = it }
+        assertNull(transport.open(SESSION))
+        assertEquals(0, relay.dials.get())
+        assertEquals(0, listener.fallbacks.get())
+        assertTrue(listener.failures.isEmpty())
+    }
+
     // ── analytics ───────────────────────────────────────────────────────
 
     @Test

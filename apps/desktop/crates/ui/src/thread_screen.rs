@@ -3447,7 +3447,7 @@ impl ThreadScreenView {
         }
     }
 
-    /// #EXP-1545: keep ONE remote relay viewer per Live (not ended) child
+    /// #EXP-1545: keep ONE viewer (the local engine when this process runs it, else eNet) per Live (not ended) child
     /// in `live` (session id, the tab's name) and drop the rest; each
     /// repaints the thread only when its Queue moved.
     fn sync_queue_feeds(&mut self, live: Vec<(String, String)>, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -3463,13 +3463,12 @@ impl ThreadScreenView {
                 feed.name = name;
                 continue;
             }
+            // A child THIS process runs reads its engine: an eNet viewer of
+            // our own run found only our own endpoint (`no_endpoint`) and
+            // fell back to a relay tunnel to ourselves.
+            let (_, source) = crate::session_screen::resolve_source(&id, cx);
             let view = cx.new(|cx| {
-                crate::steer_viewer::SteerSessionView::with_source(
-                    id.clone(),
-                    crate::steer_viewer::FeedSource::Remote { handle: None },
-                    window,
-                    cx,
-                )
+                crate::steer_viewer::SteerSessionView::with_source(id.clone(), source, window, cx)
             });
             let mut last = view.read(cx).dock_queue();
             let sub = cx.observe(&view, move |_, view, cx| {
