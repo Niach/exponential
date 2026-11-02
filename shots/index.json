@@ -3791,6 +3791,13 @@
         "height": 1800,
         "bytes": 5554,
         "sha256": "1a273e077614558c40d27a1dbb70e2e240c0d0c5b91d8c16598d8a4e7a4fb1a4"
+      },
+      "ios": {
+        "file": "shots/exponential-ui-zoomable-image/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 5536,
+        "sha256": "24d13a95da6373b9f7705e99f40bf514d7020cd5e7ffa6e8ba7ae38a4496833e"
       }
     },
     "feedback-states": {
