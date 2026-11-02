@@ -227,7 +227,8 @@ fn the_styleguide_specimens_compile_with_known_tokens() {
     }
     walk(&doc["cases"], &mut motions);
     walk(&doc["illustration"], &mut motions);
-    assert_eq!(motions.len(), 4);
+    walk(&doc["interactive"], &mut motions);
+    assert_eq!(motions.len(), 6);
     for m in motions {
         let id = m["id"].as_str().unwrap();
         let props = m["props"].as_object().unwrap();
