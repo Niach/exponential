@@ -821,8 +821,32 @@ pub(crate) mod test_support {
 
     pub static SERIAL: Mutex<()> = Mutex::new(());
 
-    pub fn serial() -> std::sync::MutexGuard<'static, ()> {
-        SERIAL.lock().unwrap_or_else(|p| p.into_inner())
+    thread_local! {
+        static HELD: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// Holds [`SERIAL`] for this test. Re-entrant on one thread (a nested
+    /// call holds nothing), so a fixture can take it too: pickup's `Host`
+    /// does, because every claim, reply and leftover note seals through the
+    /// process-global service, so a test running one beside a test that
+    /// installed a fake would key ITS roots in that fake.
+    pub struct Serial(#[allow(dead_code)] Option<std::sync::MutexGuard<'static, ()>>);
+
+    impl Drop for Serial {
+        fn drop(&mut self) {
+            if self.0.is_some() {
+                HELD.with(|held| held.set(false));
+            }
+        }
+    }
+
+    pub fn serial() -> Serial {
+        if HELD.with(|held| held.get()) {
+            return Serial(None);
+        }
+        let guard = SERIAL.lock().unwrap_or_else(|p| p.into_inner());
+        HELD.with(|held| held.set(true));
+        Serial(Some(guard))
     }
 
     #[derive(Default)]
