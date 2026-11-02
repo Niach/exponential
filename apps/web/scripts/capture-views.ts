@@ -72,7 +72,7 @@ const FORM_FACTORS: Record<
 > = {
   web: { viewport: { width: 1440, height: 960 }, deviceScaleFactor: 2 },
   [`web-mobile`]: {
-    viewport: { width: 390, height: 844 },
+    viewport: { width: 440, height: 956 },
     deviceScaleFactor: 3,
     isMobile: true,
   },

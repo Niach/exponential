@@ -278,7 +278,7 @@ scripts/lanes/lane.sh heavy <owner> -- sh -c 'CARGO_TARGET_DIR=/tmp/<x> bun run 
 | platform   | lane                                                                 |
 | ---------- | -------------------------------------------------------------------- |
 | web        | `cd apps/web && bun run capture:views -- --form-factor web`          |
-| web-mobile | same, `--form-factor web-mobile` (390×844@3x, mobile layout)         |
+| web-mobile | same, `--form-factor web-mobile` (440×956@3x, the iOS device)            |
 | desktop    | `packages/shots/src/capture-desktop.ts` — launches the gpui app per view via the `EXP_DEV_*` overrides and `screencapture`s the window; views marked `manual` in the catalog are skipped (`chat` is the only one left — fill it with `--manual chat` while the wanted state is on screen), and `--skip-relay` additionally skips the steering-dependent views rather than photographing a Reconnecting tab |
 | ios        | `cd apps/ios && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
 | android    | `cd apps/android && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |

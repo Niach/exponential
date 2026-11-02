@@ -255,14 +255,14 @@ export const STORE_DEFAULT_TOLERANCE = 0.005
  * these are the capture aspect ratios normalised to that edge:
  *
  *   web         1440×960  @2x  → 2880×1920 → 1800×1200
- *   web-mobile   390×844  @3x  → 1170×2532 →  832×1800
+ *   web-mobile   440×956  @3x  → 1320×2868 →  828×1800 (the iOS device: EXP-1549)
  *   desktop     1440×900  @2x  → 2880×1800 → 1800×1125
  *   ios         iPhone 17 Pro Max 1320×2868 → 828×1800
  *   android     1080×2400                   → 810×1800
  */
 export const PLATFORM_FRAME: Record<Platform, { w: number; h: number }> = {
   web: { w: 1800, h: 1200 },
-  [`web-mobile`]: { w: 832, h: 1800 },
+  [`web-mobile`]: { w: 828, h: 1800 },
   desktop: { w: 1800, h: 1125 },
   ios: { w: 828, h: 1800 },
   android: { w: 810, h: 1800 },
