@@ -40,6 +40,7 @@ import com.exponential.app.domain.AppRecords.Controls
 import com.exponential.app.domain.AppRecords.DataCopy
 import com.exponential.app.domain.AppRecords.DataTestIds
 import com.exponential.app.domain.Apps
+import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.FieldError
@@ -56,6 +57,7 @@ import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.TextFieldRow
+import com.exponential.app.ui.components.userDisplayName
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
@@ -72,7 +74,10 @@ import com.exponential.app.ui.theme.glassGroup
 // trailing the relative `updated` + the `…` menu Edit / Delete. Add / Edit =
 // a sheet with one labelled row per column (`formFields`); Save =
 // `apps.records.upsert` as the viewer, a BAD_REQUEST inline under the form,
-// anything else the failed-action toast. Delete asks first.
+// anything else the failed-action toast. Delete asks first. VAPP-188: a
+// team OWNER's form leads with the Author picker (`formAuthor`); Save sends
+// `author` only when the pick differs from the record's author / the viewer.
+// (Phones show no `by` cell, so `recordByline` has no phone site.)
 
 /** The open form: a new row of [kind], or the edit of [row]. */
 private data class DataFormTarget(val kind: String, val row: AppRecords.Row?)
@@ -295,6 +300,15 @@ private fun DataFormSheet(
     val saving by viewModel.recordSaving.collectAsStateWithLifecycle()
     val error by viewModel.recordError.collectAsStateWithLifecycle()
     val editing = target.row != null
+    // VAPP-188: a team OWNER's first field = the Author picker (members by
+    // name, required); non-owners never see it nor send `author`.
+    val me by viewModel.me.collectAsStateWithLifecycle()
+    val role by viewModel.myRole.collectAsStateWithLifecycle()
+    val members by viewModel.authorOptions.collectAsStateWithLifecycle()
+    val users by viewModel.users.collectAsStateWithLifecycle()
+    val isOwner = role == DomainContract.teamRoleOwner
+    var authorPick by remember(target) { mutableStateOf<String?>(null) }
+    val author = authorPick ?: AppRecords.formAuthor(me, target.row, null).default
     val title = (if (editing) DataCopy.EDIT_TITLE else DataCopy.NEW_TITLE).replace("{kind}", target.kind)
     LaunchedEffect(target) { viewModel.clearRecordError() }
     GlassSheet(
@@ -306,7 +320,14 @@ private fun DataFormSheet(
             enabled = !saving,
             testTag = DataTestIds.SAVE,
             onClick = {
-                viewModel.saveRecord(target.kind, AppRecords.formData(schema, inputs.toMap(), editing), target.row?.id, onDone = onDismiss)
+                val send = if (isOwner) AppRecords.formAuthor(me, target.row, author).send else null
+                viewModel.saveRecord(
+                    target.kind,
+                    AppRecords.formData(schema, inputs.toMap(), editing),
+                    target.row?.id,
+                    author = send,
+                    onDone = onDismiss,
+                )
             },
         ),
     ) {
@@ -319,8 +340,20 @@ private fun DataFormSheet(
                 .testTag(DataTestIds.FORM),
         ) {
             OptionGroup {
+                if (isOwner) {
+                    val names = members.associate { it.id to it.name }
+                    PickerRow(
+                        label = DataCopy.AUTHOR,
+                        value = author?.let { names[it] ?: userDisplayName(users[it], it) } ?: "",
+                        options = members.map { it.id },
+                        selected = author,
+                        optionLabel = { id -> names[id] ?: userDisplayName(users[id], id) },
+                        onSelect = { authorPick = it },
+                        modifier = Modifier.testTag("app-data-field-author"),
+                    )
+                }
                 fields.forEachIndexed { index, field ->
-                    if (index > 0) GroupDivider()
+                    if (index > 0 || isOwner) GroupDivider()
                     val hint = if (field.required) null else DataCopy.OPTIONAL
                     when (field.control) {
                         Controls.SWITCH -> SwitchRow(

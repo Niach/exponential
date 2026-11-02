@@ -142,6 +142,40 @@ class AppRecordsTest {
         }
     }
 
+    // VAPP-188: on-behalf writes (`onBehalf`).
+    @Test
+    fun `the on-behalf constants match the fixture`() {
+        val onBehalf = fixture["onBehalf"]!!
+        assertEquals(onBehalf["refusal"]!!.string, AppRecords.ON_BEHALF_REFUSAL)
+        assertEquals(onBehalf["notMember"]!!.string, AppRecords.ON_BEHALF_NOT_MEMBER)
+    }
+
+    @Test
+    fun `writeAsVerdict replays writeAsCases`() {
+        val all = fixture["onBehalf"]!!["writeAsCases"]!!.array!!
+        assert(all.isNotEmpty())
+        for (case in all) {
+            assertEquals(
+                case["name"]!!.string,
+                case["expected"]!!.string,
+                AppRecords.writeAsVerdict(case["viewer"]?.string, case["role"]?.string, case["author"]?.string, strings(case["members"])),
+            )
+        }
+    }
+
+    @Test
+    fun `importAuthor replays importCases`() {
+        val all = fixture["onBehalf"]!!["importCases"]!!.array!!
+        assert(all.isNotEmpty())
+        for (case in all) {
+            assertEquals(
+                case["name"]!!.string,
+                case["expected"]?.string,
+                AppRecords.importAuthor(case["importer"]!!.string!!, case["role"]?.string, case["author"]?.string, strings(case["members"])),
+            )
+        }
+    }
+
     @Test
     fun `recordsCountLabel replays countLabelCases`() {
         for (case in cases("countLabelCases")) {
@@ -178,6 +212,7 @@ class AppRecordsTest {
             "cancel" to AppRecords.DataCopy.CANCEL, "yes" to AppRecords.DataCopy.YES, "no" to AppRecords.DataCopy.NO,
             "none" to AppRecords.DataCopy.NONE, "optional" to AppRecords.DataCopy.OPTIONAL,
             "listHint" to AppRecords.DataCopy.LIST_HINT,
+            "author" to AppRecords.DataCopy.AUTHOR, "byFor" to AppRecords.DataCopy.BY_FOR,
         )
         assertEquals(copy.obj!!.keys, expected.keys)
         for ((key, value) in expected) assertEquals(key, copy[key]!!.string, value)
@@ -277,6 +312,53 @@ class AppRecordsTest {
             val inputs = case["inputs"]!!.obj!!.mapValues { (_, v) -> if (v is JsonValue.Bool) v.v else v.string }
             val got = AppRecords.formData(case["schema"], inputs, case["editing"]!!.bool!!)
             assertEquals(case["\$why"]?.string, case["data"]!!.json, JsonValue.Obj(got).json)
+        }
+    }
+
+    @Test
+    fun `recordByline replays bylineCases`() {
+        val all = dataCases("bylineCases")
+        assert(all.isNotEmpty())
+        for (case in all) {
+            val row = AppRecords.Row(
+                id = "r", kind = "entry", data = emptyMap(),
+                createdBy = case["createdBy"]?.string, createdAt = "", updatedAt = "",
+                authorId = case["authorId"]?.string,
+            )
+            assertEquals(
+                case["name"]!!.string,
+                case["text"]!!.string,
+                AppRecords.recordByline(row, params(case["names"]), case["fallback"]!!.string!!),
+            )
+        }
+    }
+
+    @Test
+    fun `authorOptions replays authorOptionCases`() {
+        val all = dataCases("authorOptionCases")
+        assert(all.isNotEmpty())
+        for (case in all) {
+            val users = case["users"]!!.array!!.map { AppRecords.Member(it["id"]!!.string!!, it["name"]!!.string!!) }
+            assertEquals(case.json, strings(case["order"]), AppRecords.authorOptions(users).map { it.id })
+        }
+    }
+
+    @Test
+    fun `formAuthor replays formAuthorCases`() {
+        val all = dataCases("formAuthorCases")
+        assert(all.isNotEmpty())
+        for (case in all) {
+            val record = case["record"]?.takeIf { !it.isNull }?.let {
+                AppRecords.Row(
+                    id = "r", kind = "entry", data = emptyMap(),
+                    createdBy = it["createdBy"]?.string, createdAt = "", updatedAt = "",
+                    authorId = it["authorId"]?.string,
+                )
+            }
+            val got = AppRecords.formAuthor(case["viewer"]?.string, record, case["picked"]?.string)
+            val name = case["name"]!!.string
+            assertEquals("$name (default)", case["default"]?.string, got.default)
+            assertEquals("$name (send)", case["send"]?.string, got.send)
         }
     }
 

@@ -153,8 +153,10 @@ private struct AppRecordUpsertInput: Encodable {
     let kind: String
     let data: EncodableJSON
     let recordId: String?
+    /// VAPP-188: an on-behalf write's author (owners only; nil = omitted).
+    var author: String? = nil
 
-    enum CodingKeys: String, CodingKey { case id, kind, data, recordId }
+    enum CodingKeys: String, CodingKey { case id, kind, data, recordId, author }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -162,6 +164,7 @@ private struct AppRecordUpsertInput: Encodable {
         try c.encode(kind, forKey: .kind)
         try c.encode(data, forKey: .data)
         try c.encodeIfPresent(recordId, forKey: .recordId)
+        try c.encodeIfPresent(author, forKey: .author)
     }
 }
 
@@ -236,13 +239,17 @@ public final class AppsApi: Sendable {
 
     /// VAPP-122 `apps.records.upsert` as the viewer (the app's own rows; the
     /// server validates `data` against the kind's schema and the quota).
+    /// VAPP-188: `author` = an on-behalf write (owners only; nil = omitted).
     public func recordsUpsert(
-        accountId: String, appId: String, kind: String, data: [String: CardJSON], recordId: String?
+        accountId: String, appId: String, kind: String, data: [String: CardJSON], recordId: String?,
+        author: String? = nil
     ) async throws -> AppRecordUpserted {
         try await trpc.mutation(
             accountId: accountId,
             path: "apps.records.upsert",
-            input: AppRecordUpsertInput(id: appId, kind: kind, data: EncodableJSON(value: .object(data)), recordId: recordId)
+            input: AppRecordUpsertInput(
+                id: appId, kind: kind, data: EncodableJSON(value: .object(data)), recordId: recordId, author: author
+            )
         )
     }
 

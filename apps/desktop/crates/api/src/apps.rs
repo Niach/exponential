@@ -216,6 +216,10 @@ pub struct RecordUpsertInput {
     pub data: Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record_id: Option<String>,
+    /// VAPP-188: write ON BEHALF of this member (owners only; `None` = the
+    /// writer, omitted on the wire).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
 }
 
 /// `apps.records.upsert` output: the record's id, `created` = a new row.
@@ -299,10 +303,16 @@ mod tests {
             kind: "entry".into(),
             data: serde_json::json!({"hours": 3}),
             record_id: None,
+            author: None,
         };
         assert_eq!(
             serde_json::to_value(&upsert).unwrap(),
             serde_json::json!({"id": "app", "kind": "entry", "data": {"hours": 3}})
+        );
+        let on_behalf = RecordUpsertInput { record_id: Some("r1".into()), author: Some("u2".into()), ..upsert };
+        assert_eq!(
+            serde_json::to_value(&on_behalf).unwrap(),
+            serde_json::json!({"id": "app", "kind": "entry", "data": {"hours": 3}, "recordId": "r1", "author": "u2"})
         );
         assert_eq!(
             serde_json::to_value(RecordIdInput { id: "app", record_id: "r1" }).unwrap(),

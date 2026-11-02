@@ -707,7 +707,7 @@ fn records_upsert_fn(scope: Option<HostScope>) -> HostFunction {
             move |trpc, app_id| {
                 api::apps::records_upsert(
                     trpc,
-                    &api::apps::RecordUpsertInput { id: app_id.to_string(), kind, data, record_id },
+                    &api::apps::RecordUpsertInput { id: app_id.to_string(), kind, data, record_id, author: None },
                 )
             },
             |out| json!({ "id": out.id }),

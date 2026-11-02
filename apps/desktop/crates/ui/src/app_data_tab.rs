@@ -8,7 +8,11 @@
 //! fixed px), each cell one truncated line; the trailing `…` opens Edit /
 //! Delete (destructive, asks first); VAPP-187: a row the viewer may not
 //! change (`can_change_record`: neither its author nor a team owner) keeps
-//! its `…` DISABLED, and `by` names the AUTHOR. Add / Edit = the native dialog's FORM
+//! its `…` DISABLED, and `by` names the AUTHOR (VAPP-188 `record_byline`:
+//! `{writer} for {author}` when an owner wrote it for them). For a team
+//! OWNER the form's first field is `copy.author` (the select control over
+//! the team's members, `author_options`); Save sends `author` only when the
+//! pick differs (`form_author`). Add / Edit = the native dialog's FORM
 //! ([`open_form`]): one labelled field per column, Save = `apps.records.
 //! upsert` (a BAD_REQUEST shows inline under the fields, anything else is
 //! the failed-action toast). The pure model is `domain::app_records`.
@@ -32,8 +36,8 @@ use serde_json::Value;
 use sync::Store;
 
 use domain::app_records::{
-    can_change_record, cell_text, column_width, data_columns, data_kinds, data_rows, form_data, form_fields, form_input, kind_option, kind_schema, table_min_width,
-    record_author, DataControl, DataFormField, DataSchema, FormInput, RecordOp, RecordRowInput, DATA_TAB,
+    author_options, can_change_record, cell_text, column_width, data_columns, data_kinds, data_rows, form_data, form_fields, form_input, kind_option, kind_schema, table_min_width,
+    form_author, record_byline, DataControl, DataFormField, DataSchema, FormInput, RecordOp, RecordRowInput, DATA_TAB,
 };
 use domain::apps::APPS;
 use domain::prompts::{Action, Prompt, Role};
@@ -61,6 +65,8 @@ struct Record {
 struct Viewer {
     user_id: Option<String>,
     role: Option<String>,
+    /// The app's team (VAPP-188: the Author picker's members).
+    team_id: Option<String>,
 }
 
 impl Viewer {
@@ -77,14 +83,15 @@ impl Viewer {
 /// the viewer.
 fn app_state(app_id: &str, cx: &App) -> (Option<Value>, Vec<Record>, Viewer) {
     let row = crate::apps_view::find_app(app_id, None, cx).and_then(|entry| entry.row);
+    let team_id = row.as_ref().and_then(|row| row.team_id.clone());
     let viewer = Viewer {
         user_id: crate::queries::active_account(cx).map(|account| account.user_id),
-        role: row
-            .as_ref()
-            .and_then(|row| row.team_id.as_deref())
+        role: team_id
+            .as_deref()
             .filter(|_| Store::try_global(cx).is_some())
             .and_then(|team_id| crate::settings::my_membership(cx, team_id))
             .map(|(_, role)| role),
+        team_id,
     };
     let package = row.and_then(|row| row.package).filter(Value::is_object);
     let records = Store::try_global(cx)
@@ -135,7 +142,7 @@ impl AppDataTab {
         Self { app_id, kind: None, scroll: ScrollHandle::new(), table_scroll: ScrollHandle::new(), _subscriptions: subscriptions }
     }
 
-    fn toolbar(&self, kinds: &[(String, usize)], picked: &str, schema: &DataSchema, cx: &mut gpui::Context<Self>) -> Div {
+    fn toolbar(&self, kinds: &[(String, usize)], picked: &str, schema: &DataSchema, viewer: &Viewer, cx: &mut gpui::Context<Self>) -> Div {
         let count = kinds.iter().find(|(k, _)| k == picked).map_or(0, |(_, n)| *n);
         let view = cx.entity().downgrade();
         let options: Vec<(String, usize)> = kinds.to_vec();
@@ -165,7 +172,7 @@ impl AppDataTab {
                 }
                 menu
             });
-        let (app_id, kind, schema) = (self.app_id.clone(), picked.to_string(), schema.clone());
+        let (app_id, kind, schema, viewer) = (self.app_id.clone(), picked.to_string(), schema.clone(), viewer.clone());
         h_flex()
             .w_full()
             .items_center()
@@ -180,7 +187,7 @@ impl AppDataTab {
                     .icon(Icon::new(registry::UI_ADD))
                     .label(DATA_TAB.copy.add_record.clone())
                     .on_click(move |_, window, cx| {
-                        open_form(window, cx, app_id.clone(), kind.clone(), schema.clone(), None)
+                        open_form(window, cx, app_id.clone(), kind.clone(), schema.clone(), None, &viewer)
                     }),
             )
     }
@@ -212,9 +219,9 @@ impl AppDataTab {
         div().w_full().min_w_0().truncate().child(text.into()).into_any_element()
     }
 
-    fn row_menu(&self, index: usize, record: &Record, schema: &DataSchema, allowed: bool, cx: &App) -> AnyElement {
-        let (app_id, record_id, kind, data) =
-            (self.app_id.clone(), record.id.clone(), record.kind.clone(), record.data.clone());
+    fn row_menu(&self, index: usize, record: &Record, schema: &DataSchema, viewer: &Viewer, cx: &App) -> AnyElement {
+        let allowed = viewer.may_change(record);
+        let (app_id, viewer, edited) = (self.app_id.clone(), viewer.clone(), record.clone());
         let schema = schema.clone();
         let button = crate::controls::ghost_icon_button(
             SharedString::from(format!("{}-{index}", DATA_TAB.test_ids.menu)),
@@ -227,9 +234,9 @@ impl AppDataTab {
         }
         button
         .pointer_menu(move |menu, _window, cx| {
-            let (edit_app, edit_kind, edit_schema, edit_id, edit_data) =
-                (app_id.clone(), kind.clone(), schema.clone(), record_id.clone(), data.clone());
-            let (delete_app, delete_id) = (app_id.clone(), record_id.clone());
+            let (edit_app, edit_schema, edit_viewer, edit_record) =
+                (app_id.clone(), schema.clone(), viewer.clone(), edited.clone());
+            let (delete_app, delete_id) = (app_id.clone(), edited.id.clone());
             menu.item(
                 crate::controls::pointer_label_item(DATA_TAB.copy.edit.clone(), false)
                     .icon(Icon::new(registry::UI_EDIT))
@@ -238,9 +245,10 @@ impl AppDataTab {
                             window,
                             cx,
                             edit_app.clone(),
-                            edit_kind.clone(),
+                            edit_record.kind.clone(),
                             edit_schema.clone(),
-                            Some((edit_id.clone(), edit_data.clone())),
+                            Some(&edit_record),
+                            &edit_viewer,
                         )
                     }),
             )
@@ -288,7 +296,7 @@ impl Render for AppDataTab {
                 .into_iter()
                 .filter_map(|row| records.iter().find(|r| r.id == row.id))
                 .collect();
-            let toolbar = self.toolbar(&kinds, &picked, &schema, cx);
+            let toolbar = self.toolbar(&kinds, &picked, &schema, &viewer, cx);
             let list = if ordered.is_empty() {
                 crate::controls::empty_state_list(Icon::new(registry::NAV_APPS), DATA_TAB.copy.empty.clone(), cx)
                     .into_any_element()
@@ -308,10 +316,12 @@ impl Render for AppDataTab {
                 ));
                 let mut rows = vec![header];
                 for (index, record) in ordered.iter().enumerate() {
-                    let author = record_author(record.author_id.as_deref(), record.created_by.as_deref())
-                        .and_then(|id| users.as_ref()?.read(cx).get(id)?.name.clone())
-                        .filter(|name| !name.trim().is_empty());
-                    let by = author.unwrap_or_else(|| APPS.copy.by_agent.clone());
+                    let by = record_byline(
+                        record.author_id.as_deref(),
+                        record.created_by.as_deref(),
+                        |id| users.as_ref()?.read(cx).get(id)?.name.clone().filter(|name| !name.trim().is_empty()),
+                        &APPS.copy.by_agent,
+                    );
                     let updated = crate::comments::relative_time(&record.updated_at, now);
                     let cells = columns
                         .iter()
@@ -324,7 +334,7 @@ impl Render for AppDataTab {
                                 cells,
                                 div().w_full().min_w_0().truncate().text_color(muted).child(by).into_any_element(),
                                 div().w_full().min_w_0().truncate().text_color(muted).child(updated).into_any_element(),
-                                self.row_menu(index, record, &schema, viewer.may_change(record), cx),
+                                self.row_menu(index, record, &schema, &viewer, cx),
                             )
                             .id(SharedString::from(format!("{}-{}", DATA_TAB.test_ids.row, record.id))),
                         ),
@@ -415,22 +425,74 @@ const FORM_WIDTH: f32 = 460.;
 const FORM_ROW_PX: f32 = 46.;
 const FORM_CHROME_PX: f32 = 120.;
 
+/// VAPP-188: the owner's Author field: the team's members by name, the
+/// record (`None` = create) and the pick.
+struct AuthorField {
+    viewer: Option<String>,
+    /// The edited row's `(author_id, created_by)`.
+    record: Option<(Option<String>, Option<String>)>,
+    /// `(user id, display name)`, `author_options` order.
+    options: Vec<(String, String)>,
+    picked: String,
+}
+
+impl AuthorField {
+    /// `Some` for a team OWNER only (non-owners never name an author).
+    fn new(viewer: &Viewer, record: Option<&Record>, cx: &App) -> Option<Self> {
+        if viewer.role.as_deref() != Some("owner") {
+            return None;
+        }
+        let (team_id, store) = (viewer.team_id.as_deref()?, Store::try_global(cx)?);
+        let collections = store.collections();
+        let users = collections.users.read(cx);
+        let members = collections
+            .team_members
+            .read(cx)
+            .iter()
+            .filter(|member| member.team_id == team_id)
+            .map(|member| {
+                let name = users
+                    .get(&member.user_id)
+                    .map(crate::issue_draft::display_name)
+                    .unwrap_or_else(|| domain::member_fallback_label(&member.user_id));
+                (member.user_id.clone(), name)
+            })
+            .collect();
+        let record = record.map(|r| (r.author_id.clone(), r.created_by.clone()));
+        let picked = form_author(viewer.user_id.as_deref(), Self::pair(&record), None).default.unwrap_or_default().to_string();
+        Some(Self { viewer: viewer.user_id.clone(), record, options: author_options(members), picked })
+    }
+
+    fn pair(record: &Option<(Option<String>, Option<String>)>) -> Option<(Option<&str>, Option<&str>)> {
+        record.as_ref().map(|(author_id, created_by)| (author_id.as_deref(), created_by.as_deref()))
+    }
+
+    /// What Save sends as `author` (`None` = omit).
+    fn send(&self) -> Option<String> {
+        let picked = Some(self.picked.as_str()).filter(|p| !p.is_empty());
+        form_author(self.viewer.as_deref(), Self::pair(&self.record), picked).send.map(str::to_string)
+    }
+}
+
 /// Open the Add (`editing` = None) or Edit form for a `kind` record.
-pub(crate) fn open_form(
+fn open_form(
     window: &mut Window,
     cx: &mut App,
     app_id: String,
     kind: String,
     schema: DataSchema,
-    editing: Option<(String, Value)>,
+    editing: Option<&Record>,
+    viewer: &Viewer,
 ) {
     let copy = &DATA_TAB.copy;
     let title = if editing.is_some() { &copy.edit_title } else { &copy.new_title }.replace("{kind}", &kind);
-    let fields = form_fields(&schema).len().max(1) as f32;
+    let author = AuthorField::new(viewer, editing, cx);
+    let editing = editing.map(|record| (record.id.clone(), record.data.clone()));
+    let fields = (form_fields(&schema).len() + usize::from(author.is_some())).max(1) as f32;
     let height = (window.viewport_size().height * 0.85).min(px(FORM_CHROME_PX + FORM_ROW_PX * fields));
     let spec = DialogSpec::new(title, size(px(FORM_WIDTH), height)).resizable(size(px(400.), px(240.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| RecordFormView::new(app_id, kind, schema, editing, window, cx));
+        let view = cx.new(|cx| RecordFormView::new(app_id, kind, schema, editing, author, window, cx));
         let busy = view.clone();
         DialogContent::new(view).self_scrolling().can_close(move |cx| !busy.read(cx).busy)
     });
@@ -443,6 +505,14 @@ enum FieldState {
     Select(String),
 }
 
+/// Which select a pick lands in.
+#[derive(Clone, Copy)]
+enum SelectSlot {
+    Field(usize),
+    /// VAPP-188: the owner's Author field.
+    Author,
+}
+
 pub(crate) struct RecordFormView {
     app_id: String,
     kind: String,
@@ -450,6 +520,8 @@ pub(crate) struct RecordFormView {
     /// The record being edited (`None` = create).
     record_id: Option<String>,
     fields: Vec<(DataFormField, FieldState)>,
+    /// VAPP-188: the owner's Author field (`None` = not an owner).
+    author: Option<AuthorField>,
     busy: bool,
     /// The server's BAD_REQUEST message, inline under the fields.
     error: Option<SharedString>,
@@ -463,6 +535,7 @@ impl RecordFormView {
         kind: String,
         schema: DataSchema,
         editing: Option<(String, Value)>,
+        author: Option<AuthorField>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -512,6 +585,7 @@ impl RecordFormView {
             schema,
             record_id: editing.map(|(id, _)| id),
             fields,
+            author,
             busy: false,
             error: None,
             body_scroll: ScrollHandle::new(),
@@ -547,6 +621,7 @@ impl RecordFormView {
             kind: self.kind.clone(),
             data: Value::Object(data),
             record_id: self.record_id.clone(),
+            author: self.author.as_ref().and_then(AuthorField::send),
         };
         self.busy = true;
         self.error = None;
@@ -576,14 +651,18 @@ impl RecordFormView {
 
     /// The field's label: the name, `optional` muted after an optional one.
     fn label(field: &DataFormField, cx: &App) -> Div {
+        Self::label_text(field.name.clone(), field.required, cx)
+    }
+
+    fn label_text(name: String, required: bool, cx: &App) -> Div {
         h_flex()
             .flex_shrink_0()
             .items_baseline()
             .gap_1p5()
             .text_sm()
             .text_color(cx.theme().foreground)
-            .child(field.name.clone())
-            .when(!field.required, |label| {
+            .child(name)
+            .when(!required, |label| {
                 label.child(
                     div().text_xs().text_color(cx.theme().muted_foreground).child(DATA_TAB.copy.optional.clone()),
                 )
@@ -591,12 +670,24 @@ impl RecordFormView {
     }
 
     fn select(&self, index: usize, field: &DataFormField, value: &str, cx: &mut gpui::Context<Self>) -> AnyElement {
-        let none = DATA_TAB.copy.none.clone();
         let mut options: Vec<(String, String)> = Vec::new();
         if !field.required {
-            options.push((String::new(), none.clone()));
+            options.push((String::new(), DATA_TAB.copy.none.clone()));
         }
         options.extend(field.options.clone().unwrap_or_default().into_iter().map(|o| (o.clone(), o)));
+        Self::select_control(SharedString::from(format!("app-data-field-{index}")), options, value, SelectSlot::Field(index), cx)
+    }
+
+    /// The form's select (a `select` field, VAPP-188 the Author field):
+    /// `(value, label)` options, the pick lands in `slot`.
+    fn select_control(
+        id: SharedString,
+        options: Vec<(String, String)>,
+        value: &str,
+        slot: SelectSlot,
+        cx: &mut gpui::Context<Self>,
+    ) -> AnyElement {
+        let none = DATA_TAB.copy.none.clone();
         let picked = options
             .iter()
             .find(|(v, _)| v == value)
@@ -604,7 +695,7 @@ impl RecordFormView {
             .unwrap_or_else(|| if value.is_empty() { none } else { value.to_string() });
         let current = value.to_string();
         let view = cx.entity().downgrade();
-        crate::trigger_editor::picker_trigger(SharedString::from(format!("app-data-field-{index}")), picked, cx)
+        crate::trigger_editor::picker_trigger(id, picked, cx)
             .pointer_menu(move |mut menu, _window, _cx| {
                 menu = crate::pickers::single_select_menu(menu);
                 for (value, label) in &options {
@@ -616,8 +707,17 @@ impl RecordFormView {
                             .on_click(move |_, _, cx| {
                                 let value = value.clone();
                                 let _ = view.update(cx, |this, cx| {
-                                    if let Some((_, FieldState::Select(slot))) = this.fields.get_mut(index) {
-                                        *slot = value;
+                                    match slot {
+                                        SelectSlot::Field(index) => {
+                                            if let Some((_, FieldState::Select(field))) = this.fields.get_mut(index) {
+                                                *field = value;
+                                            }
+                                        }
+                                        SelectSlot::Author => {
+                                            if let Some(author) = this.author.as_mut() {
+                                                author.picked = value;
+                                            }
+                                        }
                                     }
                                     this.error = None;
                                     cx.notify();
@@ -668,6 +768,16 @@ impl RecordFormView {
 impl Render for RecordFormView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let mut rows: Vec<Div> = Vec::new();
+        // VAPP-188: an owner's FIRST field = Author (required, no None).
+        if let Some(author) = &self.author {
+            let (options, picked) = (author.options.clone(), author.picked.clone());
+            let control = Self::select_control(SharedString::from("app-data-field-author"), options, &picked, SelectSlot::Author, cx);
+            rows.push(
+                crate::surface::glass_row_shell()
+                    .child(Self::label_text(DATA_TAB.copy.author.clone(), true, cx))
+                    .child(h_flex().flex_1().min_w_0().justify_end().child(control)),
+            );
+        }
         for index in 0..self.fields.len() {
             let (field, state) = &self.fields[index];
             let field = field.clone();

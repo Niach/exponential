@@ -119,6 +119,33 @@ export function canChangeRecord(
   return author !== null && author === viewer
 }
 
+/** VAPP-188 ON-BEHALF (fixture `onBehalf`): who may name another member as
+ *  a write's author, and the server's refusals. */
+export const APP_RECORDS_ON_BEHALF = {
+  refusal: fixture.onBehalf.refusal,
+  notMember: fixture.onBehalf.notMember,
+}
+
+export type WriteAsVerdict = `ok` | `forbidden` | `notMember`
+
+/** May `viewer` (team `role`; null = not a member) write a record as
+ *  `author` (null = as themself)? Another member = owners only, and the
+ *  author must be one of `members` (`writeAsCases`). */
+export function writeAsVerdict(viewer: string | null, role: string | null, author: string | null | undefined, members: readonly string[]): WriteAsVerdict {
+  if (viewer === null || role === null) return `forbidden`
+  if (author == null || author === viewer) return `ok`
+  if (role !== `owner`) return `forbidden`
+  return members.includes(author) ? `ok` : `notMember`
+}
+
+/** An imported record's author (`importCases`): absent, the importer or a
+ *  stranger to the team = the importer; another member = them when the
+ *  importer is an owner, else null (the import is refused). */
+export function importAuthor(importer: string, role: string | null, author: string | null | undefined, members: readonly string[]): string | null {
+  if (author == null || author === importer || !members.includes(author)) return importer
+  return role === `owner` ? author : null
+}
+
 export interface RecordsDay {
   date: string
   day: number
@@ -426,4 +453,40 @@ export function columnWidth(field: DataField): number | null {
   const widths = APP_DATA_TAB.columns.typeWidths as Record<string, number>
   if (field.type === `string`) return field.format ? (widths[field.format] ?? null) : null
   return widths[field.type] ?? null
+}
+
+/** VAPP-188: the `by` cell (`bylineCases`): the author's name (else
+ *  `fallback`, apps.json `copy.byAgent`), `{writer} for {author}` when
+ *  someone else with a name wrote it. */
+export function recordByline(
+  row: { authorId?: string | null; createdBy: string | null },
+  names: Readonly<Record<string, string>>,
+  fallback: string
+): string {
+  const authorId = recordAuthor(row)
+  const author = (authorId !== null ? names[authorId] : undefined) || fallback
+  const writer = row.createdBy !== null && row.createdBy !== authorId ? names[row.createdBy] : undefined
+  return writer ? APP_DATA_COPY.byFor.replace(`{writer}`, writer).replace(`{author}`, author) : author
+}
+
+/** VAPP-188: the owner's Author picker, members by name (case-insensitive,
+ *  ties by id: `authorOptionCases`). */
+export function authorOptions<T extends { id: string; name: string }>(users: readonly T[]): T[] {
+  return [...users].sort((a, b) => {
+    const x = a.name.toLowerCase()
+    const y = b.name.toLowerCase()
+    return x < y ? -1 : x > y ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+  })
+}
+
+/** VAPP-188: the picker's default (the record's author on edit, the viewer
+ *  on create) and what Save sends (`send`: the pick when it differs from
+ *  the record's author / the viewer, else null = omit; `formAuthorCases`). */
+export function formAuthor(
+  viewer: string | null,
+  record: { authorId?: string | null; createdBy: string | null } | null,
+  picked: string | null
+): { default: string | null; send: string | null } {
+  const base = record ? recordAuthor(record) : viewer
+  return { default: base ?? viewer, send: picked !== null && picked !== base ? picked : null }
 }

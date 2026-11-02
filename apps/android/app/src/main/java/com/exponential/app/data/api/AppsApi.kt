@@ -67,7 +67,14 @@ private data class TxResult(val txid: Long? = null)
 // VAPP-122: `apps.records.upsert` / `apps.records.delete` (an app's own
 // rows; `id` = the APP, `recordId` = the record).
 @Serializable
-private data class AppRecordUpsertInput(val id: String, val kind: String, val data: JsonObject, val recordId: String? = null)
+private data class AppRecordUpsertInput(
+    val id: String,
+    val kind: String,
+    val data: JsonObject,
+    val recordId: String? = null,
+    /** VAPP-188: an owner's on-behalf author (null = the writer; omitted). */
+    val author: String? = null,
+)
 
 @Serializable
 data class AppRecordUpsertResult(val id: String, val created: Boolean = false, val txid: Long? = null)
@@ -162,11 +169,18 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
     /** VAPP-122: create a record of [kind] in app [appId], or (with
      *  [recordId]) shallow-patch that record's data. The server validates
      *  [data] against the kind's schema, the byte cap and the plan quota. */
-    suspend fun recordsUpsert(accountId: String, appId: String, kind: String, data: JsonObject, recordId: String?): AppRecordUpsertResult =
+    suspend fun recordsUpsert(
+        accountId: String,
+        appId: String,
+        kind: String,
+        data: JsonObject,
+        recordId: String?,
+        author: String? = null,
+    ): AppRecordUpsertResult =
         trpc.mutation(
             accountId,
             path = "apps.records.upsert",
-            input = AppRecordUpsertInput(appId, kind, data, recordId),
+            input = AppRecordUpsertInput(appId, kind, data, recordId, author),
             inputSerializer = AppRecordUpsertInput.serializer(),
             outputSerializer = AppRecordUpsertResult.serializer(),
         )

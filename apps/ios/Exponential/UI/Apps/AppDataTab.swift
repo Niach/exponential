@@ -18,6 +18,8 @@ import SwiftUI
 /// Writes = `apps.records.upsert` / `apps.records.delete` as the viewer.
 /// VAPP-187: a row the viewer may change neither way (`canChangeRecord`:
 /// only its author or a team owner) keeps its `…`, DISABLED.
+/// VAPP-188: phones show no `by` cell (the wide table's); an OWNER's form
+/// leads with the Author picker (`AppDataAuthorPicker`).
 struct AppDataTab: View {
     let app: AppListEntry
 
@@ -67,7 +69,7 @@ struct AppDataTab: View {
         .background {
             Color.clear
                 .sheet(item: $form) { target in
-                    AppRecordFormSheet(appId: app.id, target: target)
+                    AppRecordFormSheet(appId: app.id, target: target, author: model.authorPicker)
                 }
         }
         .background {
@@ -254,6 +256,13 @@ struct AppDataFormTarget: Identifiable {
     var id: String { row.map { "edit-\($0.id)" } ?? "new-\(kind)" }
 }
 
+/// VAPP-188: an OWNER's Author picker — the viewer (the create's default)
+/// and the team's members by name (`AppRecords.authorOptions`).
+struct AppDataAuthorPicker {
+    let viewer: String?
+    let options: [AppRecords.AuthorOption]
+}
+
 /// A record row's `…` — THE Menu in its sheet presentation: Edit · Delete
 /// (destructive). A pick hands the action back; the host acts once the
 /// sheet has dismissed.
@@ -290,9 +299,14 @@ struct AppDataRowMenuSheet: View {
 /// omits the nulls, edit keeps them) and calls `apps.records.upsert`. A
 /// BAD_REQUEST (the schema's issues) = the server's message INLINE under
 /// the form; anything else (the plan limit included) = the toast.
+/// VAPP-188: `author` (owners only, nil = none) = the FIRST field, the same
+/// select control (required, no None) over the members by name, defaulting
+/// to `formAuthor(...).defaultAuthor`; Save sends `author` only when
+/// `formAuthor(...).send` names one. A `notMember` BAD_REQUEST = inline.
 struct AppRecordFormSheet: View {
     let appId: String
     let target: AppDataFormTarget
+    let author: AppDataAuthorPicker?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -301,12 +315,17 @@ struct AppRecordFormSheet: View {
     @State private var inputs: [String: AppRecords.DataInput]
     @State private var saving = false
     @State private var error: String?
+    /// VAPP-188: the Author picker's pick (a user id; "" = none).
+    @State private var pickedAuthor: String
 
     private let fields: [AppRecords.DataFormField]
 
-    init(appId: String, target: AppDataFormTarget) {
+    init(appId: String, target: AppDataFormTarget, author: AppDataAuthorPicker? = nil) {
         self.appId = appId
         self.target = target
+        self.author = author
+        let base = AppRecords.formAuthor(viewer: author?.viewer, record: target.row, picked: nil).defaultAuthor
+        _pickedAuthor = State(initialValue: base ?? "")
         let fields = AppRecords.formFields(target.schema)
         self.fields = fields
         var seeded: [String: AppRecords.DataInput] = [:]
@@ -330,6 +349,9 @@ struct AppRecordFormSheet: View {
                 .accessibilityIdentifier("app-data-cancel")
         }) {
             VStack(alignment: .leading, spacing: 12) {
+                if let author {
+                    authorField(author)
+                }
                 ForEach(fields, id: \.name) { field in
                     fieldView(field)
                 }
@@ -360,12 +382,16 @@ struct AppRecordFormSheet: View {
     // MARK: - Fields
 
     private func label(_ field: AppRecords.DataFormField) -> some View {
+        label(field.name, required: field.required)
+    }
+
+    private func label(_ name: String, required: Bool) -> some View {
         HStack(spacing: 6) {
-            Text(field.name)
+            Text(name)
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white)
                 .lineLimit(1)
-            if !field.required {
+            if !required {
                 Text(AppRecords.DataTab.Copy.optional)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
@@ -428,16 +454,56 @@ struct AppRecordFormSheet: View {
         let current = inputs[field.name]?.text ?? ""
         var items: [PickerItem<String>] = field.required ? [] : [PickerItem(value: "", label: AppRecords.DataTab.Copy.none)]
         items += options.map { PickerItem(value: $0, label: $0) }
-        return GlassPicker(
+        return selectControl(
+            title: field.name,
+            items: items,
+            current: current,
+            shown: current.isEmpty ? AppRecords.DataTab.Copy.none : current,
+            identifier: identifier
+        ) { next in
+            inputs[field.name] = .text(next)
+        }
+    }
+
+    /// VAPP-188: the owner's Author field — the same select control,
+    /// required (no None): the members by name, the value a user id.
+    private func authorField(_ author: AppDataAuthorPicker) -> some View {
+        let name = AppRecords.DataTab.Copy.author
+        let items = author.options.map { PickerItem(value: $0.id, label: $0.name) }
+        let current = pickedAuthor
+        // A pick outside the team (the author left) reads as the fallback.
+        let shown = author.options.first(where: { $0.id == current })?.name ?? Apps.Copy.byAgent
+        return VStack(alignment: .leading, spacing: 6) {
+            label(name, required: true)
+            selectControl(
+                title: name, items: items, current: current, shown: shown,
+                identifier: "app-data-field-\(name)"
+            ) { next in
+                pickedAuthor = next
+            }
+        }
+    }
+
+    /// THE select control of the form: the picker opening inline in this
+    /// sheet, its row reading `shown`.
+    private func selectControl(
+        title: String,
+        items: [PickerItem<String>],
+        current: String,
+        shown: String,
+        identifier: String,
+        onPick: @escaping (String) -> Void
+    ) -> some View {
+        GlassPicker(
             items: items,
             mode: .single,
             value: [current],
             onChange: { next in
-                if let next = next.first { inputs[field.name] = .text(next) }
+                if let next = next.first { onPick(next) }
             },
-            title: field.name
+            title: title
         ) {
-            GlassPickerRowLabel(field.name, value: current.isEmpty ? AppRecords.DataTab.Copy.none : current)
+            GlassPickerRowLabel(title, value: shown)
                 .font(.subheadline)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 12)
@@ -459,10 +525,18 @@ struct AppRecordFormSheet: View {
         let kind = target.kind
         let recordId = target.row?.id
         let appId = appId
+        // VAPP-188: owners only, and only when the pick moves the author.
+        let sendAuthor: String? = author.flatMap { picker in
+            AppRecords.formAuthor(
+                viewer: picker.viewer, record: target.row, picked: pickedAuthor.isEmpty ? nil : pickedAuthor
+            ).send
+        }
         Task {
             defer { saving = false }
             do {
-                _ = try await api.recordsUpsert(accountId: account, appId: appId, kind: kind, data: data, recordId: recordId)
+                _ = try await api.recordsUpsert(
+                    accountId: account, appId: appId, kind: kind, data: data, recordId: recordId, author: sendAuthor
+                )
                 dismiss()
             } catch {
                 if error.trpcErrorCode == "BAD_REQUEST", !error.isPlanLimitError {
@@ -489,6 +563,8 @@ final class AppDataModel {
     /// member), for `canChange`.
     private(set) var viewer: String?
     private(set) var role: String?
+    /// VAPP-188: the app's team members by name (`authorOptions`).
+    private(set) var members: [AppRecords.AuthorOption] = []
 
     @ObservationIgnored private var task: Task<Void, Never>?
 
@@ -501,12 +577,18 @@ final class AppDataModel {
             || AppRecords.canChangeRecord(row, viewer: viewer, role: role, op: "delete")
     }
 
+    /// VAPP-188: a team OWNER's Author picker; nil = no picker (and no
+    /// `author` is ever sent).
+    var authorPicker: AppDataAuthorPicker? {
+        role == "owner" ? AppDataAuthorPicker(viewer: viewer, options: members) : nil
+    }
+
     func bind(accountId: String, appId: String, userId: String?, db: DatabaseManager) {
         stop()
         viewer = userId
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let me = userId ?? ""
-        let observation = ValueObservation.tracking { db -> ([AppRecordEntity], String?) in
+        let observation = ValueObservation.tracking { db -> ([AppRecordEntity], String?, [AppRecords.AuthorOption]) in
             let entities = try AppRecordEntity.filter(Column("app_id") == appId).fetchAll(db)
             let role = try String.fetchOne(
                 db,
@@ -517,14 +599,32 @@ final class AppDataModel {
                     """#,
                 arguments: [appId, me]
             )
-            return (entities, role)
+            // VAPP-188: the team's members with their names (else email).
+            let memberRows = try GRDB.Row.fetchAll(
+                db,
+                sql: #"""
+                    SELECT "tm"."user_id" AS "id", "u"."name" AS "name", "u"."email" AS "email"
+                    FROM "team_members" AS "tm"
+                    LEFT JOIN "users" AS "u" ON "u"."id" = "tm"."user_id"
+                    WHERE "tm"."team_id" = (SELECT "team_id" FROM "apps" WHERE "id" = ?)
+                    """#,
+                arguments: [appId]
+            )
+            let members = memberRows.map { row -> AppRecords.AuthorOption in
+                let id = (row["id"] as String?) ?? ""
+                let name = (row["name"] as String?) ?? ""
+                let email = (row["email"] as String?) ?? ""
+                return AppRecords.AuthorOption(id: id, name: name.isEmpty ? email : name)
+            }
+            return (entities, role, AppRecords.authorOptions(members))
         }
         task = Task { [weak self] in
             do {
-                for try await (entities, role) in observation.values(in: pool) {
+                for try await (entities, role, members) in observation.values(in: pool) {
                     guard let self else { return }
                     self.rows = entities.map(AppRecords.Row.init)
                     self.role = role
+                    self.members = members
                     self.loaded = true
                 }
             } catch {}

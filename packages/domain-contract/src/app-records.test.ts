@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/app-records.json" with { type: "json" }
-import { appRecordPurgeDue, canChangeRecord, cellText, dataColumns, dataKinds, dataRows, formData, formFields, formInput, monthDays, parseRecordsQuery, recordsSourceParams, recordsCountLabel, recordsValue, shiftMonth } from "./app-records"
+import { appRecordPurgeDue, authorOptions, canChangeRecord, formAuthor, importAuthor, recordByline, writeAsVerdict, cellText, dataColumns, dataKinds, dataRows, formData, formFields, formInput, monthDays, parseRecordsQuery, recordsSourceParams, recordsCountLabel, recordsValue, shiftMonth } from "./app-records"
 import type { AppRecordRow } from "./app-records"
 
 // The SDK's parseSource, inlined (domain-contract does not depend on the SDK).
@@ -29,6 +29,21 @@ describe(`app records (VAPP-122)`, () => {
   test.each(fixture.ownership.canChangeCases)(`canChangeRecord: $name`, (c) => {
     const row = { authorId: c.author, createdBy: c.createdBy }
     expect({ update: canChangeRecord(row, c.viewer, c.role, `update`), delete: canChangeRecord(row, c.viewer, c.role, `delete`) }).toEqual(c.expected)
+  })
+  test.each(fixture.onBehalf.writeAsCases)(`writeAsVerdict: $name`, (c) => {
+    expect(writeAsVerdict(c.viewer, c.role, c.author, c.members)).toBe(c.expected as never)
+  })
+  test.each(fixture.onBehalf.importCases)(`importAuthor: $name`, (c) => {
+    expect(importAuthor(c.importer, c.role, c.author, c.members)).toBe(c.expected)
+  })
+  test.each(fixture.dataTab.bylineCases)(`recordByline: $name`, (c) => {
+    expect(recordByline({ authorId: c.authorId, createdBy: c.createdBy }, c.names as Record<string, string>, c.fallback)).toBe(c.text)
+  })
+  test.each(fixture.dataTab.authorOptionCases)(`authorOptions %#`, (c) => {
+    expect(authorOptions(c.users).map((u) => u.id)).toEqual(c.order)
+  })
+  test.each(fixture.dataTab.formAuthorCases)(`formAuthor: $name`, (c) => {
+    expect(formAuthor(c.viewer, c.record, c.picked)).toEqual({ default: c.default, send: c.send })
   })
   test.each(fixture.countLabelCases)(`recordsCountLabel %j`, (c) => {
     expect(recordsCountLabel(c.count, c.max)).toBe(c.label)

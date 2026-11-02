@@ -1,7 +1,9 @@
 //! VAPP-122 — app RECORDS, the Rust twin of
 //! `packages/domain-contract/src/app-records.ts` (iOS `AppRecords.swift`,
 //! Android `AppRecords.kt`), byte-locked by `fixtures/app-records.json`
-//! (`queryCases`, `valueCases`, `countLabelCases`, VAPP-161 `sourceCases`).
+//! (`queryCases`, `valueCases`, `countLabelCases`, VAPP-161 `sourceCases`,
+//! VAPP-187 `canChangeCases`, VAPP-188 `onBehalf` + the Data tab's byline /
+//! author picker cases).
 //! The `exp:records?…` binding's (and the neutral `records:<kind>?…`) query grammar and the value it emits over the synced
 //! `app_records` rows. Pure: the app host feeds it rows, the viewer, the
 //! clock and the members' names.
@@ -37,6 +39,19 @@ pub struct RecordsSpec {
     pub weekdays: Vec<String>,
     pub months: Vec<String>,
     pub ownership: RecordsOwnership,
+    #[serde(rename = "onBehalf")]
+    pub on_behalf: RecordsOnBehalf,
+}
+
+/// The fixture's `onBehalf` block (VAPP-188) minus its cases: the server's
+/// refusals of a write naming another member as its author.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordsOnBehalf {
+    /// FORBIDDEN: a non-owner names someone else.
+    pub refusal: String,
+    /// BAD_REQUEST: the named author is not a member of the team.
+    pub not_member: String,
 }
 
 /// VAPP-187: who may patch / delete a record (`policy` per op).
@@ -96,6 +111,109 @@ pub fn can_change_record(
         return true;
     }
     record_author(author_id, created_by) == Some(viewer)
+}
+
+/// VAPP-188: the verdict on a write naming `author` (`onBehalf.writeAsCases`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WriteAsVerdict {
+    Ok,
+    /// FORBIDDEN `onBehalf.refusal`.
+    Forbidden,
+    /// BAD_REQUEST `onBehalf.notMember`.
+    NotMember,
+}
+
+impl WriteAsVerdict {
+    /// The fixture's spelling.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ok => "ok",
+            Self::Forbidden => "forbidden",
+            Self::NotMember => "notMember",
+        }
+    }
+}
+
+/// May `viewer` (team `role`; `None` = not a member) write a record as
+/// `author` (`None` = as themself)? Another member = owners only, and the
+/// author must be one of `members` (`writeAsCases`).
+pub fn write_as_verdict(viewer: Option<&str>, role: Option<&str>, author: Option<&str>, members: &[&str]) -> WriteAsVerdict {
+    let (Some(viewer), Some(role)) = (viewer, role) else {
+        return WriteAsVerdict::Forbidden;
+    };
+    let Some(author) = author.filter(|author| *author != viewer) else {
+        return WriteAsVerdict::Ok;
+    };
+    if role != "owner" {
+        return WriteAsVerdict::Forbidden;
+    }
+    if members.contains(&author) {
+        WriteAsVerdict::Ok
+    } else {
+        WriteAsVerdict::NotMember
+    }
+}
+
+/// An imported record's author (`importCases`): absent, the importer or a
+/// stranger to the team = the importer; another member = them when the
+/// importer is an owner, else `None` (the import is refused).
+pub fn import_author<'a>(importer: &'a str, role: Option<&str>, author: Option<&'a str>, members: &[&str]) -> Option<&'a str> {
+    match author {
+        Some(author) if author != importer && members.contains(&author) => (role == Some("owner")).then_some(author),
+        _ => Some(importer),
+    }
+}
+
+/// VAPP-188: the Data tab's `by` cell (`dataTab.bylineCases`): the author's
+/// name (else `fallback`, apps.json `copy.byAgent`), `{writer} for {author}`
+/// (`copy.byFor`) when someone else with a name wrote it. `names` = user id
+/// → display name (`None` / "" = unknown).
+pub fn record_byline(
+    author_id: Option<&str>,
+    created_by: Option<&str>,
+    names: impl Fn(&str) -> Option<String>,
+    fallback: &str,
+) -> String {
+    let name = |id: &str| names(id).filter(|name| !name.is_empty());
+    let author_id = record_author(author_id, created_by);
+    let author = author_id.and_then(name).unwrap_or_else(|| fallback.to_string());
+    let writer = created_by.filter(|by| Some(*by) != author_id).and_then(name);
+    match writer {
+        Some(writer) => DATA_TAB.copy.by_for.replace("{writer}", &writer).replace("{author}", &author),
+        None => author,
+    }
+}
+
+/// VAPP-188: the owner's Author picker, `(id, name)` members by name
+/// (case-insensitive, ties by id: `dataTab.authorOptionCases`).
+pub fn author_options(mut users: Vec<(String, String)>) -> Vec<(String, String)> {
+    users.sort_by(|(a_id, a), (b_id, b)| a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| a_id.cmp(b_id)));
+    users
+}
+
+/// What [`form_author`] answers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormAuthor<'a> {
+    /// The picker's initial pick.
+    pub default: Option<&'a str>,
+    /// What Save sends as `author` (`None` = omit).
+    pub send: Option<&'a str>,
+}
+
+/// VAPP-188: the picker's default (the record's author on edit, the viewer
+/// on create) and what Save sends (the pick when it differs from the
+/// record's author / the viewer, else `None`; `dataTab.formAuthorCases`).
+/// `record` = the edited row's `(author_id, created_by)`, `None` = create.
+pub fn form_author<'a>(
+    viewer: Option<&'a str>,
+    record: Option<(Option<&'a str>, Option<&'a str>)>,
+    picked: Option<&'a str>,
+) -> FormAuthor<'a> {
+    let base = match record {
+        Some((author_id, created_by)) => record_author(author_id, created_by),
+        None => viewer,
+    };
+    FormAuthor { default: base.or(viewer), send: picked.filter(|picked| Some(*picked) != base) }
 }
 
 /// `fixtures/app-records.json` minus its cases.
@@ -634,6 +752,10 @@ pub struct DataTabCopy {
     pub none: String,
     pub optional: String,
     pub list_hint: String,
+    /// VAPP-188: the owner's Author field.
+    pub author: String,
+    /// VAPP-188: `{writer} for {author}`.
+    pub by_for: String,
 }
 
 /// The wide table's fixed columns (px).
@@ -1226,6 +1348,79 @@ mod tests {
                 other => FormInput::Text(other.as_str().unwrap().to_string()),
             };
             assert_eq!(form_input(control, case.get("value")), want, "{case}");
+        }
+    }
+
+    /// VAPP-188: `onBehalf.writeAsCases` + `importCases`.
+    #[test]
+    fn on_behalf_cases_replay_the_fixture() {
+        let fixture: Value = serde_json::from_str(RECORDS_JSON).unwrap();
+        let on_behalf = &fixture["onBehalf"];
+        assert_eq!(on_behalf["refusal"], APP_RECORDS.on_behalf.refusal.as_str());
+        assert_eq!(on_behalf["notMember"], APP_RECORDS.on_behalf.not_member.as_str());
+        let members = |case: &Value| -> Vec<String> {
+            case["members"].as_array().unwrap().iter().map(|m| m.as_str().unwrap().to_string()).collect()
+        };
+        let write_as = on_behalf["writeAsCases"].as_array().unwrap();
+        assert!(!write_as.is_empty());
+        for case in write_as {
+            let members = members(case);
+            let members: Vec<&str> = members.iter().map(String::as_str).collect();
+            let got = write_as_verdict(case["viewer"].as_str(), case["role"].as_str(), case["author"].as_str(), &members);
+            assert_eq!(got.as_str(), case["expected"].as_str().unwrap(), "{}", case["name"]);
+        }
+        let imports = on_behalf["importCases"].as_array().unwrap();
+        assert!(!imports.is_empty());
+        for case in imports {
+            let members = members(case);
+            let members: Vec<&str> = members.iter().map(String::as_str).collect();
+            let got = import_author(case["importer"].as_str().unwrap(), case["role"].as_str(), case["author"].as_str(), &members);
+            assert_eq!(got, case["expected"].as_str(), "{}", case["name"]);
+        }
+    }
+
+    /// VAPP-188: `dataTab.bylineCases`.
+    #[test]
+    fn byline_cases_replay_the_fixture() {
+        let fixture: Value = serde_json::from_str(RECORDS_JSON).unwrap();
+        assert_eq!(fixture["dataTab"]["copy"]["author"], DATA_TAB.copy.author.as_str());
+        assert_eq!(fixture["dataTab"]["copy"]["byFor"], DATA_TAB.copy.by_for.as_str());
+        for case in data_cases("bylineCases") {
+            let names = case["names"].as_object().unwrap();
+            let got = record_byline(
+                case["authorId"].as_str(),
+                case["createdBy"].as_str(),
+                |id| names.get(id).and_then(Value::as_str).map(str::to_string),
+                case["fallback"].as_str().unwrap(),
+            );
+            assert_eq!(got, case["text"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    /// VAPP-188: `dataTab.authorOptionCases`.
+    #[test]
+    fn author_option_cases_replay_the_fixture() {
+        for case in data_cases("authorOptionCases") {
+            let users = case["users"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|u| (u["id"].as_str().unwrap().to_string(), u["name"].as_str().unwrap().to_string()))
+                .collect();
+            let got: Vec<Value> = author_options(users).into_iter().map(|(id, _)| json!(id)).collect();
+            assert_eq!(Value::Array(got), case["order"], "{case}");
+        }
+    }
+
+    /// VAPP-188: `dataTab.formAuthorCases`.
+    #[test]
+    fn form_author_cases_replay_the_fixture() {
+        for case in data_cases("formAuthorCases") {
+            let record = &case["record"];
+            let record = (!record.is_null()).then(|| (record["authorId"].as_str(), record["createdBy"].as_str()));
+            let got = form_author(case["viewer"].as_str(), record, case["picked"].as_str());
+            assert_eq!(got.default, case["default"].as_str(), "{} default", case["name"]);
+            assert_eq!(got.send, case["send"].as_str(), "{} send", case["name"]);
         }
     }
 
