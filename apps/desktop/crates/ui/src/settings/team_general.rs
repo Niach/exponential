@@ -1090,7 +1090,6 @@ impl GeneralPane {
         // The fixture's slot: the type-the-name field holds focus, and Enter
         // only deletes once the name matches (`on_ok` refuses a mismatch).
         .enter(AlertEnter::Ok)
-        .height(gpui::px(340.))
         .content(move |window, cx| {
             v_flex()
                 .gap_1()

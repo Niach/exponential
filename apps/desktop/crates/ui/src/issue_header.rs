@@ -1025,10 +1025,8 @@ pub(crate) fn close_pr_items(issue_id: &str, cx: &App) -> Vec<ClosePrItem> {
 /// the shared [`crate::pr_merge`] machinery (a refusal toasts, like a failed
 /// merge).
 pub(crate) fn prompt_close_pr(pull_request_id: String, description: String, window: &mut Window, cx: &mut App) {
-    let tall = description.len() > CLOSE_PR_BODY.len();
     let spec = crate::native_dialog::AlertSpec::new(CLOSE_PR_TITLE, description, CLOSE_PR_CONFIRM)
         .ok_variant(gpui_component::button::ButtonVariant::Danger)
-        .height(gpui::px(if tall { 280. } else { 250. }))
         .on_ok(move |_, cx| {
             crate::pr_merge::fire_confirmed(
                 crate::pr_merge::MergeOp::Close {
