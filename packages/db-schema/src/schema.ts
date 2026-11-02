@@ -2779,6 +2779,26 @@ export const pullRequestChecks = pgTable(
   ]
 )
 
+// #EXP-1540 (SERVER-ONLY, no shape): the latest push of each branch (GitHub
+// `push` webhook, `lib/sessions/push-attribution.ts`), dated by its payload,
+// and the session credited with it (null = nobody). Only ever moves forward,
+// so a late-delivered older push never credits anyone. A PR with no recorded
+// session resolves its author through its head's row.
+export const branchPushes = pgTable(
+  `branch_pushes`,
+  {
+    repositoryId: uuid(`repository_id`)
+      .notNull()
+      .references(() => repositories.id, { onDelete: `cascade` }),
+    branch: varchar({ length: 255 }).notNull(),
+    pushedAt: timestamp(`pushed_at`, { withTimezone: true }).notNull(),
+    sessionId: uuid(`session_id`).references(() => sessions.id, {
+      onDelete: `set null`,
+    }),
+  },
+  (table) => [primaryKey({ columns: [table.repositoryId, table.branch] })]
+)
+
 // Which issues a PR closes (n ↔ n). Carries the issue's board mirrors.
 export const pullRequestIssues = pgTable(
   `pull_request_issues`,

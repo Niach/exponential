@@ -101,6 +101,13 @@ vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/github-app")>()),
   resolveRepoInstallationToken: vi.fn(async () => `tok`),
 }))
+// #EXP-1540: the attribution's own rules live in push-attribution.test.ts.
+vi.mock(`@/lib/sessions/push-attribution`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/sessions/push-attribution")>()),
+  attributePush: vi.fn(async () => null),
+  pushedRepositoryIds: vi.fn(() => []),
+}))
+vi.mock(`@/lib/sessions/watchdog`, () => ({ touchSessionActivity: vi.fn(async () => {}) }))
 // EXP-617: the resolver itself is covered in github-identity.test.ts — here
 // we only assert WHICH actor the webhook hands it and that it reaches the
 // writers.
@@ -112,6 +119,7 @@ import * as prSync from "@/lib/integrations/pr-sync"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import { repositories } from "@/db/schema"
 import { yoloEdge } from "@/lib/yolo-edge"
+import { attributePush, pushedRepositoryIds } from "@/lib/sessions/push-attribution"
 // Deliberately the REAL module (in-memory, no I/O): these tests exercise the
 // claim → webhook handoff end to end.
 import {
@@ -648,5 +656,55 @@ describe(`github webhook — CI events (EXP-1610)`, () => {
       }),
     })
     expect(checks.repairPullRequestChecks).not.toHaveBeenCalled()
+  })
+})
+
+// #EXP-1540: a branch push is credited to its session; a deletion and a
+// default-branch push credit nobody.
+describe(`push`, () => {
+  beforeEach(() => {
+    process.env.GITHUB_WEBHOOK_SECRET = SECRET
+    vi.mocked(attributePush).mockClear()
+    vi.mocked(pushedRepositoryIds).mockClear()
+  })
+  const push = (payload: Record<string, unknown>) =>
+    postHandler({
+      request: webhookRequest(`push`, {
+        repository: { full_name: `org/repo`, default_branch: `master` },
+        ...payload,
+      }),
+    })
+
+  it(`credits a branch push to its session`, async () => {
+    expect((await push({ ref: `refs/heads/exp/session-1` })).status).toBe(200)
+    expect(vi.mocked(attributePush)).toHaveBeenCalledWith({
+      fullName: `org/repo`,
+      branch: `exp/session-1`,
+      installationId: null,
+      at: undefined,
+    })
+  })
+
+  it(`scopes to the delivering installation and dates the push from its payload`, async () => {
+    await push({
+      ref: `refs/heads/exp/session-1`,
+      installation: { id: 42 },
+      head_commit: { timestamp: `2026-10-01T10:00:00+02:00` },
+    })
+    expect(vi.mocked(attributePush)).toHaveBeenCalledWith({
+      fullName: `org/repo`,
+      branch: `exp/session-1`,
+      installationId: 42,
+      at: new Date(`2026-10-01T08:00:00Z`),
+    })
+    // The sign-of-life touch is scoped the same way.
+    expect(vi.mocked(pushedRepositoryIds)).toHaveBeenCalledWith({ fullName: `org/repo`, installationId: 42 })
+  })
+
+  it(`ignores deletions, the default branch and tags`, async () => {
+    await push({ ref: `refs/heads/exp/session-1`, deleted: true })
+    await push({ ref: `refs/heads/master` })
+    await push({ ref: `refs/tags/v1` })
+    expect(vi.mocked(attributePush)).not.toHaveBeenCalled()
   })
 })

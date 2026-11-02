@@ -4,6 +4,7 @@ import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { repositories, sessions } from "@/db/schema"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
+import { attributePush, pushedRepositoryIds, pushTime } from "@/lib/sessions/push-attribution"
 import { yoloEdge } from "@/lib/yolo-edge"
 import {
   adoptOutOfBandPullRequest,
@@ -60,9 +61,10 @@ function verifySignature(rawBody: string, signature: string, secret: string) {
 // (EXP-1291: the `pull_requests` row by url: merged / closed / reopened /
 // base edits / draft flips; `opened` adopts an out-of-band PR whose
 // `exp/<IDENTIFIER>` head names an issue) and `push` (EXP-1374: the live
-// sessions on that branch show a sign of life), and EXP-1610's CI events
-// (`check_run` upserts a check row; `check_suite`/`workflow_run` completed
-// repair a PR's checks). Everything else is acked.
+// sessions on that branch show a sign of life; #EXP-1540: the push is
+// credited to its session), and EXP-1610's CI events (`check_run` upserts a
+// check row; `check_suite`/`workflow_run` completed repair a PR's checks).
+// Everything else is acked.
 async function handleGithubWebhook(request: Request): Promise<Response> {
   try {
     const secret = process.env.GITHUB_WEBHOOK_SECRET
@@ -174,20 +176,26 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       const payload = JSON.parse(rawBody) as {
         ref?: string
         deleted?: boolean
-        repository?: { full_name?: string; default_branch?: string }
+        repository?: { full_name?: string; default_branch?: string; pushed_at?: number | string }
+        head_commit?: { timestamp?: string } | null
+        installation?: { id?: number }
       }
       const branch = payload.ref?.startsWith(`refs/heads/`) ? payload.ref.slice(`refs/heads/`.length) : null
       const fullName = payload.repository?.full_name
       if (branch && fullName && !payload.deleted && branch !== payload.repository?.default_branch) {
+        // #EXP-1540: the same full name may be registered by several teams;
+        // only this installation's rows (or still unbound ones) count.
+        const installationId = payload.installation?.id ?? null
         await touchSessionActivity(
           and(
             eq(sessions.branch, branch),
-            inArray(
-              sessions.repositoryId,
-              db.select({ id: repositories.id }).from(repositories).where(eq(repositories.fullName, fullName))
-            )
+            inArray(sessions.repositoryId, pushedRepositoryIds({ fullName, installationId }))
           )!
         )
+        // #EXP-1540: and the push is credited to the session that made it,
+        // so a PR with no recorded session resolves its author through it.
+        // Its time is the push's own (a redelivery is never "now").
+        await attributePush({ fullName, branch, installationId, at: pushTime(payload) })
       }
       return jsonResponse(200, { ok: true })
     }
