@@ -28,7 +28,7 @@ const fixtureLink = (file: string) => LINKS.source(`packages/exponential-ui/${fi
 const REPORT = `{
   "renderer": "my-renderer",
   "platform": "web",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "conformanceVersion": ${manifest.version},
   "suites": {
     "catalog": { "cases": ${manifest.suites[0].cases}, "passed": ${manifest.suites[0].cases}, "failed": [] },
@@ -162,7 +162,7 @@ export default function ConformancePage({ path }: PageProps) {
             </li>
           </ol>
           <DocsCode>{`bun run --filter @exponential_app/eui conformance:check path/to/report.json
-# CONFORMANT  my-renderer (flutter 0.3.0): ${TOTAL} cases passed in ${manifest.suites.length} suites`}</DocsCode>
+# CONFORMANT  my-renderer (flutter 0.4.0): ${TOTAL} cases passed in ${manifest.suites.length} suites`}</DocsCode>
           <p>
             Outside the monorepo, <code>checkReport()</code> from <code>@exponential_app/eui</code> gives the same
             verdict in code. A report with a missing suite, a short case count or a skipped case is not conformant.
