@@ -167,10 +167,6 @@
       "reason": "The same page as `settings-prompt` (captured on /settings/prompts/new) filled from a prompt row; a seeded prompt id is not resolvable by the capture."
     },
     {
-      "route": "/t/$teamSlug/settings/apps/new",
-      "reason": "VAPP-110: the app settings page in create mode, the same layout settings-app photographs with an empty form."
-    },
-    {
       "route": "/t/$teamSlug/settings/voice",
       "reason": "S-3: Personal → Voice is gone; the route redirects to the Assistant page, whose Voice section settings-assistant photographs."
     },

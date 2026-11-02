@@ -399,8 +399,8 @@ impl AppScreenView {
         }
         let Some(pkg) = pkg else { return };
         let theme = pkg.get("theme").and_then(Value::as_str).unwrap_or(THEME_ID).to_string();
-        // VAPP-122: the editor's app keeps its records (`exp:records`,
-        // `harness.records.*`).
+        // VAPP-122: the editor's app keeps its records (`records:<kind>`,
+        // `records.*`).
         let scope = self.app.as_ref().map(|app| crate::exponential_ui_host::HostScope {
             app_id: app.id.clone(),
             team_id: app.row.as_ref().and_then(|row| row.team_id.clone()),

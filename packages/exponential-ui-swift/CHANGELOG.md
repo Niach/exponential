@@ -5,9 +5,13 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
-- VAPP-191: `Expression` is now `Expressions` (`Expressions.evaluate` / `.check`): Foundation (macOS 15 / iOS 18) ships its own `Expression`, so a bare `Expression` was ambiguous in any file importing both (0.5.0's `ExpressionsTests` among them). Compose keeps `Expression`.
+## 0.6.0 (2026-11-02)
+
+- **Breaking**: eApps keeps no backwards compatibility (over the core): `installPackage` refuses a package without `formatVersion: 2` (version 1 is no longer read); `RecordsQuery.parse(params:kind:)` takes the kind only from `kind` (the source's name, `records:<kind>`): a `kind` param is a field filter, and Exponential's `exp:records?kind=…` is no records source; `authorId` is a reserved record key; `Actions.effect(_:)` no longer knows `harness.records.upsert` / `.delete` (records are written only through `records.upsert` / `.delete` / `.batch`).
+- **Breaking** VAPP-191: `Expression` is now `Expressions` (`Expressions.evaluate` / `.check`): Foundation (macOS 15 / iOS 18) ships its own `Expression`, so a bare `Expression` was ambiguous in any file importing both (0.5.0's `ExpressionsTests` among them). Compose keeps `Expression`.
 - VAPP-194: typed effects (eApps E1). `Actions.run(_:action:params:data:me:nowMs:zone:maxSteps:)` (the plan `{writes, sets, calls}` or the one error), `Actions.applyBatch(rows:writes:records:me:now:newIds:)` (all or nothing) and `Actions.effect(_:)` over the core. `ExponentialHost.callFunction` runs `actions.<name>` as the surface's package action: every planned host call's gate and consent first, then the writes as ONE `records.batch {writes}`, then the data sets, then the calls; a failure lands nothing (ACTION_FAILED + `HostOptions.onActionFailed`). New `HostOptions.me` / `now` / `zone` / `onActionFailed`; `ActionsTests` replays `fixtures/actions.json`.
 - VAPP-196: package tests (eApps T1) over the core: `validatePackageJson` reports a package's malformed or failing `tests` (`/tests/<i>`), `runPackageTestsJson` runs them; `PackageTestsTests` replays `fixtures/package-tests.json`.
+- EXP-1589 / EXP-1624: parity with the web renderer. A cartesian Chart maps its nice-tick range; a Button or Toggle dims as one group like CSS; a disabled NumberField or ChipInput dims its whole `field`; the Composer send button draws disabled while the draft is empty; Markdown bullets are web's disc; the CodeBlock copy glyph is 12; a ZoomableImage that has not loaded draws its placeholder (the `image` glyph over the alt) and no pill.
 
 ## 0.5.0 (2026-11-02)
 

@@ -9,6 +9,7 @@
     "as": "member"
   },
   "package": {
+    "formatVersion": 2,
     "id": "acme.hours",
     "name": "Hours",
     "version": "1.0.0",

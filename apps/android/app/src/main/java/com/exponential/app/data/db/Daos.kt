@@ -627,7 +627,7 @@ interface AppVersionDao {
     suspend fun clear()
 }
 
-// VAPP-122: an app's records (the `exp:records` binding derives over them).
+// VAPP-122: an app's records (the `records:<kind>` bindings derive over them).
 @Dao
 interface AppRecordDao {
     @Query("SELECT * FROM app_records WHERE app_id = :appId ORDER BY created_at DESC, id")

@@ -49,7 +49,7 @@ class RecordsQuery private constructor(
     override fun toString(): String = json
 
     companion object {
-        /** Query params (as [ParsedSource.params] gives them) → the query. [kind] = a neutral source's own name, which wins over a `kind` param. */
+        /** Query params (as [ParsedSource.params] gives them) → the query. [kind] = the source's own name (`records:<kind>`); a `kind` param is a field filter. */
         fun parse(params: Map<String, String>, kind: String? = null): RecordsQuery {
             val paramsJson = JsonValue.Obj(params.mapValues { JsonValue.Str(it.value) }).json
             return RecordsQuery(runCatching { at.exponential.ui.ffi.parseRecordsQueryJson(paramsJson, kind) }.getOrNull() ?: """{"from":null}""")

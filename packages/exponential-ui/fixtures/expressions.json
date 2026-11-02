@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-191 (eApps Q2, spec docs/spec/apps.md §4.2-4.4): the expression language, ONE fixture for the TS reference (src/cel.ts) and the Rust core (eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. The string form is a SUBSET of CEL: number/string/bool/null/list literals, names, field paths a.b, indexes a[0] / m['k'], + - * / %, unary - and !, == != < <= > >=, && || (short-circuit), c ? a : b, the function table, and the macros map/filter/all/exists, single level. ONE number type (a double, like JSON: 7 / 2 = 3.5; CEL splits int/uint/double); no implicit conversion; a missing field (or a field of null) reads null; == is deep JSON equality; strings compare by UTF-16 code unit. Errors are exact texts; a parse error starts `at <code point>: `. Functions (also the A2UI form {call, args}): mul{a,b} div{a,b} mod{a,b} round{value,digits?} (half away from zero, digits 0..10) floor ceil abs{value} min max{values} today{} now{} dateAdd{date,n,unit} dateDiff{a,b,unit} (b - a, truncated) startOf endOf{date,unit} weekday{date} (ISO, Monday 1) isoWeek{date} hours{minutes} formatDuration{hours,format} (h:mm, hh:mm), size (CEL only), and expr{expr, vars} = the string form at bind time; a failed call has NO value (`none`). A date is `YYYY-MM-DD` (a calendar day), a timestamp an ISO instant (no offset = UTC; written back as toISOString). Everything date-like runs in the TEAM zone `zones[env.zone]` = a UTC offset per instant (minutes east, `offset` until the first transition, then each `[at, offset]`): a day unit keeps the wall clock (a time in a DST gap moves forward by the gap, a repeated time takes its later instant), second/minute/hour are real time. Units: second minute hour day week month quarter year (startOf/endOf: day..year; a date takes no sub-day unit in dateAdd). Cost: `limits` (maxLength code points, maxDepth = nested expressions and unary operators, maxSteps = evaluated nodes + comprehension iterations; a case's `maxSteps` overrides). `eval`: expr over `vars` in `env` (a case may override now / zone) → value | error. `check`: the type checker at package validation over `checkTypes` (types spelled as JSON: number string bool null date timestamp map dyn, [T] = a list, an object = a row with exactly those fields) → type | error. `calls`: the A2UI form resolved over `callData` (bind time) → value | none, and its `cel` twin over the same data as vars agrees. `packages`: validatePackage's expression issues: every {call: expr} anywhere in a template is parsed and checked; a var's type comes from a literal, a records binding (`records:<kind>` / `exp:records?kind=`: {rows: [row], count, sum, groups, totals, before, month}; a row = the kind's schema fields + id createdAt updatedAt createdBy authorId author) or the template data; anything else is dyn.",
+  "$comment": "VAPP-191 (eApps Q2, spec docs/spec/apps.md §4.2-4.4): the expression language, ONE fixture for the TS reference (src/cel.ts) and the Rust core (eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. The string form is a SUBSET of CEL: number/string/bool/null/list literals, names, field paths a.b, indexes a[0] / m['k'], + - * / %, unary - and !, == != < <= > >=, && || (short-circuit), c ? a : b, the function table, and the macros map/filter/all/exists, single level. ONE number type (a double, like JSON: 7 / 2 = 3.5; CEL splits int/uint/double); no implicit conversion; a missing field (or a field of null) reads null; == is deep JSON equality; strings compare by UTF-16 code unit. Errors are exact texts; a parse error starts `at <code point>: `. Functions (also the A2UI form {call, args}): mul{a,b} div{a,b} mod{a,b} round{value,digits?} (half away from zero, digits 0..10) floor ceil abs{value} min max{values} today{} now{} dateAdd{date,n,unit} dateDiff{a,b,unit} (b - a, truncated) startOf endOf{date,unit} weekday{date} (ISO, Monday 1) isoWeek{date} hours{minutes} formatDuration{hours,format} (h:mm, hh:mm), size (CEL only), and expr{expr, vars} = the string form at bind time; a failed call has NO value (`none`). A date is `YYYY-MM-DD` (a calendar day), a timestamp an ISO instant (no offset = UTC; written back as toISOString). Everything date-like runs in the TEAM zone `zones[env.zone]` = a UTC offset per instant (minutes east, `offset` until the first transition, then each `[at, offset]`): a day unit keeps the wall clock (a time in a DST gap moves forward by the gap, a repeated time takes its later instant), second/minute/hour are real time. Units: second minute hour day week month quarter year (startOf/endOf: day..year; a date takes no sub-day unit in dateAdd). Cost: `limits` (maxLength code points, maxDepth = nested expressions and unary operators, maxSteps = evaluated nodes + comprehension iterations; a case's `maxSteps` overrides). `eval`: expr over `vars` in `env` (a case may override now / zone) → value | error. `check`: the type checker at package validation over `checkTypes` (types spelled as JSON: number string bool null date timestamp map dyn, [T] = a list, an object = a row with exactly those fields) → type | error. `calls`: the A2UI form resolved over `callData` (bind time) → value | none, and its `cel` twin over the same data as vars agrees. `packages`: validatePackage's expression issues: every {call: expr} anywhere in a template is parsed and checked; a var's type comes from a literal, a records binding (`records:<kind>`: {rows: [row], count, sum, groups, totals, before, month}; a row = the kind's schema fields + id createdAt updatedAt createdBy authorId author) or the template data; anything else is dyn. VAPP-195 (E2, spec §4.2): MISSING VALUES ARE EXPLICIT. A type that may be missing is `T?`, spelled {\"?\": T}; it prints `T?`. A kind's field that is not in its schema's `required` reads `T?` (the row keys never do), and so does a var the checker cannot type (`dyn?`: an open binding path, a call). A field or index of a `T?` is optional too. Arithmetic, comparisons (< <= > >=), && || !, a condition, a macro's list or a function argument on a `T?` is an error `<path> may be missing: guard it with has(), a null check or orElse()` (<path> as written: a.b[0].c, else `the value at <code point>`); == and != take one (the null check). Guards: `has(a.b)` (CEL's presence test: true when the field is there and not null; has() of a null value is false; a non-field argument is the parse error `has needs a field: has(a.b)`), `p != null` / `p == null`, through `&&`, `||` and `!`, narrow p in the branch (or the right operand) they prove; `orElse(x, default)` (A2UI {value, default}) is x, or default when x is null, typed T (a default of another type is `orElse needs a <T> default, got <U>`). A ternary with a null branch is T?. Every `{call: expr}` in a package template needs `default` (`an expression binding needs a default, shown when it fails`); at bind time a failing call (expr, any expression function, any bind-time function: an error, the step limit, a throw) resolves to its `default` (absent = no value), so a binding never throws.",
   "limits": {
     "maxLength": 1000,
     "maxDepth": 32,
@@ -1026,6 +1026,46 @@
       "name": "positions count code points",
       "expr": "'é😀' + ?",
       "error": "at 7: unexpected ?"
+    },
+    {
+      "name": "E2: orElse on null",
+      "expr": "orElse(entry.note, 'none')",
+      "value": "none"
+    },
+    {
+      "name": "E2: orElse on a value",
+      "expr": "orElse(hours, 0)",
+      "value": 7.5
+    },
+    {
+      "name": "E2: orElse on a missing field",
+      "expr": "orElse(entry.nope, 'x')",
+      "value": "x"
+    },
+    {
+      "name": "E2: has() of a null field",
+      "expr": "has(entry.note)",
+      "value": false
+    },
+    {
+      "name": "E2: has() of a present field",
+      "expr": "has(entry.hours)",
+      "value": true
+    },
+    {
+      "name": "E2: has() of a missing field",
+      "expr": "has(entry.nope)",
+      "value": false
+    },
+    {
+      "name": "E2: has() on null",
+      "expr": "has(empty.x)",
+      "value": false
+    },
+    {
+      "name": "E2: has() on a number",
+      "expr": "has(hours.x)",
+      "error": "no field x on number"
     }
   ],
   "checkTypes": {
@@ -1048,7 +1088,16 @@
       }
     ],
     "any": "dyn",
-    "meta": "map"
+    "meta": "map",
+    "maybe": {
+      "?": "number"
+    },
+    "opt": {
+      "note": {
+        "?": "string"
+      },
+      "hours": "number"
+    }
   },
   "check": [
     {
@@ -1134,7 +1183,9 @@
     {
       "name": "ternary with null",
       "expr": "done ? hours : null",
-      "type": "number"
+      "type": {
+        "?": "number"
+      }
     },
     {
       "name": "ternary of two types",
@@ -1351,6 +1402,100 @@
       "name": "a nested comprehension",
       "expr": "rows.map(r, rows.exists(s, true))",
       "error": "at 17: nested comprehensions are not allowed"
+    },
+    {
+      "name": "E2: an optional is used unguarded",
+      "expr": "maybe + 1",
+      "error": "maybe may be missing: guard it with has(), a null check or orElse()"
+    },
+    {
+      "name": "E2: orElse narrows",
+      "expr": "orElse(maybe, 0) + 1",
+      "type": "number"
+    },
+    {
+      "name": "E2: orElse keeps the type",
+      "expr": "orElse(maybe, 0)",
+      "type": "number"
+    },
+    {
+      "name": "E2: orElse needs a default of the type",
+      "expr": "orElse(maybe, 'x')",
+      "error": "orElse needs a number default, got string"
+    },
+    {
+      "name": "E2: an optional field reads T?",
+      "expr": "opt.note",
+      "type": {
+        "?": "string"
+      }
+    },
+    {
+      "name": "E2: has() narrows the then branch",
+      "expr": "has(opt.note) ? size(opt.note) : 0",
+      "type": "number"
+    },
+    {
+      "name": "E2: != null narrows the then branch",
+      "expr": "opt.note != null ? opt.note + '!' : ''",
+      "type": "string"
+    },
+    {
+      "name": "E2: == null narrows the else branch",
+      "expr": "opt.note == null ? '' : opt.note",
+      "type": "string"
+    },
+    {
+      "name": "E2: ! swaps the branches",
+      "expr": "!has(opt.note) ? 0 : size(opt.note)",
+      "type": "number"
+    },
+    {
+      "name": "E2: && narrows its right side",
+      "expr": "has(opt.note) && size(opt.note) > 2",
+      "type": "bool"
+    },
+    {
+      "name": "E2: || narrows its right side",
+      "expr": "opt.note == null || size(opt.note) > 2",
+      "type": "bool"
+    },
+    {
+      "name": "E2: a function argument is a use",
+      "expr": "size(opt.note)",
+      "error": "opt.note may be missing: guard it with has(), a null check or orElse()"
+    },
+    {
+      "name": "E2: a comparison with null needs no guard",
+      "expr": "maybe == 3",
+      "type": "bool"
+    },
+    {
+      "name": "E2: a guard does not leak out of its branch",
+      "expr": "(has(opt.note) ? 1 : 0) + size(opt.note)",
+      "error": "opt.note may be missing: guard it with has(), a null check or orElse()"
+    },
+    {
+      "name": "E2: a ternary with a missing branch is optional",
+      "expr": "opt.hours > 1 ? opt.hours : null",
+      "type": {
+        "?": "number"
+      }
+    },
+    {
+      "name": "E2: has() needs a field",
+      "expr": "has(maybe)",
+      "error": "at 0: has needs a field: has(a.b)"
+    },
+    {
+      "name": "E2: has() checks the field exists",
+      "expr": "has(opt.nope)",
+      "error": "unknown field nope"
+    },
+    {
+      "name": "E2: a value with no path is named by its position",
+      "expr": "[maybe][0] + 1",
+      "error": "the value at 7 may be missing: guard it with has(), a null check or orElse()"
     }
   ],
   "callData": {
@@ -1709,12 +1854,64 @@
       },
       "value": "2026-11-02",
       "cel": "today()"
+    },
+    {
+      "name": "E2: a failing call shows its default",
+      "call": {
+        "call": "div",
+        "args": {
+          "a": 1,
+          "b": 0,
+          "default": 0
+        }
+      },
+      "value": 0
+    },
+    {
+      "name": "E2: a failing expr shows its default",
+      "call": {
+        "call": "expr",
+        "args": {
+          "expr": "1 / 0",
+          "vars": {},
+          "default": "—"
+        }
+      },
+      "value": "—"
+    },
+    {
+      "name": "E2: orElse over a missing binding",
+      "call": {
+        "call": "orElse",
+        "args": {
+          "value": {
+            "path": "/nope"
+          },
+          "default": 5
+        }
+      },
+      "value": 5
+    },
+    {
+      "name": "E2: orElse over a value",
+      "call": {
+        "call": "orElse",
+        "args": {
+          "value": {
+            "path": "/h"
+          },
+          "default": 0
+        }
+      },
+      "cel": "orElse(h, 0)",
+      "value": 7.5
     }
   ],
   "packages": [
     {
       "name": "hours left: a records value and template data",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -1770,7 +1967,8 @@
                         "entries": {
                           "path": "/entries"
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -1793,6 +1991,7 @@
     {
       "name": "rows of a kind",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -1840,12 +2039,13 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": "entries.rows.filter(r, r.done).map(r, r.hours)",
+                      "expr": "entries.rows.filter(r, orElse(r.done, false)).map(r, r.hours)",
                       "vars": {
                         "entries": {
                           "path": "/entries"
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -1868,6 +2068,7 @@
     {
       "name": "a typo in a field",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -1920,7 +2121,8 @@
                         "rows": {
                           "path": "/entries/rows"
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -1948,6 +2150,7 @@
     {
       "name": "a typo in the records value",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2000,7 +2203,8 @@
                         "entries": {
                           "path": "/entries"
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -2028,6 +2232,7 @@
     {
       "name": "a unit a date has not",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2075,12 +2280,13 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": "dateAdd(entries.rows[0].date, 1, 'hour')",
+                      "expr": "dateAdd(orElse(entries.rows[0].date, today()), 1, 'hour')",
                       "vars": {
                         "entries": {
                           "path": "/entries"
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -2108,6 +2314,7 @@
     {
       "name": "a timestamp field",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2155,12 +2362,13 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": "dateAdd(entries.rows[0].at, 1, 'hour') > entries.rows[0].createdAt",
+                      "expr": "dateAdd(orElse(entries.rows[0].at, now()), 1, 'hour') > entries.rows[0].createdAt",
                       "vars": {
                         "entries": {
                           "path": "/entries"
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -2183,6 +2391,7 @@
     {
       "name": "the Exponential spelling of a records binding",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2235,7 +2444,8 @@
                         "entries": {
                           "path": "/entries"
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -2247,7 +2457,7 @@
             "bindings": [
               {
                 "path": "/entries",
-                "source": "exp:records?kind=entry"
+                "source": "records:entry"
               }
             ]
           }
@@ -2263,6 +2473,7 @@
     {
       "name": "a syntax error",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2310,7 +2521,8 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": "1 +"
+                      "expr": "1 +",
+                      "default": null
                     }
                   }
                 }
@@ -2338,6 +2550,7 @@
     {
       "name": "a name with no var",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2385,7 +2598,8 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": "target * 2"
+                      "expr": "target * 2",
+                      "default": null
                     }
                   }
                 }
@@ -2413,6 +2627,7 @@
     {
       "name": "a literal var",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2463,7 +2678,8 @@
                       "expr": "x * 2",
                       "vars": {
                         "x": "a"
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -2491,6 +2707,7 @@
     {
       "name": "a literal object var",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2544,7 +2761,8 @@
                           "hours": 40,
                           "weeks": 4
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -2567,6 +2785,7 @@
     {
       "name": "a relative path is open",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2614,12 +2833,13 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": "row.anything + 1",
+                      "expr": "orElse(row.anything, 0) + 1",
                       "vars": {
                         "row": {
                           "path": "hours"
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -2642,6 +2862,7 @@
     {
       "name": "an unbound path is open",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2689,12 +2910,13 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": "x.y * 2",
+                      "expr": "orElse(x.y, 0) * 2",
                       "vars": {
                         "x": {
                           "path": "/nowhere"
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -2717,6 +2939,7 @@
     {
       "name": "a call var is open",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2764,7 +2987,7 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": "x * 2",
+                      "expr": "orElse(x, 0) * 2",
                       "vars": {
                         "x": {
                           "call": "add",
@@ -2773,7 +2996,8 @@
                             "b": 2
                           }
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -2796,6 +3020,7 @@
     {
       "name": "template data types",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2851,7 +3076,8 @@
                         "label": {
                           "path": "/label"
                         }
-                      }
+                      },
+                      "default": null
                     }
                   }
                 }
@@ -2880,6 +3106,7 @@
     {
       "name": "expr is a string",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2927,7 +3154,8 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": 5
+                      "expr": 5,
+                      "default": null
                     }
                   }
                 }
@@ -2955,6 +3183,7 @@
     {
       "name": "vars is an object",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3005,7 +3234,8 @@
                       "expr": "1",
                       "vars": [
                         1
-                      ]
+                      ],
+                      "default": null
                     }
                   }
                 }
@@ -3033,6 +3263,7 @@
     {
       "name": "too long",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3080,7 +3311,8 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": "1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1    "
+                      "expr": "1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1    ",
+                      "default": null
                     }
                   }
                 }
@@ -3108,6 +3340,7 @@
     {
       "name": "an expression anywhere in a component",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3155,7 +3388,8 @@
                   "text": {
                     "call": "expr",
                     "args": {
-                      "expr": "1"
+                      "expr": "1",
+                      "default": null
                     }
                   }
                 },
@@ -3170,7 +3404,8 @@
                           "entries": {
                             "path": "/entries"
                           }
-                        }
+                        },
+                        "default": null
                       }
                     }
                   }
@@ -3193,6 +3428,559 @@
         {
           "path": "/templates/month/components/0/visible/args/value/args/expr",
           "message": "cannot compare number and string"
+        }
+      ]
+    },
+    {
+      "name": "E2: an unguarded optional field names its path",
+      "package": {
+        "formatVersion": 2,
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "entries.rows.filter(r, r.done).map(r, r.hours)",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      },
+                      "default": null
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "r.done may be missing: guard it with has(), a null check or orElse()"
+        }
+      ]
+    },
+    {
+      "name": "E2: an optional field in arithmetic",
+      "package": {
+        "formatVersion": 2,
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "entries.rows[0].hours * 60",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      },
+                      "default": 0
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "entries.rows[0].hours may be missing: guard it with has(), a null check or orElse()"
+        }
+      ]
+    },
+    {
+      "name": "E2: has() guards a ternary",
+      "package": {
+        "formatVersion": 2,
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "has(entries.rows[0].hours) ? entries.rows[0].hours * 60 : 0",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      },
+                      "default": 0
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "E2: a null check guards",
+      "package": {
+        "formatVersion": 2,
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "entries.rows.map(r, r.hours != null ? r.hours : 0)",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      },
+                      "default": null
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "E2: orElse narrows",
+      "package": {
+        "formatVersion": 2,
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "round(orElse(entries.rows[0].hours, 0) * 60)",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      },
+                      "default": 0
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "E2: a required field needs no guard",
+      "package": {
+        "formatVersion": 2,
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "entries.rows.map(r, r.date)",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      },
+                      "default": []
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "E2: an expression binding needs a default",
+      "package": {
+        "formatVersion": 2,
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "entries.count + 1",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/default",
+          "message": "an expression binding needs a default, shown when it fails"
         }
       ]
     }

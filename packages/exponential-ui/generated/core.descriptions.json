@@ -3001,7 +3001,8 @@
       "isoWeek": "The ISO week number.",
       "hours": "minutes / 60.",
       "formatDuration": "Hours as h:mm or hh:mm (7.5 → 7:30).",
-      "expr": "Evaluates a CEL expression string (docs/package-format.md Expressions) over vars (name → value or binding): \"round(entries.sum / 60, 1)\"."
+      "orElse": "The value, or default when it is missing (null): narrows an optional value.",
+      "expr": "Evaluates a CEL expression string (docs/package-format.md Expressions) over vars (name → value or binding): \"round(entries.sum / 60, 1)\"; default is shown when it fails (required in a package)."
     },
     "basic": {}
   }

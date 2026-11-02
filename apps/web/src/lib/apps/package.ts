@@ -3,6 +3,7 @@ import {
   ACTION_LIMITS,
   PACKAGE_TEST_LIMITS,
   EXPOSES_LIMITS,
+  PACKAGE_FORMAT_VERSION,
   availableExtensions,
   defineExtension,
   supportedCatalogIds,
@@ -60,7 +61,7 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
   // sources every client's app host resolves (the SDK treats a missing list
   // as "anything"; a stored app may not).
   if (!Array.isArray(valid.sources)) {
-    rules.push({ path: `/sources`, message: `package must declare sources: the exp: sources its bindings follow, e.g. ["exp:issues"] (or [] for none)` })
+    rules.push({ path: `/sources`, message: `package must declare sources: the sources its bindings follow, e.g. ["exp:issues", "records:*"] (or [] for none)` })
   } else {
     const unknown = valid.sources.filter((source) => !source.startsWith(`records:`) && !APP_SOURCE_NAMES.some((name) => source === name || source.startsWith(`${name}?`)))
     if (unknown.length > 0) {
@@ -148,8 +149,8 @@ export function recordKindSchema(pkg: unknown, kind: string): RecordSchema | nul
 }
 
 /** The bindings and host functions the Exponential clients resolve for an
- *  app (web, desktop, iOS, Android alike): the `exp:` sources and the
- *  `harness.*` functions the package's allowlist may name. */
+ *  app (web, desktop, iOS, Android alike): the `exp:` sources, the format's
+ *  `records:<kind>` and the functions the package's allowlist may name. */
 export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
   { source: `exp:devices`, value: `{rows: [{id, label, detail, icon, discTone, tone, status}], count, online}: the team's devices, live` },
   {
@@ -162,14 +163,12 @@ export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
   { source: `exp:comments?issue=<identifier>&limit=<n>`, value: `{rows: [{id, body, author, authorName, parent, source, createdAt}], count}: an issue's comments, oldest first (null without the issue)` },
   { source: `exp:attachments?issue=<identifier>&limit=<n>`, value: `{rows: [{id, name, type, size, url, width, height, uploader, uploaderName, createdAt}], count}: an issue's files; url loads through the media policy (Image src)` },
   {
-    source: `exp:records?kind=<kind>&mine=1&sort=<field>&order=asc|desc&limit=<n>&sum=<field>&by=<dateField>&month=YYYY-MM&<field>=<v>&<field>.gte=<v>`,
-    value: `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?: {key, label, prev, next, days: [{date, day, weekday, count, sum}]}}: the app's OWN records of a kind, live (kind required; mine = the viewer's rows (by author); any other key filters a data field: equals, or .gt .gte .lt .lte; sum = Σ of a number field; by + month = one month's rows and every day of it; app=<slug> reads another app's records)`,
+    source: `records:<kind>?mine=1&sort=<field>&order=asc|desc&limit=<n>&sum=<field>&by=<dateField>&month=YYYY-MM&<field>=<v>&<field>.gte=<v>`,
+    value: `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?: {key, label, prev, next, days: [{date, day, weekday, count, sum}]}}: the app's OWN records of a kind, live (declare "records:*" or "records:<kind>" in sources; mine = the viewer's rows (by author); any other key filters a data field: equals, or .gt .gte .lt .lte; sum = Σ of a number field; by + month = one month's rows and every day of it; app=<slug> reads another app's records)`,
   },
 ]
-/** VAPP-161: the format's neutral spelling of `exp:records` (the catalog text). */
-const RECORDS_NEUTRAL_SOURCE = `- records:<kind>?<the same query> → the same value as exp:records?kind=<kind>: the package format's portable spelling (declare "records:*" or "records:<kind>" in sources)`
-/** The source names (`scheme:name`) the app hosts resolve ×4 (VAPP-161:
- *  plus the format's neutral `records:<kind>`, any kind). */
+/** The source names (`scheme:name`) the app hosts resolve ×4 (`records:<kind>`
+ *  = any kind, declared as `records:*` or `records:<kind>`). */
 export const APP_SOURCE_NAMES: readonly string[] = APP_HOST_SOURCES.map((s) => s.source.split(`?`)[0]!)
 
 export const APP_HOST_FUNCTIONS: readonly { name: string; args: string; effect: string }[] = [
@@ -177,10 +176,8 @@ export const APP_HOST_FUNCTIONS: readonly { name: string; args: string; effect: 
   { name: `harness.openIssue`, args: `{identifier}`, effect: `opens the issue` },
   { name: `harness.openDevice`, args: `{id, label?}`, effect: `opens the device` },
   { name: `harness.mcp`, args: `{tool, arguments}`, effect: `a tools/call on Exponential's MCP as the viewer, after the person allows it` },
-  { name: `harness.records.upsert`, args: `{kind, data, id?}`, effect: `creates a record of the app (or, with id, patches that record's data); no consent card: the app's own rows` },
-  { name: `harness.records.delete`, args: `{id}`, effect: `deletes one record of the app` },
-  { name: `records.upsert`, args: `{kind, data, id?}`, effect: `the package format's name for harness.records.upsert (portable to other hosts)` },
-  { name: `records.delete`, args: `{id}`, effect: `the package format's name for harness.records.delete` },
+  { name: `records.upsert`, args: `{kind, data, id?}`, effect: `creates a record of the app (or, with id, patches that record's data); no consent card: the app's own rows` },
+  { name: `records.delete`, args: `{id}`, effect: `deletes one record of the app` },
 ]
 
 /** S-3 MCP `apps catalog {only}`: just the named components' props (what
@@ -194,11 +191,11 @@ export function componentCatalogText(names: readonly string[]): string {
 
 /** MCP `apps catalog`: everything an agent needs to write a package. */
 export function appCatalogText(): string {
-  const sources = [...APP_HOST_SOURCES.map((s) => `- ${s.source} → ${s.value}`), RECORDS_NEUTRAL_SOURCE].join(`\n`)
+  const sources = APP_HOST_SOURCES.map((s) => `- ${s.source} → ${s.value}`).join(`\n`)
   const functions = APP_HOST_FUNCTIONS.map((f) => `- ${f.name}(${f.args}): ${f.effect}`).join(`\n`)
   return [
     `# App package`,
-    `A package = {id, name, version, catalogId: "${appExtension.id}" (the Exponential app extension over the core catalog; "${APP_CATALOG_IDS[0]}" = the core alone), templates: {<templateId>: {components: [flat components, one with id "root"], data?: the initial data model, bindings?: [{path: "/json/pointer", source: "exp:…"}]}}, functions?: [the host functions its surfaces may call: a name or "harness.*"], sources: [the exp: sources its bindings follow, REQUIRED, [] for none: a binding to an undeclared source never resolves], theme?: a built-in theme id, icon?: {glyph, color}, description?}. The editor renders the FIRST template. Components are FLAT: every child is an id, children: [ids] or {componentId, path, key?} for a bound list.`,
+    `A package = {formatVersion: ${PACKAGE_FORMAT_VERSION} (REQUIRED, exactly this), id, name, version, catalogId: "${appExtension.id}" (the Exponential app extension over the core catalog; "${APP_CATALOG_IDS[0]}" = the core alone), templates: {<templateId>: {components: [flat components, one with id "root"], data?: the initial data model, bindings?: [{path: "/json/pointer", source: "exp:…" | "records:<kind>?…"}]}}, functions?: [the host functions its surfaces may call: a name or a prefix like "records.*"], sources: [the sources its bindings follow ("exp:issues", "records:*"…), REQUIRED, [] for none: a binding to an undeclared source never resolves], theme?: a built-in theme id, icon?: {glyph, color}, description?}. The editor renders the FIRST template. Components are FLAT: every child is an id, children: [ids] or {componentId, path, key?} for a bound list.`,
     `Cap: ${APP_PACKAGE_MAX_BYTES} bytes per package, ${APP_TEMPLATE_MAX_COMPONENTS} components per template.`,
     ``,
     `# Bindings (sources the clients resolve, written into the data model at path)`,
@@ -207,10 +204,10 @@ export function appCatalogText(): string {
     `# Host functions (on: {press: {functionCall: {call, args}}}; list the ones you use in functions)`,
     functions,
     `- exponential.<noun>.<op>({…the op's fields}): VAPP-120: every Exponential MCP operation as a typed function, run as the viewer (${APP_ACTIONS.length} names; list what you call in functions, exactly or as exponential.<noun>.*): ${APP_ACTIONS.map((n) => n.slice(`exponential.`.length)).join(`, `)}. A call asks the person with the operation's own words unless a team owner granted that action on the app's settings page (then it runs without asking); a destructive operation (delete, merge, close, end, remove, trash) can never be granted and always asks; harness.mcp stays the raw escape hatch and always asks.`,
-    `- bind({path, source, params?}): a built-in: re-follows a data model path from a source with params appended as its query (the month switcher: bind {path: "/entries", source: "exp:records?kind=entry&by=date", params: {month: {path: "/entries/month/prev"}}}); list it in functions too`,
+    `- bind({path, source, params?}): a built-in: re-follows a data model path from a source with params appended as its query (the month switcher: bind {path: "/entries", source: "records:entry?by=date", params: {month: {path: "/entries/month/prev"}}}); list it in functions too`,
     ``,
     `# Records (the app's own data)`,
-    `Declare every kind in the manifest: records: {<kind>: {title?, schema: {type: "object", properties: {<field>: {type: string|number|integer|boolean|array, enum?, items? ({type}), maxLength?, minimum?, maximum?, format?: date|date-time|time, description?}}, required?: [fields], additionalProperties?: false}}} (a kind is lowercase letters, digits, underscores; ${APP_RECORD_KINDS_MAX} kinds at most; a record's data at most ${APP_RECORD_MAX_BYTES} bytes; the keys ${APP_RECORD_ROW_KEYS.join(`, `)} are reserved). Read with the exp:records binding, write with harness.records.upsert (bind a Form's fields to /draft/*, then call it with data: {path: "/draft"}; a row's Checkbox: id: {path: "id"}, data: {done: {path: "done"}}) and harness.records.delete. A write is validated against the kind's schema and lands in every client's binding live. Seed or inspect records yourself with exponential_apps {op: "records_upsert" | "records_list" | "records_delete", slug, kind, data}.`,
+    `Declare every kind in the manifest: records: {<kind>: {title?, schema: {type: "object", properties: {<field>: {type: string|number|integer|boolean|array, enum?, items? ({type}), maxLength?, minimum?, maximum?, format?: date|date-time|time, description?}}, required?: [fields], additionalProperties?: false}}} (a kind is lowercase letters, digits, underscores; ${APP_RECORD_KINDS_MAX} kinds at most; a record's data at most ${APP_RECORD_MAX_BYTES} bytes; the keys ${APP_RECORD_ROW_KEYS.join(`, `)} are reserved). Read with the records:<kind> binding, write with records.upsert (bind a Form's fields to /draft/*, then call it with data: {path: "/draft"}; a row's Checkbox: id: {path: "id"}, data: {done: {path: "done"}}) and records.delete. A write is validated against the kind's schema and lands in every client's binding live. Seed or inspect records yourself with exponential_apps {op: "records_upsert" | "records_list" | "records_delete", slug, kind, data}.`,
     ``,
     `# Actions (all-or-nothing writes)`,
     `actions: {<name>: {params?: a records schema {type: "object", properties, required?}, steps: [...]}} (≤ ${ACTION_LIMITS.actions} actions, ≤ ${ACTION_LIMITS.steps} steps): a press runs one with on: {press: {functionCall: {call: "actions.<name>", args: {<param>: a value or {path}}}}}. Steps, in order: {require: "<CEL bool>", message: "<the toast when false>"}, {"records.upsert": {kind, data: {<field>: "<CEL>"}, id?: "<CEL>"}}, {"records.delete": {id: "<CEL>"}}, {set: {path: "/pointer", value: "<CEL>"}}, {call: "harness.toast" (a host function listed in functions), args: {<k>: "<CEL>"}}. A string in a step is CEL (quote text: "'Saved'"), anything else a literal; CEL reads params, data (the surface data at the press) and me (the viewer's id). Every step reads the SAME snapshot (a set never changes a later step); the first false require, error or refused write discards the whole action and nothing lands (the writes are one transaction). Bindings are pure: a write or host function anywhere but an on.* functionCall is refused on upsert.`,
@@ -219,7 +216,7 @@ export function appCatalogText(): string {
     `tests: [{name, records?: {<kind>: [rows: data + optional id, author]}, now?: ISO instant (UTC), as?: a member id, expr: {expr, vars?} | query: {name, params?} | action: {name, params?, data?}, expect}] (≤ ${PACKAGE_TEST_LIMITS.tests}). Each runs on its own sample records; a var {source: "records:<kind>?…"} reads them like a binding; an action's result is {records: {<kind>: [{…data, id, author}]}, sets, calls} or {error}. expect matches by the keys an object names (lists item by item). A failing test refuses the upsert as /tests/<i> (expected vs got): add tests for every expression, query and action you write.`,
     ``,
     `# Expressions (computed values, live)`,
-    `{call: "expr", args: {expr: "<CEL>", vars: {<name>: a value, a binding {path} or a call}}} wherever a value may be bound: a CEL subset over vars (number, string, bool, null and list literals; a.b, a[0]; + - * / %; == != < <= > >=; && || !; c ? a : b; list.map/filter/all/exists(x, e), one level). ONE number type (7 / 2 = 3.5), no implicit conversion, a missing field is null, an error (1 / 0) gives no value. Functions (also callable directly as {call: "<name>", args: {…}}): mul|div|mod(a, b), round(value, digits?) (half away from zero), floor|ceil|abs(value), min|max(values…), today(), now(), dateAdd(date, n, unit), dateDiff(a, b, unit) (b - a), startOf|endOf(date, unit), weekday(date) (Monday 1), isoWeek(date), hours(minutes), formatDuration(hours, "h:mm" | "hh:mm"), size(x) (CEL only). Units: second minute hour day week month quarter year; a date is YYYY-MM-DD, a timestamp an ISO instant; dates run in the team time zone; no working days or holidays (keep those as records). Caps: 1000 characters, no macro inside a macro, 10 000 steps. Every expr is type-checked on upsert against its vars (a records binding's kind schema, the template data): e.g. vars {entries: {path: "/entries"}} bound to exp:records?kind=entry, expr "round(entries.sum / 60, 1)" or "entries.rows.filter(r, r.date >= startOf(today(), 'week')).map(r, r.hours)".`,
+    `{call: "expr", args: {expr: "<CEL>", vars: {<name>: a value, a binding {path} or a call}, default: <shown when it fails, REQUIRED>}} wherever a value may be bound: a CEL subset over vars (number, string, bool, null and list literals; a.b, a[0]; + - * / %; == != < <= > >=; && || !; c ? a : b; list.map/filter/all/exists(x, e), one level). ONE number type (7 / 2 = 3.5), no implicit conversion, a missing field is null, an error (1 / 0) gives no value. Functions (also callable directly as {call: "<name>", args: {…}}): mul|div|mod(a, b), round(value, digits?) (half away from zero), floor|ceil|abs(value), min|max(values…), today(), now(), dateAdd(date, n, unit), dateDiff(a, b, unit) (b - a), startOf|endOf(date, unit), weekday(date) (Monday 1), isoWeek(date), hours(minutes), formatDuration(hours, "h:mm" | "hh:mm"), size(x) (CEL only). Units: second minute hour day week month quarter year; a date is YYYY-MM-DD, a timestamp an ISO instant; dates run in the team time zone; no working days or holidays (keep those as records). Caps: 1000 characters, no macro inside a macro, 10 000 steps. A field not in its kind's required list (and a var bound to anything untyped) may be missing: guard it with has(r.f) ? … : …, r.f != null, or orElse(r.f, default), else the upsert is refused naming the path. Every expr is type-checked on upsert against its vars (a records binding's kind schema, the template data): e.g. vars {entries: {path: "/entries"}} bound to records:entry, expr "round(entries.sum / 60, 1)" or "entries.rows.filter(r, orElse(r.date, '') >= startOf(today(), 'week')).map(r, orElse(r.hours, 0))".`,
     ``,
     `# Exposed MCP tools (exposes: the app's tools on Exponential's MCP, /api/mcp/apps)`,
     `exposes: [{name: lowercase_snake (≤ ${EXPOSES_LIMITS.nameMax}, no __), title, description, input: a JSON Schema {type: "object", properties, required?}, access: "read" | "write", run}] (≤ ${EXPOSES_LIMITS.maxTools} tools). A connected MCP client (Claude, ChatGPT…) sees them as <app slug>__<name> and runs them as the CALLING member (attributed "via <app>"); a read-only connection never lists a write tool. run = EXACTLY ONE of: {records: {op: "list" | "get" | "upsert", kind, id?, where?, data?, limit?}} (the app's own records of a declared kind); {action: "exponential.<noun>.<op>", args} (one of the operations above that a team owner could grant: never a destructive or owner-only one; it reads when its last word is list/get/show/catalog/activity/files, else it writes); {upstream: "<server>", tool, args} (a tool of a team MCP server named in upstreams: ["<server>"], with the member's own connection; Settings › MCP lists the team's servers). Every string in run may hold \${input.<field>} (a declared input property; a string that is exactly one template keeps the value's type). Destructive tools (delete, merge, close, end, remove, trash) are never exposed, and a "read" tool may not write. Package tools (\`tools\`) stay refused: expose bindings instead.`,

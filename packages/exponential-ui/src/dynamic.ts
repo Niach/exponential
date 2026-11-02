@@ -232,12 +232,22 @@ export function resolveDynamic(value: unknown, data: unknown, options: ResolveOp
     const args: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value.args ?? {})) args[k] = resolveDynamic(v, data, options)
     // Own entries only: `{call: "constructor"}` is no function (VAPP-107).
+    // VAPP-195: a binding never throws: a failing function shows the call's
+    // `default` (absent = no value).
+    const safe = (fn: (args: Record<string, unknown>) => unknown) => {
+      try {
+        const out = fn(args)
+        return out === undefined ? args.default : out
+      } catch {
+        return args.default
+      }
+    }
     const fn = own(options.functions, value.call) ?? (FORMAT_NAMES.has(value.call) ? own(formatTable(options), value.call) : undefined)
-    if (fn) return fn(args)
+    if (fn) return safe(fn)
     // VAPP-191: the expression functions read the clock and the team zone.
     if (EXPRESSION_NAMES.has(value.call)) return callExpressionFunction(value.call, args, expressionEnv(options))?.value
     const core = own(BIND_FUNCTIONS, value.call)
-    return core ? core(args) : undefined
+    return core ? safe(core) : args.default
   }
   if (typeof value === `string`) return options.strings ? resolveString(value, options.strings) : value
   if (Array.isArray(value)) return value.map((v) => resolveDynamic(v, data, options))

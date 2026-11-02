@@ -201,8 +201,8 @@ Needs: C2, C13.
   "formatVersion": 2,                      // host reads ≤ 2; 3 = this spec
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "icon": { "glyph": "clock", "color": "blue" }, "description": "…",
-  "sources":   ["exp:records", "exp:members", "exp:issues"],   // allowlist
-  "functions": ["harness.records.*", "bind", "exponential.comments.create"],
+  "sources":   ["records:*", "exp:members", "exp:issues"],     // allowlist
+  "functions": ["records.*", "bind", "exponential.comments.create"],
   "records":   { "entry": { "title": "…", "schema": { … } } },  // ≤ 16 kinds
   "templates": { "month": { "components": [ … ], "data": { … }, "bindings": [ … ] } },
   "exposes":   [ { "name": "log_hours", "access": "write", "input": { … }, "run": { "records": { … } } } ],
@@ -305,7 +305,7 @@ Layers, all intersected:
 }
 ```
 
-The defaults are `member/member/author/author`. This is the common case, and it is a breaking change for existing apps, so it ships as the `formatVersion 3` default while v2 packages keep `member`.
+The defaults are `member/member/author/author`. This is the common case; it ships with `formatVersion 3`, and as eApps keeps no backwards compatibility (decided 2026-11-02) v2 packages are not read after that.
 
 The server enforces the policy. The shape enforces `read: author` with a row filter on `author_id`: a private kind never syncs to other members' devices.
 
@@ -344,7 +344,7 @@ Records carry `schema_version` (the package `number` that wrote them). A new ver
 
 ### 4.1 The structured query (✅ Q1, #VAPP-190)
 
-Today a binding is a URL (`exp:records?kind=entry&mine=1&by=date&sum=hours`). URLs stay as sugar. The canonical form is JSON, named in `queries` and referenced by bindings, `exposes` and automations:
+Today a binding is a URL (`records:entry?mine=1&by=date&sum=hours`). URLs stay as sugar. The canonical form is JSON, named in `queries` and referenced by bindings, `exposes` and automations:
 
 ```jsonc
 "queries": {
@@ -373,7 +373,7 @@ Today a binding is a URL (`exp:records?kind=entry&mine=1&by=date&sum=hours`). UR
 | Aggregates | ✅ Q1 `sum avg min max count countDistinct first last` (per group + `totals`) | |
 | Running values | ✅ Q1 `running: {field: "sum"}` (sum count avg min max, over groups, rows or month days) and `before: <date>` (totals up to a date, seeding the running values) | streaks |
 | Joins | ❌ | `expand: ["customer"]` follows refs (one level). There are no free joins. |
-| Sources | `exp:records`, `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments`, `exp:attachments`, `exp:devices` | The same query shape over every `exp:` source (group issues by status or week), + `exp:pullRequests`, `upstream:<server>/<tool>` (§6.3) |
+| Sources | `records:<kind>`, `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments`, `exp:attachments`, `exp:devices` | The same query shape over every `exp:` source (group issues by status or week), + `exp:pullRequests`, `upstream:<server>/<tool>` (§6.3) |
 
 **One evaluator:**
 
@@ -401,7 +401,7 @@ The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <
 
 - ✅ (Q2, #VAPP-191) The string form is a **CEL subset**, hand-written as TS (`src/cel.ts`) + Rust (`eui_core::cel`) twins replaying ONE fixture (`fixtures/expressions.json`; FFI `evaluate_expression_json` / `check_expression_json`, SDKs `Expressions.evaluate/check` (Swift; `Expression` on Compose)). cel-js / the `cel` crates were not used: CEL splits int/uint/double (JSON has one number), their error texts and date handling would differ between the twins, and they would bloat the eUI bundle. One number type (`7 / 2` = 3.5); a missing field reads null. It is used as `{"call": "expr", "args": {"expr": "…", "vars": {…}}}` anywhere a value may be bound, and the arithmetic, date and duration rows above are also plain A2UI functions (`{"call": "mul", …}`) running the same table. Every `expr` is type-checked by `validatePackage` against its vars (a literal, a records binding's kind schema, the template data), issues at the JSON pointer. Caps: 1000 characters, nesting 32, no nested comprehensions, 10 000 steps. The team zone is the surface zone the host passes (`Formatter.offsetMinutes`, `HostZone`); there is no team timezone setting yet, so hosts pass the platform zone today. The Arrays and Text rows stay open.
 
-**Missing values are explicit (🆕 E2, #VAPP-195; adopted 2026-11-02):** a field that is not in its kind's `required`, and a var the checker cannot type, is typed `T?`. Arithmetic, comparisons and function arguments on a `T?` are install issues unless guarded: `has(r.f)`, `r.f == null ? … : …`, or `orElse(x, default)`. Every binding carries a fallback (`{"call": "expr", "args": {…, "default"}}`, shown when evaluation fails), so a renderer never paints undefined and never throws on a binding.
+**Missing values are explicit (✅ E2, #VAPP-195):** a field that is not in its kind's `required`, and a var the checker cannot type, is typed `T?`. Arithmetic, comparisons and function arguments on a `T?` are install issues unless guarded: `has(r.f)`, `r.f == null ? … : …`, or `orElse(x, default)`. Every binding carries a fallback (`{"call": "expr", "args": {…, "default"}}`, shown when evaluation fails), so a renderer never paints undefined and never throws on a binding. Built (E2): `T?` is spelled `{"?": T}`; an unguarded use names its path (`entries.rows[0].hours may be missing: guard it with has(), a null check or orElse()`); `has()`, `!= null` / `== null` (through `&&`, `||`, `!`) and `orElse` narrow; `default` is required on every package `expr` binding and every bind-time call falls back to its `default` (TS `dynamic.ts`, Rust `data.rs`: all six renderers); fixture `expressions.json`, replayed ×4.
 
 ### 4.3 Time
 
@@ -658,7 +658,7 @@ The rules decided in #VAPP-175, now ✅:
 Added here:
 
 - **Data is never instructions.** `run.agent` and webhooks pass records and payloads as a fenced, typed data block. The agent prompt is the package's frozen text, never interpolated record text.
-- **Cross-app reads:** `exp:records?app=<slug>` lets an app read another app's rows today. 🆕 The target app must list the reader in `records.<kind>.readableBy`, and the kind's policy still applies (decided 2026-11-01).
+- **Cross-app reads:** `records:<kind>?app=<slug>` lets an app read another app's rows today. 🆕 The target app must list the reader in `records.<kind>.readableBy`, and the kind's policy still applies (decided 2026-11-01).
 - **Rendered text:** record strings render as text. `Markdown` renders links through the URL policy ✅, and images go through the media policy (#VAPP-157 ✅).
 
 ### 12.2 Data isolation
@@ -765,7 +765,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **Q3** Computed fields. (C11)
 - **Q4** The broker's `records` run uses the Q1 evaluator: tools get the same query as the UI. (C15)
 - **E1** ✅ #VAPP-194 Typed effects: pure bindings vs all-or-nothing actions with `require` (§4.5). Before A1.
-- **E2** #VAPP-195 Optional types (`T?`) in the checker + a fallback on every binding (§4.2). With or before Q3.
+- **E2** ✅ #VAPP-195 Optional types (`T?`) in the checker + a fallback on every binding (§4.2). With or before Q3.
 
 **Phase 3: Multi-screen apps** (unblocks CRM, hiring, approvals)
 
@@ -833,3 +833,4 @@ R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 1. **No sandbox, no server-side app code.** An app stays data; nothing in a package runs on the server. Code still lives behind an upstream MCP server (§18.7).
 2. **Expressions are a CEL subset** (§4.2), as TS + Rust twins replaying one fixture, instead of a grammar of our own. Expressions are type-checked against the kind schemas at package validation and run under fixed cost caps. There is no solver or SMT verification: the per-kind policies (R3) stay a fixed enum. If policies ever become free expressions, use Cedar rather than CEL.
 3. **A Postgres RLS backstop scoped to team + app** under one records service (§3.4 layer 5, §12.2). Ownership and policy stay in the service, not in RLS. The structured query becomes a parameterised query, so app text never becomes SQL.
+4. **eApps keeps no backwards compatibility** (until there are real apps): no compat shims, aliases or old-format fallbacks. A package names `formatVersion` and a host reads only its own; records have one spelling (`records:<kind>`, `records.*`; Exponential's `exp:records?kind=` and `harness.records.*` are gone); breaking checker changes (E2) refuse old packages on upsert, naming the path, and the editor agent fixes them.

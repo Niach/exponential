@@ -93,9 +93,12 @@ class RecordsQueryTest {
 
     @Test
     fun theQueryReadsItsKindAndApp() {
-        val query = RecordsQuery.parse(mapOf("kind" to "entry", "app" to "working-hours"))
+        val query = RecordsQuery.parse(mapOf("app" to "working-hours"), "entry")
         assertEquals("entry", query.from)
         assertEquals("working-hours", query.app)
+        assertEquals(query, RecordsQuery.parse("records:entry?app=working-hours"))
+        // `kind` is no reserved param: only the source's name is the kind.
+        assertNull(RecordsQuery.parse(mapOf("kind" to "entry")).from)
         assertNull(RecordsQuery.parse(emptyMap()).from)
         assertEquals(JsonValue.Null, RecordsQuery.parse(emptyMap()).value(emptyList(), null, "2026-10-24T09:00:00Z"))
     }

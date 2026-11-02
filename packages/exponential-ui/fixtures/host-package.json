@@ -289,6 +289,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -316,6 +317,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -333,7 +335,7 @@
           }
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":2,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
       "expected": {
         "status": "unsigned"
       }
@@ -349,6 +351,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -380,6 +383,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -401,7 +405,7 @@
           "key": "ed25519:nope"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:nope\",\"name\":\"Someone\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:nope\",\"name\":\"Someone\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":2,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
       "expected": {
         "status": "unsigned"
       }
@@ -417,6 +421,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -453,6 +458,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -484,10 +490,10 @@
         },
         "signature": {
           "alg": "ed25519",
-          "value": "SMLDvQXlKpcHsuz9X9dvRjgYiDZX0_PbeaclSeQegikq0Tf68obvpYBGZbA28si_nIBauNd8Whr2gtZgnXaLCQ"
+          "value": "JStBWCcohUshThetmTpVi7E260PZgsBq_I5p8PIC_Z7WV7Bu8B4KktHs5wfYzefwGPwKwgxHnevQH-jmN5ovBg"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Test Author\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"},\"records\":[{\"data\":{\"hours\":1.5,\"note\":\"€😀\"},\"kind\":\"entry\"}]}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Test Author\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":2,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"},\"records\":[{\"data\":{\"hours\":1.5,\"note\":\"€😀\"},\"kind\":\"entry\"}]}",
       "expected": {
         "status": "valid",
         "author": {
@@ -507,6 +513,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -540,6 +547,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.1",
@@ -562,10 +570,10 @@
         },
         "signature": {
           "alg": "ed25519",
-          "value": "wUn9dYHXLdd8NvcBrVDTfn5r18-z1u-U8j_Plx6Y5LXa4O74wR3y_3OthcUYc_LOIbGbOQrZbgg1Ri9bgpEEBQ"
+          "value": "Ug3x-iwu-Ogq5N6p2rOmTqxNMCxFV9tkXrb01f5tc-uxH5jz647T5FE5NPK-g01XiXg8IFd8Kf_WmK8W02hmCg"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Test Author\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.1\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Test Author\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":2,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.1\"}}",
       "expected": {
         "status": "invalid",
         "issues": [
@@ -587,6 +595,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -620,6 +629,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -642,10 +652,10 @@
         },
         "signature": {
           "alg": "ed25519",
-          "value": "wUn9dYHXLdd8NvcBrVDTfn5r18-z1u-U8j_Plx6Y5LXa4O74wR3y_3OthcUYc_LOIbGbOQrZbgg1Ri9bgpEEBQ"
+          "value": "Ug3x-iwu-Ogq5N6p2rOmTqxNMCxFV9tkXrb01f5tc-uxH5jz647T5FE5NPK-g01XiXg8IFd8Kf_WmK8W02hmCg"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Mallory\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo\",\"name\":\"Mallory\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":2,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
       "expected": {
         "status": "invalid",
         "issues": [
@@ -667,6 +677,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -702,6 +713,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -727,7 +739,7 @@
           "value": "!!"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:AAAA\",\"name\":\"\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"author\":{\"key\":\"ed25519:AAAA\",\"name\":\"\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":2,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
       "expected": {
         "status": "invalid",
         "issues": [
@@ -761,6 +773,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -792,6 +805,7 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "acme.hours",
           "name": "Hours",
           "version": "1.0.0",
@@ -813,7 +827,7 @@
           "value": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         }
       },
-      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
+      "signedText": "exponential-ui/package-file/v1\n{\"app\":{\"color\":null,\"description\":\"\",\"icon\":null,\"name\":\"Hours\"},\"format\":\"exponential-app/1\",\"package\":{\"catalogId\":\"https://ui.exponential.at/catalogs/core/v1\",\"formatVersion\":2,\"id\":\"acme.hours\",\"name\":\"Hours\",\"templates\":{\"t\":{\"components\":[{\"component\":\"Text\",\"id\":\"root\",\"text\":\"Hi\"}]}},\"version\":\"1.0.0\"}}",
       "expected": {
         "status": "invalid",
         "issues": [

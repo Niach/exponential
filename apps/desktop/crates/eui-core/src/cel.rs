@@ -47,7 +47,7 @@ impl FunctionEffect {
 }
 
 /// The functions that write (records, the surface data model).
-pub const WRITE_FUNCTIONS: &[&str] = &["set", "records.upsert", "records.delete", "records.batch", "harness.records.upsert", "harness.records.delete"];
+pub const WRITE_FUNCTIONS: &[&str] = &["set", "records.upsert", "records.delete", "records.batch"];
 /// The built-in host functions; every name under a host prefix is one too.
 pub const HOST_FUNCTIONS: &[&str] = &["openUrl", "bind"];
 pub const HOST_FUNCTION_PREFIXES: &[&str] = &["actions.", "harness.", "exponential.", "tools.", "upstream."];
@@ -498,6 +498,7 @@ enum Param {
     Text,
     Temporal,
     Sized,
+    Any,
 }
 
 struct Def {
@@ -507,15 +508,15 @@ struct Def {
     args: &'static [&'static str],
 }
 
-use Param::{Number as N, Sized as Z, Temporal as T, Text as S};
+use Param::{Any as A, Number as N, Sized as Z, Temporal as T, Text as S};
 
 /// THE function table (spec §4.2), positional for CEL, named (`args`) for
 /// the A2UI form. Generic only: no working days, no holidays.
-pub const FUNCTION_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "size"];
+pub const FUNCTION_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "size", "orElse"];
 
 /// The A2UI form's names in the bind table (`size` = the existing `len`;
 /// `expr` = the string form, `{expr, vars}`).
-pub const CALL_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "expr"];
+pub const CALL_NAMES: &[&str] = &["mul", "div", "mod", "round", "floor", "ceil", "abs", "min", "max", "today", "now", "dateAdd", "dateDiff", "startOf", "endOf", "weekday", "isoWeek", "hours", "formatDuration", "orElse", "expr"];
 
 fn def(name: &str) -> Option<Def> {
     let d = |params: &'static [Param], args: &'static [&'static str]| Def { params, min: params.len(), variadic: false, args };
@@ -532,6 +533,8 @@ fn def(name: &str) -> Option<Def> {
         "hours" => d(&[N], &["minutes"]),
         "formatDuration" => d(&[N, S], &["hours", "format"]),
         "size" => d(&[Z], &["value"]),
+        // VAPP-195: the value, or the default when it is missing (null).
+        "orElse" => d(&[A, A], &["value", "default"]),
         _ => return None,
     })
 }
@@ -596,19 +599,22 @@ fn run(name: &str, args: &[Value], env: &Env) -> R<Value> {
         "hours" => Ok(json::number(num(number("hours", &args[0])? / 60.0)?)),
         "formatDuration" => format_duration(args),
         "size" => size(&args[0]),
+        "orElse" => Ok(if args[0].is_null() { args.get(1).cloned().unwrap_or(Value::Null) } else { args[0].clone() }),
         _ => Err(format!("unknown function {name}")),
     }
 }
 
 /// The A2UI function form `{call: name, args}` with its arguments resolved.
 /// Outer `None` = not an expression function; inner `None` = no value (an
-/// error, like every bind-time function).
+/// error, like every bind-time function). VAPP-195: a failed call shows its
+/// `default` (absent = no value).
 pub fn call_expression_function(name: &str, args: &Map<String, Value>, env: &ExpressionEnv) -> Option<Option<Value>> {
+    let fallback = || Some(args.get("default").cloned());
     if name == "expr" {
-        let Some(Value::String(expr)) = args.get("expr") else { return Some(None) };
+        let Some(Value::String(expr)) = args.get("expr") else { return fallback() };
         let empty = Map::new();
         let vars = args.get("vars").and_then(Value::as_object).unwrap_or(&empty);
-        return Some(evaluate_expression(expr, vars, env).ok());
+        return evaluate_expression(expr, vars, env).map_or_else(|_| fallback(), |v| Some(Some(v)));
     }
     if name == "size" {
         return None;
@@ -624,9 +630,9 @@ pub fn call_expression_function(name: &str, args: &Map<String, Value>, env: &Exp
         list.into_iter().map(|v| v.cloned().unwrap_or(Value::Null)).collect()
     };
     if arity_error(name, &def, positional.len()).is_some() {
-        return Some(None);
+        return fallback();
     }
-    Some(run(name, &positional, &Env::of(env)).ok())
+    run(name, &positional, &Env::of(env)).map_or_else(|_| fallback(), |v| Some(Some(v)))
 }
 
 // ---------------------------------------------------------------------------
@@ -646,6 +652,8 @@ pub enum Node {
     Cond(Box<Node>, Box<Node>, Box<Node>, usize),
     Call(String, Vec<Node>, usize),
     Macro(String, Box<Node>, String, Box<Node>, usize),
+    /// VAPP-195: `has(a.b)`, CEL's presence test (the node is a `Field`).
+    Has(Box<Node>, usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -965,6 +973,16 @@ impl Parser {
                     "null" => return Ok(Node::Lit(Value::Null, t.at)),
                     _ => {}
                 }
+                // VAPP-195: CEL's presence test, `has(a.b)`.
+                if name == "has" && self.is_op("(") {
+                    self.next();
+                    let arg = self.expr()?;
+                    self.expect(")")?;
+                    if !matches!(arg, Node::Field(..)) {
+                        return Err(format!("at {}: has needs a field: has(a.b)", t.at));
+                    }
+                    return Ok(Node::Has(Box::new(arg), t.at));
+                }
                 if self.is_op("(") {
                     if def(&name).is_none() {
                         let effect = function_effect(&name);
@@ -1003,10 +1021,35 @@ fn dotted_name(node: &Node) -> Option<String> {
     }
 }
 
+/// VAPP-195: a value's path as written (`a.b[0].c`, `m['k']`): names,
+/// fields and literal indexes; `None` for anything else.
+pub fn path_text(node: &Node) -> Option<String> {
+    match node {
+        Node::Id(name, _) => Some(name.clone()),
+        Node::Field(of, name, _) => path_text(of).map(|of| format!("{of}.{name}")),
+        Node::Index(of, index, _) => {
+            let of = path_text(of)?;
+            match literal(index) {
+                Some(Value::Number(n)) => Some(format!("{of}[{}]", num_text(n.as_f64().unwrap_or(0.0)))),
+                Some(Value::String(k)) => Some(format!("{of}['{k}']")),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// The code point a node starts at (its own `at`).
+fn node_at(node: &Node) -> usize {
+    match node {
+        Node::Lit(_, at) | Node::Id(_, at) | Node::List(_, at) | Node::Field(_, _, at) | Node::Index(_, _, at) | Node::Unary(_, _, at) | Node::Bin(_, _, _, at) | Node::Cond(_, _, _, at) | Node::Call(_, _, at) | Node::Macro(_, _, _, _, at) | Node::Has(_, at) => *at,
+    }
+}
+
 fn root_at(node: &Node) -> usize {
     match node {
         Node::Field(of, _, _) => root_at(of),
-        Node::Lit(_, at) | Node::Id(_, at) | Node::List(_, at) | Node::Index(_, _, at) | Node::Unary(_, _, at) | Node::Bin(_, _, _, at) | Node::Cond(_, _, _, at) | Node::Call(_, _, at) | Node::Macro(_, _, _, _, at) => *at,
+        _ => node_at(node),
     }
 }
 
@@ -1070,6 +1113,14 @@ impl Evaluator<'_> {
                 Value::Object(m) => Ok(m.get(name).cloned().unwrap_or(Value::Null)),
                 other => Err(format!("no field {name} on {}", type_name(&other))),
             },
+            Node::Has(field, _) => {
+                let Node::Field(receiver, name, _) = field.as_ref() else { return Err("has needs a field: has(a.b)".into()) };
+                match self.ev(receiver, scope)? {
+                    Value::Null => Ok(Value::Bool(false)),
+                    Value::Object(m) => Ok(Value::Bool(m.get(name).is_some_and(|v| !v.is_null()))),
+                    other => Err(format!("no field {name} on {}", type_name(&other))),
+                }
+            }
             Node::Index(of, index, _) => {
                 let of = self.ev(of, scope)?;
                 let index = self.ev(index, scope)?;
@@ -1227,17 +1278,43 @@ pub fn evaluate_counted<'a>(ast: &Node, vars: &'a Map<String, Value>, env: &Expr
 // Type checking (package validation)
 // ---------------------------------------------------------------------------
 
-/// The name a type prints as in an error: a list `list`, a row `map`.
-pub fn type_display(t: &Value) -> &str {
+/// VAPP-195 (E2): a value that may be missing is `T?`, spelled `{"?": T}`
+/// (a row never has a field named `?`).
+pub fn is_optional(t: &Value) -> bool {
+    matches!(t, Value::Object(m) if m.len() == 1 && m.contains_key("?"))
+}
+
+/// `T?` (null and an optional stay as they are).
+pub fn optional_type(t: Value) -> Value {
+    if is_optional(&t) || is(&t, "null") {
+        return t;
+    }
+    let mut m = Map::new();
+    m.insert("?".into(), t);
+    Value::Object(m)
+}
+
+/// `T` of a `T?`.
+pub fn required_type(t: &Value) -> Value {
     match t {
-        Value::String(s) => s,
-        Value::Array(_) => "list",
-        _ => "map",
+        Value::Object(m) if is_optional(t) => m["?"].clone(),
+        _ => t.clone(),
+    }
+}
+
+/// The name a type prints as in an error: a list `list`, a row `map`, an
+/// optional `T?`.
+pub fn type_display(t: &Value) -> String {
+    match t {
+        Value::Object(m) if is_optional(t) => format!("{}?", type_display(&m["?"])),
+        Value::String(s) => s.clone(),
+        Value::Array(_) => "list".into(),
+        _ => "map".into(),
     }
 }
 
 fn is_row(t: &Value) -> bool {
-    t.is_object()
+    t.is_object() && !is_optional(t)
 }
 fn is_textual(t: &Value) -> bool {
     matches!(t.as_str(), Some("string" | "date" | "timestamp"))
@@ -1253,13 +1330,14 @@ fn ty(name: &str) -> Value {
 }
 
 fn accepts(param: Param, t: &Value) -> bool {
-    if loose(t) {
+    if param == Param::Any || loose(t) {
         return true;
     }
     match param {
         Param::Number => is(t, "number"),
         Param::Text | Param::Temporal => is_textual(t),
         Param::Sized => is(t, "string") || is(t, "map") || t.is_array() || is_row(t),
+        Param::Any => true,
     }
 }
 
@@ -1269,6 +1347,7 @@ fn param_name(p: Param) -> &'static str {
         Param::Text => "a string",
         Param::Temporal => "a date",
         Param::Sized => "a list, string or map",
+        Param::Any => "a value",
     }
 }
 
@@ -1285,13 +1364,82 @@ fn literal(node: &Node) -> Option<&Value> {
     }
 }
 
+/// The paths a test proves present when it is true (`yes`) / when it is
+/// false (`no`): `has(p)`, `p != null`, `p == null`, through `&&`, `||`
+/// and `!`.
+fn guards(node: &Node) -> (Vec<String>, Vec<String>) {
+    match node {
+        Node::Has(field, _) => (path_text(field).into_iter().collect(), Vec::new()),
+        Node::Bin(op @ ("==" | "!="), a, b, _) => {
+            let side = if matches!(a.as_ref(), Node::Lit(Value::Null, _)) {
+                Some(b)
+            } else if matches!(b.as_ref(), Node::Lit(Value::Null, _)) {
+                Some(a)
+            } else {
+                None
+            };
+            match side.and_then(|s| path_text(s)) {
+                None => (Vec::new(), Vec::new()),
+                Some(p) if *op == "!=" => (vec![p], Vec::new()),
+                Some(p) => (Vec::new(), vec![p]),
+            }
+        }
+        Node::Bin("&&", a, b, _) => {
+            let (mut yes, _) = guards(a);
+            yes.extend(guards(b).0);
+            (yes, Vec::new())
+        }
+        Node::Bin("||", a, b, _) => {
+            let (_, mut no) = guards(a);
+            no.extend(guards(b).1);
+            (Vec::new(), no)
+        }
+        Node::Unary('!', arg, _) => {
+            let (yes, no) = guards(arg);
+            (no, yes)
+        }
+        _ => (Vec::new(), Vec::new()),
+    }
+}
+
+/// An unguarded use of a value that may be missing.
+fn missing<T>(node: &Node) -> R<T> {
+    let p = path_text(node).unwrap_or_else(|| format!("the value at {}", node_at(node)));
+    Err(format!("{p} may be missing: guard it with has(), a null check or orElse()"))
+}
+
 struct Checker<'t> {
     types: &'t Map<String, Value>,
+    /// The paths a guard proved present here (`has(r.f) ? r.f + 1 : 0`).
+    present: std::cell::RefCell<Vec<String>>,
 }
 
 impl Checker<'_> {
+    /// Type `node` with `paths` proved present.
+    fn within(&self, paths: Vec<String>, node: &Node, scope: Option<&TypeScope>) -> R<Value> {
+        let before = self.present.borrow().clone();
+        self.present.borrow_mut().extend(paths);
+        let out = self.tc(node, scope);
+        *self.present.borrow_mut() = before;
+        out
+    }
+
+    /// The type of a use that must not be missing.
+    fn need(&self, node: &Node, scope: Option<&TypeScope>) -> R<Value> {
+        let t = self.tc(node, scope)?;
+        if is_optional(&t) {
+            return missing(node);
+        }
+        Ok(t)
+    }
+
     fn tc(&self, node: &Node, scope: Option<&TypeScope>) -> R<Value> {
-        crate::deep(|| self.tc_inner(node, scope))
+        let t = crate::deep(|| self.tc_inner(node, scope))?;
+        let p = if matches!(node, Node::Id(..) | Node::Field(..) | Node::Index(..)) { path_text(node) } else { None };
+        Ok(match p {
+            Some(p) if self.present.borrow().contains(&p) => required_type(&t),
+            _ => t,
+        })
     }
 
     fn tc_inner(&self, node: &Node, scope: Option<&TypeScope>) -> R<Value> {
@@ -1315,41 +1463,54 @@ impl Checker<'_> {
                 }
                 self.types.get(name).cloned().ok_or_else(|| format!("unknown name {name}"))
             }
-            Node::Field(of, name, _) => {
-                let of = self.tc(of, scope)?;
-                if matches!(of.as_str(), Some("dyn" | "map" | "null")) {
-                    return Ok(ty("dyn"));
+            Node::Field(..) | Node::Has(..) => {
+                let has = matches!(node, Node::Has(..));
+                let field = match node {
+                    Node::Has(field, _) => field.as_ref(),
+                    _ => node,
+                };
+                let Node::Field(of, name, _) = field else { return Err("has needs a field: has(a.b)".into()) };
+                let raw = self.tc(of, scope)?;
+                let of = required_type(&raw);
+                let t = if matches!(of.as_str(), Some("dyn" | "map" | "null")) {
+                    ty("dyn")
+                } else if let Value::Object(fields) = &of {
+                    fields.get(name).cloned().ok_or_else(|| format!("unknown field {name}"))?
+                } else {
+                    return Err(format!("no field {name} on {}", type_display(&of)));
+                };
+                if has {
+                    return Ok(ty("bool"));
                 }
-                if let Value::Object(fields) = &of {
-                    return fields.get(name).cloned().ok_or_else(|| format!("unknown field {name}"));
-                }
-                Err(format!("no field {name} on {}", type_display(&of)))
+                Ok(if is_optional(&raw) { optional_type(t) } else { t })
             }
             Node::Index(of, index, _) => {
-                let of_t = self.tc(of, scope)?;
-                let index_t = self.tc(index, scope)?;
+                let raw = self.tc(of, scope)?;
+                let of_t = required_type(&raw);
+                let index_t = self.need(index, scope)?;
+                let wrap = |t: Value| if is_optional(&raw) { optional_type(t) } else { t };
                 if let Value::Array(item) = &of_t {
                     if !loose(&index_t) && !is(&index_t, "number") {
                         return Err(format!("a list index is a number, got {}", type_display(&index_t)));
                     }
-                    return Ok(item.first().cloned().unwrap_or_else(|| ty("dyn")));
+                    return Ok(wrap(item.first().cloned().unwrap_or_else(|| ty("dyn"))));
                 }
                 if is_row(&of_t) || is(&of_t, "map") {
                     if !loose(&index_t) && !is_textual(&index_t) {
                         return Err(format!("a map key is a string, got {}", type_display(&index_t)));
                     }
                     if let (Value::Object(fields), Some(Value::String(key))) = (&of_t, literal(index)) {
-                        return fields.get(key).cloned().ok_or_else(|| format!("unknown field {key}"));
+                        return fields.get(key).cloned().map(wrap).ok_or_else(|| format!("unknown field {key}"));
                     }
-                    return Ok(ty("dyn"));
+                    return Ok(wrap(ty("dyn")));
                 }
                 if loose(&of_t) {
-                    return Ok(ty("dyn"));
+                    return Ok(wrap(ty("dyn")));
                 }
                 Err(format!("cannot index {}", type_display(&of_t)))
             }
             Node::Unary(op, arg, _) => {
-                let t = self.tc(arg, scope)?;
+                let t = self.need(arg, scope)?;
                 let want = if *op == '-' { "number" } else { "bool" };
                 if !loose(&t) && !is(&t, want) {
                     return Err(format!("cannot apply {op} to {}", type_display(&t)));
@@ -1357,18 +1518,23 @@ impl Checker<'_> {
                 Ok(ty(want))
             }
             Node::Cond(test, then, otherwise, _) => {
-                let t = self.tc(test, scope)?;
+                let t = self.need(test, scope)?;
                 if !loose(&t) && !is(&t, "bool") {
                     return Err(format!("cannot use {} as a condition", type_display(&t)));
                 }
-                let a = self.tc(then, scope)?;
-                let b = self.tc(otherwise, scope)?;
+                let (yes, no) = guards(test);
+                let a = self.within(yes, then, scope)?;
+                let b = self.within(no, otherwise, scope)?;
                 Ok(if a == b {
                     a
                 } else if is(&a, "null") {
-                    b
+                    optional_type(b)
                 } else if is(&b, "null") {
-                    a
+                    optional_type(a)
+                } else if required_type(&a) == required_type(&b) {
+                    optional_type(required_type(&a))
+                } else if is_optional(&a) || is_optional(&b) {
+                    optional_type(ty("dyn"))
                 } else {
                     ty("dyn")
                 })
@@ -1376,18 +1542,21 @@ impl Checker<'_> {
             Node::Bin(op, a, b, _) => self.binary(op, a, b, scope),
             Node::Call(name, args, _) => self.call(name, args, scope),
             Node::Macro(f, of, var, body, _) => {
-                let of = self.tc(of, scope)?;
+                let of = self.need(of, scope)?;
                 if !of.is_array() && !loose(&of) {
                     return Err(format!("{f} needs a list, got {}", type_display(&of)));
                 }
                 let item = of.as_array().and_then(|a| a.first().cloned()).unwrap_or_else(|| ty("dyn"));
                 let inner = TypeScope { name: var, ty: item, parent: scope };
-                let body = self.tc(body, Some(&inner))?;
+                let body_t = self.tc(body, Some(&inner))?;
                 if f == "map" {
-                    return Ok(Value::Array(vec![body]));
+                    return Ok(Value::Array(vec![body_t]));
                 }
-                if !loose(&body) && !is(&body, "bool") {
-                    return Err(format!("{f} needs a bool, got {}", type_display(&body)));
+                if is_optional(&body_t) {
+                    return missing(body);
+                }
+                if !loose(&body_t) && !is(&body_t, "bool") {
+                    return Err(format!("{f} needs a bool, got {}", type_display(&body_t)));
                 }
                 Ok(if f == "filter" {
                     if of.is_array() {
@@ -1403,26 +1572,36 @@ impl Checker<'_> {
     }
 
     fn binary(&self, op: &str, a: &Node, b: &Node, scope: Option<&TypeScope>) -> R<Value> {
-        let x = self.tc(a, scope)?;
-        let y = self.tc(b, scope)?;
-        let (dx, dy) = (type_display(&x).to_string(), type_display(&y).to_string());
+        if op == "&&" || op == "||" {
+            let x = self.need(a, scope)?;
+            let (yes, no) = guards(a);
+            let y = self.within(if op == "&&" { yes } else { no }, b, scope)?;
+            if is_optional(&y) {
+                return missing(b);
+            }
+            for t in [&x, &y] {
+                if !loose(t) && !is(t, "bool") {
+                    return Err(format!("cannot apply {op} to {}", type_display(t)));
+                }
+            }
+            return Ok(ty("bool"));
+        }
+        if op == "==" || op == "!=" {
+            // The null check: either side may be missing.
+            let x = required_type(&self.tc(a, scope)?);
+            let y = required_type(&self.tc(b, scope)?);
+            let (dx, dy) = (type_display(&x), type_display(&y));
+            let comparable = loose(&x) || loose(&y) || (is_textual(&x) && is_textual(&y)) || dx == dy;
+            if !comparable {
+                return Err(format!("cannot compare {dx} and {dy}"));
+            }
+            return Ok(ty("bool"));
+        }
+        let x = self.need(a, scope)?;
+        let y = self.need(b, scope)?;
+        let (dx, dy) = (type_display(&x), type_display(&y));
         let numeric = |t: &Value| is(t, "number") || loose(t);
         match op {
-            "&&" | "||" => {
-                for t in [&x, &y] {
-                    if !loose(t) && !is(t, "bool") {
-                        return Err(format!("cannot apply {op} to {}", type_display(t)));
-                    }
-                }
-                Ok(ty("bool"))
-            }
-            "==" | "!=" => {
-                let comparable = loose(&x) || loose(&y) || (is_textual(&x) && is_textual(&y)) || dx == dy;
-                if !comparable {
-                    return Err(format!("cannot compare {dx} and {dy}"));
-                }
-                Ok(ty("bool"))
-            }
             "<" | "<=" | ">" | ">=" => {
                 let ok = |t: &Value| loose(t) || is(t, "number") || is_textual(t);
                 if !ok(&x) || !ok(&y) || (is(&x, "number") && is_textual(&y)) || (is(&y, "number") && is_textual(&x)) {
@@ -1462,11 +1641,18 @@ impl Checker<'_> {
         if let Some(e) = arity_error(name, &d, args.len()) {
             return Err(e);
         }
-        let types = args.iter().map(|a| self.tc(a, scope)).collect::<R<Vec<_>>>()?;
+        // orElse takes a value that may be missing; every other argument is used.
+        let types = args.iter().enumerate().map(|(i, a)| if name == "orElse" && i == 0 { self.tc(a, scope) } else { self.need(a, scope) }).collect::<R<Vec<_>>>()?;
         for (i, t) in types.iter().enumerate() {
             let param = d.params[i.min(d.params.len() - 1)];
-            if !accepts(param, t) {
+            if !accepts(param, &required_type(t)) {
                 return Err(format!("{name} needs {}, got {}", param_name(param), type_display(t)));
+            }
+        }
+        if name == "orElse" {
+            let (x, y) = (required_type(&types[0]), &types[1]);
+            if !loose(&x) && !loose(y) && !(is_textual(&x) && is_textual(y)) && type_display(&x) != type_display(y) {
+                return Err(format!("orElse needs a {} default, got {}", type_display(&x), type_display(y)));
             }
         }
         let lit = |i: usize| args.get(i).and_then(literal);
@@ -1522,6 +1708,14 @@ impl Checker<'_> {
             "today" => ty("date"),
             "now" => ty("timestamp"),
             "formatDuration" => ty("string"),
+            "orElse" => {
+                let x = required_type(&types[0]);
+                if is(&x, "null") {
+                    required_type(&types[1])
+                } else {
+                    x
+                }
+            }
             _ => ty("number"),
         })
     }
@@ -1530,8 +1724,8 @@ impl Checker<'_> {
 /// Type-check an expression against the names it may read (a kind's
 /// fields, a binding's value): the type, or the error (the parse error, or
 /// the first type error). Types are spelled as JSON (`"number"`, `[T]`, a
-/// row object).
+/// row object, `{"?": T}` for a value that may be missing).
 pub fn check_expression(source: &str, types: &Map<String, Value>) -> Result<Value, String> {
     let ast = parse_expression(source)?;
-    Checker { types }.tc(&ast, None)
+    Checker { types, present: std::cell::RefCell::new(Vec::new()) }.tc(&ast, None)
 }

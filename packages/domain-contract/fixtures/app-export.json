@@ -42,12 +42,13 @@
           "description": "Your hours per day."
         },
         "package": {
+          "formatVersion": 2,
           "id": "hours",
           "name": "Working hours",
           "version": "1.4.0",
           "catalogId": "https://ui.exponential.at/catalogs/core/v9",
           "sources": [
-            "exp:records"
+            "records:*"
           ],
           "records": {
             "entry": {
@@ -126,12 +127,13 @@
             "description": "Your hours per day."
           },
           "package": {
+            "formatVersion": 2,
             "id": "hours",
             "name": "Working hours",
             "version": "1.4.0",
             "catalogId": "https://ui.exponential.at/catalogs/core/v9",
             "sources": [
-              "exp:records"
+              "records:*"
             ],
             "records": {
               "entry": {
@@ -179,12 +181,13 @@
           "description": "Your hours per day."
         },
         "package": {
+          "formatVersion": 2,
           "id": "hours",
           "name": "Working hours",
           "version": "1.4.0",
           "catalogId": "https://ui.exponential.at/catalogs/core/v9",
           "sources": [
-            "exp:records"
+            "records:*"
           ],
           "records": {
             "entry": {
@@ -263,12 +266,13 @@
             "description": "Your hours per day."
           },
           "package": {
+            "formatVersion": 2,
             "id": "hours",
             "name": "Working hours",
             "version": "1.4.0",
             "catalogId": "https://ui.exponential.at/catalogs/core/v9",
             "sources": [
-              "exp:records"
+              "records:*"
             ],
             "records": {
               "entry": {
@@ -339,12 +343,13 @@
           "description": ""
         },
         "package": {
+          "formatVersion": 2,
           "id": "hours",
           "name": "Working hours",
           "version": "1.4.0",
           "catalogId": "https://ui.exponential.at/catalogs/core/v9",
           "sources": [
-            "exp:records"
+            "records:*"
           ],
           "records": {
             "entry": {
@@ -392,12 +397,13 @@
             "description": ""
           },
           "package": {
+            "formatVersion": 2,
             "id": "hours",
             "name": "Working hours",
             "version": "1.4.0",
             "catalogId": "https://ui.exponential.at/catalogs/core/v9",
             "sources": [
-              "exp:records"
+              "records:*"
             ],
             "records": {
               "entry": {
@@ -451,7 +457,7 @@
     },
     {
       "name": "an exported file",
-      "text": "{\"format\": \"exponential-app/1\", \"app\": {\"name\": \"Working hours\", \"icon\": \"clock\", \"color\": \"#10b981\", \"description\": \"Your hours per day.\"}, \"package\": {\"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"exp:records\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}, \"records\": [{\"kind\": \"entry\", \"data\": {\"date\": \"2026-10-05\", \"hours\": 3}}]}",
+      "text": "{\"format\": \"exponential-app/1\", \"app\": {\"name\": \"Working hours\", \"icon\": \"clock\", \"color\": \"#10b981\", \"description\": \"Your hours per day.\"}, \"package\": {\"formatVersion\": 2, \"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"records:*\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}, \"records\": [{\"kind\": \"entry\", \"data\": {\"date\": \"2026-10-05\", \"hours\": 3}}]}",
       "expected": {
         "issues": [],
         "file": {
@@ -462,12 +468,13 @@
             "description": "Your hours per day."
           },
           "package": {
+            "formatVersion": 2,
             "id": "hours",
             "name": "Working hours",
             "version": "1.4.0",
             "catalogId": "https://ui.exponential.at/catalogs/core/v9",
             "sources": [
-              "exp:records"
+              "records:*"
             ],
             "records": {
               "entry": {
@@ -515,7 +522,7 @@
     },
     {
       "name": "a bare package is named by its name",
-      "text": "{\"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"exp:records\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}",
+      "text": "{\"formatVersion\": 2, \"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"records:*\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}",
       "expected": {
         "issues": [],
         "file": {
@@ -526,12 +533,13 @@
             "description": ""
           },
           "package": {
+            "formatVersion": 2,
             "id": "hours",
             "name": "Working hours",
             "version": "1.4.0",
             "catalogId": "https://ui.exponential.at/catalogs/core/v9",
             "sources": [
-              "exp:records"
+              "records:*"
             ],
             "records": {
               "entry": {
@@ -610,7 +618,7 @@
     },
     {
       "name": "another format",
-      "text": "{\"format\": \"exponential-app/9\", \"app\": {\"name\": \"X\"}, \"package\": {\"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"exp:records\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}}",
+      "text": "{\"format\": \"exponential-app/9\", \"app\": {\"name\": \"X\"}, \"package\": {\"formatVersion\": 2, \"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"records:*\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}}",
       "expected": {
         "issues": [
           {
@@ -644,7 +652,7 @@
     },
     {
       "name": "records must be {kind, data} objects",
-      "text": "{\"format\": \"exponential-app/1\", \"app\": {\"name\": \"X\"}, \"package\": {\"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"exp:records\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}, \"records\": [{\"kind\": \"entry\", \"data\": {\"hours\": 1}}, {\"kind\": 3}, \"x\"]}",
+      "text": "{\"format\": \"exponential-app/1\", \"app\": {\"name\": \"X\"}, \"package\": {\"formatVersion\": 2, \"id\": \"hours\", \"name\": \"Working hours\", \"version\": \"1.4.0\", \"catalogId\": \"https://ui.exponential.at/catalogs/core/v9\", \"sources\": [\"records:*\"], \"records\": {\"entry\": {\"schema\": {\"type\": \"object\", \"properties\": {\"date\": {\"type\": \"string\", \"format\": \"date\"}, \"hours\": {\"type\": \"number\"}}, \"required\": [\"date\", \"hours\"]}}}, \"templates\": {\"month\": {\"components\": [{\"id\": \"root\", \"component\": \"Text\", \"text\": \"Hours\"}]}}}, \"records\": [{\"kind\": \"entry\", \"data\": {\"hours\": 1}}, {\"kind\": 3}, \"x\"]}",
       "expected": {
         "issues": [
           {

@@ -728,6 +728,7 @@
       "isoWeek",
       "hours",
       "formatDuration",
+      "orElse",
       "expr"
     ],
     "core": {
@@ -987,10 +988,18 @@
         },
         "returns": "string"
       },
+      "orElse": {
+        "args": {
+          "value": "any",
+          "default": "any"
+        },
+        "returns": "any"
+      },
       "expr": {
         "args": {
           "expr": "string",
-          "vars": "object"
+          "vars": "object",
+          "default": "any"
         },
         "returns": "any"
       }

@@ -170,7 +170,7 @@ async function world() {
     .returning({ id: apps.id })
   const [recordB] = await db
     .insert(appRecords)
-    .values({ appId: appB!.id, teamId: teamB, kind: `note`, data: { text: MARK }, createdBy: u.id })
+    .values({ appId: appB!.id, teamId: teamB, kind: `note`, data: { text: MARK }, createdBy: u.id, authorId: u.id, updatedBy: u.id })
     .returning({ id: appRecords.id })
   const [attachmentB] = await db
     .insert(attachments)

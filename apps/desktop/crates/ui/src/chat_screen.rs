@@ -3672,10 +3672,8 @@ mod tests {
                 computer_use: conditions.computer_use.then_some(false),
             };
             let repos = if conditions.repositories { 2 } else { 1 };
-            // NEW-39: off real state the Subagents row always hides (web's
-            // `subagentModel: false`); the fixture's own rows replay above.
-            let expected: Vec<ComposerMenuRow> =
-                expected.into_iter().filter(|row| *row != R::Subagents).collect();
+            // EXP-1583: off real state the Subagents row shows when the menu
+            // carries a subagent pick, exactly as the fixture's condition says.
             assert_eq!(
                 composer_menu_rows(
                     ComposerSurface::Launch,

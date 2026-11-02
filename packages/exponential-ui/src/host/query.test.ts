@@ -86,7 +86,7 @@ describe(`records query (VAPP-189)`, () => {
     const store = new MemoryRecordStore({ rows: fixture.valueCases[1]!.rows as RecordRow[] })
     const c = fixture.valueCases[1]!
     let seen: unknown = undefined
-    store.subscribe((rows) => (seen = recordsValue(rows, parseRecordsQuery(c.params as Record<string, string>), { me: c.me, now: c.now, names: c.names as Record<string, string> })))
+    store.subscribe((rows) => (seen = recordsValue(rows, parseRecordsQuery(c.params as Record<string, string>, (c as { kind?: string }).kind), { me: c.me, now: c.now, names: c.names as Record<string, string> })))
     expect(seen).toEqual(c.expected as never)
   })
 })

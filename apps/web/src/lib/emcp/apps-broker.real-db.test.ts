@@ -258,8 +258,8 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
         } as never,
       })
       .returning({ id: apps.id })
-    const [theirs] = await db.insert(appRecords).values({ appId: fixer!.id, teamId: w.teamId, kind: `entry`, data: { day: `2026-10-31`, hours: 3 }, createdBy: w.owner }).returning({ id: appRecords.id })
-    const [own] = await db.insert(appRecords).values({ appId: fixer!.id, teamId: w.teamId, kind: `entry`, data: { day: `2026-10-31`, hours: 1 }, createdBy: mate }).returning({ id: appRecords.id })
+    const [theirs] = await db.insert(appRecords).values({ appId: fixer!.id, teamId: w.teamId, kind: `entry`, data: { day: `2026-10-31`, hours: 3 }, createdBy: w.owner, authorId: w.owner, updatedBy: w.owner }).returning({ id: appRecords.id })
+    const [own] = await db.insert(appRecords).values({ appId: fixer!.id, teamId: w.teamId, kind: `entry`, data: { day: `2026-10-31`, hours: 1 }, createdBy: mate, authorId: mate, updatedBy: mate }).returning({ id: appRecords.id })
     const { clientId, token } = await client(mate)
     await grant(mate, clientId, w.teamId, `full`)
 

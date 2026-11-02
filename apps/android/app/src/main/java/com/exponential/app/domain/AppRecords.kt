@@ -11,7 +11,7 @@ import java.util.Locale
 // VAPP-122: app RECORDS, the Android mirror of the pure reference
 // `packages/domain-contract/src/app-records.ts` (fixtures/app-records.json is
 // the spec; `AppRecordsTest` replays its ownership, on-behalf, count-label,
-// purge and Data tab cases). VAPP-189: the `exp:records?…` query and its
+// purge and Data tab cases). VAPP-189: the `records:<kind>?…` query and its
 // value are eUI's ONE evaluator (the Compose SDK's `RecordsQuery` over the
 // core; packages/exponential-ui fixtures/records-query.json).
 object AppRecords {

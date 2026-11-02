@@ -33,7 +33,7 @@ export const EXPRESSION_LIMITS = { maxLength: 1000, maxDepth: 32, maxSteps: 10_0
 export type FunctionEffect = `pure` | `write` | `host`
 
 /** The functions that write (records, the surface data model). */
-export const WRITE_FUNCTIONS: readonly string[] = [`set`, `records.upsert`, `records.delete`, `records.batch`, `harness.records.upsert`, `harness.records.delete`]
+export const WRITE_FUNCTIONS: readonly string[] = [`set`, `records.upsert`, `records.delete`, `records.batch`]
 /** The built-in host functions; every name under a host prefix is one too. */
 export const HOST_FUNCTIONS: readonly string[] = [`openUrl`, `bind`]
 export const HOST_FUNCTION_PREFIXES: readonly string[] = [`actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`]
@@ -256,7 +256,7 @@ function text(fn: string, v: unknown): string {
 // The function table (CEL calls and the A2UI function form)
 // ---------------------------------------------------------------------------
 
-type Param = `number` | `string` | `temporal` | `sized`
+type Param = `number` | `string` | `temporal` | `sized` | `any`
 
 interface FunctionDef {
   /** The CEL parameters in order; `variadic` repeats the last one. */
@@ -418,6 +418,16 @@ export const EXPRESSION_FUNCTIONS: Readonly<Record<string, FunctionDef>> = {
   hours: { params: [`number`], args: [`minutes`], run: ([m]) => num(number(`hours`, m) / 60), returns: always(`number`) },
   formatDuration: { params: [`number`, `string`], args: [`hours`, `format`], run: formatDuration, returns: always(`string`) },
   size: { params: [`sized`], args: [`value`], run: ([v]) => size(v), returns: always(`number`) },
+  // VAPP-195: the value, or the default when it is missing (null).
+  orElse: {
+    params: [`any`, `any`],
+    args: [`value`, `default`],
+    run: ([v, d]) => (v === null || v === undefined ? (d ?? null) : v),
+    returns: (types) => {
+      const a = requiredType(types[0]!)
+      return a === `null` ? requiredType(types[1]!) : a
+    },
+  },
 }
 
 export { EXPRESSION_CALL_NAMES }
@@ -447,10 +457,12 @@ function arityError(name: string, def: FunctionDef, n: number): string | null {
  *  resolved. `undefined` = not an expression function; `{value: undefined}`
  *  = no value (an error, like every bind-time function). */
 export function callExpressionFunction(name: string, args: Record<string, unknown>, env: ExpressionEnv = {}): { value: unknown } | undefined {
+  // VAPP-195: a failed call shows its `default` (absent = no value).
+  const fallback = { value: args.default }
   if (name === `expr`) {
-    if (typeof args.expr !== `string`) return { value: undefined }
+    if (typeof args.expr !== `string`) return fallback
     const result = evaluateExpression(args.expr, isMap(args.vars) ? args.vars : {}, env)
-    return { value: `value` in result ? result.value : undefined }
+    return `value` in result ? { value: result.value } : fallback
   }
   if (name === `size` || !Object.prototype.hasOwnProperty.call(EXPRESSION_FUNCTIONS, name)) return undefined
   const def = EXPRESSION_FUNCTIONS[name]!
@@ -460,11 +472,11 @@ export function callExpressionFunction(name: string, args: Record<string, unknow
     positional = def.args.map((k) => args[k])
     while (positional.length > (def.min ?? def.params.length) && positional[positional.length - 1] === undefined) positional.pop()
   }
-  if (arityError(name, def, positional.length)) return { value: undefined }
+  if (arityError(name, def, positional.length)) return fallback
   try {
     return { value: def.run(positional, fullEnv(env)) }
   } catch (e) {
-    if (e instanceof ExprError) return { value: undefined }
+    if (e instanceof ExprError) return fallback
     throw e
   }
 }
@@ -484,6 +496,7 @@ export type ExprNode =
   | { k: `cond`; test: ExprNode; then: ExprNode; else: ExprNode; at: number }
   | { k: `call`; fn: string; args: ExprNode[]; at: number }
   | { k: `macro`; fn: string; of: ExprNode; v: string; body: ExprNode; at: number }
+  | { k: `has`; of: Extract<ExprNode, { k: `field` }>; at: number }
 
 interface Token {
   t: `num` | `str` | `id` | `op` | `end`
@@ -573,6 +586,24 @@ function dottedName(node: ExprNode): string | null {
   if (node.k !== `field`) return null
   const of = dottedName(node.of)
   return of === null ? null : `${of}.${node.name}`
+}
+
+/** VAPP-195: a value's path as written (`a.b[0].c`, `m['k']`): names,
+ *  fields and literal indexes; null for anything else. */
+export function pathText(node: ExprNode): string | null {
+  if (node.k === `id`) return node.name
+  if (node.k === `field`) {
+    const of = pathText(node.of)
+    return of === null ? null : `${of}.${node.name}`
+  }
+  if (node.k === `index`) {
+    const of = pathText(node.of)
+    const key = node.index.k === `lit` ? node.index.v : undefined
+    if (of === null) return null
+    if (typeof key === `number`) return `${of}[${numText(key)}]`
+    if (typeof key === `string`) return `${of}['${key}']`
+  }
+  return null
 }
 
 const rootAt = (node: ExprNode): number => (node.k === `field` ? rootAt(node.of) : node.at)
@@ -742,6 +773,14 @@ class Parser {
       const name = t.v as string
       if (name === `true` || name === `false`) return { k: `lit`, v: name === `true`, at: t.at }
       if (name === `null`) return { k: `lit`, v: null, at: t.at }
+      // VAPP-195: CEL's presence test, `has(a.b)`.
+      if (name === `has` && this.isOp(`(`)) {
+        this.next()
+        const arg = this.expr()
+        this.expect(`)`)
+        if (arg.k !== `field`) fail(`at ${t.at}: has needs a field: has(a.b)`)
+        return { k: `has`, of: arg as Extract<ExprNode, { k: `field` }>, at: t.at }
+      }
       if (this.isOp(`(`)) {
         if (!Object.prototype.hasOwnProperty.call(EXPRESSION_FUNCTIONS, name)) {
           const effect = functionEffect(name)
@@ -813,6 +852,12 @@ class Evaluator {
         for (let s = scope; s; s = s.parent) if (s.name === node.name) return s.value
         if (!Object.prototype.hasOwnProperty.call(this.vars, node.name)) fail(`unknown name ${node.name}`)
         return this.vars[node.name] ?? null
+      }
+      case `has`: {
+        const of = this.ev(node.of.of, scope)
+        if (of === null || of === undefined) return false
+        if (!isMap(of)) return fail(`no field ${node.of.name} on ${typeName(of)}`)
+        return Object.prototype.hasOwnProperty.call(of, node.of.name) && of[node.of.name] !== null && of[node.of.name] !== undefined
       }
       case `field`: {
         const of = this.ev(node.of, scope)
@@ -956,24 +1001,34 @@ export function evaluateExpression(source: string | ExprNode, vars: Record<strin
 // Type checking (package validation)
 // ---------------------------------------------------------------------------
 
-/** The name a type prints as in an error: a list `list`, a row `map`. */
+/** VAPP-195 (E2): a value that may be missing is `T?`, spelled `{"?": T}`
+ *  (a row never has a field named `?`). */
+export const isOptional = (t: ExprType): t is { "?": ExprType } => typeof t === `object` && !Array.isArray(t) && Object.keys(t).length === 1 && Object.prototype.hasOwnProperty.call(t, `?`)
+/** `T?` (null and an optional stay as they are). */
+export const optionalType = (t: ExprType): ExprType => (isOptional(t) || t === `null` ? t : { "?": t })
+/** `T` of a `T?`. */
+export const requiredType = (t: ExprType): ExprType => (isOptional(t) ? t[`?`] : t)
+
+/** The name a type prints as in an error: a list `list`, a row `map`, an
+ *  optional `T?`. */
 export function typeDisplay(t: ExprType): string {
+  if (isOptional(t)) return `${typeDisplay(t[`?`])}?`
   return typeof t === `string` ? t : Array.isArray(t) ? `list` : `map`
 }
 
-const isRow = (t: ExprType): t is { [field: string]: ExprType } => typeof t === `object` && !Array.isArray(t)
+const isRow = (t: ExprType): t is { [field: string]: ExprType } => typeof t === `object` && !Array.isArray(t) && !isOptional(t)
 const isTextual = (t: ExprType) => t === `string` || t === `date` || t === `timestamp`
 const loose = (t: ExprType) => t === `dyn` || t === `null`
 
 function accepts(param: Param, t: ExprType): boolean {
-  if (loose(t)) return true
+  if (param === `any` || loose(t)) return true
   if (param === `number`) return t === `number`
   if (param === `string`) return isTextual(t)
   if (param === `temporal`) return isTextual(t)
   return t === `string` || t === `map` || Array.isArray(t) || isRow(t)
 }
 
-const PARAM_NAME: Record<Param, string> = { number: `a number`, string: `a string`, temporal: `a date`, sized: `a list, string or map` }
+const PARAM_NAME: Record<Param, string> = { number: `a number`, string: `a string`, temporal: `a date`, sized: `a list, string or map`, any: `a value` }
 
 interface TypeScope {
   name: string
@@ -985,10 +1040,72 @@ function literal(node: ExprNode): unknown {
   return node.k === `lit` ? node.v : undefined
 }
 
+/** The paths a test proves present when it is true / when it is false:
+ *  `has(p)`, `p != null`, `p == null`, through `&&`, `||` and `!`. */
+function guards(node: ExprNode): { yes: string[]; no: string[] } {
+  if (node.k === `has`) {
+    const p = pathText(node.of)
+    return { yes: p === null ? [] : [p], no: [] }
+  }
+  if (node.k === `bin` && (node.op === `==` || node.op === `!=`)) {
+    const side = literal(node.a) === null && node.a.k === `lit` ? node.b : literal(node.b) === null && node.b.k === `lit` ? node.a : null
+    const p = side ? pathText(side) : null
+    if (p === null) return { yes: [], no: [] }
+    return node.op === `!=` ? { yes: [p], no: [] } : { yes: [], no: [p] }
+  }
+  if (node.k === `bin` && node.op === `&&`) {
+    const a = guards(node.a)
+    const b = guards(node.b)
+    return { yes: [...a.yes, ...b.yes], no: [] }
+  }
+  if (node.k === `bin` && node.op === `||`) {
+    const a = guards(node.a)
+    const b = guards(node.b)
+    return { yes: [], no: [...a.no, ...b.no] }
+  }
+  if (node.k === `unary` && node.op === `!`) {
+    const a = guards(node.arg)
+    return { yes: a.no, no: a.yes }
+  }
+  return { yes: [], no: [] }
+}
+
+/** An unguarded use of a value that may be missing. */
+function missing(node: ExprNode): never {
+  const p = pathText(node)
+  return fail(`${p ?? `the value at ${node.at}`} may be missing: guard it with has(), a null check or orElse()`)
+}
+
 class Checker {
+  /** The paths a guard proved present here (`has(r.f) ? r.f + 1 : 0`). */
+  private present: string[] = []
   constructor(private readonly types: Record<string, ExprType>) {}
 
+  /** Type `node` with `paths` proved present. */
+  private within(paths: string[], node: ExprNode, scope: TypeScope | null): ExprType {
+    const before = this.present
+    this.present = [...before, ...paths]
+    try {
+      return this.tc(node, scope)
+    } finally {
+      this.present = before
+    }
+  }
+
+  /** The type of a use that must not be missing. */
+  private need(node: ExprNode, scope: TypeScope | null): ExprType {
+    const t = this.tc(node, scope)
+    if (isOptional(t)) missing(node)
+    return t
+  }
+
   tc(node: ExprNode, scope: TypeScope | null): ExprType {
+    const t = this.type(node, scope)
+    const p = node.k === `id` || node.k === `field` || node.k === `index` ? pathText(node) : null
+    return p !== null && this.present.includes(p) ? requiredType(t) : t
+  }
+
+  private type(node: ExprNode, scope: TypeScope | null): ExprType {
     switch (node.k) {
       case `lit`:
         return typeName(node.v)
@@ -1002,60 +1119,70 @@ class Checker {
         if (!Object.prototype.hasOwnProperty.call(this.types, node.name)) return fail(`unknown name ${node.name}`)
         return this.types[node.name]!
       }
-      case `field`: {
-        const of = this.tc(node.of, scope)
-        if (of === `dyn` || of === `map` || of === `null`) return `dyn`
-        if (isRow(of)) {
-          if (!Object.prototype.hasOwnProperty.call(of, node.name)) return fail(`unknown field ${node.name}`)
-          return of[node.name]!
-        }
-        return fail(`no field ${node.name} on ${typeDisplay(of)}`)
+      case `field`:
+      case `has`: {
+        const field = node.k === `has` ? (node.of as Extract<ExprNode, { k: `field` }>) : node
+        const raw = this.tc(field.of, scope)
+        const of = requiredType(raw)
+        let t: ExprType
+        if (of === `dyn` || of === `map` || of === `null`) t = `dyn`
+        else if (isRow(of)) {
+          if (!Object.prototype.hasOwnProperty.call(of, field.name)) return fail(`unknown field ${field.name}`)
+          t = of[field.name]!
+        } else return fail(`no field ${field.name} on ${typeDisplay(of)}`)
+        if (node.k === `has`) return `bool`
+        return isOptional(raw) ? optionalType(t) : t
       }
       case `index`: {
-        const of = this.tc(node.of, scope)
-        const index = this.tc(node.index, scope)
+        const raw = this.tc(node.of, scope)
+        const of = requiredType(raw)
+        const index = this.need(node.index, scope)
+        const wrap = (t: ExprType) => (isOptional(raw) ? optionalType(t) : t)
         if (Array.isArray(of)) {
           if (!loose(index) && index !== `number`) fail(`a list index is a number, got ${typeDisplay(index)}`)
-          return of[0]!
+          return wrap(of[0]!)
         }
         if (isRow(of) || of === `map`) {
           if (!loose(index) && !isTextual(index)) fail(`a map key is a string, got ${typeDisplay(index)}`)
           const key = literal(node.index)
           if (isRow(of) && typeof key === `string`) {
             if (!Object.prototype.hasOwnProperty.call(of, key)) fail(`unknown field ${key}`)
-            return of[key]!
+            return wrap(of[key]!)
           }
-          return `dyn`
+          return wrap(`dyn`)
         }
-        if (loose(of)) return `dyn`
+        if (loose(of)) return wrap(`dyn`)
         return fail(`cannot index ${typeDisplay(of)}`)
       }
       case `unary`: {
-        const t = this.tc(node.arg, scope)
+        const t = this.need(node.arg, scope)
         const want = node.op === `-` ? `number` : `bool`
         if (!loose(t) && t !== want) fail(`cannot apply ${node.op} to ${typeDisplay(t)}`)
         return want
       }
       case `cond`: {
-        const test = this.tc(node.test, scope)
+        const test = this.need(node.test, scope)
         if (!loose(test) && test !== `bool`) fail(`cannot use ${typeDisplay(test)} as a condition`)
-        const a = this.tc(node.then, scope)
-        const b = this.tc(node.else, scope)
+        const g = guards(node.test)
+        const a = this.within(g.yes, node.then, scope)
+        const b = this.within(g.no, node.else, scope)
         if (JSON.stringify(a) === JSON.stringify(b)) return a
-        if (a === `null`) return b
-        if (b === `null`) return a
-        return `dyn`
+        if (a === `null`) return optionalType(b)
+        if (b === `null`) return optionalType(a)
+        if (JSON.stringify(requiredType(a)) === JSON.stringify(requiredType(b))) return optionalType(requiredType(a))
+        return isOptional(a) || isOptional(b) ? optionalType(`dyn`) : `dyn`
       }
       case `bin`:
         return this.binary(node, scope)
       case `call`:
         return this.call(node, scope)
       case `macro`: {
-        const of = this.tc(node.of, scope)
+        const of = this.need(node.of, scope)
         if (!Array.isArray(of) && !loose(of)) fail(`${node.fn} needs a list, got ${typeDisplay(of)}`)
         const item = Array.isArray(of) ? of[0]! : `dyn`
         const body = this.tc(node.body, { name: node.v, type: item, parent: scope })
         if (node.fn === `map`) return [body]
+        if (isOptional(body)) missing(node.body)
         if (!loose(body) && body !== `bool`) fail(`${node.fn} needs a bool, got ${typeDisplay(body)}`)
         return node.fn === `filter` ? (Array.isArray(of) ? of : [`dyn`]) : `bool`
       }
@@ -1063,21 +1190,27 @@ class Checker {
   }
 
   private binary(node: Extract<ExprNode, { k: `bin` }>, scope: TypeScope | null): ExprType {
-    const a = this.tc(node.a, scope)
-    const b = this.tc(node.b, scope)
+    if (node.op === `&&` || node.op === `||`) {
+      const a = this.need(node.a, scope)
+      const g = guards(node.a)
+      const b = this.within(node.op === `&&` ? g.yes : g.no, node.b, scope)
+      if (isOptional(b)) missing(node.b)
+      for (const t of [a, b]) if (!loose(t) && t !== `bool`) fail(`cannot apply ${node.op} to ${typeDisplay(t)}`)
+      return `bool`
+    }
+    if (node.op === `==` || node.op === `!=`) {
+      // The null check: either side may be missing.
+      const a = requiredType(this.tc(node.a, scope))
+      const b = requiredType(this.tc(node.b, scope))
+      const comparable = loose(a) || loose(b) || (isTextual(a) && isTextual(b)) || typeDisplay(a) === typeDisplay(b)
+      if (!comparable) fail(`cannot compare ${typeDisplay(a)} and ${typeDisplay(b)}`)
+      return `bool`
+    }
+    const a = this.need(node.a, scope)
+    const b = this.need(node.b, scope)
     const da = typeDisplay(a)
     const db = typeDisplay(b)
     switch (node.op) {
-      case `&&`:
-      case `||`:
-        for (const t of [a, b]) if (!loose(t) && t !== `bool`) fail(`cannot apply ${node.op} to ${typeDisplay(t)}`)
-        return `bool`
-      case `==`:
-      case `!=`: {
-        const comparable = loose(a) || loose(b) || (isTextual(a) && isTextual(b)) || da === db
-        if (!comparable) fail(`cannot compare ${da} and ${db}`)
-        return `bool`
-      }
       case `<`:
       case `<=`:
       case `>`:
@@ -1103,11 +1236,17 @@ class Checker {
     const def = EXPRESSION_FUNCTIONS[node.fn]!
     const arity = arityError(node.fn, def, node.args.length)
     if (arity) fail(arity)
-    const types = node.args.map((a) => this.tc(a, scope))
+    // orElse takes a value that may be missing; every other argument is used.
+    const types = node.args.map((a, i) => (node.fn === `orElse` && i === 0 ? this.tc(a, scope) : this.need(a, scope)))
     types.forEach((t, i) => {
       const param = def.params[Math.min(i, def.params.length - 1)]!
-      if (!accepts(param, t)) fail(`${node.fn} needs ${PARAM_NAME[param]}, got ${typeDisplay(t)}`)
+      if (!accepts(param, requiredType(t))) fail(`${node.fn} needs ${PARAM_NAME[param]}, got ${typeDisplay(t)}`)
     })
+    if (node.fn === `orElse`) {
+      const a = requiredType(types[0]!)
+      const b = types[1]!
+      if (!loose(a) && !loose(b) && !(isTextual(a) && isTextual(b)) && typeDisplay(a) !== typeDisplay(b)) fail(`orElse needs a ${typeDisplay(a)} default, got ${typeDisplay(b)}`)
+    }
     // The literal arguments a signature fixes: units, digits, formats, a whole n.
     const lit = (i: number) => (node.args[i] ? literal(node.args[i]!) : undefined)
     const unitAt = node.fn === `dateAdd` || node.fn === `dateDiff` ? 2 : node.fn === `startOf` || node.fn === `endOf` ? 1 : -1

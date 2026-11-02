@@ -9,7 +9,7 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 
 // VAPP-110: the editor's PREVIEW: the package's first template rendered
 // through the app host (the same public host API a third party uses:
-// `exp:` bindings, `harness.*` functions behind the consent card, the URL
+// `exp:` + `records:` bindings, `harness.mcp` behind the consent card, the URL
 // policy). A new package = a new host (the key), so every synced upsert
 // repaints; no package yet = the empty state in the frame. VAPP-179: the
 // template to apply comes from the editor's toolbar (`previewTemplate`), and
@@ -72,7 +72,7 @@ export function AppPreview({
   frame?: `desktop` | `phone`
   mode?: `light` | `dark`
   className?: string
-  /** VAPP-122: the app whose records `exp:records` reads, and the viewer. */
+  /** VAPP-122: the app whose records `records:<kind>` reads, and the viewer. */
   appId?: string | null
   teamId?: string | null
   me?: string | null

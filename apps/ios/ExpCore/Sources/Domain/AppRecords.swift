@@ -3,7 +3,7 @@ import Foundation
 /// VAPP-122: app RECORDS ×4 (`packages/domain-contract/fixtures/app-records.json`
 /// is the spec, TS reference `src/app-records.ts`; desktop
 /// `domain::app_records`, Android `AppRecords.kt`). VAPP-189: the
-/// `exp:records?…` query and its value are eUI's ONE evaluator (the SDK's
+/// `records:<kind>?…` query and its value are eUI's ONE evaluator (the SDK's
 /// `RecordsQuery` over the core, packages/exponential-ui
 /// fixtures/records-query.json); what stays here is Exponential's own:
 /// ownership + on-behalf (VAPP-187/188), the count label and (VAPP-178) the

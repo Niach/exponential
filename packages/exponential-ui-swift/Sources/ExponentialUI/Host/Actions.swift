@@ -15,7 +15,7 @@ public enum Actions {
     public enum Effect: String, Sendable, Equatable {
         /// Every expression and bind-time function.
         case pure
-        /// `set`, `records.upsert` / `.delete` / `.batch`, `harness.records.*`.
+        /// `set`, `records.upsert` / `.delete` / `.batch`.
         case write
         /// `openUrl`, `bind`, every `actions.` `harness.` `exponential.`
         /// `tools.` `upstream.` name.

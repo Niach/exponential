@@ -113,13 +113,11 @@ import kotlinx.coroutines.launch
  *  - bindings: the `exp:` scheme over Room (`exp:devices`, re-derived on the
  *    liveness tick), [AppHostValues]; VAPP-119 `exp:issues` / `boards` /
  *    `members` / `sessions` / `comments` / `attachments` over the scope
- *    team's synced rows, [AppSources]; VAPP-122
- *    `exp:records?kind=…` over the hosting app's synced records (or the
- *    `app=<slug>` app of the same team), [AppRecords]; VAPP-161 the
- *    format's neutral `records:<kind>?…` = the same binding;
- *  - VAPP-122 `harness.records.upsert {kind, data, id?}` and
- *    `harness.records.delete {id}` (VAPP-161: also `records.upsert` /
- *    `records.delete`): tRPC `apps.records.*` as the viewer, no consent card
+ *    team's synced rows, [AppSources]; VAPP-122 the format's
+ *    `records:<kind>?…` over the hosting app's synced records (or the
+ *    `app=<slug>` app of the same team), [AppRecords];
+ *  - VAPP-122 `records.upsert {kind, data, id?}` and `records.delete {id}`:
+ *    tRPC `apps.records.*` as the viewer, no consent card
  *    (the app's own rows), a refusal = the failed-action toast;
  *  - VAPP-194 `records.batch {writes}`: a package action's writes as ONE
  *    `apps.records.batch`; a failed action (that or a false `require`) =
@@ -338,7 +336,7 @@ fun rememberAppHost(
     packages: List<String>,
     consent: AppConsentGate,
     onOpenIssue: (issueId: String) -> Unit,
-    /** VAPP-122: the hosting app (its records; null = none: `exp:records` is null, writes fail). */
+    /** VAPP-122: the hosting app (its records; null = none: `records:<kind>` is null, writes fail). */
     appId: String? = null,
     /** The hosting app's team (an `app=<slug>` names an app of this team). */
     teamId: String? = null,
@@ -396,7 +394,7 @@ fun rememberAppHost(
         val token = origin?.let { resolveAccountForUrl(auth.accounts.value, auth.activeAccountId.value, it)?.token }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-        // VAPP-122: the `exp:records` value over the parsed query (VAPP-189:
+        // VAPP-122: the `records:<kind>` value over the parsed query (VAPP-189:
         // eUI's one evaluator, the SDK's `RecordsQuery` over the core).
         fun recordsValues(query: RecordsQuery): Flow<JsonValue?> {
             // The app whose records are read: the hosting app, or
@@ -435,13 +433,12 @@ fun rememberAppHost(
                 in AppSources.SOURCES -> sourceStore(source.name).map { store ->
                     AppSources.sourceValue(source.name, source.params, store, me)
                 }
-                "records" -> recordsValues(RecordsQuery.parse(source.params))
                 else -> flowOf(null)
             }
             val job = scope.launch { values.distinctUntilChanged().collect { emit(it) } }
             return@SourceResolver { job.cancel() }
         }
-        // VAPP-161: the format's neutral spelling, `records:<kind>?…` = `exp:records?kind=<kind>&…`.
+        // VAPP-161: `records:<kind>?…` (the source's name = the kind).
         val records = SourceResolver { source, emit ->
             val query = RecordsQuery.parse(source)
             val values = if (query == null) flowOf(null) else recordsValues(query)
@@ -516,9 +513,6 @@ fun rememberAppHost(
             fn
         }
         val functions = actions + mapOf(
-            "harness.records.upsert" to recordsUpsert,
-            "harness.records.delete" to recordsDelete,
-            // VAPP-161: the format's neutral spelling, the same closures.
             "records.upsert" to recordsUpsert,
             "records.delete" to recordsDelete,
             "records.batch" to recordsBatch,
