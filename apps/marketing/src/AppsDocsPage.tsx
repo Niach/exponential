@@ -30,8 +30,26 @@ const QUERY = `"queries": {
 }`
 
 const EXPR = `{ "call": "expr", "args": {
-  "expr": "formatDuration(round(total, 2), 'h:mm')",
-  "vars": { "total": { "path": "/month/totals/hours" } } } }`
+  "expr": "formatDuration(round(orElse(total, 0), 2), 'h:mm')",
+  "vars": { "total": { "path": "/month/totals/hours" } },
+  "default": "0:00" } }`
+
+const ACTION = `"actions": {
+  "log": {
+    "params": { "type": "object", "required": ["date", "hours"],
+      "properties": { "date": { "type": "string", "format": "date" }, "hours": { "type": "number" } } },
+    "steps": [
+      { "require": "params.hours > 0 && params.hours <= 24", "message": "Log 0 to 24 hours" },
+      { "records.upsert": { "kind": "entry", "data": { "date": "params.date", "hours": "params.hours" } } },
+      { "call": "harness.toast", "args": { "message": "'Logged'" } }
+    ]
+  }
+},
+"tests": [
+  { "name": "zero hours are refused",
+    "action": { "name": "log", "params": { "date": "2026-11-04", "hours": 0 } },
+    "expect": { "error": "Log 0 to 24 hours" } }
+]`
 
 const SECTIONS: DocsSectionType[] = [
   { id: `team-apps`, num: `01`, label: `Team apps` },
@@ -396,10 +414,28 @@ export function AppsDocsPage() {
               loops and no user functions, every formula ends within fixed
               limits, and each one is type-checked against the kind&apos;s
               fields when the app is saved, so a typo is an error in the editor,
-              not on someone&apos;s screen. Working days, holidays or targets
+              not on someone&apos;s screen. A field that may be empty has to be
+              handled (<code>has()</code>, a null check or{` `}
+              <code>orElse</code>), and every formula carries a{` `}
+              <code>default</code> it shows when it fails, so a screen never
+              shows a blank or an error. Working days, holidays or targets
               are an app&apos;s own records, never a platform rule.
             </p>
             <DocsCode language="json">{EXPR}</DocsCode>
+
+            <h3>Actions and tests</h3>
+            <p>
+              Formulas only read. An app writes through named{` `}
+              <strong>actions</strong>: a button runs one, its steps check
+              conditions (<code>require</code>) and then create, change or
+              delete records. An action lands completely or not at all: if a
+              check fails or the server refuses one write, nothing is saved and
+              the person sees why. The package also carries its own{` `}
+              <strong>tests</strong>, sample records with the results they
+              should give. They run every time the app is saved, so a broken
+              formula, query or action is caught in the editor.
+            </p>
+            <DocsCode language="json">{ACTION}</DocsCode>
             <p>
               The query and the formulas run the same way on the web, the
               desktop app, iOS and Android, over the records already on the

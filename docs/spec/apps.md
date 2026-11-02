@@ -401,7 +401,7 @@ The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <
 
 - ✅ (Q2, #VAPP-191) The string form is a **CEL subset**, hand-written as TS (`src/cel.ts`) + Rust (`eui_core::cel`) twins replaying ONE fixture (`fixtures/expressions.json`; FFI `evaluate_expression_json` / `check_expression_json`, SDKs `Expressions.evaluate/check` (Swift; `Expression` on Compose)). cel-js / the `cel` crates were not used: CEL splits int/uint/double (JSON has one number), their error texts and date handling would differ between the twins, and they would bloat the eUI bundle. One number type (`7 / 2` = 3.5); a missing field reads null. It is used as `{"call": "expr", "args": {"expr": "…", "vars": {…}}}` anywhere a value may be bound, and the arithmetic, date and duration rows above are also plain A2UI functions (`{"call": "mul", …}`) running the same table. Every `expr` is type-checked by `validatePackage` against its vars (a literal, a records binding's kind schema, the template data), issues at the JSON pointer. Caps: 1000 characters, nesting 32, no nested comprehensions, 10 000 steps. The team zone is the surface zone the host passes (`Formatter.offsetMinutes`, `HostZone`); there is no team timezone setting yet, so hosts pass the platform zone today. The Arrays and Text rows stay open.
 
-**Missing values are explicit (🆕 E2, #VAPP-195; adopted 2026-11-02):** a field that is not in its kind's `required`, and a var the checker cannot type, is typed `T?`. Arithmetic, comparisons and function arguments on a `T?` are install issues unless guarded: `has(r.f)`, `r.f == null ? … : …`, or `orElse(x, default)`. Every binding carries a fallback (`{"call": "expr", "args": {…, "default"}}`, shown when evaluation fails), so a renderer never paints undefined and never throws on a binding.
+**Missing values are explicit (✅ E2, #VAPP-195):** a field that is not in its kind's `required`, and a var the checker cannot type, is typed `T?`. Arithmetic, comparisons and function arguments on a `T?` are install issues unless guarded: `has(r.f)`, `r.f == null ? … : …`, or `orElse(x, default)`. Every binding carries a fallback (`{"call": "expr", "args": {…, "default"}}`, shown when evaluation fails), so a renderer never paints undefined and never throws on a binding. Built (E2): `T?` is spelled `{"?": T}`; an unguarded use names its path (`entries.rows[0].hours may be missing: guard it with has(), a null check or orElse()`); `has()`, `!= null` / `== null` (through `&&`, `||`, `!`) and `orElse` narrow; `default` is required on every package `expr` binding and every bind-time call falls back to its `default` (TS `dynamic.ts`, Rust `data.rs`: all six renderers); fixture `expressions.json`, replayed ×4.
 
 ### 4.3 Time
 
@@ -765,7 +765,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **Q3** Computed fields. (C11)
 - **Q4** The broker's `records` run uses the Q1 evaluator: tools get the same query as the UI. (C15)
 - **E1** ✅ #VAPP-194 Typed effects: pure bindings vs all-or-nothing actions with `require` (§4.5). Before A1.
-- **E2** #VAPP-195 Optional types (`T?`) in the checker + a fallback on every binding (§4.2). With or before Q3.
+- **E2** ✅ #VAPP-195 Optional types (`T?`) in the checker + a fallback on every binding (§4.2). With or before Q3.
 
 **Phase 3: Multi-screen apps** (unblocks CRM, hiring, approvals)
 

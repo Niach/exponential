@@ -18,10 +18,10 @@
 // The Rust core mirrors this file (`host::actions`); fixtures/actions.json
 // locks the checks, the runs and the batch (TS, Rust, Swift, Kotlin).
 
-import { EXPRESSION_LIMITS, checkExpression, evaluateCounted, effectWords, functionEffect, parseExpression, typeDisplay, typeName } from "../cel"
+import { EXPRESSION_LIMITS, isOptional, optionalType, checkExpression, evaluateCounted, effectWords, functionEffect, parseExpression, typeDisplay, typeName } from "../cel"
 import type { ExprNode, ExprType, ExpressionEnv } from "../cel"
 import type { PackageIssue } from "./package"
-import { literalType, schemaType } from "./expressions"
+import { literalType, rowOf, schemaType } from "./expressions"
 import { validateRecord, validateRecordSchema } from "./records"
 import type { RecordSchema } from "./records"
 import type { RecordRow } from "./query"
@@ -82,14 +82,17 @@ function stepKind(step: unknown): string | null {
 /** The names a step expression reads, typed: `params` (the action's
  *  params schema), `data` (the surface data: open), `me` (a member id). */
 export function actionVarTypes(action: Record<string, unknown>): Record<string, ExprType> {
-  const props = isObject(action.params) && isObject(action.params.properties) ? action.params.properties : {}
-  const params: Record<string, ExprType> = {}
-  for (const [k, v] of Object.entries(props)) params[k] = schemaType(v)
-  return { params, data: `dyn`, me: `string` }
+  const schema = isObject(action.params) ? action.params : {}
+  const params = rowOf(isObject(schema.properties) ? schema.properties : {}, schema.required)
+  // VAPP-195: the surface data is untyped and the member may be unknown.
+  return { params, data: optionalType(`dyn`), me: optionalType(`string`) }
 }
 
 /** May a value of type `t` land in a field of type `field`? */
 function fits(field: ExprType, t: ExprType): boolean {
+  // VAPP-195: a value that may be missing fits only a field that may be.
+  if (isOptional(t)) return isOptional(field) && fits(field[`?`], t[`?`])
+  if (isOptional(field)) return fits(field[`?`], t)
   if (field === `dyn` || t === `dyn` || t === `null`) return true
   const textual = (x: ExprType) => x === `string` || x === `date` || x === `timestamp`
   if (textual(field)) return textual(t)
@@ -178,7 +181,8 @@ function validateStep(step: unknown, at: string, types: Record<string, ExprType>
           if (schema.additionalProperties !== true) issues.push({ path: fieldAt, message: `${field} is not in the schema of ${kindName}` })
           continue
         }
-        const want = schemaType(props[field])
+        const required = Array.isArray(schema.required) && schema.required.includes(field)
+        const want = required ? schemaType(props[field]) : optionalType(schemaType(props[field]))
         if (t !== null && !fits(want, t)) issues.push({ path: fieldAt, message: `${field} is ${typeDisplay(want)}, got ${typeDisplay(t)}` })
       }
       // A create names every required field (a patch keeps the row's).

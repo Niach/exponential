@@ -177,7 +177,8 @@ dynamic value: a binding, another call):
 ```jsonc
 { "call": "expr", "args": {
     "expr": "formatDuration(target - entries.sum, 'h:mm')",
-    "vars": { "target": { "path": "/target" }, "entries": { "path": "/entries" } } } }
+    "vars": { "target": { "path": "/target" }, "entries": { "path": "/entries" } },
+    "default": "–" } }
 { "call": "dateAdd", "args": { "date": { "path": "/day" }, "n": 1, "unit": "month" } }
 ```
 
@@ -216,6 +217,8 @@ a wrong type) gives the call no value.
 | `hours(minutes)` | `minutes` | `minutes / 60` |
 | `formatDuration(h, format)` | `hours, format` | `h:mm` or `hh:mm` (`7.5` → `7:30`) |
 | `size(x)` | (CEL only; `len` in A2UI) | a list, string (code points) or map |
+| `orElse(x, default)` | `value, default` | `x`, or `default` when `x` is null (narrows `T?` to `T`) |
+| `has(a.b)` | (CEL only) | the field is there and not null |
 
 Units: `second minute hour day week month quarter year` (a date takes no
 sub-day unit in `dateAdd`). A date is `YYYY-MM-DD` (a calendar day), a
@@ -225,6 +228,26 @@ timestamp an ISO instant (no offset = UTC). Everything date-like runs in the
 wall-clock time in a DST gap moves forward by the gap; a repeated one takes
 its later instant. There are no working days or holidays (spec §18.8): an
 app keeps those as its own records.
+
+**Missing values are explicit** (VAPP-195, E2). A type that may be missing
+is `T?`: a kind's field that is not in its schema's `required` (the row keys
+`id createdAt …` never are), a var the checker cannot type (`dyn?`), and a
+field or index of a `T?`. Arithmetic, `< <= > >=`, `&& || !`, a condition, a
+macro's list and a function argument refuse a `T?` at install
+(`entries.rows[0].hours may be missing: guard it with has(), a null check or
+orElse()`); `==` / `!=` take one. Three guards narrow it to `T`:
+
+- `has(r.f)` (true when the field is there and not null) or `r.f != null`
+  in a condition: `has(r.note) ? size(r.note) : 0`, also through `&&`,
+  `||` and `!` (`r.note == null || size(r.note) > 2`);
+- `orElse(x, default)` (A2UI `{call: "orElse", args: {value, default}}`):
+  `x`, or `default` when `x` is null, of `x`'s type.
+
+**Every binding has a fallback.** A `{"call": "expr"}` in a package needs a
+`default` (`{"expr": "…", "vars": {…}, "default": "0:00"}`), shown when the
+evaluation fails (an error, the step limit). Every bind-time call takes the
+same optional `default`, and a call that fails or throws resolves to it, so
+no renderer paints undefined or throws on a binding.
 
 **Cost caps:** at most 1000 characters (code points), nesting 32 deep, and
 10 000 evaluation steps (nodes + macro iterations) per run.

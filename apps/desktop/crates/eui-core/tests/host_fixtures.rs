@@ -103,7 +103,7 @@ fn the_built_ins_are_the_catalogs() {
     // The basic catalog's 14 plus the 19 core functions (`set` incl.; round 2
     // adds formatPercent + formatRelativeTime, round 4 filter, VAPP-122 bind)
     // plus VAPP-191's 19 expression functions and `expr`.
-    assert_eq!(host::BUILTIN_FUNCTIONS.len(), 53);
+    assert_eq!(host::BUILTIN_FUNCTIONS.len(), 54);
 }
 
 #[test]

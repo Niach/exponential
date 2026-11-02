@@ -528,7 +528,9 @@ pub fn resolve_value(value: &Value, ctx: &ResolveContext) -> Option<Value> {
                 }
             }
         }
-        return call_function(name, &args, ctx);
+        // VAPP-195: a binding never throws: a failing (or unknown) function
+        // shows the call's `default` (absent = no value).
+        return call_function(name, &args, ctx).or_else(|| args.get("default").cloned());
     }
     match value {
         Value::String(s) if ctx.strings.is_some() => Some(Value::String(resolve_string(s, ctx.strings.expect("strings")).to_string())),
