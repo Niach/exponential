@@ -218,6 +218,18 @@ final class ShapeClientTests: XCTestCase {
         }
     }
 
+    // #EXP-1640: a 404 is a server older than this build (a client released
+    // ahead of its web deploy): that shape waits alone and never flips the
+    // account to "Can't reach the server"; real outages still do.
+    func testUnknownShapeIsNotAnOutage() {
+        XCTAssertTrue(SyncDebug.isUnknownShape(404))
+        for status in [500, 502, 503, 504, 401, 400, 409] {
+            XCTAssertFalse(SyncDebug.isUnknownShape(status), "\(status)")
+        }
+        XCTAssertFalse(ShapeClient<Row>.isSchemaError(ShapeError.unknownShape))
+        XCTAssertGreaterThanOrEqual(unknownShapeRetry, .seconds(60))
+    }
+
     // The classic drift (an older local schema against a newer shape) still
     // triggers the refetch.
     func testMissingTableCountsAsSchemaDrift() throws {

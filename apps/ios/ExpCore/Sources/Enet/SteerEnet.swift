@@ -350,18 +350,67 @@ public final class SteerEnetLink: @unchecked Sendable {
     /// Whether the peer's connection closed under this link.
     var isDropped: Bool { lock.withLock { dropped } }
 
+    /// #EXP-1640: a RACE, not a task group: a group waits for every child,
+    /// and a node call that ignores cancellation (the uniffi `send_chat`
+    /// future while iroh dials) held the caller far past its deadline. The
+    /// loser is cancelled and never awaited.
     static func withTimeout<T: Sendable>(
         _ timeout: Duration, _ body: @escaping @Sendable () async throws -> T
     ) async throws -> T {
-        try await withThrowingTaskGroup(of: T.self) { group in
-            group.addTask { try await body() }
-            group.addTask {
-                try await Task.sleep(for: timeout)
-                throw SteerEnetTimeout()
+        let race = SteerEnetRace<T>()
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { continuation in
+                race.start(continuation, work: Task { try await body() }, timeout: timeout)
             }
-            defer { group.cancelAll() }
-            return try await group.next()!
+        } onCancel: {
+            race.finish(.failure(CancellationError()))
         }
+    }
+}
+
+/// #EXP-1640: `withTimeout`'s one-shot finish line: the work, the clock or
+/// the caller's cancellation, whichever comes first, resumes the caller.
+private final class SteerEnetRace<T: Sendable>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<T, Error>?
+    private var work: Task<T, Error>?
+    private var clock: Task<Void, Never>?
+    private var outcome: Result<T, Error>?
+
+    func start(_ continuation: CheckedContinuation<T, Error>, work: Task<T, Error>, timeout: Duration) {
+        let early = lock.withLock { () -> Result<T, Error>? in
+            self.continuation = continuation
+            self.work = work
+            return outcome
+        }
+        if let early {
+            work.cancel()
+            lock.withLock { self.continuation = nil }
+            continuation.resume(with: early)
+            return
+        }
+        let clock = Task { [weak self] in
+            try? await Task.sleep(for: timeout)
+            guard !Task.isCancelled else { return }
+            self?.finish(.failure(SteerEnetTimeout()))
+        }
+        lock.withLock { self.clock = clock }
+        Task { [weak self] in
+            let result = await work.result
+            self?.finish(result)
+        }
+    }
+
+    func finish(_ result: Result<T, Error>) {
+        let (continuation, work, clock) = lock.withLock { () -> (CheckedContinuation<T, Error>?, Task<T, Error>?, Task<Void, Never>?) in
+            guard case .none = outcome else { return (nil, nil, nil) }
+            outcome = result
+            defer { self.continuation = nil }
+            return (self.continuation, self.work, self.clock)
+        }
+        work?.cancel()
+        clock?.cancel()
+        continuation?.resume(with: result)
     }
 }
 
@@ -576,8 +625,15 @@ public enum SteerEnetJoiner {
             group.addTask {
                 // The join goes out on its own (acked) so a peer we can't reach
                 // reads as refused right away, not as a timeout.
+                // #EXP-1640: bounded by the deadline itself, so a dial that
+                // ignores cancellation cannot hold the group past it.
                 do {
-                    try await carrier.send(peer: peer, body: body)
+                    let left = max(deadline - ContinuousClock.now, .milliseconds(1))
+                    try await SteerEnetLink.withTimeout(left) {
+                        try await carrier.send(peer: peer, body: body)
+                    }
+                } catch is SteerEnetTimeout {
+                    return .timedOut
                 } catch {
                     logger.info("eNet steer join to \(peer.prefix(12), privacy: .public) failed: \(String(describing: error), privacy: .public)")
                     return .refused

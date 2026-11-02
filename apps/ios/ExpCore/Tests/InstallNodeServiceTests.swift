@@ -79,6 +79,33 @@ final class InstallNodeServiceTests: XCTestCase {
         XCTAssertEqual(harness.node.allowedPeers(), ["peer1"])
     }
 
+    // #EXP-1640 (Android #EXP-1590): a pass that did not fully land says so,
+    // so the coordinator retries within seconds instead of 10 minutes.
+    func testSyncReportsWhetherThePassLanded() async {
+        let registry = FakeRegistry(teams: ["t1": [entry("peer1")]])
+        registry.failRegister = true
+        let harness = Harness(registry: registry)
+        let account = InstallAccount(accountId: "acc", userId: "u1", teamIds: ["t1"])
+        let failedRegister = await harness.service.sync([account])
+        XCTAssertFalse(failedRegister)
+        registry.failRegister = false
+        registry.failList = true
+        let failedList = await harness.service.sync([account])
+        XCTAssertFalse(failedList)
+        registry.failList = false
+        let landed = await harness.service.sync([account])
+        XCTAssertTrue(landed)
+    }
+
+    func testEnetRetryBacksOffToAMinuteThenRefreshes() {
+        let refresh = InstallNodeCoordinator.refreshInterval
+        XCTAssertEqual(EnetRetry.wait(failures: 0, refresh: refresh), refresh)
+        XCTAssertEqual(
+            (1...7).map { EnetRetry.wait(failures: $0, refresh: refresh) },
+            [.seconds(1), .seconds(3), .seconds(10), .seconds(30), .seconds(60), .seconds(60), .seconds(60)]
+        )
+    }
+
     func testARevokedEndpointRotatesTheIdentityAndRegistersAgain() async {
         let registry = FakeRegistry(teams: [:])
         registry.forbidOnce = true
@@ -137,6 +164,7 @@ private final class FakeRegistry: InstallsRegistry, @unchecked Sendable {
     private var _revoked: [String] = []
     private var _failList = false
     private var _forbidOnce = false
+    private var _failRegister = false
 
     init(teams: [String: [InstallEntry]]) { _teams = teams }
 
@@ -150,6 +178,10 @@ private final class FakeRegistry: InstallsRegistry, @unchecked Sendable {
         get { lock.withLock { _failList } }
         set { lock.withLock { _failList = newValue } }
     }
+    var failRegister: Bool {
+        get { lock.withLock { _failRegister } }
+        set { lock.withLock { _failRegister = newValue } }
+    }
     var forbidOnce: Bool {
         get { lock.withLock { _forbidOnce } }
         set { lock.withLock { _forbidOnce = newValue } }
@@ -161,6 +193,7 @@ private final class FakeRegistry: InstallsRegistry, @unchecked Sendable {
                 _forbidOnce = false
                 throw TrpcError.httpError(403, #"{"error":{"code":"FORBIDDEN"}}"#)
             }
+            if _failRegister { throw URLError(.timedOut) }
             _registered.append(input)
             return RegisterInstallResult(installId: "install-\(_registered.count)")
         }
