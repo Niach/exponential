@@ -157,13 +157,13 @@ Needs: C2, C13.
 
 | ID | Capability | Status | Issue |
 |---|---|---|---|
-| C1 | Record ownership: only the author or an owner edits or deletes | ❌ | 🆕 R1 (approved 30.10, unfiled) |
+| C1 | Record ownership: only the author or an owner edits or deletes | ✅ | #VAPP-187 |
 | C2 | Writes on behalf of a member (owners), with audit | ✅ | #VAPP-188 |
 | C3 | Relations between kinds and refs to issues and members | ❌ | 🆕 R5 |
 | C4 | Per-kind read/write policy (private, panel-only) | ❌ | 🆕 R3 |
-| C5 | Group-by on any field, avg/min/max/count, text search | 🟡 sum + month view only | 🆕 Q1 (approved 30.10 as "grouping and maths") |
-| C6 | Running sums and totals before a date | ❌ | 🆕 Q1 |
-| C7 | mul/div/round, date maths (add, diff, startOf, weekday) | ✅ Q2 (#VAPP-191) | |
+| C5 | Group-by on any field, avg/min/max/count, text search | ✅ group-by + aggregates; 🟡 text `search` open | #VAPP-190 |
+| C6 | Running sums and totals before a date | ✅ | #VAPP-190 |
+| C7 | mul/div/round, date maths (add, diff, startOf, weekday) | ✅ CEL subset, type-checked | #VAPP-191 |
 | C8 | Several screens per app with navigation and deep links | ❌ (the preview paints only the first template) | 🆕 U1 |
 | C9 | Forms and tables generated from a kind's schema | 🟡 the Data tab does it in Exponential's own UI (#VAPP-178); nothing in eUI | 🆕 U2 |
 | C10 | Field state machine (allowed transitions) | ❌ | 🆕 R6 |
@@ -182,7 +182,7 @@ Needs: C2, C13.
 | C22 | Inbound webhooks | ❌ | 🆕 A3 |
 | C23 | Run-as identity for unattended runs | ❌ | 🆕 A1 |
 | C24 | Offline outbox for record writes | 🟡 natives read offline, writes need the network | 🆕 O1 |
-| C25 | `eapps` crate (host, query, store, broker executor) | ❌ (#EXP-1420 open item) | 🆕 S1, S2 |
+| C25 | `eapps` crate (host, query, store, broker executor) | 🟡 the query + `RecordStore` live in eUI (S1 ✅ #VAPP-189); the crate itself is open (#EXP-1420) | S2 |
 | C26 | Widget templates + slots (eDE, home screen) | ❌ | #VAPP-64, NEW-107 |
 | C27 | Form-factor / responsive templates | 🟡 `@media` conditions, `Sidebar.collapseBelow` | 🆕 U1 |
 | C28 | Template gallery | 🟡 four editor starters | 🆕 P2 |
@@ -732,20 +732,21 @@ The web stays online-only. Issue and comment writes have their own NEW-13.
 
 ---
 
-## 17. Gap list and roadmap (proposed issues, not filed)
+## 17. Gap list and roadmap
 
-They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android) with a fixture change first, per the repo rules. ★ = approved on 30.10 in thread 2db0b7d0 but never filed.
+They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android) with a fixture change first, per the repo rules. ★ = approved on 30.10 in thread 2db0b7d0. The first milestone is filed and done (✅, issues under #VAPP-175); the rest are proposals, not filed yet.
 
 **Phase 1: Records you can trust**
 
-- **R1 ★** Record ownership: `author_id`, the default policy `update/delete: author`, owners override. Server, shape, fixture `app-records.json`. (C1)
+- **R1 ★** ✅ #VAPP-187 Record ownership: `author_id`, the default policy `update/delete: author`, owners override. Server, shape, fixture `app-records.json`. (C1)
 - **R2 ★** ✅ #VAPP-188 On-behalf writes: `author` on `records_upsert`, `.app.json` import and the Data tab, owners only. Audit `created_by ≠ author`. (C2)
 - **R3** Per-kind policy (`read/create/update/delete`), with a shape row filter for `read: author`. `app_access` enforced in the UI, tRPC and shape. (C4)
 - **R4** Record history (`app_record_events`), a 10 s undo, the History drawer. (§3.5)
+- **RLS** ✅ #VAPP-193 One records service on the server + the Postgres scope (role `eapps`, team + app) under every server read and write of a record. (§3.4, §12.2)
 
 **Phase 2: The query** (unblocks reports and dashboards)
 
-- **S1 ★** Move the records query out of `domain-contract` into eUI host records (TS + eui-core), with a pluggable `RecordStore`. The ×4 hand derivations become one. (C25)
+- **S1 ★** ✅ #VAPP-189 Move the records query out of `domain-contract` into eUI host records (TS + eui-core), with a pluggable `RecordStore`. The ×4 hand derivations become one. (C25)
 - **Q1 ★** ✅ #VAPP-190 The structured query: group-by on any field + time buckets, all aggregates, `before`/running sums, `in/between/or`. Fixture `records-query.json` ×4 (TS, Rust, Swift, Kotlin). `search` and a cursor stay open. (C5, C6)
 - **Q2 ★** ✅ #VAPP-191 Expressions: mul/div/round/min/max, array aggregates, date maths in the team timezone, the string form. (C7)
 - **Q3** Computed fields. (C11)
@@ -797,7 +798,7 @@ R3 ─ O1 · S1 ─ S2 ─ S3 / S4 · U3
 R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 ```
 
-**First milestone: R1, R2, S1, Q1 and Q2.** Records with owners, on-behalf writes and one query evaluator on every platform: enough for real team tools such as the time-tracker example.
+**First milestone: R1, R2, S1, Q1 and Q2** ✅ (2026-11-02, plus the RLS scope #VAPP-193). Records with owners, on-behalf writes and one query evaluator on every platform: enough for real team tools such as the time-tracker example. Open from it: a team time-zone setting (hosts pass the device zone today), text `search` and a cursor in the query.
 
 ## 18. Decisions (Danny, 2026-11-01)
 
@@ -809,3 +810,9 @@ R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 6. **Cross-app reads stay**, with an opt-in `readableBy` on the target kind (§12.1).
 7. **Code lives behind an upstream MCP server;** #VAPP-101 stays cancelled for good (§13).
 8. **No app-specific platform features.** The platform provides generic date/time maths and aggregates. Rules of one app (an hours target, working days, holidays) are that app's own records and expressions; there is no team holiday setting.
+
+## 19. Decisions (Danny, 2026-11-02)
+
+1. **No sandbox, no server-side app code.** An app stays data; nothing in a package runs on the server. Code still lives behind an upstream MCP server (§18.7).
+2. **Expressions are a CEL subset** (§4.2), as TS + Rust twins replaying one fixture, instead of a grammar of our own. Expressions are type-checked against the kind schemas at package validation and run under fixed cost caps. There is no solver or SMT verification: the per-kind policies (R3) stay a fixed enum. If policies ever become free expressions, use Cedar rather than CEL.
+3. **A Postgres RLS backstop scoped to team + app** under one records service (§3.4 layer 5, §12.2). Ownership and policy stay in the service, not in RLS. The structured query becomes a parameterised query, so app text never becomes SQL.
