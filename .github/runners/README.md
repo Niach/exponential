@@ -51,6 +51,12 @@ A LaunchAgent under your user, niced (never Background QoS: it pins jobs to the 
 only (`.github/scripts/select-xcode.sh`; no beta Xcode, no other runtime) and Homebrew tuist (test-ios fails loudly if tuist is off the pin).
 `~/actions-runner/svc.sh stop` pauses it; jobs then fall back to GitHub.
 
+Disk (EXP-1396): every Mac job runs `.github/scripts/disk-guard.sh` first.
+Below 25 GB free it cleans (DerivedData older than a day, cargo `incremental/`
+dirs, unavailable simulators, dangling docker images, then
+`~/Library/Caches/sccache-ci`); below 10 GB it fails the job. By hand:
+`--check` (exit 1 below 25 GB), `--dry-run` (lists, deletes nothing).
+
 ## Off switch
 
 Delete the `RUNNER_STATUS_TOKEN` secret: everything runs GitHub-hosted again.

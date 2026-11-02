@@ -412,6 +412,9 @@ jobs:
     runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     steps:
       - uses: actions/checkout@v4
+      - name: Disk guard (self-hosted Mac, EXP-1396)
+        if: runner.environment == 'self-hosted'
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/disk-guard.sh"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         if: runner.environment == 'github-hosted'
@@ -511,6 +514,9 @@ jobs:
     runs-on: ${{ fromJSON(needs.pick.outputs.mac) }}
     steps:
       - uses: actions/checkout@v4
+      - name: Disk guard (self-hosted Mac, EXP-1396)
+        if: runner.environment == 'self-hosted'
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/disk-guard.sh"
       - name: Select Xcode 27
         run: bash .github/scripts/select-xcode.sh
       - uses: dtolnay/rust-toolchain@stable

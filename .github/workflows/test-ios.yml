@@ -56,6 +56,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      - name: Disk guard (self-hosted Mac, EXP-1396)
+        if: runner.environment == 'self-hosted'
+        run: bash "$GITHUB_WORKSPACE/.github/scripts/disk-guard.sh"
 
       - name: Select Xcode 27 + the iOS 27 simulator
         run: bash "$GITHUB_WORKSPACE/.github/scripts/select-xcode.sh" --simulator
