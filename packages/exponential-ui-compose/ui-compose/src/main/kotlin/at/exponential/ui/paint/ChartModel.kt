@@ -53,6 +53,15 @@ class ChartModel(props: Props) {
     val max: Double = chart["max"]?.number ?: maxOf(series.flatMap { it.values }.filter { it.isFinite() }.maxOrNull() ?: 1.0, 1.0)
     val ticks: List<Double> = chart["ticks"]?.array?.mapNotNull { it.number } ?: listOf(min, max)
 
+    /**
+     * The value range the plot maps (the web's `ticks.min..ticks.max`): the
+     * nice ticks' extent on the cartesian kinds, so the top tick sits on the
+     * plot's top edge (never above it, over the title); the data extent on
+     * a sparkline / pie / donut.
+     */
+    val lo: Double = if (spark || slices) min else ticks.minOrNull() ?: min
+    val hi: Double = (if (spark || slices) max else ticks.maxOrNull() ?: max).let { if (it == lo) lo + 1.0 else it }
+
     /** The tick labels the core formatted (the surface formatter, the step's decimals). */
     val tickLabels: List<String> = chart["tickLabels"]?.array?.map { it.displayText } ?: ticks.map(::formatValue)
     val hole: Double = chart["hole"]?.number ?: if (kind == "donut") 0.6 else 0.0

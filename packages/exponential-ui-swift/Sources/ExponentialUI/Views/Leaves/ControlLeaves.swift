@@ -90,14 +90,23 @@ struct ComposerLeaf: View {
                     .accessibilityLabel(cx.model.builtinString("browse"))
                 }
                 let sendW = send.width ?? sendSize
+                // Web: busy = the recipe's `when busy` opacity; an empty
+                // draft = the disabled button (`.xui-Composer-send:disabled`
+                // opacity .5), inert.
+                let empty = !busy && !cx.model.composerHasText(cx.index)
                 Button {
                     cx.model.composerSubmit(cx.index)
                 } label: {
                     ConceptIcon(name: BuiltinIcons.name(busy ? "Composer.stop" : "Composer.send"), size: 16, color: send.color ?? cx.themeColor("primaryForeground") ?? .white, model: cx.model, weight: .semibold)
                         .frame(width: sendW, height: sendSize)
                         .background(send.style.background ?? cx.themeColor("primary") ?? cx.ink, in: send.style.radius > 0 ? AnyShape(send.style.shape(CGSize(width: sendW, height: sendSize))) : AnyShape(Circle()))
+                        .compositingGroup()
+                        .opacity(empty ? 0.5 : (send.style.opacity ?? 1))
                 }
                 .buttonStyle(.plain)
+                // Inert, not `.disabled`: the plain style would dim the
+                // label again on top of the 0.5 (a quarter, not web's half).
+                .allowsHitTesting(!empty)
                 .accessibilityLabel(busy ? cx.model.builtinString("stop") : (cx.props.str("submitLabel").isEmpty ? cx.model.builtinString("send") : cx.props.str("submitLabel")))
             }
             .frame(height: sendSize)

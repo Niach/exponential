@@ -113,7 +113,7 @@ internal fun gradientBrush(g: GradientPaint, size: Size): Brush {
  * clamping), the border drawn INSIDE the box over the content (per-side
  * widths in one colour, `dashed` / `dotted`; children, whose frames already
  * include the border, are never offset), the opacity of the whole node
- * (`ModulateAlpha`, so shadows survive), the paint-only `transform` about
+ * (a group, as CSS; `ModulateAlpha` when it casts shadows, so they survive), the paint-only `transform` about
  * the centre and `visibility: hidden` (nothing paints). `backdropBlur` paints
  * the translucent background alone (see the README).
  */
@@ -123,7 +123,11 @@ fun Modifier.paintedBox(style: PaintStyle, size: Size, alphaScale: Float = 1f): 
     if (opacity < 1f) {
         m = m.graphicsLayer {
             alpha = opacity.coerceIn(0f, 1f)
-            compositingStrategy = CompositingStrategy.ModulateAlpha
+            // CSS `opacity` dims the node AS A GROUP: a label over its fill
+            // keeps its contrast (a disabled Button inside a disabled Form).
+            // A node with shadows modulates each draw instead, so the
+            // shadows outside its bounds survive.
+            compositingStrategy = if (style.shadows.isEmpty()) CompositingStrategy.Offscreen else CompositingStrategy.ModulateAlpha
         }
     }
     if (style.transform.isNotEmpty()) {

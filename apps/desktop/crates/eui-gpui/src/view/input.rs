@@ -324,11 +324,17 @@ impl SurfaceView {
         let icon = (f.kind == FieldKind::Search).then(|| n.props.get("icon").and_then(Value::as_str).unwrap_or("search").to_string());
         let icon_w = if icon.is_some() { 16.0 + 8.0 } else { 0.0 };
         let field_w = (w - icon_w).max(0.0);
+        // A disabled field dims ONCE, through its frame's recipe opacity (the
+        // reference's `color: inherit` value under the field's `disabled`
+        // opacity): gpui-component's own disabled look would halve the text
+        // again, so the input paints enabled and the field is made inert
+        // here instead (no tab stop: `is_focusable`; no pointer: the
+        // occluding cover below).
         let el = match &f.input {
             // Round 2 §7: the text starts at border + paddingHorizontal (the
             // field's own content box): no input padding of its own.
-            FieldInput::Line(s) => Input::new(s).appearance(false).disabled(disabled).font(font).text_size(px(size)).text_color(ink).px_0().py_0().w(px(field_w)).h(px(h)).into_any_element(),
-            FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).disabled(disabled).font(font).text_size(px(size)).text_color(ink).w(px(field_w)).h(px(h)).into_any_element(),
+            FieldInput::Line(s) => Input::new(s).appearance(false).font(font).text_size(px(size)).text_color(ink).px_0().py_0().w(px(field_w)).h(px(h)).into_any_element(),
+            FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).font(font).text_size(px(size)).text_color(ink).w(px(field_w)).h(px(h)).into_any_element(),
         };
         // A press in the field is the field's (caret, selection): it never
         // bubbles to a host's own press handling (the story viewer's tap
@@ -341,6 +347,10 @@ impl SurfaceView {
         if let Some(name) = icon {
             row = row.child(div().flex_none().opacity(0.6).child(icons::concept(lcx.host, &name, 16.0, ink)));
         }
-        Some(row.child(el).into_any_element())
+        let row = row.child(el);
+        if disabled {
+            return Some(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h)).child(row.left_0().top_0()).child(div().absolute().size_full().occlude()).into_any_element());
+        }
+        Some(row.into_any_element())
     }
 }

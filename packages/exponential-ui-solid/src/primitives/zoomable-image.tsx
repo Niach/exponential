@@ -98,6 +98,9 @@ export function createZoomableImage(o: ZoomableImageOptions) {
   let pillEl: HTMLDivElement | undefined
   let controller: ZoomController | null = null
   const [loaded, setLoaded] = createSignal<ZoomSize | null>(null)
+  // The picture has painted (its `load` fired): until then (pending or
+  // failed) the native draws its placeholder and no pill.
+  const [ready, setReady] = createSignal(false)
   const [pill, setPill] = createSignal<ZoomPillState>(REST_PILL)
   const [pillVisible, setPillVisible] = createSignal(true)
   const declared = () => zoomDeclaredSize(o.naturalWidth(), o.naturalHeight())
@@ -128,11 +131,21 @@ export function createZoomableImage(o: ZoomableImageOptions) {
   })
   // A new picture forgets the loaded size; a new picture, size, opening or
   // limit: the rest view, at once.
-  createEffect(on(o.src, () => setLoaded(null), { defer: true }))
+  createEffect(
+    on(
+      o.src,
+      () => {
+        setLoaded(null)
+        setReady(false)
+      },
+      { defer: true }
+    )
+  )
   createEffect(on([o.src, () => natural()?.width, () => natural()?.height, o.initial, o.maxScale], () => controller?.reset(), { defer: true }))
   createEffect(on(o.scale, () => controller?.syncScale(), { defer: true }))
   const onImageLoad = (e: Event) => {
     const img = e.currentTarget as HTMLImageElement
+    setReady(true)
     if (!declared() && img.naturalWidth > 0 && img.naturalHeight > 0) setLoaded({ width: img.naturalWidth, height: img.naturalHeight })
   }
   const menuItems = (fitLabel: string): ZoomMenuItem[] => {
@@ -145,6 +158,7 @@ export function createZoomableImage(o: ZoomableImageOptions) {
     pillRef: (el: HTMLDivElement) => (pillEl = el),
     controller: () => controller,
     natural,
+    ready,
     pill,
     pillVisible,
     onImageLoad,

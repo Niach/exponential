@@ -548,6 +548,11 @@ impl Builder<'_, '_> {
         let (_, precision) = number_step_precision(&owner.props);
         let disabled = bool_prop(&owner.props, "disabled");
         let field = self.part(&owner, "field", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "alignSelf": "stretch", "gap": "$spacing.xxs"}), json!({}));
+        // The reference's `part('field', disabled && 'disabled')`: the whole
+        // frame dims (its recipe's `disabled` opacity), not only the value.
+        if disabled {
+            self.add_state(field, "disabled");
+        }
         let stepper = |b: &mut Self, part: &str, at_limit: bool| {
             let label = b.string(part);
             let glyph = format!("NumberField.{part}");
@@ -578,6 +583,9 @@ impl Builder<'_, '_> {
         let values: Vec<String> = owner.props.get("values").and_then(Value::as_array).map(|a| a.iter().map(js).collect()).unwrap_or_default();
         let disabled = bool_prop(&owner.props, "disabled");
         let field = self.part(&owner, "field", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "flexWrap": "wrap", "alignItems": "center", "alignSelf": "stretch", "gap": "$spacing.xs"}), json!({}));
+        if disabled {
+            self.add_state(field, "disabled");
+        }
         for (i, v) in values.iter().enumerate() {
             let suffix = format!(".{i}");
             let chip = self.part_in(field, &owner, "chip", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.xxs", "flexShrink": 0}), json!({"value": v}), &suffix);
@@ -633,7 +641,11 @@ impl Builder<'_, '_> {
             self.text_part(zone, &owner, "hint", hint, "muted", "");
         }
         let browse_label = self.string("browse");
-        let browse = self.part_in(zone, &owner, "browse", "Button", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"label": browse_label, "variant": "outline", "size": "sm", "disabled": disabled}), "");
+        // EXP-1563: Browse carries no `disabled` of its own (inert through
+        // `pressable` alone): the disabled dropzone already dims it once,
+        // web's look; the Button's own disabled state on top drew it at a
+        // quarter on the natives.
+        let browse = self.part_in(zone, &owner, "browse", "Button", NodeKind::Leaf, json!({"flexShrink": 0}), json!({"label": browse_label, "variant": "outline", "size": "sm"}), "");
         self.nodes[browse as usize].pressable = !disabled;
         self.nodes[browse as usize].own_query = Some(RecipeQuery::new("Button", "root", self.ctx.recipes.native_recipe_props("Button", &self.nodes[browse as usize].props.clone()), Vec::new()));
         let files = owner.props.get("files").and_then(Value::as_array).cloned().unwrap_or_default();

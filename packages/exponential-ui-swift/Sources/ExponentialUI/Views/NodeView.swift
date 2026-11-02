@@ -187,7 +187,7 @@ private struct NodeBody: View {
         .animation(animation) { box in
             box
                 .frame(width: size.width, height: size.height, alignment: .topLeading)
-                .paintedBox(style, size: size)
+                .paintedBox(style, size: size, group: node.component == "Button" || node.component == "Toggle")
                 .modifier(BackdropBlurModifier(style: style, size: size))
                 .modifier(SkeletonPulse(on: node.component == "Skeleton" && node.isLeaf))
                 .modifier(ClipModifier(style: style, size: size))

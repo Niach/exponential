@@ -2,7 +2,8 @@
 // catalog-components.json case, the extras (no pill, a styled height, a tall
 // picture, a bound scale, an unknown size), forced states, dark + rtl, and a
 // MEASURED box (the controller painted the transform, the cursor and the
-// touch-action on both sides).
+// touch-action on both sides). Each case runs unloaded (the placeholder,
+// no pill) and loaded (every <img> fires `load`: the pill).
 
 import { afterEach, beforeEach, describe, it } from "vitest"
 import fixture from "@exponential_app/eui/fixtures/catalog-components.json"
@@ -10,6 +11,10 @@ import type { NestedNode } from "@exponential_app/eui"
 import { expectDomParity } from "../test/parity"
 
 const cases = (fixture as unknown as { cases: { name: string; node: NestedNode }[] }).cases.filter((c) => c.node.component === `ZoomableImage`)
+
+const loaded = (container: Element) => {
+  for (const img of Array.from(container.querySelectorAll(`img`))) img.dispatchEvent(new Event(`load`))
+}
 
 const extras = {
   id: `root`,
@@ -28,6 +33,10 @@ describe(`DOM parity: ZoomableImage`, { timeout: 60_000 }, () => {
   it(`extras: no pill, a styled height, tall, a bound scale, an unknown size`, async () => expectDomParity({ tree: extras }))
   it(`extras in dark + rtl + de-AT`, async () => expectDomParity({ tree: extras, theme: `exponential`, mode: `dark`, direction: `rtl`, locale: `de-AT` }))
   it(`forced states`, async () => expectDomParity({ tree: extras, states: [`hover`, `focus`, `disabled`, `selected`] }))
+  for (const c of cases) it(`${c.name}, loaded`, async () => expectDomParity({ tree: c.node, settle: loaded }))
+  it(`extras, loaded`, async () => expectDomParity({ tree: extras, settle: loaded }))
+  it(`extras, loaded, in dark + rtl + de-AT`, async () => expectDomParity({ tree: extras, theme: `exponential`, mode: `dark`, direction: `rtl`, locale: `de-AT`, settle: loaded }))
+  it(`forced states, loaded`, async () => expectDomParity({ tree: extras, states: [`hover`, `focus`, `disabled`, `selected`], settle: loaded }))
 })
 
 describe(`DOM parity: ZoomableImage, measured`, { timeout: 60_000 }, () => {
@@ -43,5 +52,5 @@ describe(`DOM parity: ZoomableImage, measured`, { timeout: 60_000 }, () => {
     void width
     void height
   })
-  it(`the rest views, the bound scale and the pill's ends`, async () => expectDomParity({ tree: extras }))
+  it(`the rest views, the bound scale and the pill's ends`, async () => expectDomParity({ tree: extras, settle: loaded }))
 })

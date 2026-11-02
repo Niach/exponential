@@ -71,6 +71,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-image-placeholder{display:flex;align-items:center;justify-content:center;width:100%;height:100%;min-height:24px;background:repeating-linear-gradient(45deg,color-mix(in srgb,currentColor 12%,transparent) 0 6px,color-mix(in srgb,currentColor 4%,transparent) 6px 12px);color:var(--xui-color-mutedForeground);font-size:var(--xui-type-size-xs)}
 [data-xui-c="Video"].xui-el{overflow:clip;background-color:#000000d9}
 .xui-media-sizer{display:block;max-width:100%;height:0;flex:0 1 auto;visibility:hidden;pointer-events:none}
+.xui-zoom-placeholder{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;pointer-events:none;background-color:color-mix(in srgb,var(--xui-color-mutedForeground) 8%,transparent);color:color-mix(in srgb,var(--xui-color-mutedForeground) 60%,transparent)}
+.xui-zoom-placeholder>svg{width:20px;height:20px;flex-shrink:0}
+.xui-zoom-placeholder>span{max-width:100%;font-size:12px;line-height:16px;font-weight:400;white-space:nowrap;overflow:clip;text-overflow:ellipsis}
 [data-xui-c="Video"].xui-el>video{display:block;position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
 [data-xui-c="AudioPlayer"].xui-el>audio{display:none}
 .xui-video-poster{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover;pointer-events:none}
@@ -102,6 +105,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-list-gap[data-axis="vertical"]{left:0;right:0;flex-direction:column;transform:translateY(-50%)}
 .xui-list-gap[data-axis="horizontal"]{top:0;bottom:0;flex-direction:row;transform:translateX(-50%)}
 .xui-list-gap[data-axis="horizontal"]:dir(rtl){transform:translateX(50%)}
+.xui-list-gap[data-axis="horizontal"]>.xui-List-divider{width:var(--xui-control-hairline,1px) !important;height:auto !important}
 .xui-List-section{display:flex;flex-direction:row;align-items:center;flex-shrink:0}
 [data-xui-c="Resizable"].xui-el{flex-direction:row;align-items:stretch;min-width:0;min-height:0}
 [data-xui-c="Resizable"][data-orientation="vertical"].xui-el{flex-direction:column}

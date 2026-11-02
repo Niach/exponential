@@ -134,9 +134,18 @@ pub fn paint(cx: &LeafCx, hovered: Option<usize>, on_hover: impl Fn(&Option<usiz
     let slice_values: Vec<f32> = series.first().map(|s| s.values.iter().map(|v| v.max(0.0)).collect()).unwrap_or_default();
     let slice_colors: Vec<Hsla> = (0..slice_values.len()).map(|i| palette(cx, i)).collect();
     let n_cat = categories.len().max(series.iter().map(|s| s.values.len()).max().unwrap_or(0)).max(1);
-    let min = chart.get("min").map(num).unwrap_or(0.0);
-    let max = chart.get("max").map(num).unwrap_or_else(|| series.iter().flat_map(|s| s.values.iter().copied()).fold(1.0, f32::max));
-    let ticks: Vec<f32> = chart.get("ticks").and_then(Value::as_array).map(|a| a.iter().map(num).collect()).unwrap_or_else(|| vec![min, max]);
+    let ext_min = chart.get("min").map(num).unwrap_or(0.0);
+    let ext_max = chart.get("max").map(num).unwrap_or_else(|| series.iter().flat_map(|s| s.values.iter().copied()).fold(1.0, f32::max));
+    let ticks: Vec<f32> = chart.get("ticks").and_then(Value::as_array).map(|a| a.iter().map(num).collect()).unwrap_or_else(|| vec![ext_min, ext_max]);
+    // The value axis spans the NICE ticks (the reference's `lo = ticks.min`,
+    // `hi = ticks.max`), not the data extent: the top tick sits on the
+    // plot's top edge, never above it (into the title). Sparklines and
+    // slices keep the extent.
+    let cartesian = !matches!(kind.as_str(), "sparkline" | "pie" | "donut");
+    let (min, max) = match (ticks.first(), ticks.last()) {
+        (Some(lo), Some(hi)) if cartesian => (lo.min(ext_min), if hi > lo { hi.max(ext_max) } else { lo + 1.0 }),
+        _ => (ext_min, ext_max),
+    };
     let hole = chart.get("hole").map(num).unwrap_or(if kind == "donut" { 0.6 } else { 0.0 });
     let spark = kind == "sparkline";
     let show_axes = !spark && !slices && props.get("showAxes").and_then(Value::as_bool) != Some(false);

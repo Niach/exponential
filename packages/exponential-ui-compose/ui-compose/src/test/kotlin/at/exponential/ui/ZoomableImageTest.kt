@@ -29,7 +29,9 @@ import androidx.compose.ui.test.pinch
 import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.requestFocus
 import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.graphics.ImageBitmap
 import at.exponential.ui.compose.ExponentialSurface
+import at.exponential.ui.compose.LeafImages
 import at.exponential.ui.measure.FontResolver
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
@@ -68,6 +70,8 @@ class ZoomableImageTest {
     /** The surface over a horizontal draggable (a stand-in for the host's pager): [hostDrag] collects what reaches it. */
     private fun render(json: String = node, host: RecordingHost = RecordingHost(), hostDrag: FloatArray = FloatArray(1)): SurfaceModel {
         Fixtures.require()
+        // The picture has loaded (the pill only draws over a loaded picture).
+        LeafImages.seed("https://example.com/shot.png", ImageBitmap(1440, 900))
         val shaper = robolectricShaper(FontResolver { null }, density)
         val m = SurfaceModel("zoom", SurfaceOptions(theme = ThemeHandle.builtin("neutral"), mode = Mode.Light), host, CoroutineScope(Dispatchers.Unconfined)) { shaper }
         m.setNested(json)
@@ -200,6 +204,15 @@ class ZoomableImageTest {
         picture().performKeyInput { pressKey(Key.Zero) }
         settle()
         assertEquals("27%", percent())
+    }
+
+    @Test
+    fun aPictureThatHasNotLoadedDrawsNoPill() {
+        // style.json zoomableImage: pending or failed = nothing to zoom, no pill (the placeholder stays).
+        val m = render(node.replace("shot.png", "never-loads.png"))
+        val f = m.frame(m.indexOf("z")!!)
+        assertEquals(243.75f, f.height, 0.5f)
+        compose.onNodeWithTag("zoom-pill").assertDoesNotExist()
     }
 
     @Test

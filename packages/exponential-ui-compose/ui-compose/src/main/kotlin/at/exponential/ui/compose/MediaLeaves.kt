@@ -115,6 +115,11 @@ object LeafImages {
     /** A cached picture (null = not loaded yet or failed). */
     fun cached(url: String): ImageBitmap? = cache.get(url)
 
+    /** Put a decoded picture for `url` in the cache (tests: a picture that loaded without the network). */
+    internal fun seed(url: String, bitmap: ImageBitmap) {
+        cache.put(url, bitmap)
+    }
+
     /** Did `url` fail to load? */
     fun hasFailed(url: String): Boolean = synchronized(failed) { failed.contains(url) }
 

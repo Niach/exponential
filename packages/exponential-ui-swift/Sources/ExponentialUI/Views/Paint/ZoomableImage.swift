@@ -32,7 +32,9 @@ struct ZoomableImageLeaf: View {
         let muted = cx.themeColor("mutedForeground") ?? cx.ink
         let radius = cx.part("ZoomableImage", "image", props: cx.props).style.radius
         Group {
-            if let natural {
+            // The pill zooms a PICTURE: while it is pending or failed only
+            // the placeholder draws (style.json zoomableImage).
+            if let natural, image != nil {
                 ZoomableImageView(
                     naturalSize: natural,
                     maths: .core,
@@ -53,8 +55,6 @@ struct ZoomableImageLeaf: View {
                 ) {
                     if let image {
                         MediaImage<Image, EmptyView>.swiftUI(image).resizable().interpolation(.high)
-                    } else {
-                        ZoomPlaceholder(ink: muted, label: alt, model: cx.model)
                     }
                 } pill: { c in
                     ZoomPill(controller: c, style: Self.pillStyle(cx), strings: Self.strings(cx.model)) { g, size, color in
@@ -62,7 +62,7 @@ struct ZoomableImageLeaf: View {
                     }
                 }
             } else {
-                ZoomPlaceholder(ink: muted, label: alt, model: cx.model)
+                ZoomPlaceholder(ink: muted, label: alt, family: cx.textStyle.fontFamily, model: cx.model)
                     .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             }
         }
@@ -190,19 +190,21 @@ struct ZoomableImageLeaf: View {
     }
 }
 
-/// The picture area before (or without) a picture: the image glyph and the
-/// alt text over a light tint — Compose's `ZoomableImage` overlay and web's
-/// box. Its own view: EXP-1555 made the `Image` leaf's placeholder glyph-only.
+/// The picture area before (or without) a picture: the `image` glyph and
+/// the alt text (12/16, one line) over a light tint — Compose's
+/// `ZoomableImage` overlay. Its own view: EXP-1555 made the `Image` leaf's
+/// placeholder glyph-only.
 private struct ZoomPlaceholder: View {
     let ink: Color
     let label: String
+    let family: String?
     let model: SurfaceModel
 
     var body: some View {
         VStack(spacing: 4) {
-            ConceptIcon(name: BuiltinIcons.name("Image.fallback"), size: 20, color: ink.opacity(0.6), model: model)
+            ConceptIcon(name: "image", size: 20, color: ink.opacity(0.6), model: model)
             if !label.isEmpty {
-                Text(label).font(.system(size: 12)).foregroundStyle(ink.opacity(0.6)).lineLimit(1)
+                MeasuredLabel(text: label, ts: TextStyle(fontSize: 12, fontWeight: 400, lineHeight: 16, fontFamily: family), color: ink.opacity(0.6))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

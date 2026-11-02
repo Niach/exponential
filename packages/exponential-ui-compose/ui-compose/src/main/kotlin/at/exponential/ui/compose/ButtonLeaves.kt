@@ -44,6 +44,9 @@ import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
 
+/** The CodeBlock copy button's glyph (px), the web's. */
+internal const val CODE_COPY_ICON = 12f
+
 /**
  * Button / Toggle content: the spinner (`loading`) or the icon (host icon,
  * else the placeholder circle; `size: icon` always shows one), then the
@@ -69,7 +72,8 @@ internal fun ButtonLeaf(cx: LeafContext) {
     val label = if (loading && pendingLabel.isNotEmpty()) pendingLabel else cx.props.shownText("label")
     val icon = cx.props.str("icon")
     val iconOnly = cx.props.str("size") == "icon"
-    val iconSize = cx.part(cx.node.component, "icon").width ?: cx.control("iconSm", 16f)
+    // A CodeBlock's copy glyph is 12 inside its 24 box (the web's `.xui-CodeBlock-copy>svg`).
+    val iconSize = if (cx.node.ownerComponent == "CodeBlock" && cx.node.part == "copy") CODE_COPY_ICON else cx.part(cx.node.component, "icon").width ?: cx.control("iconSm", 16f)
     InnerBox(cx, Alignment.Center) {
         Row(horizontalArrangement = Arrangement.spacedBy(cx.style.gap.dp), verticalAlignment = Alignment.CenterVertically) {
             when {

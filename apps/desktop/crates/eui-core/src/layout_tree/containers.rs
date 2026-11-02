@@ -303,8 +303,14 @@ impl Builder<'_, '_> {
 
     fn divider(&mut self, index: u32, owner: &super::LNode, horizontal: bool, i: usize) {
         let h = self.ctx.hairline;
-        let style = if horizontal { json!({"width": h, "alignSelf": "stretch", "flexShrink": 0}) } else { json!({"height": h, "alignSelf": "stretch", "flexShrink": 0}) };
-        self.part_in(index, owner, "divider", "Box", NodeKind::Container, style, json!({}), &format!(".{i}"));
+        let style = if horizontal { json!({"width": h, "height": "auto", "alignSelf": "stretch", "flexShrink": 0}) } else { json!({"height": h, "alignSelf": "stretch", "flexShrink": 0}) };
+        let d = self.part_in(index, owner, "divider", "Box", NodeKind::Container, style, json!({}), &format!(".{i}"));
+        // A horizontal list's divider is a VERTICAL hairline: its own axis
+        // wins over the recipe's `height: $control.hairline` (the
+        // reference's `.xui-list-gap[data-axis="horizontal"]>.xui-List-divider`).
+        if horizontal {
+            self.nodes[d as usize].authored_keys = vec!["width".into(), "height".into()];
+        }
     }
 
     /// The row position of the header pinned at the list's scroll offset.

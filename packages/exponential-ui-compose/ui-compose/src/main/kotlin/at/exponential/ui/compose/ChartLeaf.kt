@@ -107,13 +107,13 @@ internal fun ChartLeaf(cx: LeafContext) {
     }
     val innerW = max(1f, width - pl - pr)
     val innerH = max(1f, plotH - pt - pb)
-    val span = max(chart.max - chart.min, 1e-9)
+    val span = max(chart.hi - chart.lo, 1e-9)
     // Every cartesian x goes through `mx` (the web's mirror).
     fun mx(x: Float) = if (rtl) width - x else x
     // VAPP-126: a sparkline runs edge to edge (the web's `i / (n - 1)`); every
     // other cartesian kind centres a point in its category band.
     fun xOf(i: Int) = mx(if (chart.spark) (if (n <= 1) pl + innerW / 2 else pl + innerW * i / (n - 1)) else pl + innerW * (i + 0.5f) / n)
-    fun yOf(v: Double) = (pt + innerH - innerH * (v - chart.min) / span).toFloat()
+    fun yOf(v: Double) = (pt + innerH - innerH * (v.coerceIn(chart.lo, chart.hi) - chart.lo) / span).toFloat()
     var hovered by remember(cx.node.id) { mutableStateOf<Int?>(null) }
     fun hit(p: Offset): Int? = when {
         chart.slices -> ChartModel.sliceAt(p.x - width / 2f, p.y - plotH / 2f, min(innerW, innerH) / 2f, chart.hole.toFloat(), sliceValues)
@@ -191,7 +191,7 @@ internal fun ChartLeaf(cx: LeafContext) {
                             val pts = s.values.mapIndexedNotNull { i, v -> if (v.isFinite()) at(xOf(i), yOf(v)) else null }
                             if (pts.isEmpty()) return@forEachIndexed
                             if (chart.kind == "area") {
-                                val base = yOf(min(max(chart.min, 0.0), chart.max))
+                                val base = yOf(min(max(chart.lo, 0.0), chart.hi))
                                 val area = Path().apply {
                                     moveTo(pts.first().x, base * d)
                                     pts.forEach { lineTo(it.x, it.y) }
@@ -228,7 +228,7 @@ internal fun ChartLeaf(cx: LeafContext) {
                         else -> {
                             val slot = innerW / n
                             val bw = slot * 0.7f / max(chart.series.size, 1)
-                            val zero = yOf(0.0.coerceIn(chart.min, chart.max))
+                            val zero = yOf(0.0.coerceIn(chart.lo, chart.hi))
                             chart.series.forEachIndexed { si, s ->
                                 s.values.forEachIndexed { i, v ->
                                     if (!v.isFinite()) return@forEachIndexed

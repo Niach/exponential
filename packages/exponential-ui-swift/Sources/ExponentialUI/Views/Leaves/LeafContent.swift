@@ -312,7 +312,8 @@ struct ButtonLeaf: View {
         let label = loading && !pendingLabel.isEmpty ? pendingLabel : cx.props.str("label")
         let icon = cx.props.str("icon")
         let iconOnly = cx.props.str("size") == "icon"
-        let iconSize = cx.part(cx.node.component, "icon").width ?? cx.control("iconSm", 16)
+        // Web: a CodeBlock's copy glyph is 12 px (`.xui-CodeBlock-copy>svg`).
+        let iconSize = cx.node.recipeComponent == "CodeBlock" && cx.node.part == "copy" ? 12 : (cx.part(cx.node.component, "icon").width ?? cx.control("iconSm", 16))
         HStack(spacing: cx.style.gap) {
             if loading {
                 SpinnerView(size: iconSize, color: cx.ink)

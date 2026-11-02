@@ -333,7 +333,7 @@ extension View {
     /// radii and opacity. The border is an overlay so children are never
     /// offset (their frames already include it).
     @ViewBuilder
-    func paintedBox(_ s: PaintStyle, size: CGSize) -> some View {
+    func paintedBox(_ s: PaintStyle, size: CGSize, group: Bool = false) -> some View {
         let shape = s.shape(size)
         self
             .background {
@@ -349,7 +349,26 @@ extension View {
                 if s.hasBorder { BorderView(style: s, shape: shape) }
             }
             .modifier(ShadowsModifier(shadows: s.shadows, shape: shape))
-            .opacity(s.opacity ?? 1)
+            .modifier(GroupOpacity(opacity: s.opacity ?? 1, group: group))
+    }
+}
+
+/// CSS `opacity` fades the box and its content as ONE flattened layer;
+/// SwiftUI's plain `.opacity` fades each layer on its own, so a dimmed
+/// Button's fill shows through its dark label (web keeps the label
+/// dark on the dimmed fill). `group` = the node paints a label over its
+/// own fill (Button / Toggle); it is per component, never per state, so
+/// the view's identity holds when the opacity changes.
+struct GroupOpacity: ViewModifier {
+    let opacity: Double
+    let group: Bool
+
+    func body(content: Content) -> some View {
+        if group {
+            content.compositingGroup().opacity(opacity)
+        } else {
+            content.opacity(opacity)
+        }
     }
 }
 
