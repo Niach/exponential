@@ -172,6 +172,7 @@ public enum EmptyStateIcon {
         case "ui-clock": AppIcons.uiClock
         case "ui-device": AppIcons.uiDevice
         case "ui-empty-search": AppIcons.uiEmptySearch
+        case "ui-history": AppIcons.uiHistory
         case "ui-issue": AppIcons.uiIssue
         case "ui-team": AppIcons.uiTeam
         case "work-faces": AppIcons.workFaces
