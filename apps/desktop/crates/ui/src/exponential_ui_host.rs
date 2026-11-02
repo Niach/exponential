@@ -21,6 +21,10 @@
 //!   `harness.records.delete {id}` (VAPP-161: also `records.upsert` /
 //!   `records.delete`; tRPC `apps.records.*` as the viewer, no consent
 //!   card: the app's own rows; a refusal = a failed-action toast);
+//! - VAPP-194 `records.batch {writes}`: a package action's writes as ONE
+//!   tRPC `apps.records.batch` (one transaction); a press of
+//!   `actions.<name>` runs as the viewer (`me`) in the local zone, and an
+//!   action that lands nothing toasts the failed action with its reason;
 //! - VAPP-120 typed host actions: every `exponential.<noun>.<op>` of
 //!   `domain::app_actions::APP_ACTIONS`, the same `tools/call` as
 //!   `harness.mcp` with `{op, …args}` (no `op` for `exponential.sessions.send`);
@@ -718,6 +722,43 @@ fn records_upsert_fn(scope: Option<HostScope>) -> HostFunction {
     })
 }
 
+/// VAPP-194: `records.batch {writes}` = ONE `apps.records.batch`. No toast
+/// of its own: a refusal fails the package action, whose failure toasts
+/// ([`action_failed_hook`]).
+fn records_batch_fn(scope: Option<HostScope>) -> HostFunction {
+    Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
+        let writes = args.get("writes").and_then(Value::as_array).cloned().unwrap_or_default();
+        let (Some(scope), Some(trpc)) = (scope.clone(), crate::queries::trpc_client(cx)) else {
+            return Task::ready(Err("No app to keep records for".to_string()));
+        };
+        cx.spawn(async move |cx| {
+            cx.background_executor()
+                .spawn(async move { api::apps::records_batch(&trpc, &scope.app_id, &writes) })
+                .await
+                .map(|out| json!({ "ids": out.ids }))
+                .map_err(|err| err.to_string())
+        })
+    })
+}
+
+/// VAPP-194: a package action that landed nothing (a false require's
+/// message, a refused write or call) = the failed-action toast, its reason
+/// as the description (the web's `onActionFailed`).
+fn action_failed_hook() -> eui_gpui::runtime::ActionFailedHook {
+    Rc::new(|failure: &eui_gpui::runtime::ActionFailure, cx: &mut App| {
+        crate::action_error::failed_action("save", "the record", Some(failure.message.clone()), cx);
+    })
+}
+
+/// The local zone's offset (minutes east of UTC) at an instant.
+fn local_offset_minutes(ms: f64) -> i32 {
+    use chrono::{Local, Offset as _, TimeZone as _};
+    Local
+        .timestamp_millis_opt(ms as i64)
+        .single()
+        .map_or(0, |t| t.offset().fix().local_minus_utc() / 60)
+}
+
 fn records_delete_fn(scope: Option<HostScope>) -> HostFunction {
     Rc::new(move |args: Value, _: &FunctionCallInfo, cx: &mut App| -> Task<Result<Value, String>> {
         let record_id = arg_str(&args, "id");
@@ -1144,6 +1185,7 @@ impl IdeHost {
         // VAPP-161: the format's neutral spelling, the same functions.
         functions.insert("records.upsert".into(), records_upsert_fn(scope.clone()));
         functions.insert("records.delete".into(), records_delete_fn(scope.clone()));
+        functions.insert("records.batch".into(), records_batch_fn(scope.clone()));
         // VAPP-120: every MCP operation as a typed function.
         for name in domain::app_actions::APP_ACTIONS.iter() {
             if let Some(target) = domain::app_actions::parse_action_name(name) {
@@ -1192,6 +1234,11 @@ impl IdeHost {
                 .or_else(|| eui_core::themes::builtin_theme(THEME_ID)),
             mode,
             plugin: Rc::new(IdePlugin { media_origin }),
+            me: sync::Store::try_global(cx)
+                .and_then(|_| crate::queries::active_account(cx))
+                .map(|a| a.user_id),
+            zone: Some(Arc::new(local_offset_minutes)),
+            on_action_failed: Some(action_failed_hook()),
             ..HostOptions::default()
         };
         let host = cx.new(|cx| {

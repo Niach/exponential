@@ -15,6 +15,7 @@ import type { PackageTool } from "./tools"
 import { validatePackageExposes, validateUpstreams } from "./exposes"
 import type { PackageExpose } from "./exposes"
 import { validatePackageExpressions } from "./expressions"
+import { validatePackageActions, validatePackageEffects } from "./actions"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
@@ -85,6 +86,9 @@ export interface AppPackage {
    *  `records:<kind>?query=<name>&<params>` follows one, its `${param}`
    *  templates filled from the binding's other params. */
   queries?: Record<string, unknown>
+  /** VAPP-194: named actions, the only place a package writes
+   *  (`host/actions.ts`): `{params?, steps}`, run by `actions.<name>`. */
+  actions?: Record<string, unknown>
 }
 
 /** A package query's name. */
@@ -237,6 +241,9 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
     }
   // VAPP-191: every expression in a template parses and type-checks.
   issues.push(...validatePackageExpressions(pkg))
+  // VAPP-194: bindings are pure; actions are checked step by step.
+  issues.push(...validatePackageEffects(pkg))
+  issues.push(...validatePackageActions(pkg))
   if (pkg.tools !== undefined) issues.push(...validateTools(pkg.tools))
   if (pkg.upstreams !== undefined) issues.push(...validateUpstreams(pkg.upstreams))
   if (pkg.exposes !== undefined) issues.push(...validatePackageExposes(pkg.exposes, pkg.records, pkg.upstreams))

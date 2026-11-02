@@ -252,6 +252,32 @@ pub fn records_delete(trpc: &TrpcClient, app_id: &str, record_id: &str) -> Resul
     trpc.mutation("apps.records.delete", &RecordIdInput { id: app_id, record_id })
 }
 
+/// VAPP-194 `apps.records.batch` input: a package action's writes, passed
+/// through unchanged (`{op: "upsert", kind, data, id?}` | `{op: "delete",
+/// id}`).
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordsBatchInput<'a> {
+    pub id: &'a str,
+    pub writes: &'a [Value],
+}
+
+/// `apps.records.batch` output: each write's record id, in order.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordsBatchOutput {
+    #[serde(default, alias = "txid")]
+    pub tx_id: Option<i64>,
+    #[serde(default)]
+    pub ids: Vec<String>,
+}
+
+/// VAPP-194 `apps.records.batch`: the writes as ONE transaction (all land
+/// or none; the server checks every one against its kind again).
+pub fn records_batch(trpc: &TrpcClient, app_id: &str, writes: &[Value]) -> Result<RecordsBatchOutput, ApiError> {
+    trpc.mutation("apps.records.batch", &RecordsBatchInput { id: app_id, writes })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -320,5 +346,15 @@ mod tests {
         );
         let out: RecordUpsertOutput = serde_json::from_value(serde_json::json!({"txid": 3, "id": "r1", "created": true})).unwrap();
         assert_eq!((out.tx_id, out.id.as_str(), out.created), (Some(3), "r1", true));
+        let writes = vec![
+            serde_json::json!({"op": "upsert", "kind": "entry", "data": {"hours": 2}}),
+            serde_json::json!({"op": "delete", "id": "r1"}),
+        ];
+        assert_eq!(
+            serde_json::to_value(RecordsBatchInput { id: "app", writes: &writes }).unwrap(),
+            serde_json::json!({"id": "app", "writes": [{"op": "upsert", "kind": "entry", "data": {"hours": 2}}, {"op": "delete", "id": "r1"}]})
+        );
+        let out: RecordsBatchOutput = serde_json::from_value(serde_json::json!({"txid": 4, "ids": ["n1", "r1"]})).unwrap();
+        assert_eq!((out.tx_id, out.ids), (Some(4), vec!["n1".to_string(), "r1".to_string()]));
     }
 }

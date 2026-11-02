@@ -23,6 +23,52 @@ pub const CALENDAR_UNITS: &[&str] = &["day", "week", "month", "quarter", "year"]
 /// The formats `formatDuration` writes.
 pub const DURATION_FORMATS: &[&str] = &["h:mm", "hh:mm"];
 
+/// VAPP-194 (E1): what calling a function does. Expressions are PURE: a
+/// binding, `visible`, a computed field or a query param never writes. A
+/// `write` changes records or the surface data, a `host` function reaches
+/// outside the surface (a toast, an MCP call, a link, another action); both
+/// run only as steps of a package action ([`crate::host::actions`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FunctionEffect {
+    Pure,
+    Write,
+    Host,
+}
+
+impl FunctionEffect {
+    /// `pure` | `write` | `host`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FunctionEffect::Pure => "pure",
+            FunctionEffect::Write => "write",
+            FunctionEffect::Host => "host",
+        }
+    }
+}
+
+/// The functions that write (records, the surface data model).
+pub const WRITE_FUNCTIONS: &[&str] = &["set", "records.upsert", "records.delete", "records.batch", "harness.records.upsert", "harness.records.delete"];
+/// The built-in host functions; every name under a host prefix is one too.
+pub const HOST_FUNCTIONS: &[&str] = &["openUrl", "bind"];
+pub const HOST_FUNCTION_PREFIXES: &[&str] = &["actions.", "harness.", "exponential.", "tools.", "upstream."];
+
+/// The effect of a function by name: the signature table's (every
+/// expression function, every bind-time function) is `pure`.
+pub fn function_effect(name: &str) -> FunctionEffect {
+    if WRITE_FUNCTIONS.contains(&name) {
+        return FunctionEffect::Write;
+    }
+    if HOST_FUNCTIONS.contains(&name) || HOST_FUNCTION_PREFIXES.iter().any(|p| name.starts_with(p)) {
+        return FunctionEffect::Host;
+    }
+    FunctionEffect::Pure
+}
+
+/// Why an effectful function is refused in a pure place.
+pub fn effect_words(name: &str, effect: FunctionEffect) -> String {
+    format!("{name} {}", if effect == FunctionEffect::Write { "writes" } else { "is a host function" })
+}
+
 /// The clock, the team zone and the step limit an evaluation runs with.
 #[derive(Clone, Copy, Default)]
 pub struct ExpressionEnv<'a> {
@@ -835,6 +881,13 @@ impl Parser {
                 self.next();
                 if self.is_op("(") {
                     if !MACROS.contains(&field.as_str()) {
+                        if let Some(dotted) = dotted_name(&node) {
+                            let full = format!("{dotted}.{field}");
+                            let effect = function_effect(&full);
+                            if effect != FunctionEffect::Pure {
+                                return Err(format!("at {}: {}: an expression is pure, use an action step", root_at(&node), effect_words(&full, effect)));
+                            }
+                        }
                         return Err(format!("at {}: unknown method {field}", name.at));
                     }
                     if self.in_body > 0 {
@@ -914,6 +967,10 @@ impl Parser {
                 }
                 if self.is_op("(") {
                     if def(&name).is_none() {
+                        let effect = function_effect(&name);
+                        if effect != FunctionEffect::Pure {
+                            return Err(format!("at {}: {}: an expression is pure, use an action step", t.at, effect_words(&name, effect)));
+                        }
                         return Err(format!("at {}: unknown function {name}", t.at));
                     }
                     self.next();
@@ -934,6 +991,22 @@ impl Parser {
             }
             _ => self.unexpected(),
         }
+    }
+}
+
+/// `a.b.c` as a name (a chain of plain names), else `None`.
+fn dotted_name(node: &Node) -> Option<String> {
+    match node {
+        Node::Id(name, _) => Some(name.clone()),
+        Node::Field(of, name, _) => dotted_name(of).map(|of| format!("{of}.{name}")),
+        _ => None,
+    }
+}
+
+fn root_at(node: &Node) -> usize {
+    match node {
+        Node::Field(of, _, _) => root_at(of),
+        Node::Lit(_, at) | Node::Id(_, at) | Node::List(_, at) | Node::Index(_, _, at) | Node::Unary(_, _, at) | Node::Bin(_, _, _, at) | Node::Cond(_, _, _, at) | Node::Call(_, _, at) | Node::Macro(_, _, _, _, at) => *at,
     }
 }
 
@@ -1140,6 +1213,14 @@ pub fn evaluate_expression(source: &str, vars: &Map<String, Value>, env: &Expres
 pub fn evaluate_node<'a>(ast: &Node, vars: &'a Map<String, Value>, env: &ExpressionEnv<'a>) -> Result<Value, String> {
     let mut e = Evaluator { vars, env: Env::of(env), steps: 0, max_steps: env.max_steps.unwrap_or(MAX_STEPS) };
     e.ev(ast, None)
+}
+
+/// VAPP-194: evaluate a parsed tree and count its steps (an action spends
+/// one budget over all of its expressions): the result and the steps used.
+pub fn evaluate_counted<'a>(ast: &Node, vars: &'a Map<String, Value>, env: &ExpressionEnv<'a>) -> (Result<Value, String>, usize) {
+    let mut e = Evaluator { vars, env: Env::of(env), steps: 0, max_steps: env.max_steps.unwrap_or(MAX_STEPS) };
+    let result = e.ev(ast, None);
+    (result, e.steps)
 }
 
 // ---------------------------------------------------------------------------

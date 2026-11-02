@@ -514,8 +514,18 @@ export function createAppHost(options: AppHostOptions): AppHost {
       throw error
     }
   }
+  // VAPP-194: a package action's writes as ONE transaction (the server
+  // checks them again); a refusal lands nothing and is the action's failure.
+  const recordsBatch: HostFunction = async ({ writes }) => {
+    const result = await trpc.apps.records.batch.mutate({ ...appRef(), writes: (Array.isArray(writes) ? writes : []) as never }, SKIP_ERROR_TOAST)
+    await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+    return { ids: result.ids }
+  }
   return new AppHost({
     transport: options.transport,
+    me: scope.me,
+    zone: (ms) => -new Date(ms).getTimezoneOffset(),
+    onActionFailed: ({ message }) => void failedAction(`save`, `the record`, undefined, { description: message }),
     extensions: [appExtensionCatalog],
     packages: options.packages ?? [],
     sources: {
@@ -554,6 +564,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
       // VAPP-161: the package format's neutral names, the same writes.
       "records.upsert": recordsUpsert,
       "records.delete": recordsDelete,
+      "records.batch": recordsBatch,
     },
     policy: {
       functions: { ask: [`harness.mcp`, `exponential.*`] },

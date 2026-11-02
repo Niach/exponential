@@ -417,7 +417,7 @@ The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <
 
 Computed fields are evaluated on read by the same evaluator. They are never stored, so they never go stale. Queries can filter, sort and group on them.
 
-### 4.5 Effects: pure bindings, all-or-nothing actions (🆕 E1, #VAPP-194; adopted 2026-11-02)
+### 4.5 Effects: pure bindings, all-or-nothing actions (✅ E1, #VAPP-194)
 
 One language at two levels, on the Q2 core:
 
@@ -426,6 +426,7 @@ One language at two levels, on the Q2 core:
 - **All or nothing.** The steps evaluate against one snapshot. A false `require` (its message is the toast), the action step limit (100,000), an error, or a write refused by policy or schema discards the whole action. Record writes land as one unit: one Postgres transaction in the records service, one `RecordStore` batch on a client host, one outbox entry offline (O1).
 - An action runs where it was triggered: the client host for a press, the server broker for `exposes` and automations. The evaluator is the same ×4; fixture `actions.json`.
 - The authority stays the server (§3.4, §14): `require` guards a single write path. Cross-peer invariants are not promised on P2P stores (Spezl, §16).
+- ✅ (E1, #VAPP-194) Built as `src/host/actions.ts` + the effect table in `src/cel.ts` (Rust `eui_core::host::actions` / `cel`, FFI `run_package_action_json`, `apply_record_batch_json`, `function_effect`; SDKs `Actions`), fixture `fixtures/actions.json` replayed in TS, Rust, Swift and Kotlin. Step forms `require` (+ `message`), `records.upsert`, `records.delete`, `set`, `call`; CEL reads `params`, `data` and `me`; a press calls `actions.<name>`. Every host (`ExponentialHost` ×4) gates and asks for every host call first, then commits the writes through `records.batch` (Exponential: tRPC `apps.records.batch` = one transaction in the records service, every write re-checked), then applies the sets, then runs the calls; a failure = `ACTION_FAILED` + the failed-action toast. Open: the broker's `exposes` `run.action` form and automations (A1), the offline outbox entry (O1).
 
 ---
 
@@ -763,7 +764,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **Q2 ★** ✅ #VAPP-191 Expressions: mul/div/round/min/max, array aggregates, date maths in the team timezone, the string form. (C7)
 - **Q3** Computed fields. (C11)
 - **Q4** The broker's `records` run uses the Q1 evaluator: tools get the same query as the UI. (C15)
-- **E1** #VAPP-194 Typed effects: pure bindings vs all-or-nothing actions with `require` (§4.5). Before A1.
+- **E1** ✅ #VAPP-194 Typed effects: pure bindings vs all-or-nothing actions with `require` (§4.5). Before A1.
 - **E2** #VAPP-195 Optional types (`T?`) in the checker + a fallback on every binding (§4.2). With or before Q3.
 
 **Phase 3: Multi-screen apps** (unblocks CRM, hiring, approvals)

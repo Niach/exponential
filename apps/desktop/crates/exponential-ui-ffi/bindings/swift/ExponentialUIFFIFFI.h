@@ -1085,6 +1085,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_action_message_json(RustBuffer surf
 RustBuffer uniffi_exponential_ui_ffi_fn_func_animation_frame_json(RustBuffer name, RustBuffer timing_json, double elapsed_ms, int8_t reduced_motion, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_APPLY_RECORD_BATCH_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_APPLY_RECORD_BATCH_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_apply_record_batch_json(RustBuffer rows_json, RustBuffer writes_json, RustBuffer records_json, RustBuffer me, RustBuffer now, RustBuffer new_ids_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_BASIC_CATALOG_ID
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_BASIC_CATALOG_ID
 RustBuffer uniffi_exponential_ui_ffi_fn_func_basic_catalog_id(RustCallStatus *_Nonnull out_status
@@ -1224,6 +1229,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_format_pattern_json(RustBuffer patt
 RustBuffer uniffi_exponential_ui_ffi_fn_func_format_string(RustBuffer template, RustBuffer params_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_FUNCTION_EFFECT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_FUNCTION_EFFECT
+RustBuffer uniffi_exponential_ui_ffi_fn_func_function_effect(RustBuffer name, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_HOST_CONTRACT_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_HOST_CONTRACT_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_host_contract_json(RustCallStatus *_Nonnull out_status
@@ -1358,6 +1368,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(RustBuffer them
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RUN_ACTION_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RUN_ACTION_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_run_action_json(RustBuffer action_json, RustBuffer data_json, RustBuffer scope, RustBuffer strings_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RUN_PACKAGE_ACTION_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RUN_PACKAGE_ACTION_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_run_package_action_json(RustBuffer package_json, RustBuffer name, RustBuffer params_json, RustBuffer data_json, RustBuffer me, RustBuffer now_ms, RustBuffer zone, RustBuffer max_steps, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_SEGMENTED_BADGE_TEXT
@@ -1733,6 +1748,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_animation_frame_json(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_APPLY_RECORD_BATCH_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_APPLY_RECORD_BATCH_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_BASIC_CATALOG_ID
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_BASIC_CATALOG_ID
 uint16_t uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id(void
@@ -1895,6 +1916,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_format_string(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_FUNCTION_EFFECT
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_FUNCTION_EFFECT
+uint16_t uniffi_exponential_ui_ffi_checksum_func_function_effect(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_HOST_CONTRACT_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_HOST_CONTRACT_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_host_contract_json(void
@@ -2054,6 +2081,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RUN_ACTION_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RUN_ACTION_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_run_action_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RUN_PACKAGE_ACTION_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RUN_PACKAGE_ACTION_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_run_package_action_json(void
     
 );
 #endif

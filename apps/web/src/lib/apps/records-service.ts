@@ -15,7 +15,7 @@
 // column allowlist: app text never becomes SQL.
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
-import { validateRecord } from "@exponential_app/eui"
+import { validateRecord, type RecordSchema } from "@exponential_app/eui"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
 import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_ON_BEHALF, APP_RECORDS_OWNERSHIP, canChangeRecord, recordAuthor, writeAsVerdict } from "@exp/domain-contract/app-records"
@@ -98,6 +98,21 @@ async function lockAndCheckQuota(tx: Tx, teamId: string, adding = 1) {
   await assertCanCreateAppRecord(teamId, tx, adding)
 }
 
+/** A record's data against its kind's schema and the per-record cap
+ *  (BAD_REQUEST naming every issue, up to ten). */
+function checkedRecordData(schema: RecordSchema, data: Record<string, unknown>): Record<string, unknown> {
+  const issues = validateRecord(schema, data)
+  if (issues.length > 0) {
+    const listed = issues.slice(0, 10).map((issue) => `${issue.path || `/`}: ${issue.message}`)
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `record is invalid: ${listed.join(`; `)}` })
+  }
+  const bytes = packageBytes(data)
+  if (bytes > APP_RECORD_MAX_BYTES) {
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `record is ${bytes} bytes; the cap is ${APP_RECORD_MAX_BYTES}` })
+  }
+  return data
+}
+
 /** The columns a records read returns (the allowlist; nothing else is read). */
 const RECORD_COLUMNS = {
   id: appRecords.id,
@@ -153,18 +168,7 @@ export async function upsertRecord(
   if (!schema) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${input.kind}": add it to the package's records first` })
   }
-  const checked = (data: Record<string, unknown>) => {
-    const issues = validateRecord(schema, data)
-    if (issues.length > 0) {
-      const listed = issues.slice(0, 10).map((issue) => `${issue.path || `/`}: ${issue.message}`)
-      throw new TRPCError({ code: `BAD_REQUEST`, message: `record is invalid: ${listed.join(`; `)}` })
-    }
-    const bytes = packageBytes(data)
-    if (bytes > APP_RECORD_MAX_BYTES) {
-      throw new TRPCError({ code: `BAD_REQUEST`, message: `record is ${bytes} bytes; the cap is ${APP_RECORD_MAX_BYTES}` })
-    }
-    return data
-  }
+  const checked = (data: Record<string, unknown>) => checkedRecordData(schema, data)
   // VAPP-188: an on-behalf author must be a member (team_members: read now).
   const onBehalf = input.author !== undefined && input.author !== userId && member.role === `owner`
   const members = onBehalf ? await teamMemberIds(executor, app.teamId) : []
@@ -233,6 +237,87 @@ export async function deleteRecord(userId: string, ref: AppRef, recordId: string
         .set({ deletedAt: sql`now()`, updatedBy: userId, updatedAt: new Date() })
         .where(eq(appRecords.id, existing.id))
       return { txid: txId }
+    })
+  })
+}
+
+/** VAPP-194: one write of a package action's plan (`@exponential_app/eui`
+ *  `ActionWrite`): a create, a patch (`id`) or a delete. */
+export type RecordBatchWrite = { op: `upsert`; kind: string; data: Record<string, unknown>; id?: string } | { op: `delete`; id: string }
+
+/** VAPP-194 (eApps E1): a package action's record writes as ONE Postgres
+ *  transaction, all or nothing (docs/spec/apps.md §4.5): every write runs the
+ *  same checks as `upsertRecord` / `deleteRecord` (the kind's schema, the
+ *  record cap, ownership; the team quota for all the creates at once), in
+ *  order; the first refusal (`write <i>: …`) rolls the whole batch back. The
+ *  server stays the authority: the client's `require` steps guard nothing
+ *  here. No on-behalf writes (an action writes as its member). */
+export async function commitRecordBatch(
+  userId: string,
+  ref: AppRef,
+  writes: readonly RecordBatchWrite[],
+  executor: Executor = defaultDb
+): Promise<{ txid: number; ids: string[] }> {
+  const app = await loadApp(executor, ref)
+  const member = await assertTeamMember(userId, app.teamId)
+  const at = (i: number, e: unknown): never => {
+    if (e instanceof TRPCError) throw new TRPCError({ code: e.code, message: `write ${i}: ${e.message}` })
+    throw e
+  }
+  const schemas = writes.map((w, i) => {
+    if (w.op !== `upsert`) return null
+    const schema = recordKindSchema(app.package, w.kind)
+    if (!schema) at(i, new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${w.kind}": add it to the package's records first` }))
+    return schema
+  })
+  const creates = writes.filter((w) => w.op === `upsert` && w.id === undefined).length
+  const scope = { teamId: app.teamId, appIds: [app.id] }
+  return await executor.transaction(async (tx) => {
+    const txId = await generateTxId(tx)
+    if (creates > 0) await lockAndCheckQuota(tx, app.teamId, creates)
+    return asEapps(tx, scope, async (tx) => {
+      const ids: string[] = []
+      for (const [i, w] of writes.entries()) {
+        try {
+          if (w.op === `delete`) {
+            const [existing] = await tx
+              .select({ id: appRecords.id, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+              .from(appRecords)
+              .where(and(eq(appRecords.id, w.id), eq(appRecords.appId, app.id), isNull(appRecords.deletedAt)))
+              .limit(1)
+              .for(`update`)
+            if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+            assertCanChangeRecord(existing, userId, member.role, `delete`)
+            await tx.update(appRecords).set({ deletedAt: sql`now()`, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+            ids.push(existing.id)
+            continue
+          }
+          const schema = schemas[i]!
+          if (w.id !== undefined) {
+            const [existing] = await tx
+              .select({ id: appRecords.id, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+              .from(appRecords)
+              .where(and(eq(appRecords.id, w.id), eq(appRecords.appId, app.id), eq(appRecords.kind, w.kind), isNull(appRecords.deletedAt)))
+              .limit(1)
+              .for(`update`)
+            if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+            assertCanChangeRecord(existing, userId, member.role, `update`)
+            const data = checkedRecordData(schema, { ...existing.data, ...w.data })
+            await tx.update(appRecords).set({ data, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+            ids.push(existing.id)
+            continue
+          }
+          const data = checkedRecordData(schema, w.data)
+          const [row] = await tx
+            .insert(appRecords)
+            .values({ appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: userId, updatedBy: userId })
+            .returning({ id: appRecords.id })
+          ids.push(row!.id)
+        } catch (e) {
+          at(i, e)
+        }
+      }
+      return { txid: txId, ids }
     })
   })
 }

@@ -10,10 +10,11 @@
 import type { AppPackage } from "./package"
 import { RECORDS_SCHEME, parseRecordsSource, recordsValue, type RecordRow, type RecordsContext } from "./query"
 import { validateRecord } from "./records"
+import { RECORDS_BATCH_FUNCTION, applyRecordBatch, type ActionWrite } from "./actions"
 import type { SourceResolver } from "./sources"
 
 /** The write functions (no consent card: the app's own rows). */
-export const RECORDS_FUNCTIONS: readonly string[] = [`records.upsert`, `records.delete`]
+export const RECORDS_FUNCTIONS: readonly string[] = [`records.upsert`, `records.delete`, RECORDS_BATCH_FUNCTION]
 
 /** What a host provides: one package's records, any transport. */
 export interface RecordStore {
@@ -23,6 +24,10 @@ export interface RecordStore {
    *  caller has validated the result against the kind's schema. */
   upsert(input: { kind: string; data: Record<string, unknown>; id?: string }): Promise<{ id: string }>
   delete(id: string): Promise<void>
+  /** VAPP-194: the writes as ONE unit, all or none (a package action's);
+   *  resolves each write's id, rejects with nothing stored. The caller has
+   *  NOT validated a patch (the store merges and checks it). */
+  batch(writes: readonly ActionWrite[], records: Record<string, unknown> | undefined): Promise<{ ids: string[] }>
   /** One row by id (the patch base). */
   get(id: string): RecordRow | undefined
 }
@@ -70,6 +75,15 @@ export class MemoryRecordStore implements RecordStore {
     this.changed()
   }
 
+  async batch(writes: readonly ActionWrite[], records: Record<string, unknown> | undefined): Promise<{ ids: string[] }> {
+    const now = this.options.now?.() ?? new Date().toISOString()
+    const result = applyRecordBatch(this.rows, writes, { records, me: this.options.me ?? null, now, newId: () => this.options.newId?.() ?? `r${++this.seq}` })
+    if (`error` in result) throw new Error(result.error)
+    this.rows = result.rows
+    if (writes.length) this.changed()
+    return { ids: result.ids }
+  }
+
   private changed(): void {
     for (const emit of this.listeners) emit(this.rows)
   }
@@ -114,6 +128,8 @@ export function recordsHost(
         await store.delete(String(args.id ?? ``))
         return null
       },
+      // VAPP-194: a package action's writes, one unit.
+      [RECORDS_BATCH_FUNCTION]: async (args) => store.batch(Array.isArray(args.writes) ? (args.writes as ActionWrite[]) : [], pkg.records as Record<string, unknown> | undefined),
     },
   }
 }

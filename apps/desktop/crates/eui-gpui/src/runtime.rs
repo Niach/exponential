@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use eui_core::host::{
     action_message, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
-    FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, FUNCTION_DENIED, FUNCTION_NOT_FOUND,
-    RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
+    action_call_name, run_action, ActionContext, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
+    FUNCTION_NOT_FOUND, RECORDS_BATCH_FUNCTION, RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
 use eui_core::measure::TextStyle;
 use eui_core::surface::PlacedNode;
@@ -58,6 +58,18 @@ pub type SourceResolver = Box<dyn Fn(ParsedSource, Emit) -> Cancel>;
 pub type ConsentHook = Rc<dyn Fn(&FunctionCallInfo, &mut App) -> Task<bool>>;
 /// Opens an allowed (absolute) url.
 pub type OpenUrlHandler = Rc<dyn Fn(&str, &mut App)>;
+/// VAPP-194: the team zone, minutes east of UTC at an instant (epoch ms).
+pub type ZoneFn = Arc<dyn Fn(f64) -> i32 + Send + Sync>;
+/// VAPP-194: a package action that landed nothing (the host's toast).
+pub type ActionFailedHook = Rc<dyn Fn(&ActionFailure, &mut App)>;
+
+/// VAPP-194: why a package action landed nothing (`onActionFailed`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActionFailure {
+    pub surface_id: String,
+    pub action: String,
+    pub message: String,
+}
 /// Observes a JSON value the host sends or an op it performs (`on_send`, `on_op`).
 pub type ValueObserver = Rc<dyn Fn(&Value)>;
 /// Observes every problem the host meets (`on_issue`).
@@ -157,6 +169,15 @@ pub struct HostOptions {
     /// error it answered a message with, an invalid surface theme). A
     /// transport-less host has no server to tell: this is where they land.
     pub on_issue: Option<IssueObserver>,
+    /// VAPP-194: the member a package action runs as (its `me`).
+    pub me: Option<String>,
+    /// VAPP-194: the clock (epoch ms; `None` = the wall clock) and the team
+    /// zone (`None` = UTC) a package action reads.
+    pub now: Option<Rc<dyn Fn() -> f64>>,
+    pub zone: Option<ZoneFn>,
+    /// VAPP-194: a package action that landed nothing (a false require's
+    /// message, a refused write or call): a failed action, so the toast.
+    pub on_action_failed: Option<ActionFailedHook>,
 }
 
 impl HostOptions {
@@ -192,6 +213,10 @@ impl Default for HostOptions {
             on_send: None,
             on_op: None,
             on_issue: None,
+            me: None,
+            now: None,
+            zone: None,
+            on_action_failed: None,
         }
     }
 }
@@ -257,6 +282,10 @@ pub struct ExponentialHost {
     on_send: Option<ValueObserver>,
     on_op: Option<ValueObserver>,
     on_issue: Option<IssueObserver>,
+    me: Option<String>,
+    now: Option<Rc<dyn Fn() -> f64>>,
+    zone: Option<ZoneFn>,
+    on_action_failed: Option<ActionFailedHook>,
     issues: Vec<HostIssue>,
     status: TransportStatus,
     status_detail: Option<String>,
@@ -303,6 +332,10 @@ impl ExponentialHost {
             on_send: options.on_send,
             on_op: options.on_op,
             on_issue: options.on_issue,
+            me: options.me,
+            now: options.now,
+            zone: options.zone,
+            on_action_failed: options.on_action_failed,
             issues: Vec::new(),
             status: TransportStatus::Closed,
             status_detail: None,
@@ -724,7 +757,9 @@ impl ExponentialHost {
     }
 
     /// An action `functionCall` to a host function: gate, consent, run. A
-    /// built-in other than `openUrl` and `bind` has no effect as an action.
+    /// built-in other than `openUrl` and `bind` has no effect as an action;
+    /// VAPP-194: `actions.<name>` runs the surface's package action
+    /// ([`Self::run_package_action`]).
     pub fn call_function(&mut self, call: FunctionCallInfo, cx: &mut Context<Self>) -> Task<FunctionOutcome> {
         if call.name == "openUrl" {
             let url = call.args.get("url").and_then(Value::as_str).unwrap_or("").to_string();
@@ -735,6 +770,22 @@ impl ExponentialHost {
             let bound = self.bind(&call.surface_id, &call.args, cx);
             return Task::ready(FunctionOutcome::of(if bound { FunctionDecision::Allow } else { FunctionDecision::Deny }));
         }
+        if let Some(action) = action_call_name(&call.name).map(str::to_string) {
+            return self.run_package_action(call, action, cx);
+        }
+        let gate = self.gate(&call, cx);
+        cx.spawn(async move |this, cx| {
+            let gate = gate.await;
+            if gate.decision != FunctionDecision::Allow {
+                return gate;
+            }
+            run_function(this, call, cx).await
+        })
+    }
+
+    /// The policy gate and the consent hook: `Allow`, or the refusal (sent
+    /// as FUNCTION_NOT_FOUND / FUNCTION_DENIED).
+    fn gate(&mut self, call: &FunctionCallInfo, cx: &mut Context<Self>) -> Task<FunctionOutcome> {
         let denied = error_message(FUNCTION_DENIED, &call.surface_id, &format!("{} was not allowed", call.name), None);
         match self.decide(&call.surface_id, &call.name) {
             FunctionDecision::NotFound => {
@@ -746,7 +797,7 @@ impl ExponentialHost {
                 Task::ready(FunctionOutcome::of(FunctionDecision::Deny))
             }
             FunctionDecision::Ask => {
-                let consent = self.policy.on_function_call.clone().map(|hook| hook(&call, cx));
+                let consent = self.policy.on_function_call.clone().map(|hook| hook(call, cx));
                 cx.spawn(async move |this, cx| {
                     let ok = match consent {
                         Some(task) => task.await,
@@ -756,11 +807,90 @@ impl ExponentialHost {
                         let _ = this.update(cx, |host, _| host.send(denied));
                         return FunctionOutcome::of(FunctionDecision::Deny);
                     }
-                    run_function(this, call, cx).await
+                    FunctionOutcome::of(FunctionDecision::Allow)
                 })
             }
-            FunctionDecision::Allow => cx.spawn(async move |this, cx| run_function(this, call, cx).await),
+            FunctionDecision::Allow => Task::ready(FunctionOutcome::of(FunctionDecision::Allow)),
         }
+    }
+
+    /// VAPP-194: a package action landed nothing: ACTION_FAILED +
+    /// `on_action_failed` (the toast); the outcome carries the message.
+    fn action_failed(&mut self, surface_id: &str, action: &str, message: String, cx: &mut App) -> FunctionOutcome {
+        self.send(error_message(ACTION_FAILED, surface_id, &message, None));
+        if let Some(hook) = self.on_action_failed.clone() {
+            hook(&ActionFailure { surface_id: surface_id.into(), action: action.into(), message: message.clone() }, cx);
+        }
+        FunctionOutcome { decision: FunctionDecision::Allow, result: None, error: Some(message) }
+    }
+
+    /// VAPP-194: `actions.<name>` = the surface's package action, all or
+    /// nothing (the TS `runPackageAction`): the plan over one snapshot (the
+    /// args = params, the surface data, `me`, the clock), every host call's
+    /// gate and consent, then the record writes as ONE `records.batch`,
+    /// then the sets, then the calls. A failure before the commit lands
+    /// nothing.
+    pub fn run_package_action(&mut self, call: FunctionCallInfo, action: String, cx: &mut Context<Self>) -> Task<FunctionOutcome> {
+        let view = self.entry(&call.surface_id).map(|s| s.view.clone());
+        let pkg = self.package_id_of(&call.surface_id).and_then(|id| self.router.package(id)).cloned();
+        let (Some(view), Some(pkg)) = (view, pkg) else {
+            let out = self.action_failed(&call.surface_id, &action, format!("no action {action}"), cx);
+            return Task::ready(out);
+        };
+        let data = view.read(cx).surface().data().clone();
+        let now = self.now.as_ref().map(|f| f());
+        let zone = self.zone.clone();
+        let offset = move |ms: f64| zone.as_ref().map_or(0, |z| z(ms));
+        let ctx = ActionContext { data: Some(&data), me: self.me.as_deref(), now, offset: Some(&offset), max_steps: None };
+        let plan = match run_action(&pkg, &action, &call.args, &ctx) {
+            Ok(plan) => plan,
+            Err(message) => return Task::ready(self.action_failed(&call.surface_id, &action, message, cx)),
+        };
+        let list = |key: &str| plan.get(key).and_then(Value::as_array).cloned().unwrap_or_default();
+        let (writes, sets) = (list("writes"), list("sets"));
+        let calls: Vec<FunctionCallInfo> = list("calls")
+            .into_iter()
+            .map(|c| FunctionCallInfo { surface_id: call.surface_id.clone(), component_id: call.component_id.clone(), name: c["name"].as_str().unwrap_or("").to_string(), args: c["args"].clone() })
+            .collect();
+        cx.spawn(async move |this, cx| {
+            let fail = |message: String, cx: &mut gpui::AsyncApp| {
+                this.update(cx, |host, cx| host.action_failed(&call.surface_id, &action, message.clone(), cx))
+                    .unwrap_or(FunctionOutcome { decision: FunctionDecision::Allow, result: None, error: Some(message) })
+            };
+            for c in &calls {
+                let Ok(gate) = this.update(cx, |host, cx| host.gate(c, cx)) else { return FunctionOutcome::of(FunctionDecision::Allow) };
+                let gate = gate.await;
+                if gate.decision != FunctionDecision::Allow {
+                    return fail(gate.error.unwrap_or_else(|| format!("{} was not allowed", c.name)), cx);
+                }
+            }
+            let mut committed = serde_json::json!({"ids": []});
+            if !writes.is_empty() {
+                let batch = FunctionCallInfo { surface_id: call.surface_id.clone(), component_id: call.component_id.clone(), name: RECORDS_BATCH_FUNCTION.into(), args: serde_json::json!({"writes": writes}) };
+                let task = this.update(cx, |host, cx| host.functions.get(RECORDS_BATCH_FUNCTION).cloned().map(|f| f(batch.args.clone(), &batch, cx)));
+                let Ok(Some(task)) = task else { return fail("this host keeps no records".into(), cx) };
+                match task.await {
+                    Ok(result) => committed = result,
+                    Err(e) => return fail(e, cx),
+                }
+            }
+            let _ = this.update(cx, |host, cx| {
+                for s in &sets {
+                    let path = s["path"].as_str().unwrap_or("").to_string();
+                    if let Err(error) = view.update(cx, |v, cx| v.set_data(&path, Some(s["value"].clone()), cx)) {
+                        let at = if path.is_empty() { "/" } else { path.as_str() };
+                        host.send(error_message(VALIDATION_FAILED, &call.surface_id, &error, Some(at)));
+                    }
+                }
+            });
+            for c in calls {
+                let outcome = run_function(this.clone(), c, cx).await;
+                if outcome.error.is_some() {
+                    return FunctionOutcome { decision: FunctionDecision::Allow, result: Some(committed), error: outcome.error };
+                }
+            }
+            FunctionOutcome { decision: FunctionDecision::Allow, result: Some(committed), error: None }
+        })
     }
 
     /// VAPP-122: the `bind` action: re-follow `path` from `source` with
