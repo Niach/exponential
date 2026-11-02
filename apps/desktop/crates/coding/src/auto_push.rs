@@ -6,13 +6,14 @@
 //! every unpushed commit and every uncommitted edit with it: the
 //! continuation on another device started over.
 //!
-//! Now the device pushes on its own, all the time:
+//! Now the device pushes on its own, all the time, but ONLY to a hidden
+//! ref, never to the branch (#EXP-1622: a pushed branch with an open PR got
+//! commits the agent had not released and restarted its CI; the branch is
+//! the agent's to push):
 //!
-//! - **the branch** ([`push_branch`]): whenever `HEAD` moved and carries
-//!   commits `origin` lacks, a PLAIN push of `HEAD` to the session's own
-//!   branch. Never forced: when the agent rewrote history (a rebase, an
-//!   amend) the push is refused and left alone, the agent's own
-//!   `--force-with-lease` is the one that settles it;
+//! - **the commits** ([`branch_state`]): whenever `HEAD` moved and carries
+//!   commits `origin`'s branch lacks, they ride the snapshot below (or, on a
+//!   clean tree, `HEAD` itself is parked on the ref);
 //! - **the uncommitted work** ([`push_wip`]): a snapshot commit of the
 //!   worktree (tracked changes and new files, never ignored ones) built in a
 //!   TEMPORARY index (the agent's index, staging and `HEAD` are never
@@ -26,8 +27,9 @@
 //!   move's kill, a quit, a daemon stop.
 //!
 //! A worktree prepared for the session elsewhere (a move, a resume on a
-//! reclaimed worktree) continues from the pushed branch AND puts the
-//! snapshot back as uncommitted changes ([`restore_wip`]). The leftover
+//! reclaimed worktree) continues from the pushed branch, fast-forwards to
+//! the commits the snapshot carries AND puts the snapshot back as
+//! uncommitted changes ([`restore_wip`]). The leftover
 //! branch stays the last resort for what never reached origin (no network
 //! at the end).
 //!
@@ -74,7 +76,7 @@ pub fn wip_ref(branch: &str) -> String {
     format!("{WIP_REF_PREFIX}{branch}")
 }
 
-/// What one [`push_branch`] did.
+/// Where `HEAD` stands against `origin`'s branch ([`branch_state`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BranchPush {
     /// No git work tree here.
@@ -88,19 +90,17 @@ pub enum BranchPush {
     Busy,
     /// `origin` has every commit.
     UpToDate,
-    /// Pushed `n` commits.
-    Pushed(usize),
-    /// `origin` refused a fast-forward (the agent rewrote history, or
-    /// another device pushed): left alone, the snapshot carries `HEAD`.
-    Diverged,
-    /// Push or inspection failed (offline, auth); retried next pass.
+    /// `HEAD` carries `n` commits `origin`'s branch lacks: the agent's to
+    /// push; meanwhile the WIP snapshot carries them.
+    Unpushed(usize),
+    /// Inspection failed; retried next pass.
     Failed(String),
 }
 
 impl BranchPush {
     /// `HEAD` is on `origin`'s branch (nothing of it lives only here).
     pub fn on_origin(&self) -> bool {
-        matches!(self, Self::UpToDate | Self::Pushed(_))
+        matches!(self, Self::UpToDate)
     }
 }
 
@@ -217,18 +217,10 @@ fn protected(target: &PushTarget) -> bool {
     }
 }
 
-fn is_rejected(detail: &str) -> bool {
-    let detail = detail.to_ascii_lowercase();
-    ["non-fast-forward", "fetch first", "[rejected]", "stale info"]
-        .iter()
-        .any(|needle| detail.contains(needle))
-}
-
-/// Push `HEAD` to `origin/<branch>` when it carries commits `origin` lacks.
-/// A plain push, hooks skipped (a safety push must not be vetoed by a
-/// linter). Uses the clone's repo-local credential helper, like the agent's
-/// own pushes.
-pub fn push_branch(target: &PushTarget) -> BranchPush {
+/// Where `HEAD` stands against `origin/<branch>`. Read-only: the device
+/// never pushes the branch (#EXP-1622), it only tells whether the WIP ref
+/// has to carry commits.
+pub fn branch_state(target: &PushTarget) -> BranchPush {
     let worktree = &target.worktree;
     if !is_repo(worktree) {
         return BranchPush::NotARepo;
@@ -250,21 +242,11 @@ pub fn push_branch(target: &PushTarget) -> BranchPush {
     };
     let mut args = vec!["rev-list", "--count"];
     args.extend(range.iter().map(String::as_str));
-    let ahead = match git(worktree, &args, "git rev-list --count (auto-push)") {
-        Ok(out) => out.trim().parse::<usize>().unwrap_or(0),
-        Err(detail) => return BranchPush::Failed(detail),
-    };
-    if ahead == 0 {
-        return BranchPush::UpToDate;
-    }
-    let refspec = format!("HEAD:refs/heads/{}", target.branch);
-    match git(
-        worktree,
-        &["push", "--no-verify", "--quiet", "origin", &refspec],
-        &format!("git push origin {} (auto-push)", target.branch),
-    ) {
-        Ok(_) => BranchPush::Pushed(ahead),
-        Err(detail) if is_rejected(&detail) => BranchPush::Diverged,
+    match git(worktree, &args, "git rev-list --count (auto-push)") {
+        Ok(out) => match out.trim().parse::<usize>().unwrap_or(0) {
+            0 => BranchPush::UpToDate,
+            ahead => BranchPush::Unpushed(ahead),
+        },
         Err(detail) => BranchPush::Failed(detail),
     }
 }
@@ -556,7 +538,7 @@ pub fn drop_wip(target: &PushTarget) -> Result<bool, String> {
 }
 
 /// Push the worktree's uncommitted work as `refs/exp-wip/<branch>`, or —
-/// `head_unpushed` (the branch push could not land `HEAD`) — `HEAD` itself
+/// `head_unpushed` (`origin`'s branch lacks commits of `HEAD`) — `HEAD` itself
 /// when nothing is uncommitted, so its commits are on origin all the same.
 /// A clean tree whose `HEAD` is on origin drops an old snapshot.
 pub fn push_wip(target: &PushTarget, head_unpushed: bool) -> WipPush {
@@ -574,10 +556,10 @@ pub fn push_wip(target: &PushTarget, head_unpushed: bool) -> WipPush {
         Ok(snap) => snap,
         Err(detail) => return WipPush::Failed(detail),
     };
-    let (commit, skipped) = match snap {
-        Some(snap) => (snap.commit, snap.skipped),
+    let (commit, skipped, parked) = match snap {
+        Some(snap) => (snap.commit, snap.skipped, false),
         None if head_unpushed => match rev(worktree, "HEAD") {
-            Some(head) => (head, Vec::new()),
+            Some(head) => (head, Vec::new(), true),
             None => return WipPush::Skipped("no HEAD".into()),
         },
         None => {
@@ -589,7 +571,11 @@ pub fn push_wip(target: &PushTarget, head_unpushed: bool) -> WipPush {
         }
     };
     if let Some(pushed) = pushed_wip(worktree, &target.branch) {
-        if pushed == commit || tree_and_parent(worktree, &pushed) == tree_and_parent(worktree, &commit) {
+        // A parked `HEAD` must be that very commit (an old snapshot of the
+        // same tree would bring back the edits but not the agent's commit).
+        let same = pushed == commit
+            || (!parked && tree_and_parent(worktree, &pushed) == tree_and_parent(worktree, &commit));
+        if same {
             return WipPush::Unchanged;
         }
     }
@@ -599,15 +585,15 @@ pub fn push_wip(target: &PushTarget, head_unpushed: bool) -> WipPush {
     }
 }
 
-/// One pass: the branch, then (`with_wip`) the uncommitted work.
+/// One pass: the snapshot, when due (`with_wip`) or when `HEAD` carries
+/// commits `origin` lacks. The branch itself is never pushed (#EXP-1622).
 pub fn sync(target: &PushTarget, with_wip: bool) -> SyncReport {
-    let branch = push_branch(target);
-    let wip = with_wip
-        .then(|| match &branch {
-            BranchPush::NotARepo | BranchPush::NotOnBranch | BranchPush::Protected | BranchPush::Busy => None,
-            pushed => Some(push_wip(target, !pushed.on_origin())),
-        })
-        .flatten();
+    let branch = branch_state(target);
+    let wip = match &branch {
+        BranchPush::NotARepo | BranchPush::NotOnBranch | BranchPush::Protected | BranchPush::Busy => None,
+        BranchPush::Unpushed(_) => Some(push_wip(target, true)),
+        state => with_wip.then(|| push_wip(target, !state.on_origin())),
+    };
     SyncReport { branch, wip }
 }
 
@@ -754,7 +740,8 @@ const MAX_BACKOFF: Duration = Duration::from_secs(30 * 60);
 /// The device's background pusher: every [`HEAD_CHECK_EVERY`] it looks at
 /// the runs THIS host process drives (run registry, `host_pid` = us) and the
 /// worktrees no live host drives any more (a crash, a quit before the end),
-/// pushing a moved `HEAD` at once and a snapshot every [`WIP_EVERY`].
+/// snapshotting a moved, unpushed `HEAD` at once and the worktree every
+/// [`WIP_EVERY`].
 pub struct AutoPusher {
     data_dir: PathBuf,
     watches: Mutex<HashMap<PathBuf, Watch>>,
@@ -999,26 +986,52 @@ mod tests {
         PushTarget { worktree: worktree.to_path_buf(), branch: BRANCH.into(), base_branch: Some("main".into()) }
     }
 
+    /// The agent's own push (`git push origin HEAD:<branch>`).
+    fn agent_push(worktree: &Path) {
+        git_ok(worktree, &["push", "--quiet", "origin", &format!("HEAD:refs/heads/{BRANCH}")]);
+    }
+
+    fn commit(worktree: &Path, file: &str, subject: &str) {
+        std::fs::write(worktree.join(file), format!("{subject}\n")).unwrap();
+        git_ok(worktree, &["add", "."]);
+        git_ok(worktree, &["commit", "-m", subject]);
+    }
+
+    /// #EXP-1622: an agent commit on a branch with an open PR never reaches
+    /// the branch through the device (no unreleased commit on the PR, no CI
+    /// restart); it reaches origin on the hidden ref only.
     #[test]
-    fn a_commit_is_pushed_to_the_session_branch_never_forced() {
+    fn a_commit_rides_the_wip_ref_and_the_branch_is_never_pushed() {
         let fx = Fixture::new("commit");
         let (_, wt) = fx.device("a", BRANCH);
-        assert_eq!(push_branch(&target(&wt)), BranchPush::UpToDate);
-        std::fs::write(wt.join("work.txt"), "work\n").unwrap();
-        git_ok(&wt, &["add", "."]);
-        git_ok(&wt, &["commit", "-m", "work"]);
-        assert_eq!(push_branch(&target(&wt)), BranchPush::Pushed(1));
-        assert_eq!(fx.origin_rev(&format!("refs/heads/{BRANCH}")), Some(git_ok(&wt, &["rev-parse", "HEAD"])));
-        assert_eq!(push_branch(&target(&wt)), BranchPush::UpToDate);
+        assert_eq!(branch_state(&target(&wt)), BranchPush::UpToDate);
+        commit(&wt, "work.txt", "released");
+        agent_push(&wt);
+        let released = git_ok(&wt, &["rev-parse", "HEAD"]);
+        assert_eq!(branch_state(&target(&wt)), BranchPush::UpToDate);
 
-        // The agent amends a pushed commit: the device does not fight it.
-        std::fs::write(wt.join("work.txt"), "work, amended\n").unwrap();
-        git_ok(&wt, &["commit", "-a", "--amend", "-m", "work (amended)"]);
-        assert_eq!(push_branch(&target(&wt)), BranchPush::Diverged);
-        assert_ne!(fx.origin_rev(&format!("refs/heads/{BRANCH}")), Some(git_ok(&wt, &["rev-parse", "HEAD"])));
-        // …but the amended HEAD still reaches origin, on the hidden ref.
-        assert!(matches!(push_wip(&target(&wt), true), WipPush::Pushed { .. }));
+        commit(&wt, "next.txt", "not released yet");
+        let report = sync(&target(&wt), false);
+        assert_eq!(report.branch, BranchPush::Unpushed(1));
+        assert!(matches!(report.wip, Some(WipPush::Pushed { .. })));
+        assert_eq!(fx.origin_rev(&format!("refs/heads/{BRANCH}")), Some(released.clone()));
         assert_eq!(fx.origin_rev(&wip_ref(BRANCH)), Some(git_ok(&wt, &["rev-parse", "HEAD"])));
+        // The exit and shutdown passes never push it either.
+        assert!(sync_worktree(&wt).is_some());
+        assert_eq!(fx.origin_rev(&format!("refs/heads/{BRANCH}")), Some(released));
+
+        // The agent amends: still only the hidden ref follows it.
+        std::fs::write(wt.join("next.txt"), "amended\n").unwrap();
+        git_ok(&wt, &["commit", "-a", "--amend", "-m", "amended"]);
+        assert!(matches!(sync(&target(&wt), false).wip, Some(WipPush::Pushed { .. })));
+        assert_eq!(fx.origin_rev(&wip_ref(BRANCH)), Some(git_ok(&wt, &["rev-parse", "HEAD"])));
+
+        // The agent pushes its branch: the clean tree's next pass drops the ref.
+        agent_push(&wt);
+        let report = sync(&target(&wt), true);
+        assert_eq!(report.branch, BranchPush::UpToDate);
+        assert_eq!(report.wip, Some(WipPush::Dropped));
+        assert_eq!(fx.origin_rev(&wip_ref(BRANCH)), None);
     }
 
     #[test]
@@ -1029,10 +1042,10 @@ mod tests {
         git_ok(&clone, &["add", "."]);
         git_ok(&clone, &["commit", "-m", "on main"]);
         let main = PushTarget { worktree: clone.clone(), branch: "main".into(), base_branch: None };
-        assert_eq!(push_branch(&main), BranchPush::Protected);
+        assert_eq!(branch_state(&main), BranchPush::Protected);
         assert_eq!(push_wip(&main, true), WipPush::Skipped("protected branch".into()));
         let based = PushTarget { worktree: clone, branch: "main".into(), base_branch: Some("main".into()) };
-        assert_eq!(push_branch(&based), BranchPush::Protected);
+        assert_eq!(branch_state(&based), BranchPush::Protected);
     }
 
     #[test]
@@ -1044,10 +1057,11 @@ mod tests {
         git_ok(&wt, &["commit", "-m", "work"]);
         let dir = git_dir(&wt).unwrap();
         std::fs::create_dir_all(dir.join("rebase-merge")).unwrap();
-        assert_eq!(push_branch(&target(&wt)), BranchPush::Busy);
+        assert_eq!(branch_state(&target(&wt)), BranchPush::Busy);
         assert_eq!(sync(&target(&wt), true), SyncReport { branch: BranchPush::Busy, wip: None });
+        assert_eq!(fx.origin_rev(&wip_ref(BRANCH)), None);
         std::fs::remove_dir_all(dir.join("rebase-merge")).unwrap();
-        assert_eq!(push_branch(&target(&wt)), BranchPush::Pushed(1));
+        assert_eq!(branch_state(&target(&wt)), BranchPush::Unpushed(1));
     }
 
     #[test]
@@ -1109,20 +1123,22 @@ mod tests {
         std::fs::write(a.join("lib.rs"), "fn a() { half_done() }\n").unwrap();
         std::fs::write(a.join("draft.rs"), "// new, never added\n").unwrap();
         std::fs::remove_file(a.join("README.md")).unwrap();
-        // The device's periodic pass, then the machine disappears.
+        // The device's periodic pass, then the machine disappears. The
+        // agent never pushed: the commit lives on the hidden ref only.
         let report = sync(&target(&a), true);
-        assert_eq!(report.branch, BranchPush::Pushed(1));
+        assert_eq!(report.branch, BranchPush::Unpushed(1));
         assert!(matches!(report.wip, Some(WipPush::Pushed { .. })));
+        assert_eq!(fx.origin_rev(&format!("refs/heads/{BRANCH}")), None);
         let a_head = git_ok(&a, &["rev-parse", "HEAD"]);
 
         let (b_clone, b) = fx.device("b", BRANCH);
-        assert_eq!(git_ok(&b, &["rev-parse", "HEAD"]), a_head);
-        assert_eq!(restore_wip(&b_clone, &b, BRANCH, None), WipRestore::Restored { fast_forwarded: false });
+        assert_ne!(git_ok(&b, &["rev-parse", "HEAD"]), a_head);
+        assert_eq!(restore_wip(&b_clone, &b, BRANCH, None), WipRestore::Restored { fast_forwarded: true });
         assert_eq!(std::fs::read_to_string(b.join("lib.rs")).unwrap(), "fn a() { half_done() }\n");
         assert_eq!(std::fs::read_to_string(b.join("draft.rs")).unwrap(), "// new, never added\n");
         assert!(!b.join("README.md").exists());
         assert_eq!(std::fs::read_to_string(b.join("work.txt")).unwrap(), "committed\n");
-        // Back as uncommitted work: nothing staged, HEAD = the pushed branch.
+        // Back as uncommitted work: nothing staged, HEAD = A's commit.
         assert_eq!(git_ok(&b, &["diff", "--cached", "--name-only"]), "");
         assert_eq!(git_ok(&b, &["rev-parse", "HEAD"]), a_head);
         let status = git_ok(&b, &["status", "--porcelain"]);
@@ -1130,12 +1146,13 @@ mod tests {
         lines.sort();
         assert_eq!(lines, vec!["?? draft.rs", "D README.md", "M lib.rs"]);
 
-        // B commits it all: its next pass drops the snapshot, and a later
-        // prepare finds nothing to restore.
+        // B commits it all and pushes its branch: its next pass drops the
+        // snapshot, and a later prepare finds nothing to restore.
         git_ok(&b, &["add", "-A"]);
         git_ok(&b, &["commit", "-m", "finished on b"]);
+        agent_push(&b);
         let report = sync(&target(&b), true);
-        assert_eq!(report.branch, BranchPush::Pushed(1));
+        assert_eq!(report.branch, BranchPush::UpToDate);
         assert_eq!(report.wip, Some(WipPush::Dropped));
         assert_eq!(fx.origin_rev(&wip_ref(BRANCH)), None);
     }
@@ -1169,18 +1186,20 @@ mod tests {
         git_ok(&a, &["commit", "-m", "agent commit"]);
         std::fs::write(a.join("lib.rs"), "fn a() { editing }\n").unwrap();
         pusher.pass(true);
-        assert_eq!(fx.origin_rev(&format!("refs/heads/{BRANCH}")), Some(git_ok(&a, &["rev-parse", "HEAD"])));
+        assert_eq!(fx.origin_rev(&format!("refs/heads/{BRANCH}")), None);
         assert!(fx.origin_rev(&wip_ref(BRANCH)).is_some());
 
-        // A second commit is pushed by the next 30 s check (no snapshot due).
+        // A second commit reaches the hidden ref at the next 30 s check (no
+        // snapshot due), as HEAD itself on a clean tree; never the branch.
         git_ok(&a, &["commit", "-a", "-m", "agent commit 2"]);
         pusher.pass(false);
-        assert_eq!(fx.origin_rev(&format!("refs/heads/{BRANCH}")), Some(git_ok(&a, &["rev-parse", "HEAD"])));
+        assert_eq!(fx.origin_rev(&format!("refs/heads/{BRANCH}")), None);
+        assert_eq!(fx.origin_rev(&wip_ref(BRANCH)), Some(git_ok(&a, &["rev-parse", "HEAD"])));
         std::fs::write(a.join("lib.rs"), "fn a() { editing again }\n").unwrap();
         pusher.pass(true);
 
         let (b_clone, b) = fx.device("b", BRANCH);
-        assert_eq!(restore_wip(&b_clone, &b, BRANCH, None), WipRestore::Restored { fast_forwarded: false });
+        assert_eq!(restore_wip(&b_clone, &b, BRANCH, None), WipRestore::Restored { fast_forwarded: true });
         assert_eq!(std::fs::read_to_string(b.join("lib.rs")).unwrap(), "fn a() { editing again }\n");
         assert_eq!(git_ok(&b, &["log", "-1", "--format=%s"]), "agent commit 2");
     }
@@ -1192,9 +1211,9 @@ mod tests {
         std::fs::write(a.join("one.txt"), "1\n").unwrap();
         git_ok(&a, &["add", "."]);
         git_ok(&a, &["commit", "-m", "pushed"]);
-        assert_eq!(push_branch(&target(&a)), BranchPush::Pushed(1));
-        // A rewrote nothing, but its next commit's push failed (offline);
-        // the snapshot (parented on it) reached origin later.
+        agent_push(&a);
+        // The agent's next commit is not released yet: the snapshot
+        // (parented on it) carries it.
         std::fs::write(a.join("two.txt"), "2\n").unwrap();
         git_ok(&a, &["add", "."]);
         git_ok(&a, &["commit", "-m", "not pushed"]);
@@ -1218,7 +1237,7 @@ mod tests {
         std::fs::write(c.join("c.txt"), "c\n").unwrap();
         git_ok(&c, &["add", "."]);
         git_ok(&c, &["commit", "-m", "c"]);
-        assert_eq!(push_branch(&target(&c)), BranchPush::Pushed(1));
+        agent_push(&c);
 
         let (b_clone, b) = fx.device("b", BRANCH);
         assert_eq!(restore_wip(&b_clone, &b, BRANCH, None), WipRestore::Stale);
