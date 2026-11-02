@@ -22,6 +22,9 @@ export interface AppExportApp {
 export interface AppExportRecord {
   kind: string
   data: Record<string, unknown>
+  /** VAPP-188: whose record it is (a user id; import only: app-records.json
+   *  `onBehalf.importCases` resolves it against the importing team). */
+  author?: string
 }
 
 export interface AppExportFile {
@@ -171,7 +174,9 @@ export function parseAppImportShape(text: string): ParsedAppImport & { bare: boo
         const kindOk = typeof r.kind === `string` && APP_RECORD_KIND_PATTERN.test(r.kind)
         if (!kindOk) issues.push({ path: `/records/${i}/kind`, message: `must be a kind` })
         if (!isObject(r.data)) issues.push({ path: `/records/${i}/data`, message: `must be an object` })
-        if (kindOk && isObject(r.data)) records.push({ kind: r.kind as string, data: r.data })
+        const authorOk = r.author === undefined || r.author === null || (typeof r.author === `string` && r.author.length > 0 && r.author.length <= 64)
+        if (!authorOk) issues.push({ path: `/records/${i}/author`, message: `must be a user id` })
+        if (kindOk && isObject(r.data) && authorOk) records.push({ kind: r.kind as string, data: r.data, ...(typeof r.author === `string` ? { author: r.author } : {}) })
       })
   }
   if (issues.length > 0) return fail(issues)
