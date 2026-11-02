@@ -136,7 +136,7 @@
         "fixtures/host-router.json"
       ],
       "unit": "package or flow",
-      "cases": 33,
+      "cases": 35,
       "check": "Validate each package; validate each record against its kind's schema; for each flow build ONE router with `extensionIds`, install `packages` (issues = `installIssues`), route every step: the ops equal `expected`."
     },
     {
@@ -145,7 +145,7 @@
         "fixtures/bind-time.json"
       ],
       "unit": "case",
-      "cases": 72,
+      "cases": 73,
       "check": "Expand the input; for every dataset run the bind pass: the bound tree, every `set` press and the per-row slot cells equal the fixture (reducer `issues` too for `extra`)."
     },
     {

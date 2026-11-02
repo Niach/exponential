@@ -93,6 +93,101 @@ pub struct PackageIssue {
     pub message: String,
 }
 
+fn escape_token(key: &str) -> String {
+    key.replace('~', "~0").replace('/', "~1")
+}
+
+fn is_expression_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && !crate::expressions::RESERVED.contains(&name)
+        && !matches!(name, "true" | "false" | "null" | "in")
+}
+
+/// VAPP-191: every `{call: "expr", args: {source, vars?, types?}}` in a
+/// template's components (any depth, in order) parses within the cost caps
+/// and type-checks: `vars` declare names (a literal by its JSON type, a
+/// binding or call as dyn), `types` declare or override them (a type name
+/// or one of the package's record kinds). Issues name the expression's
+/// pointer (`…/args/source`) and the reason (`column N: …`). Mirrors
+/// `src/host/package.ts validateExpressions`.
+pub fn validate_expressions(p: &Map<String, Value>) -> Vec<PackageIssue> {
+    use crate::expressions::{check_parsed, parse_expression, parse_type_name, type_of_literal, Ty};
+    let mut issues = Vec::new();
+    let Some(templates) = p.get("templates").and_then(Value::as_object) else { return issues };
+    let empty = Map::new();
+    let kinds = p.get("records").and_then(Value::as_object).unwrap_or(&empty);
+    let check = |node: &Map<String, Value>, at: &str, issues: &mut Vec<PackageIssue>| {
+        let args = node.get("args").and_then(Value::as_object).unwrap_or(&empty);
+        let Some(source) = args.get("source").and_then(Value::as_str) else {
+            issues.push(issue(format!("{at}/args/source"), "an expression is a string"));
+            return;
+        };
+        let mut scope = std::collections::HashMap::new();
+        let vars = args.get("vars");
+        if vars.is_some_and(|v| !v.is_object()) {
+            issues.push(issue(format!("{at}/args/vars"), "vars is an object of names"));
+        }
+        for (name, value) in vars.and_then(Value::as_object).unwrap_or(&empty) {
+            if !is_expression_name(name) {
+                issues.push(issue(format!("{at}/args/vars/{}", escape_token(name)), format!("{name} is not a name")));
+            }
+            scope.insert(name.clone(), if crate::expr::is_dynamic(value) { Ty::Dyn } else { type_of_literal(value) });
+        }
+        let types = args.get("types");
+        if types.is_some_and(|v| !v.is_object()) {
+            issues.push(issue(format!("{at}/args/types"), "types is an object of type names"));
+        }
+        for (name, spelled) in types.and_then(Value::as_object).unwrap_or(&empty) {
+            match spelled.as_str().and_then(|s| parse_type_name(s, kinds)) {
+                Some(t) => {
+                    scope.insert(name.clone(), t);
+                }
+                None => issues.push(issue(
+                    format!("{at}/args/types/{}", escape_token(name)),
+                    match spelled.as_str() {
+                        Some(s) => format!("unknown type \"{s}\""),
+                        None => "a type is a string".to_string(),
+                    },
+                )),
+            }
+        }
+        match parse_expression(source) {
+            Err(e) => issues.push(issue(format!("{at}/args/source"), e)),
+            Ok(ast) => {
+                for message in check_parsed(&ast, &scope, Vec::new()).1 {
+                    issues.push(issue(format!("{at}/args/source"), message));
+                }
+            }
+        }
+    };
+    fn walk(value: &Value, at: &str, issues: &mut Vec<PackageIssue>, check: &dyn Fn(&Map<String, Value>, &str, &mut Vec<PackageIssue>)) {
+        match value {
+            Value::Array(items) => {
+                for (i, v) in items.iter().enumerate() {
+                    walk(v, &format!("{at}/{i}"), issues, check);
+                }
+            }
+            Value::Object(m) => {
+                if m.get("call").and_then(Value::as_str) == Some("expr") {
+                    check(m, at, issues);
+                }
+                for (k, v) in m {
+                    walk(v, &format!("{at}/{}", escape_token(k)), issues, check);
+                }
+            }
+            _ => {}
+        }
+    }
+    for (id, template) in templates {
+        if let Some(components) = template.get("components").filter(|c| c.is_array()) {
+            walk(components, &format!("/templates/{id}/components"), &mut issues, &check);
+        }
+    }
+    issues
+}
+
 fn issue(path: impl Into<String>, message: impl Into<String>) -> PackageIssue {
     PackageIssue { path: path.into(), message: message.into() }
 }
@@ -293,6 +388,7 @@ pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], exte
             }
         }
     }
+    issues.extend(validate_expressions(p));
     if let Some(tools) = p.get("tools") {
         issues.extend(validate_tools(tools));
     }

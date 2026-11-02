@@ -8,6 +8,7 @@
 //   fixtures/host-router.json      package validation + message flows → ops
 //   fixtures/host-package.json     VAPP-161 tool consent, extensions, canonical JSON, signatures
 //   fixtures/records-query.json    VAPP-189 the records query: parse, sources, values (src/host/query.ts)
+//   fixtures/expressions.json      VAPP-191 the expression language: eval, cost, check, call form (src/expressions.ts)
 
 import { createPrivateKey, sign as edSign } from "node:crypto"
 import { readFileSync } from "node:fs"
@@ -43,6 +44,9 @@ import {
   AUTHOR_KEY_PREFIX,
 } from "../src/host"
 import { dateBucket, type DateBucket } from "../src/dates"
+import { callExpressionFunction, checkExpression, evalExpression, type CheckKind, type ExpressionClock } from "../src/expressions"
+import { fixedOffset } from "../src/format"
+import expressionsCatalog from "../catalog/expressions.json" with { type: "json" }
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage, AvailableExtension, PackageTool, RecordRow } from "../src/host"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
@@ -112,6 +116,30 @@ export function renderHost(): Record<string, string> {
     "fixtures/host-router.json": json(router),
     "fixtures/host-package.json": json(pkgFixture),
     "fixtures/records-query.json": json(renderRecordsQuery(read(`fixtures/records-query.json`))),
+    "fixtures/expressions.json": json(renderExpressions(read(`fixtures/expressions.json`))),
+  }
+}
+
+/** VAPP-191: the constants from catalog/expressions.json, then every case's
+ *  `expected` (a case's `vars` / `clock` replace the fixture's defaults). */
+function renderExpressions(f: Record<string, any>): Record<string, unknown> {
+  const { $comment: _, ...constants } = expressionsCatalog
+  const clockOf = (c: { now: string; offsetMinutes: number }): ExpressionClock => ({ now: Date.parse(c.now), zone: fixedOffset(c.offsetMinutes) })
+  const evaluate = (c: Case) => ({ ...c, expected: evalExpression(c.source as string, (c.vars ?? f.vars) as Record<string, unknown>, clockOf((c.clock ?? f.clock) as never)) })
+  const called = (c: Case) => {
+    const v = callExpressionFunction(c.call as string, c.args as Record<string, unknown>, clockOf((c.clock ?? f.clock) as never))
+    return { ...c, expected: v === undefined ? {} : { value: v } }
+  }
+  return {
+    $comment: f.$comment,
+    ...constants,
+    clock: f.clock,
+    vars: f.vars,
+    kinds: f.kinds,
+    evalCases: f.evalCases.map(evaluate),
+    costCases: f.costCases.map(evaluate),
+    checkCases: f.checkCases.map((c: Case) => ({ ...c, expected: checkExpression(c.source as string, c.types as Record<string, string>, f.kinds as Record<string, CheckKind>) })),
+    callCases: f.callCases.map(called),
   }
 }
 

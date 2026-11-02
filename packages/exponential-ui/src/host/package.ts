@@ -14,6 +14,8 @@ import { validateTools } from "./tools"
 import type { PackageTool } from "./tools"
 import { validatePackageExposes, validateUpstreams } from "./exposes"
 import type { PackageExpose } from "./exposes"
+import { EXPRESSION_RESERVED, checkParsed, parseExpression, parseTypeName, typeOfLiteral, type CheckKind, type ExprType } from "../expressions"
+import { isDynamic } from "../expr"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
@@ -234,10 +236,55 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
           issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `query ${name} names no package query` })
       })
     }
+  issues.push(...validateExpressions(pkg))
   if (pkg.tools !== undefined) issues.push(...validateTools(pkg.tools))
   if (pkg.upstreams !== undefined) issues.push(...validateUpstreams(pkg.upstreams))
   if (pkg.exposes !== undefined) issues.push(...validatePackageExposes(pkg.exposes, pkg.records, pkg.upstreams))
   if (pkg.extensions !== undefined) issues.push(...validateExtensions(pkg.extensions, catalogIds, extensions))
+  return issues
+}
+
+const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/
+const NOT_NAMES: ReadonlySet<string> = new Set([...EXPRESSION_RESERVED, `true`, `false`, `null`, `in`])
+const escapeToken = (key: string) => key.replace(/~/g, `~0`).replace(/\//g, `~1`)
+
+/** VAPP-191: every `{call: "expr", args: {source, vars?, types?}}` in a
+ *  template's components (any depth, in order) parses within the cost caps
+ *  and type-checks: `vars` declare names (a literal by its JSON type, a
+ *  binding or call as dyn), `types` declare or override them (a type name
+ *  or one of the package's record kinds, whose schema types its fields).
+ *  Issues name the expression's pointer (`…/args/source`) and the reason
+ *  (`column N: …`) so an editor can fix it. */
+export function validateExpressions(pkg: Record<string, unknown>): PackageIssue[] {
+  const issues: PackageIssue[] = []
+  if (!isObject(pkg.templates)) return issues
+  const kinds: Record<string, CheckKind> = isObject(pkg.records) ? (pkg.records as Record<string, CheckKind>) : {}
+  const check = (node: Record<string, unknown>, at: string) => {
+    const args = isObject(node.args) ? node.args : {}
+    if (typeof args.source !== `string`) return issues.push({ path: `${at}/args/source`, message: `an expression is a string` })
+    const scope = new Map<string, ExprType>()
+    if (args.vars !== undefined && !isObject(args.vars)) issues.push({ path: `${at}/args/vars`, message: `vars is an object of names` })
+    for (const [name, value] of Object.entries(isObject(args.vars) ? args.vars : {})) {
+      if (!NAME.test(name) || NOT_NAMES.has(name)) issues.push({ path: `${at}/args/vars/${escapeToken(name)}`, message: `${name} is not a name` })
+      scope.set(name, isDynamic(value) ? { k: `dyn` } : typeOfLiteral(value))
+    }
+    if (args.types !== undefined && !isObject(args.types)) issues.push({ path: `${at}/args/types`, message: `types is an object of type names` })
+    for (const [name, spelled] of Object.entries(isObject(args.types) ? args.types : {})) {
+      const t = typeof spelled === `string` ? parseTypeName(spelled, kinds) : null
+      if (!t) issues.push({ path: `${at}/args/types/${escapeToken(name)}`, message: typeof spelled === `string` ? `unknown type "${spelled}"` : `a type is a string` })
+      else scope.set(name, t)
+    }
+    const parsed = parseExpression(args.source)
+    if (`error` in parsed) return issues.push({ path: `${at}/args/source`, message: parsed.error })
+    for (const message of checkParsed(parsed.ast, scope).issues) issues.push({ path: `${at}/args/source`, message })
+  }
+  const walk = (value: unknown, at: string): void => {
+    if (Array.isArray(value)) return value.forEach((v, i) => walk(v, `${at}/${i}`))
+    if (!isObject(value)) return
+    if (value.call === `expr`) check(value, at)
+    for (const [k, v] of Object.entries(value)) walk(v, `${at}/${escapeToken(k)}`)
+  }
+  for (const [id, template] of Object.entries(pkg.templates)) if (isObject(template) && Array.isArray(template.components)) walk(template.components, `/templates/${id}/components`)
   return issues
 }
 

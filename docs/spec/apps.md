@@ -163,7 +163,7 @@ Needs: C2, C13.
 | C4 | Per-kind read/write policy (private, panel-only) | ❌ | 🆕 R3 |
 | C5 | Group-by on any field, avg/min/max/count, text search | 🟡 sum + month view only | 🆕 Q1 (approved 30.10 as "grouping and maths") |
 | C6 | Running sums and totals before a date | ❌ | 🆕 Q1 |
-| C7 | mul/div/round, date maths (add, diff, startOf, weekday) | ❌ | 🆕 Q2 |
+| C7 | mul/div/round, date maths (add, diff, startOf, weekday) | ✅ CEL expressions, type-checked at install | #VAPP-191 |
 | C8 | Several screens per app with navigation and deep links | ❌ (the preview paints only the first template) | 🆕 U1 |
 | C9 | Forms and tables generated from a kind's schema | 🟡 the Data tab does it in Exponential's own UI (#VAPP-178); nothing in eUI | 🆕 U2 |
 | C10 | Field state machine (allowed transitions) | ❌ | 🆕 R6 |
@@ -383,7 +383,7 @@ Today a binding is a URL (`exp:records?kind=entry&mine=1&by=date&sum=hours`). UR
 - ✅ The four hand-written derivations (`AppRecords.swift`, `AppRecords.kt`, `app_records.rs`, `app-records.ts`) are gone; their Data tab, ownership and on-behalf helpers stay.
 - Queries run **locally** over the synced store. A query over more rows than the device holds (web on-demand) asks the server, which uses the same evaluator over SQL.
 
-### 4.2 Expressions (🆕 Q2)
+### 4.2 Expressions (✅ Q2, #VAPP-191)
 
 The bind-time functions exist ✅: add, sub, percent, eq, lt, clamp, cond, fallback, concat, coalesce, text, map, len, fill, filter, and/or/not, plus the format functions.
 
@@ -399,9 +399,18 @@ To add, both as functions (`{"call": "mul", …}`) and as the compact string for
 
 The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <= == && || !`, calls). It is parsed once at package validation, has no loops and no user functions, and must terminate. The function form stays the A2UI wire form, and the string form compiles to it.
 
+**Shipped (Q2, #VAPP-191; decided 2026-11-02: CEL instead of a grammar of our own):**
+
+- ✅ The string form is a **CEL subset** (`catalog/expressions.json` = its spec): one number type (every JSON number is a CEL double, so `hours * 60` needs no conversion), JSON values, `+ - * / % < <= > >= == != in && || ! ?:`, fields, indexes, list and map literals, `has(a.f)`, the comprehensions `map filter all exists`, and the CEL standard `size string double int contains startsWith endsWith`. No library passed the fixture (CEL's int/double split refuses `1.5 * 60` over JSON numbers), so both twins implement the subset: `src/expressions.ts` and `eui_core::expressions` (desktop, and iOS/Android through the FFI `eval_expression_json`, `check_expression_json`, `call_expression_json`; SDKs `Expressions.eval/check/call`). No wasm.
+- ✅ Functions: arithmetic `mul div mod round floor ceil min max abs`, dates `today now dateAdd dateDiff startOf endOf weekday isoWeek` (units second … year; weeks ISO), durations `hours formatDuration` (`h:mm`, `hh:mm`, `h:mm:ss`, `hh:mm:ss`). Each is also an A2UI call (`{"call": "mul", "args": {"a", "b"}}`, a core function in every renderer's bind table), and `{"call": "expr", "args": {"source", "vars", "types?"}}` evaluates a string expression over its resolved vars. The string form is evaluated directly, it does not compile to calls.
+- ✅ Type check at package validation: `validatePackage` / `validate_package` check every `expr` in a template against the functions' fixed signatures and the declared types (`types`: `number`, `list<entry>`, or a record kind, whose fields type from its schema). An issue names the pointer and `column N: <reason>`, so the editor agent can fix it.
+- ✅ Cost caps: 1024 characters, nesting 32, no comprehension inside another one's arguments, 10,000 evaluation steps.
+- ✅ Fixture `fixtures/expressions.json` (eval, cost, check and call cases) replayed in TS, Rust, Swift and Kotlin; `bind-time.json` `Stack/expression-calls` replays the call form on all six renderers; `host-router.json` `acme.expressions` / `acme.badexpressions` lock the install check.
+- Open: the array helpers `sumOf avgOf …` (comprehensions + `min`/`max` cover most uses; the query aggregates the rest) and the text group `lower upper trim split join matches`. Computed fields (`computed`, Q3) reuse the same checker with a kind's fields as the scope.
+
 ### 4.3 Time
 
-- Everything date-like is evaluated in the **team timezone**. `date` is a calendar day, not an instant.
+- Everything date-like is evaluated in the **team timezone**. `date` is a calendar day, not an instant. ✅ (Q2) The zone reaches the evaluator as a UTC offset from the host (`ResolveOptions.zone`, else the surface Formatter's zone; Rust `ResolveContext::with_zone` / `Formatter::zone`); there is no team timezone setting yet, so hosts pass the surface's `timeZone`.
 - Weeks are ISO and months are calendar months.
 - The platform has no notion of working days, holidays or targets. An app that needs them keeps them as its own records (a `holiday` kind, a `target` kind) and combines them with `weekday`, `dateDiff` and the query.
 
@@ -745,7 +754,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 - **S1 ★** Move the records query out of `domain-contract` into eUI host records (TS + eui-core), with a pluggable `RecordStore`. The ×4 hand derivations become one. (C25)
 - **Q1 ★** ✅ #VAPP-190 The structured query: group-by on any field + time buckets, all aggregates, `before`/running sums, `in/between/or`. Fixture `records-query.json` ×4 (TS, Rust, Swift, Kotlin). `search` and a cursor stay open. (C5, C6)
-- **Q2 ★** Expressions: mul/div/round/min/max, array aggregates, date maths in the team timezone, the string form. (C7)
+- **Q2 ★** ✅ #VAPP-191 Expressions: CEL subset (TS + Rust twins), mul/div/round/min/max, date maths in the team timezone, durations, the call form, a type check at install, cost caps. Fixture `expressions.json` ×4. Array and text helpers stay open. (C7)
 - **Q3** Computed fields. (C11)
 - **Q4** The broker's `records` run uses the Q1 evaluator: tools get the same query as the UI. (C15)
 

@@ -177,6 +177,11 @@ pub trait Formatter: Send + Sync {
     /// `value` units relative to now (negative = past), truncated by the core.
     fn relative_time(&self, value: i64, unit: RelativeUnit) -> String;
     fn plural(&self, value: f64) -> PluralCategory;
+    /// VAPP-191: the zone's UTC offset, which the expression date functions
+    /// read when the resolve context names none; `None` = UTC.
+    fn zone(&self) -> Option<ZoneOffset> {
+        None
+    }
     /// A byte size (`value` already in `unit`, ≤ 1 fraction digit), like
     /// `Intl.NumberFormat(locale, {style: "unit", unitDisplay: "short"})`.
     /// The default: the number through [`Self::number`] + the English
@@ -789,6 +794,9 @@ impl std::fmt::Debug for ZonedEnglishFormatter {
 }
 
 impl Formatter for ZonedEnglishFormatter {
+    fn zone(&self) -> Option<ZoneOffset> {
+        Some(self.offset.clone())
+    }
     fn locale(&self) -> String {
         ENGLISH.locale()
     }

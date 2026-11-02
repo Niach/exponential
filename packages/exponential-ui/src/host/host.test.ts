@@ -76,7 +76,7 @@ describe(`host-policy.json`, () => {
     })
   // The basic catalog's 14 plus round 1's 15 core functions (`set` incl.),
   // round 2's two formatters, round 4's filter and VAPP-122's bind.
-  test(`the 33 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(33))
+  test(`the 53 built-ins are the catalog's (VAPP-191: + 20 expression functions)`, () => expect(BUILTIN_FUNCTIONS.length).toBe(53))
 })
 
 describe(`host-router.json`, () => {
@@ -99,7 +99,7 @@ describe(`host-router.json`, () => {
 
   test(`the surface section matches the Formatter and the a11y commands`, () => {
     expect(hostContract.version).toBe(3)
-    expect([...FORMATTER_METHODS].sort()).toEqual(Object.keys(englishFormatter()).filter((k) => k !== `locale`).sort())
+    expect([...FORMATTER_METHODS].sort()).toEqual(Object.keys(englishFormatter()).filter((k) => k !== `locale` && k !== `zone`).sort())
     expect(SURFACE_COMMANDS).toEqual(Object.keys(A11Y_COMMANDS))
     for (const key of [`locale`, `timeZone`]) expect(SURFACE_SETTING_KEYS).toContain(key)
   })

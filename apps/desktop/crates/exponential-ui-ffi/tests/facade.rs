@@ -1249,3 +1249,36 @@ fn the_records_query_fixture_replays_through_the_free_functions() {
     }
     assert!(records_value_json("[]".into(), "{}".into(), "{}".into()).is_err());
 }
+
+/// VAPP-191: `fixtures/expressions.json` through the three free functions,
+/// exactly as the Swift (`ExpressionsTests`) and Compose (`ExpressionsTest`)
+/// suites replay it.
+#[test]
+fn the_expressions_fixture_replays_through_the_free_functions() {
+    let f = fixture("expressions.json");
+    let cases = |key: &str| f[key].as_array().unwrap().clone();
+    let canon = |s: &str| serde_json::from_str::<Value>(s).unwrap();
+    let clock = |c: &Value| {
+        let clock = c.get("clock").unwrap_or(&f["clock"]);
+        let now = eui_core::format::parse_date_value(&clock["now"]).unwrap().ms;
+        (Some(now), Some(clock["offsetMinutes"].as_i64().unwrap() as i32))
+    };
+    for key in ["evalCases", "costCases"] {
+        for c in cases(key) {
+            let (now, offset) = clock(&c);
+            let got = eval_expression_json(c["source"].as_str().unwrap().into(), c.get("vars").unwrap_or(&f["vars"]).to_string(), now, offset).unwrap();
+            assert!(eui_core::json::equal(&canon(&got), &c["expected"]), "{key}: {}\n got {got}", c["name"]);
+        }
+    }
+    for c in cases("checkCases") {
+        let got = check_expression_json(c["source"].as_str().unwrap().into(), c["types"].to_string(), f["kinds"].to_string()).unwrap();
+        assert_eq!(canon(&got), c["expected"], "check: {}", c["name"]);
+    }
+    for c in cases("callCases") {
+        let (now, offset) = clock(&c);
+        let got = call_expression_json(c["call"].as_str().unwrap().into(), c["args"].to_string(), now, offset).unwrap();
+        let got = got.map(|v| json!({"value": canon(&v)})).unwrap_or(json!({}));
+        assert!(eui_core::json::equal(&got, &c["expected"]), "call: {}\n got {got}", c["name"]);
+    }
+    assert!(eval_expression_json("1".into(), "[]".into(), None, None).is_err());
+}

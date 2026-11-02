@@ -1171,6 +1171,289 @@
       "queries": [
         "month"
       ]
+    },
+    "acme.expressions": {
+      "formatVersion": 2,
+      "id": "acme.expressions",
+      "name": "Hours with expressions",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "month": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "total",
+                "rows"
+              ]
+            },
+            {
+              "id": "total",
+              "component": "Text",
+              "text": {
+                "call": "expr",
+                "args": {
+                  "source": "formatDuration(hours(month.rows.map(r, r.minutes)[0])) + ' h'",
+                  "vars": {
+                    "month": {
+                      "path": "/month"
+                    }
+                  },
+                  "types": {
+                    "month": "map"
+                  }
+                }
+              }
+            },
+            {
+              "id": "rows",
+              "component": "List",
+              "children": {
+                "path": "/month/rows",
+                "componentId": "row"
+              }
+            },
+            {
+              "id": "row",
+              "component": "Text",
+              "text": {
+                "call": "expr",
+                "args": {
+                  "source": "string(isoWeek(row.date)) + ': ' + formatDuration(hours(row.minutes))",
+                  "vars": {
+                    "row": {
+                      "path": ""
+                    }
+                  },
+                  "types": {
+                    "row": "entry"
+                  }
+                }
+              },
+              "visible": {
+                "call": "expr",
+                "args": {
+                  "source": "weekday(row.date) <= 5 && dateDiff(row.date, today(), 'day') < 31",
+                  "vars": {
+                    "row": {
+                      "path": ""
+                    }
+                  },
+                  "types": {
+                    "row": "entry"
+                  }
+                }
+              }
+            }
+          ],
+          "bindings": [
+            {
+              "path": "/month",
+              "source": "records:entry?mine=1"
+            }
+          ]
+        }
+      },
+      "records": {
+        "entry": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "minutes": {
+                "type": "integer"
+              },
+              "hours": {
+                "type": "number"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "date"
+            ]
+          }
+        }
+      }
+    },
+    "acme.badexpressions": {
+      "formatVersion": 2,
+      "id": "acme.badexpressions",
+      "name": "Broken expressions",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "a",
+                "b",
+                "c",
+                "d",
+                "e",
+                "f",
+                "g"
+              ]
+            },
+            {
+              "id": "a",
+              "component": "Text",
+              "text": {
+                "call": "expr",
+                "args": {
+                  "source": "round(row.hourz * 60)",
+                  "vars": {
+                    "row": {
+                      "path": ""
+                    }
+                  },
+                  "types": {
+                    "row": "entry"
+                  }
+                }
+              }
+            },
+            {
+              "id": "b",
+              "component": "Text",
+              "text": {
+                "call": "expr",
+                "args": {
+                  "source": "dateAdd(row.date, 1, 'days') + row.minutes",
+                  "vars": {
+                    "row": {
+                      "path": ""
+                    }
+                  },
+                  "types": {
+                    "row": "entry"
+                  }
+                }
+              }
+            },
+            {
+              "id": "c",
+              "component": "Text",
+              "text": {
+                "call": "expr",
+                "args": {
+                  "source": "total * 2"
+                }
+              }
+            },
+            {
+              "id": "d",
+              "component": "Text",
+              "text": {
+                "call": "expr",
+                "args": {
+                  "source": "rows.map(r, rows.map(q, q))",
+                  "vars": {
+                    "rows": {
+                      "path": "/rows"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "id": "e",
+              "component": "Text",
+              "text": {
+                "call": "expr",
+                "args": {
+                  "source": 42
+                }
+              }
+            },
+            {
+              "id": "f",
+              "component": "Text",
+              "text": {
+                "call": "expr",
+                "args": {
+                  "source": "x + y",
+                  "vars": {
+                    "x": 1,
+                    "in": 2,
+                    "y-z": 3
+                  },
+                  "types": {
+                    "x": "invoice",
+                    "y": 7
+                  }
+                }
+              }
+            },
+            {
+              "id": "g",
+              "component": "Text",
+              "text": {
+                "call": "concat",
+                "args": {
+                  "values": [
+                    {
+                      "call": "expr",
+                      "args": {
+                        "source": "label + 1",
+                        "vars": {
+                          "label": "hours"
+                        }
+                      }
+                    },
+                    {
+                      "call": "expr",
+                      "args": {
+                        "source": "'x' * 2"
+                      }
+                    }
+                  ]
+                }
+              },
+              "visible": {
+                "call": "expr",
+                "args": {
+                  "source": "((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "records": {
+        "entry": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "minutes": {
+                "type": "integer"
+              },
+              "hours": {
+                "type": "number"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "date"
+            ]
+          }
+        }
+      }
     }
   },
   "flows": [
@@ -2780,6 +3063,71 @@
         {
           "path": "/queries",
           "message": "queries is an object of named queries"
+        }
+      ]
+    },
+    {
+      "package": "acme.expressions",
+      "expected": []
+    },
+    {
+      "package": "acme.badexpressions",
+      "expected": [
+        {
+          "path": "/templates/t/components/1/text/args/source",
+          "message": "column 11: entry has no field \"hourz\""
+        },
+        {
+          "path": "/templates/t/components/2/text/args/source",
+          "message": "column 22: unknown unit \"days\" (day, week, month, quarter, year)"
+        },
+        {
+          "path": "/templates/t/components/2/text/args/source",
+          "message": "column 30: + needs two numbers, strings or lists, got string and number"
+        },
+        {
+          "path": "/templates/t/components/3/text/args/source",
+          "message": "column 1: unknown name \"total\""
+        },
+        {
+          "path": "/templates/t/components/4/text/args/source",
+          "message": "column 18: comprehensions do not nest"
+        },
+        {
+          "path": "/templates/t/components/5/text/args/source",
+          "message": "an expression is a string"
+        },
+        {
+          "path": "/templates/t/components/6/text/args/vars/in",
+          "message": "in is not a name"
+        },
+        {
+          "path": "/templates/t/components/6/text/args/vars/y-z",
+          "message": "y-z is not a name"
+        },
+        {
+          "path": "/templates/t/components/6/text/args/types/x",
+          "message": "unknown type \"invoice\""
+        },
+        {
+          "path": "/templates/t/components/6/text/args/types/y",
+          "message": "a type is a string"
+        },
+        {
+          "path": "/templates/t/components/6/text/args/source",
+          "message": "column 5: unknown name \"y\""
+        },
+        {
+          "path": "/templates/t/components/7/text/args/values/0/args/source",
+          "message": "column 7: + needs two numbers, strings or lists, got string and number"
+        },
+        {
+          "path": "/templates/t/components/7/text/args/values/1/args/source",
+          "message": "column 5: * needs numbers, got string and number"
+        },
+        {
+          "path": "/templates/t/components/7/visible/args/source",
+          "message": "column 33: nests deeper than 32"
         }
       ]
     }

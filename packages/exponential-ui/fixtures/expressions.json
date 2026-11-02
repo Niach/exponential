@@ -1,0 +1,4583 @@
+{
+  "$comment": "VAPP-191 (eApps Q2): the expression language (catalog/expressions.json `$comment` = the spec; src/expressions.ts the reference, the Rust core's `expressions` module its twin, Swift and Kotlin through the FFI). GENERATED expected values (`bun run --filter @exponential_app/eui generate`, scripts/generate-host.ts); the inputs are hand-written. The constants (`limits`, `functions`, `methods`, `comprehensions`, `reserved`, `rowKeys`) are copied from the catalog and every twin's tables must equal them. `clock` = the default clock (`now` ISO, `offsetMinutes` = the team zone's fixed UTC offset), `vars` = the default variables (a case's own `vars` REPLACE them), `kinds` = the record kinds every `checkCases` entry checks against. evalCases + costCases: evalExpression(source, vars, clock) → {value} | {error}. checkCases: checkExpression(source, types, kinds) → {type, issues}. callCases: the A2UI call form callExpressionFunction(call, args, clock) → {value}, or {} when the call yields nothing (undefined).",
+  "limits": {
+    "maxLength": 1024,
+    "maxDepth": 32,
+    "maxSteps": 10000
+  },
+  "functions": {
+    "size": {
+      "params": [
+        "string|list|map"
+      ],
+      "returns": "number"
+    },
+    "string": {
+      "params": [
+        "dyn"
+      ],
+      "returns": "string"
+    },
+    "double": {
+      "params": [
+        "number|string"
+      ],
+      "returns": "number"
+    },
+    "int": {
+      "params": [
+        "number|string"
+      ],
+      "returns": "number"
+    },
+    "mul": {
+      "params": [
+        "number",
+        "number"
+      ],
+      "returns": "number",
+      "call": [
+        "a",
+        "b"
+      ]
+    },
+    "div": {
+      "params": [
+        "number",
+        "number"
+      ],
+      "returns": "number",
+      "call": [
+        "a",
+        "b"
+      ]
+    },
+    "mod": {
+      "params": [
+        "number",
+        "number"
+      ],
+      "returns": "number",
+      "call": [
+        "a",
+        "b"
+      ]
+    },
+    "round": {
+      "params": [
+        "number",
+        "number?"
+      ],
+      "returns": "number",
+      "call": [
+        "value",
+        "digits"
+      ]
+    },
+    "floor": {
+      "params": [
+        "number"
+      ],
+      "returns": "number",
+      "call": [
+        "value"
+      ]
+    },
+    "ceil": {
+      "params": [
+        "number"
+      ],
+      "returns": "number",
+      "call": [
+        "value"
+      ]
+    },
+    "abs": {
+      "params": [
+        "number"
+      ],
+      "returns": "number",
+      "call": [
+        "value"
+      ]
+    },
+    "min": {
+      "params": [
+        "number..."
+      ],
+      "returns": "number",
+      "call": [
+        "values"
+      ]
+    },
+    "max": {
+      "params": [
+        "number..."
+      ],
+      "returns": "number",
+      "call": [
+        "values"
+      ]
+    },
+    "today": {
+      "params": [],
+      "returns": "string",
+      "call": []
+    },
+    "now": {
+      "params": [],
+      "returns": "string",
+      "call": []
+    },
+    "dateAdd": {
+      "params": [
+        "string",
+        "number",
+        "unit"
+      ],
+      "returns": "string",
+      "call": [
+        "date",
+        "n",
+        "unit"
+      ],
+      "units": [
+        "day",
+        "week",
+        "month",
+        "quarter",
+        "year"
+      ]
+    },
+    "dateDiff": {
+      "params": [
+        "string",
+        "string",
+        "unit"
+      ],
+      "returns": "number",
+      "call": [
+        "from",
+        "to",
+        "unit"
+      ],
+      "units": [
+        "second",
+        "minute",
+        "hour",
+        "day",
+        "week",
+        "month",
+        "quarter",
+        "year"
+      ]
+    },
+    "startOf": {
+      "params": [
+        "string",
+        "unit"
+      ],
+      "returns": "string",
+      "call": [
+        "date",
+        "unit"
+      ],
+      "units": [
+        "day",
+        "week",
+        "month",
+        "quarter",
+        "year"
+      ]
+    },
+    "endOf": {
+      "params": [
+        "string",
+        "unit"
+      ],
+      "returns": "string",
+      "call": [
+        "date",
+        "unit"
+      ],
+      "units": [
+        "day",
+        "week",
+        "month",
+        "quarter",
+        "year"
+      ]
+    },
+    "weekday": {
+      "params": [
+        "string"
+      ],
+      "returns": "number",
+      "call": [
+        "date"
+      ]
+    },
+    "isoWeek": {
+      "params": [
+        "string"
+      ],
+      "returns": "number",
+      "call": [
+        "date"
+      ]
+    },
+    "hours": {
+      "params": [
+        "number"
+      ],
+      "returns": "number",
+      "call": [
+        "minutes"
+      ]
+    },
+    "formatDuration": {
+      "params": [
+        "number",
+        "format?"
+      ],
+      "returns": "string",
+      "call": [
+        "hours",
+        "format"
+      ],
+      "formats": [
+        "h:mm",
+        "hh:mm",
+        "h:mm:ss",
+        "hh:mm:ss"
+      ]
+    }
+  },
+  "methods": {
+    "size": {
+      "receiver": "string|list|map",
+      "params": [],
+      "returns": "number"
+    },
+    "contains": {
+      "receiver": "string",
+      "params": [
+        "string"
+      ],
+      "returns": "bool"
+    },
+    "startsWith": {
+      "receiver": "string",
+      "params": [
+        "string"
+      ],
+      "returns": "bool"
+    },
+    "endsWith": {
+      "receiver": "string",
+      "params": [
+        "string"
+      ],
+      "returns": "bool"
+    }
+  },
+  "comprehensions": [
+    "map",
+    "filter",
+    "all",
+    "exists"
+  ],
+  "reserved": [
+    "as",
+    "break",
+    "const",
+    "continue",
+    "else",
+    "for",
+    "function",
+    "if",
+    "import",
+    "let",
+    "loop",
+    "package",
+    "namespace",
+    "return",
+    "var",
+    "void",
+    "while"
+  ],
+  "rowKeys": [
+    "id",
+    "createdAt",
+    "updatedAt",
+    "createdBy",
+    "authorId",
+    "author"
+  ],
+  "clock": {
+    "now": "2026-11-02T23:30:00Z",
+    "offsetMinutes": 60
+  },
+  "vars": {
+    "row": {
+      "id": "r1",
+      "createdAt": "2026-11-02T08:00:00Z",
+      "updatedAt": "2026-11-02T08:00:00Z",
+      "createdBy": "u1",
+      "authorId": "u1",
+      "author": "Ana",
+      "date": "2026-11-02",
+      "start": "08:15",
+      "end": "16:45",
+      "hours": 7.5,
+      "minutes": 450,
+      "billable": true,
+      "tags": [
+        "dev",
+        "ops"
+      ],
+      "note": null
+    },
+    "rows": [
+      {
+        "id": "r1",
+        "createdAt": "2026-11-02T08:00:00Z",
+        "updatedAt": "2026-11-02T08:00:00Z",
+        "createdBy": "u1",
+        "authorId": "u1",
+        "author": "Ana",
+        "date": "2026-11-02",
+        "start": "08:15",
+        "end": "16:45",
+        "hours": 7.5,
+        "minutes": 450,
+        "billable": true,
+        "tags": [
+          "dev",
+          "ops"
+        ],
+        "note": null
+      },
+      {
+        "id": "r2",
+        "createdAt": "2026-11-02T08:00:00Z",
+        "updatedAt": "2026-11-02T08:00:00Z",
+        "createdBy": "u1",
+        "authorId": "u1",
+        "author": "Ana",
+        "date": "2026-11-03",
+        "start": "08:15",
+        "end": "16:45",
+        "hours": 6.25,
+        "minutes": 375,
+        "billable": false,
+        "tags": [],
+        "note": null
+      },
+      {
+        "id": "r3",
+        "createdAt": "2026-11-02T08:00:00Z",
+        "updatedAt": "2026-11-02T08:00:00Z",
+        "createdBy": "u1",
+        "authorId": "u1",
+        "author": "Ana",
+        "date": "2026-10-30",
+        "start": "08:15",
+        "end": "16:45",
+        "hours": 8,
+        "minutes": 480,
+        "billable": true,
+        "tags": [
+          "ops"
+        ],
+        "note": null
+      }
+    ],
+    "hours": 7.25,
+    "n": 3,
+    "s": "Stunden",
+    "xs": [
+      3,
+      1,
+      2
+    ],
+    "m": {
+      "a": 1,
+      "b": "x"
+    },
+    "empty": [],
+    "t": true,
+    "f": false,
+    "z": 0,
+    "nul": null,
+    "num": "7.5"
+  },
+  "kinds": {
+    "entry": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "start": {
+            "type": "string",
+            "format": "time"
+          },
+          "end": {
+            "type": "string",
+            "format": "time"
+          },
+          "hours": {
+            "type": "number"
+          },
+          "minutes": {
+            "type": "integer"
+          },
+          "billable": {
+            "type": "boolean"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "holiday": {
+      "schema": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "evalCases": [
+    {
+      "name": "integer",
+      "source": "42",
+      "expected": {
+        "value": 42
+      }
+    },
+    {
+      "name": "decimal",
+      "source": "7.25",
+      "expected": {
+        "value": 7.25
+      }
+    },
+    {
+      "name": "exponent",
+      "source": "1.5e3",
+      "expected": {
+        "value": 1500
+      }
+    },
+    {
+      "name": "negative",
+      "source": "-3",
+      "expected": {
+        "value": -3
+      }
+    },
+    {
+      "name": "double negation",
+      "source": "--3",
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "precedence",
+      "source": "1 + 2 * 3",
+      "expected": {
+        "value": 7
+      }
+    },
+    {
+      "name": "parentheses",
+      "source": "(1 + 2) * 3",
+      "expected": {
+        "value": 9
+      }
+    },
+    {
+      "name": "division is a double",
+      "source": "7 / 2",
+      "expected": {
+        "value": 3.5
+      }
+    },
+    {
+      "name": "modulo",
+      "source": "7 % 3",
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "negative modulo keeps the dividend's sign",
+      "source": "-7 % 3",
+      "expected": {
+        "value": -1
+      }
+    },
+    {
+      "name": "float maths",
+      "source": "0.1 + 0.2",
+      "expected": {
+        "value": 0.30000000000000004
+      }
+    },
+    {
+      "name": "mixed int and double",
+      "source": "hours * 60",
+      "expected": {
+        "value": 435
+      }
+    },
+    {
+      "name": "division by zero",
+      "source": "1 / 0",
+      "expected": {
+        "error": "column 3: division by zero"
+      }
+    },
+    {
+      "name": "modulo by zero",
+      "source": "5 % 0",
+      "expected": {
+        "error": "column 3: modulo by zero"
+      }
+    },
+    {
+      "name": "overflow",
+      "source": "1e308 * 10",
+      "expected": {
+        "error": "column 7: number out of range"
+      }
+    },
+    {
+      "name": "subtracting strings",
+      "source": "'a' - 'b'",
+      "expected": {
+        "error": "column 5: - needs numbers, got string and string"
+      }
+    },
+    {
+      "name": "adding a number and a string",
+      "source": "1 + 'a'",
+      "expected": {
+        "error": "column 3: + needs two numbers, strings or lists, got number and string"
+      }
+    },
+    {
+      "name": "string concat",
+      "source": "'Stu' + \"nden\"",
+      "expected": {
+        "value": "Stunden"
+      }
+    },
+    {
+      "name": "escapes",
+      "source": "'a\\tb\\n\\'\\\"\\\\\\u00e9'",
+      "expected": {
+        "value": "a\tb\n'\"\\é"
+      }
+    },
+    {
+      "name": "list concat",
+      "source": "[1, 2] + [3]",
+      "expected": {
+        "value": [
+          1,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "name": "trailing comma",
+      "source": "[1, 2,]",
+      "expected": {
+        "value": [
+          1,
+          2
+        ]
+      }
+    },
+    {
+      "name": "unicode string size",
+      "source": "size('héllo')",
+      "expected": {
+        "value": 5
+      }
+    },
+    {
+      "name": "less than",
+      "source": "1 < 2",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "string order",
+      "source": "'2026-10-30' < '2026-11-02'",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "code point order",
+      "source": "'Z' < 'a'",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "compare mismatch",
+      "source": "1 < 'a'",
+      "expected": {
+        "error": "column 3: < compares numbers or strings, got number and string"
+      }
+    },
+    {
+      "name": "equality deep",
+      "source": "[1, {'a': 2}] == [1, {'a': 2}]",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "equality types never coerce",
+      "source": "1 == '1'",
+      "expected": {
+        "value": false
+      }
+    },
+    {
+      "name": "not equal",
+      "source": "n != 3",
+      "expected": {
+        "value": false
+      }
+    },
+    {
+      "name": "in list",
+      "source": "2 in xs",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "in map",
+      "source": "'a' in m",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "in string fails",
+      "source": "'a' in 'abc'",
+      "expected": {
+        "error": "column 5: in needs a list or a map, got string"
+      }
+    },
+    {
+      "name": "and short-circuits",
+      "source": "false && (1 / 0 > 1)",
+      "expected": {
+        "value": false
+      }
+    },
+    {
+      "name": "or short-circuits",
+      "source": "true || (1 / 0 > 1)",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "and needs bools",
+      "source": "1 && true",
+      "expected": {
+        "error": "column 3: && needs bools, got number"
+      }
+    },
+    {
+      "name": "not",
+      "source": "!t",
+      "expected": {
+        "value": false
+      }
+    },
+    {
+      "name": "not a number",
+      "source": "!1",
+      "expected": {
+        "error": "column 1: ! needs a bool, got number"
+      }
+    },
+    {
+      "name": "ternary",
+      "source": "n > 2 ? 'many' : 'few'",
+      "expected": {
+        "value": "many"
+      }
+    },
+    {
+      "name": "ternary needs a bool",
+      "source": "n ? 1 : 2",
+      "expected": {
+        "error": "column 3: ?: needs a bool, got number"
+      }
+    },
+    {
+      "name": "nested ternary",
+      "source": "z > 0 ? 'pos' : z < 0 ? 'neg' : 'zero'",
+      "expected": {
+        "value": "zero"
+      }
+    },
+    {
+      "name": "missing name is null",
+      "source": "missing",
+      "expected": {
+        "value": null
+      }
+    },
+    {
+      "name": "missing name == null",
+      "source": "missing == null",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "field",
+      "source": "row.hours",
+      "expected": {
+        "value": 7.5
+      }
+    },
+    {
+      "name": "missing field is null",
+      "source": "row.nope",
+      "expected": {
+        "value": null
+      }
+    },
+    {
+      "name": "null field",
+      "source": "row.note",
+      "expected": {
+        "value": null
+      }
+    },
+    {
+      "name": "field on null fails",
+      "source": "missing.x",
+      "expected": {
+        "error": "column 9: no field \"x\" on null"
+      }
+    },
+    {
+      "name": "field on a number fails",
+      "source": "n.x",
+      "expected": {
+        "error": "column 3: no field \"x\" on number"
+      }
+    },
+    {
+      "name": "index list",
+      "source": "xs[1]",
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "index out of range",
+      "source": "xs[3]",
+      "expected": {
+        "error": "column 3: index 3 out of range (3 items)"
+      }
+    },
+    {
+      "name": "index fraction",
+      "source": "xs[0.5]",
+      "expected": {
+        "error": "column 3: a list index must be a whole number, got 0.5"
+      }
+    },
+    {
+      "name": "index map",
+      "source": "m['b']",
+      "expected": {
+        "value": "x"
+      }
+    },
+    {
+      "name": "index map missing",
+      "source": "m['zz']",
+      "expected": {
+        "value": null
+      }
+    },
+    {
+      "name": "index a number",
+      "source": "n[0]",
+      "expected": {
+        "error": "column 2: cannot index a number"
+      }
+    },
+    {
+      "name": "map literal",
+      "source": "{'a': 1, 'b': n}",
+      "expected": {
+        "value": {
+          "a": 1,
+          "b": 3
+        }
+      }
+    },
+    {
+      "name": "map duplicate key",
+      "source": "{'a': 1, 'a': 2}",
+      "expected": {
+        "error": "column 10: duplicate key \"a\""
+      }
+    },
+    {
+      "name": "map key not a string",
+      "source": "{1: 2}",
+      "expected": {
+        "error": "column 2: a map key must be a string, got number"
+      }
+    },
+    {
+      "name": "has present",
+      "source": "has(row.hours)",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "has null field",
+      "source": "has(row.note)",
+      "expected": {
+        "value": false
+      }
+    },
+    {
+      "name": "has missing",
+      "source": "has(row.zzz)",
+      "expected": {
+        "value": false
+      }
+    },
+    {
+      "name": "has on a non-map",
+      "source": "has(n.x)",
+      "expected": {
+        "error": "column 7: no field \"x\" on number"
+      }
+    },
+    {
+      "name": "map",
+      "source": "rows.map(r, r.hours)",
+      "expected": {
+        "value": [
+          7.5,
+          6.25,
+          8
+        ]
+      }
+    },
+    {
+      "name": "filter",
+      "source": "rows.filter(r, r.billable).map(r, r.id)",
+      "expected": {
+        "value": [
+          "r1",
+          "r3"
+        ]
+      }
+    },
+    {
+      "name": "all",
+      "source": "rows.all(r, r.hours > 6)",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "exists",
+      "source": "rows.exists(r, 'ops' in r.tags)",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "map needs a list",
+      "source": "n.map(x, x)",
+      "expected": {
+        "error": "column 3: map needs a list, got number"
+      }
+    },
+    {
+      "name": "filter needs bools",
+      "source": "xs.filter(x, x)",
+      "expected": {
+        "error": "column 14: filter needs a bool, got number"
+      }
+    },
+    {
+      "name": "chain is not nesting",
+      "source": "xs.map(x, x * 2).filter(y, y > 2)",
+      "expected": {
+        "value": [
+          6,
+          4
+        ]
+      }
+    },
+    {
+      "name": "comprehension var shadows",
+      "source": "xs.map(n, n + 1)",
+      "expected": {
+        "value": [
+          4,
+          2,
+          3
+        ]
+      }
+    },
+    {
+      "name": "comprehension over a comprehension target",
+      "source": "[xs.map(x, x)].map(l, size(l))",
+      "expected": {
+        "value": [
+          3
+        ]
+      }
+    },
+    {
+      "name": "sum of hours via sizes",
+      "source": "size(rows.filter(r, r.date >= '2026-11-01'))",
+      "expected": {
+        "value": 2
+      }
+    },
+    {
+      "name": "size of list",
+      "source": "size(xs)",
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "size of map",
+      "source": "size(m)",
+      "expected": {
+        "value": 2
+      }
+    },
+    {
+      "name": "size method",
+      "source": "s.size()",
+      "expected": {
+        "value": 7
+      }
+    },
+    {
+      "name": "size of a number",
+      "source": "size(1)",
+      "expected": {
+        "error": "column 1: size needs a string, a list or a map, got number"
+      }
+    },
+    {
+      "name": "string of number",
+      "source": "string(7.5)",
+      "expected": {
+        "value": "7.5"
+      }
+    },
+    {
+      "name": "string of int",
+      "source": "string(450)",
+      "expected": {
+        "value": "450"
+      }
+    },
+    {
+      "name": "string of bool",
+      "source": "string(true)",
+      "expected": {
+        "value": "true"
+      }
+    },
+    {
+      "name": "string of a list",
+      "source": "string([1])",
+      "expected": {
+        "error": "column 1: string cannot convert a list"
+      }
+    },
+    {
+      "name": "double of a string",
+      "source": "double(num)",
+      "expected": {
+        "value": 7.5
+      }
+    },
+    {
+      "name": "double of a bad string",
+      "source": "double('abc')",
+      "expected": {
+        "error": "column 1: \"abc\" is not a number"
+      }
+    },
+    {
+      "name": "int truncates",
+      "source": "int(-7.9)",
+      "expected": {
+        "value": -7
+      }
+    },
+    {
+      "name": "int of a string",
+      "source": "int(' 12.5 ')",
+      "expected": {
+        "value": 12
+      }
+    },
+    {
+      "name": "contains",
+      "source": "s.contains('und')",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "startsWith",
+      "source": "s.startsWith('St')",
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "endsWith",
+      "source": "s.endsWith('x')",
+      "expected": {
+        "value": false
+      }
+    },
+    {
+      "name": "unknown method",
+      "source": "s.lower()",
+      "expected": {
+        "error": "column 3: unknown method \"lower\""
+      }
+    },
+    {
+      "name": "unknown function",
+      "source": "sqrt(4)",
+      "expected": {
+        "error": "column 1: unknown function \"sqrt\""
+      }
+    },
+    {
+      "name": "method arity",
+      "source": "s.contains()",
+      "expected": {
+        "error": "column 3: contains takes 1 argument, got 0"
+      }
+    },
+    {
+      "name": "mul",
+      "source": "mul(2, 3.5)",
+      "expected": {
+        "value": 7
+      }
+    },
+    {
+      "name": "div",
+      "source": "div(7, 2)",
+      "expected": {
+        "value": 3.5
+      }
+    },
+    {
+      "name": "div by zero",
+      "source": "div(1, 0)",
+      "expected": {
+        "error": "column 1: division by zero"
+      }
+    },
+    {
+      "name": "mod",
+      "source": "mod(10, 4)",
+      "expected": {
+        "value": 2
+      }
+    },
+    {
+      "name": "round half up",
+      "source": "round(2.5)",
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "round negative half",
+      "source": "round(-2.5)",
+      "expected": {
+        "value": -2
+      }
+    },
+    {
+      "name": "round digits",
+      "source": "round(1.2345, 2)",
+      "expected": {
+        "value": 1.23
+      }
+    },
+    {
+      "name": "round minutes",
+      "source": "round(hours * 60)",
+      "expected": {
+        "value": 435
+      }
+    },
+    {
+      "name": "round bad digits",
+      "source": "round(1, 1.5)",
+      "expected": {
+        "error": "column 1: round needs a whole number, got 1.5"
+      }
+    },
+    {
+      "name": "round too many digits",
+      "source": "round(1, 11)",
+      "expected": {
+        "error": "column 1: round takes 0 to 10 digits, got 11"
+      }
+    },
+    {
+      "name": "floor",
+      "source": "floor(-1.5)",
+      "expected": {
+        "value": -2
+      }
+    },
+    {
+      "name": "ceil",
+      "source": "ceil(1.2)",
+      "expected": {
+        "value": 2
+      }
+    },
+    {
+      "name": "abs",
+      "source": "abs(-3)",
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "min variadic",
+      "source": "min(3, 1, 2)",
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "max list",
+      "source": "max(xs)",
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "min of an empty list",
+      "source": "min(empty)",
+      "expected": {
+        "error": "column 1: min needs at least one number"
+      }
+    },
+    {
+      "name": "max of strings",
+      "source": "max('a', 'b')",
+      "expected": {
+        "error": "column 1: max needs a number, got string"
+      }
+    },
+    {
+      "name": "arity",
+      "source": "mul(1)",
+      "expected": {
+        "error": "column 1: mul takes 2 arguments, got 1"
+      }
+    },
+    {
+      "name": "arity too many",
+      "source": "round(1, 2, 3)",
+      "expected": {
+        "error": "column 1: round takes 1 to 2 arguments, got 3"
+      }
+    },
+    {
+      "name": "arity none",
+      "source": "min()",
+      "expected": {
+        "error": "column 1: min takes at least 1 argument, got 0"
+      }
+    },
+    {
+      "name": "hours of minutes",
+      "source": "hours(row.minutes)",
+      "expected": {
+        "value": 7.5
+      }
+    },
+    {
+      "name": "total hours",
+      "source": "hours(rows.map(r, r.minutes)[0] + rows.map(r, r.minutes)[1])",
+      "expected": {
+        "value": 13.75
+      }
+    },
+    {
+      "name": "formatDuration default",
+      "source": "formatDuration(7.5)",
+      "expected": {
+        "value": "7:30"
+      }
+    },
+    {
+      "name": "formatDuration hh:mm",
+      "source": "formatDuration(7.25, 'hh:mm')",
+      "expected": {
+        "value": "07:15"
+      }
+    },
+    {
+      "name": "formatDuration rounds",
+      "source": "formatDuration(7.999)",
+      "expected": {
+        "value": "8:00"
+      }
+    },
+    {
+      "name": "formatDuration seconds",
+      "source": "formatDuration(1.0001, 'h:mm:ss')",
+      "expected": {
+        "value": "1:00:00"
+      }
+    },
+    {
+      "name": "formatDuration negative",
+      "source": "formatDuration(-1.5)",
+      "expected": {
+        "value": "-1:30"
+      }
+    },
+    {
+      "name": "formatDuration tiny negative",
+      "source": "formatDuration(-0.001)",
+      "expected": {
+        "value": "0:00"
+      }
+    },
+    {
+      "name": "formatDuration over a day",
+      "source": "formatDuration(25.5)",
+      "expected": {
+        "value": "25:30"
+      }
+    },
+    {
+      "name": "formatDuration bad format",
+      "source": "formatDuration(1, 'mm')",
+      "expected": {
+        "error": "column 1: unknown duration format \"mm\" (h:mm, hh:mm, h:mm:ss, hh:mm:ss)"
+      }
+    },
+    {
+      "name": "today in the team zone",
+      "source": "today()",
+      "expected": {
+        "value": "2026-11-03"
+      }
+    },
+    {
+      "name": "today west",
+      "source": "today()",
+      "clock": {
+        "now": "2026-11-02T03:30:00Z",
+        "offsetMinutes": -300
+      },
+      "expected": {
+        "value": "2026-11-01"
+      }
+    },
+    {
+      "name": "now in the team zone",
+      "source": "now()",
+      "expected": {
+        "value": "2026-11-03T00:30:00+01:00"
+      }
+    },
+    {
+      "name": "now west",
+      "source": "now()",
+      "clock": {
+        "now": "2026-11-02T03:30:45.900Z",
+        "offsetMinutes": -330
+      },
+      "expected": {
+        "value": "2026-11-01T22:00:45-05:30"
+      }
+    },
+    {
+      "name": "today utc",
+      "source": "today()",
+      "clock": {
+        "now": "2026-11-02T23:30:00Z",
+        "offsetMinutes": 0
+      },
+      "expected": {
+        "value": "2026-11-02"
+      }
+    },
+    {
+      "name": "dateAdd day",
+      "source": "dateAdd('2026-12-31', 1, 'day')",
+      "expected": {
+        "value": "2027-01-01"
+      }
+    },
+    {
+      "name": "dateAdd negative",
+      "source": "dateAdd('2026-03-01', -1, 'day')",
+      "expected": {
+        "value": "2026-02-28"
+      }
+    },
+    {
+      "name": "dateAdd week",
+      "source": "dateAdd(row.date, 2, 'week')",
+      "expected": {
+        "value": "2026-11-16"
+      }
+    },
+    {
+      "name": "dateAdd month clamps",
+      "source": "dateAdd('2026-01-31', 1, 'month')",
+      "expected": {
+        "value": "2026-02-28"
+      }
+    },
+    {
+      "name": "dateAdd month leap",
+      "source": "dateAdd('2028-01-31', 1, 'month')",
+      "expected": {
+        "value": "2028-02-29"
+      }
+    },
+    {
+      "name": "dateAdd quarter",
+      "source": "dateAdd('2026-11-30', 1, 'quarter')",
+      "expected": {
+        "value": "2027-02-28"
+      }
+    },
+    {
+      "name": "dateAdd year from leap day",
+      "source": "dateAdd('2028-02-29', 1, 'year')",
+      "expected": {
+        "value": "2029-02-28"
+      }
+    },
+    {
+      "name": "dateAdd negative months",
+      "source": "dateAdd('2026-03-31', -13, 'month')",
+      "expected": {
+        "value": "2025-02-28"
+      }
+    },
+    {
+      "name": "dateAdd a date-time",
+      "source": "dateAdd('2026-11-02T23:30:00Z', 1, 'day')",
+      "expected": {
+        "value": "2026-11-04"
+      }
+    },
+    {
+      "name": "dateAdd bad unit",
+      "source": "dateAdd('2026-11-02', 1, 'days')",
+      "expected": {
+        "error": "column 1: unknown unit \"days\" (day, week, month, quarter, year)"
+      }
+    },
+    {
+      "name": "dateAdd fraction",
+      "source": "dateAdd('2026-11-02', 1.5, 'day')",
+      "expected": {
+        "error": "column 1: dateAdd needs a whole number, got 1.5"
+      }
+    },
+    {
+      "name": "dateAdd not a date",
+      "source": "dateAdd('2026-02-30', 1, 'day')",
+      "expected": {
+        "error": "column 1: \"2026-02-30\" is not a date"
+      }
+    },
+    {
+      "name": "dateAdd out of range",
+      "source": "dateAdd('9999-12-31', 1, 'day')",
+      "expected": {
+        "error": "column 1: date out of range"
+      }
+    },
+    {
+      "name": "dateAdd today",
+      "source": "dateAdd(today(), -1, 'day')",
+      "expected": {
+        "value": "2026-11-02"
+      }
+    },
+    {
+      "name": "dateDiff days",
+      "source": "dateDiff('2026-10-30', '2026-11-02', 'day')",
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "dateDiff negative days",
+      "source": "dateDiff('2026-11-02', '2026-10-30', 'day')",
+      "expected": {
+        "value": -3
+      }
+    },
+    {
+      "name": "dateDiff weeks truncate",
+      "source": "dateDiff('2026-11-02', '2026-11-15', 'week')",
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "dateDiff months",
+      "source": "dateDiff('2026-01-31', '2026-03-30', 'month')",
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "dateDiff months back",
+      "source": "dateDiff('2026-03-30', '2026-01-31', 'month')",
+      "expected": {
+        "value": -1
+      }
+    },
+    {
+      "name": "dateDiff quarter",
+      "source": "dateDiff('2026-01-15', '2026-10-15', 'quarter')",
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "dateDiff years",
+      "source": "dateDiff('2024-02-29', '2026-02-28', 'year')",
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "dateDiff hours of instants",
+      "source": "dateDiff('2026-11-02T08:00:00Z', '2026-11-02T16:45:00+01:00', 'hour')",
+      "expected": {
+        "value": 7
+      }
+    },
+    {
+      "name": "dateDiff minutes of times",
+      "source": "dateDiff(row.start, row.end, 'minute')",
+      "expected": {
+        "value": 510
+      }
+    },
+    {
+      "name": "dateDiff seconds",
+      "source": "dateDiff('08:00', '08:01:30', 'second')",
+      "expected": {
+        "value": 90
+      }
+    },
+    {
+      "name": "dateDiff date to instant hours",
+      "source": "dateDiff('2026-11-02', '2026-11-02T12:00:00Z', 'hour')",
+      "expected": {
+        "value": 13
+      }
+    },
+    {
+      "name": "dateDiff time with date",
+      "source": "dateDiff('08:00', '2026-11-02', 'hour')",
+      "expected": {
+        "error": "column 1: dateDiff compares two times or two dates"
+      }
+    },
+    {
+      "name": "dateDiff bad time",
+      "source": "dateDiff('25:00', '08:00', 'minute')",
+      "expected": {
+        "error": "column 1: \"25:00\" is not a date or a time"
+      }
+    },
+    {
+      "name": "dateDiff number",
+      "source": "dateDiff(1, 2, 'day')",
+      "expected": {
+        "error": "column 1: dateDiff needs a date, got number"
+      }
+    },
+    {
+      "name": "days until the end of the month",
+      "source": "dateDiff(today(), endOf(today(), 'month'), 'day')",
+      "expected": {
+        "value": 27
+      }
+    },
+    {
+      "name": "startOf week",
+      "source": "startOf('2026-11-05', 'week')",
+      "expected": {
+        "value": "2026-11-02"
+      }
+    },
+    {
+      "name": "startOf week on a Sunday",
+      "source": "startOf('2026-11-08', 'week')",
+      "expected": {
+        "value": "2026-11-02"
+      }
+    },
+    {
+      "name": "startOf month",
+      "source": "startOf('2026-11-05', 'month')",
+      "expected": {
+        "value": "2026-11-01"
+      }
+    },
+    {
+      "name": "startOf quarter",
+      "source": "startOf('2026-11-05', 'quarter')",
+      "expected": {
+        "value": "2026-10-01"
+      }
+    },
+    {
+      "name": "startOf year",
+      "source": "startOf('2026-11-05', 'year')",
+      "expected": {
+        "value": "2026-01-01"
+      }
+    },
+    {
+      "name": "startOf day",
+      "source": "startOf('2026-11-05T22:00:00-05:00', 'day')",
+      "expected": {
+        "value": "2026-11-06"
+      }
+    },
+    {
+      "name": "endOf week across a year",
+      "source": "endOf('2026-12-30', 'week')",
+      "expected": {
+        "value": "2027-01-03"
+      }
+    },
+    {
+      "name": "endOf month february",
+      "source": "endOf('2028-02-10', 'month')",
+      "expected": {
+        "value": "2028-02-29"
+      }
+    },
+    {
+      "name": "endOf quarter",
+      "source": "endOf('2026-08-10', 'quarter')",
+      "expected": {
+        "value": "2026-09-30"
+      }
+    },
+    {
+      "name": "endOf year",
+      "source": "endOf('2026-08-10', 'year')",
+      "expected": {
+        "value": "2026-12-31"
+      }
+    },
+    {
+      "name": "weekday monday",
+      "source": "weekday('2026-11-02')",
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "weekday sunday",
+      "source": "weekday('2026-11-08')",
+      "expected": {
+        "value": 7
+      }
+    },
+    {
+      "name": "isoWeek",
+      "source": "isoWeek('2026-11-02')",
+      "expected": {
+        "value": 45
+      }
+    },
+    {
+      "name": "isoWeek of a previous year",
+      "source": "isoWeek('2027-01-01')",
+      "expected": {
+        "value": 53
+      }
+    },
+    {
+      "name": "isoWeek 53",
+      "source": "isoWeek('2026-12-31')",
+      "expected": {
+        "value": 53
+      }
+    },
+    {
+      "name": "workdays this week (an app's own rule)",
+      "source": "[0, 1, 2, 3, 4, 5, 6].map(i, dateAdd(startOf('2026-11-05', 'week'), i, 'day')).filter(d, weekday(d) <= 5).size()",
+      "expected": {
+        "value": 5
+      }
+    },
+    {
+      "name": "holiday lookup",
+      "source": "holidays.exists(h, h.date == row.date)",
+      "vars": {
+        "row": {
+          "id": "r1",
+          "createdAt": "2026-11-02T08:00:00Z",
+          "updatedAt": "2026-11-02T08:00:00Z",
+          "createdBy": "u1",
+          "authorId": "u1",
+          "author": "Ana",
+          "date": "2026-11-02",
+          "start": "08:15",
+          "end": "16:45",
+          "hours": 7.5,
+          "minutes": 450,
+          "billable": true,
+          "tags": [
+            "dev",
+            "ops"
+          ],
+          "note": null
+        },
+        "rows": [
+          {
+            "id": "r1",
+            "createdAt": "2026-11-02T08:00:00Z",
+            "updatedAt": "2026-11-02T08:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Ana",
+            "date": "2026-11-02",
+            "start": "08:15",
+            "end": "16:45",
+            "hours": 7.5,
+            "minutes": 450,
+            "billable": true,
+            "tags": [
+              "dev",
+              "ops"
+            ],
+            "note": null
+          },
+          {
+            "id": "r2",
+            "createdAt": "2026-11-02T08:00:00Z",
+            "updatedAt": "2026-11-02T08:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Ana",
+            "date": "2026-11-03",
+            "start": "08:15",
+            "end": "16:45",
+            "hours": 6.25,
+            "minutes": 375,
+            "billable": false,
+            "tags": [],
+            "note": null
+          },
+          {
+            "id": "r3",
+            "createdAt": "2026-11-02T08:00:00Z",
+            "updatedAt": "2026-11-02T08:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Ana",
+            "date": "2026-10-30",
+            "start": "08:15",
+            "end": "16:45",
+            "hours": 8,
+            "minutes": 480,
+            "billable": true,
+            "tags": [
+              "ops"
+            ],
+            "note": null
+          }
+        ],
+        "hours": 7.25,
+        "n": 3,
+        "s": "Stunden",
+        "xs": [
+          3,
+          1,
+          2
+        ],
+        "m": {
+          "a": 1,
+          "b": "x"
+        },
+        "empty": [],
+        "t": true,
+        "f": false,
+        "z": 0,
+        "nul": null,
+        "num": "7.5",
+        "holidays": [
+          {
+            "date": "2026-11-02",
+            "name": "Allerseelen"
+          }
+        ]
+      },
+      "expected": {
+        "value": true
+      }
+    },
+    {
+      "name": "empty",
+      "source": "",
+      "expected": {
+        "error": "column 1: expected an expression"
+      }
+    },
+    {
+      "name": "blank",
+      "source": "   ",
+      "expected": {
+        "error": "column 4: expected an expression"
+      }
+    },
+    {
+      "name": "trailing operator",
+      "source": "1 +",
+      "expected": {
+        "error": "column 4: expected an expression"
+      }
+    },
+    {
+      "name": "unbalanced",
+      "source": "(1 + 2",
+      "expected": {
+        "error": "column 7: expected \")\""
+      }
+    },
+    {
+      "name": "stray token",
+      "source": "1 2",
+      "expected": {
+        "error": "column 3: unexpected \"2\""
+      }
+    },
+    {
+      "name": "unterminated string",
+      "source": "'abc",
+      "expected": {
+        "error": "column 1: unterminated string"
+      }
+    },
+    {
+      "name": "newline in string",
+      "source": "'a\nb'",
+      "expected": {
+        "error": "column 1: unterminated string"
+      }
+    },
+    {
+      "name": "bad escape",
+      "source": "'\\q'",
+      "expected": {
+        "error": "column 2: invalid escape"
+      }
+    },
+    {
+      "name": "bad unicode escape",
+      "source": "'\\ud800'",
+      "expected": {
+        "error": "column 2: invalid escape"
+      }
+    },
+    {
+      "name": "unknown character",
+      "source": "1 # 2",
+      "expected": {
+        "error": "column 3: unexpected character \"#\""
+      }
+    },
+    {
+      "name": "single equals",
+      "source": "a = 1",
+      "expected": {
+        "error": "column 3: unexpected character \"=\""
+      }
+    },
+    {
+      "name": "ampersand",
+      "source": "a & b",
+      "expected": {
+        "error": "column 3: unexpected character \"&\""
+      }
+    },
+    {
+      "name": "hex is not a number",
+      "source": "0x10",
+      "expected": {
+        "error": "column 1: invalid number"
+      }
+    },
+    {
+      "name": "number then name",
+      "source": "1u",
+      "expected": {
+        "error": "column 1: invalid number"
+      }
+    },
+    {
+      "name": "reserved word",
+      "source": "if",
+      "expected": {
+        "error": "column 1: \"if\" is reserved"
+      }
+    },
+    {
+      "name": "in as a name",
+      "source": "in + 1",
+      "expected": {
+        "error": "column 1: \"in\" is reserved"
+      }
+    },
+    {
+      "name": "field name expected",
+      "source": "row.",
+      "expected": {
+        "error": "column 5: expected a field name"
+      }
+    },
+    {
+      "name": "has needs a field",
+      "source": "has(row)",
+      "expected": {
+        "error": "column 1: has takes a field selection like has(a.b)"
+      }
+    },
+    {
+      "name": "comprehension needs a name",
+      "source": "xs.map(1, 1)",
+      "expected": {
+        "error": "column 4: map takes a variable name and an expression"
+      }
+    },
+    {
+      "name": "comprehension arity",
+      "source": "xs.map(x)",
+      "expected": {
+        "error": "column 4: map takes a variable name and an expression"
+      }
+    },
+    {
+      "name": "missing colon",
+      "source": "t ? 1",
+      "expected": {
+        "error": "column 6: expected \":\""
+      }
+    },
+    {
+      "name": "map missing colon",
+      "source": "{'a' 1}",
+      "expected": {
+        "error": "column 6: expected \":\""
+      }
+    }
+  ],
+  "costCases": [
+    {
+      "name": "exactly the length cap",
+      "source": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'",
+      "expected": {
+        "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    },
+    {
+      "name": "one over the length cap",
+      "source": "'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx'",
+      "expected": {
+        "error": "longer than 1024 characters"
+      }
+    },
+    {
+      "name": "length counts code points",
+      "source": "'éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé'",
+      "expected": {
+        "value": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+      }
+    },
+    {
+      "name": "depth 32",
+      "source": "(((((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))))",
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "depth 33",
+      "source": "((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))",
+      "expected": {
+        "error": "column 33: nests deeper than 32"
+      }
+    },
+    {
+      "name": "nested calls count",
+      "source": "abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(abs(1))))))))))))))))))))))))))))))))",
+      "expected": {
+        "error": "column 129: nests deeper than 32"
+      }
+    },
+    {
+      "name": "nested lists count",
+      "source": "[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]",
+      "expected": {
+        "error": "column 33: nests deeper than 32"
+      }
+    },
+    {
+      "name": "a long flat sum is not deep",
+      "source": "1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1",
+      "expected": {
+        "value": 300
+      }
+    },
+    {
+      "name": "nested comprehension in the body",
+      "source": "xs.map(x, xs.map(y, y))",
+      "expected": {
+        "error": "column 14: comprehensions do not nest"
+      }
+    },
+    {
+      "name": "nested comprehension in a predicate",
+      "source": "rows.filter(r, r.tags.exists(t, t == 'ops'))",
+      "expected": {
+        "error": "column 23: comprehensions do not nest"
+      }
+    },
+    {
+      "name": "under the step limit",
+      "source": "(l + l + l + l + l + l + l + l + l + l).map(x, x + x)",
+      "vars": {
+        "l": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "expected": {
+        "value": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "name": "over the step limit",
+      "source": "(l + l + l + l + l + l + l + l + l + l).map(x, x * x + x * x + x * x)",
+      "vars": {
+        "l": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "expected": {
+        "error": "column 48: step limit of 10000 exceeded"
+      }
+    },
+    {
+      "name": "the step limit counts short-circuits",
+      "source": "(l + l + l + l + l + l + l + l + l + l).all(x, x == 0 && x == 0)",
+      "vars": {
+        "l": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "expected": {
+        "value": true
+      }
+    }
+  ],
+  "checkCases": [
+    {
+      "name": "literal",
+      "source": "1 + 2",
+      "types": {},
+      "expected": {
+        "type": "number",
+        "issues": []
+      }
+    },
+    {
+      "name": "a kind's number field",
+      "source": "round(row.hours * 60)",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "number",
+        "issues": []
+      }
+    },
+    {
+      "name": "a kind's date field",
+      "source": "isoWeek(row.date)",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "number",
+        "issues": []
+      }
+    },
+    {
+      "name": "reserved row keys",
+      "source": "row.author + ' ' + row.createdAt",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "string",
+        "issues": []
+      }
+    },
+    {
+      "name": "unknown field",
+      "source": "row.hourz * 60",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "number",
+        "issues": [
+          "column 5: entry has no field \"hourz\""
+        ]
+      }
+    },
+    {
+      "name": "unknown name",
+      "source": "hours * 60",
+      "types": {},
+      "expected": {
+        "type": "number",
+        "issues": [
+          "column 1: unknown name \"hours\""
+        ]
+      }
+    },
+    {
+      "name": "wrong operand",
+      "source": "row.note * 2",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 10: * needs numbers, got string and number"
+        ]
+      }
+    },
+    {
+      "name": "adding a string and a number",
+      "source": "row.hours + row.note",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 11: + needs two numbers, strings or lists, got number and string"
+        ]
+      }
+    },
+    {
+      "name": "bool field in arithmetic",
+      "source": "row.billable + 1",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 14: + needs two numbers, strings or lists, got bool and number"
+        ]
+      }
+    },
+    {
+      "name": "integer is a number",
+      "source": "hours(row.minutes)",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "number",
+        "issues": []
+      }
+    },
+    {
+      "name": "array field",
+      "source": "row.tags.exists(t, t == 'ops')",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": []
+      }
+    },
+    {
+      "name": "array item type",
+      "source": "row.tags[0] * 2",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 13: * needs numbers, got string and number"
+        ]
+      }
+    },
+    {
+      "name": "list of a kind",
+      "source": "rows.map(r, r.hours)",
+      "types": {
+        "rows": "list<entry>"
+      },
+      "expected": {
+        "type": "list<number>",
+        "issues": []
+      }
+    },
+    {
+      "name": "filter keeps the type",
+      "source": "rows.filter(r, r.billable)",
+      "types": {
+        "rows": "list<entry>"
+      },
+      "expected": {
+        "type": "list<entry>",
+        "issues": []
+      }
+    },
+    {
+      "name": "all is bool",
+      "source": "rows.all(r, r.hours > 0)",
+      "types": {
+        "rows": "list<entry>"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": []
+      }
+    },
+    {
+      "name": "filter needs a bool",
+      "source": "rows.filter(r, r.hours)",
+      "types": {
+        "rows": "list<entry>"
+      },
+      "expected": {
+        "type": "list<entry>",
+        "issues": [
+          "column 18: filter needs a bool, got number"
+        ]
+      }
+    },
+    {
+      "name": "comprehension over a non-list",
+      "source": "row.map(r, r)",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "list<dyn>",
+        "issues": [
+          "column 5: map needs a list, got entry"
+        ]
+      }
+    },
+    {
+      "name": "index a kind list",
+      "source": "rows[0].date",
+      "types": {
+        "rows": "list<entry>"
+      },
+      "expected": {
+        "type": "string",
+        "issues": []
+      }
+    },
+    {
+      "name": "index with a string",
+      "source": "rows['a']",
+      "types": {
+        "rows": "list<entry>"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 5: a list index must be a whole number, got string"
+        ]
+      }
+    },
+    {
+      "name": "index a number",
+      "source": "row.hours[0]",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 10: cannot index a number"
+        ]
+      }
+    },
+    {
+      "name": "dyn passes",
+      "source": "x.anything * 2 + size(x.list)",
+      "types": {
+        "x": "dyn"
+      },
+      "expected": {
+        "type": "number",
+        "issues": []
+      }
+    },
+    {
+      "name": "map fields are dyn",
+      "source": "m.a + 1",
+      "types": {
+        "m": "map"
+      },
+      "expected": {
+        "type": "number",
+        "issues": []
+      }
+    },
+    {
+      "name": "field on a number",
+      "source": "row.hours.x",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 11: no field \"x\" on number"
+        ]
+      }
+    },
+    {
+      "name": "has on a kind",
+      "source": "has(row.zzz)",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": [
+          "column 9: entry has no field \"zzz\""
+        ]
+      }
+    },
+    {
+      "name": "equality across types",
+      "source": "row.hours == 'x'",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": [
+          "column 11: == compares number with string"
+        ]
+      }
+    },
+    {
+      "name": "equality with null",
+      "source": "row.note == null",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": []
+      }
+    },
+    {
+      "name": "equality of kind and map",
+      "source": "row == {'a': 1}",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": []
+      }
+    },
+    {
+      "name": "comparison mismatch",
+      "source": "row.date < 3",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": [
+          "column 10: < compares numbers or strings, got string and number"
+        ]
+      }
+    },
+    {
+      "name": "logic needs bools",
+      "source": "row.hours && true",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": [
+          "column 11: && needs bools, got number"
+        ]
+      }
+    },
+    {
+      "name": "not needs a bool",
+      "source": "!row.hours",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 1: ! needs a bool, got number"
+        ]
+      }
+    },
+    {
+      "name": "negate needs a number",
+      "source": "-row.date",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 1: - needs a number, got string"
+        ]
+      }
+    },
+    {
+      "name": "ternary needs a bool",
+      "source": "row.hours ? 1 : 2",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "number",
+        "issues": [
+          "column 11: ?: needs a bool, got number"
+        ]
+      }
+    },
+    {
+      "name": "ternary same type",
+      "source": "row.billable ? row.hours : 0",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "number",
+        "issues": []
+      }
+    },
+    {
+      "name": "ternary mixed type",
+      "source": "row.billable ? row.hours : 'none'",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": []
+      }
+    },
+    {
+      "name": "ternary with null",
+      "source": "row.billable ? row.hours : null",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "number",
+        "issues": []
+      }
+    },
+    {
+      "name": "in needs a list or a map",
+      "source": "1 in row.hours",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": [
+          "column 3: in needs a list or a map, got number"
+        ]
+      }
+    },
+    {
+      "name": "in a list field",
+      "source": "'ops' in row.tags",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": []
+      }
+    },
+    {
+      "name": "unknown function",
+      "source": "sqrt(row.hours)",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 1: unknown function \"sqrt\""
+        ]
+      }
+    },
+    {
+      "name": "unknown method",
+      "source": "row.note.lower()",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 10: unknown method \"lower\""
+        ]
+      }
+    },
+    {
+      "name": "method receiver",
+      "source": "row.hours.contains('x')",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": [
+          "column 11: contains needs a string, got number"
+        ]
+      }
+    },
+    {
+      "name": "size receiver",
+      "source": "size(row.hours)",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "number",
+        "issues": [
+          "column 10: argument 1 of size must be string|list|map, got number"
+        ]
+      }
+    },
+    {
+      "name": "arity",
+      "source": "dateAdd(row.date, 1)",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "string",
+        "issues": [
+          "column 1: dateAdd takes 3 arguments, got 2"
+        ]
+      }
+    },
+    {
+      "name": "argument type",
+      "source": "dateAdd(row.hours, 1, 'day')",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "string",
+        "issues": [
+          "column 13: argument 1 of dateAdd must be string, got number"
+        ]
+      }
+    },
+    {
+      "name": "unknown unit literal",
+      "source": "dateAdd(row.date, 1, 'days')",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "string",
+        "issues": [
+          "column 22: unknown unit \"days\" (day, week, month, quarter, year)"
+        ]
+      }
+    },
+    {
+      "name": "dateDiff takes hour",
+      "source": "dateDiff(row.start, row.end, 'hour')",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "number",
+        "issues": []
+      }
+    },
+    {
+      "name": "startOf has no hour",
+      "source": "startOf(row.date, 'hour')",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "string",
+        "issues": [
+          "column 19: unknown unit \"hour\" (day, week, month, quarter, year)"
+        ]
+      }
+    },
+    {
+      "name": "a unit from a field is fine",
+      "source": "dateAdd(row.date, 1, row.note)",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "string",
+        "issues": []
+      }
+    },
+    {
+      "name": "unknown duration format",
+      "source": "formatDuration(row.hours, 'mm')",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "string",
+        "issues": [
+          "column 27: unknown duration format \"mm\" (h:mm, hh:mm, h:mm:ss, hh:mm:ss)"
+        ]
+      }
+    },
+    {
+      "name": "duration",
+      "source": "formatDuration(hours(row.minutes))",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "string",
+        "issues": []
+      }
+    },
+    {
+      "name": "min of a list",
+      "source": "min(rows.map(r, r.hours))",
+      "types": {
+        "rows": "list<entry>"
+      },
+      "expected": {
+        "type": "number",
+        "issues": []
+      }
+    },
+    {
+      "name": "min of strings",
+      "source": "min(rows.map(r, r.date))",
+      "types": {
+        "rows": "list<entry>"
+      },
+      "expected": {
+        "type": "number",
+        "issues": [
+          "column 10: argument 1 of min must be list<number>, got list<string>"
+        ]
+      }
+    },
+    {
+      "name": "max variadic types",
+      "source": "max(1, 'a')",
+      "types": {},
+      "expected": {
+        "type": "number",
+        "issues": [
+          "column 8: argument 2 of max must be number, got string"
+        ]
+      }
+    },
+    {
+      "name": "round digits type",
+      "source": "round(1, 'x')",
+      "types": {},
+      "expected": {
+        "type": "number",
+        "issues": [
+          "column 10: argument 2 of round must be number, got string"
+        ]
+      }
+    },
+    {
+      "name": "list literal types",
+      "source": "[1, 'a']",
+      "types": {},
+      "expected": {
+        "type": "list<dyn>",
+        "issues": []
+      }
+    },
+    {
+      "name": "list literal of numbers",
+      "source": "[1, 2.5] + [3]",
+      "types": {},
+      "expected": {
+        "type": "list<number>",
+        "issues": []
+      }
+    },
+    {
+      "name": "map key type",
+      "source": "{1: 'a'}",
+      "types": {},
+      "expected": {
+        "type": "map",
+        "issues": [
+          "column 2: a map key must be a string, got number"
+        ]
+      }
+    },
+    {
+      "name": "several issues",
+      "source": "row.x + sqrt(1) + dateAdd(1, 2, 'days')",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "string",
+        "issues": [
+          "column 5: entry has no field \"x\"",
+          "column 9: unknown function \"sqrt\"",
+          "column 27: argument 1 of dateAdd must be string, got number",
+          "column 33: unknown unit \"days\" (day, week, month, quarter, year)"
+        ]
+      }
+    },
+    {
+      "name": "declared list",
+      "source": "xs.map(x, x * 2)",
+      "types": {
+        "xs": "list<number>"
+      },
+      "expected": {
+        "type": "list<number>",
+        "issues": []
+      }
+    },
+    {
+      "name": "declared plain list",
+      "source": "xs.map(x, x * 2)",
+      "types": {
+        "xs": "list"
+      },
+      "expected": {
+        "type": "list<number>",
+        "issues": []
+      }
+    },
+    {
+      "name": "unknown type",
+      "source": "x + 1",
+      "types": {
+        "x": "money"
+      },
+      "expected": {
+        "type": "number",
+        "issues": [
+          "\"x\": unknown type \"money\""
+        ]
+      }
+    },
+    {
+      "name": "unknown kind in a list",
+      "source": "x",
+      "types": {
+        "x": "list<invoice>"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "\"x\": unknown type \"list<invoice>\""
+        ]
+      }
+    },
+    {
+      "name": "bool type",
+      "source": "b && !b",
+      "types": {
+        "b": "bool"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": []
+      }
+    },
+    {
+      "name": "string type",
+      "source": "s + 1",
+      "types": {
+        "s": "string"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 3: + needs two numbers, strings or lists, got string and number"
+        ]
+      }
+    },
+    {
+      "name": "null literal arithmetic",
+      "source": "null + 1",
+      "types": {},
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 6: + needs two numbers, strings or lists, got null and number"
+        ]
+      }
+    },
+    {
+      "name": "parse error",
+      "source": "row.",
+      "types": {
+        "row": "entry"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 5: expected a field name"
+        ]
+      }
+    },
+    {
+      "name": "cost error",
+      "source": "xs.map(x, xs.map(y, y))",
+      "types": {
+        "xs": "list"
+      },
+      "expected": {
+        "type": "dyn",
+        "issues": [
+          "column 14: comprehensions do not nest"
+        ]
+      }
+    },
+    {
+      "name": "holiday kind",
+      "source": "holidays.exists(h, h.date == today())",
+      "types": {
+        "holidays": "list<holiday>"
+      },
+      "expected": {
+        "type": "bool",
+        "issues": []
+      }
+    },
+    {
+      "name": "the whole time tracker",
+      "source": "formatDuration(hours(rows.filter(r, startOf(r.date, 'month') == startOf(today(), 'month')).map(r, r.minutes)[0]))",
+      "types": {
+        "rows": "list<entry>"
+      },
+      "expected": {
+        "type": "string",
+        "issues": []
+      }
+    }
+  ],
+  "callCases": [
+    {
+      "name": "mul",
+      "call": "mul",
+      "args": {
+        "a": 2,
+        "b": 3.5
+      },
+      "expected": {
+        "value": 7
+      }
+    },
+    {
+      "name": "mul of decimal strings",
+      "call": "mul",
+      "args": {
+        "a": "7.5",
+        "b": "60"
+      },
+      "expected": {
+        "value": 450
+      }
+    },
+    {
+      "name": "mul of a word",
+      "call": "mul",
+      "args": {
+        "a": "x",
+        "b": 2
+      },
+      "expected": {}
+    },
+    {
+      "name": "mul missing an arg",
+      "call": "mul",
+      "args": {
+        "a": 2
+      },
+      "expected": {}
+    },
+    {
+      "name": "div",
+      "call": "div",
+      "args": {
+        "a": 1,
+        "b": 4
+      },
+      "expected": {
+        "value": 0.25
+      }
+    },
+    {
+      "name": "div by zero",
+      "call": "div",
+      "args": {
+        "a": 1,
+        "b": 0
+      },
+      "expected": {}
+    },
+    {
+      "name": "mod",
+      "call": "mod",
+      "args": {
+        "a": 7,
+        "b": 4
+      },
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "round",
+      "call": "round",
+      "args": {
+        "value": 2.5
+      },
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "round digits",
+      "call": "round",
+      "args": {
+        "value": 1.2345,
+        "digits": 2
+      },
+      "expected": {
+        "value": 1.23
+      }
+    },
+    {
+      "name": "round null digits",
+      "call": "round",
+      "args": {
+        "value": 1.6,
+        "digits": null
+      },
+      "expected": {
+        "value": 2
+      }
+    },
+    {
+      "name": "floor",
+      "call": "floor",
+      "args": {
+        "value": 1.9
+      },
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "ceil",
+      "call": "ceil",
+      "args": {
+        "value": 1.1
+      },
+      "expected": {
+        "value": 2
+      }
+    },
+    {
+      "name": "abs",
+      "call": "abs",
+      "args": {
+        "value": -2
+      },
+      "expected": {
+        "value": 2
+      }
+    },
+    {
+      "name": "min",
+      "call": "min",
+      "args": {
+        "values": [
+          3,
+          1,
+          2
+        ]
+      },
+      "expected": {
+        "value": 1
+      }
+    },
+    {
+      "name": "max of strings",
+      "call": "max",
+      "args": {
+        "values": [
+          "4",
+          "10"
+        ]
+      },
+      "expected": {
+        "value": 10
+      }
+    },
+    {
+      "name": "min of nothing",
+      "call": "min",
+      "args": {
+        "values": []
+      },
+      "expected": {}
+    },
+    {
+      "name": "min without values",
+      "call": "min",
+      "args": {},
+      "expected": {}
+    },
+    {
+      "name": "today",
+      "call": "today",
+      "args": {},
+      "expected": {
+        "value": "2026-11-03"
+      }
+    },
+    {
+      "name": "now",
+      "call": "now",
+      "args": {},
+      "clock": {
+        "now": "2026-11-02T10:00:00Z",
+        "offsetMinutes": 120
+      },
+      "expected": {
+        "value": "2026-11-02T12:00:00+02:00"
+      }
+    },
+    {
+      "name": "dateAdd",
+      "call": "dateAdd",
+      "args": {
+        "date": "2026-01-31",
+        "n": 1,
+        "unit": "month"
+      },
+      "expected": {
+        "value": "2026-02-28"
+      }
+    },
+    {
+      "name": "dateAdd string n",
+      "call": "dateAdd",
+      "args": {
+        "date": "2026-01-31",
+        "n": "2",
+        "unit": "day"
+      },
+      "expected": {
+        "value": "2026-02-02"
+      }
+    },
+    {
+      "name": "dateAdd bad unit",
+      "call": "dateAdd",
+      "args": {
+        "date": "2026-01-31",
+        "n": 1,
+        "unit": "days"
+      },
+      "expected": {}
+    },
+    {
+      "name": "dateDiff",
+      "call": "dateDiff",
+      "args": {
+        "from": "2026-10-30",
+        "to": "2026-11-02",
+        "unit": "day"
+      },
+      "expected": {
+        "value": 3
+      }
+    },
+    {
+      "name": "dateDiff times",
+      "call": "dateDiff",
+      "args": {
+        "from": "08:15",
+        "to": "16:45",
+        "unit": "minute"
+      },
+      "expected": {
+        "value": 510
+      }
+    },
+    {
+      "name": "startOf",
+      "call": "startOf",
+      "args": {
+        "date": "2026-11-05",
+        "unit": "week"
+      },
+      "expected": {
+        "value": "2026-11-02"
+      }
+    },
+    {
+      "name": "endOf",
+      "call": "endOf",
+      "args": {
+        "date": "2026-11-05",
+        "unit": "month"
+      },
+      "expected": {
+        "value": "2026-11-30"
+      }
+    },
+    {
+      "name": "weekday",
+      "call": "weekday",
+      "args": {
+        "date": "2026-11-08"
+      },
+      "expected": {
+        "value": 7
+      }
+    },
+    {
+      "name": "isoWeek",
+      "call": "isoWeek",
+      "args": {
+        "date": "2026-11-02"
+      },
+      "expected": {
+        "value": 45
+      }
+    },
+    {
+      "name": "hours",
+      "call": "hours",
+      "args": {
+        "minutes": 450
+      },
+      "expected": {
+        "value": 7.5
+      }
+    },
+    {
+      "name": "formatDuration",
+      "call": "formatDuration",
+      "args": {
+        "hours": 7.5
+      },
+      "expected": {
+        "value": "7:30"
+      }
+    },
+    {
+      "name": "formatDuration format",
+      "call": "formatDuration",
+      "args": {
+        "hours": 7.5,
+        "format": "hh:mm:ss"
+      },
+      "expected": {
+        "value": "07:30:00"
+      }
+    },
+    {
+      "name": "expr",
+      "call": "expr",
+      "args": {
+        "source": "round(hours * 60)",
+        "vars": {
+          "hours": 7.25
+        }
+      },
+      "expected": {
+        "value": 435
+      }
+    },
+    {
+      "name": "expr over a row",
+      "call": "expr",
+      "args": {
+        "source": "formatDuration(hours(row.minutes)) + ' h'",
+        "vars": {
+          "row": {
+            "id": "r1",
+            "createdAt": "2026-11-02T08:00:00Z",
+            "updatedAt": "2026-11-02T08:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Ana",
+            "date": "2026-11-02",
+            "start": "08:15",
+            "end": "16:45",
+            "hours": 7.5,
+            "minutes": 450,
+            "billable": true,
+            "tags": [
+              "dev",
+              "ops"
+            ],
+            "note": null
+          }
+        }
+      },
+      "expected": {
+        "value": "7:30 h"
+      }
+    },
+    {
+      "name": "expr today",
+      "call": "expr",
+      "args": {
+        "source": "dateDiff(today(), '2026-12-24', 'day')"
+      },
+      "expected": {
+        "value": 51
+      }
+    },
+    {
+      "name": "expr error is undefined",
+      "call": "expr",
+      "args": {
+        "source": "1 / 0"
+      },
+      "expected": {}
+    },
+    {
+      "name": "expr parse error",
+      "call": "expr",
+      "args": {
+        "source": "1 +"
+      },
+      "expected": {}
+    },
+    {
+      "name": "expr without a source",
+      "call": "expr",
+      "args": {
+        "vars": {}
+      },
+      "expected": {}
+    },
+    {
+      "name": "expr vars not an object",
+      "call": "expr",
+      "args": {
+        "source": "1 + 1",
+        "vars": [
+          1
+        ]
+      },
+      "expected": {
+        "value": 2
+      }
+    }
+  ]
+}

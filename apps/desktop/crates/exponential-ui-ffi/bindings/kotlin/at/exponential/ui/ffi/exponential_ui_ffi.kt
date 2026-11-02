@@ -773,7 +773,11 @@ external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_ids(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_call_expression_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_chart_extent_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_check_expression_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json(
 ): Short
@@ -800,6 +804,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_default_theme_id(
 external fun uniffi_exponential_ui_ffi_checksum_func_display_string_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_error_message_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_eval_expression_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_extension_errors(
 ): Short
@@ -1468,7 +1474,11 @@ external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_ids(uniffi_out_err:
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(`id`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_call_expression_json(`name`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,`now`: RustBuffer.ByValue,`offsetMinutes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_chart_extent_json(`kind`: RustBuffer.ByValue,`seriesJson`: RustBuffer.ByValue,`min`: RustBuffer.ByValue,`max`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_check_expression_json(`source`: RustBuffer.ByValue,`typesJson`: RustBuffer.ByValue,`kindsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_client_capabilities_json(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1495,6 +1505,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_default_theme_id(uniffi_out_err: 
 external fun uniffi_exponential_ui_ffi_fn_func_display_string_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_error_message_json(`code`: RustBuffer.ByValue,`surfaceId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_eval_expression_json(`source`: RustBuffer.ByValue,`varsJson`: RustBuffer.ByValue,`now`: RustBuffer.ByValue,`offsetMinutes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_extension_errors(`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -10132,6 +10144,22 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * VAPP-191: one expression function in its A2UI call form (`mul {a, b}`,
+         * `dateAdd {date, n, unit}`, `expr {source, vars}`…) → its value JSON;
+         * null when the call yields nothing (`callCases`).
+         */
+    @Throws(UiException::class) fun `callExpressionJson`(`name`: kotlin.String, `argsJson`: kotlin.String, `now`: kotlin.Double? = null, `offsetMinutes`: kotlin.Int? = null): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_call_expression_json(
+    
+        FfiConverterString.lower(`name`),FfiConverterString.lower(`argsJson`),FfiConverterOptionalDouble.lower(`now`),FfiConverterOptionalInt.lower(`offsetMinutes`),_status)
+}
+    )
+    }
+    
+
+        /**
          * `{min, max}` of a chart (`series_json` = the Chart's `series`).
          */
     @Throws(UiException::class) fun `chartExtentJson`(`kind`: kotlin.String, `seriesJson`: kotlin.String, `min`: kotlin.Double?, `max`: kotlin.Double?): kotlin.String {
@@ -10140,6 +10168,22 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_chart_extent_json(
     
         FfiConverterString.lower(`kind`),FfiConverterString.lower(`seriesJson`),FfiConverterOptionalDouble.lower(`min`),FfiConverterOptionalDouble.lower(`max`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-191: type-check an expression: `types_json` = name → type name
+         * (`number`, `list<entry>`, a kind's name…), `kinds_json` = the package's
+         * `records` → `{type, issues: ["column N: …"]}` (`checkCases`).
+         */
+    @Throws(UiException::class) fun `checkExpressionJson`(`source`: kotlin.String, `typesJson`: kotlin.String, `kindsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_check_expression_json(
+    
+        FfiConverterString.lower(`source`),FfiConverterString.lower(`typesJson`),FfiConverterString.lower(`kindsJson`),_status)
 }
     )
     }
@@ -10315,6 +10359,23 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_error_message_json(
     
         FfiConverterString.lower(`code`),FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`message`),FfiConverterOptionalString.lower(`path`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-191: evaluate an expression (the CEL subset of
+         * `catalog/expressions.json`) over `vars_json` (a JSON object) →
+         * `{value}` or `{error: "column N: …"}` (`fixtures/expressions.json`
+         * `evalCases`, `costCases`).
+         */
+    @Throws(UiException::class) fun `evalExpressionJson`(`source`: kotlin.String, `varsJson`: kotlin.String, `now`: kotlin.Double? = null, `offsetMinutes`: kotlin.Int? = null): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_eval_expression_json(
+    
+        FfiConverterString.lower(`source`),FfiConverterString.lower(`varsJson`),FfiConverterOptionalDouble.lower(`now`),FfiConverterOptionalInt.lower(`offsetMinutes`),_status)
 }
     )
     }

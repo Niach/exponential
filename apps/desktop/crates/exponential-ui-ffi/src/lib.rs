@@ -2750,6 +2750,50 @@ pub fn date_bucket(date: String, bucket: String) -> Option<String> {
     shield("date_bucket", || None, || eui_core::dates::DateBucket::parse(&bucket).and_then(|b| eui_core::dates::date_bucket(&date, b)))
 }
 
+/// VAPP-191: the expression clock: `now` = epoch ms (`None` = the wall
+/// clock), `offset_minutes` = the team zone's UTC offset (`None` = UTC; the
+/// core has no zone database, the host passes its zone's offset).
+fn expression_clock(now: Option<f64>, offset_minutes: Option<i32>) -> eui_core::expressions::ExpressionClock {
+    let zone: Option<eui_core::format::ZoneOffset> = offset_minutes.map(|m| Arc::new(move |_: f64| m) as eui_core::format::ZoneOffset);
+    eui_core::expressions::ExpressionClock { now, zone }
+}
+
+/// VAPP-191: evaluate an expression (the CEL subset of
+/// `catalog/expressions.json`) over `vars_json` (a JSON object) →
+/// `{value}` or `{error: "column N: …"}` (`fixtures/expressions.json`
+/// `evalCases`, `costCases`).
+#[uniffi::export(default(now = None, offset_minutes = None))]
+pub fn eval_expression_json(source: String, vars_json: String, now: Option<f64>, offset_minutes: Option<i32>) -> Result<String, UiError> {
+    guarded("eval_expression_json", || {
+        let vars: serde_json::Map<String, Value> = parse(&vars_json)?;
+        Ok(eui_core::expressions::eval_json(&source, &vars, &expression_clock(now, offset_minutes)).to_string())
+    })
+}
+
+/// VAPP-191: type-check an expression: `types_json` = name → type name
+/// (`number`, `list<entry>`, a kind's name…), `kinds_json` = the package's
+/// `records` → `{type, issues: ["column N: …"]}` (`checkCases`).
+#[uniffi::export]
+pub fn check_expression_json(source: String, types_json: String, kinds_json: String) -> Result<String, UiError> {
+    guarded("check_expression_json", || {
+        let types: serde_json::Map<String, Value> = parse(&types_json)?;
+        let kinds: serde_json::Map<String, Value> = parse(&kinds_json)?;
+        let (ty, issues) = eui_core::expressions::check_expression(&source, &types, &kinds);
+        Ok(serde_json::json!({"type": ty, "issues": issues}).to_string())
+    })
+}
+
+/// VAPP-191: one expression function in its A2UI call form (`mul {a, b}`,
+/// `dateAdd {date, n, unit}`, `expr {source, vars}`…) → its value JSON;
+/// null when the call yields nothing (`callCases`).
+#[uniffi::export(default(now = None, offset_minutes = None))]
+pub fn call_expression_json(name: String, args_json: String, now: Option<f64>, offset_minutes: Option<i32>) -> Result<Option<String>, UiError> {
+    guarded("call_expression_json", || {
+        let args: serde_json::Map<String, Value> = parse(&args_json)?;
+        Ok(eui_core::expressions::call_expression_function(&name, &args, &expression_clock(now, offset_minutes)).map(|v| v.to_string()))
+    })
+}
+
 /// VAPP-189: `records:<kind>?…` → the records query JSON; null = not a
 /// records source (`sourceCases`).
 #[uniffi::export]

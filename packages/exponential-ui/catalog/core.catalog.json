@@ -762,7 +762,7 @@
     }
   },
   "functions": {
-    "$comment": "The core catalog exposes the A2UI basic catalog's 14 client-side functions, same names and arguments (vendor/a2ui/v0_9/basic_catalog.json#/functions; a basic surface calls them unchanged; the format* functions format in the SURFACE locale, docs/round-1-contract.md §4), plus the 15 CORE functions of round 1 (and round 4's `filter`) (`core` below: named args, what they return) so a macro whose input is a data binding expands into a value the renderer computes at bind time (docs/round-1-contract.md §1; the expander emits them, an author may call them too). Round 2 (docs/round-2-contract.md §3): `formatPercent` and `formatRelativeTime` join them, and EVERY format function (the basic formatNumber/formatCurrency/formatDate/pluralize too) runs through the surface's host-supplied Formatter (locale + timeZone from SurfaceSettings; the English fallback = Intl en-US). Truthiness everywhere = src/expr.ts `truthy`: undefined, null, false and \"\" are false, 0 is TRUE. Arguments are resolved at ANY depth (an array or object argument may hold bindings and calls). `basic` = the basic functions' signatures (vendor/a2ui, flattened) so the prompt lists every function with its arguments. `set` and `bind` are the two ACTION functions (`bind` = VAPP-122: `{path, source, params?}` re-follows a data model path from a binding source, see catalog/host.json `functions`); `set`: in an Action's `functionCall` it writes `value` to the data model at `path` (two-way binding for macros; an Action may carry `functionCall` AND `event`: every argument and the event context are evaluated FIRST, then the write, then the event).",
+    "$comment": "The core catalog exposes the A2UI basic catalog's 14 client-side functions, same names and arguments (vendor/a2ui/v0_9/basic_catalog.json#/functions; a basic surface calls them unchanged; the format* functions format in the SURFACE locale, docs/round-1-contract.md §4), plus the 15 CORE functions of round 1 (and round 4's `filter`; VAPP-191's expression functions mul div mod round floor ceil min max today now dateAdd dateDiff startOf endOf weekday isoWeek hours formatDuration and `expr`, catalog/expressions.json, with the clock and the team zone from the host) (`core` below: named args, what they return) so a macro whose input is a data binding expands into a value the renderer computes at bind time (docs/round-1-contract.md §1; the expander emits them, an author may call them too). Round 2 (docs/round-2-contract.md §3): `formatPercent` and `formatRelativeTime` join them, and EVERY format function (the basic formatNumber/formatCurrency/formatDate/pluralize too) runs through the surface's host-supplied Formatter (locale + timeZone from SurfaceSettings; the English fallback = Intl en-US). Truthiness everywhere = src/expr.ts `truthy`: undefined, null, false and \"\" are false, 0 is TRUE. Arguments are resolved at ANY depth (an array or object argument may hold bindings and calls). `basic` = the basic functions' signatures (vendor/a2ui, flattened) so the prompt lists every function with its arguments. `set` and `bind` are the two ACTION functions (`bind` = VAPP-122: `{path, source, params?}` re-follows a data model path from a binding source, see catalog/host.json `functions`); `set`: in an Action's `functionCall` it writes `value` to the data model at `path` (two-way binding for macros; an Action may carry `functionCall` AND `event`: every argument and the event context are evaluated FIRST, then the write, then the event).",
     "names": [
       "required",
       "regex",
@@ -796,7 +796,27 @@
       "formatPercent",
       "formatRelativeTime",
       "filter",
-      "bind"
+      "bind",
+      "mul",
+      "div",
+      "mod",
+      "round",
+      "floor",
+      "ceil",
+      "abs",
+      "min",
+      "max",
+      "today",
+      "now",
+      "dateAdd",
+      "dateDiff",
+      "startOf",
+      "endOf",
+      "weekday",
+      "isoWeek",
+      "hours",
+      "formatDuration",
+      "expr"
     ],
     "core": {
       "percent": {
@@ -952,6 +972,155 @@
           "params": "object"
         },
         "returns": "void"
+      },
+      "mul": {
+        "description": "a × b (numbers; a decimal string counts).",
+        "args": {
+          "a": "number",
+          "b": "number"
+        },
+        "returns": "number"
+      },
+      "div": {
+        "description": "a ÷ b; nothing when b is 0.",
+        "args": {
+          "a": "number",
+          "b": "number"
+        },
+        "returns": "number"
+      },
+      "mod": {
+        "description": "The remainder of a ÷ b (the sign of a); nothing when b is 0.",
+        "args": {
+          "a": "number",
+          "b": "number"
+        },
+        "returns": "number"
+      },
+      "round": {
+        "description": "value rounded half up, to `digits` fraction digits (0..10, default 0).",
+        "args": {
+          "value": "number",
+          "digits": "number"
+        },
+        "returns": "number"
+      },
+      "floor": {
+        "description": "value rounded down.",
+        "args": {
+          "value": "number"
+        },
+        "returns": "number"
+      },
+      "ceil": {
+        "description": "value rounded up.",
+        "args": {
+          "value": "number"
+        },
+        "returns": "number"
+      },
+      "abs": {
+        "description": "The absolute value.",
+        "args": {
+          "value": "number"
+        },
+        "returns": "number"
+      },
+      "min": {
+        "description": "The smallest of the values.",
+        "args": {
+          "values": "array"
+        },
+        "returns": "number"
+      },
+      "max": {
+        "description": "The largest of the values.",
+        "args": {
+          "values": "array"
+        },
+        "returns": "number"
+      },
+      "today": {
+        "description": "Today in the team zone, YYYY-MM-DD.",
+        "args": {},
+        "returns": "string"
+      },
+      "now": {
+        "description": "Now in the team zone, YYYY-MM-DDTHH:MM:SS±HH:MM.",
+        "args": {},
+        "returns": "string"
+      },
+      "dateAdd": {
+        "description": "date + n whole units (day week month quarter year; months clamp the day).",
+        "args": {
+          "date": "string",
+          "n": "number",
+          "unit": "string"
+        },
+        "returns": "string"
+      },
+      "dateDiff": {
+        "description": "Whole units from `from` to `to`, truncated (second minute hour day week month quarter year; hours/minutes/seconds also between two HH:MM times).",
+        "args": {
+          "from": "string",
+          "to": "string",
+          "unit": "string"
+        },
+        "returns": "number"
+      },
+      "startOf": {
+        "description": "The first day of date's day/week (ISO, Monday)/month/quarter/year.",
+        "args": {
+          "date": "string",
+          "unit": "string"
+        },
+        "returns": "string"
+      },
+      "endOf": {
+        "description": "The last day of date's day/week/month/quarter/year.",
+        "args": {
+          "date": "string",
+          "unit": "string"
+        },
+        "returns": "string"
+      },
+      "weekday": {
+        "description": "ISO weekday: 1 = Monday … 7 = Sunday.",
+        "args": {
+          "date": "string"
+        },
+        "returns": "number"
+      },
+      "isoWeek": {
+        "description": "The ISO week number 1..53.",
+        "args": {
+          "date": "string"
+        },
+        "returns": "number"
+      },
+      "hours": {
+        "description": "minutes ÷ 60.",
+        "args": {
+          "minutes": "number"
+        },
+        "returns": "number"
+      },
+      "formatDuration": {
+        "description": "Hours as h:mm (or hh:mm, h:mm:ss, hh:mm:ss): 7.5 → 7:30.",
+        "args": {
+          "hours": "number",
+          "format": "string"
+        },
+        "returns": "string"
+      },
+      "expr": {
+        "description": "A CEL expression (catalog/expressions.json) over `vars`: round(hours * 60), dateDiff(start, end, 'minute'); `types` = name → a type or a record kind (checked at install).",
+        "args": {
+          "source": "string",
+          "vars": "object",
+          "types": "object"
+        },
+        "returns": "any"
       }
     },
     "basic": {

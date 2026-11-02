@@ -88,6 +88,7 @@ pub mod dates;
 pub mod direction;
 pub mod engine;
 pub mod expr;
+pub mod expressions;
 pub mod extension;
 pub mod format;
 pub mod geometry;

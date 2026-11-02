@@ -1160,6 +1160,22 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     input: { id: `pagination`, component: `Pagination`, props: { totalPages: 5, page: { path: `/page` } } },
     datasets: [{ page: `5` }, { page: `1` }, { page: 9 }, {}],
   },
+  {
+    // VAPP-191: the expression functions' call form and a CEL `expr`
+    // (no clock: today/now replay in fixtures/expressions.json).
+    name: `Stack/expression-calls`,
+    input: {
+      id: `sum`,
+      component: `Stack`,
+      props: { gap: `sm` },
+      children: [
+        { id: `dur`, component: `Text`, props: { text: { call: `formatDuration`, args: { hours: { call: `div`, args: { a: { path: `/minutes` }, b: 60 } } } } } },
+        { id: `cel`, component: `Badge`, props: { text: { call: `expr`, args: { source: `string(round(h * 60)) + ' min'`, vars: { h: { path: `/hours` } } } } } },
+        { id: `week`, component: `Text`, props: { text: { call: `concat`, args: { values: [`W`, { call: `isoWeek`, args: { date: { path: `/date` } } }, ` · `, { call: `dateAdd`, args: { date: { path: `/date` }, n: 1, unit: `month` } }] } } }, visible: { call: `expr`, args: { source: `weekday(d) <= 5`, vars: { d: { path: `/date` } } } } },
+      ],
+    },
+    datasets: [{ minutes: 450, hours: 7.25, date: `2026-01-30` }, { minutes: `90`, hours: 0, date: `2026-11-08` }, {}],
+  },
 ]
 
 function bindExtraCases() {
@@ -1335,7 +1351,7 @@ function promptBudget() {
     // EXP-1495 (a named budget exception): Outline, Mosaic + Carousel counter/thumbnails: +134 tokens after trimming the new descriptions; the measured total (8,034), no slack.
     // EXP-1586 (a named budget exception): ZoomableImage, +97 tokens after trimming every new description; the measured total (8,131), no slack.
     // EXP-1604/1605 (a named budget exception, approved in EXP-1584: ≤ +700): Motion with its dialect guide and state machine, +619 tokens; the measured total (8,750), no slack.
-    budgetTokens: 8750,
+    budgetTokens: 8882,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },
@@ -1406,7 +1422,7 @@ function renderFiles(): Record<string, string> {
     "fixtures/prompt-budget.json": json(promptBudget()),
     "fixtures/tree-guides.json": json(treeGuidesFixture()),
     "fixtures/bind-time.json": json({
-      $comment: `${HEADER} Round 1 (docs/round-1-contract.md §1): every macro prop that takes a binding, bound to /<prop> → the expansion (calls where the input was dynamic) → for three data models (a sample, its falsy twin, and the path MISSING) the tree after the BIND pass (src/dynamic.ts bindTree: props resolved along their schema with DATA props verbatim, styles, recipe props and \`accessibility\` resolved, falsy \`visible\` nodes dropped, \`$string.<id>\` copy resolved through the DEFAULT string table, row-scoped slots left unbound) and every \`set\` press (runAction: context first, then the write). \`extra\` = hand-written cases (Table slot cells bound PER ROW in \`rowSlots\`, literal data rows, a bound accessible name, an author function meeting \`$set\` with the reducer's \`issues\`, a numeric prop bound to string data). Every renderer's bind-time resolver replays both lists.`,
+      $comment: `${HEADER} Round 1 (docs/round-1-contract.md §1): every macro prop that takes a binding, bound to /<prop> → the expansion (calls where the input was dynamic) → for three data models (a sample, its falsy twin, and the path MISSING) the tree after the BIND pass (src/dynamic.ts bindTree: props resolved along their schema with DATA props verbatim, styles, recipe props and \`accessibility\` resolved, falsy \`visible\` nodes dropped, \`$string.<id>\` copy resolved through the DEFAULT string table, row-scoped slots left unbound) and every \`set\` press (runAction: context first, then the write). \`extra\` = hand-written cases (Table slot cells bound PER ROW in \`rowSlots\`, literal data rows, a bound accessible name, an author function meeting \`$set\` with the reducer's \`issues\`, a numeric prop bound to string data, VAPP-191's expression calls). Every renderer's bind-time resolver replays both lists.`,
       catalogId: CORE_CATALOG_ID,
       cases: bindTimeCases(),
       extra: bindExtraCases(),

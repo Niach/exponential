@@ -210,11 +210,14 @@ pub struct ResolveContext<'a> {
     /// The clock (epoch ms) `formatRelativeTime` reads without a `now`
     /// argument; `None` = the wall clock.
     pub now: Option<f64>,
+    /// VAPP-191: the team zone's UTC offset the date functions (`today`,
+    /// `now`, `expr`) read; `None` = UTC.
+    pub zone: Option<&'a crate::format::ZoneOffset>,
 }
 
 impl<'a> ResolveContext<'a> {
     pub fn new(data: &'a Value, scope: &'a str) -> ResolveContext<'a> {
-        ResolveContext { data, scope, strings: None, overlay: None, item: None, view: None, formatter: None, now: None }
+        ResolveContext { data, scope, strings: None, overlay: None, item: None, view: None, formatter: None, now: None, zone: None }
     }
 
     /// Format through the surface's formatter (see [`ResolveContext::formatter`]).
@@ -226,6 +229,11 @@ impl<'a> ResolveContext<'a> {
     /// once a minute).
     pub fn with_now(self, now_ms: f64) -> ResolveContext<'a> {
         ResolveContext { now: Some(now_ms), ..self }
+    }
+
+    /// VAPP-191: the team zone the date functions read.
+    pub fn with_zone(self, zone: &'a crate::format::ZoneOffset) -> ResolveContext<'a> {
+        ResolveContext { zone: Some(zone), ..self }
     }
 
     /// The formatter in effect.
@@ -315,6 +323,12 @@ fn interpolate(text: &str, ctx: &ResolveContext) -> String {
 pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext) -> Option<Value> {
     if let Some(result) = crate::format::call_format_function(name, args, ctx.formatter(), ctx.now.unwrap_or_else(crate::format::now_ms)) {
         return result;
+    }
+    // VAPP-191: the clock-reading expression functions on the context's
+    // clock and zone (the rest of the call form is a core function).
+    if crate::expressions::CLOCK_NAMES.contains(&name) {
+        let clock = crate::expressions::ExpressionClock { now: ctx.now, zone: ctx.zone.cloned().or_else(|| ctx.formatter().zone()) };
+        return crate::expressions::call_expression_function(name, args, &clock);
     }
     if let Some(result) = crate::expr::core_function(name, args) {
         return result;

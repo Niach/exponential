@@ -46,6 +46,29 @@ export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, isBindi
 export type { ExprContext, Dynamic } from "./expr"
 export { DATE_BUCKETS, dateBucket, parseDay, parseMonth, parseYear, formatDay, isoWeek, isoWeeksInYear, dayOfYear, daysInMonth, weekdayOf, isLeapYear } from "./dates"
 export type { CalendarDay, DateBucket } from "./dates"
+export {
+  EXPRESSION_LIMITS,
+  EXPRESSION_FUNCTIONS,
+  EXPRESSION_METHODS,
+  EXPRESSION_COMPREHENSIONS,
+  EXPRESSION_RESERVED,
+  EXPRESSION_ROW_KEYS,
+  EXPRESSION_CALL_NAMES,
+  EXPRESSION_CLOCK_NAMES,
+  parseExpression,
+  evalExpression,
+  evalParsed,
+  checkExpression,
+  checkParsed,
+  parseTypeName,
+  typeOfLiteral,
+  typeName as expressionTypeName,
+  callExpressionFunction,
+  expressionCallFunctions,
+  dayNumber,
+  dayFromNumber,
+} from "./expressions"
+export type { ExprValue, ExprNode, ExprType, ExpressionClock, ExpressionResult, ExpressionSignature, CheckKind } from "./expressions"
 
 export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } from "./macros"
 // Round 1: bind-time evaluation, built-in strings, locale, the CodeBlock tokenizer.

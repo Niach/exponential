@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-191: `Expressions.eval(_:vars:now:timeZone:)` → `.value | .error`, `Expressions.check(_:types:kinds:)`, `Expressions.call(_:args:)`; `ExpressionsTests` replays `fixtures/expressions.json`.
 - VAPP-190: `RecordsQuery.parse(json:kind:)` → `(query, issues)` (the JSON form: group, aggregate, running, before, in / between / or) and `RecordsQuery.dateBucket(_:by:)`; `value` answers `groups?`, `totals?`, `before?`. The tests replay `jsonCases`, `bucketCases` and the JSON `valueCases`.
 - VAPP-189: `RecordsQuery` (`parse(params:kind:)`, `parse(source:)`, `value(rows:me:now:names:)`) and `RecordRow`: the core's one records evaluator over the FFI; the tests replay `fixtures/records-query.json`.
 

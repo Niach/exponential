@@ -605,6 +605,9 @@ pub fn core_function(name: &str, args: &Map<String, Value>) -> Option<Option<Val
         "len" => Some(json::number(js_len(a("value")) as f64)),
         "fill" => Some(Value::String(fill_template(a("template"), a("params")))),
         "filter" => Some(Value::Array(filter_items(a("items"), a("query"), a("fields"), a("where")))),
+        // VAPP-191: the expression functions' call form (system clock, UTC;
+        // `data::call_function` runs today/now/expr on the context's clock).
+        n if crate::expressions::CALL_NAMES.contains(&n) => crate::expressions::call_expression_function(n, args, &crate::expressions::ExpressionClock::default()),
         _ => return None,
     })
 }

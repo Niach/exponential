@@ -46,6 +46,9 @@ export interface Formatter {
   /** `value` as for `date`, against `now` (epoch ms). */
   relativeTime(value: unknown, now: number): string
   plural(value: number): PluralCategory
+  /** VAPP-191: the zone's UTC offset (the expression date functions read
+   *  it when ResolveOptions.zone is absent); absent = UTC. */
+  readonly zone?: ZoneOffset
 }
 
 const FALLBACK = localeJson.englishFallback
@@ -333,6 +336,7 @@ const ENGLISH_NAMES: DateNames = FALLBACK
 export function englishFormatter(zone: ZoneOffset = fixedOffset(0)): Formatter {
   return {
     locale: `en-US`,
+    zone,
     number(value, options = {}) {
       const fixed = fixedDigits(options.decimals)
       const { sign, body } = englishNumber(value, fixed ?? 0, fixed ?? 3, options.grouping !== false)
@@ -416,6 +420,7 @@ export function intlFormatter(locale: string, timeZone = `UTC`): Formatter {
   }
   return {
     locale,
+    zone: timeZone === `UTC` ? fixedOffset(0) : intlZoneOffset(timeZone),
     number(value, options = {}) {
       const fixed = fixedDigits(options.decimals)
       return nf({ minimumFractionDigits: fixed ?? 0, maximumFractionDigits: fixed ?? 3, useGrouping: options.grouping !== false }).format(value)

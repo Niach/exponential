@@ -142,6 +142,19 @@ query's strings filled from the binding's other params (unset = empty), so a
 "${start}", "${end}"]]}`). A binding naming no package query is an install
 issue. The date maths (`src/dates.ts`, the Rust core's `dates`) is shared
 with the bind-time expressions.
+**Expressions** (VAPP-191, `catalog/expressions.json`): a template value
+`{"call": "expr", "args": {"source": "round(row.minutes / 60, 2)", "vars":
+{"row": {"path": ""}}, "types": {"row": "entry"}}}` evaluates a CEL-subset
+expression at bind time over its resolved `vars` (maths `mul div mod round
+floor ceil min max abs`, dates in the team zone `today now dateAdd dateDiff
+startOf endOf weekday isoWeek`, `hours`, `formatDuration`; each also as its
+own call, `{"call": "dateAdd", "args": {"date", "n", "unit"}}`). At install
+every `expr` is parsed within the cost caps (1024 characters, nesting 32, no
+nested `map/filter/all/exists`; 10,000 steps at run time) and type-checked:
+a literal var types by its JSON value, a bound one is `dyn` unless `types`
+names a type (`number`, `list<entry>`…) or a declared kind (its fields typed
+from the schema). An issue names the expression's pointer
+(`/templates/<id>/components/<i>/…/args/source`) and `column N: <reason>`.
 A template binding to `records:<kind>` names a declared kind (else an install
 issue). A package with a `sources` allowlist lists `records:<kind>` or
 `records:*`.

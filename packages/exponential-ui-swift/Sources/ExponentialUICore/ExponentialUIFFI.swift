@@ -7251,6 +7251,21 @@ public func builtinThemeJson(id: String) -> String?  {
 })
 }
 /**
+ * VAPP-191: one expression function in its A2UI call form (`mul {a, b}`,
+ * `dateAdd {date, n, unit}`, `expr {source, vars}`…) → its value JSON;
+ * null when the call yields nothing (`callCases`).
+ */
+public func callExpressionJson(name: String, argsJson: String, now: Double? = nil, offsetMinutes: Int32? = nil)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_call_expression_json(
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(argsJson),
+        FfiConverterOptionDouble.lower(now),
+        FfiConverterOptionInt32.lower(offsetMinutes),$0
+    )
+})
+}
+/**
  * `{min, max}` of a chart (`series_json` = the Chart's `series`).
  */
 public func chartExtentJson(kind: String, seriesJson: String, min: Double?, max: Double?)throws  -> String  {
@@ -7260,6 +7275,20 @@ public func chartExtentJson(kind: String, seriesJson: String, min: Double?, max:
         FfiConverterString.lower(seriesJson),
         FfiConverterOptionDouble.lower(min),
         FfiConverterOptionDouble.lower(max),$0
+    )
+})
+}
+/**
+ * VAPP-191: type-check an expression: `types_json` = name → type name
+ * (`number`, `list<entry>`, a kind's name…), `kinds_json` = the package's
+ * `records` → `{type, issues: ["column N: …"]}` (`checkCases`).
+ */
+public func checkExpressionJson(source: String, typesJson: String, kindsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_check_expression_json(
+        FfiConverterString.lower(source),
+        FfiConverterString.lower(typesJson),
+        FfiConverterString.lower(kindsJson),$0
     )
 })
 }
@@ -7400,6 +7429,22 @@ public func errorMessageJson(code: String, surfaceId: String, message: String, p
         FfiConverterString.lower(surfaceId),
         FfiConverterString.lower(message),
         FfiConverterOptionString.lower(path),$0
+    )
+})
+}
+/**
+ * VAPP-191: evaluate an expression (the CEL subset of
+ * `catalog/expressions.json`) over `vars_json` (a JSON object) →
+ * `{value}` or `{error: "column N: …"}` (`fixtures/expressions.json`
+ * `evalCases`, `costCases`).
+ */
+public func evalExpressionJson(source: String, varsJson: String, now: Double? = nil, offsetMinutes: Int32? = nil)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_eval_expression_json(
+        FfiConverterString.lower(source),
+        FfiConverterString.lower(varsJson),
+        FfiConverterOptionDouble.lower(now),
+        FfiConverterOptionInt32.lower(offsetMinutes),$0
     )
 })
 }
@@ -8067,7 +8112,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json() != 60746) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_call_expression_json() != 34645) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 41730) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_check_expression_json() != 27901) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json() != 21405) {
@@ -8107,6 +8158,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 45756) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_eval_expression_json() != 154) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 24175) {

@@ -24,6 +24,7 @@
 
 import { formatString } from "./strings"
 import { ENGLISH_FORMAT_FUNCTIONS } from "./format"
+import { EXPRESSION_CALL_FUNCTIONS } from "./expressions"
 
 export interface ExprContext {
   id: string
@@ -396,5 +397,9 @@ export const CORE_FUNCTIONS: Record<string, (args: Record<string, unknown>) => u
   // format* ones) through the surface's Formatter (src/dynamic.ts).
   formatPercent: ENGLISH_FORMAT_FUNCTIONS.formatPercent,
   formatRelativeTime: ENGLISH_FORMAT_FUNCTIONS.formatRelativeTime,
+  // VAPP-191: the expression functions' call form (mul … formatDuration,
+  // `expr`; src/expressions.ts) on the system clock in UTC; the bind pass
+  // runs today/now/expr on ResolveOptions.now/zone (src/dynamic.ts).
+  ...EXPRESSION_CALL_FUNCTIONS,
 }
 export const CORE_FUNCTION_NAMES: readonly string[] = Object.keys(CORE_FUNCTIONS)

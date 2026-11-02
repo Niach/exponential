@@ -1,0 +1,38 @@
+{
+  "$comment": "VAPP-191 (eApps Q2, docs/spec/apps.md §4.2/§4.3): the EXPRESSION language, a CEL (Common Expression Language) subset. Syntax: numbers (decimal, optional fraction and exponent; ONE number type = CEL double, so `hours * 60` mixes freely), strings in \"…\" or '…' (escapes \\\\ \\\" \\' \\n \\r \\t \\uXXXX), true false null, names, `a.f`, `a[i]`, `[list]`, `{\"key\": value}` (string keys), unary `! -`, `* / %`, `+ -`, `< <= > >= == != in`, `&&`, `||`, `c ? a : b`, calls `f(x)`, the receiver methods below and the comprehensions `l.map(x, e)` `l.filter(x, p)` `l.all(x, p)` `l.exists(x, p)` plus `has(a.f)`. Values are JSON. Semantics: `+` adds two numbers, joins two strings or two lists; `- * / %` numbers only (`/` and `%` by zero fail); `< <= > >=` two numbers or two strings (code point order, so `YYYY-MM-DD` dates compare); `==` deep JSON equality; `in` = membership in a list or a key of a map; `&& || ! ?:` need bools (short-circuit); a missing name or a missing map key reads null; a field of a non-map fails. Every failure = `column N: <reason>` (1-based code point column of the operator, call or field); evaluation answers {value} or {error}. Functions: the table below, signatures FIXED (`params`: a type, a union a|b, `?` optional, `...` variadic where one list argument spreads; `unit` = one of `units`, `format` = one of `formats`). Dates (spec §4.3): a date is a calendar day `YYYY-MM-DD`; an ISO date-time argument names its day in the team zone (no offset = UTC); `today()` = the team zone's day of the clock, `now()` = `YYYY-MM-DDTHH:MM:SS±HH:MM` in the team zone; dateAdd(d, n, unit) adds whole units (months clamp the day: 01-31 + 1 month = 02-28); dateDiff(a, b, unit) = whole units from a to b, truncated toward zero (months: calendar months, one less while b's day is before a's); hour/minute/second diff instants (a date = its local midnight) or two times of day `HH:MM[:SS]`; startOf/endOf(d, unit) (weeks are ISO, Monday first); weekday = ISO 1 (Monday)..7; isoWeek = 1..53. Durations: hours(minutes) = minutes / 60; formatDuration(hours, format = h:mm) rounds to the minute (second for :ss), `-` when negative, hours unbounded (`25:30`). round(x, digits?) = JS Math.round (half up). The A2UI call form: every function with a `call` spelling is a bind function too (`{\"call\": \"mul\", \"args\": {\"a\": 2, \"b\": 3}}`, args named by `call`; a number param takes a decimal string; a failure = undefined), and `{\"call\": \"expr\", \"args\": {\"source\": \"round(hours * 60)\", \"vars\": {\"hours\": {\"path\": \"/hours\"}}}}` evaluates a string expression over its resolved vars. The clock and the team zone come from the host (ResolveOptions.now/zone, the Rust ResolveContext). TYPE CHECK (checkExpression(source, types, kinds)): names must be declared (`types`: bool number string null dyn map list list<T> or a record kind's name, whose fields type from its schema: string→string, number/integer→number, boolean→bool, array→list<items>, plus the row keys as strings); dyn passes everywhere and null fits any param; issues name the column and the reason. COST CAPS: `limits` (source length in code points, nesting of (…)/[…]/{…}/calls, evaluation steps = one per node evaluated), and a comprehension inside another comprehension's arguments never parses. src/expressions.ts is the reference, the Rust core's `expressions` module its twin; fixtures/expressions.json locks both (Swift and Kotlin replay it through the FFI).",
+  "limits": { "maxLength": 1024, "maxDepth": 32, "maxSteps": 10000 },
+  "functions": {
+    "size": { "params": ["string|list|map"], "returns": "number" },
+    "string": { "params": ["dyn"], "returns": "string" },
+    "double": { "params": ["number|string"], "returns": "number" },
+    "int": { "params": ["number|string"], "returns": "number" },
+    "mul": { "params": ["number", "number"], "returns": "number", "call": ["a", "b"] },
+    "div": { "params": ["number", "number"], "returns": "number", "call": ["a", "b"] },
+    "mod": { "params": ["number", "number"], "returns": "number", "call": ["a", "b"] },
+    "round": { "params": ["number", "number?"], "returns": "number", "call": ["value", "digits"] },
+    "floor": { "params": ["number"], "returns": "number", "call": ["value"] },
+    "ceil": { "params": ["number"], "returns": "number", "call": ["value"] },
+    "abs": { "params": ["number"], "returns": "number", "call": ["value"] },
+    "min": { "params": ["number..."], "returns": "number", "call": ["values"] },
+    "max": { "params": ["number..."], "returns": "number", "call": ["values"] },
+    "today": { "params": [], "returns": "string", "call": [] },
+    "now": { "params": [], "returns": "string", "call": [] },
+    "dateAdd": { "params": ["string", "number", "unit"], "returns": "string", "call": ["date", "n", "unit"], "units": ["day", "week", "month", "quarter", "year"] },
+    "dateDiff": { "params": ["string", "string", "unit"], "returns": "number", "call": ["from", "to", "unit"], "units": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"] },
+    "startOf": { "params": ["string", "unit"], "returns": "string", "call": ["date", "unit"], "units": ["day", "week", "month", "quarter", "year"] },
+    "endOf": { "params": ["string", "unit"], "returns": "string", "call": ["date", "unit"], "units": ["day", "week", "month", "quarter", "year"] },
+    "weekday": { "params": ["string"], "returns": "number", "call": ["date"] },
+    "isoWeek": { "params": ["string"], "returns": "number", "call": ["date"] },
+    "hours": { "params": ["number"], "returns": "number", "call": ["minutes"] },
+    "formatDuration": { "params": ["number", "format?"], "returns": "string", "call": ["hours", "format"], "formats": ["h:mm", "hh:mm", "h:mm:ss", "hh:mm:ss"] }
+  },
+  "methods": {
+    "size": { "receiver": "string|list|map", "params": [], "returns": "number" },
+    "contains": { "receiver": "string", "params": ["string"], "returns": "bool" },
+    "startsWith": { "receiver": "string", "params": ["string"], "returns": "bool" },
+    "endsWith": { "receiver": "string", "params": ["string"], "returns": "bool" }
+  },
+  "comprehensions": ["map", "filter", "all", "exists"],
+  "reserved": ["as", "break", "const", "continue", "else", "for", "function", "if", "import", "let", "loop", "package", "namespace", "return", "var", "void", "while"],
+  "rowKeys": ["id", "createdAt", "updatedAt", "createdBy", "authorId", "author"]
+}
