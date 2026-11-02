@@ -7,7 +7,7 @@
 // agent can fix it. The Rust core's `host::expressions` mirrors it
 // (`fixtures/expressions.json` `packages`).
 
-import { checkExpression, typeName } from "../cel"
+import { checkExpression, optionalType, typeName } from "../cel"
 import type { ExprType } from "../cel"
 import { isBinding, isCall } from "../expr"
 import { RECORDS_SCHEME } from "./query"
@@ -31,20 +31,25 @@ export function schemaType(schema: unknown): ExprType {
   if (type === `boolean`) return `bool`
   if (type === `string`) return schema.format === `date` ? `date` : schema.format === `date-time` ? `timestamp` : `string`
   if (type === `array`) return [schemaType(schema.items)]
-  if (type === `object`) return isObject(schema.properties) ? rowOf(schema.properties) : `map`
+  if (type === `object`) return isObject(schema.properties) ? rowOf(schema.properties, schema.required) : `map`
   return `dyn`
 }
 
-function rowOf(properties: Record<string, unknown>): ExprType {
+/** VAPP-195 (E2): a schema's fields; one not in `required` may be missing
+ *  (`T?`). */
+export function rowOf(properties: Record<string, unknown>, required: unknown): ExprType {
+  const names = Array.isArray(required) ? required : []
   const out: Record<string, ExprType> = {}
-  for (const [k, v] of Object.entries(properties)) out[k] = schemaType(v)
+  for (const [k, v] of Object.entries(properties)) out[k] = names.includes(k) ? schemaType(v) : optionalType(schemaType(v))
   return out
 }
 
-/** A record row of a kind: its schema's fields plus the row keys. */
+/** A record row of a kind: its schema's fields (`T?` unless required) plus
+ *  the row keys (always there). */
 export function recordRowType(kind: unknown): ExprType {
-  const props = isObject(kind) && isObject(kind.schema) && isObject(kind.schema.properties) ? kind.schema.properties : {}
-  return { ...(rowOf(props) as Record<string, ExprType>), id: `string`, createdAt: `timestamp`, updatedAt: `timestamp`, createdBy: `string`, authorId: `string`, author: `string` }
+  const schema = isObject(kind) && isObject(kind.schema) ? kind.schema : {}
+  const props = isObject(schema.properties) ? schema.properties : {}
+  return { ...(rowOf(props, schema.required) as Record<string, ExprType>), id: `string`, createdAt: `timestamp`, updatedAt: `timestamp`, createdBy: `string`, authorId: `string`, author: `string` }
 }
 
 /** The value a records binding lands (docs/package-format.md "Records"). */
@@ -107,9 +112,13 @@ function pathType(path: string, template: Record<string, unknown>, records: unkn
   return cur === undefined ? `dyn` : literalType(cur)
 }
 
+/** A var's type; one the checker cannot type may be missing (`dyn?`). */
 function varType(v: unknown, template: Record<string, unknown>, records: unknown): ExprType {
-  if (isBinding(v)) return pathType(v.path, template, records)
-  if (isCall(v)) return `dyn`
+  if (isBinding(v)) {
+    const t = pathType(v.path, template, records)
+    return t === `dyn` ? optionalType(t) : t
+  }
+  if (isCall(v)) return optionalType(`dyn`)
   if (Array.isArray(v)) {
     const items = v.map((x) => varType(x, template, records))
     if (items.length === 0) return [`dyn`]
@@ -135,6 +144,8 @@ export function validatePackageExpressions(pkg: Record<string, unknown>): Expres
       if (value.call === `expr` && isObject(value.args)) {
         const args = value.args
         const here = `${at}/args`
+        // VAPP-195: every expression binding shows a default when it fails.
+        if (!Object.prototype.hasOwnProperty.call(args, `default`)) issues.push({ path: `${here}/default`, message: `an expression binding needs a default, shown when it fails` })
         if (typeof args.expr !== `string`) issues.push({ path: `${here}/expr`, message: `expr is a string` })
         else if (args.vars !== undefined && !isObject(args.vars)) issues.push({ path: `${here}/vars`, message: `vars is an object` })
         else {

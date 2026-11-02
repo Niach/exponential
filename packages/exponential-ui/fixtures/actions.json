@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-194 (eApps E1, spec docs/spec/apps.md §4.5): typed effects. ONE fixture for the TS reference (src/host/actions.ts + the effect table in src/cel.ts) and the Rust core (eui_core::host::actions, eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. `effects`: functionEffect(name) = pure | write | host: the write functions (set, records.upsert/delete/batch, harness.records.upsert/delete) write; openUrl, bind and every name under actions. harness. exponential. tools. upstream. is a host function; everything else (the expression and bind-time tables) is pure. `check`: an effectful function in an expression is a parse error `at <code point>: <name> writes|is a host function: an expression is pure, use an action step` (a dotted name at its first segment); an unknown one stays `unknown function` / `unknown method`. `validate`: validatePackage's issues for the base `package` (the one every run uses) with a case's `with` keys replaced (`addActions` = actions added to the base's). A template's PURE places (props, a call's args, an event's context) may call no write or host function (`<name> writes|is a host function: a binding is pure, name an action in on.press`); an event's functionCall may, and `actions.<name>` must name a declared action. `actions: {<name>: {params?, steps}}` (limits.actions, names like queries, params = a records schema, 1..limits.steps steps). A step is ONE of {require: <expr>, message} (a bool), {records.upsert: {kind, data: {<field>: <expr>}, id?: <expr>}} (a declared kind; every field in its schema, of its type; a create names every required field), {records.delete: {id: <expr>}}, {set: {path: <JSON pointer>, value: <expr>}}, {call: <host function in the package's functions>, args?: {<k>: <expr>}} (never a write, a pure function or another action). An expression slot holding a JSON string is CEL, type-checked over params (the params schema's fields), data (dyn) and me (string); any other JSON is a literal. `run`: runAction(package, action, params, {data, me, now = env.now, zone offset env.offset, maxSteps}) → {plan: {writes: [{op: upsert, kind, data, id?} | {op: delete, id}], sets: [{path, value}], calls: [{name, args}]}} or {error}. Params are checked against the params schema (`params: <pointer> <reason>; …`). Steps run in order against ONE snapshot (a set never changes what a later step reads). The whole action fails on the first: a false require (its message, verbatim), an evaluation error, a create's data the kind's schema refuses (a patch is checked field by field, required ignored) or the run's budget (`maxSteps` evaluation steps over every expression plus one per step, default limits.maxSteps; each expression keeps its own 10 000): `step <i>: <reason>`. Data fields are evaluated in key order. `batch`: applyRecordBatch(rows, writes, {records, me, now, newId = newIds[i-th create]}) → {rows, ids} with every write applied in order, or {error: `write <i>: <reason>`} and nothing applied: an unknown kind, a missing row, a patch of another kind's row, a merged row the schema refuses. The host commits a plan's writes through `records.batch` as this ONE unit (Exponential: one Postgres transaction), then applies the sets, then runs the calls (their policy and consent asked before the commit).",
+  "$comment": "VAPP-194 (eApps E1, spec docs/spec/apps.md §4.5): typed effects. ONE fixture for the TS reference (src/host/actions.ts + the effect table in src/cel.ts) and the Rust core (eui_core::host::actions, eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. `effects`: functionEffect(name) = pure | write | host: the write functions (set, records.upsert/delete/batch, harness.records.upsert/delete) write; openUrl, bind and every name under actions. harness. exponential. tools. upstream. is a host function; everything else (the expression and bind-time tables) is pure. `check`: an effectful function in an expression is a parse error `at <code point>: <name> writes|is a host function: an expression is pure, use an action step` (a dotted name at its first segment); an unknown one stays `unknown function` / `unknown method`. `validate`: validatePackage's issues for the base `package` (the one every run uses) with a case's `with` keys replaced (`addActions` = actions added to the base's). A template's PURE places (props, a call's args, an event's context) may call no write or host function (`<name> writes|is a host function: a binding is pure, name an action in on.press`); an event's functionCall may, and `actions.<name>` must name a declared action. `actions: {<name>: {params?, steps}}` (limits.actions, names like queries, params = a records schema, 1..limits.steps steps). A step is ONE of {require: <expr>, message} (a bool), {records.upsert: {kind, data: {<field>: <expr>}, id?: <expr>}} (a declared kind; every field in its schema, of its type; a create names every required field), {records.delete: {id: <expr>}}, {set: {path: <JSON pointer>, value: <expr>}}, {call: <host function in the package's functions>, args?: {<k>: <expr>}} (never a write, a pure function or another action). An expression slot holding a JSON string is CEL, type-checked over params (the params schema's fields; one not in its `required` is T?, VAPP-195), data (dyn?) and me (string?: null when unknown); a value that may be missing fits only a field that may be; any other JSON is a literal. `run`: runAction(package, action, params, {data, me, now = env.now, zone offset env.offset, maxSteps}) → {plan: {writes: [{op: upsert, kind, data, id?} | {op: delete, id}], sets: [{path, value}], calls: [{name, args}]}} or {error}. Params are checked against the params schema (`params: <pointer> <reason>; …`). Steps run in order against ONE snapshot (a set never changes what a later step reads). The whole action fails on the first: a false require (its message, verbatim), an evaluation error, a create's data the kind's schema refuses (a patch is checked field by field, required ignored) or the run's budget (`maxSteps` evaluation steps over every expression plus one per step, default limits.maxSteps; each expression keeps its own 10 000): `step <i>: <reason>`. Data fields are evaluated in key order. `batch`: applyRecordBatch(rows, writes, {records, me, now, newId = newIds[i-th create]}) → {rows, ids} with every write applied in order, or {error: `write <i>: <reason>`} and nothing applied: an unknown kind, a missing row, a patch of another kind's row, a merged row the schema refuses. The host commits a plan's writes through `records.batch` as this ONE unit (Exponential: one Postgres transaction), then applies the sets, then runs the calls (their policy and consent asked before the commit).",
   "limits": {
     "actions": 32,
     "steps": 64,
@@ -184,7 +184,8 @@
                     "h": {
                       "path": "/form/hours"
                     }
-                  }
+                  },
+                  "default": null
                 }
               }
             }
@@ -365,7 +366,7 @@
           {
             "set": {
               "path": "/count",
-              "value": "data.count + 1"
+              "value": "orElse(data.count, 0) + 1"
             }
           },
           {
@@ -409,7 +410,7 @@
           {
             "set": {
               "path": "/x",
-              "value": "data.total / data.days"
+              "value": "orElse(data.total, 0) / orElse(data.days, 1)"
             }
           }
         ]
@@ -439,19 +440,19 @@
           {
             "set": {
               "path": "/a",
-              "value": "data.xs.map(x, x)"
+              "value": "orElse(data.xs, []).map(x, x)"
             }
           },
           {
             "set": {
               "path": "/b",
-              "value": "data.xs.map(x, x)"
+              "value": "orElse(data.xs, []).map(x, x)"
             }
           },
           {
             "set": {
               "path": "/c",
-              "value": "data.xs.map(x, x)"
+              "value": "orElse(data.xs, []).map(x, x)"
             }
           }
         ]
@@ -459,7 +460,7 @@
       "check": {
         "steps": [
           {
-            "require": "data.n",
+            "require": "orElse(data.n, false)",
             "message": "never"
           }
         ]
@@ -687,7 +688,8 @@
                     "call": "expr",
                     "args": {
                       "expr": "records.upsert(1)",
-                      "vars": {}
+                      "vars": {},
+                      "default": null
                     }
                   }
                 }
@@ -1246,7 +1248,7 @@
         ]
       },
       "maxSteps": 40,
-      "error": "step 2: action step limit exceeded"
+      "error": "step 1: action step limit exceeded"
     },
     {
       "name": "check: require needs a bool",

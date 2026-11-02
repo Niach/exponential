@@ -13,11 +13,11 @@
 
 use serde_json::{json, Map, Value};
 
-use super::expressions::{literal_type, schema_type};
+use super::expressions::{literal_type, row_of, schema_type};
 use super::package::PackageIssue;
 use super::records::{validate_record, validate_record_schema};
 use super::utf16_cmp;
-use crate::cel::{check_expression, effect_words, evaluate_counted, parse_expression, type_display, type_name, ExpressionEnv, FunctionEffect, MAX_STEPS};
+use crate::cel::{check_expression, effect_words, evaluate_counted, is_optional, optional_type, parse_expression, required_type, type_display, type_name, ExpressionEnv, FunctionEffect, MAX_STEPS};
 
 pub use crate::cel::function_effect;
 
@@ -110,16 +110,14 @@ fn sorted_keys(m: &Map<String, Value>) -> Vec<&String> {
 /// The names a step expression reads, typed: `params` (the action's
 /// params schema), `data` (the surface data: open), `me` (a member id).
 pub fn action_var_types(action: &Map<String, Value>) -> Map<String, Value> {
-    let mut params = Map::new();
-    if let Some(props) = action.get("params").and_then(Value::as_object).and_then(|p| p.get("properties")).and_then(Value::as_object) {
-        for (k, v) in props {
-            params.insert(k.clone(), schema_type(Some(v)));
-        }
-    }
+    let schema = action.get("params").and_then(Value::as_object);
+    let empty = Map::new();
+    let props = schema.and_then(|s| s.get("properties")).and_then(Value::as_object).unwrap_or(&empty);
     let mut types = Map::new();
-    types.insert("params".into(), Value::Object(params));
-    types.insert("data".into(), ty("dyn"));
-    types.insert("me".into(), ty("string"));
+    types.insert("params".into(), row_of(props, schema.and_then(|s| s.get("required"))));
+    // VAPP-195: the surface data is untyped and the member may be unknown.
+    types.insert("data".into(), optional_type(ty("dyn")));
+    types.insert("me".into(), optional_type(ty("string")));
     types
 }
 
@@ -129,6 +127,13 @@ fn textual(t: &Value) -> bool {
 
 /// May a value of type `t` land in a field of type `field`?
 fn fits(field: &Value, t: &Value) -> bool {
+    // VAPP-195: a value that may be missing fits only a field that may be.
+    if is_optional(t) {
+        return is_optional(field) && fits(&required_type(field), &required_type(t));
+    }
+    if is_optional(field) {
+        return fits(&required_type(field), t);
+    }
     if field == "dyn" || t == "dyn" || t == "null" {
         return true;
     }
@@ -259,7 +264,8 @@ fn validate_step(step: &Value, at: &str, types: &Map<String, Value>, records: &M
                     }
                     continue;
                 };
-                let want = schema_type(Some(prop));
+                let required = schema.get("required").and_then(Value::as_array).is_some_and(|r| r.iter().any(|x| x.as_str() == Some(field.as_str())));
+                let want = if required { schema_type(Some(prop)) } else { optional_type(schema_type(Some(prop))) };
                 if let Some(t) = t {
                     if !fits(&want, &t) {
                         issues.push(issue(&field_at, format!("{field} is {}, got {}", type_display(&want), type_display(&t))));

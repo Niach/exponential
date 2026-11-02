@@ -815,7 +815,7 @@
       "weekday",
       "isoWeek",
       "hours",
-      "formatDuration",
+      "formatDuration", "orElse",
       "expr"
     ],
     "core": {
@@ -1113,11 +1113,20 @@
         },
         "returns": "string"
       },
+      "orElse": {
+        "description": "The value, or default when it is missing (null): narrows an optional value.",
+        "args": {
+          "value": "any",
+          "default": "any"
+        },
+        "returns": "any"
+      },
       "expr": {
-        "description": "Evaluates a CEL expression string (docs/package-format.md Expressions) over vars (name → value or binding): \"round(entries.sum / 60, 1)\".",
+        "description": "Evaluates a CEL expression string (docs/package-format.md Expressions) over vars (name → value or binding): \"round(entries.sum / 60, 1)\"; default is shown when it fails (required in a package).",
         "args": {
           "expr": "string",
-          "vars": "object"
+          "vars": "object",
+          "default": "any"
         },
         "returns": "any"
       }

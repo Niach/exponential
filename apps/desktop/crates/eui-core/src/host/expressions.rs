@@ -12,7 +12,7 @@ use serde_json::{json, Map, Value};
 use super::package::PackageIssue;
 use super::record_store::RECORDS_SCHEME;
 use super::sources::parse_source;
-use crate::cel::{check_expression, type_name};
+use crate::cel::{check_expression, optional_type, type_name};
 
 fn ty(name: &str) -> Value {
     Value::String(name.into())
@@ -44,22 +44,36 @@ pub fn schema_type(schema: Option<&Value>) -> Value {
         },
         Some("array") => Value::Array(vec![schema_type(schema.get("items"))]),
         Some("object") => match schema.get("properties").and_then(Value::as_object) {
-            Some(props) => row_of(props),
+            Some(props) => row_of(props, schema.get("required")),
             None => ty("map"),
         },
         _ => ty("dyn"),
     }
 }
 
-fn row_of(props: &Map<String, Value>) -> Value {
-    Value::Object(props.iter().map(|(k, v)| (k.clone(), schema_type(Some(v)))).collect())
+/// VAPP-195 (E2): a schema's fields; one not in `required` may be missing
+/// (`T?`).
+pub fn row_of(props: &Map<String, Value>, required: Option<&Value>) -> Value {
+    let names = required.and_then(Value::as_array);
+    let is_required = |k: &str| names.is_some_and(|n| n.iter().any(|x| x.as_str() == Some(k)));
+    Value::Object(
+        props
+            .iter()
+            .map(|(k, v)| {
+                let t = schema_type(Some(v));
+                (k.clone(), if is_required(k) { t } else { optional_type(t) })
+            })
+            .collect(),
+    )
 }
 
-/// A record row of a kind: its schema's fields plus the row keys.
+/// A record row of a kind: its schema's fields (`T?` unless required) plus
+/// the row keys (always there).
 pub fn record_row_type(kind: Option<&Value>) -> Value {
-    let props = kind.and_then(|k| k.get("schema")).and_then(|s| s.get("properties")).and_then(Value::as_object);
+    let schema = kind.and_then(Value::as_object).and_then(|k| k.get("schema")).and_then(Value::as_object);
+    let props = schema.and_then(|s| s.get("properties")).and_then(Value::as_object);
     let mut row = match props {
-        Some(p) => row_of(p),
+        Some(p) => row_of(p, schema.and_then(|s| s.get("required"))),
         None => Value::Object(Map::new()),
     };
     if let Value::Object(m) = &mut row {
@@ -160,12 +174,14 @@ fn path_type(path: &str, template: &Map<String, Value>, records: Option<&Value>)
     cur.map_or_else(|| ty("dyn"), literal_type)
 }
 
+/// A var's type; one the checker cannot type may be missing (`dyn?`).
 fn var_type(v: &Value, template: &Map<String, Value>, records: Option<&Value>) -> Value {
     if is_binding(v) {
-        return path_type(v["path"].as_str().unwrap_or_default(), template, records);
+        let t = path_type(v["path"].as_str().unwrap_or_default(), template, records);
+        return if t == ty("dyn") { optional_type(t) } else { t };
     }
     if is_call(v) {
-        return ty("dyn");
+        return optional_type(ty("dyn"));
     }
     match v {
         Value::Array(items) => list_type(items.iter().map(|x| var_type(x, template, records)).collect()),
@@ -184,6 +200,10 @@ fn visit(value: &Value, at: &str, template: &Map<String, Value>, records: Option
         Value::Object(obj) => {
             if let (Some("expr"), Some(Value::Object(args))) = (obj.get("call").and_then(Value::as_str), obj.get("args")) {
                 let here = format!("{at}/args");
+                // VAPP-195: every expression binding shows a default when it fails.
+                if !args.contains_key("default") {
+                    issues.push(PackageIssue { path: format!("{here}/default"), message: "an expression binding needs a default, shown when it fails".into() });
+                }
                 match (args.get("expr"), args.get("vars")) {
                     (Some(Value::String(expr)), vars) if vars.is_none_or(Value::is_object) => {
                         let mut types = Map::new();
