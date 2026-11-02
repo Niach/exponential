@@ -552,7 +552,7 @@ struct AgentsView: View {
     }
 
     /// EXP-1626 PERSIST LOGIN: "Persist login" / "Renew persisted login"
-    /// (and the renewal pill) — the same sign-in sheet, long-lived on THIS
+    /// (account menu only) — the same sign-in sheet, long-lived on THIS
     /// existing profile: the machine attaches a one-year token to it and
     /// never touches the browser login it holds.
     private func persistLogin(_ device: SteerDevice, row: AgentProfileUsageRow) {

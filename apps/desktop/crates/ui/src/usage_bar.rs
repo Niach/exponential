@@ -1034,7 +1034,8 @@ pub(crate) enum ChipAction {
     /// EXP-1533/1626: "Persist login" — a claude login's `claude
     /// setup-token` attached to THAT profile, offered only on an existing
     /// login that does NOT sign in; `renew` = the login already holds a
-    /// token ("Renew persisted login").
+    /// token ("Renew persisted login": the account menu is its only entry,
+    /// there is no renewal reminder).
     Persist { renew: bool },
     SignOut,
     Remove,

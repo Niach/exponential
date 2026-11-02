@@ -12,20 +12,6 @@ import fixture from "../fixtures/devices-list.json" with { type: "json" }
 export const DEVICES_LIST_COPY = fixture.copy
 /** EXP-1560: the card grid's geometry (`fixture.card`), ×4. */
 export const DEVICE_CARD = fixture.card
-/** EXP-1600: the Keep signed in reminder window (`fixture.keepSignedIn`). */
-export const KEEP_SIGNED_IN = fixture.keepSignedIn
-
-const DAY_MS = 24 * 60 * 60 * 1000
-
-/** EXP-1600: a long-lived claude login that is due for renewal at `now`:
- *  its token ends within `renewWithinDays` days, or already ended. */
-export function keepSignedInDue(tokenExpiresAt: string, now: string | Date): boolean {
-  const expires = Date.parse(tokenExpiresAt)
-  const at = typeof now === `string` ? Date.parse(now) : now.getTime()
-  if (Number.isNaN(expires) || Number.isNaN(at)) return true
-  return expires - at <= KEEP_SIGNED_IN.renewWithinDays * DAY_MS
-}
-
 /** EXP-1560: grid columns for a section `width` px wide. */
 export function deviceCardColumns(width: number): number {
   return Math.max(1, Math.floor((width + DEVICE_CARD.gap) / (DEVICE_CARD.minWidth + DEVICE_CARD.gap)))
@@ -82,9 +68,9 @@ export type DeviceAttentionItem =
       agent: string
       profileId: string
       text: string
-      action: `sign_in` | `keep_signed_in` | null
+      action: `sign_in` | null
       /** EXP-1560: the preview's status line (`copy.status`). */
-      status: `needs_relogin` | `signed_out` | `limit` | `renew`
+      status: `needs_relogin` | `signed_out` | `limit`
     }
   | { kind: `update`; text: string; action: `update` | null }
   | { kind: `update_queued`; text: string; action: null }
@@ -127,22 +113,7 @@ export function deviceListRow(input: DeviceListInput): DeviceListRow {
       status: `limit`,
     })
   }
-  // EXP-1626: the yearly reminder of a PERSISTED login. A login without a
-  // token is never an item: persisting is an option, not a prompt.
-  if (input.mine) {
-    for (const login of input.logins) {
-      if (login.agent !== `claude` || dead(login) || login.limitHit === true) continue
-      if (!login.tokenExpiresAt || !keepSignedInDue(login.tokenExpiresAt, input.now)) continue
-      attention.push({
-        kind: `login`,
-        agent: login.agent,
-        profileId: login.profileId,
-        text: DEVICES_LIST_COPY.renewSoon.replace(`{label}`, login.label),
-        action: canSignIn ? `keep_signed_in` : null,
-        status: `renew`,
-      })
-    }
-  }
+  // EXP-1626: a persisted login is never an item (no renewal reminder).
   if (input.mine) {
     if (input.updateQueued) {
       attention.push({ kind: `update_queued`, text: DEVICES_LIST_COPY.updateQueued, action: null })

@@ -28,15 +28,15 @@ public enum DevicesList {
         public static let settings = "Device settings"
         public static let removeFromTeam = "Remove from this team"
         public static let moreAccounts = "More accounts"
-        public static let renewSoon = "{label} · Persisted login ends soon"
         public static let longLivedRefused = "A long-lived login needs a Claude account on this machine."
         /// EXP-1626 PERSIST LOGIN: the account menu's option on an existing
         /// signed-in claude login (`persistLogin` without a token,
-        /// `renewPersistedLogin` with one), the sign-in sheet's one muted
-        /// line in that mode, and the preview header's persisted line.
+        /// `renewPersistedLogin` with one; the account menu only, no renewal
+        /// reminder), the sign-in sheet's one muted line in that mode, and
+        /// the preview header's persisted line.
         public static let persistLogin = "Persist login"
         public static let renewPersistedLogin = "Renew persisted login"
-        public static let persistNote = "Persist login keeps this account's runs signed in for 1 year, even if its browser login expires. We remind you to renew."
+        public static let persistNote = "Persist login keeps this account's runs signed in for 1 year, even if its browser login expires."
         public static let persistedBrowser = "Persisted · usage from the browser login"
         public static let persistedToken = "Persisted · browser login expired, weekly usage only"
 
@@ -46,7 +46,6 @@ public enum DevicesList {
             case .needsRelogin: "Needs re-login"
             case .signedOut: "Signed out"
             case .limit: "Limit reached"
-            case .renew: "Persisted login ends soon"
             }
         }
     }
@@ -59,19 +58,6 @@ public enum DevicesList {
         public static let iconSize: CGFloat = 28
         public static let markSize: CGFloat = 16
         public static let maxAccountIcons = 5
-    }
-
-    /// EXP-1600: the Keep signed in reminder window (`fixture.keepSignedIn`).
-    public enum KeepSignedIn {
-        public static let renewWithinDays = 30
-    }
-
-    /// EXP-1600 `keepSignedInDue`: a long-lived claude login due for renewal
-    /// at `now` — its token ends within `renewWithinDays` days, or already
-    /// ended. An unreadable stamp is due.
-    public static func keepSignedInDue(_ tokenExpiresAt: String, now: Date) -> Bool {
-        guard let expires = parseIso(tokenExpiresAt) else { return true }
-        return expires.timeIntervalSince(now) <= Double(KeepSignedIn.renewWithinDays) * 86_400
     }
 
     /// An ISO-8601 stamp, with or without fractional seconds.
@@ -211,14 +197,10 @@ public enum DevicesList {
         case needsRelogin = "needs_relogin"
         case signedOut = "signed_out"
         case limit
-        /// EXP-1600/EXP-1626: the yearly reminder of a persisted login.
-        case renew
     }
 
     public enum ItemAction: String, Equatable, Sendable {
         case signIn = "sign_in"
-        /// EXP-1626: the persist sign-in (long-lived) on that profile.
-        case keepSignedIn = "keep_signed_in"
         case update
     }
 
@@ -262,10 +244,9 @@ public enum DevicesList {
     }
 
     /// `deviceListRow`: dead credentials first, then signed-out logins, then
-    /// every other login at its limit (never an action), then (own devices,
-    /// EXP-1626) every other claude login whose persisted token is due for
-    /// renewal, then the update line (own devices only). A login without a
-    /// token is never an item: persisting is an option, not a prompt.
+    /// every other login at its limit (never an action), then the update line
+    /// (own devices only). EXP-1626: a persisted login is never an item (no
+    /// renewal reminder).
     public static func row(_ input: Input) -> Row {
         var attention: [AttentionItem] = []
         let canSignIn = input.mine && input.online
@@ -295,24 +276,6 @@ public enum DevicesList {
                 action: nil,
                 status: .limit
             ))
-        }
-        // EXP-1626: the yearly reminder of a PERSISTED login. A login without
-        // a token is never an item: persisting is an option, not a prompt.
-        if input.mine {
-            for login in input.logins {
-                if login.agent != "claude" || login.health == .needsRelogin
-                    || login.health == .signedOut || login.limitHit { continue }
-                guard let token = login.tokenExpiresAt, !token.isEmpty,
-                      keepSignedInDue(token, now: input.now) else { continue }
-                attention.append(AttentionItem(
-                    kind: .login,
-                    agent: login.agent,
-                    profileId: login.profileId,
-                    text: Copy.renewSoon.replacingOccurrences(of: "{label}", with: login.label),
-                    action: canSignIn ? .keepSignedIn : nil,
-                    status: .renew
-                ))
-            }
         }
         if input.mine {
             if input.updateQueued {

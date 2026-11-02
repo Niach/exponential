@@ -244,15 +244,14 @@ pub(crate) const COPY_SIGN_IN: &str = "Sign in";
 const COPY_STATUS_NEEDS_RELOGIN: &str = "Needs re-login";
 const COPY_STATUS_SIGNED_OUT: &str = "Signed out";
 const COPY_STATUS_LIMIT: &str = "Limit reached";
-const COPY_STATUS_RENEW: &str = "Persisted login ends soon";
-const COPY_RENEW_SOON: &str = "{label} · Persisted login ends soon";
 /// EXP-1626: Persist login, an option on an existing claude login (the
-/// fixture's copy): the menu entry, its renewal, the dialog's one muted
-/// line, and the preview header's line saying which login is active.
+/// fixture's copy): the menu entry, its renewal (the account menu only,
+/// EXP-1626: no renewal reminder), the dialog's one muted line, and the
+/// preview header's line saying which login is active.
 pub(crate) const COPY_PERSIST_LOGIN: &str = "Persist login";
 pub(crate) const COPY_RENEW_PERSISTED_LOGIN: &str = "Renew persisted login";
 pub(crate) const COPY_PERSIST_NOTE: &str =
-    "Persist login keeps this account's runs signed in for 1 year, even if its browser login expires. We remind you to renew.";
+    "Persist login keeps this account's runs signed in for 1 year, even if its browser login expires.";
 pub(crate) const COPY_PERSISTED_BROWSER: &str = "Persisted · usage from the browser login";
 pub(crate) const COPY_PERSISTED_TOKEN: &str = "Persisted · browser login expired, weekly usage only";
 /// An older device's refusal of a long-lived login with no profile (its
@@ -260,8 +259,6 @@ pub(crate) const COPY_PERSISTED_TOKEN: &str = "Persisted · browser login expire
 /// on it any more (EXP-1626: no client queues a long-lived Add).
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const COPY_LONG_LIVED_REFUSED: &str = "A long-lived login needs a Claude account on this machine.";
-/// EXP-1600: `fixture.keepSignedIn.renewWithinDays`.
-pub(crate) const KEEP_SIGNED_IN_RENEW_WITHIN_DAYS: i64 = 30;
 pub(crate) const COPY_DEVICE_ACTIONS: &str = "Device actions";
 pub(crate) const COPY_SETTINGS: &str = DEVICE_SETTINGS;
 pub(crate) const COPY_REMOVE_FROM_TEAM: &str = "Remove from this team";
@@ -289,7 +286,9 @@ pub(crate) struct DeviceListLogin {
     /// EXP-1560: a fresh usage window at ≥ 100 % ([`limit_hit`]).
     pub(crate) limit_hit: bool,
     /// EXP-1600: when the profile's long-lived claude login ends (ISO);
-    /// `None` = it holds none.
+    /// `None` = it holds none. EXP-1626: never an item (no renewal
+    /// reminder); kept as the fixture's input.
+    #[allow(dead_code)]
     pub(crate) token_expires_at: Option<String>,
 }
 
@@ -310,7 +309,8 @@ pub(crate) struct DeviceListInput {
     pub(crate) accounts_reported: bool,
     /// Every login PROFILE it reported; an agent with none adds nothing.
     pub(crate) logins: Vec<DeviceListLogin>,
-    /// EXP-1600: the clock the renewal reminder reads.
+    /// The fixture's clock (EXP-1626: no renewal reminder reads it).
+    #[allow(dead_code)]
     pub(crate) now: chrono::DateTime<chrono::Utc>,
 }
 
@@ -321,8 +321,6 @@ pub(crate) enum LoginStatus {
     NeedsRelogin,
     SignedOut,
     Limit,
-    /// EXP-1600/1626: the persisted login ends within the renewal window.
-    Renew,
 }
 
 impl LoginStatus {
@@ -333,7 +331,6 @@ impl LoginStatus {
             LoginStatus::NeedsRelogin => "needs_relogin",
             LoginStatus::SignedOut => "signed_out",
             LoginStatus::Limit => "limit",
-            LoginStatus::Renew => "renew",
         }
     }
 
@@ -343,7 +340,6 @@ impl LoginStatus {
             LoginStatus::NeedsRelogin => COPY_STATUS_NEEDS_RELOGIN,
             LoginStatus::SignedOut => COPY_STATUS_SIGNED_OUT,
             LoginStatus::Limit => COPY_STATUS_LIMIT,
-            LoginStatus::Renew => COPY_STATUS_RENEW,
         }
     }
 }
@@ -364,34 +360,16 @@ pub(crate) enum AttentionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AttentionAction {
     SignIn,
-    /// EXP-1600/1626: renew the persisted login of that claude profile
-    /// (wire `keep_signed_in`; only the `renew` reminder carries it).
-    KeepSignedIn,
     Update,
 }
 
 impl AttentionAction {
-    /// The pill's label (EXP-1626: a `keep_signed_in` pill is always the
-    /// renewal, `copy.renewPersistedLogin`).
+    /// The pill's label.
     pub(crate) fn label(self) -> &'static str {
         match self {
             AttentionAction::SignIn => COPY_SIGN_IN,
-            AttentionAction::KeepSignedIn => COPY_RENEW_PERSISTED_LOGIN,
             AttentionAction::Update => COPY_UPDATE,
         }
-    }
-}
-
-/// EXP-1600 (web `keepSignedInDue`): a long-lived claude login due for
-/// renewal at `now` — its token ends within the renewal window, or already
-/// ended. An unreadable expiry is due.
-pub(crate) fn keep_signed_in_due(token_expires_at: &str, now: chrono::DateTime<chrono::Utc>) -> bool {
-    match chrono::DateTime::parse_from_rfc3339(token_expires_at) {
-        Ok(expires) => {
-            expires.with_timezone(&chrono::Utc) - now
-                <= chrono::Duration::days(KEEP_SIGNED_IN_RENEW_WITHIN_DAYS)
-        }
-        Err(_) => true,
     }
 }
 
@@ -416,11 +394,8 @@ pub(crate) struct DeviceListRow {
 /// iOS / Android `DevicesList`) and replayed against every case of
 /// `devices-list.json`. Items in order: every `needs_relogin` login, every
 /// `signed_out` login, every OTHER login at its limit (never an action),
-/// then (own devices, EXP-1600/1626) every OTHER claude login whose
-/// persisted login is due for renewal (`keep_signed_in`, actionable on my
-/// online device; a login WITHOUT a token is never an item: persisting is
-/// an option, not a prompt), then the update line (the caller's own device
-/// only). A login yields at
+/// then the update line (the caller's own device only). EXP-1626: a
+/// persisted login is never an item (no renewal reminder). A login yields at
 /// most one item; an agent with no login PROFILE is not an item: it is not
 /// in `logins` at all.
 pub(crate) fn device_attention(input: &DeviceListInput) -> DeviceListRow {
@@ -455,33 +430,6 @@ pub(crate) fn device_attention(input: &DeviceListInput) -> DeviceListRow {
             text: COPY_LIMIT_REACHED.replace("{label}", &login.label),
             action: None,
         });
-    }
-    // EXP-1626: the yearly reminder of a PERSISTED login.
-    if input.mine {
-        let quiet = |login: &DeviceListLogin| {
-            login.agent != coding::CodingAgent::Claude.id()
-                || matches!(login.health, Health::NeedsRelogin | Health::SignedOut)
-                || login.limit_hit
-        };
-        for login in input.logins.iter().filter(|login| !quiet(login)) {
-            let due = login
-                .token_expires_at
-                .as_deref()
-                .filter(|at| !at.is_empty())
-                .is_some_and(|at| keep_signed_in_due(at, input.now));
-            if !due {
-                continue;
-            }
-            attention.push(AttentionItem {
-                kind: AttentionKind::Login {
-                    agent: login.agent.clone(),
-                    profile_id: login.profile_id.clone(),
-                    status: LoginStatus::Renew,
-                },
-                text: COPY_RENEW_SOON.replace("{label}", &login.label),
-                action: can_sign_in.then_some(AttentionAction::KeepSignedIn),
-            });
-        }
     }
     if input.mine {
         if input.update_queued {
@@ -1024,9 +972,8 @@ impl MachinesSection {
                     else {
                         continue;
                     };
-                    // `sign_in` = THE (browser) sign-in; EXP-1626
-                    // `keep_signed_in` = renew that profile's persisted
-                    // login, in place.
+                    // `sign_in` = THE (browser) sign-in, the only login
+                    // action.
                     let sign_in = item.action.map(|action| {
                         let agent = coding::CodingAgent::parse(agent);
                         let device_id = device.device_id.clone();
@@ -1040,17 +987,6 @@ impl MachinesSection {
                                 let Some(agent) = agent else {
                                     return;
                                 };
-                                if action == AttentionAction::KeepSignedIn {
-                                    crate::agent_login::persist_login_on_device(
-                                        device_id.clone(),
-                                        device_label.clone(),
-                                        own,
-                                        profile_id.clone(),
-                                        window,
-                                        cx,
-                                    );
-                                    return;
-                                }
                                 crate::agent_login::sign_in_on_device(
                                     device_id.clone(),
                                     device_label.clone(),
@@ -2011,7 +1947,6 @@ mod tests {
             ("settings", COPY_SETTINGS),
             ("removeFromTeam", COPY_REMOVE_FROM_TEAM),
             ("moreAccounts", COPY_MORE_ACCOUNTS),
-            ("renewSoon", COPY_RENEW_SOON),
             ("longLivedRefused", COPY_LONG_LIVED_REFUSED),
             ("persistLogin", COPY_PERSIST_LOGIN),
             ("renewPersistedLogin", COPY_RENEW_PERSISTED_LOGIN),
@@ -2025,7 +1960,6 @@ mod tests {
             LoginStatus::NeedsRelogin,
             LoginStatus::SignedOut,
             LoginStatus::Limit,
-            LoginStatus::Renew,
         ] {
             assert_eq!(
                 copy["status"][status.wire()].as_str(),
@@ -2034,16 +1968,13 @@ mod tests {
                 status.wire()
             );
         }
-        assert_eq!(copy["status"].as_object().map(|status| status.len()), Some(4));
-        assert_eq!(copy.as_object().map(|copy| copy.len()), Some(25), "a new copy key");
+        assert_eq!(copy["status"].as_object().map(|status| status.len()), Some(3));
+        assert_eq!(copy.as_object().map(|copy| copy.len()), Some(24), "a new copy key");
         assert_eq!(COPY_LONG_LIVED_REFUSED, coding::agent_login::LONG_LIVED_NEEDS_PROFILE);
-        // EXP-1626: the pills and the menu read the same copy.
-        assert_eq!(AttentionAction::KeepSignedIn.label(), COPY_RENEW_PERSISTED_LOGIN);
+        // EXP-1626: the account menu reads the fixture's copy.
         assert_eq!(crate::usage_bar::ChipAction::Persist { renew: false }.label(), COPY_PERSIST_LOGIN);
-        assert_eq!(
-            fixture["keepSignedIn"]["renewWithinDays"].as_i64(),
-            Some(KEEP_SIGNED_IN_RENEW_WITHIN_DAYS)
-        );
+        assert_eq!(crate::usage_bar::ChipAction::Persist { renew: true }.label(), COPY_RENEW_PERSISTED_LOGIN);
+        assert!(fixture.get("keepSignedIn").is_none(), "EXP-1626: no renewal reminder");
     }
 
     /// EXP-1560: the card grid's geometry is the fixture's `card`.
@@ -2174,7 +2105,6 @@ mod tests {
                 .map(|item| {
                     let action = match item.action {
                         Some(AttentionAction::SignIn) => serde_json::json!("sign_in"),
-                        Some(AttentionAction::KeepSignedIn) => serde_json::json!("keep_signed_in"),
                         Some(AttentionAction::Update) => serde_json::json!("update"),
                         None => serde_json::Value::Null,
                     };

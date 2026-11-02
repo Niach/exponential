@@ -156,15 +156,6 @@ export function DeviceAccountIcons({
   )
 }
 
-/** The hover card pill a login item's action reads (devices-list.json):
- *  `sign_in` (the browser login), or EXP-1626's renewal of a persisted
- *  claude login (the persist sign-in for that profile). */
-export function loginActionLabel(item: LoginAttention): string {
-  return item.action === `keep_signed_in`
-    ? DEVICES_LIST_COPY.renewPersistedLogin
-    : DEVICES_LIST_COPY.signIn
-}
-
 /** The login's preview: email (else the label), the plan, the persisted
  *  line (EXP-1626 `persistedLine`), its status, the usage windows — the
  *  hover card's body and the account menu's header. */
@@ -207,7 +198,7 @@ function LoginPreview({
       )}
       {onSignIn && item?.action && (
         <Pill mode="action" className="self-start" onClick={onSignIn}>
-          {loginActionLabel(item)}
+          {DEVICES_LIST_COPY.signIn}
         </Pill>
       )}
     </div>
@@ -284,9 +275,7 @@ function DeviceAccountIcon({
             row={row}
             item={item}
             now={now}
-            onSignIn={() =>
-              item?.action === `keep_signed_in` ? persistLogin() : signIn()
-            }
+            onSignIn={signIn}
           />
         </HoverCardContent>
       </HoverCard>
