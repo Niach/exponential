@@ -25,3 +25,6 @@
 - Un démarrage qui n'a jamais commencé affiche « Démarrage impossible » au lieu de rester inactif
 - Reprendre plusieurs sessions interrompues à la fois fonctionne
 - Les chats s'ouvrent plus vite et restent fluides pendant qu'un agent travaille : les mises à jour en direct ne redessinent plus tout le chat ni la zone de saisie, les longues transcriptions se chargent sans figer et la connexion à tes machines revient en quelques secondes
+- Les chats en direct se redessinent moins pendant qu'un agent travaille, le défilement reste fluide
+- Les enregistrements des apps appartiennent à leur auteur ; les propriétaires de l'équipe peuvent en saisir pour d'autres
+- Les agents peuvent afficher de petites animations dans leurs cartes

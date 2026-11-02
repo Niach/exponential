@@ -25,3 +25,6 @@
 - Spustenie, ktoré nikdy nezačalo, ukáže „Nepodarilo sa spustiť“ namiesto nečinnosti
 - Pokračovanie viacerých prerušených relácií naraz funguje
 - Chaty sa otvárajú rýchlejšie a zostávajú plynulé, keď agent pracuje: živé aktualizácie už neprekresľujú celý chat ani pole na písanie, dlhé prepisy sa načítajú bez zamrznutia a spojenie s vašimi zariadeniami sa obnoví v priebehu sekúnd
+- Živé chaty sa počas práce agenta prekresľujú menej, takže posúvanie zostáva plynulé
+- Záznamy aplikácií patria svojmu autorovi; vlastníci tímu môžu zadávať záznamy za ostatných
+- Agenti môžu vo svojich kartách zobrazovať malé animácie

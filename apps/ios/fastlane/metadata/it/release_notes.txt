@@ -25,3 +25,6 @@
 - Un avvio mai partito mostra «Impossibile avviare» invece di restare inattivo
 - Riprendere più sessioni interrotte insieme funziona
 - Le chat si aprono più in fretta e restano fluide mentre un agente lavora: gli aggiornamenti dal vivo non ridisegnano più tutta la chat o il campo di scrittura, le trascrizioni lunghe si caricano senza bloccarsi e la connessione ai tuoi computer si ripristina in pochi secondi
+- Le chat dal vivo si ridisegnano meno mentre un agente lavora, così lo scorrimento resta fluido
+- I record delle app appartengono al loro autore; i proprietari del team possono inserire record per altri
+- Gli agenti possono mostrare piccole animazioni nelle loro schede

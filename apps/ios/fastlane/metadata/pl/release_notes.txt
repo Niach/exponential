@@ -25,3 +25,6 @@
 - Start, który nigdy się nie zaczął, pokazuje „Nie udało się uruchomić” zamiast czekać
 - Wznawianie kilku przerwanych sesji naraz działa
 - Czaty otwierają się szybciej i działają płynnie, gdy agent pracuje: aktualizacje na żywo nie przerysowują już całego czatu ani pola wpisywania, długie transkrypcje ładują się bez zawieszania, a połączenie z twoimi komputerami wraca w kilka sekund
+- Czaty na żywo rzadziej się przerysowują, gdy agent pracuje, więc przewijanie pozostaje płynne
+- Rekordy aplikacji należą do ich autora; właściciele zespołu mogą wprowadzać rekordy za innych
+- Agenci mogą pokazywać małe animacje na swoich kartach

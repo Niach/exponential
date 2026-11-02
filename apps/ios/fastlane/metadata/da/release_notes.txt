@@ -25,3 +25,6 @@
 - En start, der aldrig gik i gang, viser "Kunne ikke starte" i stedet for at stå stille
 - Flere afbrudte sessioner kan genoptages på én gang
 - Chats åbner hurtigere og forbliver glatte, mens en agent arbejder: liveopdateringer gentegner ikke længere hele chatten eller skrivefeltet, lange forløb indlæses uden at fryse, og forbindelsen til dine maskiner genoprettes på få sekunder
+- Live-chats tegnes mindre om, mens en agent arbejder, så rulning forbliver jævn
+- App-poster tilhører deres forfatter; teamejere kan oprette poster for andre
+- Agenter kan vise små animationer i deres kort

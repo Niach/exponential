@@ -25,3 +25,6 @@
 - En start som aldri begynte viser «Kunne ikke starte» i stedet for å stå stille
 - Å gjenoppta flere avbrutte økter samtidig fungerer
 - Chatter åpnes raskere og holder seg jevne mens en agent jobber: liveoppdateringer tegner ikke lenger hele chatten eller skrivefeltet på nytt, lange forløp lastes uten å fryse, og forbindelsen til maskinene dine kommer tilbake på sekunder
+- Live-chatter tegnes mindre på nytt mens en agent jobber, så rullingen holder seg jevn
+- App-poster tilhører forfatteren sin; teameiere kan legge inn poster for andre
+- Agenter kan vise små animasjoner i kortene sine

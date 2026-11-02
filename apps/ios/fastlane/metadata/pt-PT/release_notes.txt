@@ -25,3 +25,6 @@
 - Um arranque que nunca começou mostra «Não foi possível iniciar» em vez de ficar parado
 - Retomar várias sessões interrompidas de uma vez funciona
 - Os chats abrem mais depressa e mantêm-se fluidos enquanto um agente trabalha: as atualizações em direto já não redesenham o chat inteiro nem a caixa de escrita, as transcrições longas carregam sem bloquear e a ligação às tuas máquinas recupera em segundos
+- Os chats em direto redesenham-se menos enquanto um agente trabalha, por isso o deslocamento continua fluido
+- Os registos das apps pertencem ao seu autor; os proprietários da equipa podem introduzir registos por outros
+- Os agentes podem mostrar pequenas animações nos seus cartões
