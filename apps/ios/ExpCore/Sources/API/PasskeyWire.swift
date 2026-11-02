@@ -115,6 +115,84 @@ public struct AuthenticationResponseJSON: Encodable, Sendable {
     }
 }
 
+/// EXP-1596: `GET /api/auth/passkey/generate-register-options`, parsed — the
+/// part of `PublicKeyCredentialCreationOptionsJSON` the platform authenticator
+/// takes. `cookieHeader` replays the signed challenge cookie on verify, as on
+/// the sign-in path.
+public struct PasskeyRegistrationOptions: Sendable, Equatable {
+    public let challenge: Data
+    public let rpId: String
+    public let userId: Data
+    public let userName: String
+    public let excludedCredentialIds: [Data]
+    public let cookieHeader: String
+
+    public init(
+        challenge: Data,
+        rpId: String,
+        userId: Data,
+        userName: String,
+        excludedCredentialIds: [Data] = [],
+        cookieHeader: String = ""
+    ) {
+        self.challenge = challenge
+        self.rpId = rpId
+        self.userId = userId
+        self.userName = userName
+        self.excludedCredentialIds = excludedCredentialIds
+        self.cookieHeader = cookieHeader
+    }
+}
+
+/// What the platform authenticator handed back from a registration, in raw bytes.
+public struct PasskeyAttestation: Sendable, Equatable {
+    public let credentialId: Data
+    public let clientDataJSON: Data
+    public let attestationObject: Data
+    public let attachment: String?
+
+    public init(
+        credentialId: Data,
+        clientDataJSON: Data,
+        attestationObject: Data,
+        attachment: String? = "platform"
+    ) {
+        self.credentialId = credentialId
+        self.clientDataJSON = clientDataJSON
+        self.attestationObject = attestationObject
+        self.attachment = attachment
+    }
+}
+
+/// The WebAuthn `RegistrationResponseJSON` the server verifies, built from the
+/// raw attestation bytes (the browser form; nil members omitted).
+public struct RegistrationResponseJSON: Encodable, Sendable {
+    public struct AttestationResponse: Encodable, Sendable {
+        public let clientDataJSON: String
+        public let attestationObject: String
+    }
+
+    public let id: String
+    public let rawId: String
+    public let type: String
+    public let authenticatorAttachment: String?
+    public let response: AttestationResponse
+    public let clientExtensionResults: [String: String]
+
+    public init(attestation: PasskeyAttestation) {
+        let credentialId = Base64URL.encode(attestation.credentialId)
+        self.id = credentialId
+        self.rawId = credentialId
+        self.type = "public-key"
+        self.authenticatorAttachment = attestation.attachment
+        self.response = AttestationResponse(
+            clientDataJSON: Base64URL.encode(attestation.clientDataJSON),
+            attestationObject: Base64URL.encode(attestation.attestationObject)
+        )
+        self.clientExtensionResults = [:]
+    }
+}
+
 public enum PasskeyWire {
     /// `{"response": <AuthenticationResponseJSON>}` — the verify-authentication body.
     public static func verifyRequestBody(_ assertion: PasskeyAssertion) throws -> Data {
@@ -123,6 +201,49 @@ public enum PasskeyWire {
 
     private struct VerifyBody: Encodable {
         let response: AuthenticationResponseJSON
+    }
+
+    /// EXP-1596: `{"response": <RegistrationResponseJSON>, "name": …}` — the
+    /// verify-registration body.
+    public static func registerRequestBody(_ attestation: PasskeyAttestation, name: String) throws -> Data {
+        try JSONEncoder().encode(RegisterBody(
+            response: RegistrationResponseJSON(attestation: attestation), name: name
+        ))
+    }
+
+    private struct RegisterBody: Encodable {
+        let response: RegistrationResponseJSON
+        let name: String
+    }
+
+    /// EXP-1596: parse the served `PublicKeyCredentialCreationOptionsJSON`.
+    /// Nil when the challenge, `rp.id`, `user.id` or `user.name` is
+    /// missing/undecodable — the platform request needs all four.
+    /// `excludeCredentials` lists the account's existing passkeys, so the
+    /// device refuses to register a second one for the same account.
+    public static func parseRegistrationOptions(
+        _ data: Data, cookieHeader: String = ""
+    ) -> PasskeyRegistrationOptions? {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let challengeText = root["challenge"] as? String,
+              let challenge = Base64URL.decode(challengeText), !challenge.isEmpty,
+              let rp = root["rp"] as? [String: Any],
+              let rpId = rp["id"] as? String, !rpId.isEmpty,
+              let user = root["user"] as? [String: Any],
+              let userIdText = user["id"] as? String,
+              let userId = Base64URL.decode(userIdText), !userId.isEmpty,
+              let userName = user["name"] as? String, !userName.isEmpty else { return nil }
+        let excluded = (root["excludeCredentials"] as? [[String: Any]] ?? [])
+            .compactMap { $0["id"] as? String }
+            .compactMap { Base64URL.decode($0) }
+        return PasskeyRegistrationOptions(
+            challenge: challenge,
+            rpId: rpId,
+            userId: userId,
+            userName: userName,
+            excludedCredentialIds: excluded,
+            cookieHeader: cookieHeader
+        )
     }
 
     /// Parse the served `PublicKeyCredentialRequestOptionsJSON`. Nil when the
