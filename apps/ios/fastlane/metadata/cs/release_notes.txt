@@ -24,3 +24,4 @@
 - Čekající relace na zařízení offline se přesune na vaše jiné zařízení
 - Spuštění, které nikdy nezačalo, ukáže „Nepodařilo se spustit“ místo nečinnosti
 - Pokračování několika přerušených relací najednou funguje
+- Chaty se otevírají rychleji a zůstávají plynulé, když agent pracuje: živé aktualizace už nepřekreslují celý chat ani pole pro psaní, dlouhé přepisy se načtou bez zamrznutí a spojení s vašimi zařízeními se obnoví během sekund

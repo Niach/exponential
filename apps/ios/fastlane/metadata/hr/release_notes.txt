@@ -24,3 +24,4 @@
 - Sesija na čekanju na izvanmrežnom uređaju prelazi na tvoje drugo računalo
 - Pokretanje koje nikad nije počelo piše „Nije moguće pokrenuti” umjesto da miruje
 - Nastavak više prekinutih sesija odjednom radi
+- Razgovori se otvaraju brže i ostaju glatki dok agent radi: ažuriranja uživo više ne iscrtavaju cijeli razgovor ni polje za pisanje, dugi zapisi učitavaju se bez zamrzavanja, a veza s tvojim računalima oporavlja se za nekoliko sekundi

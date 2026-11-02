@@ -24,3 +24,4 @@
 - Una sessione in coda su un dispositivo offline passa all'altro tuo computer
 - Un avvio mai partito mostra «Impossibile avviare» invece di restare inattivo
 - Riprendere più sessioni interrotte insieme funziona
+- Le chat si aprono più in fretta e restano fluide mentre un agente lavora: gli aggiornamenti dal vivo non ridisegnano più tutta la chat o il campo di scrittura, le trascrizioni lunghe si caricano senza bloccarsi e la connessione ai tuoi computer si ripristina in pochi secondi

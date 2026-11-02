@@ -24,3 +24,4 @@
 - Eine wartende Sitzung auf einem Offline-Gerät wechselt auf dein anderes Gerät
 - Ein Start, der nie begonnen hat, zeigt „Konnte nicht starten“ statt untätig zu warten
 - Mehrere unterbrochene Sitzungen lassen sich gleichzeitig fortsetzen
+- Chats öffnen schneller und bleiben flüssig, während ein Agent arbeitet: Live-Updates zeichnen nicht mehr den ganzen Chat oder das Eingabefeld neu, lange Verläufe laden ohne Hänger, und die Verbindung zu deinen Geräten erholt sich in Sekunden

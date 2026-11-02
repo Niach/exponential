@@ -24,3 +24,4 @@
 - En ventende session på en offline enhed flytter til din anden maskine
 - En start, der aldrig gik i gang, viser "Kunne ikke starte" i stedet for at stå stille
 - Flere afbrudte sessioner kan genoptages på én gang
+- Chats åbner hurtigere og forbliver glatte, mens en agent arbejder: liveopdateringer gentegner ikke længere hele chatten eller skrivefeltet, lange forløb indlæses uden at fryse, og forbindelsen til dine maskiner genoprettes på få sekunder

@@ -24,3 +24,4 @@
 - Jonossa oleva istunto offline-laitteella siirtyy toiselle koneellesi
 - Käynnistys, joka ei koskaan alkanut, näyttää "Käynnistys epäonnistui" eikä jää odottamaan
 - Useiden keskeytyneiden istuntojen jatkaminen kerralla toimii
+- Keskustelut avautuvat nopeammin ja pysyvät sulavina agentin työskennellessä: reaaliaikaiset päivitykset eivät enää piirrä koko keskustelua tai kirjoituskenttää uudelleen, pitkät keskustelut latautuvat jäätymättä ja yhteys koneisiisi palautuu sekunneissa

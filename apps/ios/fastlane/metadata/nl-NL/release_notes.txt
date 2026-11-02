@@ -24,3 +24,4 @@
 - Een wachtende sessie op een offline apparaat verhuist naar je andere machine
 - Een start die nooit begon toont "Kon niet starten" in plaats van stil te staan
 - Meerdere onderbroken sessies tegelijk hervatten werkt
+- Chats openen sneller en blijven soepel terwijl een agent werkt: live-updates tekenen niet langer de hele chat of het invoerveld opnieuw, lange transcripten laden zonder te haperen en de verbinding met je machines herstelt binnen enkele seconden

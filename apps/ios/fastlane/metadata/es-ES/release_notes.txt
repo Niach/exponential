@@ -24,3 +24,4 @@
 - Una sesión en cola en un dispositivo sin conexión pasa a tu otro equipo
 - Un inicio que nunca empezó dice «No se pudo iniciar» en lugar de quedarse inactivo
 - Reanudar varias sesiones interrumpidas a la vez funciona
+- Los chats se abren más rápido y van fluidos mientras un agente trabaja: las actualizaciones en directo ya no redibujan todo el chat ni el editor, las transcripciones largas cargan sin bloquearse y la conexión con tus equipos se recupera en segundos

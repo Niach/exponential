@@ -24,3 +24,4 @@
 - A queued session on an offline device moves to your other machine
 - A start that never began says "Couldn't start" instead of sitting idle
 - Resuming several interrupted sessions at once works
+- Chats open faster and stay smooth while an agent works: live updates no longer re-render the whole chat or the composer, long transcripts load without freezing, and the connection to your machines recovers within seconds

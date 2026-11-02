@@ -24,3 +24,4 @@
 - Une session en attente sur un appareil hors ligne passe sur ton autre machine
 - Un démarrage qui n'a jamais commencé affiche « Démarrage impossible » au lieu de rester inactif
 - Reprendre plusieurs sessions interrompues à la fois fonctionne
+- Les chats s'ouvrent plus vite et restent fluides pendant qu'un agent travaille : les mises à jour en direct ne redessinent plus tout le chat ni la zone de saisie, les longues transcriptions se chargent sans figer et la connexion à tes machines revient en quelques secondes

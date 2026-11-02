@@ -24,3 +24,4 @@
 - O sesiune în așteptare pe un dispozitiv offline trece pe celălalt calculator al tău
 - O pornire care n-a început niciodată arată „Nu a putut porni” în loc să stea inactivă
 - Reluarea mai multor sesiuni întrerupte deodată funcționează
+- Conversațiile se deschid mai repede și rămân fluide cât lucrează un agent: actualizările live nu mai redesenează toată conversația sau câmpul de scriere, transcrierile lungi se încarcă fără blocaje, iar conexiunea cu calculatoarele tale revine în câteva secunde

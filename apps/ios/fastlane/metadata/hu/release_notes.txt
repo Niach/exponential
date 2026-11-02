@@ -24,3 +24,4 @@
 - Egy offline eszközön várakozó munkamenet átkerül a másik gépedre
 - Egy soha el nem indult indítás „Nem sikerült elindítani” feliratot mutat tétlenség helyett
 - Több megszakadt munkamenet egyszerre folytatható
+- A csevegések gyorsabban nyílnak és gördülékenyek maradnak, amíg egy ügynök dolgozik: az élő frissítések már nem rajzolják újra az egész csevegést vagy a szövegmezőt, a hosszú átiratok fagyás nélkül töltődnek be, és a gépeiddel való kapcsolat másodperceken belül helyreáll

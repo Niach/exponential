@@ -24,3 +24,4 @@
 - En ventende økt på en frakoblet enhet flytter til den andre maskinen din
 - En start som aldri begynte viser «Kunne ikke starte» i stedet for å stå stille
 - Å gjenoppta flere avbrutte økter samtidig fungerer
+- Chatter åpnes raskere og holder seg jevne mens en agent jobber: liveoppdateringer tegner ikke lenger hele chatten eller skrivefeltet på nytt, lange forløp lastes uten å fryse, og forbindelsen til maskinene dine kommer tilbake på sekunder

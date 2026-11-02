@@ -24,3 +24,4 @@
 - En köad session på en offlineenhet flyttar till din andra dator
 - En start som aldrig började visar "Kunde inte starta" i stället för att stå still
 - Att återuppta flera avbrutna sessioner samtidigt fungerar
+- Chattar öppnas snabbare och förblir smidiga medan en agent arbetar: liveuppdateringar ritar inte längre om hela chatten eller skrivfältet, långa förlopp laddas utan att frysa och anslutningen till dina datorer återhämtar sig inom några sekunder
