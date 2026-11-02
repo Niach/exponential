@@ -95,6 +95,9 @@ fun AppDataTab(
     var form by remember { mutableStateOf<DataFormTarget?>(null) }
     var deleting by remember { mutableStateOf<String?>(null) }
     val busyDeleting by viewModel.recordDeleting.collectAsStateWithLifecycle()
+    // VAPP-187: a row I may not change keeps its `…`, disabled.
+    val me by viewModel.me.collectAsStateWithLifecycle()
+    val role by viewModel.myRole.collectAsStateWithLifecycle()
 
     Column(modifier = modifier.fillMaxSize().testTag(Apps.TestIds.DATA)) {
         if (kind == null) {
@@ -159,6 +162,8 @@ fun AppDataTab(
                     DataRow(
                         row = row,
                         columns = columns,
+                        canChange = AppRecords.canChangeRecord(row, me, role, "update") ||
+                            AppRecords.canChangeRecord(row, me, role, "delete"),
                         onEdit = {
                             viewModel.clearRecordError()
                             form = DataFormTarget(kind, row)
@@ -206,7 +211,7 @@ private fun kindOption(kind: AppRecords.DataKind): String =
 
 /** One phone row: title + muted subtitle, the relative `updated`, the `…` menu. */
 @Composable
-private fun DataRow(row: AppRecords.Row, columns: List<String>, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun DataRow(row: AppRecords.Row, columns: List<String>, canChange: Boolean, onEdit: () -> Unit, onDelete: () -> Unit) {
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val subtitle = AppRecords.rowSubtitle(columns, row)
     var menu by remember { mutableStateOf(false) }
@@ -242,6 +247,7 @@ private fun DataRow(row: AppRecords.Row, columns: List<String>, onEdit: () -> Un
                 ExpIcons.uiMore,
                 contentDescription = "Record actions",
                 onClick = { menu = true },
+                enabled = canChange,
                 borderless = true,
                 modifier = Modifier.testTag(DataTestIds.MENU),
             )

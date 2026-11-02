@@ -99,6 +99,8 @@ final class AppRecordsTests: XCTestCase {
                     kind: row["kind"] as? String ?? "",
                     data: CardJSON(any: row["data"])?.objectValue ?? [:],
                     createdBy: row["createdBy"] as? String,
+                    // VAPP-187: missing or null = a legacy row (nil).
+                    authorId: row["authorId"] as? String,
                     createdAt: row["createdAt"] as? String ?? "",
                     updatedAt: row["updatedAt"] as? String ?? ""
                 )
@@ -117,6 +119,37 @@ final class AppRecordsTests: XCTestCase {
             if let value {
                 let reparsed = try JSONSerialization.jsonObject(with: Data(value.compactString.utf8))
                 XCTAssertEqual(CardJSON(any: reparsed), expected, name)
+            }
+        }
+    }
+
+    // VAPP-187: `ownership` — the policy, the refusal and `canChangeCases`
+    // (`author` / `role` / `viewer` null = nil).
+    func testOwnershipConstantsMatchTheFixture() throws {
+        let ownership = try XCTUnwrap(try fixture()["ownership"] as? [String: Any])
+        XCTAssertEqual(ownership["policy"] as? [String: String], AppRecords.Ownership.policy)
+        XCTAssertEqual(ownership["refusal"] as? String, AppRecords.Ownership.refusal)
+    }
+
+    func testCanChangeCases() throws {
+        let ownership = try XCTUnwrap(try fixture()["ownership"] as? [String: Any])
+        let list = try XCTUnwrap(ownership["canChangeCases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let row = AppRecords.Row(
+                id: "r1", kind: "entry", data: [:],
+                createdBy: item["createdBy"] as? String,
+                authorId: item["author"] as? String,
+                createdAt: "", updatedAt: ""
+            )
+            let expected = try XCTUnwrap(item["expected"] as? [String: Bool], name)
+            for op in ["update", "delete"] {
+                XCTAssertEqual(
+                    AppRecords.canChangeRecord(row, viewer: item["viewer"] as? String, role: item["role"] as? String, op: op),
+                    try XCTUnwrap(expected[op], name),
+                    "\(name) (\(op))"
+                )
             }
         }
     }

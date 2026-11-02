@@ -6,7 +6,9 @@
 //! `by`, `updated`, an empty menu cell), then the picked kind's rows on the
 //! same grid (schema columns share the width, `by` / `updated` / the menu
 //! fixed px), each cell one truncated line; the trailing `…` opens Edit /
-//! Delete (destructive, asks first). Add / Edit = the native dialog's FORM
+//! Delete (destructive, asks first); VAPP-187: a row the viewer may not
+//! change (`can_change_record`: neither its author nor a team owner) keeps
+//! its `…` DISABLED, and `by` names the AUTHOR. Add / Edit = the native dialog's FORM
 //! ([`open_form`]): one labelled field per column, Save = `apps.records.
 //! upsert` (a BAD_REQUEST shows inline under the fields, anything else is
 //! the failed-action toast). The pure model is `domain::app_records`.
@@ -30,8 +32,8 @@ use serde_json::Value;
 use sync::Store;
 
 use domain::app_records::{
-    cell_text, column_width, data_columns, data_kinds, data_rows, form_data, form_fields, form_input, kind_option, kind_schema, table_min_width,
-    DataControl, DataFormField, DataSchema, FormInput, RecordRowInput, DATA_TAB,
+    can_change_record, cell_text, column_width, data_columns, data_kinds, data_rows, form_data, form_fields, form_input, kind_option, kind_schema, table_min_width,
+    record_author, DataControl, DataFormField, DataSchema, FormInput, RecordOp, RecordRowInput, DATA_TAB,
 };
 use domain::apps::APPS;
 use domain::prompts::{Action, Prompt, Role};
@@ -48,15 +50,43 @@ struct Record {
     kind: String,
     data: Value,
     created_by: Option<String>,
+    /// VAPP-187: whose record it is (`None` = `created_by`).
+    author_id: Option<String>,
     updated_at: String,
 }
 
-/// The app's head package (the `records` manifest) and its synced records.
-fn app_state(app_id: &str, cx: &App) -> (Option<Value>, Vec<Record>) {
-    let package = crate::apps_view::find_app(app_id, None, cx)
-        .and_then(|entry| entry.row)
-        .and_then(|row| row.package)
-        .filter(Value::is_object);
+/// VAPP-187: the viewer (signed-in user id) and their role in the app's
+/// team (`None` = not a member), what `can_change_record` reads.
+#[derive(Clone, Default)]
+struct Viewer {
+    user_id: Option<String>,
+    role: Option<String>,
+}
+
+impl Viewer {
+    fn may_change(&self, record: &Record) -> bool {
+        let (author, created_by) = (record.author_id.as_deref(), record.created_by.as_deref());
+        let (viewer, role) = (self.user_id.as_deref(), self.role.as_deref());
+        // The menu opens when either op is allowed (fixture `ownership`).
+        can_change_record(author, created_by, viewer, role, RecordOp::Update)
+            || can_change_record(author, created_by, viewer, role, RecordOp::Delete)
+    }
+}
+
+/// The app's head package (the `records` manifest), its synced records and
+/// the viewer.
+fn app_state(app_id: &str, cx: &App) -> (Option<Value>, Vec<Record>, Viewer) {
+    let row = crate::apps_view::find_app(app_id, None, cx).and_then(|entry| entry.row);
+    let viewer = Viewer {
+        user_id: crate::queries::active_account(cx).map(|account| account.user_id),
+        role: row
+            .as_ref()
+            .and_then(|row| row.team_id.as_deref())
+            .filter(|_| Store::try_global(cx).is_some())
+            .and_then(|team_id| crate::settings::my_membership(cx, team_id))
+            .map(|(_, role)| role),
+    };
+    let package = row.and_then(|row| row.package).filter(Value::is_object);
     let records = Store::try_global(cx)
         .map(|store| {
             store
@@ -70,12 +100,13 @@ fn app_state(app_id: &str, cx: &App) -> (Option<Value>, Vec<Record>) {
                     kind: row.kind.clone(),
                     data: row.data.clone(),
                     created_by: row.created_by.clone(),
+                    author_id: row.author_id.clone(),
                     updated_at: crate::exponential_ui_host::iso_millis(row.updated_at.as_deref().unwrap_or("")),
                 })
                 .collect()
         })
         .unwrap_or_default();
-    (package, records)
+    (package, records, viewer)
 }
 
 /// The tab body (an entity: it keeps the picked kind).
@@ -99,6 +130,7 @@ impl AppDataTab {
             subscriptions.push(cx.observe(&collections.apps, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.app_records, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
+            subscriptions.push(cx.observe(&collections.team_members, |_, _, cx| cx.notify()));
         }
         Self { app_id, kind: None, scroll: ScrollHandle::new(), table_scroll: ScrollHandle::new(), _subscriptions: subscriptions }
     }
@@ -180,15 +212,20 @@ impl AppDataTab {
         div().w_full().min_w_0().truncate().child(text.into()).into_any_element()
     }
 
-    fn row_menu(&self, index: usize, record: &Record, schema: &DataSchema, cx: &App) -> AnyElement {
+    fn row_menu(&self, index: usize, record: &Record, schema: &DataSchema, allowed: bool, cx: &App) -> AnyElement {
         let (app_id, record_id, kind, data) =
             (self.app_id.clone(), record.id.clone(), record.kind.clone(), record.data.clone());
         let schema = schema.clone();
-        crate::controls::ghost_icon_button(
+        let button = crate::controls::ghost_icon_button(
             SharedString::from(format!("{}-{index}", DATA_TAB.test_ids.menu)),
             Icon::new(registry::UI_MORE),
             cx,
-        )
+        );
+        // VAPP-187: not the viewer's to change = the same `…`, disabled, no menu.
+        if !allowed {
+            return button.disabled(true).into_any_element();
+        }
+        button
         .pointer_menu(move |menu, _window, cx| {
             let (edit_app, edit_kind, edit_schema, edit_id, edit_data) =
                 (app_id.clone(), kind.clone(), schema.clone(), record_id.clone(), data.clone());
@@ -220,7 +257,7 @@ impl AppDataTab {
 
 impl Render for AppDataTab {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let (package, records) = app_state(&self.app_id, cx);
+        let (package, records, viewer) = app_state(&self.app_id, cx);
         let kinds = data_kinds(package.as_ref(), records.iter().map(|r| r.kind.as_str()));
         let body = if kinds.is_empty() {
             crate::controls::empty_state_list(Icon::new(registry::NAV_APPS), DATA_TAB.copy.no_kinds.clone(), cx)
@@ -242,6 +279,7 @@ impl Render for AppDataTab {
                     kind: &r.kind,
                     data: &r.data,
                     created_by: r.created_by.as_deref(),
+                    author_id: r.author_id.as_deref(),
                     created_at: "",
                     updated_at: &r.updated_at,
                 })
@@ -270,9 +308,7 @@ impl Render for AppDataTab {
                 ));
                 let mut rows = vec![header];
                 for (index, record) in ordered.iter().enumerate() {
-                    let author = record
-                        .created_by
-                        .as_deref()
+                    let author = record_author(record.author_id.as_deref(), record.created_by.as_deref())
                         .and_then(|id| users.as_ref()?.read(cx).get(id)?.name.clone())
                         .filter(|name| !name.trim().is_empty());
                     let by = author.unwrap_or_else(|| APPS.copy.by_agent.clone());
@@ -288,7 +324,7 @@ impl Render for AppDataTab {
                                 cells,
                                 div().w_full().min_w_0().truncate().text_color(muted).child(by).into_any_element(),
                                 div().w_full().min_w_0().truncate().text_color(muted).child(updated).into_any_element(),
-                                self.row_menu(index, record, &schema, cx),
+                                self.row_menu(index, record, &schema, viewer.may_change(record), cx),
                             )
                             .id(SharedString::from(format!("{}-{}", DATA_TAB.test_ids.row, record.id))),
                         ),

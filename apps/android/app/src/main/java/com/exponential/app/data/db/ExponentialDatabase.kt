@@ -54,7 +54,10 @@ import androidx.room.TypeConverters
     // v108 (#EXP-1611): pull_requests.checks_state + the pull_request_checks
     //      table (CI on a PR), explicit [MIGRATION_107_108]; only the
     //      pull_requests shape refetches (the new shape starts fresh).
-    version = 108,
+    // v109 (#VAPP-187): app_records.author_id + updated_by (record
+    //      ownership), explicit [MIGRATION_108_109]; only the app_records
+    //      shape refetches.
+    version = 109,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

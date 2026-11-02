@@ -100,6 +100,7 @@ class AppRecordsTest {
                     createdBy = r["createdBy"]?.string,
                     createdAt = r["createdAt"]!!.string!!,
                     updatedAt = r["updatedAt"]!!.string!!,
+                    authorId = r["authorId"]?.string,
                 )
             }
             val got = AppRecords.recordsValue(
@@ -111,6 +112,33 @@ class AppRecordsTest {
             )
             val expected = case["expected"]!!
             if (expected.isNull) assertNull(case["name"]!!.string, got) else assertEquals(case["name"]!!.string, expected.json, got!!.json)
+        }
+    }
+
+    // VAPP-187: record ownership (`ownership`).
+    @Test
+    fun `the ownership constants match the fixture`() {
+        val ownership = fixture["ownership"]!!
+        assertEquals(params(ownership["policy"]), AppRecords.OWNERSHIP_POLICY)
+        assertEquals(ownership["refusal"]!!.string, AppRecords.OWNERSHIP_REFUSAL)
+    }
+
+    @Test
+    fun `canChangeRecord replays canChangeCases`() {
+        val all = fixture["ownership"]!!["canChangeCases"]!!.array!!
+        assert(all.isNotEmpty())
+        for (case in all) {
+            val row = AppRecords.Row(
+                id = "r", kind = "entry", data = emptyMap(),
+                createdBy = case["createdBy"]?.string, createdAt = "", updatedAt = "",
+                authorId = case["author"]?.string,
+            )
+            val viewer = case["viewer"]?.string
+            val role = case["role"]?.string
+            val expected = case["expected"]!!
+            for (op in listOf("update", "delete")) {
+                assertEquals("${case["name"]!!.string} ($op)", expected[op]!!.bool!!, AppRecords.canChangeRecord(row, viewer, role, op))
+            }
         }
     }
 

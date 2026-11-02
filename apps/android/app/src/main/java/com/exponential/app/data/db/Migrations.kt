@@ -76,3 +76,18 @@ val MIGRATION_107_108: Migration = object : Migration(107, 108) {
         )
     }
 }
+
+/**
+ * v109 (#VAPP-187): `app_records.author_id` (whose record it is) and
+ * `updated_by` (the last writer). Only the app_records shape refetches.
+ */
+val MIGRATION_108_109: Migration = object : Migration(108, 109) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `app_records` ADD COLUMN `author_id` TEXT")
+        db.execSQL("ALTER TABLE `app_records` ADD COLUMN `updated_by` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'app_records'",
+        )
+    }
+}

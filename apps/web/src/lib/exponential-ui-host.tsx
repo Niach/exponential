@@ -41,7 +41,7 @@ import {
   teamMemberCollection,
   userCollection,
 } from "@/lib/collections"
-import { parseRecordsQuery, recordsSourceParams, recordsValue, type AppRecordRow } from "@exp/domain-contract/app-records"
+import { parseRecordsQuery, recordAuthor, recordsSourceParams, recordsValue, type AppRecordRow } from "@exp/domain-contract/app-records"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { appMediaAllowed } from "@exp/domain-contract/apps"
@@ -329,7 +329,8 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
     const rows = records?.rows() ?? []
     const names: Record<string, string> = {}
     for (const row of rows) {
-      if (row.createdBy && !(row.createdBy in names)) names[row.createdBy] = users.get(row.createdBy) ?? ``
+      const author = recordAuthor(row)
+      if (author && !(author in names)) names[author] = users.get(author) ?? ``
     }
     const value = recordsValue(rows, query, { me: scope.me, now: new Date().toISOString(), names })
     const key = JSON.stringify(value)
@@ -357,6 +358,7 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
                   kind: r.kind,
                   data: r.data,
                   createdBy: r.createdBy,
+                  authorId: r.authorId,
                   createdAt: new Date(r.createdAt).toISOString(),
                   updatedAt: new Date(r.updatedAt).toISOString(),
                 }

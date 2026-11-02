@@ -85,8 +85,38 @@ export interface AppRecordRow {
   kind: string
   data: Record<string, unknown>
   createdBy: string | null
+  /** VAPP-187: whose record it is (null/missing on a legacy row = `createdBy`). */
+  authorId?: string | null
   createdAt: string
   updatedAt: string
+}
+
+/** VAPP-187: a record's AUTHOR (`authorId ?? createdBy`): whose record it
+ *  is, what `mine`/`user=` and the per-member views read. */
+export function recordAuthor(row: { authorId?: string | null; createdBy: string | null }): string | null {
+  return row.authorId ?? row.createdBy ?? null
+}
+
+/** VAPP-187 OWNERSHIP (fixture `ownership`): the default per-kind policy and
+ *  the server's refusal. */
+export const APP_RECORDS_OWNERSHIP = {
+  policy: fixture.ownership.policy as Record<`update` | `delete`, `author` | `member`>,
+  refusal: fixture.ownership.refusal,
+}
+
+/** May `viewer` (with team `role`; null = not a member) `op` the record?
+ *  Policy `author` = the author or a team owner (`canChangeCases`). */
+export function canChangeRecord(
+  row: { authorId?: string | null; createdBy: string | null },
+  viewer: string | null,
+  role: string | null,
+  op: `update` | `delete` = `update`
+): boolean {
+  if (viewer === null || role === null) return false
+  if (role === `owner`) return true
+  if (APP_RECORDS_OWNERSHIP.policy[op] === `member`) return true
+  const author = recordAuthor(row)
+  return author !== null && author === viewer
 }
 
 export interface RecordsDay {
@@ -187,11 +217,11 @@ export function recordsValue(rows: readonly AppRecordRow[], query: RecordsQuery,
   if (!query.kind) return null
   const monthKey = query.by ? (query.month ?? ctx.now.slice(0, 7)) : null
   const field = (row: AppRecordRow, name: string): unknown =>
-    name === `createdAt` ? row.createdAt : name === `updatedAt` ? row.updatedAt : name === `id` ? row.id : name === `createdBy` ? row.createdBy : row.data[name]
+    name === `createdAt` ? row.createdAt : name === `updatedAt` ? row.updatedAt : name === `id` ? row.id : name === `createdBy` ? row.createdBy : name === `authorId` ? recordAuthor(row) : row.data[name]
   let matched = rows.filter((row) => {
     if (row.kind !== query.kind) return false
-    if (query.mine && (ctx.me === null || row.createdBy !== ctx.me)) return false
-    if (query.user !== null && row.createdBy !== query.user) return false
+    if (query.mine && (ctx.me === null || recordAuthor(row) !== ctx.me)) return false
+    if (query.user !== null && recordAuthor(row) !== query.user) return false
     if (monthKey !== null && query.by && !text(row.data[query.by]).startsWith(monthKey)) return false
     return query.filters.every((f) => matches(f, field(row, f.field)))
   })
@@ -207,7 +237,8 @@ export function recordsValue(rows: readonly AppRecordRow[], query: RecordsQuery,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       createdBy: row.createdBy,
-      author: (row.createdBy && ctx.names[row.createdBy]) || ``,
+      authorId: recordAuthor(row),
+      author: (recordAuthor(row) && ctx.names[recordAuthor(row)!]) || ``,
     })),
     count: matched.length,
   }

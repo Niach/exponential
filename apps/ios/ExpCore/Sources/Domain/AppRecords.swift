@@ -19,7 +19,7 @@ public enum AppRecords {
     public static let limitDefault = 100
     public static let limitMax = 500
     public static let operators = ["eq", "gt", "gte", "lt", "lte"]
-    public static let rowKeys = ["id", "createdAt", "updatedAt", "createdBy", "author"]
+    public static let rowKeys = ["id", "createdAt", "updatedAt", "createdBy", "authorId", "author"]
     public static let weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
     public static let months = [
         "January", "February", "March", "April", "May", "June",
@@ -130,14 +130,20 @@ public enum AppRecords {
         public let kind: String
         public let data: [String: CardJSON]
         public let createdBy: String?
+        /// VAPP-187: whose record it is (nil on a legacy row = `createdBy`).
+        public let authorId: String?
         public let createdAt: String
         public let updatedAt: String
 
-        public init(id: String, kind: String, data: [String: CardJSON], createdBy: String?, createdAt: String, updatedAt: String) {
+        public init(
+            id: String, kind: String, data: [String: CardJSON], createdBy: String?, authorId: String? = nil,
+            createdAt: String, updatedAt: String
+        ) {
             self.id = id
             self.kind = kind
             self.data = data
             self.createdBy = createdBy
+            self.authorId = authorId
             self.createdAt = createdAt
             self.updatedAt = updatedAt
         }
@@ -151,10 +157,37 @@ public enum AppRecords {
                 kind: entity.kind,
                 data: CardJSON(any: parsed)?.objectValue ?? [:],
                 createdBy: entity.createdBy,
+                authorId: entity.authorId,
                 createdAt: AppRecords.isoTimestamp(entity.createdAt),
                 updatedAt: AppRecords.isoTimestamp(entity.updatedAt)
             )
         }
+    }
+
+    // MARK: - Ownership (VAPP-187)
+
+    /// A record's AUTHOR (`authorId ?? createdBy`): whose record it is, what
+    /// `mine` / `user=` and the per-member views read (TS `recordAuthor`).
+    public static func recordAuthor(_ row: Row) -> String? {
+        row.authorId ?? row.createdBy
+    }
+
+    /// The fixture `ownership` block: the default per-kind policy
+    /// (`author` | `member` per op) and the server's FORBIDDEN refusal.
+    public enum Ownership {
+        public static let policy: [String: String] = ["update": "author", "delete": "author"]
+        public static let refusal = "Only the record's author or a team owner can change it"
+    }
+
+    /// May `viewer` (with team `role`; nil = not a member) `op` (`update` |
+    /// `delete`) the record? Policy `author` = the author or a team owner
+    /// (TS `canChangeRecord`, fixture `ownership.canChangeCases`).
+    public static func canChangeRecord(_ row: Row, viewer: String?, role: String?, op: String = "update") -> Bool {
+        guard let viewer, let role else { return false }
+        if role == "owner" { return true }
+        if Ownership.policy[op] == "member" { return true }
+        guard let author = recordAuthor(row) else { return false }
+        return author == viewer
     }
 
     private nonisolated(unsafe) static let isoMillis: ISO8601DateFormatter = {
@@ -242,6 +275,7 @@ public enum AppRecords {
         case "updatedAt": return .string(row.updatedAt)
         case "id": return .string(row.id)
         case "createdBy": return row.createdBy.map(CardJSON.string) ?? .null
+        case "authorId": return recordAuthor(row).map(CardJSON.string) ?? .null
         default: return row.data[name]
         }
     }
@@ -321,8 +355,8 @@ public enum AppRecords {
         let monthKey: String? = query.by != nil ? (query.month ?? monthKeyOf(now)) : nil
         var matched = rows.filter { row in
             if row.kind != kind { return false }
-            if query.mine, me == nil || row.createdBy != me { return false }
-            if let user = query.user, row.createdBy != user { return false }
+            if query.mine, me == nil || recordAuthor(row) != me { return false }
+            if let user = query.user, recordAuthor(row) != user { return false }
             if let monthKey, let by = query.by, !text(row.data[by]).hasPrefix(monthKey) { return false }
             return query.filters.allSatisfy { matches($0, field(row, $0.field)) }
         }
@@ -338,7 +372,9 @@ public enum AppRecords {
                 object["createdAt"] = .string(row.createdAt)
                 object["updatedAt"] = .string(row.updatedAt)
                 object["createdBy"] = row.createdBy.map(CardJSON.string) ?? .null
-                object["author"] = .string(row.createdBy.flatMap { names[$0] } ?? "")
+                let author = recordAuthor(row)
+                object["authorId"] = author.map(CardJSON.string) ?? .null
+                object["author"] = .string(author.flatMap { names[$0] } ?? "")
                 return .object(object)
             }),
             "count": .number(Double(matched.count)),

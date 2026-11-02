@@ -1546,6 +1546,10 @@ public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable,
     /// The record's `data` object as JSON text ("{}" when absent).
     public let data: String
     public let createdBy: String?
+    /// VAPP-187: whose record it is (nil on a legacy row = `createdBy`).
+    public let authorId: String?
+    /// VAPP-187: the last writer.
+    public let updatedBy: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -1556,6 +1560,8 @@ public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable,
         kind: String,
         data: String = "{}",
         createdBy: String? = nil,
+        authorId: String? = nil,
+        updatedBy: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -1565,6 +1571,8 @@ public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable,
         self.kind = kind
         self.data = data
         self.createdBy = createdBy
+        self.authorId = authorId
+        self.updatedBy = updatedBy
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -1574,6 +1582,8 @@ public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable,
         case appId = "app_id"
         case teamId = "team_id"
         case createdBy = "created_by"
+        case authorId = "author_id"
+        case updatedBy = "updated_by"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -1588,6 +1598,8 @@ extension AppRecordEntity: Codable {
         kind = try c.decodeIfPresent(String.self, forKey: .kind) ?? ""
         data = c.decodeWireJsonString(forKey: .data) ?? "{}"
         createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy)
+        authorId = try c.decodeIfPresent(String.self, forKey: .authorId)
+        updatedBy = try c.decodeIfPresent(String.self, forKey: .updatedBy)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

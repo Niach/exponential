@@ -836,6 +836,10 @@ data class AppRecordEntity(
     @ColumnInfo(name = "data") @SerialName("data")
     @Serializable(with = JsonAsStringSerializer::class) val data: String? = null,
     @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy") val createdBy: String? = null,
+    // VAPP-187: whose record it is (null on a legacy row = `createdBy`) and
+    // the last writer.
+    @ColumnInfo(name = "author_id") @SerialName("author_id") @JsonNames("authorId") val authorId: String? = null,
+    @ColumnInfo(name = "updated_by") @SerialName("updated_by") @JsonNames("updatedBy") val updatedBy: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

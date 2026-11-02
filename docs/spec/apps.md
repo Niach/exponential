@@ -271,8 +271,8 @@ Schemas are flat JSON Schema:
 | Column | Meaning |
 |---|---|
 | `created_by` (✅) | Who pressed the button. Never changes. |
-| `author_id` 🆕 | Whose record it is. It defaults to `created_by`. Only an owner may set it to someone else (an on-behalf write). |
-| `updated_by` 🆕 | The last writer. |
+| `author_id` (✅ #VAPP-187) | Whose record it is. It defaults to `created_by`. Only an owner may set it to someone else (an on-behalf write; 🆕). |
+| `updated_by` (✅ #VAPP-187) | The last writer. |
 | `via_app_id` / `via_client_id` 🆕 | How the write arrived: UI, MCP client, automation, import. |
 
 A per-member view groups by `author`, not `created_by`. That way a backfill an owner does for another member still counts as that member's records.

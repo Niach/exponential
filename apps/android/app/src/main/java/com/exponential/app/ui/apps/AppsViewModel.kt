@@ -91,6 +91,13 @@ private fun Flow<ExponentialDatabase?>.isOwnerOf(team: Flow<String?>, userId: Fl
         .flatMapLatest { (db, t) -> if (db == null || t == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(t) }
         .combine(userId) { members, me -> me != null && members.firstOrNull { it.userId == me }?.role == DomainContract.teamRoleOwner }
 
+/** VAPP-187: the viewer's role in [team] (null = not a member / signed out),
+ *  what `AppRecords.canChangeRecord` reads. */
+private fun Flow<ExponentialDatabase?>.roleOf(team: Flow<String?>, userId: Flow<String?>): Flow<String?> =
+    combine(this, team) { db, t -> db to t }
+        .flatMapLatest { (db, t) -> if (db == null || t == null) flowOf(emptyList()) else db.teamMemberDao().observeByTeam(t) }
+        .combine(userId) { members, me -> if (me == null) null else members.firstOrNull { it.userId == me }?.role }
+
 /** The Apps list + the New app / Import / Delete writes. */
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -223,6 +230,11 @@ class AppEditorViewModel @Inject constructor(
      *  creator, who may rename, describe and delete). */
     val isOwner: StateFlow<Boolean> = dbFlow.isOwnerOf(app.map { it?.teamId }.distinctUntilChanged(), auth.userId)
         .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** VAPP-187: my role in the app's team (null = not a member): the Data
+     *  tab disables the `…` of a record I may not change. */
+    val myRole: StateFlow<String?> = dbFlow.roleOf(app.map { it?.teamId }.distinctUntilChanged(), auth.userId)
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** VAPP-120: the app's synced `granted_tools` (the Settings sheet's switches). */
     val grantedTools: StateFlow<List<String>> =

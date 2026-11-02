@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-record-ownership",
+    date: "2026-11-02",
+    title: "Records belong to their author",
+    summary: "Only a record's author or a team owner can edit or delete it, on every device.",
+    body: r#"- **Yours**: every app record remembers who it belongs to; only you or a team owner can edit or delete it.
+- **Data tab**: rows you can't change show their menu greyed out, the same on the web, desktop, iOS and Android.
+- **Mine**: an app's “mine” and per-member views count a record for its author, also when an owner entered it for them.
+- **Agents too**: an agent or another app editing someone else's record gets the same clear refusal."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_165: ChangelogEntry = ChangelogEntry {
     id: "2026-11-02-motion",
     date: "2026-11-02",
     title: "Animations in agent cards",

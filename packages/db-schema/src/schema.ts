@@ -2397,6 +2397,12 @@ export const appRecords = pgTable(
     kind: varchar({ length: 32 }).notNull(),
     data: jsonb().$type<AppRecordData>().notNull(),
     createdBy: text(`created_by`).references(() => users.id, { onDelete: `set null` }),
+    // VAPP-187 (app-records.json `ownership`): whose record it is (set to
+    // the writer on create, backfilled from created_by; the insert trigger
+    // fills a null from created_by) and the last writer. Only the author or
+    // a team owner may update/delete.
+    authorId: text(`author_id`).references(() => users.id, { onDelete: `set null` }),
+    updatedBy: text(`updated_by`).references(() => users.id, { onDelete: `set null` }),
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
     // Mirror of the app's deleted_at (trigger-maintained): the shape's static
     // trash predicate. Server-only, shape-excluded.

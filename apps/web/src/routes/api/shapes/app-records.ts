@@ -17,6 +17,9 @@ export const APP_RECORD_COLUMNS = [
   `kind`,
   `data`,
   `created_by`,
+  // VAPP-187: whose record it is + the last writer (ownership).
+  `author_id`,
+  `updated_by`,
   `created_at`,
   `updated_at`,
 ]

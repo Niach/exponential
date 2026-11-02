@@ -21,7 +21,7 @@ import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIss
 import { validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
-import { APP_RECORDS_QUERY } from "@exp/domain-contract/app-records"
+import { APP_RECORDS_OWNERSHIP, APP_RECORDS_QUERY, canChangeRecord } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
@@ -218,6 +218,12 @@ async function takenSlugs(tx: Tx, teamId: string): Promise<string[]> {
   return rows.map((r) => r.slug)
 }
 
+/** VAPP-187: a record's author or a team owner may patch/delete it
+ *  (app-records.json `ownership`); anyone else = FORBIDDEN. */
+function assertCanChangeRecord(row: { authorId: string | null; createdBy: string | null }, userId: string, role: string, op: `update` | `delete`) {
+  if (!canChangeRecord(row, userId, role, op)) throw new TRPCError({ code: `FORBIDDEN`, message: APP_RECORDS_OWNERSHIP.refusal })
+}
+
 export const appsRouter = router({
   list: authedProcedure
     .input(z.object({ teamId: uuid }))
@@ -365,7 +371,7 @@ export const appsRouter = router({
         if (file.records.length > 0) {
           await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`app_records:${input.teamId}`}))`)
           await assertCanCreateAppRecord(input.teamId, tx, file.records.length)
-          await tx.insert(appRecords).values(file.records.map((r) => ({ appId: app!.id, teamId: input.teamId, kind: r.kind, data: r.data, createdBy: userId })))
+          await tx.insert(appRecords).values(file.records.map((r) => ({ appId: app!.id, teamId: input.teamId, kind: r.kind, data: r.data, createdBy: userId, authorId: userId, updatedBy: userId })))
         }
         return { txid: txId, app: { ...app!, headVersion: number }, records: file.records.length }
       })
@@ -489,8 +495,11 @@ export const appsRouter = router({
     }),
 
   // VAPP-122: an app's RECORDS (fixtures/app-records.json). Any member reads
-  // and writes them (team data the app owns); a write is validated against
-  // the head package's kind schema, capped per record and per team.
+  // and creates them (team data the app owns); VAPP-187: only a record's
+  // author or a team owner patches or deletes it (`ownership`, the MCP
+  // records_* ops and the apps broker run through here). A write is
+  // validated against the head package's kind schema, capped per record
+  // and per team.
   records: router({
     list: authedProcedure
       .input(
@@ -511,6 +520,7 @@ export const appsRouter = router({
             kind: appRecords.kind,
             data: appRecords.data,
             createdBy: appRecords.createdBy,
+            authorId: appRecords.authorId,
             createdAt: appRecords.createdAt,
             updatedAt: appRecords.updatedAt,
           })
@@ -528,7 +538,7 @@ export const appsRouter = router({
       .mutation(async ({ ctx, input }) => {
         const userId = ctx.session.user.id
         const app = await loadApp(ctx.db, input)
-        await assertTeamMember(userId, app.teamId)
+        const member = await assertTeamMember(userId, app.teamId)
         const schema = recordKindSchema(app.package, input.kind)
         if (!schema) {
           throw new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${input.kind}": add it to the package's records first` })
@@ -552,14 +562,15 @@ export const appsRouter = router({
             // locked in THIS transaction, so two concurrent patches queue
             // here and neither loses the other's fields.
             const [existing] = await tx
-              .select({ id: appRecords.id, data: appRecords.data })
+              .select({ id: appRecords.id, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
               .from(appRecords)
               .where(and(eq(appRecords.id, input.recordId), eq(appRecords.appId, app.id), eq(appRecords.kind, input.kind), isNull(appRecords.deletedAt)))
               .limit(1)
               .for(`update`)
             if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+            assertCanChangeRecord(existing, userId, member.role, `update`)
             const data = checked({ ...existing.data, ...input.data })
-            await tx.update(appRecords).set({ data, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+            await tx.update(appRecords).set({ data, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             return { txid: txId, id: existing.id, created: false }
           }
           const data = checked(input.data)
@@ -570,7 +581,7 @@ export const appsRouter = router({
           await assertCanCreateAppRecord(app.teamId, tx)
           const [row] = await tx
             .insert(appRecords)
-            .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId })
+            .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: userId, updatedBy: userId })
             .returning({ id: appRecords.id })
           return { txid: txId, id: row!.id, created: true }
         })
@@ -579,16 +590,23 @@ export const appsRouter = router({
     delete: authedProcedure
       .input(appRefSchema.and(z.object({ recordId: uuid })))
       .mutation(async ({ ctx, input }) => {
+        const userId = ctx.session.user.id
         const app = await loadApp(ctx.db, input)
-        await assertTeamMember(ctx.session.user.id, app.teamId)
+        const member = await assertTeamMember(userId, app.teamId)
         return await ctx.db.transaction(async (tx) => {
           const txId = await generateTxId(tx)
-          const deleted = await tx
-            .update(appRecords)
-            .set({ deletedAt: sql`now()`, updatedAt: new Date() })
+          const [existing] = await tx
+            .select({ id: appRecords.id, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+            .from(appRecords)
             .where(and(eq(appRecords.id, input.recordId), eq(appRecords.appId, app.id), isNull(appRecords.deletedAt)))
-            .returning({ id: appRecords.id })
-          if (deleted.length === 0) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+            .limit(1)
+            .for(`update`)
+          if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+          assertCanChangeRecord(existing, userId, member.role, `delete`)
+          await tx
+            .update(appRecords)
+            .set({ deletedAt: sql`now()`, updatedBy: userId, updatedAt: new Date() })
+            .where(eq(appRecords.id, existing.id))
           return { txid: txId }
         })
       }),

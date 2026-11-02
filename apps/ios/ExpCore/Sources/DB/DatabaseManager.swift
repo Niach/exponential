@@ -2955,6 +2955,29 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v91 (#VAPP-187): record OWNERSHIP — `app_records.author_id` (whose
+        // record it is; a legacy row without one reads `created_by`) and
+        // `updated_by` (the last writer). The app-records cursor resets only
+        // when a column was added, so synced rows re-arrive carrying them.
+        migrator.registerMigration("v91_app_record_ownership") { db in
+            guard try db.tableExists("app_records") else { return }
+            let existing = Set(try db.columns(in: "app_records").map(\.name))
+            let missing = ["author_id", "updated_by"].filter { !existing.contains($0) }
+            guard !missing.isEmpty else { return }
+            try db.alter(table: "app_records") { t in
+                for column in missing {
+                    t.add(column: column, .text)
+                }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'app-records'
+                    """)
+            }
+        }
+
         return migrator
     }
 
