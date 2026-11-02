@@ -35,6 +35,8 @@ pub const DAEMON_CHECK_INTERVAL_SECS: u64 = 15 * 60;
 struct Release {
     tag_name: String,
     #[serde(default)]
+    draft: bool,
+    #[serde(default)]
     assets: Vec<Asset>,
 }
 
@@ -134,19 +136,17 @@ pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
     let body = updater::fetch_text(&url).context("list releases")?;
     let releases: Vec<Release> = serde_json::from_str(&body).context("decode the release list")?;
 
-    let Some((version, release)) = releases.iter().find_map(|release| {
-        let version = release.tag_name.strip_prefix(TAG_PREFIX)?;
-        Some((version.to_string(), release))
-    }) else {
+    let asset_name = updater::cli_asset_name();
+    let Some((version, release)) = newest_release(&releases, &asset_name) else {
         return Ok(UpdateOutcome::NoRelease);
     };
+    let version = version.to_string();
 
     if !is_newer(&version, current) {
         return Ok(UpdateOutcome::UpToDate { latest: version });
     }
     log::info!("updating exponential {current} -> {version}");
 
-    let asset_name = updater::cli_asset_name();
     let asset = release
         .assets
         .iter()
@@ -346,6 +346,22 @@ fn heal_deleted_suffix(path: std::path::PathBuf) -> std::path::PathBuf {
     }
 }
 
+/// #FEED-186: the HIGHEST published `cli-v*` release that carries this
+/// machine's binary. The API lists by creation date, not version, and a
+/// tag whose build never published this target's asset must not hide an
+/// older release that has it (nor fail the whole check).
+fn newest_release<'a>(releases: &'a [Release], asset_name: &str) -> Option<(&'a str, &'a Release)> {
+    releases
+        .iter()
+        .filter(|release| !release.draft)
+        .filter(|release| release.assets.iter().any(|asset| asset.name == asset_name))
+        .filter_map(|release| Some((release.tag_name.strip_prefix(TAG_PREFIX)?, release)))
+        .fold(None, |best: Option<(&str, &Release)>, (version, release)| match best {
+            Some((top, _)) if !is_newer(version, top) => best,
+            _ => Some((version, release)),
+        })
+}
+
 /// Numeric `major.minor.patch` compare; pre-release/build suffixes ignored.
 fn is_newer(candidate: &str, current: &str) -> bool {
     fn tuple(version: &str) -> (u64, u64, u64) {
@@ -362,7 +378,33 @@ fn is_newer(candidate: &str, current: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{heal_deleted_suffix, is_newer, live_sessions_notice, parse_auto};
+    use super::{heal_deleted_suffix, is_newer, live_sessions_notice, newest_release, parse_auto, Asset, Release};
+
+    fn release(tag: &str, draft: bool, assets: &[&str]) -> Release {
+        Release {
+            tag_name: tag.to_string(),
+            draft,
+            assets: assets
+                .iter()
+                .map(|name| Asset { name: name.to_string(), browser_download_url: String::new() })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn the_newest_release_is_the_highest_version_carrying_this_machines_binary() {
+        let bin = "exponential-x86_64-unknown-linux-gnu";
+        let releases = vec![
+            release("desktop-v0.14.104", false, &["Exponential.AppImage"]),
+            release("cli-v0.14.99", false, &[bin]),
+            release("cli-v0.14.103", true, &[bin]),
+            release("cli-v0.14.102", false, &["exponential-aarch64-apple-darwin"]),
+            release("cli-v0.14.101", false, &[bin]),
+            release("cli-v0.14.100", false, &[bin]),
+        ];
+        assert_eq!(newest_release(&releases, bin).map(|(version, _)| version), Some("0.14.101"));
+        assert!(newest_release(&releases, "exponential-riscv").is_none());
+    }
 
     #[test]
     fn the_auto_switch_parses() {

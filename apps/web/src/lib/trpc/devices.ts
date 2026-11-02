@@ -68,7 +68,7 @@ import {
 } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner, getTeamMember } from "@/lib/team-membership"
 import { stopMeetingUnlessPrivate, voiceSettingsOf } from "@/lib/trpc/voice"
-import { versionPayload } from "@/lib/client-version"
+import { parseVersionTuple, versionPayload } from "@/lib/client-version"
 import { endHostedSessions, foreignHostedSessionIds, pauseDeviceAgents } from "@/lib/sessions/lifecycle"
 import { firstSharerTeams, lockDeviceShares, otherShareRows } from "@/lib/sessions/host"
 import { checkDeviceKeyProof, deviceKeyRejectionLog, pinDeviceKeyInTx, shareKeyRefusal, type SquatRow } from "@/lib/device-keys"
@@ -1141,17 +1141,23 @@ export const devicesRouter = router({
         eq(devices.userId, ctx.session.user.id),
         eq(devices.deviceId, input.deviceId)
       )
-      let row: { id: string } | undefined
-      if (input.endSessions) {
-        const [found] = await ctx.db
-          .select({ id: devices.id })
-          .from(devices)
-          .where(ownRow)
-          .limit(1)
-        if (!found) {
-          throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
-        }
-        row = found
+      // #FEED-186: every click answers. An unknown row and a device that
+      // already runs the latest known build fail (the clients' error toast)
+      // instead of flagging a request the daemon could only drop silently.
+      const [row] = await ctx.db
+        .select({ id: devices.id, kind: devices.kind, version: devices.version })
+        .from(devices)
+        .where(ownRow)
+        .limit(1)
+      if (!row) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+      }
+      const latest = latestVersionOf(row.kind)
+      if (row.version && latest && !versionBelow(row.version, latest)) {
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: `Already up to date: ${row.version} is the latest`,
+        })
       }
       const now = new Date()
       const updated = await ctx.db
@@ -1159,8 +1165,10 @@ export const devicesRouter = router({
         .set({ updateRequestedAt: now, updatedAt: now })
         .where(ownRow)
         .returning({ id: devices.id })
-      if (updated.length === 0) return { ok: false }
-      if (row) {
+      if (updated.length === 0) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
+      }
+      if (input.endSessions) {
         await queueDeviceCommand(ctx.db, {
           deviceRowId: row.id,
           userId: ctx.session.user.id,
@@ -2072,3 +2080,19 @@ export const devicesRouter = router({
     return { token, expiresAt: expiresAt.toISOString() }
   }),
 })
+
+/** #FEED-186: the CLIENT_LATEST_VERSION_* the device's kind updates to
+ *  (a server runs the CLI, every other machine the desktop app). */
+function latestVersionOf(kind: string | null | undefined): string | null {
+  const payload = versionPayload() as Record<string, { latest: string | null } | undefined>
+  return (kind === `server` ? payload.cli?.latest : payload.desktop?.latest) ?? null
+}
+
+/** `have` compares below `want`; unparsable on either side = below (never refuse without evidence). */
+function versionBelow(have: string, want: string): boolean {
+  const a = parseVersionTuple(have)
+  const b = parseVersionTuple(want)
+  if (!a || !b) return true
+  for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i]! < b[i]!
+  return false
+}
