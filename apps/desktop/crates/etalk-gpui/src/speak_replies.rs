@@ -299,6 +299,22 @@ const VOICE_TURN_TTL: Duration = Duration::from_secs(15 * 60);
 /// confirmed settings move the voice device away from here (never on the
 /// first settings after an account change) and no signed-in account's last
 /// confirmed settings still name this device.
+///
+/// #NEW-96: a signed-in account with NO claim (the first run after the
+/// upgrade, which has no [`CLAIMS_FILE`]; an account signed in since and not
+/// active yet) counts as claiming the device: only the active account's
+/// settings arrive (the heartbeat), so nothing here knows the others'; the
+/// data stays until that account's own settings have been seen.
+///
+/// Known cases where the data is KEPT (never lost, freed later or by hand):
+/// - an account moves its voice device away while ANOTHER account is active
+///   here: its claim is recorded `false` once it is active again, with no
+///   transition, so `talk/` stays until a later transition or sign-out;
+/// - a crashed worker still held in the client's slot makes
+///   [`etalk::SpeechClient::remove_voice_data`] skip, so a due delete stays
+///   pending until the worker is shut down (the next beat after that frees
+///   it); if the app quits first, `pending` is gone with the process and
+///   the data stays.
 #[derive(Debug, Default)]
 struct Cleanup {
     /// Per account: its last confirmed settings named this device.
@@ -323,9 +339,12 @@ impl Cleanup {
         Self { claims, ..Self::default() }
     }
 
+    /// #NEW-96: atomic: a temp file in the same dir, then one rename over
+    /// the claims, so a crash mid-write never leaves a torn file (which
+    /// would load as no claims at all).
     fn save(&self, data_dir: &std::path::Path) {
         let Ok(bytes) = serde_json::to_vec(&self.claims) else { return };
-        if let Err(err) = std::fs::write(data_dir.join(CLAIMS_FILE), bytes) {
+        if let Err(err) = write_atomically(&data_dir.join(CLAIMS_FILE), &bytes) {
             log::warn!("[ui] speak replies: saving the voice device claims failed: {err}");
         }
     }
@@ -345,8 +364,29 @@ impl Cleanup {
         } else if names_here {
             self.pending = false;
         }
-        let claimed = self.claims.values().any(|here| *here);
+        // #NEW-96: a signed-in account whose claim is unknown claims it.
+        let claimed = self.claims.values().any(|here| *here)
+            || signed_in.iter().any(|signed| !self.claims.contains_key(signed));
         (self.pending && !claimed, self.claims != before)
+    }
+}
+
+/// `bytes` to `path` through `{path}.tmp-{pid}` beside it and a rename.
+fn write_atomically(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write as _;
+    let mut name = path.file_name().unwrap_or_default().to_os_string();
+    name.push(format!(".tmp-{}", std::process::id()));
+    let temp = path.with_file_name(name);
+    let written = std::fs::File::create(&temp).and_then(|mut file| {
+        file.write_all(bytes)?;
+        file.sync_all()
+    });
+    match written.and_then(|()| std::fs::rename(&temp, path)) {
+        Ok(()) => Ok(()),
+        Err(err) => {
+            let _ = std::fs::remove_file(&temp);
+            Err(err)
+        }
     }
 }
 
@@ -368,6 +408,15 @@ pub(crate) fn install(cx: &mut App) {
     // worker that is still preparing, a download included).
     let account = session_account(cx);
     let cleanup = Cleanup::load(&data_dir);
+    // #NEW-96: what a crash mid-delete left aside (GBs) goes now, on a
+    // thread of its own, not on the next delete.
+    let sweep_dir = data_dir.clone();
+    let _ = std::thread::Builder::new().name("talk-sweep".into()).spawn(move || {
+        let removed = etalk::remove_leftover_voice_data(&sweep_dir);
+        if removed > 0 {
+            log::info!("[ui] speak replies: removed {removed} leftover speech data tree(s)");
+        }
+    });
     // The host's messages and its sign-ins arrive through
     // `crate::messages_changed` and `crate::session_changed`.
     let entity = cx.new(|_: &mut Context<SpeakReplies>| {
@@ -1051,6 +1100,49 @@ mod tests {
         // Across a restart (no account taken yet) the persisted claim is A's own.
         let mut restarted = Cleanup { claims: [("a".to_string(), true)].into(), ..Cleanup::default() };
         assert!(restarted.take("a", false, &signed_in(&["a"])).0);
+    }
+
+    /// #NEW-96: the first run after the upgrade has no claims file: an
+    /// account whose settings were never seen here still claims the device.
+    #[test]
+    fn an_account_never_seen_here_keeps_the_speech_data() {
+        let both = signed_in(&["a", "b"]);
+        let mut cleanup = Cleanup::default();
+        cleanup.take("b", true, &both);
+        assert!(!cleanup.take("b", false, &both).0, "A (unknown) still claims it");
+        // A's settings arrive: it never picked this device, so B's move
+        // away now frees it.
+        assert!(cleanup.take("a", false, &both).0, "seen and not claiming");
+        // A's settings pick this device: B's pending move frees nothing.
+        let mut cleanup = Cleanup::default();
+        cleanup.take("b", true, &both);
+        cleanup.take("b", false, &both);
+        assert!(!cleanup.take("a", true, &both).0, "A uses it");
+        // An account signed in later counts until its settings are seen.
+        let mut cleanup = Cleanup::default();
+        cleanup.take("b", true, &both);
+        cleanup.take("b", false, &both);
+        cleanup.take("a", false, &both);
+        assert!(!cleanup.take("a", false, &signed_in(&["a", "b", "c"])).0, "C is unknown");
+    }
+
+    /// #NEW-96: the claims are written through a temp file and a rename:
+    /// they load back, over an older file, with no temp file left.
+    #[test]
+    fn the_claims_save_atomically() {
+        let dir = std::env::temp_dir().join(format!("talk-claims-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(CLAIMS_FILE), "{\"old\":tr").unwrap();
+        let cleanup = Cleanup { claims: [("a".to_string(), true), ("b".to_string(), false)].into(), ..Cleanup::default() };
+        cleanup.save(&dir);
+        assert_eq!(Cleanup::load(&dir).claims, cleanup.claims);
+        let names: Vec<_> = std::fs::read_dir(&dir).unwrap().flatten().map(|entry| entry.file_name()).collect();
+        assert_eq!(names, vec![std::ffi::OsString::from(CLAIMS_FILE)], "no temp file left");
+        // A failed write leaves the last good claims in place.
+        assert!(write_atomically(&dir.join("missing").join(CLAIMS_FILE), b"{}").is_err());
+        assert_eq!(Cleanup::load(&dir).claims, cleanup.claims);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

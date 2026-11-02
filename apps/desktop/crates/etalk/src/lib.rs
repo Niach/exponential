@@ -542,14 +542,37 @@ fn remove_set_aside(data_dir: &std::path::Path, aside: &std::path::Path) {
     if let Err(err) = std::fs::remove_dir_all(aside) {
         log::warn!("talk: removing the speech data failed: {err}");
     }
-    let Ok(entries) = std::fs::read_dir(data_dir) else { return };
+    remove_leftover_voice_data(data_dir);
+}
+
+/// #NEW-96: delete every `{data_dir}/talk.removing-*` tree a crash mid-delete
+/// left behind (up to ~3 GB). The host calls it ONCE at startup, on a thread
+/// of its own (it can take a while). Only real directories go (a symlink is
+/// never followed, and `remove_dir_all` follows none inside); a tree named
+/// with THIS process's pid is skipped (its own removal may be running). A
+/// tree is set aside by one atomic rename and deleted right after, so no
+/// other process is still renaming into a tree found here. Answers how many
+/// trees went.
+pub fn remove_leftover_voice_data(data_dir: &std::path::Path) -> usize {
+    let own = format!("{ASIDE_PREFIX}{}-", std::process::id());
+    let Ok(entries) = std::fs::read_dir(data_dir) else { return 0 };
+    let mut removed = 0;
     for entry in entries.flatten() {
-        let leftover = entry.file_name().to_string_lossy().starts_with(ASIDE_PREFIX)
+        let name = entry.file_name().to_string_lossy().into_owned();
+        // `file_type` never follows a symlink: a link named like a leftover
+        // is not a directory here.
+        let leftover = name.starts_with(ASIDE_PREFIX)
+            && !name.starts_with(&own)
             && entry.file_type().is_ok_and(|kind| kind.is_dir());
-        if leftover {
-            let _ = std::fs::remove_dir_all(entry.path());
+        if !leftover {
+            continue;
+        }
+        match std::fs::remove_dir_all(entry.path()) {
+            Ok(()) => removed += 1,
+            Err(err) => log::warn!("talk: removing leftover speech data {name} failed: {err}"),
         }
     }
+    removed
 }
 
 /// #NEW-63: the voice turned off here: drop what a killed download left
@@ -1261,6 +1284,42 @@ mod tests {
         client.stop();
         client.hangup("c1");
         assert_eq!(*seen.lock().unwrap(), 2);
+    }
+
+    /// #NEW-96: the startup sweep removes what a crash mid-delete left
+    /// aside, but never this process's own tree, a symlink or its target.
+    #[cfg(unix)]
+    #[test]
+    fn the_startup_sweep_skips_its_own_pid_and_symlinks() {
+        let data = std::env::temp_dir().join(format!("talk-sweep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&data);
+        std::fs::create_dir_all(&data).unwrap();
+        let crashed = data.join(format!("{ASIDE_PREFIX}{}-123", u32::MAX));
+        std::fs::create_dir_all(crashed.join("models")).unwrap();
+        std::fs::write(crashed.join("models").join("qwen3-tts.gguf"), "model").unwrap();
+        let own = data.join(format!("{ASIDE_PREFIX}{}-456", std::process::id()));
+        std::fs::create_dir_all(&own).unwrap();
+        // A symlink named like a leftover, pointing at data that is not ours.
+        let elsewhere = std::env::temp_dir().join(format!("talk-sweep-target-{}", std::process::id()));
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("keep.txt"), "keep").unwrap();
+        let link = data.join(format!("{ASIDE_PREFIX}{}-789", u32::MAX - 1));
+        std::os::unix::fs::symlink(&elsewhere, &link).unwrap();
+        // A stray file with the prefix is no tree of ours either.
+        let file = data.join(format!("{ASIDE_PREFIX}file"));
+        std::fs::write(&file, "x").unwrap();
+        std::fs::create_dir_all(voice_data_dir(&data)).unwrap();
+
+        assert_eq!(remove_leftover_voice_data(&data), 1);
+        assert!(!crashed.exists(), "a crashed process's tree goes");
+        assert!(own.is_dir(), "this process's own tree stays");
+        assert!(std::fs::symlink_metadata(&link).is_ok(), "the symlink is not removed");
+        assert!(elsewhere.join("keep.txt").is_file(), "its target is untouched");
+        assert!(file.is_file());
+        assert!(voice_data_dir(&data).is_dir(), "the live talk/ stays");
+        assert_eq!(remove_leftover_voice_data(&data.join("missing")), 0);
+        let _ = std::fs::remove_dir_all(&data);
+        let _ = std::fs::remove_dir_all(&elsewhere);
     }
 
     /// #1278 review: the cleanup is ordered against the worker: nothing goes

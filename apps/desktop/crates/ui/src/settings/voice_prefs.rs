@@ -419,7 +419,9 @@ pub(crate) fn voice_rows(
                 "settings-voice-device",
                 &copy.voice_device,
                 None,
-                label_of(devices, settings.voice_device_id.as_deref(), &copy.ellipsis),
+                // #NEW-96: a device row not (yet) synced leaves the value
+                // empty, as web's picker row does (never `…`).
+                label_of(devices, settings.voice_device_id.as_deref(), ""),
                 options(devices),
                 settings.voice_device_id.clone(),
                 send(Rc::new(|value| VoiceUpdate { voice_device_id: Some(value), ..Default::default() })),
