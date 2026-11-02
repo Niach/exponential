@@ -11,6 +11,7 @@ import androidx.compose.ui.text.font.FontFamily
 import at.exponential.ui.compose.ExponentialSurface
 import at.exponential.ui.extension.ExtensionPainter
 import at.exponential.ui.ffi.HostRouter
+import at.exponential.ui.ffi.HostZone
 import at.exponential.ui.ffi.actionMessageJson
 import at.exponential.ui.ffi.clientCapabilitiesJson
 import at.exponential.ui.ffi.combineDecisions
@@ -72,6 +73,14 @@ data class HostOptions(
     val onSend: ((JsonValue) -> Unit)? = null,
     /** Every op the host performs (tests, logging). */
     val onOp: ((JsonValue) -> Unit)? = null,
+    /** VAPP-194: the member a package action runs as (its `me`). */
+    val me: String? = null,
+    /** VAPP-194: the clock (epoch ms) a package action reads (null = the wall clock). */
+    val now: (() -> Double)? = null,
+    /** VAPP-194: the team zone a package action reads (null = UTC). */
+    val zone: HostZone? = null,
+    /** VAPP-194: a package action that landed nothing (a false `require`'s message, a refused write or host call): the host's failed-action toast. */
+    val onActionFailed: ((ActionFailure) -> Unit)? = null,
 )
 
 /** The A2UI protocol version the host's own messages carry (the catalog's). */
@@ -371,13 +380,21 @@ class ExponentialHost(
         return FunctionDecision.of(decision)
     }
 
-    /** An action `functionCall` to a host function: gate, consent, run. A built-in other than `openUrl` and `bind` has no effect as an action. */
+    /** An action `functionCall` to a host function: gate, consent, run; `actions.<name>` = the surface's package action (VAPP-194). A built-in other than `openUrl` and `bind` has no effect as an action. */
     suspend fun callFunction(call: FunctionCallInfo): FunctionOutcome {
         if (call.name == "openUrl") {
             val url = call.args["url"]?.string ?: ""
             return FunctionOutcome(if (openUrl(url)) FunctionDecision.Allow else FunctionDecision.Deny)
         }
         if (call.name == "bind") return FunctionOutcome(if (bind(call.surfaceId, call.args)) FunctionDecision.Allow else FunctionDecision.Deny)
+        Actions.actionName(call.name)?.let { return runPackageAction(call, it) }
+        val verdict = gate(call)
+        if (verdict.decision != FunctionDecision.Allow) return verdict
+        return run(call)
+    }
+
+    /** The policy gate and the consent hook: `Allow`, or the refusal (sent as FUNCTION_NOT_FOUND / FUNCTION_DENIED). */
+    private suspend fun gate(call: FunctionCallInfo): FunctionOutcome {
         var decision = decide(call.surfaceId, call.name)
         if (decision == FunctionDecision.NotFound) {
             sendError("FUNCTION_NOT_FOUND", call.surfaceId, "no function ${call.name}")
@@ -395,12 +412,64 @@ class ExponentialHost(
             sendError("FUNCTION_DENIED", call.surfaceId, "${call.name} was not allowed")
             return FunctionOutcome(decision)
         }
+        return FunctionOutcome(FunctionDecision.Allow)
+    }
+
+    private suspend fun run(call: FunctionCallInfo): FunctionOutcome {
         val fn = functions[call.name] ?: return FunctionOutcome(FunctionDecision.Allow)
         return try {
             FunctionOutcome(FunctionDecision.Allow, result = fn(call.args, call))
         } catch (e: Exception) {
             FunctionOutcome(FunctionDecision.Allow, error = e.message ?: e.toString())
         }
+    }
+
+    /**
+     * VAPP-194: `actions.<name>` = the surface's package action, all or
+     * nothing: the plan over one snapshot (the args = params, the surface
+     * data, `me`, the clock), every host call's gate and consent, then the
+     * record writes as ONE `records.batch`, then the sets, then the calls. A
+     * failure before the commit lands nothing: ACTION_FAILED +
+     * [HostOptions.onActionFailed] (the toast), the outcome's `error`.
+     */
+    private suspend fun runPackageAction(call: FunctionCallInfo, action: String): FunctionOutcome {
+        fun failed(message: String): FunctionOutcome {
+            sendError("ACTION_FAILED", call.surfaceId, message)
+            options.onActionFailed?.invoke(ActionFailure(call.surfaceId, action, message))
+            return FunctionOutcome(FunctionDecision.Allow, error = message)
+        }
+        val model = surfaces[call.surfaceId]
+        val pkg = packageOf[call.surfaceId]?.let { packages[it] }
+        if (model == null || pkg == null) return failed("no action $action")
+        val plan = when (
+            val result = Actions.run(pkg, action, JsonValue.Obj(call.args), model.data, options.me, options.now?.invoke(), options.zone)
+        ) {
+            is Actions.Outcome.Error -> return failed(result.message)
+            is Actions.Outcome.Planned -> result.plan
+        }
+        val calls = plan.calls.map { FunctionCallInfo(call.surfaceId, call.componentId, it.name, it.args) }
+        for (c in calls) {
+            val verdict = gate(c)
+            if (verdict.decision != FunctionDecision.Allow) return failed(verdict.error ?: "${c.name} was not allowed")
+        }
+        var committed: Any? = mapOf("ids" to emptyList<String>())
+        val writes = plan.writes
+        if (writes.isNotEmpty()) {
+            val fn = functions[Actions.BATCH_FUNCTION] ?: return failed("this host keeps no records")
+            val args = mapOf("writes" to JsonValue.Arr(writes))
+            committed = try {
+                fn(args, call.copy(name = Actions.BATCH_FUNCTION, args = args))
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                return failed(e.message ?: e.toString())
+            }
+        }
+        for (s in plan.sets) model.setData(s.path, s.value)
+        for (c in calls) {
+            val outcome = run(c)
+            if (outcome.error != null) return FunctionOutcome(FunctionDecision.Allow, result = committed, error = outcome.error)
+        }
+        return FunctionOutcome(FunctionDecision.Allow, result = committed)
     }
 
     /**

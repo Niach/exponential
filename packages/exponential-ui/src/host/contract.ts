@@ -38,6 +38,7 @@ export type HostErrorCode =
   | `FUNCTION_DENIED`
   | `SOURCE_DENIED`
   | `RENDER_FAILED`
+  | `ACTION_FAILED`
 
 /** A server → client message: the four A2UI v0.9 kinds plus the two
  *  Exponential UI extensions. */

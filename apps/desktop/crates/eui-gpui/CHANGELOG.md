@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-194: `ExponentialHost::call_function` runs `actions.<name>` as the surface's package action (`run_package_action`): the plan over one snapshot, every host call's gate and consent first, the writes as ONE `records.batch`, then the sets, then the calls; a failure sends `ACTION_FAILED` and calls `HostOptions::on_action_failed` (`ActionFailure`). New `HostOptions` fields `me`, `now`, `zone` (`ZoneFn`), `on_action_failed`.
+
 ## 0.5.0 (2026-11-02)
 
 - No changes of its own; released with the SDK (the records query and expressions landed in the core).

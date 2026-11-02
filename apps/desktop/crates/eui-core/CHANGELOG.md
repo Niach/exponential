@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-194 (E1, typed effects): `cel::function_effect` / `FunctionEffect` (`WRITE_FUNCTIONS`, `HOST_FUNCTIONS`, `HOST_FUNCTION_PREFIXES`, `effect_words`); the parser refuses a write or host function in an expression (`at N: <name> writes|is a host function: an expression is pure, use an action step`, a dotted name at its first segment); `cel::evaluate_counted` (the result + steps used). `host::actions`, the twin of `src/host/actions.ts`: `validate_package_effects` + `validate_package_actions` (called by `validate_package` after the expressions), `run_action(pkg, name, params, &ActionContext)` → the plan `{writes, sets, calls}` or the error, `apply_record_batch` (all or nothing), the limits and names. `RECORDS_FUNCTIONS` gains `records.batch`; `HOST_ERROR_CODES` gains `ACTION_FAILED`; `host_contract()` gains `package.actions`. Replays `fixtures/actions.json` (`tests/actions.rs`).
+
 ## 0.5.0 (2026-11-02)
 
 - **Breaking** (hence the minor): `RecordsQuery` / `RecordsFilter` (re-exported from `host::record_store`) are the structured query now: `kind`/`order`/`filters` became `from`, `sort: Vec<RecordsSortKey>` and `where_`; `RecordsFilter.op` is `RecordsFilterOp`, `.value` is `RecordsFilterValue`.

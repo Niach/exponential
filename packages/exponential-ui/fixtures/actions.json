@@ -1,0 +1,1542 @@
+{
+  "$comment": "VAPP-194 (eApps E1, spec docs/spec/apps.md §4.5): typed effects. ONE fixture for the TS reference (src/host/actions.ts + the effect table in src/cel.ts) and the Rust core (eui_core::host::actions, eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. `effects`: functionEffect(name) = pure | write | host: the write functions (set, records.upsert/delete/batch, harness.records.upsert/delete) write; openUrl, bind and every name under actions. harness. exponential. tools. upstream. is a host function; everything else (the expression and bind-time tables) is pure. `check`: an effectful function in an expression is a parse error `at <code point>: <name> writes|is a host function: an expression is pure, use an action step` (a dotted name at its first segment); an unknown one stays `unknown function` / `unknown method`. `validate`: validatePackage's issues for the base `package` (the one every run uses) with a case's `with` keys replaced (`addActions` = actions added to the base's). A template's PURE places (props, a call's args, an event's context) may call no write or host function (`<name> writes|is a host function: a binding is pure, name an action in on.press`); an event's functionCall may, and `actions.<name>` must name a declared action. `actions: {<name>: {params?, steps}}` (limits.actions, names like queries, params = a records schema, 1..limits.steps steps). A step is ONE of {require: <expr>, message} (a bool), {records.upsert: {kind, data: {<field>: <expr>}, id?: <expr>}} (a declared kind; every field in its schema, of its type; a create names every required field), {records.delete: {id: <expr>}}, {set: {path: <JSON pointer>, value: <expr>}}, {call: <host function in the package's functions>, args?: {<k>: <expr>}} (never a write, a pure function or another action). An expression slot holding a JSON string is CEL, type-checked over params (the params schema's fields), data (dyn) and me (string); any other JSON is a literal. `run`: runAction(package, action, params, {data, me, now = env.now, zone offset env.offset, maxSteps}) → {plan: {writes: [{op: upsert, kind, data, id?} | {op: delete, id}], sets: [{path, value}], calls: [{name, args}]}} or {error}. Params are checked against the params schema (`params: <pointer> <reason>; …`). Steps run in order against ONE snapshot (a set never changes what a later step reads). The whole action fails on the first: a false require (its message, verbatim), an evaluation error, a create's data the kind's schema refuses (a patch is checked field by field, required ignored) or the run's budget (`maxSteps` evaluation steps over every expression plus one per step, default limits.maxSteps; each expression keeps its own 10 000): `step <i>: <reason>`. Data fields are evaluated in key order. `batch`: applyRecordBatch(rows, writes, {records, me, now, newId = newIds[i-th create]}) → {rows, ids} with every write applied in order, or {error: `write <i>: <reason>`} and nothing applied: an unknown kind, a missing row, a patch of another kind's row, a merged row the schema refuses. The host commits a plan's writes through `records.batch` as this ONE unit (Exponential: one Postgres transaction), then applies the sets, then runs the calls (their policy and consent asked before the commit).",
+  "limits": {
+    "actions": 32,
+    "steps": 64,
+    "maxSteps": 100000
+  },
+  "env": {
+    "now": "2026-11-02T09:30:00Z",
+    "offset": 60
+  },
+  "effects": [
+    {
+      "name": "mul",
+      "effect": "pure"
+    },
+    {
+      "name": "expr",
+      "effect": "pure"
+    },
+    {
+      "name": "formatDate",
+      "effect": "pure"
+    },
+    {
+      "name": "len",
+      "effect": "pure"
+    },
+    {
+      "name": "set",
+      "effect": "write"
+    },
+    {
+      "name": "records.upsert",
+      "effect": "write"
+    },
+    {
+      "name": "records.delete",
+      "effect": "write"
+    },
+    {
+      "name": "records.batch",
+      "effect": "write"
+    },
+    {
+      "name": "harness.records.upsert",
+      "effect": "write"
+    },
+    {
+      "name": "harness.toast",
+      "effect": "host"
+    },
+    {
+      "name": "harness.mcp",
+      "effect": "host"
+    },
+    {
+      "name": "exponential.issues.create",
+      "effect": "host"
+    },
+    {
+      "name": "actions.log",
+      "effect": "host"
+    },
+    {
+      "name": "tools.github.search",
+      "effect": "host"
+    },
+    {
+      "name": "openUrl",
+      "effect": "host"
+    },
+    {
+      "name": "bind",
+      "effect": "host"
+    },
+    {
+      "name": "nope",
+      "effect": "pure"
+    }
+  ],
+  "check": [
+    {
+      "name": "records.upsert writes",
+      "expr": "records.upsert(1)",
+      "error": "at 0: records.upsert writes: an expression is pure, use an action step"
+    },
+    {
+      "name": "set writes",
+      "expr": "set('/a', 1)",
+      "error": "at 0: set writes: an expression is pure, use an action step"
+    },
+    {
+      "name": "a host function",
+      "expr": "harness.toast('hi')",
+      "error": "at 0: harness.toast is a host function: an expression is pure, use an action step"
+    },
+    {
+      "name": "a deep host name",
+      "expr": "1 + exponential.issues.create(1)",
+      "error": "at 4: exponential.issues.create is a host function: an expression is pure, use an action step"
+    },
+    {
+      "name": "openUrl is a host function",
+      "expr": "openUrl('https://x')",
+      "error": "at 0: openUrl is a host function: an expression is pure, use an action step"
+    },
+    {
+      "name": "another action",
+      "expr": "actions.log(1)",
+      "error": "at 0: actions.log is a host function: an expression is pure, use an action step"
+    },
+    {
+      "name": "an unknown method stays unknown",
+      "expr": "entry.save(1)",
+      "error": "at 6: unknown method save"
+    },
+    {
+      "name": "an unknown function stays unknown",
+      "expr": "save(1)",
+      "error": "at 0: unknown function save"
+    }
+  ],
+  "package": {
+    "id": "acme.hours",
+    "name": "Hours",
+    "version": "1.0.0",
+    "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+    "functions": [
+      "harness.toast"
+    ],
+    "records": {
+      "entry": {
+        "title": "Entry",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "hours": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 24
+            },
+            "note": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        }
+      }
+    },
+    "templates": {
+      "month": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Column",
+            "children": [
+              "total",
+              "log"
+            ]
+          },
+          {
+            "id": "total",
+            "component": "Text",
+            "props": {
+              "text": {
+                "call": "expr",
+                "args": {
+                  "expr": "formatDuration(h, 'h:mm')",
+                  "vars": {
+                    "h": {
+                      "path": "/form/hours"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "log",
+            "component": "Button",
+            "props": {
+              "label": "Log"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "actions.log",
+                  "args": {
+                    "date": {
+                      "path": "/form/date"
+                    },
+                    "hours": {
+                      "path": "/form/hours"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "data": {
+          "form": {
+            "date": "2026-11-02",
+            "hours": 7.5
+          }
+        }
+      }
+    },
+    "actions": {
+      "log": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "hours": {
+              "type": "number"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "steps": [
+          {
+            "require": "params.hours > 0",
+            "message": "Log more than 0 hours"
+          },
+          {
+            "require": "params.hours <= 24",
+            "message": "A day has 24 hours"
+          },
+          {
+            "records.upsert": {
+              "kind": "entry",
+              "data": {
+                "date": "params.date",
+                "hours": "params.hours",
+                "note": "params.note"
+              }
+            }
+          },
+          {
+            "set": {
+              "path": "/form/hours",
+              "value": 0
+            }
+          },
+          {
+            "call": "harness.toast",
+            "args": {
+              "message": "'Logged ' + formatDuration(params.hours, 'h:mm')"
+            }
+          }
+        ]
+      },
+      "move": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "entryId": {
+              "type": "string"
+            },
+            "to": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          "required": [
+            "entryId",
+            "to"
+          ]
+        },
+        "steps": [
+          {
+            "records.upsert": {
+              "kind": "entry",
+              "id": "params.entryId",
+              "data": {
+                "date": "params.to"
+              }
+            }
+          }
+        ]
+      },
+      "remove": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "entryId": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "entryId"
+          ]
+        },
+        "steps": [
+          {
+            "require": "data.locked != true",
+            "message": "This month is locked"
+          },
+          {
+            "records.delete": {
+              "id": "params.entryId"
+            }
+          }
+        ]
+      },
+      "swap": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "a": {
+              "type": "string"
+            },
+            "b": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "a",
+            "b"
+          ]
+        },
+        "steps": [
+          {
+            "records.upsert": {
+              "kind": "entry",
+              "id": "params.a",
+              "data": {
+                "hours": 8
+              }
+            }
+          },
+          {
+            "records.delete": {
+              "id": "params.b"
+            }
+          }
+        ]
+      },
+      "count": {
+        "steps": [
+          {
+            "set": {
+              "path": "/count",
+              "value": "data.count + 1"
+            }
+          },
+          {
+            "require": "data.count == 0",
+            "message": "the steps saw a later count"
+          },
+          {
+            "set": {
+              "path": "/seen",
+              "value": "data.count"
+            }
+          }
+        ]
+      },
+      "tenfold": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "hours": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "hours"
+          ]
+        },
+        "steps": [
+          {
+            "records.upsert": {
+              "kind": "entry",
+              "data": {
+                "date": "today()",
+                "hours": "params.hours * 10"
+              }
+            }
+          }
+        ]
+      },
+      "half": {
+        "steps": [
+          {
+            "set": {
+              "path": "/x",
+              "value": "data.total / data.days"
+            }
+          }
+        ]
+      },
+      "whoami": {
+        "steps": [
+          {
+            "require": "me != null",
+            "message": "Sign in first"
+          },
+          {
+            "set": {
+              "path": "/me",
+              "value": "me"
+            }
+          },
+          {
+            "set": {
+              "path": "/day",
+              "value": "today()"
+            }
+          }
+        ]
+      },
+      "spin": {
+        "steps": [
+          {
+            "set": {
+              "path": "/a",
+              "value": "data.xs.map(x, x)"
+            }
+          },
+          {
+            "set": {
+              "path": "/b",
+              "value": "data.xs.map(x, x)"
+            }
+          },
+          {
+            "set": {
+              "path": "/c",
+              "value": "data.xs.map(x, x)"
+            }
+          }
+        ]
+      },
+      "check": {
+        "steps": [
+          {
+            "require": "data.n",
+            "message": "never"
+          }
+        ]
+      }
+    }
+  },
+  "validate": [
+    {
+      "name": "the base package is valid",
+      "with": {},
+      "issues": []
+    },
+    {
+      "name": "a write in a binding",
+      "with": {
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Column",
+                "children": [
+                  "t"
+                ]
+              },
+              {
+                "id": "t",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "records.upsert",
+                    "args": {
+                      "kind": "entry",
+                      "data": {}
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/1/props/text/call",
+          "message": "records.upsert writes: a binding is pure, name an action in on.press"
+        }
+      ]
+    },
+    {
+      "name": "a host function in a binding",
+      "with": {
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Column",
+                "children": [
+                  "t"
+                ]
+              },
+              {
+                "id": "t",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "harness.toast",
+                    "args": {
+                      "message": "hi"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/1/props/text/call",
+          "message": "harness.toast is a host function: a binding is pure, name an action in on.press"
+        }
+      ]
+    },
+    {
+      "name": "set in an event's args (pure)",
+      "with": {
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Column",
+                "children": [
+                  "b"
+                ]
+              },
+              {
+                "id": "b",
+                "component": "Button",
+                "props": {
+                  "label": "x"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "actions.log",
+                      "args": {
+                        "hours": {
+                          "call": "set",
+                          "args": {
+                            "path": "/a",
+                            "value": 1
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/1/on/press/functionCall/args/hours/call",
+          "message": "set writes: a binding is pure, name an action in on.press"
+        }
+      ]
+    },
+    {
+      "name": "an action call naming no action",
+      "with": {
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Column",
+                "children": [
+                  "b"
+                ]
+              },
+              {
+                "id": "b",
+                "component": "Button",
+                "props": {
+                  "label": "x"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "actions.nope"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/1/on/press/functionCall/call",
+          "message": "action nope names no package action"
+        }
+      ]
+    },
+    {
+      "name": "an event may call a host function",
+      "with": {
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Column",
+                "children": [
+                  "b"
+                ]
+              },
+              {
+                "id": "b",
+                "component": "Button",
+                "props": {
+                  "label": "x"
+                },
+                "on": {
+                  "press": {
+                    "functionCall": {
+                      "call": "harness.toast",
+                      "args": {
+                        "message": "hi"
+                      }
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "a write in an expression",
+      "with": {
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Column",
+                "children": [
+                  "t"
+                ]
+              },
+              {
+                "id": "t",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "records.upsert(1)",
+                      "vars": {}
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/1/props/text/args/expr",
+          "message": "at 0: records.upsert writes: an expression is pure, use an action step"
+        }
+      ]
+    },
+    {
+      "name": "bad steps",
+      "with": {
+        "addActions": {
+          "bad": {
+            "steps": [
+              {
+                "require": "1 + 1",
+                "message": "x"
+              },
+              {
+                "require": "true"
+              },
+              {
+                "records.upsert": {
+                  "kind": "nope",
+                  "data": {
+                    "a": 1
+                  }
+                }
+              },
+              {
+                "records.upsert": {
+                  "kind": "entry",
+                  "data": {
+                    "hours": "'seven'",
+                    "when": "today()",
+                    "date": "today()"
+                  }
+                }
+              },
+              {
+                "records.upsert": {
+                  "kind": "entry",
+                  "data": {
+                    "note": "'x'"
+                  }
+                }
+              },
+              {
+                "records.delete": {
+                  "id": "1"
+                }
+              },
+              {
+                "set": {
+                  "path": "nope",
+                  "value": "params.x"
+                }
+              },
+              {
+                "call": "records.upsert"
+              },
+              {
+                "call": "mul"
+              },
+              {
+                "call": "actions.bad"
+              },
+              {
+                "call": "exponential.issues.create",
+                "args": {
+                  "title": "'x'"
+                }
+              },
+              {
+                "require": "set('/a', 1)",
+                "message": "x"
+              },
+              {
+                "jump": "x"
+              },
+              {
+                "require": "true",
+                "set": {
+                  "path": "/a"
+                },
+                "message": "x"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/actions/bad/steps/0/require",
+          "message": "require needs a bool, got number"
+        },
+        {
+          "path": "/actions/bad/steps/1/message",
+          "message": "message is the text shown when the requirement fails"
+        },
+        {
+          "path": "/actions/bad/steps/2/records.upsert/kind",
+          "message": "records:nope names no declared kind"
+        },
+        {
+          "path": "/actions/bad/steps/3/records.upsert/data/hours",
+          "message": "hours is number, got string"
+        },
+        {
+          "path": "/actions/bad/steps/3/records.upsert/data/when",
+          "message": "when is not in the schema of entry"
+        },
+        {
+          "path": "/actions/bad/steps/4/records.upsert/data",
+          "message": "date is required by entry"
+        },
+        {
+          "path": "/actions/bad/steps/4/records.upsert/data",
+          "message": "hours is required by entry"
+        },
+        {
+          "path": "/actions/bad/steps/5/records.delete/id",
+          "message": "id is a string, got number"
+        },
+        {
+          "path": "/actions/bad/steps/6/set/path",
+          "message": "path is a JSON pointer"
+        },
+        {
+          "path": "/actions/bad/steps/6/set/value",
+          "message": "unknown field x"
+        },
+        {
+          "path": "/actions/bad/steps/7/call",
+          "message": "records.upsert writes: use a records.upsert, records.delete or set step"
+        },
+        {
+          "path": "/actions/bad/steps/8/call",
+          "message": "mul is pure: compute it in an expression"
+        },
+        {
+          "path": "/actions/bad/steps/9/call",
+          "message": "an action never runs another action"
+        },
+        {
+          "path": "/actions/bad/steps/10/call",
+          "message": "exponential.issues.create is not in the package's functions"
+        },
+        {
+          "path": "/actions/bad/steps/11/require",
+          "message": "at 0: set writes: an expression is pure, use an action step"
+        },
+        {
+          "path": "/actions/bad/steps/12",
+          "message": "a step is one of require, records.upsert, records.delete, set, call"
+        },
+        {
+          "path": "/actions/bad/steps/13",
+          "message": "a step is one of require, records.upsert, records.delete, set, call"
+        }
+      ]
+    },
+    {
+      "name": "an action's shape",
+      "with": {
+        "addActions": {
+          "Bad-Name": {
+            "steps": []
+          },
+          "noSteps": {
+            "params": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "notObject": 3
+        }
+      },
+      "issues": [
+        {
+          "path": "/actions/Bad-Name",
+          "message": "an action name is a letter, then letters, digits and underscores"
+        },
+        {
+          "path": "/actions/Bad-Name/steps",
+          "message": "steps is a non-empty array"
+        },
+        {
+          "path": "/actions/noSteps/params/properties/id",
+          "message": "id is a reserved record key"
+        },
+        {
+          "path": "/actions/noSteps/steps",
+          "message": "steps is a non-empty array"
+        },
+        {
+          "path": "/actions/notObject",
+          "message": "an action is {params?, steps}"
+        }
+      ]
+    }
+  ],
+  "run": [
+    {
+      "name": "log: the plan",
+      "action": "log",
+      "params": {
+        "date": "2026-11-02",
+        "hours": 7.5,
+        "note": "standup"
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 7.5,
+              "note": "standup"
+            }
+          }
+        ],
+        "sets": [
+          {
+            "path": "/form/hours",
+            "value": 0
+          }
+        ],
+        "calls": [
+          {
+            "name": "harness.toast",
+            "args": {
+              "message": "Logged 7:30"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "log: a missing optional param is null",
+      "action": "log",
+      "params": {
+        "date": "2026-11-02",
+        "hours": 2
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 2,
+              "note": null
+            }
+          }
+        ],
+        "sets": [
+          {
+            "path": "/form/hours",
+            "value": 0
+          }
+        ],
+        "calls": [
+          {
+            "name": "harness.toast",
+            "args": {
+              "message": "Logged 2:00"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "log: a false require is its message",
+      "action": "log",
+      "params": {
+        "date": "2026-11-02",
+        "hours": 0
+      },
+      "error": "Log more than 0 hours"
+    },
+    {
+      "name": "log: the second require",
+      "action": "log",
+      "params": {
+        "date": "2026-11-02",
+        "hours": 25
+      },
+      "error": "A day has 24 hours"
+    },
+    {
+      "name": "log: params against their schema",
+      "action": "log",
+      "params": {
+        "date": "soon",
+        "hours": "2"
+      },
+      "error": "params: /date a date (YYYY-MM-DD); /hours a number"
+    },
+    {
+      "name": "log: params is an object",
+      "action": "log",
+      "params": [
+        1
+      ],
+      "error": "params is an object"
+    },
+    {
+      "name": "move: a patch carries its id",
+      "action": "move",
+      "params": {
+        "entryId": "e1",
+        "to": "2026-11-03"
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-03"
+            },
+            "id": "e1"
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "remove: a delete",
+      "action": "remove",
+      "params": {
+        "entryId": "e1"
+      },
+      "data": {
+        "locked": false
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "delete",
+            "id": "e1"
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "remove: refused by data",
+      "action": "remove",
+      "params": {
+        "entryId": "e1"
+      },
+      "data": {
+        "locked": true
+      },
+      "error": "This month is locked"
+    },
+    {
+      "name": "swap: two writes, one plan",
+      "action": "swap",
+      "params": {
+        "a": "e1",
+        "b": "e2"
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "hours": 8
+            },
+            "id": "e1"
+          },
+          {
+            "op": "delete",
+            "id": "e2"
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "count: every step reads the snapshot",
+      "action": "count",
+      "data": {
+        "count": 0
+      },
+      "plan": {
+        "writes": [],
+        "sets": [
+          {
+            "path": "/count",
+            "value": 1
+          },
+          {
+            "path": "/seen",
+            "value": 0
+          }
+        ],
+        "calls": []
+      }
+    },
+    {
+      "name": "tenfold: a write the schema refuses",
+      "action": "tenfold",
+      "params": {
+        "hours": 3
+      },
+      "error": "step 0: records: /hours at most 24"
+    },
+    {
+      "name": "tenfold: within the schema",
+      "action": "tenfold",
+      "params": {
+        "hours": 2
+      },
+      "plan": {
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 20
+            }
+          }
+        ],
+        "sets": [],
+        "calls": []
+      }
+    },
+    {
+      "name": "half: an evaluation error",
+      "action": "half",
+      "data": {
+        "total": 10,
+        "days": 0
+      },
+      "error": "step 0: division by zero"
+    },
+    {
+      "name": "half: the value",
+      "action": "half",
+      "data": {
+        "total": 10,
+        "days": 4
+      },
+      "plan": {
+        "writes": [],
+        "sets": [
+          {
+            "path": "/x",
+            "value": 2.5
+          }
+        ],
+        "calls": []
+      }
+    },
+    {
+      "name": "whoami: me and today",
+      "action": "whoami",
+      "me": "u1",
+      "plan": {
+        "writes": [],
+        "sets": [
+          {
+            "path": "/me",
+            "value": "u1"
+          },
+          {
+            "path": "/day",
+            "value": "2026-11-02"
+          }
+        ],
+        "calls": []
+      }
+    },
+    {
+      "name": "whoami: nobody",
+      "action": "whoami",
+      "error": "Sign in first"
+    },
+    {
+      "name": "spin: within the budget",
+      "action": "spin",
+      "data": {
+        "xs": [
+          1,
+          2,
+          3
+        ]
+      },
+      "maxSteps": 60,
+      "plan": {
+        "writes": [],
+        "sets": [
+          {
+            "path": "/a",
+            "value": [
+              1,
+              2,
+              3
+            ]
+          },
+          {
+            "path": "/b",
+            "value": [
+              1,
+              2,
+              3
+            ]
+          },
+          {
+            "path": "/c",
+            "value": [
+              1,
+              2,
+              3
+            ]
+          }
+        ],
+        "calls": []
+      }
+    },
+    {
+      "name": "spin: the action step limit",
+      "action": "spin",
+      "data": {
+        "xs": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ]
+      },
+      "maxSteps": 40,
+      "error": "step 2: action step limit exceeded"
+    },
+    {
+      "name": "check: require needs a bool",
+      "action": "check",
+      "data": {
+        "n": 1
+      },
+      "error": "step 0: require needs a bool, got number"
+    },
+    {
+      "name": "no such action",
+      "action": "nope",
+      "error": "no action nope"
+    }
+  ],
+  "batch": {
+    "records": {
+      "entry": {
+        "title": "Entry",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "hours": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 24
+            },
+            "note": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        }
+      },
+      "other": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "x": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    },
+    "rows": [
+      {
+        "id": "e1",
+        "kind": "entry",
+        "data": {
+          "date": "2026-11-01",
+          "hours": 4
+        },
+        "createdBy": "u1",
+        "createdAt": "2026-11-01T08:00:00.000Z",
+        "updatedAt": "2026-11-01T08:00:00.000Z"
+      },
+      {
+        "id": "e2",
+        "kind": "entry",
+        "data": {
+          "date": "2026-11-02",
+          "hours": 3,
+          "note": "x"
+        },
+        "createdBy": "u2",
+        "createdAt": "2026-11-02T08:00:00.000Z",
+        "updatedAt": "2026-11-02T08:00:00.000Z"
+      }
+    ],
+    "me": "u1",
+    "now": "2026-11-02T10:00:00.000Z",
+    "newIds": [
+      "n1",
+      "n2"
+    ],
+    "cases": [
+      {
+        "name": "a create, a patch and a delete land together",
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-03",
+              "hours": 1
+            }
+          },
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "id": "e1",
+            "data": {
+              "hours": 5
+            }
+          },
+          {
+            "op": "delete",
+            "id": "e2"
+          }
+        ],
+        "rows": [
+          {
+            "id": "e1",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-01",
+              "hours": 5
+            },
+            "createdBy": "u1",
+            "createdAt": "2026-11-01T08:00:00.000Z",
+            "updatedAt": "2026-11-02T10:00:00.000Z"
+          },
+          {
+            "id": "n1",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-03",
+              "hours": 1
+            },
+            "createdBy": "u1",
+            "createdAt": "2026-11-02T10:00:00.000Z",
+            "updatedAt": "2026-11-02T10:00:00.000Z"
+          }
+        ],
+        "ids": [
+          "n1",
+          "e1",
+          "e2"
+        ]
+      },
+      {
+        "name": "one refused write lands nothing",
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-03",
+              "hours": 1
+            }
+          },
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "id": "e1",
+            "data": {
+              "hours": 30
+            }
+          }
+        ],
+        "error": "write 1: records: /hours at most 24"
+      },
+      {
+        "name": "a patch of a missing row",
+        "writes": [
+          {
+            "op": "delete",
+            "id": "e2"
+          },
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "id": "e9",
+            "data": {
+              "hours": 1
+            }
+          }
+        ],
+        "error": "write 1: record e9 not found"
+      },
+      {
+        "name": "a delete of a missing row",
+        "writes": [
+          {
+            "op": "delete",
+            "id": "e9"
+          }
+        ],
+        "error": "write 0: record e9 not found"
+      },
+      {
+        "name": "a patch is checked merged",
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "entry",
+            "id": "e2",
+            "data": {
+              "note": null
+            }
+          }
+        ],
+        "rows": [
+          {
+            "id": "e1",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-01",
+              "hours": 4
+            },
+            "createdBy": "u1",
+            "createdAt": "2026-11-01T08:00:00.000Z",
+            "updatedAt": "2026-11-01T08:00:00.000Z"
+          },
+          {
+            "id": "e2",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 3,
+              "note": null
+            },
+            "createdBy": "u2",
+            "createdAt": "2026-11-02T08:00:00.000Z",
+            "updatedAt": "2026-11-02T10:00:00.000Z"
+          }
+        ],
+        "ids": [
+          "e2"
+        ]
+      },
+      {
+        "name": "an unknown kind",
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "nope",
+            "data": {}
+          }
+        ],
+        "error": "write 0: records: no kind nope"
+      },
+      {
+        "name": "a patch of another kind's row",
+        "writes": [
+          {
+            "op": "upsert",
+            "kind": "other",
+            "id": "e1",
+            "data": {
+              "x": 1
+            }
+          }
+        ],
+        "error": "write 0: record e1 is not of kind other"
+      },
+      {
+        "name": "nothing to write",
+        "writes": [],
+        "rows": [
+          {
+            "id": "e1",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-01",
+              "hours": 4
+            },
+            "createdBy": "u1",
+            "createdAt": "2026-11-01T08:00:00.000Z",
+            "updatedAt": "2026-11-01T08:00:00.000Z"
+          },
+          {
+            "id": "e2",
+            "kind": "entry",
+            "data": {
+              "date": "2026-11-02",
+              "hours": 3,
+              "note": "x"
+            },
+            "createdBy": "u2",
+            "createdAt": "2026-11-02T08:00:00.000Z",
+            "updatedAt": "2026-11-02T08:00:00.000Z"
+          }
+        ],
+        "ids": []
+      }
+    ]
+  }
+}

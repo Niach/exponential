@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-194: `run_package_action_json(package_json, name, params_json, data_json, me?, now_ms?, zone: HostZone?, max_steps?)` → `{plan}|{error}` (named so because `run_action_json` is the bind-time press), `apply_record_batch_json(rows_json, writes_json, records_json, me?, now, new_ids_json)` → `{rows, ids}|{error}` (ids past `new_ids_json` = `r<n>`), `function_effect(name)` → `pure|write|host`; `validate_package_json` reports effect and action issues. Bindings regenerated.
+
 ## 0.5.0 (2026-11-02)
 
 - VAPP-191: `evaluate_expression_json(expr, vars_json, now_ms, zone: HostZone?, max_steps?)` → `{value}|{error}` and `check_expression_json(expr, types_json)` → `{type}|{error}`; `validate_package_json` reports expression issues. Bindings regenerated.

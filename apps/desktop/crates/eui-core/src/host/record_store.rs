@@ -9,5 +9,6 @@ pub use super::query::{
     parse_records_source, RecordsFilter, RecordsQuery, RECORDS_LIMIT_DEFAULT, RECORDS_LIMIT_MAX, RECORDS_ORDER_DEFAULT, RECORDS_RESERVED_PARAMS, RECORDS_SCHEME, RECORDS_SORT_DEFAULT,
 };
 
-/// The write functions (no consent card: the app's own rows).
-pub const RECORDS_FUNCTIONS: &[&str] = &["records.upsert", "records.delete"];
+/// The write functions (no consent card: the app's own rows); VAPP-194:
+/// `records.batch {writes}` = a package action's writes as ONE unit.
+pub const RECORDS_FUNCTIONS: &[&str] = &["records.upsert", "records.delete", super::actions::RECORDS_BATCH_FUNCTION];

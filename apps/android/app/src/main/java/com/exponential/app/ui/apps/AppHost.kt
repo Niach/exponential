@@ -43,6 +43,7 @@ import at.exponential.ui.host.MediaRule
 import at.exponential.ui.host.RecordRow
 import at.exponential.ui.host.RecordsQuery
 import at.exponential.ui.host.SourceResolver
+import at.exponential.ui.host.TimeZoneOffset
 import at.exponential.ui.host.UrlPolicy
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.theme.Mode
@@ -120,6 +121,9 @@ import kotlinx.coroutines.launch
  *    `harness.records.delete {id}` (VAPP-161: also `records.upsert` /
  *    `records.delete`): tRPC `apps.records.*` as the viewer, no consent card
  *    (the app's own rows), a refusal = the failed-action toast;
+ *  - VAPP-194 `records.batch {writes}`: a package action's writes as ONE
+ *    `apps.records.batch`; a failed action (that or a false `require`) =
+ *    `onActionFailed`'s failed-action toast;
  *  - extensions: the app extension (`packages/ui/exponential-ui/extension.json`)
  *    with Compose painters for its `IconDisc` and `LiveDot` natives (Exponential
  *    ships no built-in apps: only the team's packages are installed);
@@ -492,6 +496,16 @@ fun rememberAppHost(
                 throw e
             }
         }
+        // VAPP-194: a package action's writes as ONE transaction (the server
+        // checks them again); a refusal lands nothing and is the action's
+        // failure: `onActionFailed` toasts it (not here, so it shows once).
+        val recordsBatch: HostFunction = { args, _ ->
+            val account = auth.activeAccountId.value ?: error("Not signed in")
+            val app = appId ?: error("No app to keep records for")
+            val writes = kotlinx.serialization.json.Json.parseToJsonElement((args["writes"] ?: JsonValue.Arr(emptyList())).orderedJson)
+            val result = api.recordsBatch(account, app, writes as? kotlinx.serialization.json.JsonArray ?: kotlinx.serialization.json.JsonArray(emptyList()))
+            JsonValue.Obj(mapOf("ids" to JsonValue.Arr(result.ids.map { JsonValue.Str(it) })))
+        }
         // VAPP-120: every MCP operation as a typed function
         // (fixtures/app-actions.json): the same tools/call as the viewer,
         // `op` + the args (no op for a verb tool).
@@ -507,6 +521,7 @@ fun rememberAppHost(
             // VAPP-161: the format's neutral spelling, the same closures.
             "records.upsert" to recordsUpsert,
             "records.delete" to recordsDelete,
+            "records.batch" to recordsBatch,
             "harness.toast" to toast,
             "harness.openIssue" to openIssueFn,
             "harness.openDevice" to openDevice,
@@ -554,6 +569,12 @@ fun rememberAppHost(
                 theme = themeId?.let(ThemeHandle::builtin) ?: ThemeHandle.builtin(APP_THEME_ID),
                 mode = Mode.Dark,
                 plugin = AppHostIcons,
+                // VAPP-194: a package action runs as the viewer, in the
+                // device's zone (the surfaces' formatter's); one that landed
+                // nothing = the failed-action toast.
+                me = me,
+                zone = TimeZoneOffset(java.util.TimeZone.getDefault()),
+                onActionFailed = { failure -> toaster.failedAction("save", "the record", failure.message) },
             ),
             scope,
         )

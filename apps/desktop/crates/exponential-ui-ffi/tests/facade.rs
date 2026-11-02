@@ -1294,3 +1294,57 @@ fn the_expressions_fixture_replays_through_the_free_functions() {
     }
     assert!(evaluate_expression_json("1".into(), "[]".into(), None, None, None).is_err(), "vars must be an object");
 }
+
+/// VAPP-194: fixtures/actions.json through the three facade functions
+/// (the whole file replays in eui-core's tests/actions.rs).
+#[test]
+fn the_actions_fixture_replays_through_the_facade() {
+    struct Fixed(i32);
+    impl HostZone for Fixed {
+        fn offset_minutes(&self, _: f64) -> i32 {
+            self.0
+        }
+    }
+    let f = fixture("actions.json");
+    for c in f["effects"].as_array().unwrap() {
+        assert_eq!(function_effect(c["name"].as_str().unwrap().into()), c["effect"].as_str().unwrap(), "{}", c["name"]);
+    }
+    let pkg = f["package"].to_string();
+    let now = eui_core::cel::parse_timestamp(f["env"]["now"].as_str().unwrap());
+    let zone: Arc<dyn HostZone> = Arc::new(Fixed(f["env"]["offset"].as_i64().unwrap() as i32));
+    let mut n = 0;
+    for c in f["run"].as_array().unwrap() {
+        let got = run_package_action_json(
+            pkg.clone(),
+            c["action"].as_str().unwrap().into(),
+            c.get("params").unwrap_or(&Value::Null).to_string(),
+            c.get("data").unwrap_or(&Value::Null).to_string(),
+            c.get("me").and_then(Value::as_str).map(String::from),
+            now,
+            Some(zone.clone()),
+            c.get("maxSteps").and_then(Value::as_u64).map(|s| s as u32),
+        )
+        .unwrap();
+        let want = match c.get("error") {
+            Some(e) => json!({ "error": e }),
+            None => json!({ "plan": c["plan"] }),
+        };
+        eq(&got, &want, &format!("run: {}", c["name"]));
+        n += 1;
+    }
+    let b = &f["batch"];
+    for c in b["cases"].as_array().unwrap() {
+        let got = apply_record_batch_json(b["rows"].to_string(), c["writes"].to_string(), b["records"].to_string(), b["me"].as_str().map(String::from), b["now"].as_str().unwrap().into(), b["newIds"].to_string()).unwrap();
+        let want = match c.get("error") {
+            Some(e) => json!({ "error": e }),
+            None => json!({ "rows": c["rows"], "ids": c["ids"] }),
+        };
+        eq(&got, &want, &format!("batch: {}", c["name"]));
+        n += 1;
+    }
+    assert!(n >= 25, "{n}");
+    // New ids past the list fall back to r<n>; a non-JSON package is a typed error.
+    let out: Value = serde_json::from_str(&apply_record_batch_json("[]".into(), json!([{"op": "upsert", "kind": "other", "data": {"x": 1}}, {"op": "upsert", "kind": "other", "data": {}}]).to_string(), b["records"].to_string(), None, "t".into(), "[\"a\"]".into()).unwrap()).unwrap();
+    assert_eq!(out["ids"], json!(["a", "r2"]));
+    assert!(run_package_action_json("{".into(), "log".into(), "null".into(), "null".into(), None, None, None, None).is_err());
+}

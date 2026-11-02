@@ -7,9 +7,9 @@ store, tool runners, extensions), never how (Exponential serves records from
 its synced store, spezl from a p2p store over eNet). `catalog/host.json`
 `package` is the machine-readable contract; this page is the prose spec other
 docs link to (spezl `docs/spec/blocks.md`). The TS reference is `src/host/`
-(`package.ts`, `records.ts`, `record-store.ts`, `query.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
+(`package.ts`, `records.ts`, `record-store.ts`, `query.ts`, `actions.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
 the Rust core (`apps/desktop/crates/eui-core/src/host/`) mirrors every
-pure rule. Fixtures: `fixtures/expressions.json` (the expression language, below), `fixtures/host-router.json` (package validation, replayed
+pure rule. Fixtures: `fixtures/expressions.json` (the expression language, below), `fixtures/actions.json` (effects and actions, below), `fixtures/host-router.json` (package validation, replayed
 by every renderer through the core), `fixtures/records-query.json` (the
 records query and its value) and `fixtures/host-package.json` (tool consent,
 extension compatibility, canonical JSON, signatures).
@@ -39,6 +39,7 @@ renders against keeps its own version in its id (`catalogId`,
   "tools": { "weather": { "kind": "mcp", "title": "Weather", "url": "https://mcp.example.com/weather" } },
   "upstreams": ["m5"], "exposes": [/* MCP tools a host's broker runs: "Exposes" below */],
   "queries": { "month": { "group": ["author"], "aggregate": { "hours": ["sum", "hours"] } } },
+  "actions": { "log": { "params": { /* a records schema */ }, "steps": [/* "Actions" below */] } },
   "extensions": [{ "id": "https://acme.example/catalogs/charts/v1", "version": "1.4.0", "components": ["Gantt"] }],
   "theme": "exponential", "icon": { "glyph": "clock" }, "description": "…"
 }
@@ -238,6 +239,61 @@ names the expression's JSON pointer and the reason, e.g.
 `/templates/month/components/3/props/text/args/expr: unknown field hourz`.
 `fixtures/expressions.json` locks the language, the checker, the A2UI form
 and these issues.
+
+## Actions
+
+VAPP-194 (E1, spec `docs/spec/apps.md` §4.5): **typed effects**. Every
+function has an effect (`functionEffect`): `pure` (every expression and
+bind-time function), `write` (`set`, `records.upsert`, `records.delete`,
+`records.batch`, `harness.records.*`) or `host` (`openUrl`, `bind`, and every
+name under `actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`).
+
+- **Expressions are pure.** A binding, `visible`, a computed value, a call's
+  args and an event's context never write: `validatePackage` refuses a write
+  or host function anywhere in a template except an `on.<event>.functionCall`
+  (`/templates/t/components/3/props/text/call: records.upsert writes: a
+  binding is pure, name an action in on.press`), and CEL refuses one in a
+  string (`at 0: set writes: an expression is pure, use an action step`).
+- **Actions** are the package's writes, named and checked at install:
+
+```jsonc
+"actions": {
+  "log": {
+    "params": { "type": "object", "properties": { "date": { "type": "string", "format": "date" }, "hours": { "type": "number" } }, "required": ["date", "hours"] },
+    "steps": [
+      { "require": "params.hours > 0 && params.hours <= 24", "message": "Log 0 to 24 hours" },
+      { "records.upsert": { "kind": "entry", "data": { "date": "params.date", "hours": "params.hours" } } },
+      { "set": { "path": "/form/hours", "value": 0 } },
+      { "call": "harness.toast", "args": { "message": "'Logged ' + formatDuration(params.hours, 'h:mm')" } }
+    ]
+  }
+}
+// a Button: "on": { "press": { "functionCall": { "call": "actions.log", "args": { "date": { "path": "/form/date" }, "hours": { "path": "/form/hours" } } } } }
+```
+
+`params` is a records schema (the call's args are checked against it). A
+step is ONE of `require` (+ `message`), `records.upsert {kind, data, id?}`,
+`records.delete {id}`, `set {path, value}` and `call` (a host function the
+package lists in `functions`, + `args`); at most 32 actions of 64 steps. A
+JSON string in a step is CEL over `params`, `data` (the surface data at the
+press) and `me` (the member's id); anything else is a literal. Install
+checks every expression's type (a `require` is a bool, an upsert's fields
+are in the kind's schema with its types, a create names every required
+field).
+
+**All or nothing.** `runAction` evaluates the steps in order against ONE
+snapshot (a `set` never changes what a later step reads) and returns the
+plan `{writes, sets, calls}`, or the one error that discards the action: a
+false `require` (its `message`, the toast), an evaluation error, a create
+the kind's schema refuses, or the run's budget of 100 000 evaluation steps
+(`step <i>: …`). The host then asks every call's policy and consent, commits
+the writes as ONE unit through `records.batch` (`RecordStore.batch`;
+Exponential: one Postgres transaction, `apps.records.batch`, where the
+server checks every write again and stays the authority), applies the sets
+and runs the calls. A failure before the commit lands nothing and is sent as
+`ACTION_FAILED` (the host's `onActionFailed` shows the toast). A press runs
+an action on the client host; the server broker will run them for `exposes`
+and automations (A1). P2P stores (spezl) promise no cross-peer invariants.
 
 ## Tools
 

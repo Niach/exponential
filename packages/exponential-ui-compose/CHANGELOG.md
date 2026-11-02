@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-194: typed effects (eApps E1). `Actions.run(pkg, name, params, data, me, nowMs, zone, maxSteps)` (the plan `{writes, sets, calls}` or the one error), `Actions.applyBatch(rows, writes, records, me, now, newIds)` (all or nothing) and `Actions.effect(name)` over the core. `ExponentialHost.callFunction` runs `actions.<name>` as the surface's package action: every planned host call's gate and consent first, then the writes as ONE `records.batch {writes}`, then the data sets, then the calls; a failure lands nothing (ACTION_FAILED + `HostOptions.onActionFailed`). New `HostOptions.me` / `now` / `zone` / `onActionFailed`; `ActionsTest` replays `fixtures/actions.json`.
+
 ## 0.5.0 (2026-11-02)
 
 - VAPP-191: `Expression.evaluate(…)` / `Expression.check(…)` over the core's expression evaluator, `TimeZoneOffset` (a `java.util.TimeZone` as `HostZone`); `ExpressionsTest` replays `fixtures/expressions.json`. Bind-time `{call: "mul" …}` / `{call: "expr" …}` resolve through the core.

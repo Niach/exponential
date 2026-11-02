@@ -7164,6 +7164,26 @@ public func animationFrameJson(name: String, timingJson: String, elapsedMs: Doub
     )
 })
 }
+/**
+ * VAPP-194: apply a `records.batch` (`eui_core::host::apply_record_batch`)
+ * to `rows_json` (record rows) all or nothing, checked against
+ * `records_json` (the package's kinds): `{"rows": [...], "ids": [...]}` or
+ * `{"error": "write <i>: …"}` (`fixtures/actions.json` `batch`). A create
+ * takes the next id of `new_ids_json` (a list of strings), then `r<n>`
+ * (n = the create's 1-based index in the batch) when it runs out.
+ */
+public func applyRecordBatchJson(rowsJson: String, writesJson: String, recordsJson: String, me: String?, now: String, newIdsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_apply_record_batch_json(
+        FfiConverterString.lower(rowsJson),
+        FfiConverterString.lower(writesJson),
+        FfiConverterString.lower(recordsJson),
+        FfiConverterOptionString.lower(me),
+        FfiConverterString.lower(now),
+        FfiConverterString.lower(newIdsJson),$0
+    )
+})
+}
 public func basicCatalogId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_basic_catalog_id($0
@@ -7482,6 +7502,17 @@ public func formatString(template: String, paramsJson: String)throws  -> String 
     uniffi_exponential_ui_ffi_fn_func_format_string(
         FfiConverterString.lower(template),
         FfiConverterString.lower(paramsJson),$0
+    )
+})
+}
+/**
+ * VAPP-194: what calling function `name` does: `pure`, `write` or `host`
+ * (`fixtures/actions.json` `effects`).
+ */
+public func functionEffect(name: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_function_effect(
+        FfiConverterString.lower(name),$0
     )
 })
 }
@@ -7829,6 +7860,29 @@ public func runActionJson(actionJson: String, dataJson: String, scope: String, s
 })
 }
 /**
+ * VAPP-194: run package action `name` (`eui_core::host::run_action`) of
+ * `package_json` with `params_json` against one snapshot: `data_json` (the
+ * surface data), `me` (the member; `None` = null), `now_ms` (`None` = the
+ * wall clock), `zone` (`None` = UTC), `max_steps` (the run's budget; `None`
+ * = 100 000) → `{"plan": {writes, sets, calls}}` or `{"error": "…"}`
+ * (`fixtures/actions.json` `run`). Named `run_package_action_json`
+ * because `run_action_json` is the bind-time press.
+ */
+public func runPackageActionJson(packageJson: String, name: String, paramsJson: String, dataJson: String, me: String?, nowMs: Double?, zone: HostZone?, maxSteps: UInt32? = nil)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_run_package_action_json(
+        FfiConverterString.lower(packageJson),
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(paramsJson),
+        FfiConverterString.lower(dataJson),
+        FfiConverterOptionString.lower(me),
+        FfiConverterOptionDouble.lower(nowMs),
+        FfiConverterOptionTypeHostZone.lower(zone),
+        FfiConverterOptionUInt32.lower(maxSteps),$0
+    )
+})
+}
+/**
  * VAPP-162: a Segmented `bar` item's count badge text (`99+` above 99);
  * `None` = no badge (unset, not positive, 0).
  */
@@ -8077,6 +8131,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_animation_frame_json() != 34139) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json() != 50033) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id() != 30075) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8158,6 +8215,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_format_string() != 31957) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_function_effect() != 49184) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_host_contract_json() != 18735) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8237,6 +8297,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_run_action_json() != 39985) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_run_package_action_json() != 54713) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_segmented_badge_text() != 31695) {

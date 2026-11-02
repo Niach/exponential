@@ -759,6 +759,8 @@ internal object IntegrityCheckingUniffiLib {
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_animation_frame_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_apply_record_batch_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_bench_tree_json(
@@ -813,6 +815,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_format_pattern_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_format_string(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_function_effect(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_host_contract_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_json_diff(
@@ -866,6 +870,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json(
 external fun uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_run_action_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_run_package_action_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_segmented_badge_text(
 ): Short
@@ -1458,6 +1464,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_action_message_json(`surfaceId`: 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_animation_frame_json(`name`: RustBuffer.ByValue,`timingJson`: RustBuffer.ByValue,`elapsedMs`: Double,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_apply_record_batch_json(`rowsJson`: RustBuffer.ByValue,`writesJson`: RustBuffer.ByValue,`recordsJson`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,`now`: RustBuffer.ByValue,`newIdsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_basic_catalog_id(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_bench_tree_json(`n`: Int,uniffi_out_err: UniffiRustCallStatus, 
@@ -1512,6 +1520,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_format_pattern_json(`pattern`: Ru
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_format_string(`template`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_function_effect(`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_host_contract_json(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_json_diff(`a`: RustBuffer.ByValue,`b`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1565,6 +1575,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(`valueJson`:
 external fun uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(`themeJson`: RustBuffer.ByValue,`component`: RustBuffer.ByValue,`part`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_run_action_json(`actionJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_run_package_action_json(`packageJson`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_segmented_badge_text(`count`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -10040,6 +10052,25 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     )
     }
     
+
+        /**
+         * VAPP-194: apply a `records.batch` (`eui_core::host::apply_record_batch`)
+         * to `rows_json` (record rows) all or nothing, checked against
+         * `records_json` (the package's kinds): `{"rows": [...], "ids": [...]}` or
+         * `{"error": "write <i>: …"}` (`fixtures/actions.json` `batch`). A create
+         * takes the next id of `new_ids_json` (a list of strings), then `r<n>`
+         * (n = the create's 1-based index in the batch) when it runs out.
+         */
+    @Throws(UiException::class) fun `applyRecordBatchJson`(`rowsJson`: kotlin.String, `writesJson`: kotlin.String, `recordsJson`: kotlin.String, `me`: kotlin.String?, `now`: kotlin.String, `newIdsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_apply_record_batch_json(
+    
+        FfiConverterString.lower(`rowsJson`),FfiConverterString.lower(`writesJson`),FfiConverterString.lower(`recordsJson`),FfiConverterOptionalString.lower(`me`),FfiConverterString.lower(`now`),FfiConverterString.lower(`newIdsJson`),_status)
+}
+    )
+    }
+    
  fun `basicCatalogId`(): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
@@ -10418,6 +10449,20 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_format_string(
     
         FfiConverterString.lower(`template`),FfiConverterString.lower(`paramsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-194: what calling function `name` does: `pure`, `write` or `host`
+         * (`fixtures/actions.json` `effects`).
+         */ fun `functionEffect`(`name`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_function_effect(
+    
+        FfiConverterString.lower(`name`),_status)
 }
     )
     }
@@ -10826,6 +10871,26 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_action_json(
     
         FfiConverterString.lower(`actionJson`),FfiConverterString.lower(`dataJson`),FfiConverterString.lower(`scope`),FfiConverterOptionalString.lower(`stringsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-194: run package action `name` (`eui_core::host::run_action`) of
+         * `package_json` with `params_json` against one snapshot: `data_json` (the
+         * surface data), `me` (the member; `None` = null), `now_ms` (`None` = the
+         * wall clock), `zone` (`None` = UTC), `max_steps` (the run's budget; `None`
+         * = 100 000) → `{"plan": {writes, sets, calls}}` or `{"error": "…"}`
+         * (`fixtures/actions.json` `run`). Named `run_package_action_json`
+         * because `run_action_json` is the bind-time press.
+         */
+    @Throws(UiException::class) fun `runPackageActionJson`(`packageJson`: kotlin.String, `name`: kotlin.String, `paramsJson`: kotlin.String, `dataJson`: kotlin.String, `me`: kotlin.String?, `nowMs`: kotlin.Double?, `zone`: HostZone?, `maxSteps`: kotlin.UInt? = null): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_package_action_json(
+    
+        FfiConverterString.lower(`packageJson`),FfiConverterString.lower(`name`),FfiConverterString.lower(`paramsJson`),FfiConverterString.lower(`dataJson`),FfiConverterOptionalString.lower(`me`),FfiConverterOptionalDouble.lower(`nowMs`),FfiConverterOptionalTypeHostZone.lower(`zone`),FfiConverterOptionalUInt.lower(`maxSteps`),_status)
 }
     )
     }
