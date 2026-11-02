@@ -1253,7 +1253,7 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 36);
+        assert_eq!(sessions.columns.len(), 37);
         for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }
