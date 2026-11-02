@@ -129,6 +129,37 @@ mod tests {
         );
     }
 
+    /// EXP-1626: `claude setup-token` (2.1.316) at the login tab's 80×24
+    /// default size, verbatim: the link wraps over five rows.
+    #[test]
+    fn claude_reads_the_setup_token_screen_at_80_columns() {
+        let setup_token = screen(&[
+            "Welcome to Claude Code v2.1.316",
+            "",
+            " This will guide you through long-lived (1-year) auth token setup for your",
+            " Claude account. Claude subscription required.",
+            "",
+            " Browser didn't open? Use the url below to sign in (c to copy)",
+            "",
+            "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88",
+            "ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.co",
+            "m%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=pHkFTETk1YOMLZ",
+            "no_2sM9-YQkMuDisgA7UuM6xb9TIE&code_challenge_method=S256&state=aFfRcKdBHqTiQYhSi",
+            "H_SCGjTEEHMqre4WwSwghlz720",
+            "",
+            "",
+            " Paste code here if prompted >",
+        ]);
+        assert_eq!(
+            observe_login_screen("claude", &setup_token),
+            LoginObservation::Url {
+                url: "https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=pHkFTETk1YOMLZno_2sM9-YQkMuDisgA7UuM6xb9TIE&code_challenge_method=S256&state=aFfRcKdBHqTiQYhSiH_SCGjTEEHMqre4WwSwghlz720"
+                    .to_string(),
+                code: None,
+            }
+        );
+    }
+
     #[test]
     fn claude_reads_the_method_picker_and_errors() {
         let picker = screen(&[

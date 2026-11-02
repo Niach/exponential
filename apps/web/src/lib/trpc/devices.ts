@@ -110,6 +110,11 @@ export const AGENT_LONG_LIVED_NEEDS_PROFILE = `A long-lived login needs a Claude
  *  the device's `agent_login::LONG_LIVED_CLAUDE_ONLY`). */
 export const AGENT_LONG_LIVED_CLAUDE_ONLY = `A long-lived login is Claude only.`
 const deviceIdInput = z.string().min(1).max(128)
+/** EXP-1626: the longest name a long-lived Add may give its new profile. */
+export const AGENT_PROFILE_NAME_MAX = 64
+/** EXP-1626: a cancelled sign-in's row result (byte-identical to the
+ *  device's `agent_login::LOGIN_CANCELLED`). */
+export const AGENT_LOGIN_CANCELLED = `The sign-in was cancelled.`
 const codingAgentValues = contract.codingAgent.values as [string, ...string[]]
 
 // Heartbeats deliver at most this many pending commands per cycle — rows stay
@@ -376,6 +381,9 @@ export function clampAgentAccounts(
       // EXP-1533: the long-lived claude login's expiry (ISO or dropped).
       const tokenExpiresAt = isoStampOrNull(profile.tokenExpiresAt)
       if (tokenExpiresAt) item.tokenExpiresAt = tokenExpiresAt
+      // EXP-1626: a long-lived Add's profile name, trimmed and capped.
+      const name = typeof profile.name === `string` ? profile.name.trim() : ``
+      if (name) item.name = name.slice(0, AGENT_PROFILE_NAME_MAX)
       if (profile.usage) {
         item.usage = clampUsageEntry(profile.usage, new Date())
       }
@@ -471,6 +479,8 @@ const IDEMPOTENT_COMMAND_KINDS: ReadonlySet<string> = new Set([
   // "Update claude here" twice is one wish: the machine's updater is
   // idempotent, and a second click while the first is queued reuses it.
   `agent_update`,
+  // EXP-1626: cancelling the same sign-in twice is one wish.
+  `agent_login_cancel`,
 ])
 
 /** EXP-862: whether the device's last heartbeat reported `profileId` as one of
@@ -1406,6 +1416,10 @@ export const devicesRouter = router({
           `agent_profile_sign_out`,
           `update_now`,
           `agent_update`,
+          // EXP-1626: the requester closed its sign-in dialog before the
+          // login landed — the machine stops that run (payload {agent,
+          // loginCommandId}); a still-pending login row is failed here.
+          `agent_login_cancel`,
         ]),
         // EXP-484 `agent_login` inputs (ignored by the other kinds): which
         // agent CLI to sign in, and whether to sign the current account out
@@ -1429,6 +1443,11 @@ export const devicesRouter = router({
         // instead of a browser login (claude only). EXP-1600: with no
         // `profileId` too (an Add account): the default claude sign-in.
         longLived: z.boolean().optional(),
+        // EXP-1626 `agent_login`: the NAME a long-lived Add's new profile
+        // gets (a setup token cannot name its account). Ignored elsewhere.
+        name: z.string().trim().min(1).max(AGENT_PROFILE_NAME_MAX).optional(),
+        // EXP-1626 `agent_login_cancel`: the `agent_login` row to stop.
+        loginCommandId: z.string().uuid().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -1476,7 +1495,39 @@ export const devicesRouter = router({
           switch: input.switch === true ? `true` : `false`,
           ...(input.profileId ? { profileId: input.profileId } : {}),
           ...(input.longLived === true ? { longLived: `true` } : {}),
+          // EXP-1626: only a long-lived ADD names the profile it makes.
+          ...(input.longLived === true && !input.profileId && input.name
+            ? { name: input.name }
+            : {}),
         }
+      }
+
+      // EXP-1626: stop a sign-in the requester walked away from. A row the
+      // machine never picked up is failed here (so it never starts); the
+      // command itself reaches a machine that already runs it.
+      if (input.kind === `agent_login_cancel`) {
+        if (!input.agent || !input.loginCommandId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `agent_login_cancel needs an agent and a loginCommandId`,
+          })
+        }
+        await ctx.db
+          .update(deviceCommands)
+          .set({
+            status: `failed`,
+            result: AGENT_LOGIN_CANCELLED,
+            completedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(deviceCommands.id, input.loginCommandId),
+              eq(deviceCommands.userId, ctx.session.user.id),
+              eq(deviceCommands.kind, `agent_login`),
+              eq(deviceCommands.status, `pending`)
+            )
+          )
+        payload = { agent: input.agent, loginCommandId: input.loginCommandId }
       }
 
       if (input.kind === `agent_login_code`) {
