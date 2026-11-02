@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // VAPP-87: the kitchen sink photographed through the harness at the store's
-// web frames (1440×960 @2x and 390×844 @3x → the 1800 px long edge every
+// web frames (1440×960 @2x and 440×956 @3x → the 1800 px long edge every
 // stored shot has), encoded with the shots pipeline's one encoder and
 // written to shots/exponential-ui-kitchen-sink/{web,web-mobile}.webp. The
 // app route `/exponential-ui-kitchen-sink` is what `bun run shots` captures
@@ -41,7 +41,7 @@ mkdirSync(out, { recursive: true })
 try {
   for (const [platform, viewport, scale] of [
     [`web`, { width: 1440, height: 960 }, 2],
-    [`web-mobile`, { width: 390, height: 844 }, 3],
+    [`web-mobile`, { width: 440, height: 956 }, 3],
   ] as const) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: scale, isMobile: platform === `web-mobile` })
     const page = await context.newPage()

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // FEED-128: the Solid twin of React's scripts/shots.ts: the harness kitchen
-// sink at the store's web frames (1440×960 @2x and 390×844 @3x), encoded with
+// sink at the store's web frames (1440×960 @2x and 440×956 @3x), encoded with
 // the shots pipeline's one encoder. It writes to /tmp/feed128/solid-shots/
 // by default, NEVER into shots/: the view catalog's `web` slot is React's.
 //
@@ -39,7 +39,7 @@ mkdirSync(out, { recursive: true })
 try {
   for (const [platform, viewport, scale] of [
     [`web`, { width: 1440, height: 960 }, 2],
-    [`web-mobile`, { width: 390, height: 844 }, 3],
+    [`web-mobile`, { width: 440, height: 956 }, 3],
   ] as const) {
     const context = await browser.newContext({ viewport, deviceScaleFactor: scale, isMobile: platform === `web-mobile` })
     const page = await context.newPage()

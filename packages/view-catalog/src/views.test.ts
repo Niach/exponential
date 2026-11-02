@@ -620,7 +620,7 @@ describe(`store geometry`, () => {
   /** Source capture sizes the nominal frames are derived from. */
   const SOURCE: Record<Platform, { w: number; h: number }> = {
     web: { w: 1440, h: 960 },
-    [`web-mobile`]: { w: 390, h: 844 },
+    [`web-mobile`]: { w: 440, h: 956 },
     desktop: { w: 1440, h: 900 },
     ios: { w: 1320, h: 2868 },
     android: { w: 1080, h: 2400 },
