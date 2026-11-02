@@ -1212,7 +1212,8 @@ fn dotlottie_machine_reads_the_first() {
     assert_eq!(motion_read_dotlottie_machine(eui_motion::dotlottie::write("x", &anim, &[], &[])).unwrap(), "");
 }
 
-/// VAPP-189: `fixtures/records-query.json` through the three free functions,
+/// VAPP-189: `fixtures/records-query.json` through the free functions (VAPP-190:
+/// + `parse_records_json`, `date_bucket`),
 /// exactly as the Swift (`RecordsQueryTests`) and Compose (`RecordsQueryTest`)
 /// suites replay it.
 #[test]
@@ -1228,8 +1229,20 @@ fn the_records_query_fixture_replays_through_the_free_functions() {
         let got = parse_records_source_json(c["source"].as_str().unwrap().to_string()).map(|s| canon(&s)).unwrap_or(Value::Null);
         assert_eq!(got, c["expected"], "source: {}", c["name"]);
     }
+    for c in cases("jsonCases") {
+        let got = parse_records_json(c["query"].to_string(), c["kind"].as_str().map(str::to_string)).unwrap();
+        assert_eq!(canon(&got), c["expected"], "json: {}", c["name"]);
+    }
+    for c in cases("bucketCases") {
+        let got = date_bucket(c["date"].as_str().unwrap().into(), c["bucket"].as_str().unwrap().into());
+        assert_eq!(serde_json::to_value(got).unwrap(), c["expected"], "bucket: {} {}", c["date"], c["bucket"]);
+    }
+    assert_eq!(date_bucket("2026-10-05".into(), "fortnight".into()), None);
     for c in cases("valueCases") {
-        let query = parse_records_query_json(c["params"].to_string(), c["kind"].as_str().map(str::to_string)).unwrap();
+        let query = match c.get("query") {
+            Some(json) => canon(&parse_records_json(json.to_string(), c["kind"].as_str().map(str::to_string)).unwrap())["query"].to_string(),
+            None => parse_records_query_json(c["params"].to_string(), c["kind"].as_str().map(str::to_string)).unwrap(),
+        };
         let ctx = json!({"me": c["me"], "now": c["now"], "names": c["names"]});
         let got = records_value_json(c["rows"].to_string(), query, ctx.to_string()).unwrap();
         assert!(eui_core::json::equal(&canon(&got), &c["expected"]), "value: {}\n got {got}", c["name"]);

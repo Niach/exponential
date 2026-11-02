@@ -10,6 +10,7 @@ import type { HostOp, ServerMessage } from "./contract"
 import { sourceAllowed, supportedCatalogIds, templateMessages, validatePackage } from "./package"
 import type { AvailableExtension, PackageIssue, AppPackage } from "./package"
 import { parseSource } from "./sources"
+import { expandQuerySource } from "./query"
 import { LIMIT_ISSUES, MAX_MESSAGE_BYTES } from "../limits"
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
@@ -117,7 +118,8 @@ export class HostRouter {
         const pkg = info.packageId ? this.packages.get(info.packageId) : undefined
         if (pkg && !sourceAllowed(pkg.sources, body.source))
           return [{ op: `send`, message: errorMessage(`SOURCE_DENIED`, surfaceId, `source ${body.source} is not in package ${pkg.id}'s sources`, normalizePath(body.path) || `/`) }]
-        return [{ op: `bind`, surfaceId, path: normalizePath(body.path), source: body.source }]
+        // VAPP-190: `?query=<name>` follows the package's named query.
+        return [{ op: `bind`, surfaceId, path: normalizePath(body.path), source: pkg ? expandQuerySource(body.source, pkg.queries) : body.source }]
       }
       case `applyTemplate`: {
         if (typeof body.templateId !== `string`) return [this.invalid(surfaceId, `applyTemplate.templateId is required`)]

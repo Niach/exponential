@@ -787,6 +787,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_control_geometry_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_core_catalog_id(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_date_bucket(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_decide_function(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_decide_url_json(
@@ -830,6 +832,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json(
 external fun uniffi_exponential_ui_ffi_checksum_func_package_policy_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json(
 ): Short
@@ -1478,6 +1482,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_control_geometry_json(`themeJson`
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_core_catalog_id(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_date_bucket(`date`: RustBuffer.ByValue,`bucket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_decide_function(`policyJson`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`registered`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_decide_url_json(`policyJson`: RustBuffer.ByValue,`url`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1521,6 +1527,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(`min`: Double,`ma
 external fun uniffi_exponential_ui_ffi_fn_func_package_policy_json(`functionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_parse_records_json(`queryJson`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_parse_records_query_json(`paramsJson`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -10215,6 +10223,22 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * VAPP-190: a date's bucket key (`bucket` = day | week | month | quarter |
+         * year: `2026-10-05`, `2026-W41`, `2026-10`, `2026-Q4`, `2026`); null when
+         * the text holds no date that precise or the bucket is unknown
+         * (`bucketCases`).
+         */ fun `dateBucket`(`date`: kotlin.String, `bucket`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_date_bucket(
+    
+        FfiConverterString.lower(`date`),FfiConverterString.lower(`bucket`),_status)
+}
+    )
+    }
+    
+
+        /**
          * The function gate: `allow | ask | deny | not_found`. `policy_json` =
          * `{allow?, ask?, deny?, default?}`.
          */
@@ -10529,6 +10553,22 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(
     
         FfiConverterString.lower(`valueJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-190: the JSON query form (a package's `queries`, the `q` param) →
+         * `{query, issues: [{path, message}]}` (`fixtures/records-query.json`
+         * `jsonCases`). `kind` = a source's own kind, which wins over `from`.
+         */
+    @Throws(UiException::class) fun `parseRecordsJson`(`queryJson`: kotlin.String, `kind`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_records_json(
+    
+        FfiConverterString.lower(`queryJson`),FfiConverterOptionalString.lower(`kind`),_status)
 }
     )
     }
