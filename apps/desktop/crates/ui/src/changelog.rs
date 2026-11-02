@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-sessions-track-work",
+    date: "2026-11-02",
+    title: "Sessions keep track of their work",
+    summary: "A continued session keeps its plans and stories, pull requests find the session that pushed them, and sealed chats refuse clearly.",
+    body: r#"- **Continued sessions**: a session that continues an ended one keeps its plans, stories and pull request.
+- **Pull requests**: a pull request opened outside Exponential links to the session that pushed its branch.
+- **Sealed chats**: a message that can't be sealed yet says what to do instead of asking you to update an app that is already current."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_168: ChangelogEntry = ChangelogEntry {
     id: "2026-11-02-live-chats-smooth",
     date: "2026-11-02",
     title: "Live chats stay smooth",

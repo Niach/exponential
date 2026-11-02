@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-02-sessions-track-work`,
+    date: `2026-11-02`,
+    title: `Sessions keep track of their work`,
+    summary: `A continued session keeps its plans and stories, pull requests find the session that pushed them, and sealed chats refuse clearly.`,
+    body: `- **Continued sessions**: a session that continues an ended one keeps its plans, stories and pull request.
+- **Pull requests**: a pull request opened outside Exponential links to the session that pushed its branch.
+- **Sealed chats**: a message that can't be sealed yet says what to do instead of asking you to update an app that is already current.`,
+  },
+  {
     id: `2026-11-02-live-chats-smooth`,
     date: `2026-11-02`,
     title: `Live chats stay smooth`,
