@@ -11,7 +11,6 @@
 // `limit`): a JSON query form (VAPP-190: group-by, aggregates, `in` /
 // `between` / `or`) adds keys next to these, never changes them.
 
-import fixture from "../../fixtures/records-query.json" with { type: "json" }
 import type { ParsedSource } from "./sources"
 
 /** The binding scheme: `records:<kind>[?query]`. */
@@ -24,9 +23,9 @@ export const RECORDS_RESERVED_PARAMS: readonly string[] = [`app`, `by`, `kind`, 
 export const RECORDS_ROW_KEYS: readonly string[] = [`id`, `createdAt`, `updatedAt`, `createdBy`, `authorId`, `author`]
 /** The filter operators: `eq` is the bare key, the others a `.<op>` suffix. */
 export const RECORDS_FILTER_OPS: readonly RecordsFilterOp[] = [`eq`, `gt`, `gte`, `lt`, `lte`]
-/** The month view's day and month names (en-US, the same ×4). */
-export const RECORDS_WEEKDAYS: readonly string[] = fixture.weekdays
-export const RECORDS_MONTHS: readonly string[] = fixture.months
+/** The month view's day and month names (en-US, the same ×4; query.test.ts pins them to the fixture, which stays out of the bundle). */
+export const RECORDS_WEEKDAYS: readonly string[] = [`Sun`, `Mon`, `Tue`, `Wed`, `Thu`, `Fri`, `Sat`]
+export const RECORDS_MONTHS: readonly string[] = [`January`, `February`, `March`, `April`, `May`, `June`, `July`, `August`, `September`, `October`, `November`, `December`]
 
 export type RecordsFilterOp = `eq` | `gt` | `gte` | `lt` | `lte`
 export type RecordsOrder = `asc` | `desc`
