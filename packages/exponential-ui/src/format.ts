@@ -46,6 +46,9 @@ export interface Formatter {
   /** `value` as for `date`, against `now` (epoch ms). */
   relativeTime(value: unknown, now: number): string
   plural(value: number): PluralCategory
+  /** VAPP-191: the surface (team) zone's UTC offset in minutes at an
+   *  instant, for the expression date maths (src/cel.ts). Absent = UTC. */
+  offsetMinutes?(utcMs: number): number
 }
 
 const FALLBACK = localeJson.englishFallback
@@ -333,6 +336,7 @@ const ENGLISH_NAMES: DateNames = FALLBACK
 export function englishFormatter(zone: ZoneOffset = fixedOffset(0)): Formatter {
   return {
     locale: `en-US`,
+    offsetMinutes: zone,
     number(value, options = {}) {
       const fixed = fixedDigits(options.decimals)
       const { sign, body } = englishNumber(value, fixed ?? 0, fixed ?? 3, options.grouping !== false)
@@ -414,8 +418,10 @@ export function intlFormatter(locale: string, timeZone = `UTC`): Formatter {
     const get = (t: string) => parts.find((p) => p.type === t)?.value ?? `0`
     return { year: Number(get(`year`)), month: Number(get(`month`)), day: Number(get(`day`)), weekday: [`Sun`, `Mon`, `Tue`, `Wed`, `Thu`, `Fri`, `Sat`].indexOf(get(`weekday`)), hour: Number(get(`hour`)) % 24, minute: Number(get(`minute`)), second: Number(get(`second`)) }
   }
+  const zone = intlZoneOffset(timeZone)
   return {
     locale,
+    offsetMinutes: zone,
     number(value, options = {}) {
       const fixed = fixedDigits(options.decimals)
       return nf({ minimumFractionDigits: fixed ?? 0, maximumFractionDigits: fixed ?? 3, useGrouping: options.grouping !== false }).format(value)

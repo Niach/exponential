@@ -44,7 +44,9 @@ export { validateProps, validateNode, isCallableName, isDynamic } from "./valida
 export type { PropIssue } from "./validate"
 export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, filterItems, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
 export type { ExprContext, Dynamic } from "./expr"
-export { DATE_BUCKETS, dateBucket, parseDay, parseMonth, parseYear, formatDay, isoWeek, isoWeeksInYear, dayOfYear, daysInMonth, weekdayOf, isLeapYear } from "./dates"
+export { DATE_BUCKETS, dateBucket, parseDay, parseMonth, parseYear, formatDay, isoWeek, isoWeeksInYear, dayOfYear, daysInMonth, weekdayOf, isLeapYear, dayNumber, dayFromNumber } from "./dates"
+export { EXPRESSION_LIMITS, EXPRESSION_FUNCTIONS, EXPRESSION_CALL_NAMES, EXPRESSION_BIND_FUNCTIONS, DATE_UNITS, CALENDAR_UNITS, DURATION_FORMATS, parseExpression, evaluateExpression, checkExpression, callExpressionFunction, parseTimestamp, formatTimestamp, typeName as expressionTypeName, typeDisplay } from "./cel"
+export type { ExprType, ExprNode, ExpressionEnv, ExpressionResult } from "./cel"
 export type { CalendarDay, DateBucket } from "./dates"
 
 export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } from "./macros"

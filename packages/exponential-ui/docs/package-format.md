@@ -9,7 +9,7 @@ its synced store, spezl from a p2p store over eNet). `catalog/host.json`
 docs link to (spezl `docs/spec/blocks.md`). The TS reference is `src/host/`
 (`package.ts`, `records.ts`, `record-store.ts`, `query.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
 the Rust core (`apps/desktop/crates/eui-core/src/host/`) mirrors every
-pure rule. Fixtures: `fixtures/host-router.json` (package validation, replayed
+pure rule. Fixtures: `fixtures/expressions.json` (the expression language, below), `fixtures/host-router.json` (package validation, replayed
 by every renderer through the core), `fixtures/records-query.json` (the
 records query and its value) and `fixtures/host-package.json` (tool consent,
 extension compatibility, canonical JSON, signatures).
@@ -164,6 +164,80 @@ of whatever store the host has.
 Exponential: `records:<kind>?q` = its `exp:records?kind=<kind>&q` (the name
 wins over a `kind` param) and `records.*` = `harness.records.*`; both spellings
 stay valid on all four clients.
+
+## Expressions
+
+VAPP-191 (Q2, spec `docs/spec/apps.md` §4.2–4.3). A computed value is an
+A2UI function call: either one of the expression functions, or `expr`, the
+compact string form, with its inputs as `vars` (each a literal or any
+dynamic value: a binding, another call):
+
+```jsonc
+{ "call": "expr", "args": {
+    "expr": "formatDuration(target - entries.sum, 'h:mm')",
+    "vars": { "target": { "path": "/target" }, "entries": { "path": "/entries" } } } }
+{ "call": "dateAdd", "args": { "date": { "path": "/day" }, "n": 1, "unit": "month" } }
+```
+
+The string form is a **subset of CEL** (the Common Expression Language),
+the same in the TS reference (`src/cel.ts`) and the Rust core (`cel`):
+
+- literals: numbers, `'…'` / `"…"` strings (`\\ \' \" \n \t \r`), `true`,
+  `false`, `null`, lists `[a, b]`; names (the vars); `a.b`, `a[0]`, `m['k']`
+  (a missing field, or a field of null, is null);
+- `+ - * / %` (numbers; `+` also joins two strings or two lists), unary `-`
+  and `!`, `== !=` (deep JSON equality), `< <= > >=` (two numbers or two
+  strings, by UTF-16 code unit), `&& ||` (short-circuit, bools only),
+  `c ? a : b`;
+- calls of the functions below, and the macros `list.map(x, e)`,
+  `.filter(x, p)`, `.all(x, p)`, `.exists(x, p)`, one level (a macro inside a
+  macro's body is refused; chaining is fine).
+
+Unlike full CEL there is ONE number type (a double, like JSON: `7 / 2` is
+`3.5`), no implicit conversion (`'a' + 1` is an error), no `in`, no map
+literals, no user functions and no loops. An error (`1 / 0`, a missing name,
+a wrong type) gives the call no value.
+
+| Function | A2UI args | |
+| --- | --- | --- |
+| `mul(a, b)` `div(a, b)` `mod(a, b)` | `a, b` | `div` / `mod` by 0 = an error; `mod` takes the sign of `a` |
+| `round(x, digits?)` | `value, digits` | half away from zero, digits 0..10 |
+| `floor(x)` `ceil(x)` `abs(x)` | `value` | |
+| `min(x, …)` `max(x, …)` | `values: [...]` | at least one |
+| `today()` | | the calendar day in the team zone |
+| `now()` | | the instant, `YYYY-MM-DDTHH:MM:SS.sssZ` |
+| `dateAdd(d, n, unit)` | `date, n, unit` | a whole `n`; a day unit keeps the wall clock, a month end clamps (Jan 31 + 1 month = Feb 28) |
+| `dateDiff(a, b, unit)` | `a, b, unit` | whole units from `a` to `b` (`b - a`, truncated) |
+| `startOf(d, unit)` `endOf(d, unit)` | `date, unit` | day, week (Monday), month, quarter, year |
+| `weekday(d)` | `date` | 1 = Monday … 7 = Sunday |
+| `isoWeek(d)` | `date` | the ISO week number |
+| `hours(minutes)` | `minutes` | `minutes / 60` |
+| `formatDuration(h, format)` | `hours, format` | `h:mm` or `hh:mm` (`7.5` → `7:30`) |
+| `size(x)` | (CEL only; `len` in A2UI) | a list, string (code points) or map |
+
+Units: `second minute hour day week month quarter year` (a date takes no
+sub-day unit in `dateAdd`). A date is `YYYY-MM-DD` (a calendar day), a
+timestamp an ISO instant (no offset = UTC). Everything date-like runs in the
+**team zone**: the surface's zone (`Formatter.offsetMinutes` / the Rust
+`Formatter::offset_minutes`, `ResolveOptions.zone`, the FFI's `HostZone`). A
+wall-clock time in a DST gap moves forward by the gap; a repeated one takes
+its later instant. There are no working days or holidays (spec §18.8): an
+app keeps those as its own records.
+
+**Cost caps:** at most 1000 characters (code points), nesting 32 deep, and
+10 000 evaluation steps (nodes + macro iterations) per run.
+
+**Type checking at validation:** `validatePackage` parses and type-checks
+every `{"call": "expr"}` anywhere in a template. A var's type comes from a
+literal, from a records binding the path lies under (`records:<kind>` or
+`exp:records?kind=`: `{rows: [row], count, sum, groups, totals, before,
+month}`, a row = the kind's schema fields + `id createdAt updatedAt
+createdBy authorId author`; `format: date` = a date, `date-time` = a
+timestamp), or from the template `data`; anything else is open. An issue
+names the expression's JSON pointer and the reason, e.g.
+`/templates/month/components/3/props/text/args/expr: unknown field hourz`.
+`fixtures/expressions.json` locks the language, the checker, the A2UI form
+and these issues.
 
 ## Tools
 

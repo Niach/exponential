@@ -708,7 +708,27 @@
       "formatPercent",
       "formatRelativeTime",
       "filter",
-      "bind"
+      "bind",
+      "mul",
+      "div",
+      "mod",
+      "round",
+      "floor",
+      "ceil",
+      "abs",
+      "min",
+      "max",
+      "today",
+      "now",
+      "dateAdd",
+      "dateDiff",
+      "startOf",
+      "endOf",
+      "weekday",
+      "isoWeek",
+      "hours",
+      "formatDuration",
+      "expr"
     ],
     "core": {
       "percent": {
@@ -845,6 +865,134 @@
           "params": "object"
         },
         "returns": "void"
+      },
+      "mul": {
+        "args": {
+          "a": "number",
+          "b": "number"
+        },
+        "returns": "number"
+      },
+      "div": {
+        "args": {
+          "a": "number",
+          "b": "number"
+        },
+        "returns": "number"
+      },
+      "mod": {
+        "args": {
+          "a": "number",
+          "b": "number"
+        },
+        "returns": "number"
+      },
+      "round": {
+        "args": {
+          "value": "number",
+          "digits": "number"
+        },
+        "returns": "number"
+      },
+      "floor": {
+        "args": {
+          "value": "number"
+        },
+        "returns": "number"
+      },
+      "ceil": {
+        "args": {
+          "value": "number"
+        },
+        "returns": "number"
+      },
+      "abs": {
+        "args": {
+          "value": "number"
+        },
+        "returns": "number"
+      },
+      "min": {
+        "args": {
+          "values": "array"
+        },
+        "returns": "number"
+      },
+      "max": {
+        "args": {
+          "values": "array"
+        },
+        "returns": "number"
+      },
+      "today": {
+        "args": {},
+        "returns": "string"
+      },
+      "now": {
+        "args": {},
+        "returns": "string"
+      },
+      "dateAdd": {
+        "args": {
+          "date": "string",
+          "n": "number",
+          "unit": "string"
+        },
+        "returns": "string"
+      },
+      "dateDiff": {
+        "args": {
+          "a": "string",
+          "b": "string",
+          "unit": "string"
+        },
+        "returns": "number"
+      },
+      "startOf": {
+        "args": {
+          "date": "string",
+          "unit": "string"
+        },
+        "returns": "string"
+      },
+      "endOf": {
+        "args": {
+          "date": "string",
+          "unit": "string"
+        },
+        "returns": "string"
+      },
+      "weekday": {
+        "args": {
+          "date": "string"
+        },
+        "returns": "number"
+      },
+      "isoWeek": {
+        "args": {
+          "date": "string"
+        },
+        "returns": "number"
+      },
+      "hours": {
+        "args": {
+          "minutes": "number"
+        },
+        "returns": "number"
+      },
+      "formatDuration": {
+        "args": {
+          "hours": "number",
+          "format": "string"
+        },
+        "returns": "string"
+      },
+      "expr": {
+        "args": {
+          "expr": "string",
+          "vars": "object"
+        },
+        "returns": "any"
       }
     },
     "basic": {
