@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-subagents-menu-values",
+    date: "2026-11-02",
+    title: "Subagents and menu values",
+    summary: "Pick the model a new chat's subagents run on from the + menu, and menu rows show their value on the right on every app.",
+    body: r#"- **Subagents**: a new Claude chat's + menu has Subagents again, the model its subagents run on.
+- **Menu values**: on the desktop app a menu row shows its current value muted on the right before the arrow (Device, Account, Model, Effort, Checks), like on web and phones."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_172: ChangelogEntry = ChangelogEntry {
     id: "2026-11-02-desktop-confirms-fit",
     date: "2026-11-02",
     title: "Desktop confirms fit their content",

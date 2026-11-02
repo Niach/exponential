@@ -126,6 +126,8 @@ pub(crate) fn send_input(
         account: options.account.clone(),
         model: Some(options.model.clone()).filter(|model| !model.is_empty()),
         effort: Some(options.effort.clone()).filter(|effort| !effort.is_empty()),
+        // EXP-1583: claude only (the cluster clamps it), blank = the device's.
+        subagent_model: Some(options.subagent_model.clone()).filter(|model| !model.is_empty()),
         // S-3: no plan toggle (contract launchKeys has no planMode): never sent.
         plan_mode: None,
         // EXP-1249: `None` = the target's own switch.

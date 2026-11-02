@@ -4147,7 +4147,6 @@ dependencies = [
 [[package]]
 name = "gpui-component"
 version = "0.5.2"
-source = "git+https://github.com/longbridge/gpui-component?rev=da4f93696dc2b2b4d91bcc42412b9053a3d24de8#da4f93696dc2b2b4d91bcc42412b9053a3d24de8"
 dependencies = [
  "anyhow",
  "chrono",

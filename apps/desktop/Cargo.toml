@@ -1,8 +1,8 @@
 [workspace]
 members = ["crates/*"]
-# #EXP-1484: the vendored, patched iroh (see [patch.crates-io] below) is a
-# third-party crate, not one of ours.
-exclude = ["vendor/iroh"]
+# #EXP-1484 / #EXP-1620: the vendored, patched iroh and gpui-component (see
+# the [patch] sections below) are third-party crates, not ours.
+exclude = ["vendor/iroh", "vendor/gpui-component"]
 resolver = "2"
 
 [workspace.package]
@@ -156,6 +156,15 @@ ztracing_macro = { path = "crates/ztracing_macro" }
 # (vendor/iroh/PATCHES.md). Drop it once an iroh release carries the fix.
 [patch.crates-io]
 iroh = { path = "vendor/iroh" }
+
+# #EXP-1620: gpui-component's `PopupMenu` submenu row has no trailing value
+# slot (web/iOS/Android THE Menu `value`: `Checks   1 failing  ›`).
+# vendor/gpui-component = the `gpui-component` crate at the pinned rev above
+# plus `PopupMenu::submenu_with_value` (vendor/gpui-component/PATCHES.md); its
+# sibling crates (gpui-base, -assets, -macros) stay on the git pin. Drop it
+# once an upstream release carries the slot.
+[patch."https://github.com/longbridge/gpui-component"]
+gpui-component = { path = "vendor/gpui-component" }
 
 # #EXP-1460: etalk-gpui takes eUI and ePilot through their release tags (one
 # copy for a git consumer); inside this workspace they ARE the local crates.

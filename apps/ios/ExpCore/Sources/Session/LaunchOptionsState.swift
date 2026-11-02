@@ -33,6 +33,10 @@ public final class LaunchOptionsState {
     public var model = LaunchVocabulary.defaultModel(for: "claude")
     public var effort = LaunchVocabulary.cliDefault
     public var ultracode = false
+    /// EXP-1583: the model claude's subagents run on — seeded from the
+    /// machine's claude launch defaults (`subagentModel`), else the contract
+    /// default; claude only on the wire.
+    public var subagentModel = LaunchOptionsState.seedSubagentModel(nil)
     /// EXP-825: the picked login profile id, sent verbatim (`system` = the
     /// ambient login); `""` = unnamed, the machine's last used login (sent as
     /// no account). Reset on every agent change and on a device change, unless
@@ -142,6 +146,7 @@ public final class LaunchOptionsState {
         model = Self.seedModel(advertised?.model, for: value)
         effort = Self.seedEffort(advertised?.effort, for: value)
         ultracode = advertised?.ultracode ?? false
+        subagentModel = Self.seedSubagentModel(device?.agentDefaults(for: "claude")?.subagentModel)
         account = ""
         clampToggles()
     }
@@ -157,6 +162,12 @@ public final class LaunchOptionsState {
     /// is explicit).
     public static func seedModel(_ value: String?, for agent: String) -> String {
         LaunchVocabulary.seedModel(value, for: agent, fallback: LaunchVocabulary.defaultModel(for: agent))
+    }
+
+    /// EXP-1583: an advertised claude subagent model, validated against the
+    /// claude list; absent, blank or unknown = the contract default.
+    public static func seedSubagentModel(_ value: String?) -> String {
+        LaunchVocabulary.seedModel(value, for: "claude", fallback: DomainContract.deviceAgentDefaultsSubagentModel)
     }
 
     /// An advertised effort/reasoning/thinking value; blank or unknown = the
@@ -240,6 +251,9 @@ public final class LaunchOptionsState {
             // row exists only on a device with `codingSessionComputerUseCap`.
             computerUse: computerUse,
             ultracode: isClaude ? ultracode : nil,
+            // EXP-1583: claude only, never blank.
+            subagentModel: isClaude && LaunchVocabulary.supportsSubagentModel(agent) && !subagentModel.isEmpty
+                ? subagentModel : nil,
             // EXP-792: omitted when nothing is picked.
             mcpServerIds: mcpServerIds.isEmpty ? nil : mcpServerIds
         )

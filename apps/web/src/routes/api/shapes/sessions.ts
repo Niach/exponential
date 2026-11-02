@@ -27,6 +27,8 @@ export const SESSION_COLUMNS = [
   `plan_mode`,
   `computer_use`,
   `ultracode`,
+  // EXP-1583: the daemon reads it at launch.
+  `subagent_model`,
   `repository_id`,
   `branch`,
   `status`,

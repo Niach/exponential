@@ -8,7 +8,7 @@ use gpui::{div, px, AnyElement, App, Hsla, IntoElement as _, ParentElement as _,
 use gpui_component::{menu::PopupMenuItem, ActiveTheme as _, Icon};
 use theme::tokens as t;
 
-use domain::pr_checks::{CheckGlyph, CheckListRow, CheckTone, ChecksSummary};
+use domain::pr_checks::{CheckGlyph, CheckListRow, CheckTone};
 use domain::rows::PullRequestCheckRow;
 use sync::Store;
 
@@ -63,12 +63,6 @@ pub(crate) fn checks_of(pull_request_id: &str, cx: &App) -> Vec<PullRequestCheck
         .unwrap_or_default()
 }
 
-/// The Checks entry's label: `Checks · 1 failing` (the submenu row has one
-/// text slot; the composer's `Subagents · Opus` does the same).
-pub(crate) fn entry_label(summary: &ChecksSummary) -> String {
-    format!("{} · {}", domain::pr_checks::CHECKS_LABEL, summary.value)
-}
-
 /// One check row's body (the live menu's and the styleguide panel's):
 /// glyph, name, the muted duration on the right. A row without a url is
 /// disabled (muted, no pointer).
@@ -112,7 +106,8 @@ pub(crate) fn check_menu_item(index: usize, row: CheckListRow) -> PopupMenuItem 
 }
 
 /// The `…` menu's leading Checks submenu over `rows` (#EXP-1611): the entry
-/// = the summary glyph tinted by its tone, `Checks · {value}`; its rows =
+/// = the summary glyph tinted by its tone, `Checks` with the summary as the
+/// row's muted trailing value (#EXP-1620, THE Menu `value`); its rows =
 /// `checks_list`. No rows = no entry (the menu is unchanged).
 pub(crate) fn checks_submenu(
     menu: gpui_component::menu::PopupMenu,
@@ -125,7 +120,8 @@ pub(crate) fn checks_submenu(
     };
     let list = domain::pr_checks::checks_list(rows, crate::session_data::now_ms());
     let icon = Icon::new(glyph_icon(summary.glyph)).text_color(tone_color(summary.tone, cx));
-    menu.submenu_with_icon(Some(icon), entry_label(&summary), window, cx, move |mut sub, _, _| {
+    let label = domain::pr_checks::CHECKS_LABEL;
+    menu.submenu_with_value(Some(icon), label, Some(summary.value.clone()), window, cx, move |mut sub, _, _| {
         sub = sub.min_w(px(t::menu::pointer::MIN_WIDTH + 60.));
         for (index, row) in list.iter().cloned().enumerate() {
             sub = sub.item(check_menu_item(index, row));
@@ -154,8 +150,8 @@ pub(crate) fn checks_panel(rows: &[PullRequestCheckRow], now_ms: i64, cx: &App) 
                             .flex_shrink_0()
                             .text_color(tone_color(summary.tone, cx)),
                     )
-                    .child(div().flex_1().min_w_0().truncate().child(entry_label(&summary)))
-                    .child(crate::controls::menu_row_value(None, true, cx)),
+                    .child(div().flex_1().min_w_0().truncate().child(domain::pr_checks::CHECKS_LABEL))
+                    .child(crate::controls::menu_row_value(Some(summary.value.clone().into()), true, cx)),
                 false,
             )
             .px_2()
@@ -224,15 +220,5 @@ mod tests {
             let concept = registry::concept_by_name(glyph.concept()).map(|icon| icon.path());
             assert_eq!(concept, Some(glyph_icon(glyph).path()), "{}", glyph.concept());
         }
-    }
-
-    #[test]
-    fn the_entry_label_carries_the_summary_value() {
-        let summary = ChecksSummary {
-            glyph: CheckGlyph::Failed,
-            tone: CheckTone::Red,
-            value: "1 failing".into(),
-        };
-        assert_eq!(entry_label(&summary), "Checks · 1 failing");
     }
 }

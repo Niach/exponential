@@ -1927,6 +1927,9 @@ async function main() {
     .insert(repositories)
     .values({ teamId: ws.id, fullName: `acme/mobile-app` })
     .returning()
+  // EXP-1583: a second repository, so the composer "+" menu shows its
+  // Repository › row (composer-menu.json `conditions.repositories`).
+  await db.insert(repositories).values({ teamId: ws.id, fullName: `acme/web-app` })
   const [board] = await db
     .insert(boards)
     .values({

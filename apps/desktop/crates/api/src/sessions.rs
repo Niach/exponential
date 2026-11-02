@@ -54,6 +54,9 @@ pub struct SendInput {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
+    /// EXP-1583: claude only, a new session's subagent model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subagent_model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plan_mode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
