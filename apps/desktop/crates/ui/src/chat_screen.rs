@@ -2390,6 +2390,11 @@ impl Render for ChatScreenView {
                 if let Some(text) = crate::screens::take_dev_composer_text() {
                     self.input.read(cx).focus_handle(cx).focus(window, cx);
                     self.mention.update(cx, |mention, cx| mention.dev_type(&text, window, cx));
+                    // EXP-1558: `/` opens the prompts menu (the
+                    // `composer-slash-menu` capture) off the synced prompts,
+                    // Change event or not.
+                    self.refresh_actions(window, cx);
+                    self.refresh_slash(cx);
                 }
             }
         }

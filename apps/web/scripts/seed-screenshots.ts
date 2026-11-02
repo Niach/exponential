@@ -55,8 +55,10 @@ import {
   issueStatuses,
   issueSubscribers,
   labels,
+  mcpCalls,
   mcpServers,
   messages,
+  oauthApplications,
   conversations,
   notifications,
   boards,
@@ -407,6 +409,7 @@ async function teardown() {
     await db.delete(boards).where(eq(boards.teamId, teamId))
     await db.delete(teams).where(eq(teams.id, teamId))
   }
+  await db.delete(mcpCalls).where(inArray(mcpCalls.userId, ids))
   await db.delete(users).where(inArray(users.id, ids))
 }
 
@@ -1786,6 +1789,25 @@ async function seedSessionTree(ctx: {
       createdAt: daysAgo(2),
       updatedAt: daysAgo(1),
     },
+    // EXP-1558: the `thread` view's cold-start thread holds an open PR (its
+    // child's first cut), so the thread header's Merge pill is in every
+    // platform's shot (#1596: the iOS toolbar order and the Android pill were
+    // never pictured).
+    {
+      id: prs.coldStart,
+      teamId,
+      rootSessionId: DEMO_THREAD_ID,
+      sessionId: DEMO_SESSION_ID,
+      repositoryId: repoId,
+      number: 57,
+      url: acmePr(57),
+      title: `Defer the markdown editor on cold start`,
+      head: `exp/APP-5`,
+      base: `main`,
+      state: `open`,
+      createdAt: minutesAgo(12),
+      updatedAt: minutesAgo(12),
+    },
     {
       id: prs.thumbnails,
       teamId,
@@ -1810,6 +1832,50 @@ async function seedSessionTree(ctx: {
     closes(prs.scrollRestore, `APP-16`),
     closes(prs.heicFix, `APP-2`),
     closes(prs.thumbnails, `APP-17`),
+    closes(prs.coldStart, `APP-5`),
+  ])
+}
+
+/**
+ * EXP-1558: Settings › MCP › Activity (`settings-mcp-activity`) reads the
+ * `mcp_calls` audit, which nothing seeded: web photographed "No MCP calls
+ * yet" while desktop's shot held four rows. Two OAuth clients (owned by the
+ * demo user, so the user teardown cascades them) and the four calls, one per
+ * status the page draws. `mcp_calls` has no FKs: teardown drops them by user.
+ */
+async function seedMcpActivity(ctx: { teamId: string; demoId: string; mira: string; jonas: string }) {
+  const clients = [
+    { id: `demo-mcp-claude-code`, name: `Claude Code` },
+    { id: `demo-mcp-cursor`, name: `Cursor` },
+  ]
+  await db.insert(oauthApplications).values(
+    clients.map(({ id, name }) => ({
+      id,
+      name,
+      clientId: id,
+      redirectUrls: `http://localhost/callback`,
+      type: `public`,
+      userId: ctx.demoId,
+      createdAt: daysAgo(10),
+      updatedAt: daysAgo(10),
+    }))
+  )
+  const call = (tool: string, userId: string, clientId: string | null, appId: string | null, status: string, at: Date) => ({
+    teamId: ctx.teamId,
+    userId,
+    clientId,
+    appId,
+    tool,
+    status,
+    latencyMs: 42,
+    argsHash: `sha256:${tool}`,
+    createdAt: at,
+  })
+  await db.insert(mcpCalls).values([
+    call(`exponential_issues`, ctx.mira, `demo-mcp-claude-code`, null, `ok`, hoursAgo(10 / 60)),
+    call(`log_hours`, ctx.demoId, `demo-mcp-claude-code`, DEMO_APP_ID, `ok`, hoursAgo(2)),
+    call(`list_hours`, ctx.jonas, `demo-mcp-cursor`, DEMO_APP_ID, `upstream`, daysAgo(1)),
+    call(`exponential_sessions`, ctx.demoId, null, null, `denied`, daysAgo(3)),
   ])
 }
 
@@ -2767,6 +2833,7 @@ async function main() {
     return row
   }
   await seedSessionTree({ teamId: ws.id, demoId, jonas, repoId: repo.id, issue })
+  await seedMcpActivity({ teamId: ws.id, demoId, mira, jonas })
   // #EXP-1456: the Assistant's decision push (issue-less, session-routed:
   // notifyAssistantDecision), the inbox's newest row; after the tree, whose
   // Assistant conversation it names.

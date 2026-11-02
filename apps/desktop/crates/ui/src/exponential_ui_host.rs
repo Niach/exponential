@@ -934,6 +934,21 @@ fn consent_hook(scope: Option<HostScope>) -> ConsentHook {
     })
 }
 
+/// EXP-1558 (DEV-ONLY, `EXP_DEV_DIALOG=app-consent`): raise THE consent
+/// window over the app screen for the natives' `sg_app-consent` call (the
+/// Working hours demo's "Post to the issue" on the docs, admin entry),
+/// through the real hook with no grants, so the `app-consent` capture is
+/// the window an ungranted typed action raises.
+pub(crate) fn dev_open_consent(cx: &mut App) {
+    let call = FunctionCallInfo {
+        surface_id: "dev-app-consent".into(),
+        component_id: "dev-app-consent".into(),
+        name: "exponential.comments.create".into(),
+        args: serde_json::json!({"issueId": "APP-15", "body": "Logged 8 h: docs, admin"}),
+    };
+    consent_hook(None)(&call, cx).detach();
+}
+
 // ---------------------------------------------------------------------------
 // The painter plugin + the app-extension painters
 // ---------------------------------------------------------------------------

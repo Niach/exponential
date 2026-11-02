@@ -252,19 +252,34 @@ impl MentionInput {
 
     /// SLOP-28: open the `#` typeahead the last keystroke asked for.
     fn drain_pending_typeahead(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // EXP-1558: an input that has never painted has no caret to anchor
+        // at (a keystroke always comes after a paint; the dev-typed
+        // `EXP_DEV_COMPOSER_TEXT` can come before it): wait one frame
+        // instead of opening the list at the window's corner.
+        if self.pending_typeahead.is_some() && self.bounds.get().size.width <= px(0.) {
+            window.request_animation_frame();
+            return;
+        }
         let Some((team_id, prefill)) = self.pending_typeahead.take() else {
             return;
         };
         let anchor =
             search_list::textarea_caret_anchor(self.input.read(cx), self.bounds.get().origin, window);
-        self.typeahead = Some(OpenIssueTypeahead::open(
+        let typeahead = OpenIssueTypeahead::open(
             team_id,
             prefill,
             anchor,
             window,
             cx,
             |this: &mut Self, event, token, window, cx| this.on_typeahead_event(event, token, window, cx),
-        ));
+        );
+        // EXP-1558 (DEV-ONLY, `EXP_DEV_TYPEAHEAD_QUERY`): type the query into
+        // the list's own focused input, as web's `typeIssueRef` does after
+        // `Explain #` (the `search-list` capture).
+        if let Some(query) = crate::screens::take_dev_typeahead_query() {
+            typeahead.dev_type_query(&query, window, cx);
+        }
+        self.typeahead = Some(typeahead);
     }
 
     /// SLOP-28: a pick writes `#IDENT ` over the token; Escape leaves the

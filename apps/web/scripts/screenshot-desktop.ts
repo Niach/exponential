@@ -39,7 +39,9 @@
  *
  * Runs until Ctrl-C. Keep it running for the whole fastlane capture.
  */
-import { and, eq } from "drizzle-orm"
+import { rmSync, writeFileSync } from "node:fs"
+import { resolve } from "node:path"
+import { and, eq, ne } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import { comments, devices, issues, sessions, users } from "@/db/schema"
@@ -58,6 +60,7 @@ import {
 } from "./lib/demo-live-sessions"
 import { reclockDemoRows } from "./lib/demo-reclock"
 import { startEnetFeedStub } from "./lib/enet-feed-stub"
+import { worktreeTmpPath } from "./lib/worktree-tmp"
 import { assertLocalDatabase } from "./lib/local-db-guard"
 import {
   DEMO_AGENT_COMMENT_ID,
@@ -825,6 +828,14 @@ async function main() {
       (frame.event as { kind?: string } | undefined)?.kind === `narration` ? index : last,
     0
   )
+  // EXP-1558: every OTHER session of the demo machine (the thread roots, their
+  // other children, the app editor's) is held as a stored replay, so a viewer
+  // of one gets the device's answer instead of `no_such_session` and a redial
+  // loop whose phase each capture caught differently.
+  const held = await db
+    .select({ id: sessions.id, status: sessions.status })
+    .from(sessions)
+    .where(and(eq(sessions.userId, userId), eq(sessions.deviceId, DEMO_DEVICE_ID), ne(sessions.id, sessionId)))
   const feedStub = await startEnetFeedStub({
     userId,
     deviceId: DEMO_DEVICE_ID,
@@ -834,6 +845,7 @@ async function main() {
       journal: frames.slice(0, closing),
       live: [...frames.slice(closing), ...turnTicks(frames.length)],
       liveEveryMs: LIVE_EVERY_MS,
+      stored: held.map((row) => ({ sessionId: row.id, journal: [], ended: row.status === `ended` })),
     },
   })
 
@@ -846,6 +858,15 @@ Screenshot desktop online:
 
 Leave this running for the whole fastlane capture. Ctrl-C to stop.
 `)
+  // EXP-1558: `bun run shots` reuses a stub this checkout already runs
+  // (packages/shots capture-all `runningStub`) instead of starting a second
+  // one: two stubs on one relay register the same demo machine twice and the
+  // newer eNet node revokes the older one mid-capture.
+  const pidFile = worktreeTmpPath(resolve(import.meta.dir, `../../..`), `exp-screenshot-stub`, `.json`)
+  writeFileSync(
+    pidFile,
+    JSON.stringify({ pid: process.pid, relayUrl: config.url, databaseUrl: process.env.DATABASE_URL ?? `` })
+  )
 
   const heartbeat = setInterval(() => {
     void touchDevice()
@@ -860,6 +881,7 @@ Leave this running for the whole fastlane capture. Ctrl-C to stop.
     clearInterval(heartbeat)
     stopControl()
     feedStub.stop()
+    rmSync(pidFile, { force: true })
     process.exit(0)
   }
   process.on(`SIGINT`, shutdown)

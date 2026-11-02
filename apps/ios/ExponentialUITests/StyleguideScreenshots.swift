@@ -30,7 +30,10 @@ import XCTest
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
 ///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_device-readiness ·
-///   sg_story-ring · sg_story-viewer · sg_plan-page
+///   sg_story-ring · sg_story-viewer · sg_plan-page ·
+///   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
+///   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
+///   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558)
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -139,10 +142,14 @@ final class StyleguideScreenshots: XCTestCase {
     /// The seed's SECOND board: created empty on purpose, so the "no issues
     /// yet" state is photographable without deleting anything (EXP-642).
     private static let emptyBoardName = "Launch Marketing"
-    /// Two backlog issues (APP-11 / APP-13) — the bulk-edit selection. Both
-    /// sit in the same group, so one scroll reaches both.
-    private static let bulkFirstTitle = "Localize the app in German and Spanish"
-    private static let bulkSecondTitle = "Audit accessibility labels for VoiceOver"
+    /// EXP-1558: the bulk-edit selection = the board's first three rows
+    /// (APP-6, APP-7, APP-9 at the top of Backlog), the ones web's
+    /// `openBoardBulkEdit` checks, so every client photographs one selection.
+    private static let bulkTitles = [
+        "Push notification deep links open the wrong tab",
+        "Add drag-and-drop reordering on the board",
+        "Offline queue for issue edits",
+    ]
     /// EXP-1551: the two issues every client's `chat-issues` chips, in order
     /// (web `demo-ids.ts` `CHAT_ISSUE_IDENTIFIERS`: `$issueA` APP-3, `$issueB`
     /// APP-6).
@@ -173,6 +180,9 @@ final class StyleguideScreenshots: XCTestCase {
     /// editor never discards it).
     private static let draftAppSlug = "release-checklist"
     private static let draftAppName = "Release checklist"
+    /// EXP-1558: the demo user's title-less seeded draft's row, which only
+    /// the Drafts list draws (its other draft shares APP-9's title).
+    private static let draftTitle = "Untitled draft"
 
     @MainActor
     func testCaptureStyleguideScreenshots() throws {
@@ -333,26 +343,27 @@ final class StyleguideScreenshots: XCTestCase {
 
         // ── sg_board-bulk-edit: multi-select + the bulk action bar ───────────
         // Long-press enters selection mode (with a haptic tick); a plain tap on
-        // a second row then adds it. Both rows are in the backlog group at the
-        // bottom of the list, so scroll them into view first.
-        let bulkFirst = app.staticTexts[Self.bulkFirstTitle]
-        XCTAssertTrue(
-            scrollUntilVisible(app, bulkFirst, attempts: 14),
-            "\(Self.bulkFirstTitle) never scrolled into view"
-        )
-        bulkFirst.press(forDuration: 1.0)
+        // each further row then adds it. EXP-1558: the first three rows, at
+        // the top of the list as the board opens (web's selection).
+        let bulkRows = Self.bulkTitles.map { app.staticTexts[$0].firstMatch }
+        for (title, row) in zip(Self.bulkTitles, bulkRows) {
+            XCTAssertTrue(row.waitForExistence(timeout: Wait.sync) && row.isHittable, "\(title) is not on screen as the board opens")
+        }
+        bulkRows[0].press(forDuration: 1.0)
         let bulkBar = anyElement(app, identified: "bulk-selection-bar")
         expect(
             bulkBar,
             within: Wait.nav,
             "Long-press did not enter multi-select"
         )
-        let bulkSecond = app.staticTexts[Self.bulkSecondTitle]
-        XCTAssertTrue(
-            scrollUntilVisible(app, bulkSecond, attempts: 8),
-            "\(Self.bulkSecondTitle) never scrolled into view"
+        for row in bulkRows.dropFirst() {
+            row.tap()
+        }
+        expect(
+            bulkBar.staticTexts["\(Self.bulkTitles.count)"],
+            within: Wait.nav,
+            "The bulk bar does not count \(Self.bulkTitles.count) selected rows"
         )
-        bulkSecond.tap()
         snapshot("sg_board-bulk-edit", settle: 2)
         // Leave selection mode — every later shot assumes the plain list.
         app.buttons["Clear selection"].firstMatch.tap()
@@ -422,8 +433,8 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_issue-create: the new-issue page ─────────────────────────────
         // The compose button is only mounted on board routes (AppNavigator
         // `composeTarget`), so come back to the issues tab first. The title
-        // field takes focus on appear, so the page is captured with the
-        // keyboard up — which is the state a user actually sees.
+        // field takes focus on appear; EXP-1558: the shot lowers the keyboard
+        // after typing, the state the other clients photograph.
         showBoard(app)
         expect(showcaseRowTitle, within: Wait.nav, "Board did not come back for the compose shot")
         let composeButton = app.buttons["compose-button"]
@@ -433,7 +444,9 @@ final class StyleguideScreenshots: XCTestCase {
         expect(titleField, within: Wait.nav, "Create-issue page did not open")
         focus(titleField)
         titleField.typeText("Prefetch avatars before the first board paint")
+        dismissKeyboard(app)
         snapshot("sg_issue-create", settle: 2)
+        focus(titleField)
         // EXP-1170: the page AUTOSAVES its draft while the title is typed, and
         // the styleguide run must not leave anything in the seed — clear the
         // title first: Back from an emptied page DELETES the transient row the
@@ -477,6 +490,19 @@ final class StyleguideScreenshots: XCTestCase {
             "My Issues never showed the issues assigned to the demo user"
         )
         snapshot("sg_my-issues", settle: 2)
+        // ── sg_drafts: the board's Drafts chip (EXP-1558; web-mobile's
+        // `?chip=drafts`): the demo user's seeded drafts. A detour.
+        if ScreenshotShots.isWanted("sg_drafts") {
+            let draftsChip = app.buttons["board-chip-drafts"]
+            expect(draftsChip, within: Wait.nav, "The board has no Drafts chip — reseed with `bun run seed:screenshots` (the demo user's drafts)")
+            draftsChip.tap()
+            expect(
+                app.staticTexts[Self.draftTitle].firstMatch,
+                within: Wait.sync,
+                "The Drafts chip never listed the seeded draft \"\(Self.draftTitle)\""
+            )
+            snapshot("sg_drafts", settle: 2)
+        }
         app.buttons["board-chip-all"].tap()
 
         // ── sg_agents: the machines / command centre ─────────────────────────
@@ -520,6 +546,22 @@ final class StyleguideScreenshots: XCTestCase {
         expect(deviceActions.element(boundBy: 1), within: Wait.sync,
                "No ⋯ on the shared team device — is the demo user Acme's owner?")
         snapshot("sg_agents", settle: 2)
+
+        // ── sg_add-server: the band's Add device sheet (EXP-1169; web's
+        // `openAddServer`): the desktop download and the CLI one-liner. A
+        // detour: the sheet is swiped away again.
+        if ScreenshotShots.isWanted("sg_add-server") {
+            let addDevice = app.buttons["Add device"].firstMatch
+            expect(addDevice, within: Wait.nav, "The Devices band has no Add device pill")
+            addDevice.tap()
+            let addSheet = anyElement(app, identified: "add-device-sheet")
+            expect(addSheet, within: Wait.nav, "Add device opened no sheet")
+            expect(anyElement(app, identified: "install-snippet"), within: Wait.sync, "The Add device sheet drew no install one-liner")
+            snapshot("sg_add-server", settle: 2)
+            dismissSheet(app, whileVisible: app.staticTexts["Add device"].firstMatch)
+            _ = addSheet.waitForNonExistence(timeout: Wait.nav)
+            settle(1)
+        }
 
         // ── sg_chat / sg_chat-issues: the home composer ─────────────────────
         // EXP-825: the ONE launcher. EXP-909: a device row starts nothing any
@@ -604,15 +646,38 @@ final class StyleguideScreenshots: XCTestCase {
         // Typing `#` in the composer opens THE search list as a bottom sheet,
         // its input focused and prefilled with the token after the `#`.
         let composerField = anyElement(app, identified: "agent-composer-field")
-        composerField.tap()
+        // EXP-1558: the field is a block editor in a scroll view; its empty
+        // first line sits at the top, so a centre tap can miss it. Tap the
+        // first line and wait for the keyboard before typing.
+        for dy in [0.25, 0.5, 0.15] where !app.keyboards.firstMatch.exists {
+            composerField.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: dy)).tap()
+            _ = app.keyboards.firstMatch.waitForExistence(timeout: Wait.nav)
+        }
+        // ── sg_composer-slash-menu: `/` in the home composer (NEW-7; web's
+        // `typeSlashInComposer`): the team's seeded prompts over the card.
+        // EXP-1558: here, where the composer reliably holds the focus (a tap
+        // right after sg_chat raised no keyboard); nothing is picked.
+        if ScreenshotShots.isWanted("sg_composer-slash-menu") {
+            app.typeText("/")
+            expect(
+                anyElement(app, identified: "agent-composer-slash-menu"),
+                within: Wait.sync,
+                "Typing / opened no prompts menu — does the seed insert the team's prompts?"
+            )
+            snapshot("sg_composer-slash-menu", settle: 2)
+            app.typeText(XCUIKeyboardKey.delete.rawValue)
+        }
         app.typeText("Explain #")
         let refSheet = anyElement(app, identified: "issue-ref-search-sheet")
         expect(refSheet, within: Wait.nav, "Typing # did not open the search-list sheet")
-        app.typeText("cold")
+        // EXP-1558: `APP`, the seeded board's key, as web types it
+        // (view-recipes `typeIssueRef`): every issue matches, the list's
+        // uncapped face.
+        app.typeText("APP")
         expect(
-            anyElement(app, containing: Self.showcaseTitle),
+            app.descendants(matching: .any).matching(identifier: "search-list-row").element(boundBy: 2),
             within: Wait.sync,
-            "The # sheet never listed the seeded issue for \"cold\""
+            "The # sheet never listed the seeded issues for \"APP\""
         )
         snapshot("sg_search-list", settle: 2)
         dismissSheet(app, whileVisible: refSheet)
@@ -668,7 +733,7 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_thread-replies: the quick replies (EXP-1211) ──────────────────
         // APP-15's thread again, left on its Conversation: the seeded
         // `replies` card's row over the composer capsule.
-        if ScreenshotShots.isWanted("sg_thread-replies") {
+        if ScreenshotShots.isWanted("sg_thread-replies") || ScreenshotShots.isWanted("sg_session-slash-menu") {
             openIssue(app, title: Self.batchGuideTitle)
             let threadChip = anyElement(app, identified: "issue-thread-chip")
             _ = scrollUntilVisible(app, threadChip)
@@ -677,6 +742,26 @@ final class StyleguideScreenshots: XCTestCase {
             let replies = anyElement(app, identified: "thread-replies")
             expect(replies, within: Wait.sync, "APP-15's thread drew no quick replies — reseed with `bun run seed:screenshots`")
             snapshot("sg_thread-replies", settle: 2)
+            // ── sg_session-slash-menu: `/` in the same thread's composer
+            // (NEW-7; web's `typeSlashInSessionComposer` on APP-15's thread):
+            // the builtins, then the team's prompts. Nothing is sent.
+            if ScreenshotShots.isWanted("sg_session-slash-menu") {
+                let capsule = anyElement(app, identified: "thread-composer-collapsed")
+                expect(capsule, within: Wait.nav, "APP-15's thread has no composer capsule")
+                capsule.tap()
+                _ = app.keyboards.firstMatch.waitForExistence(timeout: Wait.nav)
+                app.typeText("/")
+                expect(
+                    app.descendants(matching: .any)
+                        .matching(NSPredicate(format: "identifier BEGINSWITH 'slash-prompt-'"))
+                        .firstMatch,
+                    within: Wait.sync,
+                    "Typing / in the thread composer listed no prompts — does the seed insert the team's prompts?"
+                )
+                snapshot("sg_session-slash-menu", settle: 2)
+                app.typeText(XCUIKeyboardKey.delete.rawValue)
+                dismissKeyboard(app)
+            }
             // Thread → issue → board.
             goBack(app)
             goBack(app)
@@ -765,6 +850,33 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_settings-team", settle: 2)
         goBack(app)
 
+        // ── sg_settings-general · -members · -labels · -repositories: the
+        // phone's own pages of web's General / Members / Labels /
+        // Repositories (settings-nav.json `phone`), each a detour off the
+        // Team tab gated on its seeded content (EXP-1558).
+        for (label, shot, gate) in [
+            ("General", "sg_settings-general", "team-settings-identity"),
+            ("Members", "sg_settings-members", ScreenshotSeed.demoEmail),
+            ("Labels", "sg_settings-labels", "Bug"),
+            ("Repositories", "sg_settings-repositories", "acme/mobile-app"),
+        ] where ScreenshotShots.isWanted(shot) {
+            let row = teamSettingsRow(app, label)
+            scrollUntilVisible(app, row, attempts: 4)
+            expect(row, within: Wait.nav, "The Team tab has no \(label) row")
+            row.tap()
+            expect(anyElement(app, identified: "team-settings-page"), within: Wait.nav, "\(label) opened no settings page")
+            let content = label == "General" ? anyElement(app, identified: gate) : anyElement(app, containing: gate)
+            expect(content, within: Wait.network, "The \(label) page never showed \"\(gate)\"")
+            switch shot {
+            case "sg_settings-general": snapshot("sg_settings-general", settle: 2)
+            case "sg_settings-members": snapshot("sg_settings-members", settle: 2)
+            case "sg_settings-labels": snapshot("sg_settings-labels", settle: 2)
+            default: snapshot("sg_settings-repositories", settle: 2)
+            }
+            goBack(app)
+            expect(teamSettingsRow(app, "Boards"), within: Wait.nav, "Did not return to the Team tab")
+        }
+
         // ── sg_settings-team-agent: Settings → Agents, one agent's page ─────
         // EXP-1293/1309: the Triage agent (DEMO_AGENT_ID) — its build
         // server, login, daily Schedule row and the server-only instructions
@@ -797,7 +909,7 @@ final class StyleguideScreenshots: XCTestCase {
         // Agents page mounting ensures it): identity, Runs on, Check in, the
         // Voice block and the server-only instructions (gate on them). A
         // detour: nothing is edited.
-        if ScreenshotShots.isWanted("sg_settings-assistant") {
+        if ScreenshotShots.isWanted("sg_settings-assistant") || ScreenshotShots.isWanted("sg_settings-assistant-meeting") {
             let agentsRow = teamSettingsRow(app, "Agents")
             scrollUntilVisible(app, agentsRow, attempts: 4)
             agentsRow.tap()
@@ -810,6 +922,20 @@ final class StyleguideScreenshots: XCTestCase {
                 "The Assistant page drew no Check in row (no Assistant synced: does the demo member own a device?)"
             )
             snapshot("sg_settings-assistant", settle: 2)
+            // ── sg_settings-assistant-meeting: the same page scrolled to its
+            // Meeting mode rows (#NEW-57; web's `scrollToMeetingMode`).
+            if ScreenshotShots.isWanted("sg_settings-assistant-meeting") {
+                // The page is a List: the row joins the tree only once
+                // scrolled near, so scroll first, then gate.
+                let autoStop = anyElement(app, identified: "settings-voice-auto-stop")
+                for _ in 0..<8 where !(autoStop.exists && autoStop.isHittable) {
+                    app.swipeUp()
+                    _ = autoStop.waitForExistence(timeout: 1)
+                }
+                expect(autoStop, within: Wait.network, "The Assistant page drew no Meeting mode Stop after row (voice settings)")
+                XCTAssertTrue(autoStop.isHittable, "Stop after never scrolled into view")
+                snapshot("sg_settings-assistant-meeting", settle: 2)
+            }
             goBack(app)
             expect(assistantRow, within: Wait.nav, "Did not return to the Agents page")
             goBack(app)
@@ -888,6 +1014,16 @@ final class StyleguideScreenshots: XCTestCase {
             "The team step never rendered its Create a team choice"
         )
         snapshot("sg_onboarding", settle: 2)
+
+        // ── sg_onboarding-join: the choice page's Join a team (web's
+        // `openOnboardingJoin`): the invite-link form. Nothing is pasted or
+        // submitted; the relaunch below leaves it.
+        if ScreenshotShots.isWanted("sg_onboarding-join") {
+            app.buttons["team-setup-join"].tap()
+            expect(app.staticTexts["Invite link"].firstMatch, within: Wait.nav, "Join a team never pushed its invite-link form")
+            dismissKeyboard(app)
+            snapshot("sg_onboarding-join", settle: 2)
+        }
 
         // ── sg_onboarding-invite / sg_onboarding-devices ─────────────────────
         // The wizard's last two steps (EXP-725) need a RESOLVED team, which
@@ -1202,6 +1338,9 @@ final class StyleguideScreenshots: XCTestCase {
             within: Wait.sync,
             "The \(Self.draftAppName) draft's editor drew no starter pills (has it a version or an editor session?)"
         )
+        // EXP-1558: the composer takes focus on open; the other clients
+        // photograph the page without a keyboard.
+        dismissKeyboard(app)
         snapshot("sg_app-draft", settle: 2)
         goBack(app)
         settle(1)
@@ -1310,19 +1449,21 @@ final class StyleguideScreenshots: XCTestCase {
             expect(pinned, within: Wait.sync, "The thread strip drew no \(id)")
             XCTAssertTrue(pinned.isHittable, "\(id) is off screen — the strip must never scroll")
         }
-        // S-3: the Conversation opens on its newest rows; scroll back to the
-        // child's relayed turn so its link header ("Message from … ›") and
-        // the report line below it are in the shot.
-        let relayed = app.descendants(matching: .any)
-            .matching(identifier: "thread-xref")
-            .matching(NSPredicate(format: "label BEGINSWITH %@", "Message from"))
-            .firstMatch
-        var back = 0
-        while !(relayed.exists && relayed.isHittable) && back < 8 {
-            app.swipeDown()
-            back += 1
-        }
-        expect(relayed, within: Wait.sync, "The cold-start thread drew no \"Message from\" link — reseed with `bun run seed:screenshots`")
+        // EXP-1558: the Conversation at its newest rows, as every other
+        // client photographs it: the pending question and the child's plan
+        // card in view (S-3: inline, not in the Dock). The jump-to-bottom
+        // button re-pins a list that opened scrolled up.
+        let jump = anyElement(app, identified: "jump-to-bottom")
+        if jump.waitForExistence(timeout: 2), jump.isHittable { jump.tap() }
+        let planDecide = app.buttons["No, keep planning"].firstMatch
+        expect(planDecide, within: Wait.sync, "The cold-start thread drew no plan card — reseed with `bun run seed:screenshots`")
+        scrollUntilVisible(app, planDecide, attempts: 4)
+        XCTAssertTrue(planDecide.isHittable, "The cold-start thread's plan card never scrolled into view")
+        expect(
+            anyElement(app, containing: "Cold start is at 740"),
+            within: Wait.nav,
+            "The cold-start thread drew no pending question"
+        )
         snapshot("sg_thread", settle: 2)
         guard ScreenshotShots.isWanted("sg_session") else {
             goBack(app)

@@ -1,4 +1,4 @@
-import { MentionPill } from "@exp/ui"
+import { MentionPillSpecimen } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
 
@@ -36,12 +36,5 @@ export const entry: StyleguideEntry = {
       file: `apps/android/app/src/main/java/com/exponential/app/ui/markdown/Mentions.kt`,
     },
   },
-  island: () => (
-    <div className="grid max-w-md gap-2 text-sm text-foreground">
-      <p>
-        Ready for review, <MentionPill name="Ada Lovelace" email="ada@example.com" />
-      </p>
-      <p>cc @x@y.com</p>
-    </div>
-  ),
+  island: () => <MentionPillSpecimen />,
 }
