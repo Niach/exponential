@@ -16,8 +16,9 @@ use std::thread::JoinHandle;
 use portable_pty::{native_pty_system, Child, ChildKiller, CommandBuilder, MasterPty, PtySize};
 #[cfg(not(windows))]
 use std::sync::OnceLock;
+use std::time::Duration;
 #[cfg(not(windows))]
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// What to spawn into the PTY: argv + cwd + an env overlay.
 ///
