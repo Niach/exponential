@@ -57,6 +57,9 @@ use serde_json::Value;
 
 uniffi::setup_scaffolding!();
 
+mod motion;
+pub use motion::{MotionPlayer, MotionTick};
+
 #[derive(Debug, uniffi::Error)]
 pub enum UiError {
     Invalid { reason: String },

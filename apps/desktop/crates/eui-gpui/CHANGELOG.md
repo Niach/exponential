@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1604: the Motion native (`motion::MotionPlayer` + the view's Motion leaves): the source compiles in `eui-motion` (dialect `layers`, inline `lottie`, a `src` .json/.lottie through the media loader), theme `$color` slots + `$mode` (reloaded on theme/mode change), painted by the `raster` (tiny-skia) into one reused pixmap at device size → `RenderImage` only when the frame changes (old images leave the atlas); the shared playback clock, timer-stepped at ≤ 60 fps; poster under reduced motion, `autoplay: false`, off-screen and in a background window (`set_pause_motion_in_background`); `play: false` freezes; ≤ 8 play per surface; `fit`; an img named by `label`. Pixel parity against the raster references (`tests/motion.rs`).
 - EXP-1586: the ZoomableImage native (`controls::ZoomableImage`, also a standalone gpui view for the IDE's lightbox): ⌘/ctrl-wheel and trackpad pinch zoom about the pointer, a plain wheel pans with room, drag with rubber band, spring-back and momentum, double click, `+ = − 0 1`, delayed single-click `tap`, THE zoom pill with its percent Menu, `controls` auto/always/none, `zoom {scale, atFit}` writing the bound `scale`; all maths through `eui_core::zoom`. The `ui-fullscreen` glyph.
 
 ## 0.3.0 (2026-10-31)

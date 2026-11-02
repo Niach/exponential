@@ -10571,6 +10571,733 @@
           "status": "read"
         }
       }
+    },
+    {
+      "name": "Motion/example",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Motion/autoplay=true",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "autoplay": true
+        }
+      }
+    },
+    {
+      "name": "Motion/autoplay=false",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "autoplay": false
+        }
+      }
+    },
+    {
+      "name": "Motion/loop=true",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "loop": true
+        }
+      }
+    },
+    {
+      "name": "Motion/loop=false",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "loop": false
+        }
+      }
+    },
+    {
+      "name": "Motion/direction=forward",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "direction": "forward"
+        }
+      }
+    },
+    {
+      "name": "Motion/direction=reverse",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "direction": "reverse"
+        }
+      }
+    },
+    {
+      "name": "Motion/direction=alternate",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "direction": "alternate"
+        }
+      }
+    },
+    {
+      "name": "Motion/play=true",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "play": true
+        }
+      }
+    },
+    {
+      "name": "Motion/play=false",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "play": false
+        }
+      }
+    },
+    {
+      "name": "Motion/fit=contain",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "fit": "contain"
+        }
+      }
+    },
+    {
+      "name": "Motion/fit=cover",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "fit": "cover"
+        }
+      }
+    },
+    {
+      "name": "Motion/fit=fill",
+      "node": {
+        "id": "motion",
+        "component": "Motion",
+        "props": {
+          "size": [
+            48,
+            48
+          ],
+          "duration": 1000,
+          "layers": [
+            {
+              "type": "shape",
+              "transform": {
+                "position": [
+                  24,
+                  24
+                ],
+                "rotation": {
+                  "keys": [
+                    {
+                      "t": 0,
+                      "v": 0
+                    },
+                    {
+                      "t": 1000,
+                      "v": 360
+                    }
+                  ]
+                }
+              },
+              "shapes": [
+                {
+                  "type": "ellipse",
+                  "size": [
+                    36,
+                    36
+                  ]
+                },
+                {
+                  "type": "trim",
+                  "end": 70
+                },
+                {
+                  "type": "stroke",
+                  "color": "$color.primary",
+                  "width": 4
+                }
+              ]
+            }
+          ],
+          "fit": "fill"
+        }
+      }
     }
   ]
 }

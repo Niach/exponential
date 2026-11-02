@@ -887,6 +887,10 @@ external fun uniffi_exponential_ui_ffi_checksum_func_week_start(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_zoom_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_motion_compile(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_number(
@@ -1089,6 +1093,22 @@ external fun uniffi_exponential_ui_ffi_checksum_method_theme_spacing(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_theme_type_size(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_add_font(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_images(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_poster_frame(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_progress_frame(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sample(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_playback(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_size(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_constructor_jsonldecoder_new(
@@ -1102,6 +1122,8 @@ external fun uniffi_exponential_ui_ffi_checksum_constructor_surface_with_theme(
 external fun uniffi_exponential_ui_ffi_checksum_constructor_theme_builtin(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_constructor_theme_load(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_constructor_motionplayer_new(
 ): Short
 external fun ffi_exponential_ui_ffi_uniffi_contract_version(
 ): Int
@@ -1378,6 +1400,28 @@ external fun uniffi_exponential_ui_ffi_fn_method_theme_spacing(`ptr`: Long,`name
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_theme_type_size(`ptr`: Long,`name`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_clone_motionplayer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun uniffi_exponential_ui_ffi_fn_free_motionplayer(`handle`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_constructor_motionplayer_new(`lottieJson`: RustBuffer.ByValue,`slotsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Long
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_add_font(`ptr`: Long,`family`: RustBuffer.ByValue,`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_images(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_poster_frame(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): Double
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_progress_frame(`ptr`: Long,`progress`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): Double
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sample(`ptr`: Long,`frame`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_set_playback(`ptr`: Long,`playbackJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_size(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(`ptr`: Long,`elapsedMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_action_message_json(`surfaceId`: RustBuffer.ByValue,`componentId`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,`payloadJson`: RustBuffer.ByValue,`timestamp`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_animation_frame_json(`name`: RustBuffer.ByValue,`timingJson`: RustBuffer.ByValue,`elapsedMs`: Double,`reducedMotion`: Byte,uniffi_out_err: UniffiRustCallStatus, 
@@ -1509,6 +1553,10 @@ external fun uniffi_exponential_ui_ffi_fn_func_voice_wave_json(`inputJson`: Rust
 external fun uniffi_exponential_ui_ffi_fn_func_week_start(`locale`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Byte
 external fun uniffi_exponential_ui_ffi_fn_func_zoom_json(`requestJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_motion_compile(`dialectJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun ffi_exponential_ui_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -4033,6 +4081,418 @@ public object FfiConverterTypeMeasurer: FfiConverter<Measurer, Long> {
     override fun allocationSize(value: Measurer) = 8UL
 
     override fun write(value: Measurer, buf: ByteBuffer) {
+        buf.putLong(lower(value))
+    }
+}
+
+
+// This template implements a class for working with a Rust struct via a handle
+// to the live Rust struct on the other side of the FFI.
+//
+// There's some subtlety here, because we have to be careful not to operate on a Rust
+// struct after it has been dropped, and because we must expose a public API for freeing
+// theq Kotlin wrapper object in lieu of reliable finalizers. The core requirements are:
+//
+//   * Each instance holds an opaque handle to the underlying Rust struct.
+//     Method calls need to read this handle from the object's state and pass it in to
+//     the Rust FFI.
+//
+//   * When an instance is no longer needed, its handle should be passed to a
+//     special destructor function provided by the Rust FFI, which will drop the
+//     underlying Rust struct.
+//
+//   * Given an instance, calling code is expected to call the special
+//     `destroy` method in order to free it after use, either by calling it explicitly
+//     or by using a higher-level helper like the `use` method. Failing to do so risks
+//     leaking the underlying Rust struct.
+//
+//   * We can't assume that calling code will do the right thing, and must be prepared
+//     to handle Kotlin method calls executing concurrently with or even after a call to
+//     `destroy`, and to handle multiple (possibly concurrent!) calls to `destroy`.
+//
+//   * We must never allow Rust code to operate on the underlying Rust struct after
+//     the destructor has been called, and must never call the destructor more than once.
+//     Doing so may trigger memory unsafety.
+//
+//   * To mitigate many of the risks of leaking memory and use-after-free unsafety, a `Cleaner`
+//     is implemented to call the destructor when the Kotlin object becomes unreachable.
+//     This is done in a background thread. This is not a panacea, and client code should be aware that
+//      1. the thread may starve if some there are objects that have poorly performing
+//     `drop` methods or do significant work in their `drop` methods.
+//      2. the thread is shared across the whole library. This can be tuned by using `android_cleaner = true`,
+//         or `android = true` in the [`kotlin` section of the `uniffi.toml` file](https://mozilla.github.io/uniffi-rs/kotlin/configuration.html).
+//
+// If we try to implement this with mutual exclusion on access to the handle, there is the
+// possibility of a race between a method call and a concurrent call to `destroy`:
+//
+//    * Thread A starts a method call, reads the value of the handle, but is interrupted
+//      before it can pass the handle over the FFI to Rust.
+//    * Thread B calls `destroy` and frees the underlying Rust struct.
+//    * Thread A resumes, passing the already-read handle value to Rust and triggering
+//      a use-after-free.
+//
+// One possible solution would be to use a `ReadWriteLock`, with each method call taking
+// a read lock (and thus allowed to run concurrently) and the special `destroy` method
+// taking a write lock (and thus blocking on live method calls). However, we aim not to
+// generate methods with any hidden blocking semantics, and a `destroy` method that might
+// block if called incorrectly seems to meet that bar.
+//
+// So, we achieve our goals by giving each instance an associated `AtomicLong` counter to track
+// the number of in-flight method calls, and an `AtomicBoolean` flag to indicate whether `destroy`
+// has been called. These are updated according to the following rules:
+//
+//    * The initial value of the counter is 1, indicating a live object with no in-flight calls.
+//      The initial value for the flag is false.
+//
+//    * At the start of each method call, we atomically check the counter.
+//      If it is 0 then the underlying Rust struct has already been destroyed and the call is aborted.
+//      If it is nonzero them we atomically increment it by 1 and proceed with the method call.
+//
+//    * At the end of each method call, we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+//    * When `destroy` is called, we atomically flip the flag from false to true.
+//      If the flag was already true we silently fail.
+//      Otherwise we atomically decrement and check the counter.
+//      If it has reached zero then we destroy the underlying Rust struct.
+//
+// Astute readers may observe that this all sounds very similar to the way that Rust's `Arc<T>` works,
+// and indeed it is, with the addition of a flag to guard against multiple calls to `destroy`.
+//
+// The overall effect is that the underlying Rust struct is destroyed only when `destroy` has been
+// called *and* all in-flight method calls have completed, avoiding violating any of the expectations
+// of the underlying Rust code.
+//
+// This makes a cleaner a better alternative to _not_ calling `destroy()` as
+// and when the object is finished with, but the abstraction is not perfect: if the Rust object's `drop`
+// method is slow, and/or there are many objects to cleanup, and it's on a low end Android device, then the cleaner
+// thread may be starved, and the app will leak memory.
+//
+// In this case, `destroy`ing manually may be a better solution.
+//
+// The cleaner can live side by side with the manual calling of `destroy`. In the order of responsiveness, uniffi objects
+// with Rust peers are reclaimed:
+//
+// 1. By calling the `destroy` method of the object, which calls `rustObject.free()`. If that doesn't happen:
+// 2. When the object becomes unreachable, AND the Cleaner thread gets to call `rustObject.free()`. If the thread is starved then:
+// 3. The memory is reclaimed when the process terminates.
+//
+// [1] https://stackoverflow.com/questions/24376768/can-java-finalize-an-object-when-it-is-still-in-scope/24380219
+//
+
+
+public interface MotionPlayerInterface {
+    
+    /**
+     * Register a font (TTF/OTF bytes) for text layers without glyphs.
+     */
+    fun `addFont`(`family`: kotlin.String, `data`: kotlin.ByteArray)
+    
+    /**
+     * Image asset locations, in `image` op order.
+     */
+    fun `images`(): List<kotlin.String>
+    
+    /**
+     * The still frame (reduced motion, paused, before play).
+     */
+    fun `posterFrame`(): kotlin.Double
+    
+    /**
+     * The frame a bound progress (0–1) shows.
+     */
+    fun `progressFrame`(`progress`: kotlin.Double): kotlin.Double
+    
+    /**
+     * The packed display list of `frame`.
+     */
+    fun `sample`(`frame`: kotlin.Double): List<kotlin.Float>
+    
+    /**
+     * Set the playback props (JSON: autoplay, loop, direction, speed, segment, poster).
+     */
+    fun `setPlayback`(`playbackJson`: kotlin.String)
+    
+    /**
+     * Composition width and height.
+     */
+    fun `size`(): List<kotlin.Float>
+    
+    /**
+     * The frame `elapsed_ms` after play started.
+     */
+    fun `tick`(`elapsedMs`: kotlin.Double): MotionTick
+    
+    companion object
+}
+
+open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
+{
+
+    @Suppress("UNUSED_PARAMETER")
+    /**
+     * @suppress
+     */
+    constructor(withHandle: UniffiWithHandle, handle: Long) {
+        this.handle = handle
+        this.cleanable = UniffiLib.CLEANER.register(this, UniffiCleanAction(handle))
+    }
+
+    /**
+     * @suppress
+     *
+     * This constructor can be used to instantiate a fake object. Only used for tests. Any
+     * attempt to actually use an object constructed this way will fail as there is no
+     * connected Rust object.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    constructor(noHandle: NoHandle) {
+        this.handle = 0
+        this.cleanable = null
+    }
+    /**
+     * Load Lottie JSON (`slots_json` = slot overrides `{id: value}`, or "").
+     */
+    constructor(`lottieJson`: kotlin.String, `slotsJson`: kotlin.String) :
+        this(UniffiWithHandle, 
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_constructor_motionplayer_new(
+    
+        FfiConverterString.lower(`lottieJson`),FfiConverterString.lower(`slotsJson`),_status)
+}
+    )
+
+    protected val handle: Long
+    protected val cleanable: UniffiCleaner.Cleanable?
+
+    private val wasDestroyed = AtomicBoolean(false)
+    private val callCounter = AtomicLong(1)
+
+    override fun destroy() {
+        // Only allow a single call to this method.
+        // TODO: maybe we should log a warning if called more than once?
+        if (this.wasDestroyed.compareAndSet(false, true)) {
+            // This decrement always matches the initial count of 1 given at creation time.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    @Synchronized
+    override fun close() {
+        this.destroy()
+    }
+
+    internal inline fun <R> callWithHandle(block: (handle: Long) -> R): R {
+        // Check and increment the call counter, to keep the object alive.
+        // This needs a compare-and-set retry loop in case of concurrent updates.
+        do {
+            val c = this.callCounter.get()
+            if (c == 0L) {
+                throw IllegalStateException("${this.javaClass.simpleName} object has already been destroyed")
+            }
+            if (c == Long.MAX_VALUE) {
+                throw IllegalStateException("${this.javaClass.simpleName} call counter would overflow")
+            }
+        } while (! this.callCounter.compareAndSet(c, c + 1L))
+        // Now we can safely do the method call without the handle being freed concurrently.
+        try {
+            return block(this.uniffiCloneHandle())
+        } finally {
+            // This decrement always matches the increment we performed above.
+            if (this.callCounter.decrementAndGet() == 0L) {
+                cleanable?.clean()
+            }
+        }
+    }
+
+    // Use a static inner class instead of a closure so as not to accidentally
+    // capture `this` as part of the cleanable's action.
+    private class UniffiCleanAction(private val handle: Long) : Runnable {
+        override fun run() {
+            if (handle == 0.toLong()) {
+                // Fake object created with `NoHandle`, don't try to free.
+                return;
+            }
+            uniffiRustCall { status ->
+                UniffiLib.uniffi_exponential_ui_ffi_fn_free_motionplayer(handle, status)
+            }
+        }
+    }
+
+    /**
+     * @suppress
+     */
+    fun uniffiCloneHandle(): Long {
+        if (handle == 0.toLong()) {
+            throw InternalException("uniffiCloneHandle() called on NoHandle object");
+        }
+        return uniffiRustCall() { status ->
+            UniffiLib.uniffi_exponential_ui_ffi_fn_clone_motionplayer(handle, status)
+        }
+    }
+
+    
+    /**
+     * Register a font (TTF/OTF bytes) for text layers without glyphs.
+     */override fun `addFont`(`family`: kotlin.String, `data`: kotlin.ByteArray)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_add_font(
+        it,
+        FfiConverterString.lower(`family`),FfiConverterByteArray.lower(`data`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Image asset locations, in `image` op order.
+     */override fun `images`(): List<kotlin.String> {
+            return FfiConverterSequenceString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_images(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The still frame (reduced motion, paused, before play).
+     */override fun `posterFrame`(): kotlin.Double {
+            return FfiConverterDouble.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_poster_frame(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The frame a bound progress (0–1) shows.
+     */override fun `progressFrame`(`progress`: kotlin.Double): kotlin.Double {
+            return FfiConverterDouble.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_progress_frame(
+        it,
+        FfiConverterDouble.lower(`progress`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The packed display list of `frame`.
+     */override fun `sample`(`frame`: kotlin.Double): List<kotlin.Float> {
+            return FfiConverterSequenceFloat.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_sample(
+        it,
+        FfiConverterDouble.lower(`frame`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Set the playback props (JSON: autoplay, loop, direction, speed, segment, poster).
+     */override fun `setPlayback`(`playbackJson`: kotlin.String)
+        = 
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_set_playback(
+        it,
+        FfiConverterString.lower(`playbackJson`),_status)
+}
+    }
+    
+    
+
+    
+    /**
+     * Composition width and height.
+     */override fun `size`(): List<kotlin.Float> {
+            return FfiConverterSequenceFloat.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_size(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * The frame `elapsed_ms` after play started.
+     */override fun `tick`(`elapsedMs`: kotlin.Double): MotionTick {
+            return FfiConverterTypeMotionTick.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(
+        it,
+        FfiConverterDouble.lower(`elapsedMs`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+
+    
+
+
+    
+    
+    /**
+     * @suppress
+     */
+    companion object
+    
+}
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMotionPlayer: FfiConverter<MotionPlayer, Long> {
+    override fun lower(value: MotionPlayer): Long {
+        return value.uniffiCloneHandle()
+    }
+
+    override fun lift(value: Long): MotionPlayer {
+        return MotionPlayer(UniffiWithHandle, value)
+    }
+
+    override fun read(buf: ByteBuffer): MotionPlayer {
+        return lift(buf.getLong())
+    }
+
+    override fun allocationSize(value: MotionPlayer) = 8UL
+
+    override fun write(value: MotionPlayer, buf: ByteBuffer) {
         buf.putLong(lower(value))
     }
 }
@@ -8197,6 +8657,47 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
 
 
 /**
+ * The frame a clock reading lands on.
+ */
+data class MotionTick (
+    var `frame`: kotlin.Double
+    , 
+    var `done`: kotlin.Boolean
+    
+){
+    
+
+    
+
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeMotionTick: FfiConverterRustBuffer<MotionTick> {
+    override fun read(buf: ByteBuffer): MotionTick {
+        return MotionTick(
+            FfiConverterDouble.read(buf),
+            FfiConverterBoolean.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: MotionTick) = (
+            FfiConverterDouble.allocationSize(value.`frame`) +
+            FfiConverterBoolean.allocationSize(value.`done`)
+    )
+
+    override fun write(value: MotionTick, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`frame`, buf)
+            FfiConverterBoolean.write(value.`done`, buf)
+    }
+}
+
+
+
+/**
  * What a whole image's bytes say before any decode (VAPP-103, the core's
  * `image_header`): the natives' media loaders apply the one pixel × frame
  * rule over it (`media.limits`).
@@ -10314,6 +10815,36 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_zoom_json(
     
         FfiConverterString.lower(`requestJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * Compile an authoring-dialect document (a Motion's inline `layers` plus
+         * `size`, `fps`, `duration`, `start`, `time`, `assets`, `markers`) into Lottie
+         * JSON; the issues as `UiError::Invalid` (JSON) otherwise.
+         */
+    @Throws(UiException::class) fun `motionCompile`(`dialectJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_compile(
+    
+        FfiConverterString.lower(`dialectJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The first animation of a `.lottie` archive as Lottie JSON (images inlined).
+         */
+    @Throws(UiException::class) fun `motionReadDotlottie`(`data`: kotlin.ByteArray): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(
+    
+        FfiConverterByteArray.lower(`data`),_status)
 }
     )
     }

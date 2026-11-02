@@ -15,6 +15,7 @@
 mod events;
 mod input;
 mod motion;
+mod motion_leaf;
 mod paint;
 mod pinned;
 pub(crate) mod state;
@@ -314,6 +315,10 @@ pub struct SurfaceView {
     fields: HashMap<String, Field>,
     /// EXP-1586: the ZoomableImage views by node id.
     zooms: HashMap<String, zoom::Zoom>,
+    /// EXP-1604: the Motion leaves by node id (player, clock, last image).
+    motion_leaves: motion_leaf::MotionLeaves,
+    /// EXP-1604: Motions show their posters while the window is inactive.
+    motion_background_pause: bool,
     revisions: HashMap<String, u64>,
     hover_timer: Option<(String, Task<()>)>,
     /// The core's hover-overlay close delays (`OutEvent::HoverTimer`).
@@ -523,6 +528,8 @@ impl SurfaceView {
             focus_trigger: None,
             fields: HashMap::new(),
             zooms: HashMap::new(),
+            motion_leaves: Default::default(),
+            motion_background_pause: true,
             revisions: HashMap::new(),
             hover_timer: None,
             hover_close_timers: HashMap::new(),
@@ -1235,7 +1242,7 @@ impl SurfaceView {
         Some(ExitingLayer { layer, start: self.now_or_instant(), duration_ms, world })
     }
 
-    fn now_or_instant(&self) -> Instant {
+    pub(crate) fn now_or_instant(&self) -> Instant {
         self.motion.now.unwrap_or_else(|| self.clock())
     }
 

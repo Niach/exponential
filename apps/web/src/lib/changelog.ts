@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-02-motion`,
+    date: `2026-11-02`,
+    title: `Animations in agent cards`,
+    summary: `Agents can show small animations in their cards, the same on every device.`,
+    body: `- **Motion**: loaders, success checks and little illustrations an agent draws for you, playing inline in its card.
+- **Same everywhere**: one engine draws every frame, so the web, desktop, iOS and Android show the identical picture.
+- **Your theme**: animations use your theme's colours and follow light and dark mode.
+- **Calm**: they pause off-screen and in the background, and stand still when you prefer reduced motion.`,
+  },
+  {
     id: `2026-11-02-sessions-move-machines`,
     date: `2026-11-02`,
     title: `Sessions move to your other machine`,

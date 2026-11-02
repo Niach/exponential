@@ -3187,6 +3187,7 @@ name = "eui-gpui"
 version = "0.3.0"
 dependencies = [
  "eui-core",
+ "eui-motion",
  "flume 0.11.1",
  "futures-util",
  "gpui",
@@ -3195,10 +3196,12 @@ dependencies = [
  "gpui-component-assets",
  "gpui_platform",
  "gpui_wgpu",
+ "image",
  "indexmap 2.14.0",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "tiny-skia",
  "tokio",
  "tokio-tungstenite",
  "unicode-bidi",
@@ -3316,6 +3319,7 @@ name = "exponential-ui-ffi"
 version = "0.3.0"
 dependencies = [
  "eui-core",
+ "eui-motion",
  "indexmap 2.14.0",
  "serde",
  "serde_json",

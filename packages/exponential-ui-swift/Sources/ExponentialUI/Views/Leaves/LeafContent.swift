@@ -53,6 +53,8 @@ struct LeafContent: View {
             VideoLeaf(cx: cx)
         case ("ZoomableImage", _):
             ZoomableImageLeaf(cx: cx)
+        case ("Motion", _):
+            MotionLeaf(cx: cx)
         case ("AudioPlayer", _):
             AudioLeaf(cx: cx)
         case ("Spinner", _):

@@ -229,6 +229,8 @@ class SurfaceMeasurer(
                 "Image", "Video" -> media(props, inner).let { plain(it.width, it.height) }
                 // EXP-1586 (style.json `zoomableImage` THE BOX): as wide as offered, the natural aspect (a TALL picture no taller than wide), else 16:9.
                 "ZoomableImage" -> at.exponential.ui.compose.zoomableBox(props, inner, MEDIA_INTRINSIC_WIDTH, MEDIA_ASPECT_RATIO).let { plain(it.width, it.height) }
+                // EXP-1604 (contract §4): the composition's px size, shrinking to the width, aspect kept.
+                "Motion" -> at.exponential.ui.compose.motionBox(props, inner).let { plain(it.width, it.height) }
                 "AudioPlayer" -> {
                     // Round 2 §7: the title line + xs + a controls row of `$control.row`.
                     val track = if (props.str("title").isEmpty()) 0f else ts.lineHeight + spacing("xs")

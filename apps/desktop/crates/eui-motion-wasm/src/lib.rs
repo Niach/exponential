@@ -16,6 +16,8 @@ pub struct MotionPlayer {
     motion: Motion,
     list: DisplayList,
     packed: Vec<f32>,
+    playback: eui_motion::playback::Playback,
+    timeline: eui_motion::playback::Timeline,
 }
 
 #[wasm_bindgen]
@@ -26,7 +28,8 @@ impl MotionPlayer {
     pub fn new(source: &str, slots: &str) -> Result<MotionPlayer, JsValue> {
         let slots: Map<String, Value> = if slots.is_empty() { Map::new() } else { serde_json::from_str(slots).unwrap_or_default() };
         let motion = Motion::load_with(source.as_bytes(), &Limits::default(), &slots).map_err(|i| JsValue::from_str(&issues_json(&i)))?;
-        Ok(Self { motion, list: DisplayList::default(), packed: Vec::new() })
+        let timeline = motion.timeline();
+        Ok(Self { motion, list: DisplayList::default(), packed: Vec::new(), playback: Default::default(), timeline })
     }
 
     pub fn width(&self) -> f32 {
@@ -67,6 +70,30 @@ impl MotionPlayer {
     #[wasm_bindgen(js_name = needsFonts)]
     pub fn needs_fonts(&self) -> bool {
         self.motion.needs_fonts()
+    }
+
+    /// Set the playback props (JSON: autoplay, loop, direction, speed, segment, poster).
+    #[wasm_bindgen(js_name = setPlayback)]
+    pub fn set_playback(&mut self, json: &str) {
+        self.playback = serde_json::from_str(json).map(|v| eui_motion::playback::Playback::from_json(&v)).unwrap_or_default();
+    }
+    /// The frame `elapsedMs` after play started; NaN-free. `done()` tells a finished finite loop.
+    pub fn tick(&self, elapsed_ms: f64) -> f64 {
+        self.timeline.tick(&self.playback, elapsed_ms).frame
+    }
+    /// Whether a finite loop count has played out at `elapsedMs`.
+    pub fn done(&self, elapsed_ms: f64) -> bool {
+        self.timeline.tick(&self.playback, elapsed_ms).done
+    }
+    /// The still frame (reduced motion, paused, before play).
+    #[wasm_bindgen(js_name = posterFrame)]
+    pub fn poster_frame(&self) -> f64 {
+        self.timeline.poster(&self.playback)
+    }
+    /// The frame a bound progress (0–1) shows.
+    #[wasm_bindgen(js_name = progressFrame)]
+    pub fn progress_frame(&self, progress: f64) -> f64 {
+        self.timeline.at_progress(&self.playback, progress)
     }
 
     /// Sample `frame` into the packed f32 encoding (a copy into JS memory).

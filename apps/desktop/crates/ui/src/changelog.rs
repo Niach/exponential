@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-motion",
+    date: "2026-11-02",
+    title: "Animations in agent cards",
+    summary: "Agents can show small animations in their cards, the same on every device.",
+    body: r#"- **Motion**: loaders, success checks and little illustrations an agent draws for you, playing inline in its card.
+- **Same everywhere**: one engine draws every frame, so the web, desktop, iOS and Android show the identical picture.
+- **Your theme**: animations use your theme's colours and follow light and dark mode.
+- **Calm**: they pause off-screen and in the background, and stand still when you prefer reduced motion."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_164: ChangelogEntry = ChangelogEntry {
     id: "2026-11-02-sessions-move-machines",
     date: "2026-11-02",
     title: "Sessions move to your other machine",

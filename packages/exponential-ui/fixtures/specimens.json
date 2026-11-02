@@ -11321,6 +11321,527 @@
       }
     },
     {
+      "id": "exponential-ui-motion",
+      "component": "Motion",
+      "title": "Motion",
+      "node": {
+        "id": "specimen-motion",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-motion-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-motion-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-motion",
+                "component": "Motion",
+                "props": {
+                  "size": [
+                    48,
+                    48
+                  ],
+                  "duration": 1000,
+                  "layers": [
+                    {
+                      "type": "shape",
+                      "transform": {
+                        "position": [
+                          24,
+                          24
+                        ],
+                        "rotation": {
+                          "keys": [
+                            {
+                              "t": 0,
+                              "v": 0
+                            },
+                            {
+                              "t": 1000,
+                              "v": 360
+                            }
+                          ]
+                        }
+                      },
+                      "shapes": [
+                        {
+                          "type": "ellipse",
+                          "size": [
+                            36,
+                            36
+                          ]
+                        },
+                        {
+                          "type": "trim",
+                          "end": 70
+                        },
+                        {
+                          "type": "stroke",
+                          "color": "$color.primary",
+                          "width": 4
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-motion-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-motion-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "direction · forward",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-motion",
+                "component": "Motion",
+                "props": {
+                  "size": [
+                    48,
+                    48
+                  ],
+                  "duration": 1000,
+                  "layers": [
+                    {
+                      "type": "shape",
+                      "transform": {
+                        "position": [
+                          24,
+                          24
+                        ],
+                        "rotation": {
+                          "keys": [
+                            {
+                              "t": 0,
+                              "v": 0
+                            },
+                            {
+                              "t": 1000,
+                              "v": 360
+                            }
+                          ]
+                        }
+                      },
+                      "shapes": [
+                        {
+                          "type": "ellipse",
+                          "size": [
+                            36,
+                            36
+                          ]
+                        },
+                        {
+                          "type": "trim",
+                          "end": 70
+                        },
+                        {
+                          "type": "stroke",
+                          "color": "$color.primary",
+                          "width": 4
+                        }
+                      ]
+                    }
+                  ],
+                  "direction": "forward"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-motion-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-motion-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "direction · reverse",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-motion",
+                "component": "Motion",
+                "props": {
+                  "size": [
+                    48,
+                    48
+                  ],
+                  "duration": 1000,
+                  "layers": [
+                    {
+                      "type": "shape",
+                      "transform": {
+                        "position": [
+                          24,
+                          24
+                        ],
+                        "rotation": {
+                          "keys": [
+                            {
+                              "t": 0,
+                              "v": 0
+                            },
+                            {
+                              "t": 1000,
+                              "v": 360
+                            }
+                          ]
+                        }
+                      },
+                      "shapes": [
+                        {
+                          "type": "ellipse",
+                          "size": [
+                            36,
+                            36
+                          ]
+                        },
+                        {
+                          "type": "trim",
+                          "end": 70
+                        },
+                        {
+                          "type": "stroke",
+                          "color": "$color.primary",
+                          "width": 4
+                        }
+                      ]
+                    }
+                  ],
+                  "direction": "reverse"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-motion-case-3",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-motion-case-3-label",
+                "component": "Text",
+                "props": {
+                  "text": "direction · alternate",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c3-motion",
+                "component": "Motion",
+                "props": {
+                  "size": [
+                    48,
+                    48
+                  ],
+                  "duration": 1000,
+                  "layers": [
+                    {
+                      "type": "shape",
+                      "transform": {
+                        "position": [
+                          24,
+                          24
+                        ],
+                        "rotation": {
+                          "keys": [
+                            {
+                              "t": 0,
+                              "v": 0
+                            },
+                            {
+                              "t": 1000,
+                              "v": 360
+                            }
+                          ]
+                        }
+                      },
+                      "shapes": [
+                        {
+                          "type": "ellipse",
+                          "size": [
+                            36,
+                            36
+                          ]
+                        },
+                        {
+                          "type": "trim",
+                          "end": 70
+                        },
+                        {
+                          "type": "stroke",
+                          "color": "$color.primary",
+                          "width": 4
+                        }
+                      ]
+                    }
+                  ],
+                  "direction": "alternate"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-motion-case-4",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-motion-case-4-label",
+                "component": "Text",
+                "props": {
+                  "text": "fit · contain",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c4-motion",
+                "component": "Motion",
+                "props": {
+                  "size": [
+                    48,
+                    48
+                  ],
+                  "duration": 1000,
+                  "layers": [
+                    {
+                      "type": "shape",
+                      "transform": {
+                        "position": [
+                          24,
+                          24
+                        ],
+                        "rotation": {
+                          "keys": [
+                            {
+                              "t": 0,
+                              "v": 0
+                            },
+                            {
+                              "t": 1000,
+                              "v": 360
+                            }
+                          ]
+                        }
+                      },
+                      "shapes": [
+                        {
+                          "type": "ellipse",
+                          "size": [
+                            36,
+                            36
+                          ]
+                        },
+                        {
+                          "type": "trim",
+                          "end": 70
+                        },
+                        {
+                          "type": "stroke",
+                          "color": "$color.primary",
+                          "width": 4
+                        }
+                      ]
+                    }
+                  ],
+                  "fit": "contain"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-motion-case-5",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-motion-case-5-label",
+                "component": "Text",
+                "props": {
+                  "text": "fit · cover",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c5-motion",
+                "component": "Motion",
+                "props": {
+                  "size": [
+                    48,
+                    48
+                  ],
+                  "duration": 1000,
+                  "layers": [
+                    {
+                      "type": "shape",
+                      "transform": {
+                        "position": [
+                          24,
+                          24
+                        ],
+                        "rotation": {
+                          "keys": [
+                            {
+                              "t": 0,
+                              "v": 0
+                            },
+                            {
+                              "t": 1000,
+                              "v": 360
+                            }
+                          ]
+                        }
+                      },
+                      "shapes": [
+                        {
+                          "type": "ellipse",
+                          "size": [
+                            36,
+                            36
+                          ]
+                        },
+                        {
+                          "type": "trim",
+                          "end": 70
+                        },
+                        {
+                          "type": "stroke",
+                          "color": "$color.primary",
+                          "width": 4
+                        }
+                      ]
+                    }
+                  ],
+                  "fit": "cover"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-motion-case-6",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-motion-case-6-label",
+                "component": "Text",
+                "props": {
+                  "text": "fit · fill",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c6-motion",
+                "component": "Motion",
+                "props": {
+                  "size": [
+                    48,
+                    48
+                  ],
+                  "duration": 1000,
+                  "layers": [
+                    {
+                      "type": "shape",
+                      "transform": {
+                        "position": [
+                          24,
+                          24
+                        ],
+                        "rotation": {
+                          "keys": [
+                            {
+                              "t": 0,
+                              "v": 0
+                            },
+                            {
+                              "t": 1000,
+                              "v": 360
+                            }
+                          ]
+                        }
+                      },
+                      "shapes": [
+                        {
+                          "type": "ellipse",
+                          "size": [
+                            36,
+                            36
+                          ]
+                        },
+                        {
+                          "type": "trim",
+                          "end": 70
+                        },
+                        {
+                          "type": "stroke",
+                          "color": "$color.primary",
+                          "width": 4
+                        }
+                      ]
+                    }
+                  ],
+                  "fit": "fill"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-demo",
       "component": null,
       "title": "Demo",

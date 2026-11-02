@@ -487,6 +487,11 @@ button.sdk-chip {
 .sdk-mini-inner {
   max-height: 100%;
 }
+/* A guide's live example: the surface takes the box's width (its root is
+   size-contained, so a shrink-to-fit inner would collapse it). */
+.sdk-mini-wide .sdk-mini-inner {
+  width: 100%;
+}
 .sdk-mini-wait {
   width: 40%;
   height: 10px;

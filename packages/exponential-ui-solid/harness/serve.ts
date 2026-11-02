@@ -80,6 +80,8 @@ if (import.meta.main) {
           return new Response(String(error), { status: 500 })
         }
       }
+      // EXP-1604: the Motion WASM the bundle fetches lazily (`new URL(…, import.meta.url)`).
+      if (/\/eui_motion_wasm_bg[^/]*\.wasm$/.test(url.pathname)) return new Response(readFileSync(join(import.meta.dir, `..`, `..`, `exponential-ui`, `wasm`, `motion`, `eui_motion_wasm_bg.wasm`)), { headers: { "content-type": `application/wasm` } })
       return new Response(`Not found`, { status: 404 })
     },
   })

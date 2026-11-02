@@ -19,6 +19,7 @@ export const GUIDES: readonly GuideEntry[] = [
   { slug: `host-plugins`, title: `Write a host plugin`, blurb: `Functions behind a policy gate, data bindings by source URI, the URL and media policy.` },
   { slug: `apps`, title: `Build and embed an app`, blurb: `A declarative package of templates, functions and a theme, run in any host.` },
   { slug: `agents`, title: `Connect an agent`, blurb: `The catalog prompt and its sections, A2UI over MCP, and validating what the model sends.` },
+  { slug: `motion`, title: `Animate with Motion`, blurb: `Vector animations drawn the same on every platform: the dialect, Lottie and .lottie sources, theme colours, the playback rules.` },
   { slug: `define`, title: `Write a surface in TypeScript`, blurb: `defineSurface: typed component factories, bindings and actions, validated into the same A2UI an agent sends.` },
   { slug: `security`, title: `Security and the threat model`, blurb: `What a surface can and cannot do, what the host decides, the limits every core enforces, and how to report.` },
 ]

@@ -16,6 +16,8 @@ import { compileUiCss } from "@exp/ui/island"
 import { MCP_APPS_CSS_SOURCE } from "./entries/mcp-app-views.tsx"
 
 import { COMPONENTS } from "./components.tsx"
+import { ENTRIES } from "./entries/index.ts"
+import { bundleMotionIslands } from "./motion-islands.ts"
 import { renderHtml } from "./render.ts"
 import { readGallery, storeDir } from "./store.ts"
 
@@ -38,6 +40,7 @@ async function recompile(): Promise<void> {
 }
 
 await recompile()
+const motionScript = await bundleMotionIslands()
 
 /** Resolve inside the store, or `undefined` for anything that escapes it. */
 function resolveInStore(root: string, urlPath: string): string | undefined {
@@ -66,7 +69,7 @@ const server = Bun.serve({
           headers: { "content-type": `text/plain; charset=utf-8` },
         })
       }
-      return new Response(renderHtml(readGallery(root), COMPONENTS, uiCss), {
+      return new Response(renderHtml(readGallery(root), COMPONENTS, uiCss, ENTRIES, motionScript), {
         headers: { "content-type": `text/html; charset=utf-8`, "cache-control": `no-store` },
       })
     }

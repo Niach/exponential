@@ -25,7 +25,8 @@
     "./conformance/*": "./conformance/*",
     "./eval/*": "./eval/*",
     "./motion": "./src/motion/index.ts",
-    "./wasm/*": "./wasm/*"
+    "./wasm/*": "./wasm/*",
+    "./motion/server": "./src/motion/server.ts"
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",
@@ -42,7 +43,8 @@
     "eval:render": "bun run ./eval/render.ts",
     "eval:natives": "bun run ./eval/natives.ts",
     "eval:parity": "bun run ./eval/parity.ts",
-    "size": "bun run ./release/size.ts"
+    "size": "bun run ./release/size.ts",
+    "motion:parity": "bun run ./scripts/motion-parity.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

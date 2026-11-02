@@ -208,6 +208,11 @@
         "Tab reaches the copy button; Enter, Space: copy and announce `copied`"
       ]
     },
+    "Motion": {
+      "role": "img",
+      "notes": "img named by label; decorative (hidden) without one; never focusable",
+      "keys": []
+    },
     "Image": {
       "role": "img",
       "notes": "img (alt = name; decorative when alt is empty)",

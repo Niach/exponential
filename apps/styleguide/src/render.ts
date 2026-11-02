@@ -8,7 +8,8 @@
  * which is exactly the impurity this module refuses — so the CALLER compiles
  * it (`build.ts` once per build, `serve.ts` once per process) and passes the
  * string in. Empty = no islands are painted, which is what the pure tests
- * exercise when they do not care about CSS.
+ * exercise when they do not care about CSS. `motionScript` (EXP-1604) is the
+ * same kind of input: the bundled Motion painter for the Motion islands.
  */
 
 import { PLATFORM_FRAME } from "@exp/view-catalog"
@@ -422,7 +423,8 @@ export function renderHtml(
   gallery: GalleryData,
   components: readonly ComponentSpec[] = COMPONENTS,
   uiCss = ``,
-  entries: readonly StyleguideEntry[] = ENTRIES
+  entries: readonly StyleguideEntry[] = ENTRIES,
+  motionScript = ``
 ): string {
   // EXP-1019: FOUR sections, in the contract's order (`sections/sections.json`
   // — the index the natives mirror, so their entry ids and owners cannot
@@ -527,6 +529,9 @@ export function renderHtml(
     `<script type="application/json" id="gallery-data">${inlineJson(data, page)}</script>`,
     `<script>${client}</script>`,
     uiCss === `` ? `` : `<script>${ISLAND_CLIENT_SCRIPT}</script>`,
+    // EXP-1604: the Motion islands' painter (motion-islands.ts), after the
+    // island roots exist.
+    motionScript === `` ? `` : `<script type="module">${motionScript.replace(/<\/script/gi, `<\\/script`)}</script>`,
     `</body>`,
     `</html>`,
     ``,

@@ -267,10 +267,10 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
             if (c == "Ring") node.props.num("value")?.let { v -> progressBarRangeInfo = ProgressBarRangeInfo(v.toFloat().coerceIn(0f, 1f), 0f..1f) } else progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
         }
         node.isPickerTrigger || c == "Segmented" -> this
-        // VAPP-162: a QrCode is an image named by its label (decorative
+        // VAPP-162, EXP-1604: a QrCode / Motion is an image named by its label (decorative
         // without one); a QrScanner names its own viewfinder (the camera
         // state is the composable's).
-        c == "QrCode" -> {
+        c == "QrCode" || c == "Motion" -> {
             val name = a.label ?: node.props.str("label").ifEmpty { null }
             if (name == null) hiddenFromAccessibility() else clearAndSetSemantics {
                 contentDescription = name

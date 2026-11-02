@@ -17,6 +17,8 @@ name: record-compose-fixtures
 # N-12 (2026-10-23): re-recorded for the core catalog's DockCard (the
 # kitchen sink's dock-card node: the Compose goldens + `DockCard.png`, the
 # web baseline rewrite's gpui budget).
+# EXP-1604 (2026-11-01): re-recorded for the core catalog's Motion (the
+# kitchen sink's motion node: the Compose goldens + `Motion.png`).
 
 on:
   workflow_dispatch: {}

@@ -34,7 +34,10 @@ const KNOWN: &str = "packages/exponential-ui/fixtures/conformance-known.json";
 /// not listed here fails the gate). The writer records them under
 /// `survivors` in the known file, with the reason and the cases they
 /// occur in.
-const SURVIVORS: &[(&str, &str, &str)] = &[];
+const SURVIVORS: &[(&str, &str, &str)] = &[
+    // EXP-1604: temporary, until the web Motion painter regenerates the baseline.
+    ("feedback-demo.body", "regenerate the web baseline with the React Motion native (EXP-1604 web child), then rewrite this budget", "The kitchen sink's new 48 px Motion is not in the web baseline yet (no web painter when it was recorded): the box holding it is taller here and everything after it moves."),
+];
 
 /// Nodes only ONE side places (not compared): every one is a decision. An
 /// unlisted web-only (`ref`) or gpui-only (`gpui`) id fails the gate; the
@@ -50,6 +53,8 @@ const COVERAGE_GAPS: &[(&str, &str, &str)] = &[
     ("audio.controls", "ref", "AudioPlayer controls row: painted inside the AudioPlayer leaf (its height is the core's)."),
     ("carousel.thumbnailImage.0", "gpui", "Carousel thumbnail picture: the web paints a bare <img> filling the thumbnail button (inset 0, no data-xui-id); its box is the thumbnail's, which is compared."),
     ("carousel.thumbnailImage.1", "gpui", "Carousel thumbnail picture: the web paints a bare <img> filling the thumbnail button (inset 0, no data-xui-id); its box is the thumbnail's, which is compared."),
+    // EXP-1604: temporary, like the survivor above.
+    ("motion", "gpui", "The kitchen sink's Motion: the web baseline predates the web Motion painter (EXP-1604); it goes when the baseline is regenerated."),
 ];
 
 /// `conformance/baseline.ts` `decodeBaseline`.

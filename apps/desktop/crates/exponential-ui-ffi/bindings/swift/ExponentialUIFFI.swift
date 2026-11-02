@@ -2007,6 +2007,256 @@ public func FfiConverterTypeMeasurer_lower(_ value: Measurer) -> UInt64 {
 
 
 
+public protocol MotionPlayerProtocol: AnyObject, Sendable {
+    
+    /**
+     * Register a font (TTF/OTF bytes) for text layers without glyphs.
+     */
+    func addFont(family: String, data: Data) 
+    
+    /**
+     * Image asset locations, in `image` op order.
+     */
+    func images()  -> [String]
+    
+    /**
+     * The still frame (reduced motion, paused, before play).
+     */
+    func posterFrame()  -> Double
+    
+    /**
+     * The frame a bound progress (0–1) shows.
+     */
+    func progressFrame(progress: Double)  -> Double
+    
+    /**
+     * The packed display list of `frame`.
+     */
+    func sample(frame: Double)  -> [Float]
+    
+    /**
+     * Set the playback props (JSON: autoplay, loop, direction, speed, segment, poster).
+     */
+    func setPlayback(playbackJson: String) 
+    
+    /**
+     * Composition width and height.
+     */
+    func size()  -> [Float]
+    
+    /**
+     * The frame `elapsed_ms` after play started.
+     */
+    func tick(elapsedMs: Double)  -> MotionTick
+    
+}
+open class MotionPlayer: MotionPlayerProtocol, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_motionplayer(self.handle, $0) }
+    }
+    /**
+     * Load Lottie JSON (`slots_json` = slot overrides `{id: value}`, or "").
+     */
+public convenience init(lottieJson: String, slotsJson: String)throws  {
+    let handle =
+        try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_constructor_motionplayer_new(
+        FfiConverterString.lower(lottieJson),
+        FfiConverterString.lower(slotsJson),$0
+    )
+}
+    self.init(unsafeFromHandle: handle)
+}
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_motionplayer(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Register a font (TTF/OTF bytes) for text layers without glyphs.
+     */
+open func addFont(family: String, data: Data)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_add_font(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(family),
+        FfiConverterData.lower(data),$0
+    )
+}
+}
+    
+    /**
+     * Image asset locations, in `image` op order.
+     */
+open func images() -> [String]  {
+    return try!  FfiConverterSequenceString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_images(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The still frame (reduced motion, paused, before play).
+     */
+open func posterFrame() -> Double  {
+    return try!  FfiConverterDouble.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_poster_frame(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The frame a bound progress (0–1) shows.
+     */
+open func progressFrame(progress: Double) -> Double  {
+    return try!  FfiConverterDouble.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_progress_frame(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(progress),$0
+    )
+})
+}
+    
+    /**
+     * The packed display list of `frame`.
+     */
+open func sample(frame: Double) -> [Float]  {
+    return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_sample(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(frame),$0
+    )
+})
+}
+    
+    /**
+     * Set the playback props (JSON: autoplay, loop, direction, speed, segment, poster).
+     */
+open func setPlayback(playbackJson: String)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_set_playback(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(playbackJson),$0
+    )
+}
+}
+    
+    /**
+     * Composition width and height.
+     */
+open func size() -> [Float]  {
+    return try!  FfiConverterSequenceFloat.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_size(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * The frame `elapsed_ms` after play started.
+     */
+open func tick(elapsedMs: Double) -> MotionTick  {
+    return try!  FfiConverterTypeMotionTick_lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(elapsedMs),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMotionPlayer: FfiConverter {
+    typealias FfiType = UInt64
+    typealias SwiftType = MotionPlayer
+
+    public static func lift(_ handle: UInt64) throws -> MotionPlayer {
+        return MotionPlayer(unsafeFromHandle: handle)
+    }
+
+    public static func lower(_ value: MotionPlayer) -> UInt64 {
+        return value.uniffiCloneHandle()
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MotionPlayer {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: MotionPlayer, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMotionPlayer_lift(_ handle: UInt64) throws -> MotionPlayer {
+    return try FfiConverterTypeMotionPlayer.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMotionPlayer_lower(_ value: MotionPlayer) -> UInt64 {
+    return FfiConverterTypeMotionPlayer.lower(value)
+}
+
+
+
+
+
+
 /**
  * Server-Sent Events (`data:` lines per event; an event = one message or
  * JSONL). Same `{messages, issues}` JSON as `JsonlDecoder`.
@@ -5777,6 +6027,63 @@ public func FfiConverterTypeFfiVisual_lower(_ value: FfiVisual) -> RustBuffer {
     return FfiConverterTypeFfiVisual.lower(value)
 }
 
+
+/**
+ * The frame a clock reading lands on.
+ */
+public struct MotionTick: Equatable, Hashable {
+    public var frame: Double
+    public var done: Bool
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(frame: Double, done: Bool) {
+        self.frame = frame
+        self.done = done
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension MotionTick: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeMotionTick: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> MotionTick {
+        return
+            try MotionTick(
+                frame: FfiConverterDouble.read(from: &buf), 
+                done: FfiConverterBool.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: MotionTick, into buf: inout [UInt8]) {
+        FfiConverterDouble.write(value.frame, into: &buf)
+        FfiConverterBool.write(value.done, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMotionTick_lift(_ buf: RustBuffer) throws -> MotionTick {
+    return try FfiConverterTypeMotionTick.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeMotionTick_lower(_ value: MotionTick) -> RustBuffer {
+    return FfiConverterTypeMotionTick.lower(value)
+}
+
 // Note that we don't yet support `indirect` for enums.
 // See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
 /**
@@ -7543,6 +7850,28 @@ public func zoomJson(requestJson: String) -> String  {
     )
 })
 }
+/**
+ * Compile an authoring-dialect document (a Motion's inline `layers` plus
+ * `size`, `fps`, `duration`, `start`, `time`, `assets`, `markers`) into Lottie
+ * JSON; the issues as `UiError::Invalid` (JSON) otherwise.
+ */
+public func motionCompile(dialectJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_motion_compile(
+        FfiConverterString.lower(dialectJson),$0
+    )
+})
+}
+/**
+ * The first animation of a `.lottie` archive as Lottie JSON (images inlined).
+ */
+public func motionReadDotlottie(data: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(
+        FfiConverterData.lower(data),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -7755,6 +8084,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_zoom_json() != 60442) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_motion_compile() != 7142) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie() != 13234) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale() != 12162) {
@@ -8060,6 +8395,30 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_theme_type_size() != 27563) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_add_font() != 11928) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_images() != 63847) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_poster_frame() != 38500) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_progress_frame() != 4864) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_sample() != 55236) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_playback() != 62187) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_size() != 53058) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick() != 12132) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_constructor_hostrouter_new() != 1496) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8079,6 +8438,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_constructor_theme_load() != 18071) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_constructor_motionplayer_new() != 47836) {
         return InitializationResult.apiChecksumMismatch
     }
 
