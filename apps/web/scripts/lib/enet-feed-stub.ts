@@ -12,15 +12,23 @@
  * into the local database (the stub has no signed-in identity to call
  * `installs.register` with); the caller already refused a non-local one.
  */
-import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { resolve } from "node:path"
 import { and, eq, isNull, ne } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { devices, installs } from "@/db/schema"
+import { worktreeTmpPath } from "./worktree-tmp"
 
-/** The node's identity survives restarts, so one `installs` row is reused. */
-const IDENTITY_FILE = join(tmpdir(), `exp-screenshot-enet-identity`)
-const FEED_FILE = join(tmpdir(), `exp-screenshot-enet-feed.json`)
+/** The repository root this checkout lives at (apps/web/scripts/lib → root). */
+const REPO_ROOT = resolve(import.meta.dir, `../../../..`)
+/**
+ * The node's identity survives restarts, so one `installs` row is reused.
+ * EXP-1564: both files are keyed per worktree (a hash of REPO_ROOT): one
+ * shared `$TMPDIR` name made every concurrent worktree announce the SAME iroh
+ * node id on the relay, so a viewer dialled one of them at random, and the
+ * feed file was clobbered by whichever worktree started last.
+ */
+const IDENTITY_FILE = worktreeTmpPath(REPO_ROOT, `exp-screenshot-enet-identity`)
+const FEED_FILE = worktreeTmpPath(REPO_ROOT, `exp-screenshot-enet-feed`, `.json`)
 // A first run compiles the example (the steer crate's tree); later runs are
 // incremental.
 const READY_TIMEOUT_MS = 15 * 60_000
@@ -135,7 +143,12 @@ export async function startEnetFeedStub(opts: {
         revokedAt: null,
       },
     })
-  // An earlier run's node (a wiped tmpdir) would be dialled first when newer.
+  // An earlier run's node (a wiped tmpdir, or this checkout before EXP-1564
+  // keyed the identity per worktree) would be dialled first when newer, so
+  // every other live row of the demo machine is revoked. Another worktree's
+  // stub only lands here when two checkouts share ONE database; that is
+  // unsupported anyway (both seed the same demo rows), and the newest stub
+  // winning deterministically beats viewers picking between two.
   await db
     .update(installs)
     .set({ revokedAt: now })
