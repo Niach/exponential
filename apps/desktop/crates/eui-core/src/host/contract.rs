@@ -68,7 +68,7 @@ pub const RECORD_KIND_PATTERN: &str = "^[a-z][a-z0-9_]{0,31}$";
 
 /// `catalog/host.json` without its `$comment`s, rebuilt from the constants.
 pub fn host_contract() -> Value {
-    use super::{actions as act, exposes as ex, record_store as rs, signature as sig, tools};
+    use super::{actions as act, exposes as ex, record_store as rs, signature as sig, tests as pt, tools};
     json!({
         "version": HOST_CONTRACT_VERSION,
         "a2uiVersion": A2UI_VERSION,
@@ -104,6 +104,11 @@ pub fn host_contract() -> Value {
                 "stepKinds": act::ACTION_STEP_KINDS,
                 "callPrefix": act::ACTION_CALL_PREFIX,
                 "batchFunction": act::RECORDS_BATCH_FUNCTION,
+            },
+            "tests": {
+                "limits": {"tests": pt::PACKAGE_TEST_LIMIT_TESTS, "gotMax": pt::PACKAGE_TEST_LIMIT_GOT_MAX},
+                "defaults": {"now": pt::PACKAGE_TEST_DEFAULT_NOW, "as": pt::PACKAGE_TEST_DEFAULT_AS},
+                "kinds": pt::PACKAGE_TEST_KINDS,
             },
             "tools": {"idPattern": tools::TOOL_ID_PATTERN, "kinds": tools::TOOL_KINDS, "transports": tools::TOOL_TRANSPORTS, "functionPrefix": tools::TOOL_FUNCTION_PREFIX},
             "exposes": {

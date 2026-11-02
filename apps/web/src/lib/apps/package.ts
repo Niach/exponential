@@ -1,6 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import {
   ACTION_LIMITS,
+  PACKAGE_TEST_LIMITS,
   EXPOSES_LIMITS,
   availableExtensions,
   defineExtension,
@@ -213,6 +214,9 @@ export function appCatalogText(): string {
     ``,
     `# Actions (all-or-nothing writes)`,
     `actions: {<name>: {params?: a records schema {type: "object", properties, required?}, steps: [...]}} (≤ ${ACTION_LIMITS.actions} actions, ≤ ${ACTION_LIMITS.steps} steps): a press runs one with on: {press: {functionCall: {call: "actions.<name>", args: {<param>: a value or {path}}}}}. Steps, in order: {require: "<CEL bool>", message: "<the toast when false>"}, {"records.upsert": {kind, data: {<field>: "<CEL>"}, id?: "<CEL>"}}, {"records.delete": {id: "<CEL>"}}, {set: {path: "/pointer", value: "<CEL>"}}, {call: "harness.toast" (a host function listed in functions), args: {<k>: "<CEL>"}}. A string in a step is CEL (quote text: "'Saved'"), anything else a literal; CEL reads params, data (the surface data at the press) and me (the viewer's id). Every step reads the SAME snapshot (a set never changes a later step); the first false require, error or refused write discards the whole action and nothing lands (the writes are one transaction). Bindings are pure: a write or host function anywhere but an on.* functionCall is refused on upsert.`,
+    ``,
+    `# Tests (run on every upsert)`,
+    `tests: [{name, records?: {<kind>: [rows: data + optional id, author]}, now?: ISO instant (UTC), as?: a member id, expr: {expr, vars?} | query: {name, params?} | action: {name, params?, data?}, expect}] (≤ ${PACKAGE_TEST_LIMITS.tests}). Each runs on its own sample records; a var {source: "records:<kind>?…"} reads them like a binding; an action's result is {records: {<kind>: [{…data, id, author}]}, sets, calls} or {error}. expect matches by the keys an object names (lists item by item). A failing test refuses the upsert as /tests/<i> (expected vs got): add tests for every expression, query and action you write.`,
     ``,
     `# Expressions (computed values, live)`,
     `{call: "expr", args: {expr: "<CEL>", vars: {<name>: a value, a binding {path} or a call}}} wherever a value may be bound: a CEL subset over vars (number, string, bool, null and list literals; a.b, a[0]; + - * / %; == != < <= > >=; && || !; c ? a : b; list.map/filter/all/exists(x, e), one level). ONE number type (7 / 2 = 3.5), no implicit conversion, a missing field is null, an error (1 / 0) gives no value. Functions (also callable directly as {call: "<name>", args: {…}}): mul|div|mod(a, b), round(value, digits?) (half away from zero), floor|ceil|abs(value), min|max(values…), today(), now(), dateAdd(date, n, unit), dateDiff(a, b, unit) (b - a), startOf|endOf(date, unit), weekday(date) (Monday 1), isoWeek(date), hours(minutes), formatDuration(hours, "h:mm" | "hh:mm"), size(x) (CEL only). Units: second minute hour day week month quarter year; a date is YYYY-MM-DD, a timestamp an ISO instant; dates run in the team time zone; no working days or holidays (keep those as records). Caps: 1000 characters, no macro inside a macro, 10 000 steps. Every expr is type-checked on upsert against its vars (a records binding's kind schema, the template data): e.g. vars {entries: {path: "/entries"}} bound to exp:records?kind=entry, expr "round(entries.sum / 60, 1)" or "entries.rows.filter(r, r.date >= startOf(today(), 'week')).map(r, r.hours)".`,

@@ -873,6 +873,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_run_action_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_run_package_action_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_run_package_tests_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_segmented_badge_text(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_source_with_params_json(
@@ -1577,6 +1579,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(`themeJson`: 
 external fun uniffi_exponential_ui_ffi_fn_func_run_action_json(`actionJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_run_package_action_json(`packageJson`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`me`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_run_package_tests_json(`packageJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_segmented_badge_text(`count`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -10891,6 +10895,23 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_package_action_json(
     
         FfiConverterString.lower(`packageJson`),FfiConverterString.lower(`name`),FfiConverterString.lower(`paramsJson`),FfiConverterString.lower(`dataJson`),FfiConverterOptionalString.lower(`me`),FfiConverterOptionalDouble.lower(`nowMs`),FfiConverterOptionalTypeHostZone.lower(`zone`),FfiConverterOptionalUInt.lower(`maxSteps`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-196: run every test of `package_json` (`eui_core::host::run_package_tests`)
+         * → `[{name, pass, got}]` JSON (`fixtures/package-tests.json` `runs`); `[]`
+         * when it has no tests or a malformed test list. `validate_package_json`
+         * reports the failing ones as `/tests/<i>` issues.
+         */
+    @Throws(UiException::class) fun `runPackageTestsJson`(`packageJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_run_package_tests_json(
+    
+        FfiConverterString.lower(`packageJson`),_status)
 }
     )
     }

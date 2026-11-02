@@ -636,9 +636,9 @@ Example: importing a timesheet workbook (one sheet per month, two members) into 
   - Any coding agent (Claude Code, OpenClaw) can do the same through MCP.
 - **Testing** 🆕 T1:
   - The package validator ✅ runs on every upsert.
-  - 🆕 `tests` in the package (#VAPP-196, adopted 2026-11-02): `[{name, records?, now?, as?, expr | query | action, expect}]`, run against their own sample records in an in-memory store at every install and in CI; a failing test is an install issue (`/tests/<i>`, expected vs got), like a type error.
+  - ✅ `tests` in the package (T1, #VAPP-196): `[{name, records?, now?, as?, expr | query | action, expect}]` (≤ 50), run against their own sample records in an in-memory store at every install (every upsert; the MCP upsert answers `tests: "<n> passed"`) and in CI; a failing test is an install issue (`/tests/<i>`, expected vs got), like a type error. `src/host/tests.ts` / `eui_core::host::tests` (FFI `run_package_tests_json`), fixture `fixtures/package-tests.json` replayed in TS, Rust, Swift and Kotlin; docs/package-format.md "Tests".
   - Preview at phone and desktop widths, with a screen picker.
-  - 🆕 A "Run as <member>" preview for the policy.
+  - 🆕 A "Run as <member>" preview for the policy: waits for R3 (per-kind policies); a test's `as` already runs it as another member.
 - **Publishing:** draft → published (§2.3). Publish runs the migration check (§3.6) and shows the diff of `exposes` and automations. Changes to tools need an owner, as grants do today.
 
 ---
@@ -778,7 +778,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 4: Data in, and testing**
 
 - **X2** Spreadsheet import: the agent recipe first (documented in the editor brief), the mapping dialog second. (C13)
-- **T1** #VAPP-196 Package `tests` (sample records + expected values for expressions, queries and actions), run at install (a failing test is an install issue) and in CI, + "Run as" preview. (§11)
+- **T1** ✅ #VAPP-196 Package `tests` (sample records + expected values for expressions, queries and actions), run at install (a failing test is an install issue) and in CI. The "Run as" preview is left for R3. (§11)
 
 **Phase 5: Automation and upstreams**
 

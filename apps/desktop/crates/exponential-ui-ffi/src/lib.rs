@@ -2808,6 +2808,18 @@ pub fn run_package_action_json(
     })
 }
 
+/// VAPP-196: run every test of `package_json` (`eui_core::host::run_package_tests`)
+/// → `[{name, pass, got}]` JSON (`fixtures/package-tests.json` `runs`); `[]`
+/// when it has no tests or a malformed test list. `validate_package_json`
+/// reports the failing ones as `/tests/<i>` issues.
+#[uniffi::export]
+pub fn run_package_tests_json(package_json: String) -> Result<String, UiError> {
+    guarded("run_package_tests_json", || {
+        let pkg: Value = parse(&package_json)?;
+        Ok(json_string(&eui_core::host::run_package_tests(&pkg)))
+    })
+}
+
 /// VAPP-194: apply a `records.batch` (`eui_core::host::apply_record_batch`)
 /// to `rows_json` (record rows) all or nothing, checked against
 /// `records_json` (the package's kinds): `{"rows": [...], "ids": [...]}` or

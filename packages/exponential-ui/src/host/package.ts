@@ -16,6 +16,7 @@ import { validatePackageExposes, validateUpstreams } from "./exposes"
 import type { PackageExpose } from "./exposes"
 import { validatePackageExpressions } from "./expressions"
 import { validatePackageActions, validatePackageEffects } from "./actions"
+import { packageTestIssues, validatePackageTests } from "./tests"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
@@ -89,6 +90,8 @@ export interface AppPackage {
   /** VAPP-194: named actions, the only place a package writes
    *  (`host/actions.ts`): `{params?, steps}`, run by `actions.<name>`. */
   actions?: Record<string, unknown>
+  /** VAPP-196: the package's tests (`host/tests.ts`), run at install. */
+  tests?: unknown[]
 }
 
 /** A package query's name. */
@@ -248,6 +251,10 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
   if (pkg.upstreams !== undefined) issues.push(...validateUpstreams(pkg.upstreams))
   if (pkg.exposes !== undefined) issues.push(...validatePackageExposes(pkg.exposes, pkg.records, pkg.upstreams))
   if (pkg.extensions !== undefined) issues.push(...validateExtensions(pkg.extensions, catalogIds, extensions))
+  // VAPP-196: the package's tests: their shape, then (on an otherwise valid
+  // package) every one run; a failing test is an issue like a type error.
+  issues.push(...validatePackageTests(pkg))
+  if (issues.length === 0) issues.push(...packageTestIssues(pkg))
   return issues
 }
 

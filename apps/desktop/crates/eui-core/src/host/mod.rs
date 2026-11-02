@@ -23,6 +23,7 @@ pub mod records;
 pub mod router;
 pub mod signature;
 pub mod sources;
+pub mod tests;
 pub mod tools;
 
 pub use actions::{
@@ -50,6 +51,9 @@ pub use record_store::RECORDS_FUNCTIONS;
 pub use records::{is_record_kind, validate_record, validate_record_schema, RECORD_FIELD_TYPES, RECORD_FORMATS, RECORD_RESERVED_KEYS};
 pub use signature::{canonical_json, package_file_signed_bytes, AUTHOR_KEY_PREFIX, AUTHOR_NAME_MAX, PACKAGE_FILE_SIGNATURE_ALG, PACKAGE_FILE_SIGNATURE_CONTEXT};
 pub use sources::{parse_source, source_with_params, ParsedSource};
+pub use tests::{
+    package_test_issues, run_package_tests, test_failure, test_matches, validate_package_tests, PackageTestResult, PACKAGE_TEST_DEFAULT_AS, PACKAGE_TEST_DEFAULT_NOW, PACKAGE_TEST_KINDS, PACKAGE_TEST_LIMIT_GOT_MAX, PACKAGE_TEST_LIMIT_TESTS,
+};
 pub use tools::{tool_call, tool_consent, tool_consent_key, validate_tools, ToolCall, ToolConsentRow, TOOL_KINDS};
 
 /// JavaScript's WhiteSpace + LineTerminator (what `trim` drops, regex `\s`).

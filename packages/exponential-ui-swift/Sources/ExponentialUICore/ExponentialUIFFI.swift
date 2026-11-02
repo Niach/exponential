@@ -7883,6 +7883,19 @@ public func runPackageActionJson(packageJson: String, name: String, paramsJson: 
 })
 }
 /**
+ * VAPP-196: run every test of `package_json` (`eui_core::host::run_package_tests`)
+ * → `[{name, pass, got}]` JSON (`fixtures/package-tests.json` `runs`); `[]`
+ * when it has no tests or a malformed test list. `validate_package_json`
+ * reports the failing ones as `/tests/<i>` issues.
+ */
+public func runPackageTestsJson(packageJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_run_package_tests_json(
+        FfiConverterString.lower(packageJson),$0
+    )
+})
+}
+/**
  * VAPP-162: a Segmented `bar` item's count badge text (`99+` above 99);
  * `None` = no badge (unset, not positive, 0).
  */
@@ -8300,6 +8313,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_run_package_action_json() != 54713) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_run_package_tests_json() != 35878) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_segmented_badge_text() != 31695) {

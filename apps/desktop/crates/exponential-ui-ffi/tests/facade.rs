@@ -1348,3 +1348,33 @@ fn the_actions_fixture_replays_through_the_facade() {
     assert_eq!(out["ids"], json!(["a", "r2"]));
     assert!(run_package_action_json("{".into(), "log".into(), "null".into(), "null".into(), None, None, None, None).is_err());
 }
+
+/// VAPP-196: fixtures/package-tests.json `runs` through run_package_tests_json
+/// and `validate` through validate_package_json (the whole file replays in
+/// eui-core's tests/package_tests.rs).
+#[test]
+fn the_package_tests_fixture_replays_through_the_facade() {
+    let f = fixture("package-tests.json");
+    let base = f["package"].as_object().unwrap().clone();
+    let mut pkg = base.clone();
+    pkg.insert("tests".into(), f["runs"]["tests"].clone());
+    let got = run_package_tests_json(Value::Object(pkg).to_string()).unwrap();
+    eq(&got, &f["runs"]["results"], "runs");
+    let mut n = 0;
+    for c in f["validate"].as_array().unwrap() {
+        let mut pkg = base.clone();
+        for (k, v) in c["with"].as_object().unwrap() {
+            pkg.insert(k.clone(), v.clone());
+        }
+        let got = validate_package_json(Value::Object(pkg).to_string(), None).unwrap();
+        eq(&got, &c["issues"], &format!("validate: {}", c["name"]));
+        n += 1;
+    }
+    assert!(n >= 10, "{n}");
+    // No tests = no results; a malformed list runs none; a non-JSON package is a typed error.
+    assert_eq!(run_package_tests_json(f["package"].to_string()).unwrap(), "[]");
+    let mut bad = base.clone();
+    bad.insert("tests".into(), json!([{"name": ""}]));
+    assert_eq!(run_package_tests_json(Value::Object(bad).to_string()).unwrap(), "[]");
+    assert!(run_package_tests_json("{".into()).is_err());
+}

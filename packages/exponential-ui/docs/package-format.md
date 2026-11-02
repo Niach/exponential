@@ -7,9 +7,9 @@ store, tool runners, extensions), never how (Exponential serves records from
 its synced store, spezl from a p2p store over eNet). `catalog/host.json`
 `package` is the machine-readable contract; this page is the prose spec other
 docs link to (spezl `docs/spec/blocks.md`). The TS reference is `src/host/`
-(`package.ts`, `records.ts`, `record-store.ts`, `query.ts`, `actions.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
+(`package.ts`, `records.ts`, `record-store.ts`, `query.ts`, `actions.ts`, `tests.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
 the Rust core (`apps/desktop/crates/eui-core/src/host/`) mirrors every
-pure rule. Fixtures: `fixtures/expressions.json` (the expression language, below), `fixtures/actions.json` (effects and actions, below), `fixtures/host-router.json` (package validation, replayed
+pure rule. Fixtures: `fixtures/expressions.json` (the expression language, below), `fixtures/actions.json` (effects and actions, below), `fixtures/package-tests.json` (package tests, below), `fixtures/host-router.json` (package validation, replayed
 by every renderer through the core), `fixtures/records-query.json` (the
 records query and its value) and `fixtures/host-package.json` (tool consent,
 extension compatibility, canonical JSON, signatures).
@@ -40,6 +40,7 @@ renders against keeps its own version in its id (`catalogId`,
   "upstreams": ["m5"], "exposes": [/* MCP tools a host's broker runs: "Exposes" below */],
   "queries": { "month": { "group": ["author"], "aggregate": { "hours": ["sum", "hours"] } } },
   "actions": { "log": { "params": { /* a records schema */ }, "steps": [/* "Actions" below */] } },
+  "tests": [{ "name": "a duration", "expr": { "expr": "formatDuration(7.5, 'h:mm')" }, "expect": "7:30" }],
   "extensions": [{ "id": "https://acme.example/catalogs/charts/v1", "version": "1.4.0", "components": ["Gantt"] }],
   "theme": "exponential", "icon": { "glyph": "clock" }, "description": "…"
 }
@@ -294,6 +295,44 @@ and runs the calls. A failure before the commit lands nothing and is sent as
 `ACTION_FAILED` (the host's `onActionFailed` shows the toast). A press runs
 an action on the client host; the server broker will run them for `exposes`
 and automations (A1). P2P stores (spezl) promise no cross-peer invariants.
+
+## Tests
+
+VAPP-196 (T1, spec `docs/spec/apps.md` §11): a package carries its own
+tests, and `validatePackage` runs them on every install (Exponential: every
+upsert), so a failing test refuses the package like a type error:
+
+```jsonc
+"tests": [
+  { "name": "my week", "records": { "entry": [{ "date": "2026-11-02", "hours": 2 }, { "date": "2026-11-03", "hours": 3, "author": "ada" }] },
+    "query": { "name": "week", "params": { "start": "2026-11-02", "end": "2026-11-08" } },
+    "expect": { "count": 2, "totals": { "hours": 5 } } },
+  { "name": "my hours", "records": { "entry": [{ "date": "2026-11-02", "hours": 2 }] },
+    "expr": { "expr": "entries.sum", "vars": { "entries": { "source": "records:entry?mine=1&sum=hours" } } }, "expect": 2 },
+  { "name": "zero hours are refused", "action": { "name": "log", "params": { "date": "2026-11-04", "hours": 0 } },
+    "expect": { "error": "Log more than 0 hours" } }
+]
+```
+
+At most 50. Each test runs on its OWN in-memory store seeded with
+`records` (`{<kind>: [rows]}`: the kind's data, checked against its schema,
+plus an optional `id`, default `<kind>-<n>`, and `author`, default the
+test's member), at `now` (an ISO instant, UTC; default
+`2026-01-01T00:00:00.000Z`) as the member `as` (default `member`). It runs
+exactly one of:
+
+- `expr: {expr, vars?}`: the CEL value (or `{error}`); a var
+  `{source: "records:<kind>?…"}` is that binding's value over the store.
+- `query: {name, params?}`: the package query's records value.
+- `action: {name, params?, data?}`: the action's plan applied to the store:
+  `{records: {<kind>: [{…data, id, author}]}, sets, calls}` (new ids
+  `new-<n>`), or `{error}`.
+
+`expect` matches by the keys an object names (recursively; a list item by
+item, with the same length; anything else by JSON equality). The tests run
+only on an otherwise valid package; a failing one is the issue `/tests/<i>`:
+`<name>: expected <canonical JSON>, got <canonical JSON>` (got cut at 300
+characters). `runPackageTests(pkg)` returns every result.
 
 ## Tools
 
