@@ -2078,6 +2078,8 @@ final class AgentSessionModel {
     /// frame still lands in the same run-loop turn); a bigger one, a join
     /// replay's burst, parses and decodes OFF the main thread first.
     private static let inlineParseLimit = 16
+    /// #EXP-1623: a burst is parsing off main (the staging watcher waits).
+    @ObservationIgnored private var parsingBurst = false
 
     /// Apply everything queued, in arrival order. Frames that queue while a
     /// burst parses off main are the next pass of the same flush.
@@ -2091,9 +2093,19 @@ final class AgentSessionModel {
             if texts.count <= Self.inlineParseLimit {
                 parsed = texts.map(SteerWireFrame.parse)
             } else {
+                parsingBurst = true
+                let parseStarted = Date()
                 parsed = await Task.detached(priority: .userInitiated) {
                     texts.map(SteerWireFrame.parse)
                 }.value
+                parsingBurst = false
+                // A staging window's quiet and cap clocks do not count the
+                // parse: the frames arrived before it began.
+                if isStaging {
+                    let spent = Date().timeIntervalSince(parseStarted)
+                    stagingStartedAt = stagingStartedAt?.addingTimeInterval(spent)
+                    lastStagedFrameAt = Date()
+                }
             }
             guard !stopped else { return }
             applyingBatch = true
@@ -2334,6 +2346,9 @@ final class AgentSessionModel {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(Self.replayWatchSeconds))
                 guard let self, !Task.isCancelled, self.isStaging else { return }
+                // #EXP-1623: frames of this replay are still parsing off
+                // main; they are not silence, and the clock waits for them.
+                guard !self.parsingBurst else { continue }
                 let now = Date()
                 let startedAt = self.stagingStartedAt ?? now
                 guard SteerReplayStaging.shouldCommit(
@@ -2703,10 +2718,14 @@ final class AgentSessionModel {
             // EXP-1324: the Reasoning line. `ended` patches its `started` row
             // (same wire id) in place; an unmatched `started` appends, an
             // orphan `ended` (evicted, below the window) is dropped (web).
-            if AgentFeed.applyThought(
-                &feed, thoughtId: thoughtId, started: started, durationMs: durationMs
-            ) {
-                if !started { openThoughts = max(0, openThoughts - 1) }
+            let wasRunning = AgentFeed.thoughtRunning(feed, thoughtId: thoughtId)
+            if let wasRunning {
+                // A duplicate `started` changes nothing; an `ended` patches the
+                // row, and only one that was still running leaves the count.
+                if !started {
+                    AgentFeed.applyThought(&feed, thoughtId: thoughtId, started: false, durationMs: durationMs)
+                    if wasRunning { openThoughts = max(0, openThoughts - 1) }
+                }
             } else if started {
                 openThoughts += 1
                 append(.thought(

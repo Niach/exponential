@@ -1169,6 +1169,15 @@ public enum AgentFeed {
     /// The same fold IN PLACE (#EXP-1623: a replay folds thousands of events,
     /// and a copy of the whole feed per event made it quadratic). False = no
     /// row holds that id; the feed is untouched.
+    /// #EXP-1623: whether the NEWEST row with that thought id is still
+    /// running; nil = no row holds it.
+    public static func thoughtRunning(_ feed: [AgentFeedItem], thoughtId: String) -> Bool? {
+        for item in feed.reversed() {
+            if case let .thought(_, id, running, _, _) = item, id == thoughtId { return running }
+        }
+        return nil
+    }
+
     @discardableResult
     public static func applyThought(
         _ feed: inout [AgentFeedItem], thoughtId: String, started: Bool, durationMs: Int?
