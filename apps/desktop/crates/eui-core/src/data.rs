@@ -316,6 +316,16 @@ pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext
     if let Some(result) = crate::format::call_format_function(name, args, ctx.formatter(), ctx.now.unwrap_or_else(crate::format::now_ms)) {
         return result;
     }
+    // VAPP-191: the expression functions, on the surface clock and in the
+    // surface (team) zone (the formatter's offset).
+    if crate::cel::CALL_NAMES.contains(&name) {
+        let formatter = ctx.formatter();
+        let offset = move |ms: f64| formatter.offset_minutes(ms);
+        let env = crate::cel::ExpressionEnv { now: ctx.now, offset: Some(&offset), max_steps: None };
+        if let Some(result) = crate::cel::call_expression_function(name, args, &env) {
+            return result;
+        }
+    }
     if let Some(result) = crate::expr::core_function(name, args) {
         return result;
     }

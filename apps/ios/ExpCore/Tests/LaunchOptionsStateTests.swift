@@ -129,6 +129,9 @@ final class LaunchOptionsStateTests: XCTestCase {
         XCTAssertEqual(claude.cli, "claude")
         // S-3: plan mode left the launch keys (and the type).
         XCTAssertEqual(claude.ultracode, true)
+        // EXP-1583: the subagent model rides for claude, seeded from the
+        // contract default until the machine advertises one.
+        XCTAssertEqual(claude.subagentModel, DomainContract.deviceAgentDefaultsSubagentModel)
         XCTAssertNil(claude.mcpServerIds)
         XCTAssertNil(claude.computerUse)
         XCTAssertNil(claude.account)
@@ -139,7 +142,26 @@ final class LaunchOptionsStateTests: XCTestCase {
         let codex = state.buildOptions()
         XCTAssertEqual(codex.cli, "codex")
         XCTAssertNil(codex.ultracode)
+        XCTAssertNil(codex.subagentModel)
         XCTAssertEqual(codex.mcpServerIds, ["m-1"])
         XCTAssertEqual(codex.computerUse, false)
+    }
+
+    // EXP-1583: the machine's claude `subagentModel` seeds the pick; an
+    // unknown one falls back to the contract default.
+    func testSubagentModelSeedsFromTheMachine() {
+        let state = LaunchOptionsState()
+        let mac = SteerDevice(
+            deviceId: "mac",
+            deviceLabel: "mac",
+            agents: ["claude"],
+            launchDefaults: DeviceLaunchDefaults(
+                agents: ["claude": AgentLaunchDefaults(model: "fable", subagentModel: "sonnet")]
+            )
+        )
+        state.seed(from: mac)
+        XCTAssertEqual(state.subagentModel, "sonnet")
+        XCTAssertEqual(state.buildOptions().subagentModel, "sonnet")
+        XCTAssertEqual(LaunchOptionsState.seedSubagentModel("gpt-5"), DomainContract.deviceAgentDefaultsSubagentModel)
     }
 }

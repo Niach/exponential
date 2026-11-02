@@ -532,8 +532,13 @@ pub(crate) fn menu_row(
     .when(disabled, |row| row.text_color(muted))
 }
 
+/// #EXP-1587: a menu row's trailing value never takes more than this.
+pub(crate) const MENU_VALUE_MAX_W: f32 = 112.;
+
 /// The muted trailing value of a row ("High", "2"), with the `›` of a row
-/// that opens more choices.
+/// that opens more choices. The value truncates at [`MENU_VALUE_MAX_W`]
+/// (web `MENU_VALUE_CLASS` max-w-[7rem]; the vendored crate's
+/// `submenu_with_value` draws the same).
 pub(crate) fn menu_row_value(value: Option<SharedString>, chevron: bool, cx: &App) -> AnyElement {
     use gpui::prelude::FluentBuilder as _;
     let muted = cx.theme().muted_foreground;
@@ -543,7 +548,9 @@ pub(crate) fn menu_row_value(value: Option<SharedString>, chevron: bool, cx: &Ap
         .items_center()
         .text_xs()
         .text_color(muted)
-        .when_some(value, |row, value| row.child(value))
+        .when_some(value, |row, value| {
+            row.child(div().min_w_0().max_w(px(MENU_VALUE_MAX_W)).truncate().child(value))
+        })
         .when(chevron, |row| {
             row.child(
                 Icon::new(crate::icons::registry::UI_CHEVRON_RIGHT)

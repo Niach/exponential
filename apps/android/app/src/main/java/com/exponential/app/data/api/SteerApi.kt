@@ -4,6 +4,10 @@ import com.exponential.app.domain.DeviceDoctor
 import com.exponential.app.domain.DomainContract
 import javax.inject.Inject
 import javax.inject.Singleton
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
@@ -450,6 +454,38 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = ConnStatsInput.serializer(),
             outputSerializer = ConnStatsResult.serializer(),
         )
+
+    // EXP-1634: the resolved `steer.config` per account (env-derived, static
+    // per instance), so every screen after the first answer reads it at once.
+    private val enabledByAccount = ConcurrentHashMap<String, Boolean>()
+
+    /**
+     * Steer availability for [accountId]. A failed fetch reads as "off" (web
+     * parity) but is never final (EXP-1634: a cold start before the network
+     * is up used to hide the Agent composer until the app restarted): it
+     * retries with backoff until the server answers, then emits that answer
+     * and completes. Collect under `collectLatest` so an account switch
+     * cancels it.
+     */
+    fun enabled(accountId: String): Flow<Boolean> = flow {
+        enabledByAccount[accountId]?.let { emit(it); return@flow }
+        var backoffMs = 1_000L
+        var emittedOff = false
+        while (true) {
+            val result = runCatching { config(accountId).enabled }
+            result.onSuccess {
+                enabledByAccount[accountId] = it
+                emit(it)
+                return@flow
+            }
+            if (!emittedOff) {
+                emittedOff = true
+                emit(false)
+            }
+            delay(backoffMs)
+            backoffMs = (backoffMs * 2).coerceAtMost(30_000L)
+        }
+    }
 
     /** `steer.config` — enabled iff the server has a relay configured. */
     suspend fun config(accountId: String): SteerConfigResult =

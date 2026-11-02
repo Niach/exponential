@@ -26,6 +26,10 @@ import {
   CallControlsSpecimen,
   VoiceCallPillSpecimen,
   VoiceCallSpecimen,
+  MentionPillSpecimen,
+  SchedulePickerSpecimen,
+  PrRowSpecimen,
+  SealedLockedSpecimen,
   useKeyboardInset,
   useIsMobile,
 } from "@exp/ui"
@@ -89,7 +93,9 @@ const str = (value: unknown): string | undefined =>
 // ones: web's ringing and in-call surface, the desktop pill, the round
 // buttons; S-3 `session-xref` THE session link, #EXP-1611 `pr-checks` the
 // Merge pill's check states + the Checks submenu, `story-ring` / `story-viewer`
-// THE story ring + viewer, `story-tab` THE Stories tab body) (identical ×4) for theirs.
+// THE story ring + viewer, `story-tab` THE Stories tab body; EXP-1558
+// `mention-pill` / `schedule-picker` / `pr-row` / `sealed-locked` the
+// styleguide boards the natives shoot as `sg_*`) (identical ×4) for theirs.
 // Never parsed in a production build (`isProductionBuild`).
 const DEV_VIEWS = [
   `feedback-states`,
@@ -115,6 +121,10 @@ const DEV_VIEWS = [
   `story-ring`,
   `story-viewer`,
   `story-tab`,
+  `mention-pill`,
+  `schedule-picker`,
+  `pr-row`,
+  `sealed-locked`,
 ] as const
 type DevView = (typeof DEV_VIEWS)[number]
 const devView = (value: unknown): DevView | undefined =>
@@ -188,6 +198,14 @@ function AgentRoute() {
           <PhoneBoardMenuSpecimen />
         ) : dev === `phone-page-header` ? (
           <PhonePageHeaderSpecimen />
+        ) : dev === `mention-pill` ? (
+          <MentionPillSpecimen />
+        ) : dev === `schedule-picker` ? (
+          <SchedulePickerSpecimen />
+        ) : dev === `pr-row` ? (
+          <PrRowSpecimen />
+        ) : dev === `sealed-locked` ? (
+          <SealedLockedSpecimen />
         ) : dev === `code-block` ? (
           <CodeBlockSpecimen />
         ) : dev === `voice-call` ? (

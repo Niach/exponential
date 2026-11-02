@@ -1317,6 +1317,17 @@ impl OpenIssueTypeahead {
     pub(crate) fn render(&self, window: &mut Window, cx: &mut App) -> AnyElement {
         typeahead_popover(&self.entity, self.anchor, window, cx)
     }
+
+    /// EXP-1558 (DEV-ONLY, `EXP_DEV_TYPEAHEAD_QUERY`): `query` typed into the
+    /// list's own field, re-ranked as a keystroke there would be.
+    pub(crate) fn dev_type_query<V: 'static>(&self, query: &str, window: &mut Window, cx: &mut Context<V>) {
+        let query = query.to_string();
+        self.entity.update(cx, |typeahead, cx| {
+            typeahead.list.input.update(cx, |input, cx| input.set_value(query, window, cx));
+            typeahead.search(window, cx);
+            cx.notify();
+        });
+    }
 }
 
 /// What a pick puts in the editor's text in place of the `#token`.

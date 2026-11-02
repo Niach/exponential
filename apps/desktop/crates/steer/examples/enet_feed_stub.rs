@@ -19,9 +19,18 @@
 //! On `join`: `activity_reset`, the journal so far, `activity_synced
 //! {firstSeq, lastSeq}`, then live frames and a `keepalive` every
 //! `keepaliveMs`. `leave` drops the viewer; a re-sent `join` restarts its
-//! feed; another session's `join` = `error no_such_session`; `history_page`
-//! is answered `done` (nothing was ever evicted); steering frames are logged.
-//! Every endpoint is let in: the stub has no registry to check against.
+//! feed; `history_page` is answered `done` (nothing was ever evicted);
+//! steering frames are logged. Every endpoint is let in: the stub has no
+//! registry to check against.
+//!
+//! EXP-1558: the demo machine runs MORE than the scripted session (the thread
+//! root, its other children, the app editor's session). Each is listed under
+//! `stored: [{sessionId, journal, ended}]` and answered like a real device's
+//! STORED REPLAY (steer-enet.json): its journal and `activity_synced`, then
+//! `bye {outcome: "history"}` for an ended row or keepalives for a live one.
+//! Refusing them made every viewer redial `no_such_session` on its backoff,
+//! so a capture caught whichever phase it landed on. Only a session the
+//! machine does not hold is answered `error no_such_session`.
 //!
 //! Prints `READY <endpoint id hex> <x25519 public>` once online on the relay
 //! and `TICKET <enet1…>` (for a hand-driven viewer, e.g. enet-core's
@@ -51,6 +60,19 @@ struct Feed {
     live: Vec<Value>,
     #[serde(default = "default_live_every")]
     live_every_ms: u64,
+    #[serde(default)]
+    stored: Vec<Stored>,
+}
+
+/// A session the demo machine holds besides the scripted one (EXP-1558).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Stored {
+    session_id: String,
+    #[serde(default)]
+    journal: Vec<Value>,
+    #[serde(default)]
+    ended: bool,
 }
 
 fn default_live_every() -> u64 {
@@ -69,7 +91,9 @@ struct Stub {
     node: Node,
     session_id: String,
     journal: Mutex<Journal>,
-    viewers: Mutex<HashMap<EndpointId, JoinHandle<()>>>,
+    /// The stored sessions: their journal and whether the row has ended.
+    stored: HashMap<String, (Journal, bool)>,
+    viewers: Mutex<HashMap<(EndpointId, String), JoinHandle<()>>>,
 }
 
 #[tokio::main(flavor = "multi_thread")]
@@ -93,10 +117,23 @@ async fn main() {
     for frame in &feed.journal {
         record(&mut journal, frame);
     }
+    let stored = feed
+        .stored
+        .iter()
+        .map(|entry| {
+            let (live, _) = broadcast::channel(1);
+            let mut journal = Journal { frames: Vec::new(), seqs: Vec::new(), live };
+            for frame in &entry.journal {
+                record(&mut journal, frame);
+            }
+            (entry.session_id.clone(), (journal, entry.ended))
+        })
+        .collect();
     let stub = Arc::new(Stub {
         node,
         session_id: feed.session_id.clone(),
         journal: Mutex::new(journal),
+        stored,
         viewers: Mutex::new(HashMap::new()),
     });
     println!("READY {} {x25519}", endpoint_hex(&stub.node.endpoint_id()));
@@ -134,8 +171,9 @@ fn on_chat(stub: &Arc<Stub>, from: EndpointId, body: &[u8]) {
     ticket.relays = vec![DEFAULT_RELAY_URL.parse::<RelayUrl>().expect("relay url")];
     stub.node.add_ticket(&ticket);
     let peer = endpoint_hex(&from);
-    if envelope.session_id != stub.session_id {
-        println!("REFUSED {peer} {}", envelope.session_id);
+    let session_id = envelope.session_id.clone();
+    if session_id != stub.session_id && !stub.stored.contains_key(&session_id) {
+        println!("REFUSED {peer} {session_id}");
         let stub = stub.clone();
         let session_id = envelope.session_id.clone();
         tokio::spawn(async move {
@@ -147,15 +185,19 @@ fn on_chat(stub: &Arc<Stub>, from: EndpointId, body: &[u8]) {
     for frame in &envelope.frames {
         match frame.get("t").and_then(Value::as_str) {
             Some("join") => {
-                println!("JOIN {peer}");
-                let feed = tokio::spawn(serve(stub.clone(), from));
-                if let Some(old) = stub.viewers.lock().unwrap().insert(from, feed) {
+                println!("JOIN {peer} {session_id}");
+                let feed = if session_id == stub.session_id {
+                    tokio::spawn(serve(stub.clone(), from))
+                } else {
+                    tokio::spawn(serve_stored(stub.clone(), from, session_id.clone()))
+                };
+                if let Some(old) = stub.viewers.lock().unwrap().insert((from, session_id.clone()), feed) {
                     old.abort();
                 }
             }
             Some("leave") => {
-                println!("LEAVE {peer}");
-                if let Some(old) = stub.viewers.lock().unwrap().remove(&from) {
+                println!("LEAVE {peer} {session_id}");
+                if let Some(old) = stub.viewers.lock().unwrap().remove(&(from, session_id.clone())) {
                     old.abort();
                 }
             }
@@ -169,8 +211,9 @@ fn on_chat(stub: &Arc<Stub>, from: EndpointId, body: &[u8]) {
                 })
                 .to_string();
                 let stub = stub.clone();
+                let session_id = session_id.clone();
                 tokio::spawn(async move {
-                    let _ = send_envelope(&stub.node, from, &stub.session_id, &[chunk]).await;
+                    let _ = send_envelope(&stub.node, from, &session_id, &[chunk]).await;
                 });
             }
             _ => println!("CLIENT {peer} {frame}"),
@@ -193,10 +236,10 @@ async fn serve(stub: Arc<Stub>, peer: EndpointId) {
         replay.push(synced.to_string());
         (replay, journal.live.subscribe())
     };
-    if send_batched(&stub, peer, &mut replay).await.is_err() {
+    if send_batched(&stub, peer, &stub.session_id, &mut replay).await.is_err() {
         return;
     }
-    println!("SYNCED {}", endpoint_hex(&peer));
+    println!("SYNCED {} {}", endpoint_hex(&peer), stub.session_id);
     let mut keepalive = tokio::time::interval(KEEPALIVE);
     keepalive.tick().await;
     loop {
@@ -208,22 +251,57 @@ async fn serve(stub: Arc<Stub>, peer: EndpointId) {
             },
             _ = keepalive.tick() => vec![json!({ "t": "keepalive" }).to_string()],
         };
-        if send_batched(&stub, peer, &mut frames).await.is_err() {
+        if send_batched(&stub, peer, &stub.session_id, &mut frames).await.is_err() {
             return;
         }
     }
 }
 
-async fn send_batched(stub: &Stub, peer: EndpointId, frames: &mut Vec<String>) -> Result<(), ()> {
+/// A stored session's feed (EXP-1558): the replay up to `activity_synced`,
+/// then `bye` for an ended row, keepalives while the row is alive.
+async fn serve_stored(stub: Arc<Stub>, peer: EndpointId, session_id: String) {
+    let Some((journal, ended)) = stub.stored.get(&session_id) else { return };
+    let mut replay = vec![json!({ "t": "activity_reset" }).to_string()];
+    replay.extend(journal.frames.iter().cloned());
+    replay.push(
+        json!({
+            "t": "activity_synced",
+            "firstSeq": journal.seqs.first().copied().unwrap_or(0),
+            "lastSeq": journal.seqs.last().copied().unwrap_or(0),
+        })
+        .to_string(),
+    );
+    if *ended {
+        replay.push(json!({ "t": "bye", "outcome": "history" }).to_string());
+    }
+    if send_batched(&stub, peer, &session_id, &mut replay).await.is_err() {
+        return;
+    }
+    println!("SYNCED {} {session_id}", endpoint_hex(&peer));
+    if *ended {
+        return;
+    }
+    let mut keepalive = tokio::time::interval(KEEPALIVE);
+    keepalive.tick().await;
+    loop {
+        keepalive.tick().await;
+        let mut frames = vec![json!({ "t": "keepalive" }).to_string()];
+        if send_batched(&stub, peer, &session_id, &mut frames).await.is_err() {
+            return;
+        }
+    }
+}
+
+async fn send_batched(stub: &Stub, peer: EndpointId, session_id: &str, frames: &mut Vec<String>) -> Result<(), ()> {
     let sizes: Vec<usize> = frames.iter().map(String::len).collect();
-    let overhead = envelope_overhead(&stub.session_id);
+    let overhead = envelope_overhead(session_id);
     let (groups, dropped) = batches(&sizes, overhead, BATCH_MAX_BYTES, CHAT_MAX_BYTES);
     for index in dropped {
         eprintln!("DROPPED frame {index} ({} bytes over the chat cap)", sizes[index]);
     }
     for group in groups {
         let envelope: Vec<String> = group.iter().map(|&index| std::mem::take(&mut frames[index])).collect();
-        if let Err(err) = send_envelope(&stub.node, peer, &stub.session_id, &envelope).await {
+        if let Err(err) = send_envelope(&stub.node, peer, session_id, &envelope).await {
             println!("DROP {} {err}", endpoint_hex(&peer));
             return Err(());
         }

@@ -1,0 +1,3200 @@
+{
+  "$comment": "VAPP-191 (eApps Q2, spec docs/spec/apps.md §4.2-4.4): the expression language, ONE fixture for the TS reference (src/cel.ts) and the Rust core (eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. The string form is a SUBSET of CEL: number/string/bool/null/list literals, names, field paths a.b, indexes a[0] / m['k'], + - * / %, unary - and !, == != < <= > >=, && || (short-circuit), c ? a : b, the function table, and the macros map/filter/all/exists, single level. ONE number type (a double, like JSON: 7 / 2 = 3.5; CEL splits int/uint/double); no implicit conversion; a missing field (or a field of null) reads null; == is deep JSON equality; strings compare by UTF-16 code unit. Errors are exact texts; a parse error starts `at <code point>: `. Functions (also the A2UI form {call, args}): mul{a,b} div{a,b} mod{a,b} round{value,digits?} (half away from zero, digits 0..10) floor ceil abs{value} min max{values} today{} now{} dateAdd{date,n,unit} dateDiff{a,b,unit} (b - a, truncated) startOf endOf{date,unit} weekday{date} (ISO, Monday 1) isoWeek{date} hours{minutes} formatDuration{hours,format} (h:mm, hh:mm), size (CEL only), and expr{expr, vars} = the string form at bind time; a failed call has NO value (`none`). A date is `YYYY-MM-DD` (a calendar day), a timestamp an ISO instant (no offset = UTC; written back as toISOString). Everything date-like runs in the TEAM zone `zones[env.zone]` = a UTC offset per instant (minutes east, `offset` until the first transition, then each `[at, offset]`): a day unit keeps the wall clock (a time in a DST gap moves forward by the gap, a repeated time takes its later instant), second/minute/hour are real time. Units: second minute hour day week month quarter year (startOf/endOf: day..year; a date takes no sub-day unit in dateAdd). Cost: `limits` (maxLength code points, maxDepth = nested expressions and unary operators, maxSteps = evaluated nodes + comprehension iterations; a case's `maxSteps` overrides). `eval`: expr over `vars` in `env` (a case may override now / zone) → value | error. `check`: the type checker at package validation over `checkTypes` (types spelled as JSON: number string bool null date timestamp map dyn, [T] = a list, an object = a row with exactly those fields) → type | error. `calls`: the A2UI form resolved over `callData` (bind time) → value | none, and its `cel` twin over the same data as vars agrees. `packages`: validatePackage's expression issues: every {call: expr} anywhere in a template is parsed and checked; a var's type comes from a literal, a records binding (`records:<kind>` / `exp:records?kind=`: {rows: [row], count, sum, groups, totals, before, month}; a row = the kind's schema fields + id createdAt updatedAt createdBy authorId author) or the template data; anything else is dyn.",
+  "limits": {
+    "maxLength": 1000,
+    "maxDepth": 32,
+    "maxSteps": 10000
+  },
+  "zones": {
+    "utc": {
+      "offset": 0,
+      "transitions": []
+    },
+    "vienna": {
+      "name": "Europe/Vienna",
+      "offset": 60,
+      "transitions": [
+        [
+          "2026-03-29T01:00:00Z",
+          120
+        ],
+        [
+          "2026-10-25T01:00:00Z",
+          60
+        ],
+        [
+          "2027-03-28T01:00:00Z",
+          120
+        ]
+      ]
+    },
+    "kolkata": {
+      "name": "Asia/Kolkata",
+      "offset": 330,
+      "transitions": []
+    }
+  },
+  "env": {
+    "now": "2026-11-02T09:30:00Z",
+    "zone": "vienna"
+  },
+  "vars": {
+    "hours": 7.5,
+    "entry": {
+      "hours": 7.5,
+      "date": "2026-11-02",
+      "note": null,
+      "tags": [
+        "a",
+        "b"
+      ]
+    },
+    "rows": [
+      {
+        "hours": 2,
+        "day": "2026-11-02"
+      },
+      {
+        "hours": 3.5,
+        "day": "2026-11-03"
+      },
+      {
+        "hours": 1,
+        "day": "2026-11-09"
+      }
+    ],
+    "month": {
+      "sum": 151.5
+    },
+    "target": 160,
+    "empty": null
+  },
+  "eval": [
+    {
+      "name": "precedence",
+      "expr": "1 + 2 * 3",
+      "value": 7
+    },
+    {
+      "name": "parentheses",
+      "expr": "(1 + 2) * 3",
+      "value": 9
+    },
+    {
+      "name": "one number type: 7 / 2 is 3.5",
+      "expr": "7 / 2",
+      "value": 3.5
+    },
+    {
+      "name": "% takes the sign of the dividend",
+      "expr": "-7 % 3",
+      "value": -1
+    },
+    {
+      "name": "doubles like JSON",
+      "expr": "0.1 + 0.2",
+      "value": 0.30000000000000004
+    },
+    {
+      "name": "exponent literal",
+      "expr": "1.5e3 - 2E-1",
+      "value": 1499.8
+    },
+    {
+      "name": "unary minus",
+      "expr": "-(2 - 5)",
+      "value": 3
+    },
+    {
+      "name": "division by zero",
+      "expr": "1 / 0",
+      "error": "division by zero"
+    },
+    {
+      "name": "modulo by zero",
+      "expr": "5 % 0",
+      "error": "modulo by zero"
+    },
+    {
+      "name": "div by zero",
+      "expr": "div(hours, 0)",
+      "error": "division by zero"
+    },
+    {
+      "name": "mod by zero",
+      "expr": "mod(hours, 0)",
+      "error": "modulo by zero"
+    },
+    {
+      "name": "out of range",
+      "expr": "1e308 * 10",
+      "error": "number out of range"
+    },
+    {
+      "name": "literal out of range",
+      "expr": "1e400",
+      "error": "at 0: number out of range"
+    },
+    {
+      "name": "mul div mod",
+      "expr": "mul(2.5, 4) + div(9, 4) + mod(10, 4)",
+      "value": 14.25
+    },
+    {
+      "name": "round half away from zero",
+      "expr": "round(2.5)",
+      "value": 3
+    },
+    {
+      "name": "round negative half away from zero",
+      "expr": "round(-2.5)",
+      "value": -3
+    },
+    {
+      "name": "round just below a half",
+      "expr": "round(0.49999999999999994)",
+      "value": 0
+    },
+    {
+      "name": "round to digits (binary 1.005 is below the half)",
+      "expr": "round(1.005, 2)",
+      "value": 1
+    },
+    {
+      "name": "round to digits up",
+      "expr": "round(2.3451, 2)",
+      "value": 2.35
+    },
+    {
+      "name": "round never gives -0",
+      "expr": "round(-0.4)",
+      "value": 0
+    },
+    {
+      "name": "round minutes",
+      "expr": "round(hours * 60)",
+      "value": 450
+    },
+    {
+      "name": "round digits out of range",
+      "expr": "round(1.5, 11)",
+      "error": "round needs 0 to 10 digits"
+    },
+    {
+      "name": "round digits not whole",
+      "expr": "round(1.5, 0.5)",
+      "error": "round needs 0 to 10 digits"
+    },
+    {
+      "name": "floor",
+      "expr": "floor(-1.5)",
+      "value": -2
+    },
+    {
+      "name": "ceil",
+      "expr": "ceil(-1.5)",
+      "value": -1
+    },
+    {
+      "name": "ceil never gives -0",
+      "expr": "ceil(-0.5)",
+      "value": 0
+    },
+    {
+      "name": "abs",
+      "expr": "abs(-3.25)",
+      "value": 3.25
+    },
+    {
+      "name": "min",
+      "expr": "min(3, 1, 2)",
+      "value": 1
+    },
+    {
+      "name": "max over a field",
+      "expr": "max(hours, 8)",
+      "value": 8
+    },
+    {
+      "name": "min of one",
+      "expr": "min(4)",
+      "value": 4
+    },
+    {
+      "name": "min of none",
+      "expr": "min()",
+      "error": "min takes at least 1 argument"
+    },
+    {
+      "name": "arity",
+      "expr": "mul(1)",
+      "error": "mul takes 2 arguments"
+    },
+    {
+      "name": "arity of round",
+      "expr": "round(1, 2, 3)",
+      "error": "round takes 1 or 2 arguments"
+    },
+    {
+      "name": "arity of today",
+      "expr": "today(1)",
+      "error": "today takes 0 arguments"
+    },
+    {
+      "name": "arity of hours",
+      "expr": "hours()",
+      "error": "hours takes 1 argument"
+    },
+    {
+      "name": "a function needs a number",
+      "expr": "mul('2', 3)",
+      "error": "mul needs a number, got string"
+    },
+    {
+      "name": "arithmetic on null",
+      "expr": "empty * 2",
+      "error": "cannot apply * to null and number"
+    },
+    {
+      "name": "minus on a string",
+      "expr": "-'a'",
+      "error": "cannot apply - to string"
+    },
+    {
+      "name": "string concatenation",
+      "expr": "'a' + \"b\"",
+      "value": "ab"
+    },
+    {
+      "name": "no implicit conversion",
+      "expr": "'a' + 1",
+      "error": "cannot apply + to string and number"
+    },
+    {
+      "name": "escapes",
+      "expr": "'it\\'s\\n\\\"x\\\"\\t\\\\'",
+      "value": "it's\n\"x\"\t\\"
+    },
+    {
+      "name": "comparisons",
+      "expr": "2 < 10 && 'b' > 'a' && 'B' < 'a' && 3 >= 3 && 2 <= 1 == false",
+      "value": true
+    },
+    {
+      "name": "strings compare by code unit",
+      "expr": "'Z' < 'a' && 'é' > 'z'",
+      "value": true
+    },
+    {
+      "name": "compare across types",
+      "expr": "1 < 'a'",
+      "error": "cannot compare number and string"
+    },
+    {
+      "name": "equality is strict",
+      "expr": "1 == '1'",
+      "value": false
+    },
+    {
+      "name": "lists compare deep",
+      "expr": "[1, 'a', [true]] == [1, 'a', [true]] && [1] != [2]",
+      "value": true
+    },
+    {
+      "name": "null equals a missing field",
+      "expr": "null == entry.missing",
+      "value": true
+    },
+    {
+      "name": "ternary",
+      "expr": "hours > 8 ? 'over' : 'ok'",
+      "value": "ok"
+    },
+    {
+      "name": "ternary nests right",
+      "expr": "hours > 8 ? 'over' : hours > 7 ? 'near' : 'ok'",
+      "value": "near"
+    },
+    {
+      "name": "a condition is a bool",
+      "expr": "hours ? 1 : 2",
+      "error": "cannot use number as a condition"
+    },
+    {
+      "name": "&& short-circuits",
+      "expr": "false && 1 / 0 > 0",
+      "value": false
+    },
+    {
+      "name": "|| short-circuits",
+      "expr": "true || nope",
+      "value": true
+    },
+    {
+      "name": "not",
+      "expr": "!true || !false",
+      "value": true
+    },
+    {
+      "name": "! needs a bool",
+      "expr": "!1",
+      "error": "cannot apply ! to number"
+    },
+    {
+      "name": "&& needs bools",
+      "expr": "1 && true",
+      "error": "cannot apply && to number"
+    },
+    {
+      "name": "|| needs bools on the right",
+      "expr": "false || 'x'",
+      "error": "cannot apply || to string"
+    },
+    {
+      "name": "field path",
+      "expr": "entry.hours * 60",
+      "value": 450
+    },
+    {
+      "name": "a missing field reads null",
+      "expr": "entry.missing",
+      "value": null
+    },
+    {
+      "name": "a field of null reads null",
+      "expr": "entry.note.text",
+      "value": null
+    },
+    {
+      "name": "a field of a number",
+      "expr": "entry.hours.x",
+      "error": "no field x on number"
+    },
+    {
+      "name": "map index",
+      "expr": "entry['hours']",
+      "value": 7.5
+    },
+    {
+      "name": "list index",
+      "expr": "entry.tags[1]",
+      "value": "b"
+    },
+    {
+      "name": "list index out of range",
+      "expr": "entry.tags[2]",
+      "error": "index 2 out of range"
+    },
+    {
+      "name": "negative index",
+      "expr": "entry.tags[-1]",
+      "error": "index -1 out of range"
+    },
+    {
+      "name": "fractional index",
+      "expr": "entry.tags[0.5]",
+      "error": "a list index is a whole number, got 0.5"
+    },
+    {
+      "name": "index a number",
+      "expr": "entry.hours[0]",
+      "error": "cannot index number"
+    },
+    {
+      "name": "map key not a string",
+      "expr": "entry[1]",
+      "error": "a map key is a string, got number"
+    },
+    {
+      "name": "unknown name",
+      "expr": "nope + 1",
+      "error": "unknown name nope"
+    },
+    {
+      "name": "size",
+      "expr": "size(entry.tags) + size('héllo') + size(entry) + size([])",
+      "value": 11
+    },
+    {
+      "name": "size of a number",
+      "expr": "size(1)",
+      "error": "size needs a list, string or map, got number"
+    },
+    {
+      "name": "map",
+      "expr": "rows.map(r, r.hours * 2)",
+      "value": [
+        4,
+        7,
+        2
+      ]
+    },
+    {
+      "name": "filter then map (chained, not nested)",
+      "expr": "rows.filter(r, r.hours > 1.5).map(r, r.day)",
+      "value": [
+        "2026-11-02",
+        "2026-11-03"
+      ]
+    },
+    {
+      "name": "all",
+      "expr": "rows.all(r, r.hours > 0)",
+      "value": true
+    },
+    {
+      "name": "exists",
+      "expr": "rows.exists(r, isoWeek(r.day) == 46)",
+      "value": true
+    },
+    {
+      "name": "exists none",
+      "expr": "rows.exists(r, r.hours > 10)",
+      "value": false
+    },
+    {
+      "name": "all of an empty list",
+      "expr": "[].all(x, false)",
+      "value": true
+    },
+    {
+      "name": "list concatenation",
+      "expr": "[1, 2] + [3]",
+      "value": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "name": "trailing comma",
+      "expr": "[1, 2,]",
+      "value": [
+        1,
+        2
+      ]
+    },
+    {
+      "name": "the variable shadows a name",
+      "expr": "rows.map(hours, hours.hours)",
+      "value": [
+        2,
+        3.5,
+        1
+      ]
+    },
+    {
+      "name": "map over a number",
+      "expr": "entry.hours.map(x, x)",
+      "error": "map needs a list, got number"
+    },
+    {
+      "name": "filter needs a bool",
+      "expr": "rows.filter(r, r.hours)",
+      "error": "filter needs a bool, got number"
+    },
+    {
+      "name": "today in the team zone",
+      "expr": "today()",
+      "value": "2026-11-02"
+    },
+    {
+      "name": "today after local midnight",
+      "expr": "today()",
+      "now": "2026-11-01T23:30:00Z",
+      "value": "2026-11-02"
+    },
+    {
+      "name": "today in UTC",
+      "expr": "today()",
+      "now": "2026-11-01T23:30:00Z",
+      "zone": "utc",
+      "value": "2026-11-01"
+    },
+    {
+      "name": "today at +05:30 before midnight",
+      "expr": "today()",
+      "now": "2026-11-01T18:29:59Z",
+      "zone": "kolkata",
+      "value": "2026-11-01"
+    },
+    {
+      "name": "today at +05:30 at midnight",
+      "expr": "today()",
+      "now": "2026-11-01T18:30:00Z",
+      "zone": "kolkata",
+      "value": "2026-11-02"
+    },
+    {
+      "name": "now",
+      "expr": "now()",
+      "value": "2026-11-02T09:30:00.000Z"
+    },
+    {
+      "name": "dateAdd month clamps the day",
+      "expr": "dateAdd('2026-01-31', 1, 'month')",
+      "value": "2026-02-28"
+    },
+    {
+      "name": "dateAdd month back",
+      "expr": "dateAdd('2026-03-31', -1, 'month')",
+      "value": "2026-02-28"
+    },
+    {
+      "name": "dateAdd leap year",
+      "expr": "dateAdd('2024-02-29', 1, 'year')",
+      "value": "2025-02-28"
+    },
+    {
+      "name": "dateAdd weeks",
+      "expr": "dateAdd('2026-11-02', -3, 'week')",
+      "value": "2026-10-12"
+    },
+    {
+      "name": "dateAdd quarter",
+      "expr": "dateAdd('2026-11-30', 1, 'quarter')",
+      "value": "2027-02-28"
+    },
+    {
+      "name": "dateAdd over the year",
+      "expr": "dateAdd('2026-12-31', 1, 'day')",
+      "value": "2027-01-01"
+    },
+    {
+      "name": "dateAdd today",
+      "expr": "dateAdd(today(), 30, 'day')",
+      "value": "2026-12-02"
+    },
+    {
+      "name": "dateAdd a day over spring DST keeps the wall clock",
+      "expr": "dateAdd('2026-03-28T12:00:00Z', 1, 'day')",
+      "value": "2026-03-29T11:00:00.000Z"
+    },
+    {
+      "name": "dateAdd 24 hours over spring DST",
+      "expr": "dateAdd('2026-03-28T12:00:00Z', 24, 'hour')",
+      "value": "2026-03-29T12:00:00.000Z"
+    },
+    {
+      "name": "dateAdd a day in UTC",
+      "expr": "dateAdd('2026-03-28T12:00:00Z', 1, 'day')",
+      "zone": "utc",
+      "value": "2026-03-29T12:00:00.000Z"
+    },
+    {
+      "name": "dateAdd a day over autumn DST",
+      "expr": "dateAdd('2026-10-24T12:00:00Z', 1, 'day')",
+      "value": "2026-10-25T13:00:00.000Z"
+    },
+    {
+      "name": "dateAdd into the spring gap moves forward",
+      "expr": "dateAdd('2026-03-28T01:30:00Z', 1, 'day')",
+      "value": "2026-03-29T01:30:00.000Z"
+    },
+    {
+      "name": "dateAdd into the autumn overlap takes the later instant",
+      "expr": "dateAdd('2026-10-24T00:30:00Z', 1, 'day')",
+      "value": "2026-10-25T01:30:00.000Z"
+    },
+    {
+      "name": "dateAdd a month over DST",
+      "expr": "dateAdd('2026-02-28T23:30:00Z', 1, 'month')",
+      "value": "2026-03-31T22:30:00.000Z"
+    },
+    {
+      "name": "dateAdd reads an offset",
+      "expr": "dateAdd('2026-11-02T10:00:00+01:00', 30, 'minute')",
+      "value": "2026-11-02T09:30:00.000Z"
+    },
+    {
+      "name": "no offset is UTC",
+      "expr": "dateAdd('2026-11-02T10:00', 1, 'second')",
+      "value": "2026-11-02T10:00:01.000Z"
+    },
+    {
+      "name": "milliseconds are kept, finer is cut",
+      "expr": "dateAdd('2026-11-02T10:00:00.123456Z', 0, 'day')",
+      "value": "2026-11-02T10:00:00.123Z"
+    },
+    {
+      "name": "dateAdd hour on a date",
+      "expr": "dateAdd('2026-11-02', 1, 'hour')",
+      "error": "unit hour needs a timestamp"
+    },
+    {
+      "name": "dateAdd unknown unit",
+      "expr": "dateAdd('2026-11-02', 1, 'days')",
+      "error": "unknown unit days"
+    },
+    {
+      "name": "dateAdd whole number",
+      "expr": "dateAdd('2026-11-02', 1.5, 'day')",
+      "error": "dateAdd needs a whole number, got 1.5"
+    },
+    {
+      "name": "dateAdd unit not a string",
+      "expr": "dateAdd('2026-11-02', 1, 2)",
+      "error": "dateAdd needs a string, got number"
+    },
+    {
+      "name": "not a date",
+      "expr": "dateAdd('nope', 1, 'day')",
+      "error": "not a date: nope"
+    },
+    {
+      "name": "not a real day",
+      "expr": "dateAdd('2026-02-30', 1, 'day')",
+      "error": "not a date: 2026-02-30"
+    },
+    {
+      "name": "a date is a string",
+      "expr": "dateAdd(5, 1, 'day')",
+      "error": "dateAdd needs a date, got number"
+    },
+    {
+      "name": "date out of range",
+      "expr": "dateAdd('9999-12-31', 1, 'day')",
+      "error": "date out of range"
+    },
+    {
+      "name": "dateDiff days (b - a)",
+      "expr": "dateDiff('2026-10-01', '2026-11-02', 'day')",
+      "value": 32
+    },
+    {
+      "name": "dateDiff negative",
+      "expr": "dateDiff('2026-11-02', '2026-10-01', 'day')",
+      "value": -32
+    },
+    {
+      "name": "dateDiff weeks truncate",
+      "expr": "dateDiff('2026-11-02', '2026-10-01', 'week')",
+      "value": -4
+    },
+    {
+      "name": "dateDiff month needs the day",
+      "expr": "dateDiff('2026-01-31', '2026-02-28', 'month')",
+      "value": 0
+    },
+    {
+      "name": "dateDiff month",
+      "expr": "dateDiff('2026-01-31', '2026-03-01', 'month')",
+      "value": 1
+    },
+    {
+      "name": "dateDiff month backwards",
+      "expr": "dateDiff('2026-03-01', '2026-01-31', 'month')",
+      "value": -1
+    },
+    {
+      "name": "dateDiff year over a leap day",
+      "expr": "dateDiff('2024-02-29', '2026-02-28', 'year')",
+      "value": 1
+    },
+    {
+      "name": "dateDiff quarter",
+      "expr": "dateDiff('2026-01-15', '2026-11-02', 'quarter')",
+      "value": 3
+    },
+    {
+      "name": "dateDiff a 23-hour day is one day",
+      "expr": "dateDiff('2026-03-28T12:00:00Z', '2026-03-29T11:00:00Z', 'day')",
+      "value": 1
+    },
+    {
+      "name": "dateDiff hours over DST are real hours",
+      "expr": "dateDiff('2026-03-28T12:00:00Z', '2026-03-29T11:00:00Z', 'hour')",
+      "value": 23
+    },
+    {
+      "name": "dateDiff the same instants in UTC",
+      "expr": "dateDiff('2026-03-28T12:00:00Z', '2026-03-29T11:00:00Z', 'day')",
+      "zone": "utc",
+      "value": 0
+    },
+    {
+      "name": "dateDiff a date is local midnight",
+      "expr": "dateDiff('2026-03-29', '2026-03-29T12:00:00Z', 'hour')",
+      "value": 13
+    },
+    {
+      "name": "dateDiff minutes",
+      "expr": "dateDiff('2026-11-02T08:00:00Z', '2026-11-02T09:29:59Z', 'minute')",
+      "value": 89
+    },
+    {
+      "name": "dateDiff to today",
+      "expr": "dateDiff(today(), '2026-12-24', 'day')",
+      "value": 52
+    },
+    {
+      "name": "startOf week (Monday)",
+      "expr": "startOf('2026-11-04', 'week')",
+      "value": "2026-11-02"
+    },
+    {
+      "name": "startOf week from a Sunday",
+      "expr": "startOf('2026-11-08', 'week')",
+      "value": "2026-11-02"
+    },
+    {
+      "name": "endOf week",
+      "expr": "endOf('2026-11-04', 'week')",
+      "value": "2026-11-08"
+    },
+    {
+      "name": "endOf month in a leap year",
+      "expr": "endOf('2024-02-10', 'month')",
+      "value": "2024-02-29"
+    },
+    {
+      "name": "startOf quarter",
+      "expr": "startOf('2026-11-04', 'quarter')",
+      "value": "2026-10-01"
+    },
+    {
+      "name": "endOf quarter",
+      "expr": "endOf('2026-11-04', 'quarter')",
+      "value": "2026-12-31"
+    },
+    {
+      "name": "startOf year",
+      "expr": "startOf('2026-11-04', 'year')",
+      "value": "2026-01-01"
+    },
+    {
+      "name": "endOf day of a date",
+      "expr": "endOf('2026-11-04', 'day')",
+      "value": "2026-11-04"
+    },
+    {
+      "name": "startOf day on the spring DST day",
+      "expr": "startOf('2026-03-29T12:00:00Z', 'day')",
+      "value": "2026-03-28T23:00:00.000Z"
+    },
+    {
+      "name": "endOf day on the spring DST day",
+      "expr": "endOf('2026-03-29T12:00:00Z', 'day')",
+      "value": "2026-03-29T21:59:59.999Z"
+    },
+    {
+      "name": "startOf day on the autumn DST day",
+      "expr": "startOf('2026-10-25T12:00:00Z', 'day')",
+      "value": "2026-10-24T22:00:00.000Z"
+    },
+    {
+      "name": "endOf day on the autumn DST day",
+      "expr": "endOf('2026-10-25T12:00:00Z', 'day')",
+      "value": "2026-10-25T22:59:59.999Z"
+    },
+    {
+      "name": "startOf month in the team zone",
+      "expr": "startOf(now(), 'month')",
+      "value": "2026-10-31T23:00:00.000Z"
+    },
+    {
+      "name": "startOf week in the team zone",
+      "expr": "startOf(now(), 'week')",
+      "value": "2026-11-01T23:00:00.000Z"
+    },
+    {
+      "name": "startOf hour",
+      "expr": "startOf('2026-11-04', 'hour')",
+      "error": "unknown unit hour"
+    },
+    {
+      "name": "weekday Monday is 1",
+      "expr": "weekday('2026-11-02')",
+      "value": 1
+    },
+    {
+      "name": "weekday Sunday is 7",
+      "expr": "weekday('2026-11-08')",
+      "value": 7
+    },
+    {
+      "name": "weekday of an instant in the team zone",
+      "expr": "weekday('2026-11-01T23:30:00Z')",
+      "value": 1
+    },
+    {
+      "name": "weekday of an instant in UTC",
+      "expr": "weekday('2026-11-01T23:30:00Z')",
+      "zone": "utc",
+      "value": 7
+    },
+    {
+      "name": "isoWeek 53 in a long year",
+      "expr": "isoWeek('2026-12-31')",
+      "value": 53
+    },
+    {
+      "name": "isoWeek: Jan 3 belongs to last year's week 53",
+      "expr": "isoWeek('2027-01-03')",
+      "value": 53
+    },
+    {
+      "name": "isoWeek: the first Monday",
+      "expr": "isoWeek('2027-01-04')",
+      "value": 1
+    },
+    {
+      "name": "isoWeek: Dec 30 in next year's week 1",
+      "expr": "isoWeek('2024-12-30')",
+      "value": 1
+    },
+    {
+      "name": "isoWeek 2020-W53",
+      "expr": "isoWeek('2021-01-03')",
+      "value": 53
+    },
+    {
+      "name": "isoWeek of an instant in the team zone",
+      "expr": "isoWeek('2027-01-03T23:30:00Z')",
+      "value": 1
+    },
+    {
+      "name": "isoWeek of the same instant in UTC",
+      "expr": "isoWeek('2027-01-03T23:30:00Z')",
+      "zone": "utc",
+      "value": 53
+    },
+    {
+      "name": "hours of minutes",
+      "expr": "hours(90)",
+      "value": 1.5
+    },
+    {
+      "name": "formatDuration h:mm",
+      "expr": "formatDuration(7.5, 'h:mm')",
+      "value": "7:30"
+    },
+    {
+      "name": "formatDuration negative",
+      "expr": "formatDuration(-0.25, 'h:mm')",
+      "value": "-0:15"
+    },
+    {
+      "name": "formatDuration rounds the minute",
+      "expr": "formatDuration(1.999, 'h:mm')",
+      "value": "2:00"
+    },
+    {
+      "name": "formatDuration hh:mm",
+      "expr": "formatDuration(0.5, 'hh:mm')",
+      "value": "00:30"
+    },
+    {
+      "name": "formatDuration past 99 hours",
+      "expr": "formatDuration(100.5, 'hh:mm')",
+      "value": "100:30"
+    },
+    {
+      "name": "formatDuration no -0:00",
+      "expr": "formatDuration(-0.001, 'h:mm')",
+      "value": "0:00"
+    },
+    {
+      "name": "formatDuration of minutes",
+      "expr": "formatDuration(hours(450), 'h:mm')",
+      "value": "7:30"
+    },
+    {
+      "name": "formatDuration unknown format",
+      "expr": "formatDuration(1, 'h')",
+      "error": "unknown duration format h"
+    },
+    {
+      "name": "hours left this month",
+      "expr": "formatDuration(target - month.sum, 'h:mm')",
+      "value": "8:30"
+    },
+    {
+      "name": "a month's daily average so far",
+      "expr": "round(month.sum / dateDiff(startOf(today(), 'month'), today(), 'day'), 1)",
+      "value": 151.5
+    },
+    {
+      "name": "1000 characters",
+      "expr": "1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1   ",
+      "value": 250
+    },
+    {
+      "name": "1001 characters",
+      "expr": "1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1    ",
+      "error": "expression is longer than 1000 characters"
+    },
+    {
+      "name": "31 parentheses",
+      "expr": "(((((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))))",
+      "value": 1
+    },
+    {
+      "name": "32 parentheses",
+      "expr": "((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))",
+      "error": "at 32: expression is nested too deeply"
+    },
+    {
+      "name": "unary chain",
+      "expr": "----------------------------------------1",
+      "error": "at 31: expression is nested too deeply"
+    },
+    {
+      "name": "the step limit",
+      "expr": "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(x, x * 2)",
+      "maxSteps": 51,
+      "error": "step limit exceeded"
+    },
+    {
+      "name": "just inside the step limit",
+      "expr": "[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(x, x * 2)",
+      "maxSteps": 52,
+      "value": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        12,
+        14,
+        16,
+        18,
+        20
+      ]
+    },
+    {
+      "name": "nested comprehension",
+      "expr": "rows.map(r, rows.map(s, s))",
+      "error": "at 17: nested comprehensions are not allowed"
+    },
+    {
+      "name": "nested comprehension inside a call",
+      "expr": "rows.filter(r, size(r.tags.map(t, t)) > 0)",
+      "error": "at 27: nested comprehensions are not allowed"
+    },
+    {
+      "name": "unexpected end",
+      "expr": "1 +",
+      "error": "at 3: unexpected end"
+    },
+    {
+      "name": "unclosed parenthesis",
+      "expr": "(1 + 2",
+      "error": "at 6: unexpected end"
+    },
+    {
+      "name": "two values",
+      "expr": "1 2",
+      "error": "at 2: unexpected 2"
+    },
+    {
+      "name": "empty",
+      "expr": "",
+      "error": "at 0: unexpected end"
+    },
+    {
+      "name": "unterminated string",
+      "expr": "'abc",
+      "error": "at 0: unterminated string"
+    },
+    {
+      "name": "unknown escape",
+      "expr": "'a\\q'",
+      "error": "at 2: unknown escape \\q"
+    },
+    {
+      "name": "assignment is not an operator",
+      "expr": "a = 1",
+      "error": "at 2: unexpected ="
+    },
+    {
+      "name": "unknown function",
+      "expr": "foo(1)",
+      "error": "at 0: unknown function foo"
+    },
+    {
+      "name": "unknown method",
+      "expr": "entry.size()",
+      "error": "at 6: unknown method size"
+    },
+    {
+      "name": "a macro needs a name",
+      "expr": "[1].map(1, 2)",
+      "error": "at 8: map needs a name first"
+    },
+    {
+      "name": "positions count code points",
+      "expr": "'é😀' + ?",
+      "error": "at 7: unexpected ?"
+    }
+  ],
+  "checkTypes": {
+    "hours": "number",
+    "note": "string",
+    "day": "date",
+    "at": "timestamp",
+    "done": "bool",
+    "entry": {
+      "hours": "number",
+      "date": "date",
+      "note": "string",
+      "createdAt": "timestamp",
+      "id": "string"
+    },
+    "rows": [
+      {
+        "hours": "number",
+        "date": "date"
+      }
+    ],
+    "any": "dyn",
+    "meta": "map"
+  },
+  "check": [
+    {
+      "name": "number",
+      "expr": "round(hours * 60)",
+      "type": "number"
+    },
+    {
+      "name": "a row field",
+      "expr": "entry.hours * 60",
+      "type": "number"
+    },
+    {
+      "name": "an unknown row field",
+      "expr": "entry.hourz",
+      "error": "unknown field hourz"
+    },
+    {
+      "name": "isoWeek of a date field",
+      "expr": "isoWeek(entry.date)",
+      "type": "number"
+    },
+    {
+      "name": "dateAdd keeps a date",
+      "expr": "dateAdd(day, 1, 'week')",
+      "type": "date"
+    },
+    {
+      "name": "dateAdd keeps a timestamp",
+      "expr": "dateAdd(at, 2, 'hour')",
+      "type": "timestamp"
+    },
+    {
+      "name": "dateAdd of a string literal",
+      "expr": "dateAdd('2026-01-01', 1, 'day')",
+      "type": "dyn"
+    },
+    {
+      "name": "hour on a date",
+      "expr": "dateAdd(day, 1, 'hour')",
+      "error": "unit hour needs a timestamp"
+    },
+    {
+      "name": "unknown unit",
+      "expr": "dateAdd(day, 1, 'days')",
+      "error": "unknown unit days"
+    },
+    {
+      "name": "a number is no date",
+      "expr": "dateAdd(hours, 1, 'day')",
+      "error": "dateAdd needs a date, got number"
+    },
+    {
+      "name": "a whole number",
+      "expr": "dateAdd(day, 0.5, 'day')",
+      "error": "dateAdd needs a whole number, got 0.5"
+    },
+    {
+      "name": "date plus a number",
+      "expr": "day + 1",
+      "error": "cannot apply + to date and number"
+    },
+    {
+      "name": "string plus a number",
+      "expr": "note + hours",
+      "error": "cannot apply + to string and number"
+    },
+    {
+      "name": "string plus a date",
+      "expr": "note + day",
+      "type": "string"
+    },
+    {
+      "name": "compare a number with a string",
+      "expr": "hours > note",
+      "error": "cannot compare number and string"
+    },
+    {
+      "name": "compare a date with a literal",
+      "expr": "day < '2026-12-01'",
+      "type": "bool"
+    },
+    {
+      "name": "ternary with null",
+      "expr": "done ? hours : null",
+      "type": "number"
+    },
+    {
+      "name": "ternary of two types",
+      "expr": "done ? hours : note",
+      "type": "dyn"
+    },
+    {
+      "name": "a condition is a bool",
+      "expr": "hours ? 1 : 2",
+      "error": "cannot use number as a condition"
+    },
+    {
+      "name": "map over rows",
+      "expr": "rows.map(r, r.hours)",
+      "type": [
+        "number"
+      ]
+    },
+    {
+      "name": "filter keeps the row type",
+      "expr": "rows.filter(r, r.hours > 1)",
+      "type": [
+        {
+          "hours": "number",
+          "date": "date"
+        }
+      ]
+    },
+    {
+      "name": "exists",
+      "expr": "rows.exists(r, r.date == today())",
+      "type": "bool"
+    },
+    {
+      "name": "an unknown field in a macro",
+      "expr": "rows.map(r, r.minutes)",
+      "error": "unknown field minutes"
+    },
+    {
+      "name": "filter needs a bool",
+      "expr": "rows.filter(r, r.hours)",
+      "error": "filter needs a bool, got number"
+    },
+    {
+      "name": "map over a number",
+      "expr": "hours.map(x, x)",
+      "error": "map needs a list, got number"
+    },
+    {
+      "name": "dyn is open",
+      "expr": "any.foo + 1",
+      "type": "number"
+    },
+    {
+      "name": "a map without a schema",
+      "expr": "meta.x",
+      "type": "dyn"
+    },
+    {
+      "name": "formatDuration",
+      "expr": "formatDuration(hours / 60, 'h:mm')",
+      "type": "string"
+    },
+    {
+      "name": "formatDuration format",
+      "expr": "formatDuration(hours, 'hmm')",
+      "error": "unknown duration format hmm"
+    },
+    {
+      "name": "round digits",
+      "expr": "round(hours, 12)",
+      "error": "round needs 0 to 10 digits"
+    },
+    {
+      "name": "division by a literal zero",
+      "expr": "hours / 0",
+      "error": "division by zero"
+    },
+    {
+      "name": "div by a literal zero",
+      "expr": "div(hours, 0)",
+      "error": "division by zero"
+    },
+    {
+      "name": "a function signature",
+      "expr": "mul(note, 2)",
+      "error": "mul needs a number, got string"
+    },
+    {
+      "name": "arity",
+      "expr": "dateDiff(day, day)",
+      "error": "dateDiff takes 3 arguments"
+    },
+    {
+      "name": "min over fields",
+      "expr": "min(hours, 8, entry.hours)",
+      "type": "number"
+    },
+    {
+      "name": "size",
+      "expr": "size(rows) + size(note)",
+      "type": "number"
+    },
+    {
+      "name": "size of a number",
+      "expr": "size(hours)",
+      "error": "size needs a list, string or map, got number"
+    },
+    {
+      "name": "today against a date field",
+      "expr": "today() > entry.date",
+      "type": "bool"
+    },
+    {
+      "name": "now",
+      "expr": "now()",
+      "type": "timestamp"
+    },
+    {
+      "name": "startOf a timestamp",
+      "expr": "startOf(at, 'month')",
+      "type": "timestamp"
+    },
+    {
+      "name": "endOf a date",
+      "expr": "endOf(day, 'week')",
+      "type": "date"
+    },
+    {
+      "name": "startOf hour",
+      "expr": "startOf(day, 'hour')",
+      "error": "unknown unit hour"
+    },
+    {
+      "name": "an unknown name",
+      "expr": "nope * 2",
+      "error": "unknown name nope"
+    },
+    {
+      "name": "! on a number",
+      "expr": "!hours",
+      "error": "cannot apply ! to number"
+    },
+    {
+      "name": "&& on a string",
+      "expr": "done && note",
+      "error": "cannot apply && to string"
+    },
+    {
+      "name": "equality across types",
+      "expr": "hours == note",
+      "error": "cannot compare number and string"
+    },
+    {
+      "name": "equality with null",
+      "expr": "entry == null",
+      "type": "bool"
+    },
+    {
+      "name": "a mixed list",
+      "expr": "[1, 'a']",
+      "type": [
+        "dyn"
+      ]
+    },
+    {
+      "name": "an empty list",
+      "expr": "[]",
+      "type": [
+        "dyn"
+      ]
+    },
+    {
+      "name": "a list index",
+      "expr": "[1, 2][0]",
+      "type": "number"
+    },
+    {
+      "name": "a row by key",
+      "expr": "entry['hours']",
+      "type": "number"
+    },
+    {
+      "name": "an unknown key",
+      "expr": "entry['x']",
+      "error": "unknown field x"
+    },
+    {
+      "name": "a row of a list",
+      "expr": "rows[0].date",
+      "type": "date"
+    },
+    {
+      "name": "a field of a number",
+      "expr": "hours.x",
+      "error": "no field x on number"
+    },
+    {
+      "name": "weekends",
+      "expr": "weekday(at) == 6 || weekday(at) == 7",
+      "type": "bool"
+    },
+    {
+      "name": "dateDiff mixes dates and timestamps",
+      "expr": "dateDiff(day, at, 'hour')",
+      "type": "number"
+    },
+    {
+      "name": "a syntax error",
+      "expr": "1 +",
+      "error": "at 3: unexpected end"
+    },
+    {
+      "name": "a nested comprehension",
+      "expr": "rows.map(r, rows.exists(s, true))",
+      "error": "at 17: nested comprehensions are not allowed"
+    }
+  ],
+  "callData": {
+    "h": 7.5,
+    "neg": -2.5,
+    "d": "2026-11-02",
+    "rows": [
+      {
+        "hours": 2,
+        "day": "2026-11-02"
+      },
+      {
+        "hours": 3.5,
+        "day": "2026-11-03"
+      },
+      {
+        "hours": 1,
+        "day": "2026-11-09"
+      }
+    ]
+  },
+  "calls": [
+    {
+      "name": "mul",
+      "call": {
+        "call": "mul",
+        "args": {
+          "a": 2,
+          "b": {
+            "path": "/h"
+          }
+        }
+      },
+      "value": 15,
+      "cel": "mul(2, h)"
+    },
+    {
+      "name": "div by zero has no value",
+      "call": {
+        "call": "div",
+        "args": {
+          "a": 1,
+          "b": 0
+        }
+      },
+      "none": true,
+      "cel": "div(1, 0)"
+    },
+    {
+      "name": "mod",
+      "call": {
+        "call": "mod",
+        "args": {
+          "a": -7,
+          "b": 3
+        }
+      },
+      "value": -1,
+      "cel": "mod(-7, 3)"
+    },
+    {
+      "name": "round to digits",
+      "call": {
+        "call": "round",
+        "args": {
+          "value": 1.005,
+          "digits": 2
+        }
+      },
+      "value": 1,
+      "cel": "round(1.005, 2)"
+    },
+    {
+      "name": "round without digits",
+      "call": {
+        "call": "round",
+        "args": {
+          "value": 2.5
+        }
+      },
+      "value": 3,
+      "cel": "round(2.5)"
+    },
+    {
+      "name": "floor",
+      "call": {
+        "call": "floor",
+        "args": {
+          "value": -1.5
+        }
+      },
+      "value": -2,
+      "cel": "floor(-1.5)"
+    },
+    {
+      "name": "ceil",
+      "call": {
+        "call": "ceil",
+        "args": {
+          "value": 1.2
+        }
+      },
+      "value": 2,
+      "cel": "ceil(1.2)"
+    },
+    {
+      "name": "abs",
+      "call": {
+        "call": "abs",
+        "args": {
+          "value": {
+            "path": "/neg"
+          }
+        }
+      },
+      "value": 2.5,
+      "cel": "abs(neg)"
+    },
+    {
+      "name": "min of values",
+      "call": {
+        "call": "min",
+        "args": {
+          "values": [
+            3,
+            1,
+            {
+              "path": "/h"
+            }
+          ]
+        }
+      },
+      "value": 1,
+      "cel": "min(3, 1, h)"
+    },
+    {
+      "name": "max of values",
+      "call": {
+        "call": "max",
+        "args": {
+          "values": [
+            3,
+            {
+              "path": "/h"
+            }
+          ]
+        }
+      },
+      "value": 7.5,
+      "cel": "max(3, h)"
+    },
+    {
+      "name": "strict numbers",
+      "call": {
+        "call": "mul",
+        "args": {
+          "a": "2",
+          "b": 3
+        }
+      },
+      "none": true,
+      "cel": "mul('2', 3)"
+    },
+    {
+      "name": "a missing argument",
+      "call": {
+        "call": "dateAdd",
+        "args": {
+          "date": "2026-11-02",
+          "n": 1
+        }
+      },
+      "none": true
+    },
+    {
+      "name": "today",
+      "call": {
+        "call": "today"
+      },
+      "value": "2026-11-02",
+      "cel": "today()"
+    },
+    {
+      "name": "now",
+      "call": {
+        "call": "now",
+        "args": {}
+      },
+      "value": "2026-11-02T09:30:00.000Z",
+      "cel": "now()"
+    },
+    {
+      "name": "dateAdd over DST",
+      "call": {
+        "call": "dateAdd",
+        "args": {
+          "date": "2026-03-28T12:00:00Z",
+          "n": 1,
+          "unit": "day"
+        }
+      },
+      "value": "2026-03-29T11:00:00.000Z",
+      "cel": "dateAdd('2026-03-28T12:00:00Z', 1, 'day')"
+    },
+    {
+      "name": "dateDiff",
+      "call": {
+        "call": "dateDiff",
+        "args": {
+          "a": "2026-10-01",
+          "b": {
+            "path": "/d"
+          },
+          "unit": "day"
+        }
+      },
+      "value": 32,
+      "cel": "dateDiff('2026-10-01', d, 'day')"
+    },
+    {
+      "name": "startOf",
+      "call": {
+        "call": "startOf",
+        "args": {
+          "date": {
+            "path": "/d"
+          },
+          "unit": "week"
+        }
+      },
+      "value": "2026-11-02",
+      "cel": "startOf(d, 'week')"
+    },
+    {
+      "name": "endOf",
+      "call": {
+        "call": "endOf",
+        "args": {
+          "date": "2024-02-10",
+          "unit": "month"
+        }
+      },
+      "value": "2024-02-29",
+      "cel": "endOf('2024-02-10', 'month')"
+    },
+    {
+      "name": "weekday",
+      "call": {
+        "call": "weekday",
+        "args": {
+          "date": "2026-11-08"
+        }
+      },
+      "value": 7,
+      "cel": "weekday('2026-11-08')"
+    },
+    {
+      "name": "isoWeek",
+      "call": {
+        "call": "isoWeek",
+        "args": {
+          "date": "2027-01-03"
+        }
+      },
+      "value": 53,
+      "cel": "isoWeek('2027-01-03')"
+    },
+    {
+      "name": "hours",
+      "call": {
+        "call": "hours",
+        "args": {
+          "minutes": 90
+        }
+      },
+      "value": 1.5,
+      "cel": "hours(90)"
+    },
+    {
+      "name": "formatDuration",
+      "call": {
+        "call": "formatDuration",
+        "args": {
+          "hours": {
+            "path": "/h"
+          },
+          "format": "h:mm"
+        }
+      },
+      "value": "7:30",
+      "cel": "formatDuration(h, 'h:mm')"
+    },
+    {
+      "name": "expr",
+      "call": {
+        "call": "expr",
+        "args": {
+          "expr": "formatDuration(h - 8, 'h:mm')",
+          "vars": {
+            "h": {
+              "path": "/h"
+            }
+          }
+        }
+      },
+      "value": "-0:30",
+      "cel": "formatDuration(h - 8, 'h:mm')"
+    },
+    {
+      "name": "expr over rows",
+      "call": {
+        "call": "expr",
+        "args": {
+          "expr": "rows.map(r, r.hours).filter(x, x > 1)",
+          "vars": {
+            "rows": {
+              "path": "/rows"
+            }
+          }
+        }
+      },
+      "value": [
+        2,
+        3.5
+      ],
+      "cel": "rows.map(r, r.hours).filter(x, x > 1)"
+    },
+    {
+      "name": "expr error has no value",
+      "call": {
+        "call": "expr",
+        "args": {
+          "expr": "1 / 0"
+        }
+      },
+      "none": true,
+      "cel": "1 / 0"
+    },
+    {
+      "name": "expr syntax error has no value",
+      "call": {
+        "call": "expr",
+        "args": {
+          "expr": "1 +"
+        }
+      },
+      "none": true
+    },
+    {
+      "name": "expr without vars",
+      "call": {
+        "call": "expr",
+        "args": {
+          "expr": "today()"
+        }
+      },
+      "value": "2026-11-02",
+      "cel": "today()"
+    }
+  ],
+  "packages": [
+    {
+      "name": "hours left: a records value and template data",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "formatDuration(target - entries.sum, 'h:mm')",
+                      "vars": {
+                        "target": {
+                          "path": "/target"
+                        },
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "rows of a kind",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "entries.rows.filter(r, r.done).map(r, r.hours)",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "a typo in a field",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "rows.map(r, r.hourz)",
+                      "vars": {
+                        "rows": {
+                          "path": "/entries/rows"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "unknown field hourz"
+        }
+      ]
+    },
+    {
+      "name": "a typo in the records value",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "entries.summ / 60",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "unknown field summ"
+        }
+      ]
+    },
+    {
+      "name": "a unit a date has not",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "dateAdd(entries.rows[0].date, 1, 'hour')",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "unit hour needs a timestamp"
+        }
+      ]
+    },
+    {
+      "name": "a timestamp field",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "dateAdd(entries.rows[0].at, 1, 'hour') > entries.rows[0].createdAt",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "the Exponential spelling of a records binding",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "entries.rows.map(r, r.hourz)",
+                      "vars": {
+                        "entries": {
+                          "path": "/entries"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "exp:records?kind=entry"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "unknown field hourz"
+        }
+      ]
+    },
+    {
+      "name": "a syntax error",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "1 +"
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "at 3: unexpected end"
+        }
+      ]
+    },
+    {
+      "name": "a name with no var",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "target * 2"
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "unknown name target"
+        }
+      ]
+    },
+    {
+      "name": "a literal var",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "x * 2",
+                      "vars": {
+                        "x": "a"
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "cannot apply * to string and number"
+        }
+      ]
+    },
+    {
+      "name": "a literal object var",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "goal.hours * goal.weeks",
+                      "vars": {
+                        "goal": {
+                          "hours": 40,
+                          "weeks": 4
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "a relative path is open",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "row.anything + 1",
+                      "vars": {
+                        "row": {
+                          "path": "hours"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "an unbound path is open",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "x.y * 2",
+                      "vars": {
+                        "x": {
+                          "path": "/nowhere"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "a call var is open",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "x * 2",
+                      "vars": {
+                        "x": {
+                          "call": "add",
+                          "args": {
+                            "a": 1,
+                            "b": 2
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "template data types",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "target + label",
+                      "vars": {
+                        "target": {
+                          "path": "/target"
+                        },
+                        "label": {
+                          "path": "/label"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160,
+              "label": "h"
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "cannot apply + to number and string"
+        }
+      ]
+    },
+    {
+      "name": "expr is a string",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": 5
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "expr is a string"
+        }
+      ]
+    },
+    {
+      "name": "vars is an object",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "1",
+                      "vars": [
+                        1
+                      ]
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/vars",
+          "message": "vars is an object"
+        }
+      ]
+    },
+    {
+      "name": "too long",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1    "
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/props/text/args/expr",
+          "message": "expression is longer than 1000 characters"
+        }
+      ]
+    },
+    {
+      "name": "an expression anywhere in a component",
+      "package": {
+        "id": "acme.hours",
+        "name": "Hours",
+        "version": "1.0.0",
+        "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+        "records": {
+          "entry": {
+            "title": "Entry",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "tags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "done": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "templates": {
+          "month": {
+            "components": [
+              {
+                "id": "root",
+                "component": "Text",
+                "props": {
+                  "text": {
+                    "call": "expr",
+                    "args": {
+                      "expr": "1"
+                    }
+                  }
+                },
+                "visible": {
+                  "call": "not",
+                  "args": {
+                    "value": {
+                      "call": "expr",
+                      "args": {
+                        "expr": "entries.count > 'x'",
+                        "vars": {
+                          "entries": {
+                            "path": "/entries"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            ],
+            "data": {
+              "target": 160
+            },
+            "bindings": [
+              {
+                "path": "/entries",
+                "source": "records:entry?mine=1"
+              }
+            ]
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/templates/month/components/0/visible/args/value/args/expr",
+          "message": "cannot compare number and string"
+        }
+      ]
+    }
+  ]
+}

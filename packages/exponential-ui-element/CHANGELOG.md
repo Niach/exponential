@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.5.0 (2026-11-02)
+
+- No changes of its own; released with the SDK (the records query and expressions landed in the core).
+
 ## 0.4.0 (2026-11-02)
 
 - EXP-1586: the `ZoomableImage` native through the Solid painter (`zoom {scale, atFit}` and `tap` reach `xui-action`).

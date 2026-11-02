@@ -41,6 +41,9 @@ export interface EnetFeed {
   /** Appended one per `liveEveryMs` after start, pushed to joined viewers. */
   live: Record<string, unknown>[]
   liveEveryMs: number
+  /** EXP-1558: the machine's other sessions, answered as stored replays
+   *  (`bye history` after the replay when `ended`). */
+  stored?: { sessionId: string; journal: Record<string, unknown>[]; ended: boolean }[]
 }
 
 export interface EnetFeedStub {

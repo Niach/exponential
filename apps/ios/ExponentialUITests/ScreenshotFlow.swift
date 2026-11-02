@@ -556,6 +556,33 @@ extension XCTestCase {
         element.typeText(deletes)
     }
 
+    /// EXP-1558: lowers the software keyboard. The other clients photograph
+    /// these pages without one (a browser has none), so a shot with it up
+    /// compares nothing. First the app's own resign (the DEBUG-only Darwin
+    /// hook, UITestingSession `endEditingNotification`: XCUITest has no
+    /// hide key on a phone), then the interactive drag a person uses. Never
+    /// fails the walk: a keyboard that stays up is logged, the shot taken.
+    @MainActor
+    func dismissKeyboard(_ app: XCUIApplication) {
+        let keyboard = app.keyboards.firstMatch
+        // A focus-on-appear raises it a beat after the page.
+        _ = keyboard.waitForExistence(timeout: 2)
+        for attempt in 0..<3 where keyboard.exists {
+            if attempt < 2 {
+                CFNotificationCenterPostNotification(
+                    CFNotificationCenterGetDarwinNotifyCenter(),
+                    CFNotificationName("at.exponential.uitesting.end-editing" as CFString),
+                    nil, nil, true
+                )
+            } else {
+                app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                    .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+            }
+            _ = keyboard.waitForNonExistence(timeout: 2)
+        }
+        if keyboard.exists { NSLog("EXP-1558 dismissKeyboard: the keyboard stayed up") }
+    }
+
     /// Opens an issue from the board by its title, scrolling the list until the
     /// row is on screen.
     ///

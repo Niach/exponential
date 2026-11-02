@@ -239,6 +239,9 @@ export interface PullState {
   // read hands back in place of the merge response's `sha`. Null on an open
   // PR (GitHub sends a test-merge sha there, deliberately dropped).
   mergeCommitSha: string | null
+  // EXP-1608: the PR's head commit, out of the same response: the poller
+  // repairs checks at that sha (and when a push left them at an older one).
+  headSha?: string | null
 }
 
 // Fetch a PR's open/closed/merged state (server-side merge detection).
@@ -265,6 +268,7 @@ export async function fetchPullState(
     merged_by?: GithubActorRef | null
     merge_commit_sha?: string | null
     base?: { ref?: string }
+    head?: { sha?: string }
   }
   const merged = Boolean(data.merged)
   return {
@@ -273,6 +277,7 @@ export async function fetchPullState(
     mergedBy: data.merged_by ?? null,
     baseRef: data.base?.ref || null,
     mergeCommitSha: merged ? (data.merge_commit_sha ?? null) : null,
+    headSha: data.head?.sha || null,
   }
 }
 

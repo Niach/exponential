@@ -29,6 +29,12 @@ mod x11_window_icon;
 #[cfg(target_os = "windows")]
 mod windows_integration;
 
+/// EXP-1558: the checkout this binary was built from, one greppable
+/// literal (`exp-built-from:<dir of this crate>`): the shots lane refuses a
+/// binary another worktree linked into the shared `CARGO_TARGET_DIR`
+/// (`packages/shots/src/capture-desktop.ts` `assertBinaryFromCheckout`).
+const BUILT_FROM: &str = concat!("exp-built-from:", env!("CARGO_MANIFEST_DIR"));
+
 fn main() {
     // EXP-1287: code mode's script worker (`__codemode-worker`, one
     // child per `exec`): the engine and nothing else, killable by its host.
@@ -50,9 +56,10 @@ fn main() {
         .with_file(&log_data_dir, "exponential.log");
     if let Some(logger) = coding::logging::install(logger) {
         log::info!(
-            "Exponential desktop {} starting (pid {}, log {})",
+            "Exponential desktop {} starting (pid {}, {}, log {})",
             domain::client_version::current_version(),
             std::process::id(),
+            BUILT_FROM,
             logger
                 .file_path()
                 .map(|path| path.display().to_string())

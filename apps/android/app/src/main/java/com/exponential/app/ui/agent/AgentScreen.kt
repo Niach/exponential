@@ -97,11 +97,11 @@ import androidx.compose.foundation.lazy.LazyListScope
 import com.exponential.app.domain.mcpPickValue
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.DEFAULT_AGENT
-import com.exponential.app.ui.components.SUBAGENT_MODEL_LABEL
 import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.effortValuesFor
 import com.exponential.app.ui.components.subagentModelLabel
 import com.exponential.app.ui.components.subagentModelOptions
+import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.components.picker.McpServerPicker
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
@@ -538,7 +538,6 @@ fun AgentScreen(
     // sheet IS the pushed page: two stacked sheets are a dead end here).
     var plusMenuOpen by remember { mutableStateOf(false) }
     var effortPickerOpen by remember { mutableStateOf(false) }
-    var subagentPickerOpen by remember { mutableStateOf(false) }
     var mcpPickerOpen by remember { mutableStateOf(false) }
 
     AgentPageFrame(
@@ -779,10 +778,9 @@ fun AgentScreen(
                     account = temporary,
                     model = temporary,
                     repositories = teamRepos.size > 1,
-                    // NEW-39 / web composer-plus-menu.tsx: `sessions.send`
-                    // carries no subagent model, the row hides; the picker
-                    // stays as the shim.
-                    subagentModel = false,
+                    // EXP-1583: claude takes a subagent model (`sessions.send`
+                    // `subagentModel`), on a Temporary session only.
+                    subagentModel = temporary && supportsSubagentModel(launch.agent),
                     ultracode = claude,
                     // EXP-1291: actions no longer carry their own MCP list, so
                     // no subject owns it — the team's servers alone decide.
@@ -805,7 +803,6 @@ fun AgentScreen(
                 when (row) {
                     ComposerMenuRowId.AddFile -> filePicker.launch(arrayOf("*/*"))
                     ComposerMenuRowId.Effort -> effortPickerOpen = true
-                    ComposerMenuRowId.Subagents -> subagentPickerOpen = true
                     ComposerMenuRowId.McpServers -> mcpPickerOpen = true
                     // The submenus push their page inside the menu.
                     else -> Unit
@@ -886,6 +883,16 @@ fun AgentScreen(
                         onOpenChange = { open -> if (!open) close() },
                     )
                 },
+                // EXP-1583: THE Model page's picker, over claude's models.
+                ComposerMenuRowId.Subagents to { close ->
+                    ModelPicker(
+                        options = subagentModelOptions().map { ModelPickerOption(it, subagentModelLabel(it)) },
+                        value = launch.subagentModel,
+                        onChange = viewModel::setSubagentModel,
+                        open = true,
+                        onOpenChange = { open -> if (!open) close() },
+                    )
+                },
                 ComposerMenuRowId.Repository to { close ->
                     Picker(
                         items = teamRepos.map { PickerItem(it.id, it.fullName, icon = ExpIcons.settingsRepositories) },
@@ -909,19 +916,6 @@ fun AgentScreen(
             title = if (launch.agent == "codex") "Reasoning" else "Effort",
             open = true,
             onOpenChange = { open -> if (!open) effortPickerOpen = false },
-        )
-    }
-    if (subagentPickerOpen) {
-        // THE model picker rows (composer-menu.json `subagents`).
-        com.exponential.app.ui.components.picker.ModelPicker(
-            options = subagentModelOptions().map {
-                com.exponential.app.ui.components.picker.ModelPickerOption(it, subagentModelLabel(it))
-            },
-            value = launch.subagentModel,
-            onChange = viewModel::setSubagentModel,
-            title = SUBAGENT_MODEL_LABEL,
-            open = true,
-            onOpenChange = { open -> if (!open) subagentPickerOpen = false },
         )
     }
     if (mcpPickerOpen) {

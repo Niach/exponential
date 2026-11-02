@@ -20,6 +20,9 @@ use crate::picker::search_list::{action_row_body, row, surface, SearchList};
 pub(crate) const ID: &str = "menu-submenu";
 pub(crate) const OWNER: &str = "SLOP-28";
 
+/// The Device row's value (web entry's `DEVICE_VALUE`).
+pub(super) const DEVICE_VALUE: &str = "Alex's MacBook Pro";
+
 /// The agent list's field placeholder (web entry).
 pub(super) const SEARCH_AGENTS: &str = "Search agents";
 
@@ -34,13 +37,16 @@ pub(super) const AGENTS: [(&str, &str); 4] = [
 fn plus_rows(cx: &App) -> Div {
     let rows = [
         // S-3: the "+" menu's first rows (`message-agent` is gone).
-        (ComposerMenuRow::AddFile, MENU_ADD_FILE, false),
-        (ComposerMenuRow::ImplementIssue, MENU_IMPLEMENT_ISSUE, true),
-        (ComposerMenuRow::Device, MENU_DEVICE, true),
+        (ComposerMenuRow::AddFile, MENU_ADD_FILE, false, None),
+        (ComposerMenuRow::ImplementIssue, MENU_IMPLEMENT_ISSUE, true, None),
+        // #EXP-1620: a submenu row's current value, muted before the ›
+        // (`PopupMenu::submenu_with_value` in the live menu).
+        (ComposerMenuRow::Device, MENU_DEVICE, true, Some(DEVICE_VALUE)),
     ];
     let mut column = surface(cx).w(px(260.)).p_1();
-    for (index, (row_kind, label, chevron)) in rows.into_iter().enumerate() {
-        let trailing = chevron.then(|| crate::controls::menu_row_value(None, true, cx));
+    for (index, (row_kind, label, chevron, value)) in rows.into_iter().enumerate() {
+        let trailing =
+            chevron.then(|| crate::controls::menu_row_value(value.map(SharedString::from), true, cx));
         let mut item = crate::controls::menu_row(row_kind.icon(), label, trailing, false, cx)
             .px_2()
             .rounded(cx.theme().radius);

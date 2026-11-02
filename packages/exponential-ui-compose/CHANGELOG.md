@@ -6,6 +6,11 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - EXP-1589: parity with the web renderer. A cartesian Chart maps its nice-tick range, so the top tick label no longer rides into the title. A node's opacity dims it as one group like CSS, so a disabled Button inside a disabled Form keeps a legible label; nodes with shadows still modulate. A disabled NumberField or ChipInput dims its whole `field` (the core's `disabled` state) instead of only the value. Markdown bullets are a filled disc in the text colour, 0.34 em across, centred 1 em before the text (`MarkdownView` in the primitives too). The CodeBlock copy glyph is 12. A ZoomableImage whose picture has not loaded draws no pill.
+
+## 0.5.0 (2026-11-02)
+
+- VAPP-191: `Expression.evaluate(…)` / `Expression.check(…)` over the core's expression evaluator, `TimeZoneOffset` (a `java.util.TimeZone` as `HostZone`); `ExpressionsTest` replays `fixtures/expressions.json`. Bind-time `{call: "mul" …}` / `{call: "expr" …}` resolve through the core.
+- VAPP-190: `RecordsQuery.parseJson(json, kind)` → `Parsed(query, issues)` (the JSON form: group, aggregate, running, before, in / between / or) and `RecordsQuery.dateBucket(date, bucket)`; `value` answers `groups?`, `totals?`, `before?`. `RecordsQueryTest` replays `jsonCases`, `bucketCases` and the JSON `valueCases`.
 - VAPP-189: `RecordsQuery` (`parse(params, kind)`, `parse(source)`, `value(rows, me, now, names)`) and `RecordRow` in `at.exponential.ui.host`: the core's one records evaluator over the FFI; `RecordsQueryTest` replays `fixtures/records-query.json`.
 
 ## 0.4.0 (2026-11-02)

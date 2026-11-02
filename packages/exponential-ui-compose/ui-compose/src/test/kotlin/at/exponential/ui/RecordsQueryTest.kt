@@ -14,7 +14,7 @@ import org.junit.Test
 
 /**
  * VAPP-189: `fixtures/records-query.json` through [RecordsQuery] (the core's
- * one evaluator over the FFI). The TS reference, the Rust core and Swift's
+ * one evaluator over the FFI; VAPP-190: jsonCases, bucketCases, JSON valueCases). The TS reference, the Rust core and Swift's
  * `RecordsQueryTests` replay the same cases.
  */
 class RecordsQueryTest {
@@ -66,10 +66,29 @@ class RecordsQueryTest {
         val all = cases("valueCases")
         assertFalse(all.isEmpty())
         for (c in all) {
-            val query = RecordsQuery.parse(strings(c["params"]), c["kind"]?.string)
+            val json = c["query"]
+            val query = if (json != null) RecordsQuery.parseJson(json.json, c["kind"]?.string).query else RecordsQuery.parse(strings(c["params"]), c["kind"]?.string)
             val value = query.value(rows(c["rows"]), c["me"]?.string, c["now"]?.string ?: "", strings(c["names"]))
             same(value, c["expected"], c["name"]?.string ?: "")
         }
+    }
+
+    @Test
+    fun jsonCases() {
+        val all = cases("jsonCases")
+        assertFalse(all.isEmpty())
+        for (c in all) {
+            val parsed = RecordsQuery.parseJson(c["query"]?.json ?: "null", c["kind"]?.string)
+            val got = JsonValue.Obj(mapOf("query" to parsed.query.structured, "issues" to JsonValue.Arr(parsed.issues)))
+            same(got, c["expected"], c["name"]?.string ?: "")
+        }
+    }
+
+    @Test
+    fun bucketCases() {
+        val all = cases("bucketCases")
+        assertFalse(all.isEmpty())
+        for (c in all) assertEquals("${c["date"]} ${c["bucket"]}", c["expected"]?.string, RecordsQuery.dateBucket(c["date"]?.string ?: "", c["bucket"]?.string ?: ""))
     }
 
     @Test

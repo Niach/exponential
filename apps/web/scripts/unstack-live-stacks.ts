@@ -13,13 +13,14 @@ import {
   githubAppConfigured,
   resolveRepoInstallationToken,
 } from "@/lib/integrations/github-app"
+import { githubFetch } from "@/lib/integrations/github-client"
 
 const STACK_API_VERSION = `2026-03-10`
 const PR_URL = /^https:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/\d+/
 
 async function unstack(repo: string, stackNumber: number, token: string) {
-  const res = await fetch(
-    `https://api.github.com/repos/${repo}/stacks/${stackNumber}/unstack`,
+  const res = await githubFetch(
+    `/repos/${repo}/stacks/${stackNumber}/unstack`,
     {
       method: `POST`,
       headers: {

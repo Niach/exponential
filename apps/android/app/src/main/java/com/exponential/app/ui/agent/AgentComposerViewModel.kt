@@ -47,6 +47,7 @@ import com.exponential.app.ui.components.accountOptionsFor
 import com.exponential.app.ui.components.agentSeed
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.defaultAgentFor
+import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.MentionMember
@@ -867,6 +868,8 @@ class AgentComposerViewModel @Inject constructor(
             model = draft.model.takeIf { it.isNotEmpty() },
             effort = draft.effort.takeIf { it.isNotEmpty() },
             ultracode = if (agent == DEFAULT_AGENT && draft.ultracode) true else null,
+            // EXP-1583: claude only, never blank.
+            subagentModel = draft.subagentModel.takeIf { supportsSubagentModel(agent) && it.isNotEmpty() },
             // The row stores what was sent (NOT NULL, default off), so send the
             // SHOWN value, device default included, not only an explicit flip.
             computerUse = computerUse.value.takeIf { device.value?.canToggleComputerUse == true },

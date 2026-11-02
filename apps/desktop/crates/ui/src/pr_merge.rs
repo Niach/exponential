@@ -332,10 +332,8 @@ pub(crate) fn is_stacked(pull_request_id: &str, cx: &App) -> bool {
     })
 }
 
-/// The confirm window's size: the one-line title band, a body of one or two
-/// lines and the two-button footer.
+/// The confirm's width (the height hugs the body, #EXP-1588).
 const STACK_CONFIRM_WIDTH: f32 = 420.;
-const STACK_CONFIRM_HEIGHT: f32 = 200.;
 
 /// The op the confirm's primary fires: `pullRequests.merge({pullRequestId:
 /// confirm.pull_request_id, stack: true})`, keyed on the CLICKED pull
@@ -373,7 +371,6 @@ pub(crate) fn stack_confirm_alert(
     crate::native_dialog::AlertSpec::new(confirm.title.clone(), confirm.body.clone(), confirm.title.clone())
         .ok_icon(crate::icons::registry::PR_MERGED)
         .width(gpui::px(STACK_CONFIRM_WIDTH))
-        .height(gpui::px(STACK_CONFIRM_HEIGHT))
         .on_ok(move |_, cx| {
             fire_confirmed(op.clone(), cx);
             true

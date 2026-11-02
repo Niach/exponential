@@ -30,7 +30,9 @@ import {
   validatePackage,
   validateRecord,
   parseRecordsQuery,
+  parseRecordsJson,
   parseRecordsSource,
+  expandQuerySource,
   recordsValue,
   toolConsent,
   toolConsentKey,
@@ -40,6 +42,7 @@ import {
   base64UrlEncode,
   AUTHOR_KEY_PREFIX,
 } from "../src/host"
+import { dateBucket, type DateBucket } from "../src/dates"
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage, AvailableExtension, PackageTool, RecordRow } from "../src/host"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
@@ -131,9 +134,12 @@ function renderRecordsQuery(f: Record<string, any>): Record<string, unknown> {
     const p = parseSource(c.source as string)
     return { ...c, expected: p ? parseRecordsSource(p) : null }
   })
+  f.jsonCases = f.jsonCases.map((c: Case) => ({ ...c, expected: parseRecordsJson(c.query, c.kind as string | undefined) }))
+  f.bucketCases = f.bucketCases.map((c: Case) => ({ ...c, expected: dateBucket(c.date as string, c.bucket as DateBucket) }))
+  f.expandCases = f.expandCases.map((c: Case) => ({ ...c, expected: expandQuerySource(c.source as string, c.queries as Record<string, unknown> | undefined) }))
   f.valueCases = f.valueCases.map((c: Case) => ({
     ...c,
-    expected: recordsValue(c.rows as RecordRow[], parseRecordsQuery(c.params as Record<string, string>, c.kind as string | undefined), {
+    expected: recordsValue(c.rows as RecordRow[], c.query !== undefined ? parseRecordsJson(c.query, c.kind as string | undefined).query : parseRecordsQuery(c.params as Record<string, string>, c.kind as string | undefined), {
       me: c.me as string | null,
       now: c.now as string,
       names: c.names as Record<string, string>,

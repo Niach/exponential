@@ -35,8 +35,8 @@ struct ComposerPlusMenu: View {
 
     private var launch: LaunchOptionsState { model.launch }
 
-    /// `subagentModel` stays false: `sessions.send` carries no subagent
-    /// model (EXP-1291), so the Subagents row has nothing to set.
+    /// EXP-1583: Subagents shows on a Temporary session whose agent takes a
+    /// subagent model (claude), like Ultracode.
     private var conditions: ComposerMenu.Conditions {
         let temporary = model.agentId == nil
         return ComposerMenu.Conditions(
@@ -45,7 +45,7 @@ struct ComposerPlusMenu: View {
             account: temporary && model.device != nil,
             model: temporary,
             repositories: model.repos.count > 1,
-            subagentModel: false,
+            subagentModel: temporary && LaunchVocabulary.supportsSubagentModel(launch.agent),
             ultracode: launch.agent == "claude",
             mcp: !mcpServers.isEmpty,
             computerUse: model.device?.canToggleComputerUse == true,
@@ -133,7 +133,7 @@ struct ComposerPlusMenu: View {
     /// The rows whose submenu is a page of this sheet (the rest hand off).
     static func pushes(_ id: ComposerMenu.RowId) -> Bool {
         switch id {
-        case .implementIssue, .prompts, .device, .account, .model, .repository: true
+        case .implementIssue, .prompts, .device, .account, .model, .subagents, .repository: true
         default: false
         }
     }
@@ -172,6 +172,14 @@ struct ComposerPlusMenu: View {
                 mode: .single,
                 value: [launch.model],
                 onChange: { picked in picked.first.map { launch.model = $0 } }
+            )
+        case .subagents:
+            // EXP-1583: THE Model page's rows, over claude's models.
+            GlassPickerContent(
+                items: ModelPicker<EmptyView>.items(agent: "claude"),
+                mode: .single,
+                value: [launch.subagentModel],
+                onChange: { picked in picked.first.map { launch.subagentModel = $0 } }
             )
         case .repository:
             let rows = model.repos.map { RepositoryPickerRow(id: $0.id, fullName: $0.fullName, isPrivate: $0.isPrivate) }
@@ -222,6 +230,8 @@ struct ComposerPlusMenu: View {
             }()
         case .model:
             LaunchVocabulary.modelLabel(launch.model)
+        case .subagents:
+            LaunchVocabulary.modelLabel(launch.subagentModel)
         case .repository:
             model.repos.first { $0.id == model.chatRepoId }?.fullName
         case .effort:
