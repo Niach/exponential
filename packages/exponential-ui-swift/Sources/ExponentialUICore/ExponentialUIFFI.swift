@@ -7672,8 +7672,8 @@ public func parseRecordsJson(queryJson: String, kind: String?)throws  -> String 
 /**
  * VAPP-189: query params (a JSON object of strings, as `parseSourceJson`
  * gives them) → the structured records query JSON
- * (`fixtures/records-query.json` `parseCases`). `kind` = the neutral
- * source's own name (`records:<kind>`), which wins over a `kind` param.
+ * (`fixtures/records-query.json` `parseCases`). `kind` = the source's
+ * own name (`records:<kind>`), the only place the kind comes from.
  */
 public func parseRecordsQueryJson(paramsJson: String, kind: String?)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {

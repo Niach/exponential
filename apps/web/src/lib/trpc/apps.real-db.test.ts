@@ -180,12 +180,13 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
   // VAPP-122: records (fixtures/app-records.json): validated against the
   // head package's kind schema, patched by id, trashed with the app.
   const RECORDS_PACKAGE = {
+    formatVersion: 2,
     id: `t.hours`,
     name: `Hours`,
     version: `1.0.0`,
     catalogId: `https://ui.exponential.at/catalogs/core/v1`,
     templates: { m: { components: [{ id: `root`, component: `Column` }] } },
-    sources: [`exp:records`],
+    sources: [`records:*`],
     records: {
       entry: {
         schema: {
@@ -340,18 +341,6 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     const theirs = await caller(w.mate).import({ teamId: w.teamId, text: JSON.stringify({ ...file, records: [file.records[1]] }) })
     const [mine] = await db.select().from(appRecords).where(eq(appRecords.appId, theirs.app.id))
     expect(mine).toMatchObject({ createdBy: w.mate, authorId: w.mate })
-  })
-
-  // VAPP-187: the insert trigger defaults author_id/updated_by to created_by
-  // for a writer that names only the creator.
-  it(`records: a raw insert's author defaults to its creator`, async () => {
-    const w = await world()
-    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
-    const [row] = await db
-      .insert(appRecords)
-      .values({ appId: created.app.id, teamId: w.teamId, kind: `entry`, data: { date: `2026-10-05`, hours: 1 }, createdBy: w.mate })
-      .returning()
-    expect(row).toMatchObject({ authorId: w.mate, updatedBy: w.mate })
   })
 
   it(`records: delete trashes one row and a second delete is NOT_FOUND`, async () => {

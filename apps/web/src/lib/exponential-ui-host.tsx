@@ -5,10 +5,10 @@
 //     `harness.mcp` (a tools/call on the app's own /api/mcp as the viewer);
 //   - bindings: the `exp:` scheme over the synced Electric collections
 //     (`exp:devices`; VAPP-119 `exp:issues`, `exp:boards`, `exp:members`,
-//     `exp:sessions`, `exp:comments`, `exp:attachments` off fixtures/app-sources.json;
-//     VAPP-122 `exp:records?kind=…` over the app's own rows (VAPP-189: the eUI
-//     evaluator, @exponential_app/eui/host/query + fixtures/records-query.json);
-//     VAPP-161 the format's neutral `records:<kind>?…` + `records.*` = the same);
+//     `exp:sessions`, `exp:comments`, `exp:attachments` off fixtures/app-sources.json);
+//   - records: the format's `records:<kind>?…` over the app's own rows
+//     (VAPP-189: the eUI evaluator, @exponential_app/eui/host/query +
+//     fixtures/records-query.json) and `records.upsert/delete/batch`;
 //   - extensions: the app extension (`@exp/ui` appExtensionCatalog +
 //     appReactExtension) and its declarative packages (Devices);
 //   - policy: `harness.mcp` asks first (the consent card), urls through the
@@ -305,7 +305,7 @@ function teamSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope)
   return () => team.unsubscribe()
 }
 
-/** The app whose records `exp:records` reads: the hosting app, or (`app=`)
+/** The app whose records `records:` reads: the hosting app, or (`app=`)
  *  another app of the same team by slug. */
 export interface RecordsScope {
   appId: string | null
@@ -313,15 +313,14 @@ export interface RecordsScope {
   me: string | null
 }
 
-/** VAPP-122: `exp:records?kind=…` → the eUI evaluator's value over the synced
+/** VAPP-122: `records:<kind>?…` → the eUI evaluator's value over the synced
  *  `app_records` rows of the app (names off the users shape), on every
  *  change of the records, the users or the apps (an `app=` slug may sync
  *  later); a value equal to the last one is not re-emitted. VAPP-159: the
  *  records load ON DEMAND, narrowed by the app (app-records.json SYNC), and
  *  both tables are kept incrementally. */
 function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope): () => void {
-  // VAPP-189: the neutral `records:<kind>?q` (the name wins) or `exp:records?kind=<kind>&q`.
-  const query = parseRecordsQuery(source.params, source.scheme === RECORDS_SCHEME ? source.name : null)
+  const query = parseRecordsQuery(source.params, source.name)
   let last: string | null = null
   let ready = false
   let appId: string | null = null
@@ -531,12 +530,10 @@ export function createAppHost(options: AppHostOptions): AppHost {
     sources: {
       exp: (source, emit) => {
         if (source.name === `devices`) return devicesSource(source, emit)
-        if (source.name === `records`) return recordsSource(source, emit, scope)
         if (APP_SOURCE_KINDS.includes(source.name)) return teamSource(source, emit, scope)
         emit(null)
       },
-      // VAPP-161: the package format's neutral spelling of `exp:records`.
-      records: (source, emit) => recordsSource(source, emit, scope),
+      [RECORDS_SCHEME]: (source, emit) => recordsSource(source, emit, scope),
     },
     functions: {
       "harness.toast": ({ message, tone }) => {
@@ -559,9 +556,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
           return [name, (args: Record<string, unknown>) => callMcp(target.tool, target.op ? { ...args, op: target.op } : args)]
         })
       ),
-      "harness.records.upsert": recordsUpsert,
-      "harness.records.delete": recordsDelete,
-      // VAPP-161: the package format's neutral names, the same writes.
+      // VAPP-161: the package format's record writes.
       "records.upsert": recordsUpsert,
       "records.delete": recordsDelete,
       "records.batch": recordsBatch,

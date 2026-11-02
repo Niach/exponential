@@ -2,7 +2,7 @@
 // (fixtures/app-records.json is the spec; desktop `domain::app_records`,
 // iOS `AppRecords.swift`, Android `AppRecords.kt` replay its cases): the
 // ownership + on-behalf rules, the count label, the purge and the Data tab.
-// VAPP-189: the `exp:records?…` query and its value moved into eUI
+// VAPP-189: the `records:<kind>?…` query and its value live in eUI
 // (`@exponential_app/eui/host/query`, one evaluator ×4,
 // packages/exponential-ui fixtures/records-query.json).
 

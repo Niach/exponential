@@ -44,8 +44,11 @@ describe(`package format (VAPP-161)`, () => {
     expect(PACKAGE_FILE_SIGNATURE_CONTEXT).toBe(host.package.signature.context)
   })
 
-  test(`every version-1 package of the router fixture stays valid`, () => {
-    for (const id of [`acme.devices`, `acme.scoped`, `acme.hours`, `acme.v1`]) expect(validatePackage((router.packages as Record<string, unknown>)[id])).toEqual([])
+  test(`a package names the current format version; no older one is read`, () => {
+    for (const id of [`acme.devices`, `acme.scoped`, `acme.hours`]) expect(validatePackage((router.packages as Record<string, unknown>)[id])).toEqual([])
+    expect(validatePackage((router.packages as Record<string, unknown>)[`acme.v1`])).toEqual([{ path: `/formatVersion`, message: `format version 1 is no longer read: write 2` }])
+    const { formatVersion: _, ...unversioned } = (router.packages as Record<string, Record<string, unknown>>)[`acme.hours`]!
+    expect(validatePackage(unversioned)).toEqual([{ path: `/formatVersion`, message: `formatVersion is required (2)` }])
   })
 
   test.each(fixture.consent)(`toolConsent $packageId`, (c) => {
@@ -62,7 +65,7 @@ describe(`package format (VAPP-161)`, () => {
     expect(toolCall(c.name)).toEqual(c.expected as never)
   })
   test.each(fixture.extensions)(`extensions: $name`, (c) => {
-    const pkg = { id: `x`, name: `X`, version: `1.0.0`, catalogId: supportedCatalogIds()[0]!, templates: { t: { components: [{ id: `root`, component: `Text`, text: `Hi` }] } }, extensions: c.extensions }
+    const pkg = { formatVersion: 2, id: `x`, name: `X`, version: `1.0.0`, catalogId: supportedCatalogIds()[0]!, templates: { t: { components: [{ id: `root`, component: `Text`, text: `Hi` }] } }, extensions: c.extensions }
     expect(validatePackage(pkg, supportedCatalogIds(c.extensionIds), (c as { available?: AvailableExtension[] }).available)).toEqual(c.expected as never)
   })
   test.each(fixture.canonical)(`canonicalJson %#`, (c) => {

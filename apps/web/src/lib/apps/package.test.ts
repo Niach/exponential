@@ -5,6 +5,7 @@ import emcp from "@exp/emcp/fixtures/exposes.json" with { type: "json" }
 // VAPP-110 / VAPP-107: what a stored app package may be.
 
 const pkg = (over: Record<string, unknown> = {}) => ({
+  formatVersion: 2,
   id: `acme.board`,
   name: `Board`,
   version: `1.0.0`,
@@ -35,6 +36,13 @@ describe(`validateAppPackage`, () => {
 
   it(`refuses a source no app host resolves`, () => {
     expect(() => validateAppPackage(pkg({ sources: [`exp:issues`, `exp:secrets`] }))).toThrow(/exp:secrets/)
+    expect(() => validateAppPackage(pkg({ sources: [`exp:issues`, `exp:records`] }))).toThrow(/exp:records/)
+  })
+
+  it(`refuses a package without format version 2`, () => {
+    const { formatVersion: _omit, ...rest } = pkg()
+    expect(() => validateAppPackage(rest)).toThrow(/formatVersion is required \(2\)/)
+    expect(() => validateAppPackage(pkg({ formatVersion: 1 }))).toThrow(/format version 1 is no longer read: write 2/)
   })
 
   it(`names the host sources and the sources rule in the catalog`, () => {
@@ -49,7 +57,6 @@ describe(`validateAppPackage: format version 2`, () => {
   const records = { entry: { schema: { type: `object`, properties: { hours: { type: `number` } } } } }
   const neutral = (over: Record<string, unknown> = {}) =>
     pkg({
-      formatVersion: 2,
       sources: [`records:*`],
       records,
       functions: [`records.*`],
@@ -85,6 +92,9 @@ describe(`validateAppPackage: format version 2`, () => {
     const text = appCatalogText()
     expect(text).toContain(`records:<kind>`)
     expect(text).toContain(`records.upsert`)
+    expect(text).toContain(`formatVersion: 2`)
+    expect(text).not.toContain(`exp:records`)
+    expect(text).not.toContain(`harness.records`)
   })
 })
 

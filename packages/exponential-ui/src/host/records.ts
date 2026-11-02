@@ -9,7 +9,7 @@ import type { PackageIssue } from "./package"
 /** `^[a-z][a-z0-9_]{0,31}$`: a kind's name (catalog/host.json `package.records`). */
 export const RECORD_KIND_PATTERN = /^[a-z][a-z0-9_]{0,31}$/
 /** The keys every record row carries; a schema may not declare them. */
-export const RECORD_RESERVED_KEYS: readonly string[] = [`id`, `createdAt`, `updatedAt`, `createdBy`, `author`]
+export const RECORD_RESERVED_KEYS: readonly string[] = [`id`, `createdAt`, `updatedAt`, `createdBy`, `authorId`, `author`]
 export const RECORD_FIELD_TYPES: readonly string[] = [`string`, `number`, `integer`, `boolean`, `array`]
 export const RECORD_ITEM_TYPES: readonly string[] = [`string`, `number`, `integer`, `boolean`]
 export const RECORD_FORMATS: readonly string[] = [`date`, `date-time`, `time`]

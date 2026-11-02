@@ -750,9 +750,7 @@ ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.5
             <code>validateRecordSchema</code> checks a kind at install and <code>validateRecord</code> a record before
             a host stores it. The rows come back through the neutral binding source{` `}
             <code>records:&lt;kind&gt;?query</code> (with filters, a sort, a sum and a month view), and the app writes
-            them with <code>records.upsert</code> / <code>records.delete</code>. Exponential also accepts its own
-            spellings, <code>exp:records?kind=…</code> and <code>harness.records.*</code>, which this example uses. This is the Working
-            hours app: a month of entries, a target, and a switcher that re-follows the
+            them with <code>records.upsert</code> / <code>records.delete</code>. This is the Working hours app: a month of entries, a target, and a switcher that re-follows the
             binding with the built-in <code>bind</code> action, whose <code>params</code> are appended to the source
             as its query:
           </p>
@@ -764,7 +762,8 @@ ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.5
             <code>bind</code> action, so the same package runs in every host.
           </p>
           <p>
-            Package format version 2 adds three more optional blocks: <code>tools</code> (MCP servers or scripts, run
+            Every package names its format, <code>formatVersion: 2</code> (required; a host reads no other), and
+            may carry three more optional blocks: <code>tools</code> (MCP servers or scripts, run
             only after the host showed the <code>toolConsent</code> card), <code>extensions</code> (custom component
             catalogs with a minimum version, checked against the host&apos;s) and a signed package file (an{` `}
             <code>author</code> and an Ed25519 <code>signature</code>: <code>signPackageFile</code>,{` `}

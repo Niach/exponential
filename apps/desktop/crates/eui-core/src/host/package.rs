@@ -18,8 +18,8 @@ use crate::types::ExtensionDef;
 
 /// VAPP-161: the package format version this host reads
 /// (catalog/host.json `package.formatVersion`; docs/package-format.md). A
-/// package without `formatVersion` is version 1; every version-1 package
-/// is a valid version-2 package.
+/// package names it, and it is exactly this one: no older format is read
+/// (eApps keeps no backwards compatibility).
 pub const PACKAGE_FORMAT_VERSION: u32 = 2;
 /// `package.extensions.versionPattern`.
 pub const EXTENSION_VERSION_PATTERN: &str = "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$";
@@ -129,14 +129,16 @@ pub fn validate_package<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S]) -> Vec<Pa
 pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extensions: Option<&[AvailableExtension]>) -> Vec<PackageIssue> {
     let mut issues = Vec::new();
     let Some(p) = pkg.as_object() else { return vec![issue("", "a package is an object")] };
-    if let Some(version) = p.get("formatVersion") {
-        match version.as_f64().filter(|v| v.fract() == 0.0 && *v >= 1.0) {
-            None => issues.push(issue("/formatVersion", "formatVersion is a positive integer")),
-            Some(v) if v > f64::from(PACKAGE_FORMAT_VERSION) => {
-                issues.push(issue("/formatVersion", format!("format version {} is newer than this host ({PACKAGE_FORMAT_VERSION})", crate::json::number_to_string(v))))
-            }
-            Some(_) => {}
+    match p.get("formatVersion").map(|version| version.as_f64().filter(|v| v.fract() == 0.0 && *v >= 1.0)) {
+        None => issues.push(issue("/formatVersion", format!("formatVersion is required ({PACKAGE_FORMAT_VERSION})"))),
+        Some(None) => issues.push(issue("/formatVersion", "formatVersion is a positive integer")),
+        Some(Some(v)) if v > f64::from(PACKAGE_FORMAT_VERSION) => {
+            issues.push(issue("/formatVersion", format!("format version {} is newer than this host ({PACKAGE_FORMAT_VERSION})", crate::json::number_to_string(v))))
         }
+        Some(Some(v)) if v < f64::from(PACKAGE_FORMAT_VERSION) => {
+            issues.push(issue("/formatVersion", format!("format version {} is no longer read: write {PACKAGE_FORMAT_VERSION}", crate::json::number_to_string(v))))
+        }
+        Some(Some(_)) => {}
     }
     for key in ["id", "name", "version", "catalogId"] {
         if p.get(key).and_then(Value::as_str).is_none_or(str::is_empty) {
@@ -285,7 +287,7 @@ pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], exte
         for (i, b) in bindings.iter().enumerate() {
             let Some(parsed) = b.as_object().and_then(|o| o.get("source")).and_then(Value::as_str).and_then(parse_source) else { continue };
             let Some(name) = parsed.params.get("query") else { continue };
-            if parsed.scheme != RECORDS_SCHEME && !(parsed.scheme == "exp" && parsed.name == "records") {
+            if parsed.scheme != RECORDS_SCHEME {
                 continue;
             }
             if !p.get("queries").and_then(Value::as_object).is_some_and(|q| q.contains_key(name)) {

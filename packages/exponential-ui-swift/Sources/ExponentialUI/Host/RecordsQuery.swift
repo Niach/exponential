@@ -24,7 +24,7 @@ public struct RecordsQuery: Sendable, Equatable {
     public var app: String? { structured["app"]?.string }
 
     /// Query params (as `BindingSource.params` gives them) → the query.
-    /// `kind` = a neutral source's own name, which wins over a `kind` param.
+    /// `kind` = the source's own name (`records:<kind>`); a `kind` param is a field filter.
     public static func parse(params: [String: String], kind: String? = nil) -> RecordsQuery {
         let paramsJson = JSONValue.object(params.mapValues { .string($0) }).json
         let json = (try? parseRecordsQueryJson(paramsJson: paramsJson, kind: kind)) ?? #"{"from":null}"#

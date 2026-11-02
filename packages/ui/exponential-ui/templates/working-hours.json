@@ -1,16 +1,17 @@
 {
+  "formatVersion": 2,
   "id": "acme.working-hours",
   "name": "Working hours",
   "version": "1.4.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "description": "Your hours per day, a month at a time: log them, see the total against the target, link the issues you worked on, and look at a teammate's month.",
   "sources": [
-    "exp:records",
+    "records:*",
     "exp:members",
     "exp:issues"
   ],
   "functions": [
-    "harness.records.*",
+    "records.*",
     "bind",
     "exponential.comments.create"
   ],
@@ -113,11 +114,11 @@
       "bindings": [
         {
           "path": "/entries",
-          "source": "exp:records?kind=entry&mine=1&by=date&sum=hours&sort=date&order=desc"
+          "source": "records:entry?mine=1&by=date&sum=hours&sort=date&order=desc"
         },
         {
           "path": "/settings",
-          "source": "exp:records?kind=settings&limit=1"
+          "source": "records:settings?limit=1"
         },
         {
           "path": "/members",
@@ -184,7 +185,7 @@
                 "call": "bind",
                 "args": {
                   "path": "/entries",
-                  "source": "exp:records?kind=entry&by=date&sum=hours&sort=date&order=desc",
+                  "source": "records:entry?by=date&sum=hours&sort=date&order=desc",
                   "params": {
                     "month": {
                       "path": "/entries/month/key"
@@ -220,7 +221,7 @@
                 "call": "bind",
                 "args": {
                   "path": "/entries",
-                  "source": "exp:records?kind=entry&by=date&sum=hours&sort=date&order=desc",
+                  "source": "records:entry?by=date&sum=hours&sort=date&order=desc",
                   "params": {
                     "month": {
                       "path": "/entries/month/prev"
@@ -264,7 +265,7 @@
                 "call": "bind",
                 "args": {
                   "path": "/entries",
-                  "source": "exp:records?kind=entry&by=date&sum=hours&sort=date&order=desc",
+                  "source": "records:entry?by=date&sum=hours&sort=date&order=desc",
                   "params": {
                     "month": {
                       "path": "/entries/month/next"
@@ -513,7 +514,7 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "harness.records.upsert",
+                "call": "records.upsert",
                 "args": {
                   "kind": "settings",
                   "id": {
@@ -554,7 +555,7 @@
           "on": {
             "submit": {
               "functionCall": {
-                "call": "harness.records.upsert",
+                "call": "records.upsert",
                 "args": {
                   "kind": "entry",
                   "id": {
@@ -663,7 +664,7 @@
           "on": {
             "press": {
               "functionCall": {
-                "call": "harness.records.delete",
+                "call": "records.delete",
                 "args": {
                   "id": {
                     "path": "/draft/id"

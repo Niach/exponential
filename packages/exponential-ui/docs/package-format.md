@@ -16,12 +16,12 @@ extension compatibility, canonical JSON, signatures).
 
 ## Versions
 
-A package MAY carry `formatVersion` (a positive integer; absent = 1). This
-document is format version **2** (`catalog/host.json` `package.formatVersion`).
-Version 2 only ADDS optional keys: every version-1 package is a valid
-version-2 package, unchanged. A host refuses a package whose `formatVersion`
-is newer than its own (`/formatVersion: format version 3 is newer than this
-host (2)`); it never guesses at keys it does not know. The catalog a package
+A package MUST carry `formatVersion`. This document is format version
+**2** (`catalog/host.json` `package.formatVersion`), and a host reads exactly
+its own version: eApps keeps no backwards compatibility. A missing one is
+`/formatVersion: formatVersion is required (2)`, an older one `format version
+1 is no longer read: write 2`, a newer one `format version 3 is newer than
+this host (2)`; a host never guesses at keys it does not know. The catalog a package
 renders against keeps its own version in its id (`catalogId`,
 `…/catalogs/core/v1`) and is negotiated as before (`supportedCatalogIds`).
 
@@ -29,7 +29,7 @@ renders against keeps its own version in its id (`catalogId`,
 
 ```jsonc
 {
-  "formatVersion": 2,                  // optional, default 1
+  "formatVersion": 2,                  // required: the current format
   "id": "acme.hours", "name": "Working hours", "version": "1.2.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "templates": { "<id>": { "components": [/* flat, one root */], "data": {}, "bindings": [{ "path": "/entries", "source": "records:entry?sort=date" }] } },
@@ -46,8 +46,8 @@ renders against keeps its own version in its id (`catalogId`,
 }
 ```
 
-Required: `id`, `name`, `version`, `catalogId`, `templates`. Everything else
-is optional and keeps its version-1 meaning (`functions`, `sources`, `theme`,
+Required: `formatVersion`, `id`, `name`, `version`, `catalogId`,
+`templates`. Everything else is optional (`functions`, `sources`, `theme`,
 `icon`, `description`, `records` kinds: `catalog/host.json` `package`).
 
 ## Records
@@ -136,8 +136,7 @@ pointer) drops that part; the rest still runs.
 
 **Named queries:** `queries: {<name>: <JSON query>}` (names
 `^[a-z][A-Za-z0-9_]{0,31}$`, each must parse clean, `from` a declared kind).
-A template binding `records:<kind>?query=<name>&<params>` (or Exponential's
-`exp:records?kind=<kind>&query=<name>`) follows it: the router replaces it
+A template binding `records:<kind>?query=<name>&<params>` follows it: the router replaces it
 with `?q=<canonical JSON>` (`expandQuerySource`), every `${param}` in the
 query's strings filled from the binding's other params (unset = empty), so a
 `bind` action's params drive it (`{"where": [["date", "between",
@@ -163,9 +162,9 @@ interface a host implements; `MemoryRecordStore` + `recordsHost(pkg, store)`
 are the reference (resolver + both functions); the evaluator reads the rows
 of whatever store the host has.
 
-Exponential: `records:<kind>?q` = its `exp:records?kind=<kind>&q` (the name
-wins over a `kind` param) and `records.*` = `harness.records.*`; both spellings
-stay valid on all four clients.
+Records have ONE spelling on every host: read `records:<kind>?q`, write
+`records.upsert` / `records.delete` / `records.batch` (Exponential's former
+`exp:records?kind=` and `harness.records.*` are gone).
 
 ## Expressions
 
@@ -254,8 +253,8 @@ no renderer paints undefined or throws on a binding.
 
 **Type checking at validation:** `validatePackage` parses and type-checks
 every `{"call": "expr"}` anywhere in a template. A var's type comes from a
-literal, from a records binding the path lies under (`records:<kind>` or
-`exp:records?kind=`: `{rows: [row], count, sum, groups, totals, before,
+literal, from a records binding the path lies under (`records:<kind>`:
+`{rows: [row], count, sum, groups, totals, before,
 month}`, a row = the kind's schema fields + `id createdAt updatedAt
 createdBy authorId author`; `format: date` = a date, `date-time` = a
 timestamp), or from the template `data`; anything else is open. An issue
@@ -269,7 +268,7 @@ and these issues.
 VAPP-194 (E1, spec `docs/spec/apps.md` §4.5): **typed effects**. Every
 function has an effect (`functionEffect`): `pure` (every expression and
 bind-time function), `write` (`set`, `records.upsert`, `records.delete`,
-`records.batch`, `harness.records.*`) or `host` (`openUrl`, `bind`, and every
+`records.batch`) or `host` (`openUrl`, `bind`, and every
 name under `actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`).
 
 - **Expressions are pure.** A binding, `visible`, a computed value, a call's

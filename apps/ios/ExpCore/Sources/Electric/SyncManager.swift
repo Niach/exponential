@@ -579,7 +579,7 @@ public final class SyncManager: @unchecked Sendable {
             type: AppVersionEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
-        // VAPP-122: the apps' RECORDS (the `exp:records` binding reads them;
+        // VAPP-122: the apps' RECORDS (the `records:<kind>` bindings read them;
         // trash never syncs).
         tasks.append(makeShapeTask(
             name: "app-records", path: "/api/shapes/app-records", table: "app_records",

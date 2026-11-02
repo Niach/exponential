@@ -74,8 +74,8 @@ const PACKAGE = `{
   "version": "1.0.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "icon": { "glyph": "clock", "color": "blue" },
-  "sources": ["exp:records", "exp:issues"],
-  "functions": ["harness.records.*", "exponential.comments.create"],
+  "sources": ["records:*", "exp:issues"],
+  "functions": ["records.*", "exponential.comments.create"],
   "records": {
     "entry": {
       "title": "Entry",
@@ -95,7 +95,7 @@ const PACKAGE = `{
       "components": [ { "id": "root", "component": "Column", "children": ["chart", "table"] }, … ],
       "data": { "title": "Stunden" },
       "bindings": [
-        { "path": "/month", "source": "exp:records?kind=entry&mine=1&by=date&sum=hours" }
+        { "path": "/month", "source": "records:entry?mine=1&by=date&sum=hours" }
       ]
     }
   },
@@ -108,7 +108,7 @@ const BINDING = `{ "id": "days", "component": "Chart", "type": "bar",
   "series": [{ "name": "Hours", "values": { "path": "/month/month/sums" } }] }`
 
 const ACTION = `{ "id": "log", "component": "Button", "label": "Log hours",
-  "on": { "press": { "functionCall": { "call": "harness.records.upsert",
+  "on": { "press": { "functionCall": { "call": "records.upsert",
     "args": { "kind": "entry", "data": { "date": { "path": "/form/date" }, "hours": { "path": "/form/hours" } } } } } } }`
 
 const EXPOSES = `"upstreams": ["stripe"],
@@ -272,8 +272,8 @@ export function AppsDocsPage() {
                 <strong>Manifest</strong>: <code>id</code>, <code>name</code>,{` `}
                 <code>version</code>, the eUI <code>catalogId</code> it targets,{` `}
                 <code>icon</code>, <code>description</code>,{` `}
-                <code>formatVersion</code> (a client refuses a newer one and
-                asks you to update instead of showing a broken screen).
+                <code>formatVersion</code> (required, <code>2</code>: a client
+                refuses any other version instead of showing a broken screen).
               </li>
               <li>
                 <strong>templates</strong>: screens, each a flat list of eUI
@@ -324,7 +324,7 @@ export function AppsDocsPage() {
             </p>
             <ul>
               <li>
-                <code>exp:records?kind=…</code>: the app&apos;s own records
+                <code>records:&lt;kind&gt;</code>: the app&apos;s own records
                 (<a href="#records">below</a>).
               </li>
               <li>
@@ -360,9 +360,10 @@ export function AppsDocsPage() {
             </p>
             <p>
               The app reads them live through{` `}
-              <code>exp:records?kind=&lt;kind&gt;</code> and writes them with{` `}
-              <code>harness.records.upsert</code> and{` `}
-              <code>harness.records.delete</code>, without a consent card:
+              <code>records:&lt;kind&gt;</code> (declared in{` `}
+              <code>sources</code> as <code>records:*</code>) and writes them
+              with <code>records.upsert</code> and{` `}
+              <code>records.delete</code>, without a consent card:
               they are its own rows. Every member sees the same records on
               every device.
             </p>
@@ -483,9 +484,12 @@ export function AppsDocsPage() {
             <DocsCode language="json">{ACTION}</DocsCode>
             <ul>
               <li>
-                <code>harness.*</code>: record writes, a toast, open an issue
-                or a device, an MCP call. Record writes never ask;{` `}
-                <code>harness.mcp</code> asks every time.
+                <code>records.*</code>: record writes. They never ask: they
+                are the app&apos;s own rows.
+              </li>
+              <li>
+                <code>harness.*</code>: a toast, open an issue or a device, an
+                MCP call. <code>harness.mcp</code> asks every time.
               </li>
               <li>
                 <code>exponential.&lt;noun&gt;.&lt;op&gt;</code>: any

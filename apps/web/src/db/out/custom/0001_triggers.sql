@@ -784,8 +784,6 @@ CREATE OR REPLACE FUNCTION populate_app_record_mirror()
 RETURNS TRIGGER AS $$
 BEGIN
   SELECT deleted_at INTO NEW.app_deleted_at FROM apps WHERE id = NEW.app_id;
-  NEW.author_id := COALESCE(NEW.author_id, NEW.created_by);
-  NEW.updated_by := COALESCE(NEW.updated_by, NEW.created_by);
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;

@@ -33,7 +33,7 @@ export const EXPRESSION_LIMITS = { maxLength: 1000, maxDepth: 32, maxSteps: 10_0
 export type FunctionEffect = `pure` | `write` | `host`
 
 /** The functions that write (records, the surface data model). */
-export const WRITE_FUNCTIONS: readonly string[] = [`set`, `records.upsert`, `records.delete`, `records.batch`, `harness.records.upsert`, `harness.records.delete`]
+export const WRITE_FUNCTIONS: readonly string[] = [`set`, `records.upsert`, `records.delete`, `records.batch`]
 /** The built-in host functions; every name under a host prefix is one too. */
 export const HOST_FUNCTIONS: readonly string[] = [`openUrl`, `bind`]
 export const HOST_FUNCTION_PREFIXES: readonly string[] = [`actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`]

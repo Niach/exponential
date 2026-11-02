@@ -1,8 +1,7 @@
 {
-  "$comment": "VAPP-189 (S1, docs/package-format.md \"Records\"): THE records query, one evaluator on every host. TS reference src/host/query.ts (`@exponential_app/eui/host/query`), Rust twin eui-core `host/query.rs`, reached by the Swift and Compose SDKs over the FFI (`parse_records_query_json`, `parse_records_source_json`, `records_value_json`); every one replays these cases. Inputs hand-written, `expected` filled by scripts/generate-host.ts. PARSE (`parseCases`: parseRecordsQuery(params, kind?)): query params (as parseSource gives them) → the structured query {from, app, mine, user, where: [{field, op, value}], sort: [{field, order}], limit, sum, month: {field, key} | null}. `kind` = the source's own name (`records:<kind>`), which wins over a `kind` param; `from` = the kind (none = null); `app=<slug>` = another app's rows (the HOST resolves whose); `mine=1|true` = the viewer's rows; `user=<id>`; `sort` (default `query.sortDefault`) + `order=asc|desc` (default `orderDefault`, anything else = the default) = the one sort key of the URL sugar; `limit` a positive integer (default `limitDefault`, capped at `limitMax`); `sum=<field>`; `by=<dateField>` (+ `month=YYYY-MM`, a malformed one = null = the month of now) = the month view, `month` without `by` = none; every OTHER key (the `reserved` keys never; an empty key never) = a condition: `<field>=v` eq, `<field>.gt|gte|lt|lte=v` (a different suffix = an eq on the whole key), sorted by field then operator. The JSON query form (VAPP-190) adds keys next to these. SOURCES (`sourceCases`: parseRecordsSource(parseSource(source))): `records:<kind>?q` = parse(q, kind); any other scheme = null (a host's own spelling, Exponential's `exp:records?kind=<kind>&q`, hands its params to parse). VALUE (`valueCases`: recordsValue(rows, parse(params, kind), {me, now, names})): null without a kind; else the rows of that kind where: the AUTHOR (`authorId ?? createdBy`, #VAPP-187: an owner's on-behalf write is its author's) is `me` for `mine` (signed out = nothing) and `user` for `user=`; with a month view the `field` text starts with the month key; every condition holds over the field (the row keys `id`, `createdAt`, `updatedAt`, `createdBy` read the row, `authorId` the author, any other name the data): eq compares as text (null/missing = \"\", objects as JSON), the ranges as numbers when both sides parse (finite), else as text by UTF-16 code units. Sorted by each sort key (desc reverses), ties by id; {rows: [{…data, id, createdAt, updatedAt, createdBy, authorId (the author), author}] cut at the limit (a data key never shadows a row key; `author` = names[author] or \"\"), count: the matches before the limit, sum?: Σ of the field's numbers over the matches (non-numbers count 0, rounded to 1e-6), month?: {key, label (`months`), prev, next, today (now's date), days: every day of the month {date, day, weekday (`weekdays`), count, sum}, labels/counts/sums: the same days as chart-ready arrays}}. The `rowKeys` ride on every row and are reserved: a kind's schema may not declare them.",
+  "$comment": "VAPP-189 (S1, docs/package-format.md \"Records\"): THE records query, one evaluator on every host. TS reference src/host/query.ts (`@exponential_app/eui/host/query`), Rust twin eui-core `host/query.rs`, reached by the Swift and Compose SDKs over the FFI (`parse_records_query_json`, `parse_records_source_json`, `records_value_json`); every one replays these cases. Inputs hand-written, `expected` filled by scripts/generate-host.ts. PARSE (`parseCases`: parseRecordsQuery(params, kind?)): query params (as parseSource gives them) → the structured query {from, app, mine, user, where: [{field, op, value}], sort: [{field, order}], limit, sum, month: {field, key} | null}. `kind` = the source's own name (`records:<kind>`); `from` = the kind (none = null); `app=<slug>` = another app's rows (the HOST resolves whose); `mine=1|true` = the viewer's rows; `user=<id>`; `sort` (default `query.sortDefault`) + `order=asc|desc` (default `orderDefault`, anything else = the default) = the one sort key of the URL sugar; `limit` a positive integer (default `limitDefault`, capped at `limitMax`); `sum=<field>`; `by=<dateField>` (+ `month=YYYY-MM`, a malformed one = null = the month of now) = the month view, `month` without `by` = none; every OTHER key (the `reserved` keys never; an empty key never) = a condition: `<field>=v` eq, `<field>.gt|gte|lt|lte=v` (a different suffix = an eq on the whole key), sorted by field then operator. The JSON query form (VAPP-190) adds keys next to these. SOURCES (`sourceCases`: parseRecordsSource(parseSource(source))): `records:<kind>?q` = parse(q, kind); any other scheme = null. VALUE (`valueCases`: recordsValue(rows, parse(params, kind), {me, now, names})): null without a kind; else the rows of that kind where: the AUTHOR (`authorId ?? createdBy`, #VAPP-187: an owner's on-behalf write is its author's) is `me` for `mine` (signed out = nothing) and `user` for `user=`; with a month view the `field` text starts with the month key; every condition holds over the field (the row keys `id`, `createdAt`, `updatedAt`, `createdBy` read the row, `authorId` the author, any other name the data): eq compares as text (null/missing = \"\", objects as JSON), the ranges as numbers when both sides parse (finite), else as text by UTF-16 code units. Sorted by each sort key (desc reverses), ties by id; {rows: [{…data, id, createdAt, updatedAt, createdBy, authorId (the author), author}] cut at the limit (a data key never shadows a row key; `author` = names[author] or \"\"), count: the matches before the limit, sum?: Σ of the field's numbers over the matches (non-numbers count 0, rounded to 1e-6), month?: {key, label (`months`), prev, next, today (now's date), days: every day of the month {date, day, weekday (`weekdays`), count, sum}, labels/counts/sums: the same days as chart-ready arrays}}. The `rowKeys` ride on every row and are reserved: a kind's schema may not declare them.",
   "query": {
     "reserved": [
-      "kind",
       "app",
       "mine",
       "user",
@@ -102,9 +101,7 @@
   "parseCases": [
     {
       "name": "kind only",
-      "params": {
-        "kind": "entry"
-      },
+      "params": {},
       "expected": {
         "from": "entry",
         "app": null,
@@ -125,12 +122,12 @@
         "aggregate": [],
         "running": [],
         "before": null
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "every reserved key, a limit over the cap, a month view",
       "params": {
-        "kind": "entry",
         "app": "working-hours",
         "mine": "1",
         "user": "u2",
@@ -164,12 +161,12 @@
         "aggregate": [],
         "running": [],
         "before": null
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "filters: equals, ranges; a bad limit and order fall back",
       "params": {
-        "kind": "todo",
         "done": "false",
         "hours.gte": "2",
         "date.lt": "2026-10-15",
@@ -213,7 +210,8 @@
         "aggregate": [],
         "running": [],
         "before": null
-      }
+      },
+      "kind": "todo"
     },
     {
       "name": "no kind, a malformed month",
@@ -243,39 +241,9 @@
       }
     },
     {
-      "name": "the source's own name wins over a kind param",
-      "params": {
-        "kind": "other",
-        "limit": "5"
-      },
-      "kind": "entry",
-      "expected": {
-        "from": "entry",
-        "app": null,
-        "mine": false,
-        "user": null,
-        "where": [],
-        "or": [],
-        "sort": [
-          {
-            "field": "createdAt",
-            "order": "desc"
-          }
-        ],
-        "limit": 5,
-        "sum": null,
-        "month": null,
-        "group": [],
-        "aggregate": [],
-        "running": [],
-        "before": null
-      }
-    },
-    {
-      "name": "a host spelling's params (Exponential: exp:records?kind=todo&by=date&month=2026-10)",
+      "name": "a host spelling's params (Exponential: records:todo?by=date&month=2026-10)",
       "params": {
         "by": "date",
-        "kind": "todo",
         "month": "2026-10"
       },
       "expected": {
@@ -301,12 +269,12 @@
         "aggregate": [],
         "running": [],
         "before": null
-      }
+      },
+      "kind": "todo"
     },
     {
       "name": "a month without by is no month view; an empty key never filters",
       "params": {
-        "kind": "entry",
         "month": "2026-10",
         "": "x",
         "note.lte": "m",
@@ -343,12 +311,12 @@
         "aggregate": [],
         "running": [],
         "before": null
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "VAPP-190 sugar: in and between take comma-separated values, before (the month view's field, else createdAt)",
       "params": {
-        "kind": "entry",
         "status.in": "open,doing",
         "hours.between": "2,6",
         "before": "2026-10-01",
@@ -397,12 +365,12 @@
           "field": "date",
           "date": "2026-10-01"
         }
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "VAPP-190 sugar: before without a month view reads createdAt",
       "params": {
-        "kind": "entry",
         "before": "2026-10-01T00:00:00Z"
       },
       "expected": {
@@ -428,7 +396,8 @@
           "field": "createdAt",
           "date": "2026-10-01T00:00:00Z"
         }
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "VAPP-190 q = the JSON form (the other params are ignored, the source's kind wins)",
@@ -474,7 +443,6 @@
     {
       "name": "VAPP-190 a q that is no JSON object = the defaults",
       "params": {
-        "kind": "entry",
         "q": "[1,2"
       },
       "expected": {
@@ -497,7 +465,8 @@
         "aggregate": [],
         "running": [],
         "before": null
-      }
+      },
+      "kind": "entry"
     }
   ],
   "sourceCases": [
@@ -558,31 +527,6 @@
       }
     },
     {
-      "name": "the name wins over a kind param",
-      "source": "records:entry?kind=other&limit=5",
-      "expected": {
-        "from": "entry",
-        "app": null,
-        "mine": false,
-        "user": null,
-        "where": [],
-        "or": [],
-        "sort": [
-          {
-            "field": "createdAt",
-            "order": "desc"
-          }
-        ],
-        "limit": 5,
-        "sum": null,
-        "month": null,
-        "group": [],
-        "aggregate": [],
-        "running": [],
-        "before": null
-      }
-    },
-    {
       "name": "not a records source",
       "source": "exp:issues?board=b1",
       "expected": null
@@ -624,31 +568,6 @@
       }
     },
     {
-      "name": "neutral: records:entry?limit=0&order=up&kind=todo",
-      "source": "records:entry?limit=0&order=up&kind=todo",
-      "expected": {
-        "from": "entry",
-        "app": null,
-        "mine": false,
-        "user": null,
-        "where": [],
-        "or": [],
-        "sort": [
-          {
-            "field": "createdAt",
-            "order": "desc"
-          }
-        ],
-        "limit": 100,
-        "sum": null,
-        "month": null,
-        "group": [],
-        "aggregate": [],
-        "running": [],
-        "before": null
-      }
-    },
-    {
       "name": "neutral: RECORDS:todo?done=false",
       "source": "RECORDS:todo?done=false",
       "expected": {
@@ -680,9 +599,29 @@
       }
     },
     {
-      "name": "neutral: exp:records?kind=entry",
-      "source": "exp:records?kind=entry",
-      "expected": null
+      "name": "neutral: records:entry",
+      "source": "records:entry",
+      "expected": {
+        "from": "entry",
+        "app": null,
+        "mine": false,
+        "user": null,
+        "where": [],
+        "or": [],
+        "sort": [
+          {
+            "field": "createdAt",
+            "order": "desc"
+          }
+        ],
+        "limit": 100,
+        "sum": null,
+        "month": null,
+        "group": [],
+        "aggregate": [],
+        "running": [],
+        "before": null
+      }
     }
   ],
   "valueCases": [
@@ -698,7 +637,6 @@
     {
       "name": "the month view: mine, summed, every day listed, the other month and the other member left out",
       "params": {
-        "kind": "entry",
         "mine": "1",
         "by": "date",
         "month": "2026-10",
@@ -1154,12 +1092,12 @@
             0
           ]
         }
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "filters, the default sort (newest first, ties by id), the limit, the count before it, a missing author",
       "params": {
-        "kind": "todo",
         "done": "false",
         "limit": "2",
         "priority.gte": "2"
@@ -1257,12 +1195,12 @@
           }
         ],
         "count": 3
-      }
+      },
+      "kind": "todo"
     },
     {
       "name": "the month of now when month is unset; a text sort ascending; a data key never shadows a row key",
       "params": {
-        "kind": "entry",
         "by": "date",
         "sort": "note",
         "order": "asc"
@@ -1625,7 +1563,8 @@
             0
           ]
         }
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "neutral: newest first, ties by id",
@@ -2026,7 +1965,6 @@
     {
       "name": "ownership: an owner's backfill (authorId) is its author's: mine reads authorId ?? createdBy, the author name too",
       "params": {
-        "kind": "entry",
         "mine": "1",
         "sum": "hours"
       },
@@ -2098,12 +2036,12 @@
         ],
         "count": 2,
         "sum": 7
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "ownership: user= reads the author, a null authorId falls back to createdBy",
       "params": {
-        "kind": "entry",
         "user": "u1"
       },
       "me": "u2",
@@ -2163,12 +2101,12 @@
           }
         ],
         "count": 1
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "ownership: a createdBy filter still reads who pressed the button",
       "params": {
-        "kind": "entry",
         "createdBy": "u1",
         "sort": "date",
         "order": "asc"
@@ -2240,12 +2178,12 @@
           }
         ],
         "count": 2
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "the month view per author: by + month + user, the sums per day",
       "params": {
-        "kind": "entry",
         "by": "date",
         "month": "2026-10",
         "user": "u2",
@@ -2644,12 +2582,12 @@
             0
           ]
         }
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "VAPP-187: an on-behalf row counts as its AUTHOR's (mine, the author's name), a legacy row without authorId as its creator's",
       "params": {
-        "kind": "entry",
         "mine": "1",
         "sort": "createdAt",
         "order": "asc"
@@ -2727,12 +2665,12 @@
           }
         ],
         "count": 2
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "VAPP-187: user= reads the author too",
       "params": {
-        "kind": "entry",
         "user": "u1"
       },
       "me": null,
@@ -2777,7 +2715,8 @@
           }
         ],
         "count": 1
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "VAPP-190 the spec's month query: per author and day, sum + count, groups sorted by the group sort key (date desc), then the keys",
@@ -5472,7 +5411,6 @@
         }
       ],
       "params": {
-        "kind": "entry",
         "by": "date",
         "month": "2026-10",
         "before": "2026-10-01",
@@ -5856,7 +5794,8 @@
           "count": 2,
           "sum": 7
         }
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "VAPP-190 the month view + running (q)",
@@ -6813,7 +6752,6 @@
         }
       ],
       "params": {
-        "kind": "entry",
         "status.in": "done,doing",
         "hours.between": "0,4",
         "sort": "date",
@@ -6856,7 +6794,8 @@
           }
         ],
         "count": 3
-      }
+      },
+      "kind": "entry"
     },
     {
       "name": "VAPP-190 a group by a number field keeps the value; sum= rides on every group",
@@ -8429,7 +8368,7 @@
     },
     {
       "name": "Exponential's spelling keeps kind",
-      "source": "exp:records?kind=entry&query=totals&before=2026-10-01",
+      "source": "records:entry?query=totals&before=2026-10-01",
       "queries": {
         "totals": {
           "before": "${before}",
@@ -8441,7 +8380,7 @@
           }
         }
       },
-      "expected": "exp:records?kind=entry&q=%7B%22aggregate%22%3A%7B%22t%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22before%22%3A%222026-10-01%22%7D"
+      "expected": "records:entry?q=%7B%22aggregate%22%3A%7B%22t%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22before%22%3A%222026-10-01%22%7D"
     },
     {
       "name": "an unknown query: as written",

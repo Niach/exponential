@@ -17,8 +17,9 @@ function rebind(id: string, event: string, who: string) {
   const call = components.find((c) => c.id === id)!.on![event]!.functionCall
   expect(call.call).toBe(`bind`)
   const args = resolveDynamic(call.args, { ...data, who, entries: { ...(data.entries as object), month: { key: `2026-10`, prev: `2026-09`, next: `2026-11` } } }) as { source: string; params: Record<string, unknown> }
-  const uri = sourceWithParams(args.source, args.params)
-  return parseRecordsQuery(parseSource(uri)!.params)
+  const source = parseSource(sourceWithParams(args.source, args.params))!
+  expect(source.scheme).toBe(`records`)
+  return parseRecordsQuery(source.params, source.name)
 }
 
 describe(`the Working hours template (VAPP-119 / VAPP-153)`, () => {

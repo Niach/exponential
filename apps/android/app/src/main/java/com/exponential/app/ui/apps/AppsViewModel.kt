@@ -223,7 +223,7 @@ class AppEditorViewModel @Inject constructor(
      *  Android's route) → the phone's tab and the `…` menu's sheet over it. */
     val initialTab: Apps.EditorTabPick = Apps.editorTab(savedStateHandle.get<String>(Apps.EditorTabs.SEARCH), phone = true)
 
-    /** VAPP-122: the viewer (`exp:records?mine=1`; null = signed out). */
+    /** VAPP-122: the viewer (`records:<kind>?mine=1`; null = signed out). */
     val me: StateFlow<String?> = auth.userId
 
     private val dbFlow = accountDatabaseFlow(auth, holder)

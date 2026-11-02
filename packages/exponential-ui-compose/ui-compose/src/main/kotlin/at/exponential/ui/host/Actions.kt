@@ -21,7 +21,7 @@ object Actions {
         /** Every expression and bind-time function. */
         Pure("pure"),
 
-        /** `set`, `records.upsert` / `.delete` / `.batch`, `harness.records.*`. */
+        /** `set`, `records.upsert` / `.delete` / `.batch`. */
         Write("write"),
 
         /** `openUrl`, `bind`, every `actions.` `harness.` `exponential.` `tools.` `upstream.` name. */

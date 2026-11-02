@@ -2395,8 +2395,8 @@ export const appVersions = pgTable(
 // synced shape `app-records` (member-only, team-scoped); `deleted_at` and
 // the trigger-kept `app_deleted_at` mirror of the app's trash are the
 // shape's STATIC predicates, so trash never reaches a client. Reads = the
-// `exp:records?kind=…` binding every app host resolves; writes = tRPC
-// `apps.records.*` (the host functions `harness.records.*`, MCP `apps
+// `records:<kind>?…` binding every app host resolves; writes = tRPC
+// `apps.records.*` (the host functions `records.*`, MCP `apps
 // records_*`), validated against the kind's schema, capped by contract
 // `apps.recordMaxBytes` and the team's plan quota (`appRecords`).
 export type AppRecordData = Record<string, unknown>
@@ -2413,9 +2413,8 @@ export const appRecords = pgTable(
     kind: varchar({ length: 32 }).notNull(),
     data: jsonb().$type<AppRecordData>().notNull(),
     createdBy: text(`created_by`).references(() => users.id, { onDelete: `set null` }),
-    // VAPP-187 (app-records.json `ownership`): whose record it is (set to
-    // the writer on create, backfilled from created_by; the insert trigger
-    // fills a null from created_by) and the last writer. Only the author or
+    // VAPP-187 (app-records.json `ownership`): whose record it is (set by
+    // every writer on create) and the last writer. Only the author or
     // a team owner may update/delete.
     authorId: text(`author_id`).references(() => users.id, { onDelete: `set null` }),
     updatedBy: text(`updated_by`).references(() => users.id, { onDelete: `set null` }),

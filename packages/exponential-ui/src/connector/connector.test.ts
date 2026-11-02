@@ -82,6 +82,7 @@ describe(`ExponentialConnector`, () => {
       id: `acme.triage`,
       name: `Triage`,
       version: `1.0.0`,
+      formatVersion: 2,
       catalogId: CORE_CATALOG_ID,
       functions: [`exponential.mcp`],
       templates: {

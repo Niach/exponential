@@ -13,14 +13,12 @@
 //!   VAPP-119 `exp:issues` / `exp:boards` / `exp:members` / `exp:sessions`
 //!   / `exp:comments` / `exp:attachments` →
 //!   `domain::app_sources::source_value` over the scope team's synced rows;
-//!   VAPP-122 `exp:records?kind=…` → eUI's one evaluator (VAPP-189:
+//!   VAPP-122 `records:<kind>?…` → eUI's one evaluator (VAPP-189:
 //!   `eui_core::host::records_value`, fixtures/records-query.json) over the
-//!   hosting app's synced `app_records` rows, [`HostScope`];
-//!   VAPP-161 the format's neutral `records:<kind>?…` = the same binding);
-//! - VAPP-122 `harness.records.upsert {kind, data, id?}` and
-//!   `harness.records.delete {id}` (VAPP-161: also `records.upsert` /
-//!   `records.delete`; tRPC `apps.records.*` as the viewer, no consent
-//!   card: the app's own rows; a refusal = a failed-action toast);
+//!   hosting app's synced `app_records` rows, [`HostScope`]);
+//! - VAPP-122 `records.upsert {kind, data, id?}` and `records.delete {id}`
+//!   (tRPC `apps.records.*` as the viewer, no consent card: the app's own
+//!   rows; a refusal = a failed-action toast);
 //! - VAPP-194 `records.batch {writes}`: a package action's writes as ONE
 //!   tRPC `apps.records.batch` (one transaction); a press of
 //!   `actions.<name>` runs as the viewer (`me`) in the local zone, and an
@@ -159,12 +157,12 @@ enum Query {
     Devices,
     /// VAPP-119 `exp:<name>?…` for a `domain::app_sources` name.
     Source { name: String, params: BTreeMap<String, String> },
-    /// VAPP-122 `exp:records?kind=…` (VAPP-161: or `records:<kind>?…`).
+    /// VAPP-122 `records:<kind>?…`.
     Records(eui_core::host::RecordsQuery),
 }
 
-/// VAPP-122: the app a host keeps records for (`exp:records`, the
-/// `harness.records.*` writes): the hosting app and its team (an `app=`
+/// VAPP-122: the app a host keeps records for (`records:<kind>`, the
+/// `records.*` writes): the hosting app and its team (an `app=`
 /// slug reads another app of the SAME team).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct HostScope {
@@ -229,7 +227,7 @@ pub(crate) fn iso_millis(timestamp: &str) -> String {
         .unwrap_or_else(|| trimmed.to_string())
 }
 
-/// `exp:records` over the cache: the scope's app (or the `app=` slug of the
+/// `records:<kind>` over the cache: the scope's app (or the `app=` slug of the
 /// same team), names of the rows' authors, the clock = `now`.
 pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &eui_core::host::RecordsQuery, now: &str) -> Value {
     let scope = feed.scope.as_ref();
@@ -311,14 +309,14 @@ impl Feeds {
     }
 }
 
-/// The clock `exp:records` reads (the month view's default month, `today`).
+/// The clock `records:<kind>` reads (the month view's default month, `today`).
 fn now_iso() -> String {
     chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 /// What a source of the `exp` or the `records` scheme reads.
 fn query_of(source: &ParsedSource) -> Option<Query> {
-    // VAPP-189: the neutral `records:<kind>?q` (the name wins) or `exp:records?kind=<kind>&q`.
+    // VAPP-189: `records:<kind>?q`, the only records spelling.
     if let Some(query) = eui_core::host::parse_records_source(source) {
         return Some(Query::Records(query));
     }
@@ -327,7 +325,6 @@ fn query_of(source: &ParsedSource) -> Option<Query> {
     }
     match source.name.as_str() {
         "devices" => Some(Query::Devices),
-        "records" => Some(Query::Records(eui_core::host::parse_records_query(&source.params, None))),
         name if domain::app_sources::is_source(name) => {
             Some(Query::Source { name: name.to_string(), params: source.params.clone() })
         }
@@ -671,7 +668,7 @@ fn open_device_fn() -> HostFunction {
     })
 }
 
-/// VAPP-122: a `harness.records.*` write on the background executor; a
+/// VAPP-122: a `records.*` write on the background executor; a
 /// refusal (the kind's schema, the caps, the plan quota) toasts the web's
 /// failed action (`Couldn't <verb> the record`) and rejects the call. The
 /// synced shape repaints the binding.
@@ -1127,8 +1124,8 @@ impl IdeHost {
     /// VAPP-110: the host with `packages` installed (a team app's package,
     /// the editor's preview) and the package's
     /// `theme` (the default theme when `None` or unknown). VAPP-122:
-    /// `scope` = the app whose records `exp:records` reads and
-    /// `harness.records.*` write (`None` = no app: the binding reads no
+    /// `scope` = the app whose records `records:<kind>` reads and
+    /// `records.*` write (`None` = no app: the binding reads no
     /// rows, a write fails).
     pub(crate) fn with_packages(
         mode: Mode,
@@ -1195,9 +1192,6 @@ impl IdeHost {
         functions.insert("harness.openIssue".into(), open_issue_fn());
         functions.insert("harness.openDevice".into(), open_device_fn());
         functions.insert("harness.mcp".into(), mcp_fn());
-        functions.insert("harness.records.upsert".into(), records_upsert_fn(scope.clone()));
-        functions.insert("harness.records.delete".into(), records_delete_fn(scope.clone()));
-        // VAPP-161: the format's neutral spelling, the same functions.
         functions.insert("records.upsert".into(), records_upsert_fn(scope.clone()));
         functions.insert("records.delete".into(), records_delete_fn(scope.clone()));
         functions.insert("records.batch".into(), records_batch_fn(scope.clone()));
@@ -1209,7 +1203,7 @@ impl IdeHost {
         }
         let mut sources: HashMap<String, SourceResolver> = HashMap::new();
         sources.insert("exp".into(), exp_resolver(Rc::downgrade(&feeds)));
-        // VAPP-161: `records:<kind>?…` = `exp:records?kind=<kind>&…`.
+        // VAPP-161: `records:<kind>?…`, the app's own records.
         sources.insert("records".into(), exp_resolver(Rc::downgrade(&feeds)));
         let extensions = match parse_extension(APP_EXTENSION_JSON) {
             Ok(ext) => vec![ext],
@@ -1386,21 +1380,23 @@ mod tests {
             other => panic!("{other:?}"),
         };
         let now = "2026-10-24T09:00:00.000Z";
-        let own = records_feed_value(&feed, &query("exp:records?kind=entry&sum=hours"), now);
+        let own = records_feed_value(&feed, &query("records:entry?sum=hours"), now);
         assert_eq!(own["count"], 1);
         assert_eq!(own["sum"], 3);
         assert_eq!(own["rows"][0]["author"], "Danny");
         assert_eq!(own["rows"][0]["createdAt"], "2026-10-05T18:00:00.000Z");
-        let other = records_feed_value(&feed, &query("exp:records?kind=entry&app=other"), now);
+        let other = records_feed_value(&feed, &query("records:entry?app=other"), now);
         assert_eq!(other["rows"][0]["id"], "r2");
         assert_eq!(other["rows"][0]["author"], "");
-        let foreign = records_feed_value(&feed, &query("exp:records?kind=entry&app=foreign"), now);
+        let foreign = records_feed_value(&feed, &query("records:entry?app=foreign"), now);
         assert_eq!(foreign["count"], 0, "another team's app reads nothing");
-        assert_eq!(records_feed_value(&feed, &query("exp:records"), now), Value::Null);
         let unscoped = RecordsFeed { scope: None, ..records_feed() };
-        assert_eq!(records_feed_value(&unscoped, &query("exp:records?kind=entry"), now)["count"], 0);
-        // VAPP-161: the neutral spelling is the same binding (the name wins over `kind`).
-        assert_eq!(query("records:entry?sum=hours&kind=other"), query("exp:records?kind=entry&sum=hours"));
+        assert_eq!(records_feed_value(&unscoped, &query("records:entry"), now)["count"], 0);
+        // No backwards compatibility: `exp:records` is no records source, and a
+        // `kind` param is a plain field filter (the kind is the source's name).
+        assert!(query_of(&eui_core::host::parse_source("exp:records?kind=entry").unwrap()).is_none());
+        assert_ne!(query("records:entry?kind=other"), query("records:entry"));
+        assert_eq!(records_feed_value(&feed, &query("records:entry?kind=other"), now)["count"], 0);
         assert!(query_of(&eui_core::host::parse_source("other:records?kind=entry").unwrap()).is_none());
     }
 
@@ -1412,7 +1408,7 @@ mod tests {
         let got = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
         let sink = got.clone();
         let emit: Emit = Arc::new(move |v| sink.lock().unwrap().push(v));
-        let _cancel = resolver(eui_core::host::parse_source("exp:records?kind=entry").unwrap(), emit);
+        let _cancel = resolver(eui_core::host::parse_source("records:entry").unwrap(), emit);
         assert_eq!(got.lock().unwrap()[0]["count"], 1);
         feeds.borrow_mut().publish();
         assert_eq!(got.lock().unwrap().len(), 1);

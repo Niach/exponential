@@ -38,6 +38,7 @@ const COMING = <StatusChip status="planned">coming</StatusChip>
 
 /* The hero's package: Stunden, trimmed to what reads at a glance. */
 const PACKAGE = `{
+  "formatVersion": 2,
   "id": "acme.stunden",
   "name": "Stunden",
   "records": {
@@ -47,9 +48,9 @@ const PACKAGE = `{
   "templates": {
     "month": { "components": [ Chart, Table, … ],
       "bindings": [{ "path": "/entries",
-        "source": "exp:records?kind=entry&mine=1" }] }
+        "source": "records:entry?mine=1" }] }
   },
-  "functions": ["harness.records.*"],
+  "functions": ["records.*"],
   "exposes": [{ "name": "log_hours", … }]
 }`
 
