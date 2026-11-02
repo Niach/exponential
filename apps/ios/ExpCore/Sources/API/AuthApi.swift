@@ -86,6 +86,13 @@ public enum PasskeyOptionsResult: Sendable {
     case failure(message: String)
 }
 
+/// EXP-1596 Add passkey, step 1: the served creation options, or why there
+/// are none (the message is the failed-action toast's description).
+public enum PasskeyRegistrationOptionsResult: Sendable {
+    case success(PasskeyRegistrationOptions)
+    case failure(message: String)
+}
+
 /// What a `get-session` read established. `invalidated` is the only DEFINITIVE
 /// dead-session verdict (see `AuthApi.classifySessionRead`); `indeterminate`
 /// covers every "we don't know" case — offline, timeout, 5xx, garbled body — and
@@ -312,6 +319,71 @@ public final class AuthApi: Sendable {
         } catch {
             return .failure(message: error.userFacingMessage)
         }
+    }
+
+    // MARK: - Add passkey (EXP-1596)
+
+    /// Step 1 (web `authClient.passkey.addPasskey`, Android
+    /// `passkeyRegistrationOptions`): the WebAuthn creation options for the
+    /// signed-in `token`'s user, plus the Set-Cookie pairs carrying the signed
+    /// challenge, replayed on `verifyPasskeyRegistration`. Takes the SCREEN's
+    /// account credentials (settings can show a non-active account).
+    public func passkeyRegistrationOptions(
+        instanceUrl: String, token: String, name: String
+    ) async -> PasskeyRegistrationOptionsResult {
+        guard var components = URLComponents(string: "\(instanceUrl)/api/auth/passkey/generate-register-options") else {
+            return .failure(message: "Invalid instance URL")
+        }
+        components.queryItems = [URLQueryItem(name: "name", value: name)]
+        guard let url = components.url else { return .failure(message: "Invalid instance URL") }
+        do {
+            let (data, response) = try await httpClient.get(url, bearerToken: token)
+            guard (200...299).contains(response.statusCode) else {
+                return .failure(message: Self.passkeyRegistrationErrorMessage(from: data)
+                    ?? "Couldn't start adding the passkey (HTTP \(response.statusCode))")
+            }
+            let cookieHeader = PasskeyWire.cookieHeaderValue(
+                fromSetCookieHeader: response.value(forHTTPHeaderField: "Set-Cookie")
+            )
+            guard let options = PasskeyWire.parseRegistrationOptions(data, cookieHeader: cookieHeader) else {
+                return .failure(message: "The server sent no usable passkey challenge")
+            }
+            return .success(options)
+        } catch {
+            return .failure(message: error.userFacingMessage)
+        }
+    }
+
+    /// Step 2: post the platform authenticator's attestation (bearer + Origin
+    /// + the challenge cookies). Returns nil on success, else the message.
+    public func verifyPasskeyRegistration(
+        instanceUrl: String, token: String, cookieHeader: String, attestation: PasskeyAttestation, name: String
+    ) async -> String? {
+        guard let url = URL(string: "\(instanceUrl)/api/auth/passkey/verify-registration") else {
+            return "Invalid instance URL"
+        }
+        do {
+            let body = try PasskeyWire.registerRequestBody(attestation, name: name)
+            let headers = cookieHeader.isEmpty ? [:] : ["Cookie": cookieHeader]
+            let (data, response) = try await httpClient.post(url, body: body, bearerToken: token, headers: headers)
+            guard (200...299).contains(response.statusCode) else {
+                return Self.passkeyRegistrationErrorMessage(from: data)
+                    ?? "Couldn't add the passkey (HTTP \(response.statusCode))"
+            }
+            return nil
+        } catch {
+            return error.userFacingMessage
+        }
+    }
+
+    /// Web `PasskeysSection` copy: Better Auth's fresh-session guard
+    /// (SESSION_NOT_FRESH, a session older than a day) gets the sentence that
+    /// says what to do; anything else is the server's own message.
+    static func passkeyRegistrationErrorMessage(from data: Data) -> String? {
+        if authErrorCode(from: data) == "SESSION_NOT_FRESH" {
+            return "Sign in again to add a passkey (your current session is older than a day)."
+        }
+        return authErrorMessage(from: data)
     }
 
     /// Best-effort push of the user's name to Better Auth's core update-user

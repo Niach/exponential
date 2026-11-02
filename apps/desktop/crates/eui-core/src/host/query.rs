@@ -1,12 +1,17 @@
 //! VAPP-189 (S1): THE records query, the Rust twin of
 //! `packages/exponential-ui/src/host/query.ts`, locked by
-//! `fixtures/records-query.json` (`parseCases`, `sourceCases`,
-//! `valueCases`). A binding's URL sugar (`records:<kind>?q`, a host's own
-//! spelling like Exponential's `exp:records?kind=<kind>&q`) parses INTO the
-//! structured [`RecordsQuery`]; [`records_value`] evaluates it over the rows
-//! of any store. The desktop host calls it directly; the Swift and Compose
-//! SDKs reach it through `exponential-ui-ffi` (`parse_records_query_json`,
-//! `parse_records_source_json`, `records_value_json`).
+//! `fixtures/records-query.json` (`parseCases`, `sourceCases`, `jsonCases`,
+//! `valueCases`, `expandCases`; `bucketCases` lock [`crate::dates`]). A
+//! binding's URL sugar (`records:<kind>?q`, a host's own spelling like
+//! Exponential's `exp:records?kind=<kind>&q`) parses INTO the structured
+//! [`RecordsQuery`]; [`records_value`] evaluates it over the rows of any
+//! store. The desktop host calls it directly; the Swift and Compose SDKs
+//! reach it through `exponential-ui-ffi` (`parse_records_query_json`,
+//! `parse_records_json`, `parse_records_source_json`, `records_value_json`).
+//!
+//! VAPP-190 (Q1): the JSON form ([`parse_records_json`], a package's
+//! `queries`, the `q=<json>` param): `group` (any field, `author`, date
+//! buckets), `aggregate`, `running`, `before`, `in` / `between` and `or`.
 
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
@@ -14,9 +19,11 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
-use super::sources::ParsedSource;
+use super::signature::canonical_json;
+use super::sources::{parse_source, source_with_params, ParsedSource};
 use super::{js_trim, utf16_cmp};
-use crate::json::{canonical, number, number_to_string};
+use crate::dates::{date_bucket, days_in_month, weekday_of, DateBucket, DATE_BUCKETS};
+use crate::json::{number, number_to_string};
 
 /// The binding scheme: `records:<kind>[?query]`.
 pub const RECORDS_SCHEME: &str = "records";
@@ -26,11 +33,18 @@ pub const RECORDS_ORDER_DEFAULT: &str = "desc";
 pub const RECORDS_LIMIT_DEFAULT: u32 = 100;
 pub const RECORDS_LIMIT_MAX: u32 = 500;
 /// Query keys with a meaning of their own; never a field filter.
-pub const RECORDS_RESERVED_PARAMS: &[&str] = &["app", "by", "kind", "limit", "mine", "month", "order", "sort", "sum", "user"];
+pub const RECORDS_RESERVED_PARAMS: &[&str] = &["app", "before", "by", "kind", "limit", "mine", "month", "order", "q", "query", "sort", "sum", "user"];
 /// The keys every value row carries next to its data (a data key never shadows one).
 pub const RECORDS_ROW_KEYS: &[&str] = &["id", "createdAt", "updatedAt", "createdBy", "authorId", "author"];
-/// The filter operators: `eq` is the bare key, the others a `.<op>` suffix.
-pub const RECORDS_FILTER_OPS: &[&str] = &["eq", "gt", "gte", "lt", "lte"];
+/// The filter operators: `eq` is the bare key, the others a `.<op>` suffix
+/// (`in` and `between` take comma-separated values).
+pub const RECORDS_FILTER_OPS: &[&str] = &["eq", "gt", "gte", "lt", "lte", "in", "between"];
+/// The JSON form's spellings of the operators.
+pub const RECORDS_OP_ALIASES: &[(&str, &str)] = &[("=", "eq"), ("==", "eq"), (">", "gt"), (">=", "gte"), ("<", "lt"), ("<=", "lte")];
+pub const RECORDS_AGGREGATE_OPS: &[&str] = &["sum", "avg", "min", "max", "count", "countDistinct", "first", "last"];
+pub const RECORDS_RUNNING_OPS: &[&str] = &["sum", "count", "avg", "min", "max"];
+/// Names an aggregate may not take (a group's and a total's own keys).
+pub const RECORDS_AGGREGATE_RESERVED: &[&str] = &["count", "sum", "running", "rows"];
 /// The month view's names (en-US, the same ×4).
 pub const RECORDS_WEEKDAYS: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 pub const RECORDS_MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -43,6 +57,8 @@ pub enum RecordsFilterOp {
     Gte,
     Lt,
     Lte,
+    In,
+    Between,
 }
 
 impl RecordsFilterOp {
@@ -53,6 +69,23 @@ impl RecordsFilterOp {
             Self::Gte => "gte",
             Self::Lt => "lt",
             Self::Lte => "lte",
+            Self::In => "in",
+            Self::Between => "between",
+        }
+    }
+
+    /// An operator by name (`eq` … `between`) or its JSON spelling (`<`, `>=`, `==`…).
+    pub fn parse(text: &str) -> Option<Self> {
+        let name = RECORDS_OP_ALIASES.iter().find(|(alias, _)| *alias == text).map_or(text, |(_, op)| op);
+        match name {
+            "eq" => Some(Self::Eq),
+            "gt" => Some(Self::Gt),
+            "gte" => Some(Self::Gte),
+            "lt" => Some(Self::Lt),
+            "lte" => Some(Self::Lte),
+            "in" => Some(Self::In),
+            "between" => Some(Self::Between),
+            _ => None,
         }
     }
 
@@ -63,18 +96,32 @@ impl RecordsFilterOp {
             "gte" => Some(Self::Gte),
             "lt" => Some(Self::Lt),
             "lte" => Some(Self::Lte),
+            "in" => Some(Self::In),
+            "between" => Some(Self::Between),
             _ => None,
         }
     }
+
+    fn is_list(self) -> bool {
+        matches!(self, Self::In | Self::Between)
+    }
 }
 
-/// One condition: `eq` compares as text, the ranges as numbers when both
-/// sides parse, else as text.
+/// A condition's value: one text, or a list (`in`; `between` = [low, high]).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RecordsFilterValue {
+    One(String),
+    Many(Vec<String>),
+}
+
+/// One condition: `eq` / `in` compare as text, the ranges (`between`
+/// inclusive) as numbers when both sides parse, else as text.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RecordsFilter {
     pub field: String,
     pub op: RecordsFilterOp,
-    pub value: String,
+    pub value: RecordsFilterValue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -98,8 +145,91 @@ pub struct RecordsMonthView {
     pub key: Option<String>,
 }
 
-/// The structured query (the canonical form's subset; a JSON query form adds
-/// keys next to these).
+/// One group-by key: a field (`author` = the author, by name), or a date
+/// field cut into buckets. The group's column is named `field`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RecordsGroupKey {
+    pub field: String,
+    pub bucket: Option<DateBucket>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum RecordsAggregateOp {
+    Sum,
+    Avg,
+    Min,
+    Max,
+    Count,
+    CountDistinct,
+    First,
+    Last,
+}
+
+impl RecordsAggregateOp {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "sum" => Some(Self::Sum),
+            "avg" => Some(Self::Avg),
+            "min" => Some(Self::Min),
+            "max" => Some(Self::Max),
+            "count" => Some(Self::Count),
+            "countDistinct" => Some(Self::CountDistinct),
+            "first" => Some(Self::First),
+            "last" => Some(Self::Last),
+            _ => None,
+        }
+    }
+}
+
+/// `name: [op, field?]`: a column of every group (and of `totals`).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RecordsAggregate {
+    pub name: String,
+    pub op: RecordsAggregateOp,
+    /// `None` = `count` of the rows.
+    pub field: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RecordsRunningOp {
+    Sum,
+    Count,
+    Avg,
+    Min,
+    Max,
+}
+
+impl RecordsRunningOp {
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "sum" => Some(Self::Sum),
+            "count" => Some(Self::Count),
+            "avg" => Some(Self::Avg),
+            "min" => Some(Self::Min),
+            "max" => Some(Self::Max),
+            _ => None,
+        }
+    }
+}
+
+/// A cumulative value of `field` over the groups (or rows, or month days) in order.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RecordsRunning {
+    pub field: String,
+    pub op: RecordsRunningOp,
+}
+
+/// The rows whose `field` is before `date` are left out of the rows and
+/// groups, totalled into `before` and seed every running value.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RecordsBefore {
+    pub field: String,
+    pub date: String,
+}
+
+/// The structured query.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RecordsQuery {
     /// The kind; `None` = no kind (the value is null).
@@ -110,15 +240,57 @@ pub struct RecordsQuery {
     pub mine: bool,
     /// Only this user's rows (by author).
     pub user: Option<String>,
-    /// Every condition holds; by field, then operator.
+    /// Every condition holds; by field, then operator (the URL sugar).
     #[serde(rename = "where")]
     pub where_: Vec<RecordsFilter>,
+    /// VAPP-190: one of these alternatives holds too (each: every condition).
+    #[serde(default)]
+    pub or: Vec<Vec<RecordsFilter>>,
     /// Sort keys in order; ties always fall back to the id.
     pub sort: Vec<RecordsSortKey>,
     pub limit: u32,
     /// Σ of this field over the matches (before the limit).
     pub sum: Option<String>,
     pub month: Option<RecordsMonthView>,
+    /// VAPP-190: the group-by keys.
+    #[serde(default)]
+    pub group: Vec<RecordsGroupKey>,
+    /// VAPP-190: the aggregates, by name.
+    #[serde(default)]
+    pub aggregate: Vec<RecordsAggregate>,
+    /// VAPP-190: the running values, by field.
+    #[serde(default)]
+    pub running: Vec<RecordsRunning>,
+    #[serde(default)]
+    pub before: Option<RecordsBefore>,
+}
+
+impl Default for RecordsQuery {
+    fn default() -> Self {
+        RecordsQuery {
+            from: None,
+            app: None,
+            mine: false,
+            user: None,
+            where_: Vec::new(),
+            or: Vec::new(),
+            sort: vec![RecordsSortKey { field: RECORDS_SORT_DEFAULT.to_string(), order: RecordsOrder::Desc }],
+            limit: RECORDS_LIMIT_DEFAULT,
+            sum: None,
+            month: None,
+            group: Vec::new(),
+            aggregate: Vec::new(),
+            running: Vec::new(),
+            before: None,
+        }
+    }
+}
+
+/// A problem with a JSON query, a JSON pointer into it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecordsQueryIssue {
+    pub path: String,
+    pub message: String,
 }
 
 /// JavaScript's `Number(string)`: trimmed, empty = 0, `0x` / `0o` / `0b`
@@ -190,8 +362,14 @@ fn trimmed(v: Option<&str>) -> Option<String> {
 
 /// Query params (as [`super::parse_source`] gives them) → the query. `kind`
 /// = the source's own name (the neutral `records:<kind>`), which wins over a
-/// `kind` param. Unknown keys are field filters.
+/// `kind` param. Unknown keys are field filters. VAPP-190: `q=<json>` = the
+/// JSON form ([`parse_records_json`]; the other params are ignored).
 pub fn parse_records_query(params: &BTreeMap<String, String>, kind: Option<&str>) -> RecordsQuery {
+    let from = trimmed(kind.or(params.get("kind").map(String::as_str)));
+    if let Some(q) = params.get("q").filter(|q| !js_trim(q).is_empty()) {
+        let json = serde_json::from_str::<Value>(q).ok().filter(Value::is_object).unwrap_or_else(|| json!({}));
+        return parse_records_json(&json, from.as_deref()).0;
+    }
     let limit_raw = params.get("limit").map_or(f64::NAN, |l| js_string_number(l));
     let mut keys: Vec<&String> = params.keys().collect();
     keys.sort_by(|a, b| utf16_cmp(a, b));
@@ -202,8 +380,11 @@ pub fn parse_records_query(params: &BTreeMap<String, String>, kind: Option<&str>
         }
         let value = params[key].clone();
         match key.rfind('.').and_then(|dot| RecordsFilterOp::suffix(&key[dot + 1..]).map(|op| (dot, op))) {
-            Some((dot, op)) if dot > 0 => where_.push(RecordsFilter { field: key[..dot].to_string(), op, value }),
-            _ => where_.push(RecordsFilter { field: key.clone(), op: RecordsFilterOp::Eq, value }),
+            Some((dot, op)) if dot > 0 => {
+                let value = if op.is_list() { RecordsFilterValue::Many(value.split(',').map(str::to_string).collect()) } else { RecordsFilterValue::One(value) };
+                where_.push(RecordsFilter { field: key[..dot].to_string(), op, value });
+            }
+            _ => where_.push(RecordsFilter { field: key.clone(), op: RecordsFilterOp::Eq, value: RecordsFilterValue::One(value) }),
         }
     }
     where_.sort_by(|a, b| utf16_cmp(&a.field, &b.field).then_with(|| utf16_cmp(a.op.as_str(), b.op.as_str())));
@@ -215,8 +396,9 @@ pub fn parse_records_query(params: &BTreeMap<String, String>, kind: Option<&str>
     };
     let limit = if limit_raw.is_finite() && limit_raw.fract() == 0.0 && limit_raw > 0.0 { limit_raw.min(f64::from(RECORDS_LIMIT_MAX)) as u32 } else { RECORDS_LIMIT_DEFAULT };
     let by = trimmed(params.get("by").map(String::as_str));
+    let before = trimmed(params.get("before").map(String::as_str));
     RecordsQuery {
-        from: trimmed(kind.or(params.get("kind").map(String::as_str))),
+        from,
         app: trimmed(params.get("app").map(String::as_str)),
         mine: matches!(params.get("mine").map(String::as_str), Some("1" | "true")),
         user: trimmed(params.get("user").map(String::as_str)),
@@ -224,13 +406,323 @@ pub fn parse_records_query(params: &BTreeMap<String, String>, kind: Option<&str>
         sort: vec![RecordsSortKey { field: trimmed(params.get("sort").map(String::as_str)).unwrap_or_else(|| RECORDS_SORT_DEFAULT.to_string()), order }],
         limit,
         sum: trimmed(params.get("sum").map(String::as_str)),
+        before: before.map(|date| RecordsBefore { field: by.clone().unwrap_or_else(|| RECORDS_SORT_DEFAULT.to_string()), date }),
         month: by.map(|field| RecordsMonthView { field, key: params.get("month").filter(|m| is_month_key(m)).cloned() }),
+        ..RecordsQuery::default()
     }
 }
 
 /// `records:<kind>?…` → the query; `None` = not a records source.
 pub fn parse_records_source(source: &ParsedSource) -> Option<RecordsQuery> {
     (source.scheme == RECORDS_SCHEME).then(|| parse_records_query(&source.params, Some(&source.name)))
+}
+
+/// A JSON scalar as the query's text (a number as JS prints it); `None` = not a scalar.
+fn scalar_text(v: &Value) -> Option<String> {
+    match v {
+        Value::Null => Some(String::new()),
+        Value::String(s) => Some(s.clone()),
+        Value::Bool(b) => Some(b.to_string()),
+        Value::Number(n) => Some(number_to_string(n.as_f64().unwrap_or(0.0))),
+        _ => None,
+    }
+}
+
+fn issue(issues: &mut Vec<RecordsQueryIssue>, path: impl Into<String>, message: impl Into<String>) {
+    issues.push(RecordsQueryIssue { path: path.into(), message: message.into() });
+}
+
+/// `[field, op, value…]` → a condition.
+fn parse_condition(entry: &Value, at: &str, issues: &mut Vec<RecordsQueryIssue>) -> Option<RecordsFilter> {
+    let Some(list) = entry.as_array().filter(|l| l.len() >= 3) else {
+        issue(issues, at, "a condition is [field, op, value]");
+        return None;
+    };
+    let Some(field) = list[0].as_str().map(js_trim).filter(|f| !f.is_empty()) else {
+        issue(issues, format!("{at}/0"), "a condition's field is a non-empty string");
+        return None;
+    };
+    let Some(op) = list[1].as_str().and_then(RecordsFilterOp::parse) else {
+        issue(issues, format!("{at}/1"), format!("unknown operator {}", crate::json::to_js_string(&list[1])));
+        return None;
+    };
+    let rest = &list[2..];
+    if op == RecordsFilterOp::In {
+        let values: Option<Vec<String>> = match rest {
+            [Value::Array(items)] => items.iter().map(scalar_text).collect(),
+            _ => None,
+        };
+        let Some(values) = values else {
+            issue(issues, format!("{at}/2"), "in takes one list of values");
+            return None;
+        };
+        return Some(RecordsFilter { field: field.to_string(), op, value: RecordsFilterValue::Many(values) });
+    }
+    let values: Option<Vec<String>> = rest.iter().map(scalar_text).collect();
+    let want = if op == RecordsFilterOp::Between { 2 } else { 1 };
+    let Some(mut values) = values.filter(|v| v.len() == want) else {
+        issue(issues, format!("{at}/2"), if op == RecordsFilterOp::Between { "between takes a low and a high value".to_string() } else { format!("{} takes one value", op.as_str()) });
+        return None;
+    };
+    let value = if op == RecordsFilterOp::Between { RecordsFilterValue::Many(values) } else { RecordsFilterValue::One(values.remove(0)) };
+    Some(RecordsFilter { field: field.to_string(), op, value })
+}
+
+const QUERY_KEYS: &[&str] = &["from", "app", "mine", "user", "where", "sort", "limit", "sum", "month", "group", "aggregate", "running", "before"];
+
+fn sorted_keys(map: &Map<String, Value>) -> Vec<&String> {
+    let mut keys: Vec<&String> = map.keys().collect();
+    keys.sort_by(|a, b| utf16_cmp(a, b));
+    keys
+}
+
+/// VAPP-190: the JSON form (a package's `queries`, the `q` param) → the
+/// query and every problem with it (a problem drops the part, the rest
+/// still runs). `kind` (a source's own) wins over `from`.
+pub fn parse_records_json(json: &Value, kind: Option<&str>) -> (RecordsQuery, Vec<RecordsQueryIssue>) {
+    let mut issues = Vec::new();
+    let mut query = RecordsQuery::default();
+    let Some(obj) = json.as_object() else {
+        issue(&mut issues, "", "a query is an object");
+        query.from = trimmed(kind);
+        return (query, issues);
+    };
+    for key in sorted_keys(obj) {
+        if !QUERY_KEYS.contains(&key.as_str()) && !key.starts_with('$') {
+            issue(&mut issues, format!("/{key}"), format!("unknown key {key}"));
+        }
+    }
+    let str_of = |key: &str, issues: &mut Vec<RecordsQueryIssue>| -> Option<String> {
+        match obj.get(key) {
+            None | Some(Value::Null) => None,
+            Some(Value::String(s)) => trimmed(Some(s)),
+            Some(_) => {
+                issue(issues, format!("/{key}"), format!("{key} is a string"));
+                None
+            }
+        }
+    };
+    query.from = match trimmed(kind) {
+        Some(k) => Some(k),
+        None => str_of("from", &mut issues),
+    };
+    query.app = str_of("app", &mut issues);
+    query.user = str_of("user", &mut issues);
+    query.sum = str_of("sum", &mut issues);
+    match obj.get("mine") {
+        None => {}
+        Some(Value::Bool(b)) => query.mine = *b,
+        Some(_) => issue(&mut issues, "/mine", "mine is a boolean"),
+    }
+    match obj.get("where") {
+        None => {}
+        Some(Value::Array(list)) => {
+            for (i, entry) in list.iter().enumerate() {
+                let at = format!("/where/{i}");
+                if let Some(alt) = entry.as_object() {
+                    let Some(alternatives) = alt.get("or").and_then(Value::as_array).filter(|_| alt.len() == 1) else {
+                        issue(&mut issues, at, "an alternative is {or: [[condition…]…]}");
+                        continue;
+                    };
+                    if !query.or.is_empty() {
+                        issue(&mut issues, at, "one or per query");
+                        continue;
+                    }
+                    for (j, alt) in alternatives.iter().enumerate() {
+                        let Some(conds) = alt.as_array() else {
+                            issue(&mut issues, format!("{at}/or/{j}"), "an alternative is a list of conditions");
+                            continue;
+                        };
+                        let parsed: Vec<RecordsFilter> = conds.iter().enumerate().filter_map(|(k, c)| parse_condition(c, &format!("{at}/or/{j}/{k}"), &mut issues)).collect();
+                        query.or.push(parsed);
+                    }
+                    continue;
+                }
+                if let Some(parsed) = parse_condition(entry, &at, &mut issues) {
+                    query.where_.push(parsed);
+                }
+            }
+        }
+        Some(_) => issue(&mut issues, "/where", "where is a list of conditions"),
+    }
+    if let Some(sort) = obj.get("sort") {
+        let single = sort.is_string();
+        let list: Option<Vec<Value>> = if single { Some(vec![sort.clone()]) } else { sort.as_array().cloned() };
+        match list {
+            None => issue(&mut issues, "/sort", "sort is a field or a list of [field, order]"),
+            Some(list) => {
+                let mut keys = Vec::new();
+                for (i, entry) in list.iter().enumerate() {
+                    let asc = Value::String("asc".into());
+                    let (name, order): (Option<&Value>, Option<&Value>) = match entry {
+                        Value::String(_) => (Some(entry), Some(&asc)),
+                        Value::Array(pair) => (pair.first(), if pair.len() > 1 { pair.get(1) } else { Some(&asc) }),
+                        _ => (None, None),
+                    };
+                    let name = name.and_then(Value::as_str).map(js_trim).filter(|n| !n.is_empty());
+                    let order = match order.and_then(Value::as_str) {
+                        Some("asc") => Some(RecordsOrder::Asc),
+                        Some("desc") => Some(RecordsOrder::Desc),
+                        _ => None,
+                    };
+                    match (name, order) {
+                        (Some(name), Some(order)) => keys.push(RecordsSortKey { field: name.to_string(), order }),
+                        _ => issue(&mut issues, if single { "/sort".to_string() } else { format!("/sort/{i}") }, "a sort key is field or [field, asc|desc]"),
+                    }
+                }
+                if !keys.is_empty() {
+                    query.sort = keys;
+                }
+            }
+        }
+    }
+    if let Some(limit) = obj.get("limit") {
+        let n = match limit {
+            Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+            Value::String(s) if !js_trim(s).is_empty() => js_string_number(s),
+            _ => f64::NAN,
+        };
+        if n.is_finite() && n.fract() == 0.0 && n >= 1.0 {
+            query.limit = n.min(f64::from(RECORDS_LIMIT_MAX)) as u32;
+        } else {
+            issue(&mut issues, "/limit", "limit is a positive integer");
+        }
+    }
+    match obj.get("month") {
+        None | Some(Value::Null) => {}
+        Some(m) => {
+            let field = m.get("field").and_then(Value::as_str).map(js_trim).filter(|f| !f.is_empty());
+            let key = m.get("key");
+            match (m.as_object(), field) {
+                (Some(_), Some(field)) if matches!(key, None | Some(Value::Null) | Some(Value::String(_))) => {
+                    query.month = Some(RecordsMonthView { field: field.to_string(), key: key.and_then(Value::as_str).filter(|k| is_month_key(k)).map(str::to_string) });
+                }
+                _ => issue(&mut issues, "/month", "month is {field, key?}"),
+            }
+        }
+    }
+    match obj.get("group") {
+        None => {}
+        Some(Value::Array(list)) => {
+            for (i, entry) in list.iter().enumerate() {
+                let at = format!("/group/{i}");
+                let key = match entry {
+                    Value::String(s) if !js_trim(s).is_empty() => Some(RecordsGroupKey { field: js_trim(s).to_string(), bucket: None }),
+                    Value::Object(o) if o.len() == 2 => {
+                        let field = o.get("bucket").and_then(Value::as_str).map(js_trim).filter(|f| !f.is_empty());
+                        let bucket = o.get("by").and_then(Value::as_str).and_then(DateBucket::parse);
+                        field.zip(bucket).map(|(field, bucket)| RecordsGroupKey { field: field.to_string(), bucket: Some(bucket) })
+                    }
+                    _ => None,
+                };
+                let Some(key) = key else {
+                    issue(&mut issues, at, format!("a group key is a field or {{bucket: field, by: {}}}", DATE_BUCKETS.join("|")));
+                    continue;
+                };
+                if query.group.iter().any(|g| g.field == key.field || (key.field == "author" && g.field == "authorId") || (key.field == "authorId" && g.field == "author")) {
+                    issue(&mut issues, at, format!("duplicate group {}", key.field));
+                    continue;
+                }
+                query.group.push(key);
+            }
+        }
+        Some(_) => issue(&mut issues, "/group", "group is a list of keys"),
+    }
+    match obj.get("aggregate") {
+        None => {}
+        Some(Value::Object(aggs)) => {
+            for name in sorted_keys(aggs) {
+                let def = &aggs[name];
+                let at = format!("/aggregate/{name}");
+                if js_trim(name).is_empty() || RECORDS_AGGREGATE_RESERVED.contains(&name.as_str()) || query.group.iter().any(|g| g.field == *name || (g.field == "author" && name == "authorId")) {
+                    issue(&mut issues, at, format!("the name {name} is taken"));
+                    continue;
+                }
+                let list = def.as_array();
+                let op = list.and_then(|l| l.first()).and_then(Value::as_str).and_then(RecordsAggregateOp::parse);
+                let len = list.map_or(0, Vec::len);
+                let field = list.filter(|l| l.len() > 1).and_then(|l| l[1].as_str()).map(js_trim).filter(|f| !f.is_empty());
+                match op {
+                    Some(op) if len <= 2 && !(len > 1 && field.is_none()) && (op == RecordsAggregateOp::Count || field.is_some()) => {
+                        query.aggregate.push(RecordsAggregate { name: name.clone(), op, field: field.map(str::to_string) });
+                    }
+                    _ => issue(&mut issues, at, format!("an aggregate is [{}, field] (count: the field is optional)", RECORDS_AGGREGATE_OPS.join("|"))),
+                }
+            }
+        }
+        Some(_) => issue(&mut issues, "/aggregate", "aggregate is {name: [op, field?]}"),
+    }
+    match obj.get("running") {
+        None => {}
+        Some(Value::Object(running)) => {
+            for name in sorted_keys(running) {
+                match running[name].as_str().and_then(RecordsRunningOp::parse) {
+                    Some(op) if !js_trim(name).is_empty() => query.running.push(RecordsRunning { field: name.clone(), op }),
+                    _ => issue(&mut issues, format!("/running/{name}"), format!("a running value is {{field: {}}}", RECORDS_RUNNING_OPS.join("|"))),
+                }
+            }
+        }
+        Some(_) => issue(&mut issues, "/running", "running is {field: op}"),
+    }
+    match obj.get("before") {
+        None | Some(Value::Null) => {}
+        Some(Value::String(date)) => {
+            let implied = query.group.iter().find(|g| g.bucket.is_some()).map(|g| g.field.clone()).or_else(|| query.month.as_ref().map(|m| m.field.clone())).unwrap_or_else(|| RECORDS_SORT_DEFAULT.to_string());
+            query.before = trimmed(Some(date)).map(|date| RecordsBefore { field: implied, date });
+        }
+        Some(b) => {
+            let field = b.as_object().and_then(|o| o.get("field")).and_then(Value::as_str).map(js_trim).filter(|f| !f.is_empty());
+            match (field, b.get("date").and_then(Value::as_str)) {
+                (Some(field), Some(date)) => query.before = trimmed(Some(date)).map(|date| RecordsBefore { field: field.to_string(), date }),
+                _ => issue(&mut issues, "/before", "before is a date or {field, date}"),
+            }
+        }
+    }
+    (query, issues)
+}
+
+/// `${name}` in every string of a JSON query → `params[name]` ("" when unset).
+pub fn fill_query_templates(value: &Value, params: &BTreeMap<String, String>) -> Value {
+    match value {
+        Value::String(s) => {
+            let mut out = String::new();
+            let mut rest = s.as_str();
+            while let Some(start) = rest.find("${") {
+                let Some(len) = rest[start + 2..].find('}') else { break };
+                out.push_str(&rest[..start]);
+                let name = js_trim(&rest[start + 2..start + 2 + len]);
+                out.push_str(params.get(name).map_or("", String::as_str));
+                rest = &rest[start + 2 + len + 1..];
+            }
+            out.push_str(rest);
+            Value::String(out)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(|v| fill_query_templates(v, params)).collect()),
+        Value::Object(map) => Value::Object(map.iter().map(|(k, v)| (k.clone(), fill_query_templates(v, params))).collect()),
+        other => other.clone(),
+    }
+}
+
+/// VAPP-190: a package binding `<scheme>:<name>?query=<id>&<params>` naming
+/// one of the package's `queries` → the same source with that query, its
+/// `${param}` templates filled from the other params, as `q=<canonical
+/// JSON>` (a `kind` param stays). Anything else is returned as written.
+pub fn expand_query_source(source: &str, queries: Option<&Value>) -> String {
+    let Some(parsed) = parse_source(source) else { return source.to_string() };
+    let Some(id) = parsed.params.get("query") else { return source.to_string() };
+    let Some(query) = queries.and_then(Value::as_object).and_then(|q| q.get(id)) else { return source.to_string() };
+    let mut params = parsed.params.clone();
+    params.remove("query");
+    let kind = params.remove("kind");
+    let filled = fill_query_templates(query, &params);
+    let base = js_trim(source);
+    let head = base.split_once('?').map_or(base, |(h, _)| h);
+    let mut extra = Map::new();
+    if let Some(kind) = kind {
+        extra.insert("kind".into(), Value::String(kind));
+    }
+    extra.insert("q".into(), Value::String(canonical_json(&filled)));
+    source_with_params(head, Some(&Value::Object(extra)))
 }
 
 /// One stored record as a host hands it to the evaluator (borrowed).
@@ -328,7 +820,16 @@ fn text(v: &Field) -> String {
         Field::Json(Value::String(s)) => s.clone(),
         Field::Json(Value::Bool(b)) => b.to_string(),
         Field::Json(Value::Number(n)) => number_to_string(n.as_f64().unwrap_or(0.0)),
-        Field::Json(other) => serde_json::to_string(&canonical(other)).unwrap_or_default(),
+        Field::Json(other) => canonical_json(other),
+    }
+}
+
+/// The field as JSON (`undefined` = null).
+fn json_of(v: &Field) -> Value {
+    match v {
+        Field::Missing => Value::Null,
+        Field::Text(s) => Value::String((*s).to_string()),
+        Field::Json(v) => (*v).clone(),
     }
 }
 
@@ -341,15 +842,30 @@ fn compare(a: &Field, b: &Field) -> Ordering {
 }
 
 fn holds(filter: &RecordsFilter, value: &Field) -> bool {
-    if filter.op == RecordsFilterOp::Eq {
-        return text(value) == filter.value;
-    }
-    let c = compare(value, &Field::Text(&filter.value));
+    let list: Vec<&str> = match &filter.value {
+        RecordsFilterValue::One(v) => vec![v.as_str()],
+        RecordsFilterValue::Many(vs) => vs.iter().map(String::as_str).collect(),
+    };
     match filter.op {
-        RecordsFilterOp::Gt => c.is_gt(),
-        RecordsFilterOp::Gte => c.is_ge(),
-        RecordsFilterOp::Lt => c.is_lt(),
-        RecordsFilterOp::Lte | RecordsFilterOp::Eq => c.is_le(),
+        RecordsFilterOp::Eq => match &filter.value {
+            RecordsFilterValue::One(v) => text(value) == *v,
+            RecordsFilterValue::Many(_) => false,
+        },
+        RecordsFilterOp::In => {
+            let t = text(value);
+            list.iter().any(|v| *v == t)
+        }
+        RecordsFilterOp::Between => list.len() == 2 && compare(value, &Field::Text(list[0])).is_ge() && compare(value, &Field::Text(list[1])).is_le(),
+        op => {
+            let Some(bound) = list.first().filter(|_| list.len() == 1) else { return false };
+            let c = compare(value, &Field::Text(bound));
+            match op {
+                RecordsFilterOp::Gt => c.is_gt(),
+                RecordsFilterOp::Gte => c.is_ge(),
+                RecordsFilterOp::Lt => c.is_lt(),
+                _ => c.is_le(),
+            }
+        }
     }
 }
 
@@ -392,23 +908,6 @@ pub fn month_label(key: &str) -> String {
     format!("{} {y}", RECORDS_MONTHS[(m - 1) as usize])
 }
 
-fn days_in_month(y: i64, m: i64) -> i64 {
-    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
-    match m {
-        2 if leap => 29,
-        2 => 28,
-        4 | 6 | 9 | 11 => 30,
-        _ => 31,
-    }
-}
-
-/// 0 = Sunday (Sakamoto's method, proleptic Gregorian).
-fn weekday(y: i64, m: i64, d: i64) -> usize {
-    const T: [i64; 12] = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
-    let y = if m < 3 { y - 1 } else { y };
-    (y + y.div_euclid(4) - y.div_euclid(100) + y.div_euclid(400) + T[(m - 1) as usize] + d).rem_euclid(7) as usize
-}
-
 /// One day of the month view.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RecordsDay {
@@ -422,7 +921,7 @@ pub struct RecordsDay {
 /// Every day of `key` (`YYYY-MM`), empty.
 pub fn month_days(key: &str) -> Vec<RecordsDay> {
     let (y, m) = parse_month(key);
-    (1..=days_in_month(y, m)).map(|day| RecordsDay { date: format!("{key}-{day:02}"), day, weekday: RECORDS_WEEKDAYS[weekday(y, m, day)], count: 0, sum: 0.0 }).collect()
+    (1..=days_in_month(y, m)).map(|day| RecordsDay { date: format!("{key}-{day:02}"), day, weekday: RECORDS_WEEKDAYS[weekday_of(y, m, day)], count: 0, sum: 0.0 }).collect()
 }
 
 /// JS `Math.round(n * 1e6) / 1e6`: sums like 0.1 + 0.2 stay readable (and identical ×4).
@@ -435,38 +934,177 @@ fn prefix(s: &str, n: usize) -> String {
     s.chars().take(n).collect()
 }
 
+/// One aggregate over rows in the query's order.
+fn aggregate_of(agg: &RecordsAggregate, rows: &[&RecordRowRef]) -> Value {
+    let values: Vec<Field> = match &agg.field {
+        Some(f) => rows.iter().map(|r| field(r, f)).collect(),
+        None => Vec::new(),
+    };
+    match agg.op {
+        RecordsAggregateOp::Count => json!(if agg.field.is_none() { rows.len() } else { values.iter().filter(|v| !text(v).is_empty()).count() }),
+        RecordsAggregateOp::Sum => number(round(values.iter().fold(0.0, |acc, v| acc + num(v).unwrap_or(0.0)))),
+        RecordsAggregateOp::Avg => {
+            let nums: Vec<f64> = values.iter().filter_map(num).collect();
+            if nums.is_empty() {
+                Value::Null
+            } else {
+                number(round(nums.iter().fold(0.0, |a, b| a + b) / nums.len() as f64))
+            }
+        }
+        RecordsAggregateOp::Min | RecordsAggregateOp::Max => {
+            let mut best: Option<&Field> = None;
+            for v in &values {
+                if text(v).is_empty() {
+                    continue;
+                }
+                let better = match best {
+                    None => true,
+                    Some(b) if agg.op == RecordsAggregateOp::Min => compare(v, b).is_lt(),
+                    Some(b) => compare(v, b).is_gt(),
+                };
+                if better {
+                    best = Some(v);
+                }
+            }
+            best.map_or(Value::Null, |b| num(b).map_or_else(|| Value::String(text(b)), number))
+        }
+        RecordsAggregateOp::CountDistinct => {
+            let mut seen: Vec<String> = values.iter().map(text).filter(|t| !t.is_empty()).collect();
+            seen.sort();
+            seen.dedup();
+            json!(seen.len())
+        }
+        RecordsAggregateOp::First => values.first().map_or(Value::Null, json_of),
+        RecordsAggregateOp::Last => values.last().map_or(Value::Null, json_of),
+    }
+}
+
+fn sum_of(row: &RecordRowRef, f: &str) -> f64 {
+    num_value(row.data.as_object().and_then(|o| o.get(f))).unwrap_or(0.0)
+}
+
+/// count, sum?, then every aggregate: a group's, `totals`' and `before`'s columns.
+fn summary(query: &RecordsQuery, rows: &[&RecordRowRef], out: &mut Map<String, Value>) {
+    out.insert("count".into(), json!(rows.len()));
+    if let Some(sum) = &query.sum {
+        out.insert("sum".into(), number(round(rows.iter().fold(0.0, |acc, row| acc + sum_of(row, sum)))));
+    }
+    for agg in &query.aggregate {
+        out.insert(agg.name.clone(), aggregate_of(agg, rows));
+    }
+}
+
+#[derive(Default, Clone, Copy)]
+struct RunningAcc {
+    sum: f64,
+    count: u64,
+    nums: u64,
+    min: Option<f64>,
+    max: Option<f64>,
+}
+
+/// The running values: fed row by row, read after each step.
+struct Running<'q> {
+    list: &'q [RecordsRunning],
+    acc: Vec<RunningAcc>,
+}
+
+impl<'q> Running<'q> {
+    fn new(list: &'q [RecordsRunning]) -> Self {
+        Running { list, acc: vec![RunningAcc::default(); list.len()] }
+    }
+
+    fn add(&mut self, row: &RecordRowRef) {
+        for (r, a) in self.list.iter().zip(self.acc.iter_mut()) {
+            a.count += 1;
+            let Some(n) = num(&field(row, &r.field)) else { continue };
+            a.sum += n;
+            a.nums += 1;
+            a.min = Some(a.min.map_or(n, |m| if n < m { n } else { m }));
+            a.max = Some(a.max.map_or(n, |m| if n > m { n } else { m }));
+        }
+    }
+
+    fn read(&self) -> Value {
+        let mut out = Map::new();
+        for (r, a) in self.list.iter().zip(&self.acc) {
+            let v = match r.op {
+                RecordsRunningOp::Sum => number(round(a.sum)),
+                RecordsRunningOp::Count => json!(a.count),
+                RecordsRunningOp::Avg if a.nums > 0 => number(round(a.sum / a.nums as f64)),
+                RecordsRunningOp::Avg => Value::Null,
+                RecordsRunningOp::Min => a.min.map_or(Value::Null, number),
+                RecordsRunningOp::Max => a.max.map_or(Value::Null, number),
+            };
+            out.insert(r.field.clone(), v);
+        }
+        Value::Object(out)
+    }
+}
+
+/// A group's column: `author` = the author's name (+ `authorId`), a bucket =
+/// the date's bucket key, any other field its value.
+fn group_columns(key: &RecordsGroupKey, row: &RecordRowRef, names: &HashMap<String, String>, cols: &mut Map<String, Value>) -> String {
+    if key.field == "author" {
+        let author = row.author();
+        cols.insert("author".into(), json!(author.and_then(|a| names.get(a)).cloned().unwrap_or_default()));
+        cols.insert("authorId".into(), json!(author));
+        return author.unwrap_or("").to_string();
+    }
+    let v = field(row, &key.field);
+    if let Some(bucket) = key.bucket {
+        let b = date_bucket(&text(&v), bucket);
+        cols.insert(key.field.clone(), json!(b));
+        return b.unwrap_or_default();
+    }
+    cols.insert(key.field.clone(), json_of(&v));
+    text(&v)
+}
+
 /// The value a records binding emits for `query` over `rows` (every row of
 /// the app, any kind): `None` without a kind; else {rows, count, sum?,
-/// month?}: the matches sorted (ties by id) then cut at the limit, `count`
-/// and `sum` before the limit.
+/// month?, groups?, totals?, before?}: the matches sorted (ties by id) then
+/// cut at the limit, `count` and `sum` before the limit.
 pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsContext) -> Option<Value> {
     let kind = query.from.as_deref()?;
     let view = query.month.as_ref();
     let month_key: Option<String> = view.map(|v| v.key.clone().unwrap_or_else(|| prefix(ctx.now, 7)));
-    let mut matched: Vec<&RecordRowRef> = rows
-        .iter()
-        .filter(|row| {
-            if row.kind != kind {
-                return false;
+    let mut before: Vec<&RecordRowRef> = Vec::new();
+    let mut matched: Vec<&RecordRowRef> = Vec::new();
+    for row in rows {
+        if row.kind != kind {
+            continue;
+        }
+        let author = row.author();
+        if query.mine && (ctx.me.is_none() || author != ctx.me) {
+            continue;
+        }
+        if let Some(user) = &query.user {
+            if author != Some(user.as_str()) {
+                continue;
             }
-            let author = row.author();
-            if query.mine && (ctx.me.is_none() || author != ctx.me) {
-                return false;
+        }
+        if !query.where_.iter().all(|f| holds(f, &field(row, &f.field))) {
+            continue;
+        }
+        if !query.or.is_empty() && !query.or.iter().any(|alt| alt.iter().all(|f| holds(f, &field(row, &f.field)))) {
+            continue;
+        }
+        if let Some(b) = &query.before {
+            let t = text(&field(row, &b.field));
+            if !t.is_empty() && compare(&Field::Text(&t), &Field::Text(&b.date)).is_lt() {
+                before.push(row);
+                continue;
             }
-            if let Some(user) = &query.user {
-                if author != Some(user.as_str()) {
-                    return false;
-                }
+        }
+        if let (Some(view), Some(key)) = (view, &month_key) {
+            if !text(&data_field(row, &view.field)).starts_with(key.as_str()) {
+                continue;
             }
-            if let (Some(view), Some(key)) = (view, &month_key) {
-                if !text(&data_field(row, &view.field)).starts_with(key.as_str()) {
-                    return false;
-                }
-            }
-            query.where_.iter().all(|f| holds(f, &field(row, &f.field)))
-        })
-        .collect();
-    matched.sort_by(|a, b| {
+        }
+        matched.push(row);
+    }
+    let order = |a: &&RecordRowRef, b: &&RecordRowRef| {
         for key in &query.sort {
             let c = compare(&field(a, &key.field), &field(b, &key.field));
             if c.is_ne() {
@@ -474,7 +1112,17 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
             }
         }
         utf16_cmp(a.id, b.id)
-    });
+    };
+    matched.sort_by(order);
+    before.sort_by(order);
+    let seeded = || {
+        let mut r = Running::new(&query.running);
+        for row in &before {
+            r.add(row);
+        }
+        r
+    };
+    let mut row_running = (!query.running.is_empty() && query.group.is_empty()).then(seeded);
     let out_rows: Vec<Value> = matched
         .iter()
         .take(query.limit as usize)
@@ -487,33 +1135,59 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
             obj.insert("authorId".into(), json!(row.author()));
             let author = row.author().and_then(|a| ctx.names.get(a)).cloned().unwrap_or_default();
             obj.insert("author".into(), json!(author));
+            if let Some(r) = row_running.as_mut() {
+                r.add(row);
+                obj.insert("running".into(), r.read());
+            }
             Value::Object(obj)
         })
         .collect();
     let mut out = Map::new();
     out.insert("rows".into(), Value::Array(out_rows));
     out.insert("count".into(), json!(matched.len()));
-    let sum_of = |row: &RecordRowRef, f: &str| num_value(row.data.as_object().and_then(|o| o.get(f))).unwrap_or(0.0);
     if let Some(sum) = &query.sum {
         let total = matched.iter().fold(0.0, |acc, row| acc + sum_of(row, sum));
         out.insert("sum".into(), number(round(total)));
     }
     if let (Some(view), Some(key)) = (view, &month_key) {
         let mut days = month_days(key);
+        let mut per_day: Vec<Vec<&RecordRowRef>> = vec![Vec::new(); days.len()];
         for row in &matched {
             let date = prefix(&text(&data_field(row, &view.field)), 10);
-            let Some(day) = days.iter_mut().find(|d| d.date == date) else {
+            let Some(i) = days.iter().position(|d| d.date == date) else {
                 continue;
             };
+            let day = &mut days[i];
             day.count += 1;
             if let Some(sum) = &query.sum {
                 day.sum = round(day.sum + sum_of(row, sum));
+            }
+            per_day[i].push(row);
+        }
+        let mut runnings: Vec<Option<Value>> = vec![None; days.len()];
+        if !query.running.is_empty() {
+            let mut r = seeded();
+            for (i, rows) in per_day.iter().enumerate() {
+                for row in rows {
+                    r.add(row);
+                }
+                runnings[i] = Some(r.read());
             }
         }
         let labels: Vec<String> = days.iter().map(|d| d.day.to_string()).collect();
         let counts: Vec<u64> = days.iter().map(|d| d.count).collect();
         let sums: Vec<Value> = days.iter().map(|d| number(d.sum)).collect();
-        let days_json: Vec<Value> = days.iter().map(|d| json!({"date": d.date, "day": d.day, "weekday": d.weekday, "count": d.count, "sum": number(d.sum)})).collect();
+        let days_json: Vec<Value> = days
+            .iter()
+            .zip(runnings)
+            .map(|(d, running)| {
+                let mut day = json!({"date": d.date, "day": d.day, "weekday": d.weekday, "count": d.count, "sum": number(d.sum)});
+                if let (Some(running), Some(obj)) = (running, day.as_object_mut()) {
+                    obj.insert("running".into(), running);
+                }
+                day
+            })
+            .collect();
         out.insert(
             "month".into(),
             json!({
@@ -528,6 +1202,88 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
                 "sums": sums,
             }),
         );
+    }
+    if !query.group.is_empty() {
+        struct Group<'r, 'a> {
+            parts: Vec<String>,
+            rows: Vec<&'r RecordRowRef<'a>>,
+            out: Map<String, Value>,
+        }
+        let mut groups: Vec<Group> = Vec::new();
+        let mut index: HashMap<Vec<String>, usize> = HashMap::new();
+        for row in &matched {
+            let mut cols = Map::new();
+            let parts: Vec<String> = query.group.iter().map(|key| group_columns(key, row, ctx.names, &mut cols)).collect();
+            match index.get(&parts) {
+                Some(&i) => groups[i].rows.push(row),
+                None => {
+                    index.insert(parts.clone(), groups.len());
+                    groups.push(Group { parts, rows: vec![row], out: cols });
+                }
+            }
+        }
+        for g in &mut groups {
+            let rows = g.rows.clone();
+            summary(query, &rows, &mut g.out);
+        }
+        let mut columns: Vec<&str> = Vec::new();
+        for g in &query.group {
+            if g.field == "author" {
+                columns.extend(["author", "authorId"]);
+            } else {
+                columns.push(&g.field);
+            }
+        }
+        columns.push("count");
+        if query.sum.is_some() {
+            columns.push("sum");
+        }
+        columns.extend(query.aggregate.iter().map(|a| a.name.as_str()));
+        let sort_keys: Vec<&RecordsSortKey> = query.sort.iter().filter(|k| columns.contains(&k.field.as_str())).collect();
+        let col = |g: &Group, name: &str| -> Value { g.out.get(name).cloned().unwrap_or(Value::Null) };
+        groups.sort_by(|a, b| {
+            for key in &sort_keys {
+                let (va, vb) = (col(a, &key.field), col(b, &key.field));
+                let c = compare(&Field::Json(&va), &Field::Json(&vb));
+                if c.is_ne() {
+                    return if key.order == RecordsOrder::Asc { c } else { c.reverse() };
+                }
+            }
+            for key in &query.group {
+                let (va, vb) = (col(a, &key.field), col(b, &key.field));
+                let c = compare(&Field::Json(&va), &Field::Json(&vb));
+                if c.is_ne() {
+                    return c;
+                }
+            }
+            for (pa, pb) in a.parts.iter().zip(&b.parts) {
+                let c = utf16_cmp(pa, pb);
+                if c.is_ne() {
+                    return c;
+                }
+            }
+            Ordering::Equal
+        });
+        if !query.running.is_empty() {
+            let mut r = seeded();
+            for g in &mut groups {
+                for row in &g.rows {
+                    r.add(row);
+                }
+                g.out.insert("running".into(), r.read());
+            }
+        }
+        out.insert("groups".into(), Value::Array(groups.into_iter().map(|g| Value::Object(g.out)).collect()));
+    }
+    if !query.aggregate.is_empty() {
+        let mut totals = Map::new();
+        summary(query, &matched, &mut totals);
+        out.insert("totals".into(), Value::Object(totals));
+    }
+    if query.before.is_some() {
+        let mut b = Map::new();
+        summary(query, &before, &mut b);
+        out.insert("before".into(), Value::Object(b));
     }
     Some(Value::Object(out))
 }

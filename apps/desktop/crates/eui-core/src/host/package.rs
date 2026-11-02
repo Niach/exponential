@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
 use super::policy::matches_pattern;
+use super::query::parse_records_json;
 use super::record_store::RECORDS_SCHEME;
 use super::records::{is_record_kind, validate_record_schema};
 use super::sources::parse_source;
@@ -254,6 +255,46 @@ pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], exte
             }
         }
     }
+    // VAPP-190: the named queries parse clean, read a declared kind, and a
+    // records binding's `query=` names one of them.
+    if let Some(queries) = p.get("queries") {
+        match queries.as_object() {
+            None => issues.push(issue("/queries", "queries is an object of named queries")),
+            Some(queries) => {
+                let mut names: Vec<&String> = queries.keys().collect();
+                names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+                for name in names {
+                    let at = format!("/queries/{name}");
+                    if !is_query_name(name) {
+                        issues.push(issue(at.clone(), "a query name is a letter, then letters, digits and underscores"));
+                    }
+                    let q = &queries[name];
+                    for i in parse_records_json(q, None).1 {
+                        issues.push(issue(format!("{at}{}", i.path), i.message));
+                    }
+                    let from = q.as_object().and_then(|o| o.get("from")).and_then(Value::as_str).map(super::js_trim).unwrap_or("");
+                    if !from.is_empty() && !from.contains("${") && !p.get("records").and_then(Value::as_object).is_some_and(|r| r.contains_key(from)) {
+                        issues.push(issue(format!("{at}/from"), format!("records:{from} names no declared kind")));
+                    }
+                }
+            }
+        }
+    }
+    for (id, template) in p.get("templates").and_then(Value::as_object).into_iter().flatten() {
+        let Some(bindings) = template.as_object().and_then(|t| t.get("bindings")).and_then(Value::as_array) else { continue };
+        for (i, b) in bindings.iter().enumerate() {
+            let Some(parsed) = b.as_object().and_then(|o| o.get("source")).and_then(Value::as_str).and_then(parse_source) else { continue };
+            let Some(name) = parsed.params.get("query") else { continue };
+            if parsed.scheme != RECORDS_SCHEME && !(parsed.scheme == "exp" && parsed.name == "records") {
+                continue;
+            }
+            if !p.get("queries").and_then(Value::as_object).is_some_and(|q| q.contains_key(name)) {
+                issues.push(issue(format!("/templates/{id}/bindings/{i}/source"), format!("query {name} names no package query")));
+            }
+        }
+    }
+    // VAPP-191: every expression in a template parses and type-checks.
+    issues.extend(super::expressions::validate_package_expressions(p));
     if let Some(tools) = p.get("tools") {
         issues.extend(validate_tools(tools));
     }
@@ -385,4 +426,13 @@ pub fn merge_data(base: Option<&Value>, over: Option<&Value>) -> Option<Value> {
         }
         (_, Some(over)) => Some(over.clone()),
     }
+}
+
+/// VAPP-190: a package query's name (catalog/host.json `package.records.query.queryNamePattern`).
+pub const QUERY_NAME_PATTERN: &str = "^[a-z][A-Za-z0-9_]{0,31}$";
+
+/// [`QUERY_NAME_PATTERN`] without a regex engine.
+pub fn is_query_name(name: &str) -> bool {
+    let b = name.as_bytes();
+    !b.is_empty() && b.len() <= 32 && b[0].is_ascii_lowercase() && b[1..].iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_')
 }

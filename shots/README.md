@@ -92,9 +92,14 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   garage, caddy, steer-relay). **Caddy is load-bearing** — captures go through
   `https://localhost:3000` (h2), because Electric's long-polls starve Chromium's
   HTTP/1.1 connection limit.
-- The web app serving on `:5173`. `bun dev` works where dev mode works; on
-  machines where it doesn't, build once (`cd apps/web && bun run build`) and run
-  `PORT=5173 bun .output/server/index.mjs` with the `.env` vars exported.
+- The web app serving on `:5173`. Run it as `cd apps/web && bun run dev:capture`
+  (EXP-1558): plain `bun dev` dies under capture load, first on 431 (the lanes'
+  cookies + shape headers outgrow node's 16 KB header cap), then on an
+  unhandled "Response body disturbed" rejection that takes the whole server
+  down mid-run; `dev:capture` raises the cap and makes unhandled rejections
+  non-fatal. On machines where dev mode doesn't work, build once (`cd apps/web
+  && bun run build`) and run `PORT=5173 bun .output/server/index.mjs` with the
+  `.env` vars exported.
 - `apps/web/.env` as a REAL file (dotenvx injects nothing through a symlink)
   with at least `DATABASE_URL`, `BETTER_AUTH_*`, `ELECTRIC_URL`,
   `STEER_RELAY_URL=ws://localhost:4002`, `STEER_RELAY_SECRET` matching the
@@ -224,6 +229,49 @@ and `SHOTS_RELAY_URL` (default `ws://localhost:4002`) name its Caddy and steer
 relay, and `SHOTS_PRIVATE_DOTENV=1` says this worktree's `.env` files are that
 stack's own, so their `DATABASE_URL` may be the capture DB (the compose default
 `localhost:54321/exponential` stays refused).
+
+### Parallel lanes on one isolated stack (EXP-1558)
+
+The recipe the full ×5 refresh runs with, every lane against ONE stack:
+
+```bash
+# once: own compose project (postgres wal_level=logical, electric, garage,
+# caddy with `max_conns_per_host 512`, steer-relay), migrate + custom triggers,
+# both .env files pointed at it, then
+cd apps/web && bun run dev:capture --port 5174 --strictPort   # nohup it
+bash scripts/build-enet-wasm.sh          # public/enet: web's session feed
+bun run seed:screenshots                 # from apps/web, against the stack
+bun scripts/screenshot-desktop.ts        # from apps/web, nohup; the relay + eNet stub
+
+export SHOTS_PRIVATE_DOTENV=1 SHOTS_DATABASE_URL=$DATABASE_URL \
+  SHOTS_DEV_URL=http://localhost:5174 SHOTS_PROXY_URL=https://localhost:3001 \
+  CAPTURE_BASE_URL=https://localhost:3001 SHOTS_RELAY_URL=ws://localhost:4003 \
+  SNAPSHOT_INSTANCE_URL=http://localhost:5174 SCREENGRAB_INSTANCE_URL=http://10.0.2.2:5174 \
+  EXP_UPDATE_API=http://127.0.0.1:9      # a dead address: no desktop update banner
+bun run shots -- --platform web --skip-seed          # one platform per run,
+bun run shots -- --platform web-mobile --skip-seed   # several at once
+scripts/lanes/lane.sh ios <owner> -- bun run shots -- --platform ios --skip-seed
+scripts/lanes/lane.sh android <owner> -- bun run shots -- --platform android --skip-seed
+scripts/lanes/lane.sh heavy <owner> -- sh -c 'CARGO_TARGET_DIR=/tmp/<x> bun run shots -- --platform desktop --skip-seed'
+```
+
+- **One stub.** A `--skip-seed` run REUSES the `screenshots:desktop` stub this
+  checkout already runs (its record: `$TMPDIR/exp-screenshot-stub-<key>.json`);
+  a seeding run stops it and starts a fresh one (the seed wipes its rows). Two
+  stubs on one relay used to register the demo machine twice. The stub answers
+  EVERY session of the demo machine (the scripted one live, the rest as stored
+  replays), so no viewer sits in a `no_such_session` redial loop.
+- **iOS** builds the missing `ExponentialUIFFI` / `ExponentialNetFFI`
+  simulator slices itself, re-generates the project (`tuist clean manifests`)
+  and FAILS when `ENET_NODE` or the eUI link is still off: never "Preview"
+  boxes or "No live transcript".
+- **Android**: a failed walk step is retried once and recorded; the shots it
+  already took are kept, and the lane fails only on a shot it owed.
+- **Desktop**: the binary must come from this checkout (`capture-desktop.ts`
+  refuses another worktree's build or one older than the newest desktop
+  source); copy it out of the shared cargo target before the run. The
+  repo-backed views (`source-control`, `files`) read a fixture repo the run
+  builds at `/Users/Shared/Exponential/shots` unless `--repos-root` is given.
 
 ## Per-platform lanes
 

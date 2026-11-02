@@ -409,6 +409,14 @@ fn runner_options(row: &SessionRow, base: &LaunchOptions, settings: &Settings) -
             options.effort = normalized;
         }
     }
+    // EXP-1583: the launch's subagent model (claude only; blank = the
+    // machine's default, applied by `session_launch_options`).
+    if let Some(subagent) = picked(&row.subagent_model) {
+        let normalized = normalize_choice(&subagent, agent.model_values(), "");
+        if !normalized.is_empty() && agent.supports_subagent_model() {
+            options.subagent_model = normalized;
+        }
+    }
     options.plan_mode = row.plan_mode;
     options.ultracode = row.ultracode && agent.supports_ultracode();
     options.computer_use = Some(row.computer_use);

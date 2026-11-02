@@ -1,6 +1,7 @@
 #if DEBUG
 import ExpCore
 import Foundation
+import UIKit
 
 /// CAPTURE-ONLY seam for the screenshot suites (EXP-1267), compiled into DEBUG
 /// builds only and inert unless the process was launched with `-uiTesting`.
@@ -52,6 +53,26 @@ enum UITestingSession {
         let instanceUrl: String
         let token: String
         let user: AuthUser
+    }
+
+    /// EXP-1558: the Darwin notification the UI test posts to lower the
+    /// keyboard (`dismissKeyboard`, ScreenshotFlow.swift). XCUITest has no
+    /// hide-keyboard key on a phone, and a page that does not scroll (a draft
+    /// app's starters) ignores the interactive drag, so the suite asks the
+    /// app to resign its first responder, as its own tap-outside catchers do.
+    static let endEditingNotification = "at.exponential.uitesting.end-editing"
+
+    /// Register the end-editing hook (`-uiTesting` only).
+    static func installEndEditingHook() {
+        guard isUITesting else { return }
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            nil,
+            { _, _, _, _, _ in DispatchQueue.main.async { UIApplication.endEditing() } },
+            endEditingNotification as CFString,
+            nil,
+            .deliverImmediately
+        )
     }
 
     /// After `AuthRepository` exists: persist the injected session, if any.

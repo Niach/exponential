@@ -123,7 +123,6 @@ pub(crate) fn delete_alert_for(
         copy.menu.delete.clone(),
     )
     .question(domain::chats::chat_delete_title(count))
-    .height(gpui::px(204.))
     .ok_variant(gpui_component::button::ButtonVariant::Danger)
     .on_ok(on_ok)
 }

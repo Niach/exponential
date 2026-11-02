@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "dev:capture": "NODE_OPTIONS='--max-http-header-size=131072 --unhandled-rejections=warn' DISABLE_TANSTACK_DEVTOOLS=1 vite dev",
     "start": "node .output/server/index.mjs",
     "build": "vite build && bun run scripts/fix-server-trace.ts",
     "smoke:server": "bun scripts/smoke-server.ts",

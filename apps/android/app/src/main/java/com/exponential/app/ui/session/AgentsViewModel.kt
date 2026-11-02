@@ -323,8 +323,7 @@ class AgentsViewModel @Inject constructor(
                 }
                 if (configuredAccountId != accountId) {
                     _steerEnabled.value = null
-                    _steerEnabled.value = runCatching { steerApi.config(accountId).enabled }
-                        .getOrDefault(false)
+                    steerApi.enabled(accountId).collect { _steerEnabled.value = it }
                     configuredAccountId = accountId
                 }
                 // The rows come from sync — the only thing left to fetch is the

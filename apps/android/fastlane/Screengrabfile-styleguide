@@ -48,6 +48,11 @@ locales(["en-US"])
 # Wipe the old screenshots for the captured locales before writing new ones.
 clear_previous_screenshots(true)
 
+# EXP-1558: a failed walk still pulls the shots it took (the walk itself
+# carries on past a failed step); the lane's `assert_styleguide_shots` then
+# fails the run, naming the shots it owes.
+exit_on_test_failure(false)
+
 # Stable filenames (sg_sign-in.png, …) so the reference set stays diffable.
 use_timestamp_suffix(false)
 

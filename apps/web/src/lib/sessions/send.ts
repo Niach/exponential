@@ -538,7 +538,7 @@ export function isRunnerModel(cli: string | null | undefined, model: string): bo
 
 /** Refuses a runner pick outside the contract vocabulary. */
 export function assertRunnerVocabulary(
-  input: Pick<SessionsSendInput, `cli` | `model` | `effort` | `ultracode`>
+  input: Pick<SessionsSendInput, `cli` | `model` | `effort` | `ultracode` | `subagentModel`>
 ) {
   const cli = input.cli ?? `claude`
   const bad = (message: string) => new TRPCError({ code: `BAD_REQUEST`, message })
@@ -554,11 +554,14 @@ export function assertRunnerVocabulary(
   if (cli !== `claude` && input.ultracode) {
     throw bad(`Ultracode runs on claude only`)
   }
+  if (input.subagentModel && (cli !== `claude` || !MODELS.claude!.includes(input.subagentModel))) {
+    throw bad(`Unknown subagent model "${input.subagentModel}"`)
+  }
 }
 
 type RunnerSource = Pick<
   Session,
-  `cli` | `account` | `model` | `effort` | `computerUse` | `ultracode`
+  `cli` | `account` | `model` | `effort` | `subagentModel` | `computerUse` | `ultracode`
 >
 
 /** The runner pickers of a new session: the input's, else inherited from
@@ -571,6 +574,7 @@ function runnerFields(input: Partial<SessionsSendInput>, from?: RunnerSource | n
     account: input.account ?? from?.account ?? null,
     model: input.model?.trim() || from?.model || null,
     effort: input.effort?.trim() || from?.effort || null,
+    subagentModel: input.subagentModel?.trim() || from?.subagentModel || null,
     computerUse: input.computerUse ?? from?.computerUse ?? false,
     ultracode: input.ultracode ?? from?.ultracode ?? false,
   }

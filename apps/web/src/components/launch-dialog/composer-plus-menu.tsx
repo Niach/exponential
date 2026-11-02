@@ -24,6 +24,7 @@ import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import type { McpServerList } from "@/lib/mcp-servers"
 import {
   agentEffortValues,
+  agentSupportsSubagentModel,
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import { ComposerIssuePicker } from "@/components/launch-dialog/issue-picker"
@@ -33,6 +34,7 @@ import {
   CLI_DEFAULT_EFFORT,
   effortLabel,
   modelChoices,
+  subagentModelChoices,
 } from "@/components/launch-dialog/launch-options-pane"
 import { McpServerMenuRows } from "@/components/launch-dialog/mcp-server-picker"
 import { healthBadgeLabel } from "@/lib/agent-usage"
@@ -81,6 +83,9 @@ export interface ComposerOptionsBinding {
   agent: string
   effortValue: string
   setEffortValue: (value: string) => void
+  /** EXP-1583: claude's subagent model (explicit, no Default). */
+  subagentModel: string
+  setSubagentModel: (model: string) => void
   ultracode: boolean
   setUltracode: (value: boolean) => void
   computerUse: boolean
@@ -198,8 +203,8 @@ export function ComposerOptionsMenu({
     account: runner.account !== undefined,
     model: runner.model !== undefined,
     repositories: (runner.repository?.repositories.length ?? 0) > 1,
-    // EXP-1293: `sessions.send` carries no subagent model; the row hides.
-    subagentModel: false,
+    // EXP-1583: `sessions.send` carries it; claude only.
+    subagentModel: work && agentSupportsSubagentModel(agent),
     ultracode: work && agentSupportsUltracode(agent),
     mcp: work && options.mcpServers.length > 0,
     computerUse: work && options.computerUseAvailable,
@@ -362,8 +367,24 @@ export function ComposerOptionsMenu({
             />
           ),
         }
-      case `subagents`:
-        return null
+      case `subagents`: {
+        if (!options) return null
+        const models = subagentModelChoices()
+        return {
+          ...base,
+          kind: `submenu`,
+          value: labelOf(models, options.subagentModel),
+          disabled: rowsDisabled,
+          contentClassName: SUBMENU_PICKER_CLASS,
+          body: (
+            <SubmenuSearchList
+              items={choicePickerItems(models)}
+              value={options.subagentModel}
+              onChange={pick(options.setSubagentModel)}
+            />
+          ),
+        }
+      }
       case `ultracode`:
         if (!options) return null
         return {
@@ -666,6 +687,8 @@ export function ComposerPlusMenu({
         agent: launch.agent,
         effortValue: launch.effortValue,
         setEffortValue: launch.setEffortValue,
+        subagentModel: launch.subagentModel,
+        setSubagentModel: launch.setSubagentModel,
         ultracode: launch.ultracode,
         setUltracode: launch.setUltracode,
         computerUse: launch.computerUse,

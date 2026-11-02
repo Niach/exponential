@@ -92,8 +92,10 @@ const PINNED_RECIPES = [
   `scrollToWorkCards`,
   `scrollToScriptCard`,
   `scrollToCommentCard`,
-  `openTraceOutput`,
+  `scrollToLatestTurn`,
   `scrollToMeetingMode`,
+  `waitForMcpActivity`,
+  `openAppConsent`,
 ]
 
 // ---------------------------------------------------------------- 1. shape

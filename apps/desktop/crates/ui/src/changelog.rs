@@ -46,6 +46,39 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-passkeys-on-iphone",
+    date: "2026-11-02",
+    title: "Passkeys on your iPhone",
+    summary: "Add a passkey from the iOS app, and the Assistant wears its own mark in its chat on every phone.",
+    body: r#"- **Add passkey on iPhone**: Settings, Account, Passkeys now has Add passkey on iOS too, like the web and Android.
+- **Assistant mark**: the Assistant's chat header and call show the Exponential mark on iOS and Android, not a robot."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_173: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-subagents-menu-values",
+    date: "2026-11-02",
+    title: "Subagents and menu values",
+    summary: "Pick the model a new chat's subagents run on from the + menu, and menu rows show their value on the right on every app.",
+    body: r#"- **Subagents**: a new Claude chat's + menu has Subagents again, the model its subagents run on.
+- **Menu values**: on the desktop app a menu row shows its current value muted on the right before the arrow (Device, Account, Model, Effort, Checks), like on web and phones."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_172: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-desktop-confirms-fit",
+    date: "2026-11-02",
+    title: "Desktop confirms fit their content",
+    summary: "Desktop confirm dialogs and Add device are now as tall as what they show, like the web app.",
+    body: r#"- **No empty band**: every desktop confirm, from Delete issue to Merge stack, sizes to its question and buttons instead of a fixed height.
+- **Add device**: the dialog fits both device cards and scrolls only when the window is too short."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_171: ChangelogEntry = ChangelogEntry {
     id: "2026-11-02-persist-login",
     date: "2026-11-02",
     title: "Persist login",

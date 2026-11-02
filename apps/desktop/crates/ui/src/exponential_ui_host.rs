@@ -914,7 +914,7 @@ fn consent_hook(scope: Option<HostScope>) -> ConsentHook {
                     let _ = closed.try_send(false);
                 });
             if let Some(args) = args {
-                spec = spec.height(gpui::px(300.)).content(move |_, cx| {
+                spec = spec.content(move |_, cx| {
                     crate::code_block::code_block(
                         crate::code_block::CodeBlockProps {
                             id: "exponential-ui-consent-arguments".into(),
@@ -932,6 +932,21 @@ fn consent_hook(scope: Option<HostScope>) -> ConsentHook {
         });
         cx.background_spawn(async move { rx.recv_async().await.unwrap_or(false) })
     })
+}
+
+/// EXP-1558 (DEV-ONLY, `EXP_DEV_DIALOG=app-consent`): raise THE consent
+/// window over the app screen for the natives' `sg_app-consent` call (the
+/// Working hours demo's "Post to the issue" on the docs, admin entry),
+/// through the real hook with no grants, so the `app-consent` capture is
+/// the window an ungranted typed action raises.
+pub(crate) fn dev_open_consent(cx: &mut App) {
+    let call = FunctionCallInfo {
+        surface_id: "dev-app-consent".into(),
+        component_id: "dev-app-consent".into(),
+        name: "exponential.comments.create".into(),
+        args: serde_json::json!({"issueId": "APP-15", "body": "Logged 8 h: docs, admin"}),
+    };
+    consent_hook(None)(&call, cx).detach();
 }
 
 // ---------------------------------------------------------------------------

@@ -13,7 +13,8 @@
 
 import { sharedCatalogView, type CatalogView } from "./catalog"
 import { CORE_FUNCTIONS, isBinding, isCall, isDynamic, truthy } from "./expr"
-import { ENGLISH_FORMAT_FUNCTIONS, FORMAT_FUNCTION_NAMES, englishFormatter, formatFunctions, type Formatter } from "./format"
+import { ENGLISH_FORMAT_FUNCTIONS, FORMAT_FUNCTION_NAMES, englishFormatter, formatFunctions, type Formatter, type ZoneOffset } from "./format"
+import { EXPRESSION_BIND_FUNCTIONS, EXPRESSION_CALL_NAMES, callExpressionFunction, type ExpressionEnv } from "./cel"
 import { resolveString } from "./strings"
 import type { Action, ComponentDef, ExtensionDef, PropSchema, UiNode } from "./types"
 import { MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS } from "./limits"
@@ -180,7 +181,7 @@ export type FunctionTable = Record<string, (args: Record<string, unknown>) => un
  *  `set` is an action, never a value. The expander EMITS `not`/`and`/`or`
  *  too, so a renderer must implement this whole table (generated as
  *  `bindFunctionNames`), not just the core names. */
-export const BIND_FUNCTIONS: FunctionTable = { ...LOGIC_FUNCTIONS, ...CORE_FUNCTIONS, ...ENGLISH_FORMAT_FUNCTIONS }
+export const BIND_FUNCTIONS: FunctionTable = { ...LOGIC_FUNCTIONS, ...CORE_FUNCTIONS, ...ENGLISH_FORMAT_FUNCTIONS, ...EXPRESSION_BIND_FUNCTIONS }
 export const BIND_FUNCTION_NAMES: readonly string[] = Object.keys(BIND_FUNCTIONS)
 
 export interface ResolveOptions {
@@ -198,9 +199,18 @@ export interface ResolveOptions {
   formatter?: Formatter
   /** The clock `formatRelativeTime` reads without a `now` argument. */
   now?: () => number
+  /** VAPP-191: the team zone the expression functions (`today`, `dateAdd`…,
+   *  src/cel.ts) run in; absent = the formatter's `offsetMinutes`, else UTC. */
+  zone?: ZoneOffset
 }
 
 const FORMAT_NAMES: ReadonlySet<string> = new Set(FORMAT_FUNCTION_NAMES)
+const EXPRESSION_NAMES: ReadonlySet<string> = new Set(EXPRESSION_CALL_NAMES)
+
+function expressionEnv(options: ResolveOptions): ExpressionEnv {
+  const zone = options.zone ?? (options.formatter?.offsetMinutes ? (ms: number) => options.formatter!.offsetMinutes!(ms) : undefined)
+  return { ...(options.now ? { now: options.now() } : {}), ...(zone ? { offset: zone } : {}) }
+}
 const FORMAT_TABLES = new WeakMap<Formatter, FunctionTable>()
 
 function formatTable(options: ResolveOptions): FunctionTable | undefined {
@@ -222,8 +232,12 @@ export function resolveDynamic(value: unknown, data: unknown, options: ResolveOp
     const args: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value.args ?? {})) args[k] = resolveDynamic(v, data, options)
     // Own entries only: `{call: "constructor"}` is no function (VAPP-107).
-    const fn = own(options.functions, value.call) ?? (FORMAT_NAMES.has(value.call) ? own(formatTable(options), value.call) : undefined) ?? own(BIND_FUNCTIONS, value.call)
-    return fn ? fn(args) : undefined
+    const fn = own(options.functions, value.call) ?? (FORMAT_NAMES.has(value.call) ? own(formatTable(options), value.call) : undefined)
+    if (fn) return fn(args)
+    // VAPP-191: the expression functions read the clock and the team zone.
+    if (EXPRESSION_NAMES.has(value.call)) return callExpressionFunction(value.call, args, expressionEnv(options))?.value
+    const core = own(BIND_FUNCTIONS, value.call)
+    return core ? core(args) : undefined
   }
   if (typeof value === `string`) return options.strings ? resolveString(value, options.strings) : value
   if (Array.isArray(value)) return value.map((v) => resolveDynamic(v, data, options))

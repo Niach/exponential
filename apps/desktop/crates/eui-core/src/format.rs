@@ -185,6 +185,11 @@ pub trait Formatter: Send + Sync {
         let decimals = if value.fract() == 0.0 { 0 } else { 1 };
         format!("{} {}", self.number(value, NumberOptions { decimals: Some(decimals), grouping: true }), unit.english())
     }
+    /// VAPP-191: the surface (team) zone's UTC offset in minutes at an
+    /// instant, for the expression date maths (`crate::cel`). Default UTC.
+    fn offset_minutes(&self, _utc_ms: f64) -> i32 {
+        0
+    }
 }
 
 /// A byte-size unit ([`Formatter::bytes`]; the CLDR unit ids).
@@ -803,6 +808,9 @@ impl Formatter for ZonedEnglishFormatter {
     }
     fn date(&self, value: DateValue, options: &DateOptions) -> String {
         english_date(value, options, (self.offset)(value.ms))
+    }
+    fn offset_minutes(&self, utc_ms: f64) -> i32 {
+        (self.offset)(utc_ms)
     }
     fn relative_time(&self, value: i64, unit: RelativeUnit) -> String {
         ENGLISH.relative_time(value, unit)
