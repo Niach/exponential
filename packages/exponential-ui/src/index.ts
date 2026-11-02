@@ -44,6 +44,9 @@ export { validateProps, validateNode, isCallableName, isDynamic } from "./valida
 export type { PropIssue } from "./validate"
 export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, filterItems, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
 export type { ExprContext, Dynamic } from "./expr"
+export { DATE_BUCKETS, dateBucket, parseDay, parseMonth, parseYear, formatDay, isoWeek, isoWeeksInYear, dayOfYear, daysInMonth, weekdayOf, isLeapYear } from "./dates"
+export type { CalendarDay, DateBucket } from "./dates"
+
 export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } from "./macros"
 // Round 1: bind-time evaluation, built-in strings, locale, the CodeBlock tokenizer.
 export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, writeTokens, POINTER_ISSUES, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES } from "./dynamic"

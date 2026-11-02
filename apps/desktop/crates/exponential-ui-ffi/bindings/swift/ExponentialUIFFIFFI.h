@@ -1158,6 +1158,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_core_catalog_id(RustCallStatus *_No
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_DATE_BUCKET
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_DATE_BUCKET
+RustBuffer uniffi_exponential_ui_ffi_fn_func_date_bucket(RustBuffer date, RustBuffer bucket, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_DECIDE_FUNCTION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_DECIDE_FUNCTION
 RustBuffer uniffi_exponential_ui_ffi_fn_func_decide_function(RustBuffer policy_json, RustBuffer name, int8_t registered, RustCallStatus *_Nonnull out_status
@@ -1268,6 +1273,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_package_policy_json(RustBuffer func
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PARSE_DATE_VALUE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PARSE_DATE_VALUE_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(RustBuffer value_json, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PARSE_RECORDS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PARSE_RECORDS_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_parse_records_json(RustBuffer query_json, RustBuffer kind, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_PARSE_RECORDS_QUERY_JSON
@@ -1797,6 +1807,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_core_catalog_id(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_DATE_BUCKET
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_DATE_BUCKET
+uint16_t uniffi_exponential_ui_ffi_checksum_func_date_bucket(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_DECIDE_FUNCTION
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_DECIDE_FUNCTION
 uint16_t uniffi_exponential_ui_ffi_checksum_func_decide_function(void
@@ -1926,6 +1942,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_package_policy_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_PARSE_DATE_VALUE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_PARSE_DATE_VALUE_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_PARSE_RECORDS_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_PARSE_RECORDS_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_parse_records_json(void
     
 );
 #endif

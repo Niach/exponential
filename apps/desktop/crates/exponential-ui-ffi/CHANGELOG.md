@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-190: `parse_records_json(query_json, kind)` → `{query, issues}` and `date_bucket(date, bucket)`; `records_value_json` evaluates the new query keys (`fixtures/records-query.json` `jsonCases`, `bucketCases`).
 - VAPP-189: `parse_records_query_json(params_json, kind)`, `parse_records_source_json(source)`, `records_value_json(rows_json, query_json, context_json)`: the records evaluator (`fixtures/records-query.json`).
 
 ## 0.4.0 (2026-11-02)

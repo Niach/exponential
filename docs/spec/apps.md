@@ -222,7 +222,7 @@ Caps (✅ `contract.json` `apps`): package ≤ 128 KB, ≤ 500 components per te
 | `records.<kind>.refs` | Relations: `{field: {kind}}`, `{field: "issue"}`, `{field: "member"}` | 3.3 |
 | `records.<kind>.computed` | Expressions evaluated on read | 4.4 |
 | `records.<kind>.transitions` | A state machine on one enum field | 3.3 |
-| `queries` | Named structured queries, reusable by bindings and `exposes` | 4.1 |
+| `queries` | Named structured queries, reusable by bindings and `exposes` (✅ Q1 for bindings, already in format 2) | 4.1 |
 | `automations` | Schedule, record event, Exponential event and webhook → one run | 7 |
 | `migrations` | Declarative record migrations between versions | 3.6 |
 | `share` | Public link definitions | 9.4 |
@@ -342,7 +342,7 @@ Records carry `schema_version` (the package `number` that wrote them). A new ver
 
 ## 4. Query and expression language
 
-### 4.1 The structured query (🆕 Q1)
+### 4.1 The structured query (✅ Q1, #VAPP-190)
 
 Today a binding is a URL (`exp:records?kind=entry&mine=1&by=date&sum=hours`). URLs stay as sugar. The canonical form is JSON, named in `queries` and referenced by bindings, `exposes` and automations:
 
@@ -367,16 +367,17 @@ Today a binding is a URL (`exp:records?kind=entry&mine=1&by=date&sum=hours`). UR
 
 | Feature | Today | Spec |
 |---|---|---|
-| Filters | ✅ equality, `.gt/.gte/.lt/.lte`, `mine`, `user`, `app=` | + `in`, `between`, `contains`, `startsWith`, `isNull`, `or: […]`, text `search` |
-| Sort / limit | ✅ (limit ≤ 500) | + several sort keys, a cursor |
-| Group-by | 🟡 only `by=<date>&month=` (per day of one month) | Any field, `author`, time buckets `day/week/month/quarter/year` in the team timezone |
-| Aggregates | 🟡 `sum` | `sum avg min max count countDistinct first last` |
-| Running values | ❌ | `running: {field: "sum"}` and `before: <date>` (totals up to a date), streaks |
+| Filters | ✅ equality, `.gt/.gte/.lt/.lte`, `mine`, `user`, `app=`; ✅ Q1 `in`, `between`, one `{or: [[…]…]}` (also `<`, `>=`… in JSON) | + `contains`, `startsWith`, `isNull`, text `search` |
+| Sort / limit | ✅ (limit ≤ 500); ✅ Q1 several sort keys (JSON) | + a cursor |
+| Group-by | ✅ Q1 any field, `author`, time buckets `day/week/month/quarter/year` (ISO weeks), plus `by=<date>&month=` | Buckets in the team timezone (today: the stored calendar day; a timestamp's UTC day) |
+| Aggregates | ✅ Q1 `sum avg min max count countDistinct first last` (per group + `totals`) | |
+| Running values | ✅ Q1 `running: {field: "sum"}` (sum count avg min max, over groups, rows or month days) and `before: <date>` (totals up to a date, seeding the running values) | streaks |
 | Joins | ❌ | `expand: ["customer"]` follows refs (one level). There are no free joins. |
 | Sources | `exp:records`, `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments`, `exp:attachments`, `exp:devices` | The same query shape over every `exp:` source (group issues by status or week), + `exp:pullRequests`, `upstream:<server>/<tool>` (§6.3) |
 
 **One evaluator:**
 
+- ✅ (Q1, #VAPP-190) The JSON form: `parseRecordsJson(json, kind?)` → `{query, issues}` (Rust `parse_records_json`, FFI `parse_records_json`, SDKs `RecordsQuery.parse(json:)` / `parseJson`), the `q=<json>` param, and the package's `queries` followed by `?query=<name>&<params>` (the router expands it, `${param}` templates filled from the binding's params). The value gains `groups`, `totals`, `before` and `running`. The date helpers (`dateBucket`, `parseDay`, `isoWeek`, `daysInMonth`, `weekdayOf`) live in `src/dates.ts` / `eui_core::dates` for Q2. Format version stays 2 (`queries` is optional, like `exposes`). The spec's `"${month.start}"` is spelled `"${start}"` (flat binding params).
 - ✅ (S1, #VAPP-189) A pure TS reference (`@exponential_app/eui/host/query`) and its Rust twin in `eui-core` (`host::query`), fixture-locked (`fixtures/records-query.json`, replayed in TS, Rust, Swift and Kotlin). The URL params parse INTO a structured `RecordsQuery` (`from, app, mine, user, where, sort[], limit, sum, month`); the JSON form (Q1) adds keys next to these.
 - Web and the server broker use TS. Desktop, iOS, Android, Spezl and eDE use eui-core (iOS and Android already link it through UniFFI for painting).
 - ✅ The four hand-written derivations (`AppRecords.swift`, `AppRecords.kt`, `app_records.rs`, `app-records.ts`) are gone; their Data tab, ownership and on-behalf helpers stay.
@@ -743,7 +744,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 2: The query** (unblocks reports and dashboards)
 
 - **S1 ★** Move the records query out of `domain-contract` into eUI host records (TS + eui-core), with a pluggable `RecordStore`. The ×4 hand derivations become one. (C25)
-- **Q1 ★** The structured query: group-by on any field + time buckets, all aggregates, `before`/running sums, `in/between/or/search`, a cursor. Fixture `records-query.json` ×6. (C5, C6)
+- **Q1 ★** ✅ #VAPP-190 The structured query: group-by on any field + time buckets, all aggregates, `before`/running sums, `in/between/or`. Fixture `records-query.json` ×4 (TS, Rust, Swift, Kotlin). `search` and a cursor stay open. (C5, C6)
 - **Q2 ★** Expressions: mul/div/round/min/max, array aggregates, date maths in the team timezone, the string form. (C7)
 - **Q3** Computed fields. (C11)
 - **Q4** The broker's `records` run uses the Q1 evaluator: tools get the same query as the UI. (C15)

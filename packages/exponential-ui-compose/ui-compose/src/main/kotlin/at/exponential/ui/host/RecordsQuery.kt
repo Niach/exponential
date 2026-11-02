@@ -13,7 +13,7 @@ class RecordsQuery private constructor(
     /** The structured query as the core spells it (JSON). */
     val json: String,
 ) {
-    /** `{from, app, mine, user, where, sort, limit, sum, month}`. */
+    /** `{from, app, mine, user, where, or, sort, limit, sum, month, group, aggregate, running, before}`. */
     val structured: JsonValue = JsonValue.parse(json)
 
     /** The kind (null = no kind: the value is null). */
@@ -25,7 +25,7 @@ class RecordsQuery private constructor(
     /**
      * The value the binding emits over [rows] (every row of the app, any
      * kind): [JsonValue.Null] without a kind, else `{rows, count, sum?,
-     * month?}`. [me] = the viewer (null: `mine` matches nothing), [now] =
+     * month?, groups?, totals?, before?}`. [me] = the viewer (null: `mine` matches nothing), [now] =
      * ISO 8601 (the month view's default month), [names] = user id →
      * display name.
      */
@@ -60,7 +60,26 @@ class RecordsQuery private constructor(
 
         /** `records:<kind>?…` (parsed) → the query; null = another scheme. */
         fun parse(source: ParsedSource): RecordsQuery? = if (source.scheme == "records") parse(source.params, source.name) else null
+
+        /**
+         * VAPP-190: the JSON query form (a package's `queries`, the `q`
+         * param: group, aggregate, running, before, in / between / or) →
+         * the query and every problem with it (`[{path, message}]`; a
+         * problem drops the part, the rest still runs). [kind] wins over `from`.
+         */
+        fun parseJson(json: String, kind: String? = null): Parsed {
+            val out = runCatching { at.exponential.ui.ffi.parseRecordsJson(json, kind) }.getOrNull()
+                ?: return Parsed(RecordsQuery("""{"from":null}"""), listOf(JsonValue.Obj(mapOf("path" to JsonValue.Str(""), "message" to JsonValue.Str("a query is JSON")))))
+            val parsed = JsonValue.parse(out)
+            return Parsed(RecordsQuery(parsed["query"]?.json ?: """{"from":null}"""), parsed["issues"]?.array.orEmpty())
+        }
+
+        /** VAPP-190: a date's bucket key (day `2026-10-05`, week `2026-W41`, month `2026-10`, quarter `2026-Q4`, year `2026`); null = no date that precise. */
+        fun dateBucket(date: String, bucket: String): String? = at.exponential.ui.ffi.dateBucket(date, bucket)
     }
+
+    /** [parseJson]'s answer. */
+    data class Parsed(val query: RecordsQuery, val issues: List<JsonValue>)
 }
 
 /** One stored record as a host hands it to the evaluator. [authorId] = whose record it is (#VAPP-187); null = [createdBy]. */

@@ -8,7 +8,7 @@ import ExponentialUICore
 /// of whatever store the host has.
 public struct RecordsQuery: Sendable, Equatable {
     /// The structured query as the core spells it: `{from, app, mine, user,
-    /// where, sort, limit, sum, month}`.
+    /// where, or, sort, limit, sum, month, group, aggregate, running, before}`.
     public let structured: JSONValue
     /// The same, as the core's JSON (what `value` hands back to it).
     public let json: String
@@ -41,8 +41,28 @@ public struct RecordsQuery: Sendable, Equatable {
         source.scheme == "records" ? parse(params: source.params, kind: source.name) : nil
     }
 
+    /// VAPP-190: the JSON query form (a package's `queries`, the `q` param:
+    /// group, aggregate, running, before, in / between / or) → the query and
+    /// every problem with it (`[{path, message}]`; a problem drops the part,
+    /// the rest still runs). `kind` wins over `from`.
+    public static func parse(json: String, kind: String? = nil) -> (query: RecordsQuery, issues: [JSONValue]) {
+        guard let out = try? parseRecordsJson(queryJson: json, kind: kind) else {
+            return (RecordsQuery(json: #"{"from":null}"#), [.object(["path": .string(""), "message": .string("a query is JSON")])])
+        }
+        let parsed = JSONValue.parse(out)
+        return (RecordsQuery(json: parsed["query"]?.json ?? #"{"from":null}"#), parsed["issues"]?.array ?? [])
+    }
+
+    /// VAPP-190: a date's bucket key (day `2026-10-05`, week `2026-W41`,
+    /// month `2026-10`, quarter `2026-Q4`, year `2026`); nil = no date that
+    /// precise (or an unknown bucket).
+    public static func dateBucket(_ date: String, by bucket: String) -> String? {
+        ExponentialUICore.dateBucket(date: date, bucket: bucket)
+    }
+
     /// The value the binding emits over `rows` (every row of the app, any
-    /// kind): `.null` without a kind, else `{rows, count, sum?, month?}`.
+    /// kind): `.null` without a kind, else `{rows, count, sum?, month?,
+    /// groups?, totals?, before?}`.
     /// `me` = the viewer (nil: `mine` matches nothing), `now` = ISO 8601
     /// (the month view's default month), `names` = user id → display name.
     public func value(rows: [RecordRow], me: String?, now: Date = Date(), names: [String: String] = [:]) -> JSONValue {

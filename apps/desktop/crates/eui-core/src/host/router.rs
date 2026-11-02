@@ -231,6 +231,11 @@ impl HostRouter {
                                 return vec![send(error_message(SOURCE_DENIED, sid, &format!("source {source} is not in package {pkg_id}'s sources"), Some(&at)))];
                             }
                         }
+                        // VAPP-190: `?query=<name>` follows the package's named query.
+                        let source = match info.package_id.as_deref().and_then(|id| self.packages.get(id)) {
+                            Some(pkg) => super::query::expand_query_source(source, pkg.get("queries")),
+                            None => source.to_string(),
+                        };
                         vec![json!({"op": "bind", "surfaceId": sid, "path": normalize_path(Some(path)), "source": source})]
                     }
                     _ => vec![invalid(sid, "bindDataModel needs a path and a scheme:name source")],
