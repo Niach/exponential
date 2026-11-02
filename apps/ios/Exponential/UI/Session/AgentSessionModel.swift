@@ -91,6 +91,7 @@ final class AgentSessionModel {
     /// grouping/resolution rules live in ExpCore's AgentFeed.
     private(set) var feed: [AgentFeedItem] = [] {
         didSet {
+            feedVersion &+= 1
             // FEED-26: any appended or replaced item counts as activity. The
             // event's own `at` never does — it is optional on the wire.
             if phase == .live { markActivity() }
@@ -166,9 +167,18 @@ final class AgentSessionModel {
     /// A latest-wins slot beside `compacting`, never a feed row. `.ended`
     /// until one arrives: an idle run must not pulse by default, and a
     /// publisher too old to emit them simply never reads as working.
-    private(set) var turn = AgentTurnSlot()
+    ///
+    /// #EXP-1623 (Android #EXP-1521): NOT observed. A working agent re-sends
+    /// this slot every second or so (its clock, tokens, `Writing…`), and
+    /// every view that read it re-rendered on each tick, the whole transcript
+    /// and the composer included. The one reader of the caption inputs is the
+    /// working row's own once-a-second `TimelineView`; everything else reads
+    /// `turnState`, which moves only on an edge.
+    @ObservationIgnored private(set) var turn = AgentTurnSlot() {
+        didSet { if turn.state != turnState { turnState = turn.state } }
+    }
     /// EXP-848: the edge alone, which is what every working/pulse rule reads.
-    var turnState: AgentTurnState { turn.state }
+    private(set) var turnState: AgentTurnState = AgentTurnSlot().state
     /// EXP-850 §2: the background tasks the agent is running right now — a
     /// latest-wins slot (an empty list closes the strip above the composer).
     private(set) var backgroundTasks: [AgentBackgroundTask] = [] {
@@ -187,6 +197,7 @@ final class AgentSessionModel {
     /// EXP-1324: each subagent's start/end stamps (epoch ms, the edges' `at`);
     /// pruned to the subagents the feed still holds on every subagent edge.
     @ObservationIgnored private var subagentSpans: [String: (start: Int64?, end: Int64?)] = [:]
+    @ObservationIgnored private var subagentSpansPruneAt = 32
 
     /// EXP-1324: a subagent's duration for its Trace badge — end − start once
     /// done, else the time since it started; nil without a start stamp.
@@ -230,7 +241,9 @@ final class AgentSessionModel {
     /// FEED-26: when this run's feed last CHANGED while live, falling back to
     /// the moment the phase became live. What `staleActivityMinutes` counts
     /// from.
-    private(set) var lastActivityAt: Date?
+    /// #EXP-1623: not observed (it moves with every feed write); a reader
+    /// picks it up with `activityNow`.
+    @ObservationIgnored private(set) var lastActivityAt: Date?
     /// FEED-26: the clock `staleActivityMinutes` reads, re-stamped every 30s.
     /// Silence is the ABSENCE of frames, so without a tick nothing would ever
     /// redraw the header while a run goes quiet (the host-liveness pattern).
@@ -681,7 +694,7 @@ final class AgentSessionModel {
     /// is already held is trimmed against `oldestSeq` — a re-asked page must
     /// never double the transcript. Ignored while a replay is staging: the
     /// replay is authoritative and is about to decide what the prefix even is.
-    private func prependPage(_ events: [[String: Any]], seqs: [Int]) {
+    private func prependPage(_ events: [SteerWireFrame.Activity], seqs: [Int]) {
         guard !isStaging, !events.isEmpty else { return }
         // EXP-848: the latest-wins turn slot must not be rewritten by a page
         // of OLD transcript folded through the live reducer.
@@ -739,18 +752,30 @@ final class AgentSessionModel {
 
     private func reproject() {
         let start = windowStart
-        canLoadEarlier = AgentFeed.canLoadEarlier(
+        // #EXP-1623 (Android #EXP-1521): every flush lands here, a live
+        // `turn` tick's included, and a projection re-assigned to an EQUAL
+        // value still invalidates every view that reads it (the transcript,
+        // the Dock, the composer). Each one is written only when it moved.
+        let canLoad = AgentFeed.canLoadEarlier(
             windowStart: start, historyTruncated: historyTruncated,
             historyExhausted: historyExhausted, connected: connected
         )
+        if canLoad != canLoadEarlier { canLoadEarlier = canLoad }
+        let workflowIds = Set(workflows.map(\.id))
+        let key = ProjectionKey(feedVersion: feedVersion, windowStart: start, workflowIds: workflowIds)
+        guard key != projectedKey else { return }
+        projectedKey = key
+        if hasFeed == feed.isEmpty { hasFeed = !feed.isEmpty }
         // EXP-850 §3: a workflow's tool row never collapses into a "N tool
         // calls" run (the card renders in its place) and its agents' runs are
         // nested INSIDE the card, so the transcript projection drops them.
-        rows = AgentFeed.rows(feed, from: start, workflowIds: Set(workflows.map(\.id)))
+        let nextRows = AgentFeed.rows(feed, from: start, workflowIds: workflowIds)
+        if nextRows != rows { rows = nextRows }
         // The runs list keeps the workflow agents — the card looks its own
         // agents' duplicate warnings up here, and (EXP-1225) they are tabs.
-        subagents = AgentFeed.subagents(feed, from: start)
-        openWaits = feed.compactMap { item in
+        let nextSubagents = AgentFeed.subagents(feed, from: start)
+        if nextSubagents != subagents { subagents = nextSubagents }
+        let nextWaits = feed.compactMap { item -> TaskQueueInput.Wait? in
             guard case let .tool(id, name, detail, _, callId, kind, settled, _, _, _, _, _, _) = item,
                   kind == AgentFeed.toolKindWait, !settled else { return nil }
             return TaskQueueInput.Wait(
@@ -758,13 +783,35 @@ final class AgentSessionModel {
                 subject: (detail?.isEmpty == false) ? detail! : name
             )
         }
+        if nextWaits != openWaits { openWaits = nextWaits }
         let active = AgentFeed.activeQuestionIds(feed)
-        activeQuestionIds = active
+        if active != activeQuestionIds { activeQuestionIds = active }
         activeCards = feed.compactMap { item in
             guard let question = item.question, active.contains(question.id) else { return nil }
             return question
         }
+        let newest = Self.newestAgentMessageKey(feed)
+        if newest != newestAgentMessageKey { newestAgentMessageKey = newest }
     }
+
+    /// #EXP-1623: what the O(feed) half of `reproject` is a function of.
+    private struct ProjectionKey: Equatable {
+        let feedVersion: Int
+        let windowStart: Int
+        let workflowIds: Set<String>
+    }
+
+    @ObservationIgnored private var projectedKey: ProjectionKey?
+    /// #EXP-1623: bumped by every feed write, so a flush that wrote none (a
+    /// live tick) skips the projections' walk.
+    @ObservationIgnored private var feedVersion = 0
+
+    /// #EXP-1623: whether the feed holds a row, observed apart from the feed
+    /// itself, so the Dock and the empty states never re-render per row.
+    private(set) var hasFeed = false
+    /// #EXP-1623: a join replay (or a stored one) has committed at least
+    /// once, so the latest-wins slots are the device's, not a guess.
+    private(set) var replayed = false
 
     /// The composer's placeholder. EXP-820: always the generic prompt — the
     /// composer HIDES while a card is pending (`cardPending`), and a card's
@@ -843,7 +890,12 @@ final class AgentSessionModel {
     /// id, else the row id) — the session view re-marks the session read
     /// whenever this moves while it is open (Android `ThreadScreen` keys its
     /// read mark the same way).
-    var newestAgentMessageKey: String? {
+    /// #EXP-1623: stored, re-derived by `reproject`; the session view's
+    /// read mark watches it, and a computed walk read there re-rendered the
+    /// whole view on every feed write.
+    private(set) var newestAgentMessageKey: String?
+
+    private static func newestAgentMessageKey(_ feed: [AgentFeedItem]) -> String? {
         for item in feed.reversed() {
             if case let .narration(id, _, messageId, subagentId) = item, subagentId == nil {
                 return messageId ?? "\(id)"
@@ -935,6 +987,10 @@ final class AgentSessionModel {
     /// EXP-783: the running weight of `feed`, so the byte budget is an integer
     /// compare per append rather than a walk.
     private var feedBytes = 0
+    /// #EXP-1623: how many `thought` rows may still be running, so a turn
+    /// that ends walks the feed to settle them only when one is (a replay
+    /// carries a turn edge per turn). An over-count only costs that walk.
+    @ObservationIgnored private var openThoughts = 0
     /// EXP-783: the publisher's wire sequence per feed row, by row id. A side
     /// table rather than a case field on `AgentFeedItem`: nothing that renders
     /// a row cares, and every pattern match over the enum would have had to
@@ -980,7 +1036,7 @@ final class AgentSessionModel {
     /// `lastFrameAt == nil` means the device has not answered this dial's
     /// join (the eNet joiner bounds that wait with `joinTimeoutMs`).
     private var dialStartedAt: Date?
-    private var lastFrameAt: Date?
+    @ObservationIgnored private var lastFrameAt: Date?
     private var sessionObservationTask: Task<Void, Never>?
     /// EXP-549/550: the synced `devices` rows behind `hostDevice`, plus the
     /// clock that re-derives offline-ness (GRDB only re-fires on WRITES, and
@@ -1018,7 +1074,9 @@ final class AgentSessionModel {
     /// its whole activity log frame by frame) froze the UI and heated the
     /// device for the duration. Frames now queue here and are applied in one
     /// batch per flush, so the replay costs one render per batch.
-    @ObservationIgnored private var pendingFrames: [String] = []
+    /// #EXP-1623: each with the dial generation it arrived on, because a
+    /// burst parses off main and a redial can land in between.
+    @ObservationIgnored private var pendingFrames: [(text: String, generation: Int)] = []
     @ObservationIgnored private var flushScheduled = false
     /// Set while a flush applies its batch — the projections are rebuilt once
     /// at the end instead of after every frame.
@@ -1032,7 +1090,7 @@ final class AgentSessionModel {
     /// EXP-656: the activity events of an in-flight join replay. nil = not
     /// staging; non-nil (even empty) = the visible feed is frozen and every
     /// `activity` frame buffers here until the replay commits in ONE pass.
-    @ObservationIgnored private var stagedFrames: [(event: [String: Any], seq: Int?)]?
+    @ObservationIgnored private var stagedFrames: [(activity: SteerWireFrame.Activity, seq: Int?)]?
     @ObservationIgnored private var stagingStartedAt: Date?
     @ObservationIgnored private var lastStagedFrameAt: Date?
     /// The one task that watches an in-flight staging window (quiet timeout +
@@ -1486,11 +1544,13 @@ final class AgentSessionModel {
                         // the last known copy instead left the retry loops
                         // waiting for an `ended` status a deleted row can
                         // never report.
-                        self.session = row
-                        self.root = root
-                        self.hasSubSessions = hasSubSessions
-                        if let title { self.title = title }
-                        if let threadTitle { self.threadTitle = threadTitle }
+                        // #EXP-1623: only what moved is written; an equal
+                        // write still re-renders every view that reads it.
+                        if row != self.session { self.session = row }
+                        if root != self.root { self.root = root }
+                        if hasSubSessions != self.hasSubSessions { self.hasSubSessions = hasSubSessions }
+                        if let title, title != self.title { self.title = title }
+                        if let threadTitle, threadTitle != self.threadTitle { self.threadTitle = threadTitle }
                         // EXP-724: the run is over (or gone) — no `ended`
                         // compaction frame will ever arrive for it.
                         if self.sessionEnded { self.clearLiveWork() }
@@ -1575,8 +1635,12 @@ final class AgentSessionModel {
     /// quiet clock.
     private func markActivity() {
         let now = Date()
+        let wasStale = AgentFeed.staleActivityMinutes(since: lastActivityAt, now: activityNow) != nil
         lastActivityAt = now
-        activityNow = now
+        // #EXP-1623: `activityNow` is OBSERVED (the header, the Dock's
+        // banners), and this runs on every feed write: only a run that read
+        // quiet re-stamps it at once, the 30s clock does the rest.
+        if wasStale { activityNow = now }
     }
 
     private func rebuildHostDevice() {
@@ -1592,13 +1656,18 @@ final class AgentSessionModel {
             now: now
         )
         let wasOnline = hostDevice.online
-        hostDevice = SessionHostDevice(
+        // #EXP-1623: every device's heartbeat lands here (the devices shape
+        // is one table); each slot below is written only when it moved, so a
+        // teammate's machine checking in re-renders nothing of this session.
+        let nextHost = SessionHostDevice(
             label: hostRow.flatMap { $0.label.isEmpty ? nil : $0.label },
             online: hostRow.map { row in
                 DeviceLiveness.isOnline(lastSeenAt: row.lastSeenAt, now: now)
                     ? true : (devicesFresh ? false : nil)
             } ?? nil
         )
+        let hostMoved = nextHost != hostDevice || hostRow != hostSteerRow
+        if nextHost != hostDevice { hostDevice = nextHost }
         // VAPP-169: a presence flip is an offline-redial trigger (online
         // redials the offline copy and cuts a `starting` backoff short).
         if hostDevice.online != wasOnline {
@@ -1608,7 +1677,7 @@ final class AgentSessionModel {
                 offlineRedial(.presenceOffline)
             }
         }
-        agentUsage = AgentUsagePresentation.sessionUsage(
+        let nextUsage = AgentUsagePresentation.sessionUsage(
             status: session.status,
             cli: session.cli,
             deviceId: session.deviceId,
@@ -1616,27 +1685,37 @@ final class AgentSessionModel {
             devices: deviceRows,
             now: now
         )
+        if nextUsage != agentUsage { agentUsage = nextUsage }
         let hostAccounts = AgentUsagePresentation.parseAccounts(hostRow?.agentAccounts)
-        agentAccount = session.cli.flatMap { hostAccounts?[$0] }
-        hostSteerDevice = hostRow.map {
-            SteerDevice(entity: $0, now: now, currentUserId: currentUserId)
+        let nextAccount = session.cli.flatMap { hostAccounts?[$0] }
+        if nextAccount != agentAccount { agentAccount = nextAccount }
+        if hostMoved {
+            hostSteerRow = hostRow
+            hostSteerDevice = hostRow.map {
+                SteerDevice(entity: $0, now: now, currentUserId: currentUserId)
+            }
         }
         // EXP-909: which of the host's logins this session spends, and that
         // login's numbers — off the same ×4 rows the Devices page draws.
         let logins = hostSteerDevice.map(AgentAccountsRows.deviceLoginRows)?
             .filter { $0.agent == session.cli } ?? []
         let reportedEmail = session.cli.flatMap { hostAccounts?[$0]?.email }
-        runAccount = logins.first { $0.profileId == session.account }
+        let nextRunAccount = logins.first { $0.profileId == session.account }
             ?? reportedEmail.flatMap { email in logins.first { $0.email == email } }
             ?? logins.first { $0.active }
+        if nextRunAccount != runAccount { runAccount = nextRunAccount }
         let reportedUsage = session.cli.flatMap {
             AgentUsagePresentation.parseMap(hostRow?.agentUsage)?[$0]
         }
         // The machine only ever puts its ACTIVE login's numbers in the
         // top-level map, so that fallback is legitimate for the active profile
         // and for an unknown account — and a lie for any other profile.
-        runUsage = runAccount?.usage ?? (runAccount?.active != false ? reportedUsage : nil)
+        let nextRunUsage = runAccount?.usage ?? (runAccount?.active != false ? reportedUsage : nil)
+        if nextRunUsage != runUsage { runUsage = nextRunUsage }
     }
+
+    /// #EXP-1623: the host row `hostSteerDevice` was last built from.
+    @ObservationIgnored private var hostSteerRow: DeviceEntity?
 
     /// The session's host `devices` row: the stamped `device_id`, preferring
     /// the session starter's own row.
@@ -1989,38 +2068,56 @@ final class AgentSessionModel {
             dialInFlight = false
         }
         lastFrameAt = Date()
-        pendingFrames.append(text)
+        pendingFrames.append((text, generation))
         guard !flushScheduled else { return }
         flushScheduled = true
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            self.flushScheduled = false
-            let frames = self.pendingFrames
-            self.pendingFrames = []
-            self.applyingBatch = true
-            defer {
-                self.applyingBatch = false
-                self.reproject()
+        Task { @MainActor [weak self] in await self?.flush() }
+    }
+
+    /// #EXP-1623: a batch of at most this many frames parses inline (a live
+    /// frame still lands in the same run-loop turn); a bigger one, a join
+    /// replay's burst, parses and decodes OFF the main thread first.
+    private static let inlineParseLimit = 16
+
+    /// Apply everything queued, in arrival order. Frames that queue while a
+    /// burst parses off main are the next pass of the same flush.
+    private func flush() async {
+        defer { flushScheduled = false }
+        while !pendingFrames.isEmpty {
+            let batch = pendingFrames
+            pendingFrames = []
+            let texts = batch.map(\.text)
+            let parsed: [SteerWireFrame?]
+            if texts.count <= Self.inlineParseLimit {
+                parsed = texts.map(SteerWireFrame.parse)
+            } else {
+                parsed = await Task.detached(priority: .userInitiated) {
+                    texts.map(SteerWireFrame.parse)
+                }.value
             }
-            for frame in frames {
+            guard !stopped else { return }
+            applyingBatch = true
+            for (index, frame) in parsed.enumerated() {
                 // A frame can tear the link down (`no_such_session`, `bye`);
-                // the rest of the batch belonged to that dead feed.
-                guard self.connected else { return }
-                self.onText(frame)
+                // the rest of the batch belonged to that dead feed, and a
+                // frame of an earlier dial never reaches this one.
+                guard connected else { break }
+                guard batch[index].generation == dialGeneration, let frame else { continue }
+                onFrame(frame)
             }
+            applyingBatch = false
+            reproject()
         }
     }
 
-    private func onText(_ text: String) {
-        guard let data = text.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let t = obj["t"] as? String else { return }
+    private func onFrame(_ frame: SteerWireFrame) {
+        let t = frame.t
         // EXP-656: the replay frames go through the pure staging rule first —
         // an `activity_reset` no longer wipes anything, it opens a staging
         // window, and the whole replay swaps in as one commit so the reader
         // never sees the feed collapse to empty and get scrolled back down.
-        if let frame = SteerReplayStaging.Frame(wire: t) {
-            switch SteerReplayStaging.decide(staging: isStaging, frame: frame) {
+        if let staging = SteerReplayStaging.Frame(wire: t) {
+            switch SteerReplayStaging.decide(staging: isStaging, frame: staging) {
             case .beginStaging:
                 // Also the join's success signal (EXP-312 — the presence frame
                 // that used to confirm it is gone).
@@ -2028,11 +2125,11 @@ final class AgentSessionModel {
                 beginStaging()
             case .stage:
                 markLive()
-                stageFrame(obj["event"] as? [String: Any], seq: obj["seq"] as? Int)
+                stageFrame(frame.activity, seq: frame.seq)
             case .apply:
                 markLive()
-                currentSeq = obj["seq"] as? Int
-                handleActivityEvent(obj["event"] as? [String: Any])
+                currentSeq = frame.seq
+                handleActivityEvent(frame.activity)
                 currentSeq = nil
             case .commit:
                 // `activity_synced` is the device's end-of-replay marker; a
@@ -2040,9 +2137,9 @@ final class AgentSessionModel {
                 // a republish that carries no marker.
                 // EXP-783: the marker also names the SPAN it replayed, so the
                 // commit keeps the pages the reader scrolled back to load.
-                if frame == .activitySynced {
-                    historyTruncated = obj["truncated"] as? Bool == true
-                    commitStaging(why: "marker", firstSeq: obj["firstSeq"] as? Int)
+                if staging == .activitySynced {
+                    historyTruncated = frame.truncated
+                    commitStaging(why: "marker", firstSeq: frame.firstSeq)
                 } else {
                     commitStaging(why: "keepalive", firstSeq: nil)
                 }
@@ -2058,22 +2155,20 @@ final class AgentSessionModel {
         // EXP-783: one page of OLDER transcript, answering this viewer's
         // `history_page`. PREPENDED, never appended.
         case "history_chunk":
-            guard let requestId = obj["requestId"] as? String,
+            guard let requestId = frame.requestId,
                   requestId == historyRequest else { return }
-            if obj["done"] as? Bool == true { historyRequest = nil }
-            let events = (obj["events"] as? [[String: Any]]) ?? []
-            let seqs = (obj["seqs"] as? [Int]) ?? []
-            prependPage(events, seqs: seqs)
+            if frame.done { historyRequest = nil }
+            prependPage(frame.page, seqs: frame.pageSeqs)
         case "bye":
             // The run ended, or the device's stored replay of an ended run is
             // done (`history`, VAPP-43): either way the device drops this
             // viewer. A protocol word is never a caption (EXP-773).
             sawEnd = true
-            endDetail = SteerOutcome.endDetail(obj["outcome"] as? String)
+            endDetail = SteerOutcome.endDetail(frame.outcome)
             disconnectSocket()
             onSocketClosed()
         case "error":
-            let code = (obj["code"] as? String) ?? "error"
+            let code = frame.code ?? "error"
             if code == "no_such_session" {
                 // The joined device no longer runs nor holds the session (a
                 // re-sent `join` after it lost it): no feed. A live row flips
@@ -2083,7 +2178,7 @@ final class AgentSessionModel {
                 disconnectSocket()
                 onSocketClosed()
             } else {
-                endDetail = (obj["message"] as? String) ?? SteerOutcome.endDetail(code)
+                endDetail = frame.message ?? SteerOutcome.endDetail(code)
             }
         default:
             break // input/kill/legacy presence — not activity-viewer-relevant
@@ -2097,6 +2192,7 @@ final class AgentSessionModel {
     private func resetFeed() {
         feed = []
         feedBytes = 0
+        openThoughts = 0
         seqById = [:]
         testResults = [:]
         // The window anchor survives the swap on purpose (EXP-795, web/Android
@@ -2223,9 +2319,9 @@ final class AgentSessionModel {
         armStagingWatcher()
     }
 
-    private func stageFrame(_ event: [String: Any]?, seq: Int?) {
-        guard let event else { return }
-        stagedFrames?.append((event: event, seq: seq))
+    private func stageFrame(_ activity: SteerWireFrame.Activity, seq: Int?) {
+        guard activity.event != nil else { return }
+        stagedFrames?.append((activity: activity, seq: seq))
         lastStagedFrameAt = Date()
     }
 
@@ -2317,13 +2413,17 @@ final class AgentSessionModel {
         if !retained.isEmpty {
             feed = retained
             feedBytes = retained.reduce(0) { $0 + AgentFeed.itemBytes($1) }
+            openThoughts = retained.reduce(0) { count, item in
+                if case .thought(_, _, true, _, _) = item { return count + 1 }
+                return count
+            }
             seqById = retainedSeqs
             testResults = retainedTests
             if let retainedNextId { nextEventId = retainedNextId }
         }
         for staging in staged {
             currentSeq = staging.seq
-            handleActivityEvent(staging.event)
+            handleActivityEvent(staging.activity)
         }
         currentSeq = nil
         for text in echoes where !tailCarriesEcho(text) {
@@ -2339,6 +2439,7 @@ final class AgentSessionModel {
             restoreAnswerLock(key, labels: carriedLabels[key] ?? [], sentAt: sentAt)
         }
         applyingBatch = nested
+        if !replayed { replayed = true }
         if !nested { reproject() }
         logger.info(
             "replay committed why=\(why, privacy: .public) frames=\(staged.count) items=\(self.feed.count)"
@@ -2393,8 +2494,8 @@ final class AgentSessionModel {
     /// each decoded event DOES to the session's state. An unknown kind
     /// decodes to nil and is skipped — never fatal, because a newer desktop
     /// may publish events this build has no renderer for.
-    private func handleActivityEvent(_ event: [String: Any]?) {
-        guard let decoded = AgentActivityDecoder.decode(event) else { return }
+    private func handleActivityEvent(_ activity: SteerWireFrame.Activity) {
+        guard let decoded = activity.event else { return }
         switch decoded {
         case let .narration(text, messageId, narrationAgent, beforeQuestionId):
             // EXP-483: prose from the withheld ask/plan entry flushes AFTER
@@ -2423,10 +2524,11 @@ final class AgentSessionModel {
             // EXP-772: consecutive flushes of ONE assistant message are one
             // bubble. A merge consumes no feed id — the row it grew already
             // has one.
-            if let merged = AgentFeed.mergeNarration(
-                feed, text: text, messageId: messageId, subagentId: narrationAgent
+            // #EXP-1623: in place — a copy of the feed per fragment made a
+            // replay quadratic.
+            if AgentFeed.mergeNarration(
+                &feed, text: text, messageId: messageId, subagentId: narrationAgent
             ) {
-                feed = merged
                 feedBytes += text.utf8.count
                 trimFeed()
                 return
@@ -2454,15 +2556,13 @@ final class AgentSessionModel {
         case let .toolUpdate(update):
             // EXP-785/786: folded INTO the tool row with that call id — never
             // a row. An id this feed does not hold is dropped.
-            guard let next = AgentFeed.applyToolUpdate(feed: feed, update: update) else { return }
-            feed = next
-            recountFeedBytes()
+            // #EXP-1623: patched in place and weighed by its delta — the copy
+            // and the full re-count per update made a replay quadratic.
+            guard let patched = AgentFeed.applyToolUpdate(&feed, update: update) else { return }
+            let at = patched.index
+            feedBytes += AgentFeed.itemBytes(feed[at]) - patched.oldBytes
             // A settled `execute`'s output parses as a test run ONCE, here.
-            if let at = feed.lastIndex(where: { item in
-                   if case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _) = item { return callId == update.id }
-                   return false
-               }),
-               case let .tool(_, _, _, _, _, kind, settled, _, _, _, output, _, _) = feed[at],
+            if case let .tool(_, _, _, _, _, kind, settled, _, _, _, output, _, _) = feed[at],
                settled, kind == "execute", let output, !output.isEmpty {
                 if let results = Trace.parseTestResults(output) {
                     testResults[update.id] = results
@@ -2518,7 +2618,7 @@ final class AgentSessionModel {
             answerTracker.acknowledge(id)
         case let .subagent(subagentId, agentType, status, detail, toolCalls, title, workflowId):
             // EXP-1324: the edges' own `at` stamps give the line its badge.
-            if let at = (event?["at"] as? NSNumber)?.int64Value {
+            if let at = activity.at {
                 var span = subagentSpans[subagentId] ?? (start: nil, end: nil)
                 if status == .completed {
                     span.end = max(span.end ?? at, at)
@@ -2527,12 +2627,16 @@ final class AgentSessionModel {
                 }
                 subagentSpans[subagentId] = span
                 // Prune to the subagents the feed still holds (plus this one,
-                // whose row lands below): rare edges, one feed pass.
-                var held: Set<String> = [subagentId]
-                for item in feed {
-                    if case let .subagent(_, id, _, _, _, _, _, _) = item { held.insert(id) }
+                // whose row lands below). #EXP-1623: only once the table has
+                // doubled — a pass per edge made a replay quadratic.
+                if subagentSpans.count > subagentSpansPruneAt {
+                    var held: Set<String> = [subagentId]
+                    for item in feed {
+                        if case let .subagent(_, id, _, _, _, _, _, _) = item { held.insert(id) }
+                    }
+                    subagentSpans = subagentSpans.filter { held.contains($0.key) }
+                    subagentSpansPruneAt = max(32, subagentSpans.count * 2)
                 }
-                subagentSpans = subagentSpans.filter { held.contains($0.key) }
             }
             append(.subagent(
                 id: takeEventId(),
@@ -2559,19 +2663,23 @@ final class AgentSessionModel {
             // EXP-746: latest-wins STATE, not a row. A malformed frame keeps
             // whatever the chips already show (the fold's contract).
             guard !prependingPage else { return }
-            sessionConfig = update.applied(to: sessionConfig)
+            let next = update.applied(to: sessionConfig)
+            if next != sessionConfig { sessionConfig = next }
         case let .usage(update):
             guard !prependingPage else { return }
-            sessionUsage = update.applied(to: sessionUsage)
+            let next = update.applied(to: sessionUsage)
+            if next != sessionUsage { sessionUsage = next }
         case let .contextLayout(update):
             // EXP-1051: latest-wins STATE like the usage it is drawn against —
             // an unreadable frame keeps the layers the sheet already shows.
             guard !prependingPage else { return }
-            sessionContextLayout = update.applied(to: sessionContextLayout)
+            let next = update.applied(to: sessionContextLayout)
+            if next != sessionContextLayout { sessionContextLayout = next }
         case let .rateLimit(update):
             // EXP-784: the fourth slot; an empty/`ok` status clears it.
             guard !prependingPage else { return }
-            sessionRateLimit = update.applied(to: sessionRateLimit)
+            let next = update.applied(to: sessionRateLimit)
+            if next != sessionRateLimit { sessionRateLimit = next }
         case let .turn(edge):
             // EXP-848: latest-wins STATE, never a row. Skipped while an OLDER
             // page folds through this reducer — a turn edge from the far end of
@@ -2582,23 +2690,25 @@ final class AgentSessionModel {
             turn = AgentFeed.applyTurn(turn, edge: edge)
             // EXP-1324: a turn that ended settles every thought still open (a
             // `started` whose `ended` never came reads settled, no duration).
-            if turn.state == .ended, let settled = AgentFeed.settleThoughts(feed) {
-                feed = settled
+            if turn.state == .ended, openThoughts > 0 {
+                AgentFeed.settleThoughts(&feed)
+                openThoughts = 0
             }
         case let .backgroundTasks(tasks):
             // EXP-850 §2: the FULL current list, latest-wins — an empty array
             // closes the strip above the composer.
             guard !prependingPage else { return }
-            backgroundTasks = tasks
+            if tasks != backgroundTasks { backgroundTasks = tasks }
         case let .thought(thoughtId, started, durationMs, subagentId):
             // EXP-1324: the Reasoning line. `ended` patches its `started` row
             // (same wire id) in place; an unmatched `started` appends, an
             // orphan `ended` (evicted, below the window) is dropped (web).
-            if let next = AgentFeed.applyThought(
-                feed, thoughtId: thoughtId, started: started, durationMs: durationMs
+            if AgentFeed.applyThought(
+                &feed, thoughtId: thoughtId, started: started, durationMs: durationMs
             ) {
-                feed = next
+                if !started { openThoughts = max(0, openThoughts - 1) }
             } else if started {
+                openThoughts += 1
                 append(.thought(
                     id: takeEventId(), thoughtId: thoughtId, running: started,
                     durationMs: durationMs, subagentId: subagentId
@@ -2610,20 +2720,21 @@ final class AgentSessionModel {
             // frame with no readable list (nil) keeps the current one, as on
             // web/Android/desktop.
             guard !prependingPage, let entries else { return }
-            taskList = entries
+            if entries != taskList { taskList = entries }
         case let .queue(messages):
             // EXP-861: the FULL current queue, latest-wins (replace whole) —
             // an empty array clears the strip. Present-tense state, so an
             // older page folding through says nothing about it.
             guard !prependingPage else { return }
-            queued = messages
+            if messages != queued { queued = messages }
             takeBackQueuedEchoes(messages)
         case let .workflow(workflow):
             // EXP-850 §3: latest-wins PER ID. The card patches onto the tool
             // row with the same id, so the projection has to be redone.
             guard !prependingPage else { return }
             workflows = AgentFeed.applyWorkflow(workflows, workflow: workflow)
-            reproject()
+            // #EXP-1623: a batch (a replay) projects once, at its end.
+            if !applyingBatch { reproject() }
         case let .compaction(edge):
             // EXP-724. The strip's state is the pure fold; the marker row is
             // the caller's job because only `ended` writes one — and it writes

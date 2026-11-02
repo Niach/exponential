@@ -9,6 +9,8 @@ private let logger = Logger(subsystem: "at.exponential", category: "ShapeClient"
 // the exponential ladder takes over. Android uses the same figures.
 private let networkUnreadyRetryMs: UInt64 = 750
 private let networkUnreadyBurst = 6
+/// #EXP-1623: how often a shape the server does not serve (HTTP 404) asks again.
+let unknownShapeRetry: Duration = .seconds(300)
 
 /// The session every shape of ONE account shares (EXP-304).
 ///
@@ -168,6 +170,11 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
                 logger.warning("[\(self.shapeName)] stopped: client upgrade required")
                 SyncDebug.shared.log("[\(shapeName)] STOP: client upgrade required")
                 return
+            } catch ShapeError.unknownShape {
+                logger.info("[\(self.shapeName)] not served by this server yet")
+                SyncDebug.shared.log("[\(shapeName)] 404: not served yet, retry in \(Int(unknownShapeRetry.components.seconds))s")
+                try await Task.sleep(for: unknownShapeRetry)
+                backoffMs = 500
             } catch {
                 let message = Self.describe(error)
                 let isSchema = Self.isSchemaError(error)
@@ -410,6 +417,13 @@ public final class ShapeClient<T: Codable & Sendable>: Sendable {
             throw ShapeError.upgradeRequired
         }
 
+        // #EXP-1623: a 404 is a server OLDER than this build that does not
+        // serve the shape yet (a client released ahead of its web deploy).
+        // Only this shape waits; it never reads as "can't reach the server".
+        if httpResponse.statusCode == 404 {
+            throw ShapeError.unknownShape
+        }
+
         guard (200...299).contains(httpResponse.statusCode) else {
             throw ShapeError.httpError(httpResponse.statusCode)
         }
@@ -592,4 +606,7 @@ public enum ShapeError: Error {
     /// the shape loop for good on this case.
     case upgradeRequired
     case httpError(Int)
+    /// #EXP-1623: HTTP 404, the server does not serve this shape (yet);
+    /// run() re-asks every `unknownShapeRetry`.
+    case unknownShape
 }

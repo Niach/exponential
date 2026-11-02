@@ -52,6 +52,20 @@ final class SteerSessionStore {
     /// session is over and on sign-out.
     @ObservationIgnored private var dockMemory = SteerDockMemory()
 
+    /// #EXP-1623: the Live children a thread read with a closed Queue, with
+    /// the activity stamp they had then: the thread's probe skips them (no
+    /// stream, no replay) until they are active again.
+    @ObservationIgnored private var closedQueues: [String: Double?] = [:]
+
+    func noteQueueClosed(accountId: String, sessionId: String, activeAt: Double?) {
+        closedQueues[Key(accountId: accountId, sessionId: sessionId).memoryKey] = .some(activeAt)
+    }
+
+    func queueReadClosed(accountId: String, sessionId: String, activeAt: Double?) -> Bool {
+        guard let seen = closedQueues[Key(accountId: accountId, sessionId: sessionId).memoryKey] else { return false }
+        return seen == activeAt
+    }
+
     /// Constructed alongside the other long-lived services in AppDependencies,
     /// whose init is not main-actor isolated.
     nonisolated init() {}
@@ -131,6 +145,7 @@ final class SteerSessionStore {
         }
         entries = [:]
         dockMemory.forgetAll()
+        closedQueues = [:]
     }
 
     /// Retire finished sessions nobody is looking at, then enforce the

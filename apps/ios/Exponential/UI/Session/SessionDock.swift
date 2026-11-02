@@ -36,7 +36,7 @@ enum SessionDock {
             }
         }
         let paused = hostPaused(model)
-        let hasFeed = !model.feed.isEmpty
+        let hasFeed = model.hasFeed
         let row = model.session ?? session
         let tree = TreeSession(sessionRow: row)
         // EXP-1374 (session-card.json `banner`): a background or queued

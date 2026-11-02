@@ -121,6 +121,12 @@ public final class SyncDebug: @unchecked Sendable {
     /// — and the banner — stay solid.
     private static let errorStalenessWindow: TimeInterval = 300
 
+    /// #EXP-1623: HTTP 404 on a shape = this server predates it; that shape
+    /// waits alone and the account's health never hears of it.
+    nonisolated static func isUnknownShape(_ httpStatus: Int) -> Bool {
+        httpStatus == 404
+    }
+
     /// Whether a fresh failure starts a NEW streak instead of extending the
     /// current one (see errorStalenessWindow). Shared by both failure paths.
     private static func streakBroken(previousErrorAt: Date?, streakStartedAt: Date?) -> Bool {
@@ -184,6 +190,9 @@ public final class SyncDebug: @unchecked Sendable {
             }
             self.shapes[name] = status
 
+            // #EXP-1623: a 404 is one shape this (older) server does not
+            // serve, never the account being unreachable.
+            guard !Self.isUnknownShape(httpStatus) else { return }
             var h = self.accountHealth[accountId] ?? AccountHealth()
             if (200...299).contains(httpStatus) {
                 h.lastSuccessAt = .now

@@ -169,6 +169,32 @@ final class DockTests: XCTestCase {
         }
     }
 
+    /// #EXP-1623: ONE Live child's stream at a time, in the pick's order.
+    func testThreadQueueProbeAttachesOneChildInPickOrder() {
+        typealias P = Dock.ThreadQueueProbe
+        let older = P(sessionId: "a", activeAt: 100, state: .unknown)
+        let newer = P(sessionId: "b", activeAt: 200, state: .unknown)
+        let quiet = P(sessionId: "c", activeAt: nil, state: .unknown)
+        // The root's own open Queue wins: no child stream at all.
+        XCTAssertNil(Dock.threadQueueProbe(rootOpen: true, children: [older, newer]))
+        // The most recently active child is read first.
+        XCTAssertEqual(Dock.threadQueueProbe(rootOpen: false, children: [older, quiet, newer]), "b")
+        // Read closed: the next one in line.
+        let newerClosed = P(sessionId: "b", activeAt: 200, state: .closed)
+        XCTAssertEqual(Dock.threadQueueProbe(rootOpen: false, children: [older, quiet, newerClosed]), "a")
+        // An open one is the pick and stays the one stream.
+        let olderOpen = P(sessionId: "a", activeAt: 100, state: .open)
+        XCTAssertEqual(Dock.threadQueueProbe(rootOpen: false, children: [olderOpen, quiet, newerClosed]), "a")
+        // No activity = oldest; ties by id ascending.
+        let tie = P(sessionId: "a2", activeAt: 200, state: .unknown)
+        XCTAssertEqual(Dock.threadQueueProbe(rootOpen: false, children: [tie, newer]), "a2")
+        // Every child known closed: none.
+        XCTAssertNil(Dock.threadQueueProbe(rootOpen: false, children: [
+            P(sessionId: "a", activeAt: 1, state: .closed), P(sessionId: "b", activeAt: nil, state: .closed),
+        ]))
+        XCTAssertNil(Dock.threadQueueProbe(rootOpen: false, children: []))
+    }
+
     func testCases() throws {
         let all = try list("cases")
         XCTAssertFalse(all.isEmpty)
