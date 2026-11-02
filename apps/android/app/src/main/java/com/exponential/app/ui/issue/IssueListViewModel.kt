@@ -432,8 +432,7 @@ class IssueListViewModel @Inject constructor(
             if (steerLoadedForAccount == accountId) return@launch
             steerLoadedForAccount = accountId
             _steerEnabled.value = null
-            _steerEnabled.value = runCatching { steerApi.config(accountId).enabled }
-                .getOrDefault(false)
+            steerApi.enabled(accountId).collect { _steerEnabled.value = it }
         }
     }
 
