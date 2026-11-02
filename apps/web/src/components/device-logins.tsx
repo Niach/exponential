@@ -35,7 +35,6 @@ import {
 } from "@exp/domain-contract/devices-list"
 import {
   deviceLoginRows,
-  loginLabel,
   peakPercent,
   sortDeviceLogins,
   usageAge,
@@ -54,13 +53,20 @@ import { requestAgentLogin } from "@/components/agent-login-dialog"
 import {
   AccountChipMenu,
   accountChipActionable,
+  keepSignedInTarget,
+  loginName,
+  reportedLoginName,
 } from "@/components/device-agent-account"
 
 const AddIcon = conceptIcon(`ui-add`)
 const MoreIcon = conceptIcon(`ui-more`)
 
+/** One login on a device card: the usage row plus the NAME the machine
+ *  reports for it (EXP-1626, `loginName`). */
+export type DeviceLoginRow = AgentProfileUsageRow & { name: string | null }
+
 /** The device's logins in the row's order (`sortDeviceLogins`). */
-export function useDeviceLogins(device: SteerDevice): AgentProfileUsageRow[] {
+export function useDeviceLogins(device: SteerDevice): DeviceLoginRow[] {
   return useMemo(
     () =>
       sortDeviceLogins(
@@ -73,7 +79,10 @@ export function useDeviceLogins(device: SteerDevice): AgentProfileUsageRow[] {
           },
           { mine: deviceIsMine(device), online: deviceIsOnline(device) }
         )
-      ),
+      ).map((row) => ({
+        ...row,
+        name: reportedLoginName(device.agentAccounts, row.agent, row.profileId),
+      })),
     [device]
   )
 }
@@ -99,7 +108,7 @@ export function DeviceAccountIcons({
   readOnly = false,
 }: {
   device: SteerDevice
-  rows: readonly AgentProfileUsageRow[]
+  rows: readonly DeviceLoginRow[]
   attention: readonly DeviceAttentionItem[]
   now: Date
   readOnly?: boolean
@@ -113,7 +122,7 @@ export function DeviceAccountIcons({
     deviceIsOnline(device) &&
     addableAgents(device).length > 0
   const icons = deviceCardAccountIcons(rows.length, expanded)
-  const itemFor = (row: AgentProfileUsageRow) =>
+  const itemFor = (row: DeviceLoginRow) =>
     attention.find(
       (item): item is LoginAttention =>
         item.kind === `login` && item.agent === row.agent && item.profileId === row.profileId
@@ -164,15 +173,16 @@ export function loginActionLabel(item: LoginAttention): string {
     : DEVICES_LIST_COPY.switchToKeepSignedIn
 }
 
-/** The login's preview: email (else the label), the plan, its status, the
- *  usage windows — the hover card's body and the account menu's header. */
+/** The login's preview: its label (EXP-1626 `loginName`: the name, else the
+ *  email), the plan, its status, the usage windows — the hover card's body
+ *  and the account menu's header. */
 function LoginPreview({
   row,
   item,
   now,
   onSignIn,
 }: {
-  row: AgentProfileUsageRow
+  row: DeviceLoginRow
   item: LoginAttention | null
   now: Date
   /** The hover card's trailing Sign in pill (only when the item has one). */
@@ -182,8 +192,8 @@ function LoginPreview({
   return (
     <div data-slot="login-preview" className="flex w-60 flex-col gap-2">
       <div className="flex min-w-0 flex-col">
-        <span className="truncate text-sm font-medium">{row.email || loginLabel(row)}</span>
-        {row.email && row.plan && (
+        <span className="truncate text-sm font-medium">{loginName(row)}</span>
+        {(row.name || row.email) && row.plan && (
           <span className="truncate text-xs text-muted-foreground">{row.plan}</span>
         )}
         {item && (
@@ -214,16 +224,24 @@ function DeviceAccountIcon({
   readOnly,
 }: {
   device: SteerDevice
-  row: AgentProfileUsageRow
+  row: DeviceLoginRow
   item: LoginAttention | null
   now: Date
   readOnly: boolean
 }) {
   const touch = useIsMobile()
-  const label = loginLabel(row)
+  const label = loginName(row)
   const actionable = !readOnly && accountChipActionable(device)
   const signIn = () =>
     requestAgentLogin({ device, agent: row.agent, profileId: row.profileId })
+  // EXP-1626: Switch ADDS a named long-lived profile (the browser login stays
+  // as it is); Renew re-signs the token profile in place.
+  const keepSignedIn = () =>
+    requestAgentLogin({
+      device,
+      agent: row.agent,
+      ...keepSignedInTarget(row, label),
+    })
   const icon = (
     <Button
       variant="ghost"
@@ -250,6 +268,7 @@ function DeviceAccountIcon({
         row={row}
         accountLabel={label}
         onSignIn={signIn}
+        onKeepSignedIn={keepSignedIn}
         header={preview}
         trigger={icon}
       />
@@ -267,7 +286,14 @@ function DeviceAccountIcon({
           data-slot="account-limits-preview"
           className="w-auto p-3"
         >
-          <LoginPreview row={row} item={item} now={now} onSignIn={() => signIn()} />
+          <LoginPreview
+            row={row}
+            item={item}
+            now={now}
+            onSignIn={() =>
+              item?.action === `keep_signed_in` ? keepSignedIn() : signIn()
+            }
+          />
         </HoverCardContent>
       </HoverCard>
     )

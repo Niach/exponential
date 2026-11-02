@@ -38,12 +38,17 @@ object DevicesList {
         const val SWITCH_TO_KEEP_SIGNED_IN = "Switch to Keep signed in"
         const val RENEW_KEEP_SIGNED_IN = "Renew Keep signed in"
         const val KEEP_SIGNED_IN_NOTE =
-            "Keep signed in: lasts 1 year, shows the 5h and weekly windows (not per model). We remind you to renew."
+            "Keep signed in: lasts 1 year, shows weekly usage only. We remind you to renew."
         const val BROWSER_LOGIN_NOTE =
             "Browser login: shows every usage window, but can sign out when its refresh rotates."
         const val USE_BROWSER_LOGIN = "Use browser login (Advanced)"
         const val USE_KEEP_SIGNED_IN = "Use Keep signed in"
         const val LONG_LIVED_REFUSED = "A long-lived login needs a Claude account on this machine."
+        /** EXP-1626: the Add account sheet's name field (claude only) and its blank default. */
+        const val ACCOUNT_NAME = "Name"
+        const val KEPT_SIGNED_IN_NAME = "Claude (kept signed in)"
+        /** EXP-1626: the name a "Switch to Keep signed in" gives the NEW profile. */
+        const val SWITCHED_NAME = "{label} (kept signed in)"
 
         /** `copy.status`: the account preview's warning-tone status line. */
         val STATUS: Map<Status, String> = mapOf(
@@ -82,6 +87,9 @@ object DevicesList {
             "useBrowserLogin" to USE_BROWSER_LOGIN,
             "useKeepSignedIn" to USE_KEEP_SIGNED_IN,
             "longLivedRefused" to LONG_LIVED_REFUSED,
+            "accountName" to ACCOUNT_NAME,
+            "keptSignedInName" to KEPT_SIGNED_IN_NAME,
+            "switchedName" to SWITCHED_NAME,
         )
     }
 
@@ -106,6 +114,9 @@ object DevicesList {
     object KeepSignedIn {
         const val RENEW_WITHIN_DAYS = 30
     }
+
+    /** EXP-1626: the name a Switch to Keep signed in gives its new profile ([Copy.SWITCHED_NAME]). */
+    fun switchedName(label: String): String = Copy.SWITCHED_NAME.replace("{label}", label)
 
     /** The agent whose logins are kept signed in (`claude setup-token`). */
     const val KEEP_SIGNED_IN_AGENT = "claude"

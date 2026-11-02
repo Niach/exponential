@@ -80,6 +80,10 @@ export interface AgentLoginTarget {
    *  claude's DEFAULT (long-lived); false = the browser login. Same dialog,
    *  same link + code. */
   longLived?: boolean
+  /** EXP-1626: the name a long-lived ADD (no `profileId`) gives its new
+   *  profile (Add account's Name field, Switch to Keep signed in's
+   *  `switchedName`); ignored for any other login. */
+  name?: string
 }
 
 export function AgentLoginDialog({
@@ -108,7 +112,7 @@ export function AgentLoginDialog({
     loginIsLongLived(agent, target?.longLived)
   )
   const [fellBack, setFellBack] = useState(false)
-  const openKey = `${device?.deviceId ?? ``}:${agent}:${target?.profileId ?? ``}:${String(target?.longLived)}`
+  const openKey = `${device?.deviceId ?? ``}:${agent}:${target?.profileId ?? ``}:${String(target?.longLived)}:${target?.name ?? ``}`
   const lastOpenKey = useRef<string | null>(null)
   if (open && lastOpenKey.current !== openKey) {
     lastOpenKey.current = openKey
@@ -147,13 +151,17 @@ export function AgentLoginDialog({
       baselineRef.current = null
       return
     }
-    const key = `${device.deviceId}:${agent}:${target?.profileId ?? ``}:${longLived}`
+    const key = `${device.deviceId}:${agent}:${target?.profileId ?? ``}:${longLived}:${target?.name ?? ``}`
     if (queuedRef.current === key) return
     queuedRef.current = key
     baselineRef.current = row ? agentLoginBaseline(account) : null
-    login.queueLogin(agent, false, { profileId: target?.profileId, longLived })
+    login.queueLogin(agent, false, {
+      profileId: target?.profileId,
+      longLived,
+      name: target?.name,
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, device?.deviceId, agent, target?.profileId, longLived])
+  }, [open, device?.deviceId, agent, target?.profileId, longLived, target?.name])
   if (open && queuedRef.current !== null && baselineRef.current === null && row) {
     baselineRef.current = agentLoginBaseline(account)
   }
@@ -207,7 +215,11 @@ export function AgentLoginDialog({
     setSigning(false)
     setSignedIn(false)
     baselineRef.current = row ? agentLoginBaseline(account) : null
-    login.queueLogin(agent, false, { profileId: target?.profileId, longLived })
+    login.queueLogin(agent, false, {
+      profileId: target?.profileId,
+      longLived,
+      name: target?.name,
+    })
   }
 
   // EXP-1600: flip between Keep signed in and the browser login; the queue
@@ -236,6 +248,31 @@ export function AgentLoginDialog({
   }, [open, refusedAdd])
   const failure = refusedAdd ? `` : rawFailure
   const waiting = signing || state.codePending
+
+  // EXP-1626: closing before the login landed stops it on the machine
+  // (`agent_login_cancel`), so its `claude setup-token` run does not linger.
+  // Captured while open: the close clears the host's target in the same
+  // render. A landed or already failed login has nothing left to stop.
+  const loginCommandId = login.loginCommandIdFor(agent)
+  const cancelRef = useRef<{ agent: string; id: string | null; settled: boolean } | null>(null)
+  if (open) {
+    cancelRef.current = {
+      agent,
+      id: loginCommandId,
+      settled:
+        signedIn || Boolean(state.error || agentLoginFailure(state.result)),
+    }
+  }
+  const wasOpenRef = useRef(open)
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current
+    wasOpenRef.current = open
+    if (!wasOpen || open) return
+    const pending = cancelRef.current
+    cancelRef.current = null
+    if (pending?.id && !pending.settled) login.cancelLogin(pending.agent, pending.id)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
 
   // FEED-79: a failed sign-in is a toast (once per failure, Retry re-queues
   // the login); the dialog keeps its status line and the Try again button.

@@ -185,6 +185,7 @@ vi.mock(`@/lib/client-version`, () => ({
 import {
   AGENT_IMPORT_REMOVED,
   AGENT_LONG_LIVED_CLAUDE_ONLY,
+  AGENT_LOGIN_CANCELLED,
   clampAgentAccounts,
   clampAgentUsage,
   clearDeviceKey,
@@ -2552,6 +2553,70 @@ describe(`devices.createCommand — agent_login`, () => {
   })
 })
 
+// EXP-1626: a long-lived Add names its new profile; a sign-in the requester
+// walked away from is cancelled.
+describe(`devices.createCommand — EXP-1626 names and cancel`, () => {
+  const capableProbe = () => [[{ id: `row-1`, caps: [`agent-login`] }]]
+
+  it(`carries the name of a long-lived Add, and only of one`, async () => {
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.insertReturning = [[{ id: `cmd-named` }]]
+    await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login`,
+      agent: `claude`,
+      longLived: true,
+      name: `  Work (kept signed in) `,
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      payload: { agent: `claude`, switch: `false`, longLived: `true`, name: `Work (kept signed in)` },
+    })
+    // A renew in place (a profile) and a browser login never carry it.
+    for (const extra of [{ longLived: true, profileId: `p-work` }, {}]) {
+      h.state.inserted.length = 0
+      h.state.selectQueue = [...capableProbe(), []]
+      h.state.insertReturning = [[{ id: `cmd-unnamed` }]]
+      await caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login`,
+        agent: `claude`,
+        name: `Ignored`,
+        ...extra,
+      })
+      expect((h.state.inserted[0] as { payload: object }).payload).not.toHaveProperty(`name`)
+    }
+  })
+
+  it(`fails a still-pending login row and queues the cancel for the machine`, async () => {
+    const login = `11111111-1111-4111-8111-111111111111`
+    h.state.selectQueue = [...capableProbe(), []]
+    h.state.updateReturning = [[]]
+    h.state.insertReturning = [[{ id: `cmd-cancel` }]]
+    await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login_cancel`,
+      agent: `claude`,
+      loginCommandId: login,
+    })
+    expect(h.state.updates.at(-1)?.set).toMatchObject({
+      status: `failed`,
+      result: AGENT_LOGIN_CANCELLED,
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      kind: `agent_login_cancel`,
+      payload: { agent: `claude`, loginCommandId: login },
+    })
+  })
+
+  it(`refuses a cancel without the login it stops`, async () => {
+    h.state.selectQueue = [...capableProbe()]
+    await expect(
+      caller.createCommand({ deviceId: `dev-1`, kind: `agent_login_cancel`, agent: `claude` })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+})
+
 // EXP-765: handing claude's authorization code back to the waiting login.
 describe(`devices.createCommand — agent_login_code`, () => {
   const codeCapableProbe = () => [[{ id: `row-1`, caps: [`agent-login`] }]]
@@ -3149,6 +3214,22 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
       undefined,
       undefined,
     ])
+  })
+
+  // EXP-1626: a long-lived Add's profile name survives trimmed and capped.
+  it(`keeps a profile's name`, () => {
+    const out = clampAgentAccounts({
+      claude: {
+        signedIn: true,
+        profiles: [
+          { id: `home`, signedIn: true, name: `  Work (kept signed in) ` },
+          { id: `work`, signedIn: true, name: `x`.repeat(200) },
+          { id: `spare`, signedIn: true, name: `   ` },
+        ],
+      },
+    })
+    expect(out.claude!.profiles!.map((p) => p.name?.length ?? p.name)).toEqual([21, 64, undefined])
+    expect(out.claude!.profiles![0]!.name).toBe(`Work (kept signed in)`)
   })
 })
 

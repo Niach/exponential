@@ -166,6 +166,17 @@ class AccountOptionTest {
     }
 
     @Test
+    fun `omits fiveHour for a login that reports no session window`() {
+        // EXP-1626: a Keep signed in login reports the weekly window alone.
+        assertEquals(
+            AccountLimits(fiveHour = null, week = 0.3),
+            AccountOptions.limitsOf(
+                AgentUsage(windows = listOf(AgentUsageWindow(key = "weekly", label = "Week", percent = 30.0))),
+            ),
+        )
+    }
+
+    @Test
     fun `omits limits for a login with no usage report`() {
         assertNull(flatten().first { it.id == "home" }.limits)
     }

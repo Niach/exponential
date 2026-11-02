@@ -527,7 +527,7 @@ struct AgentsView: View {
                 attention: row.attention,
                 readOnly: !device.isMine,
                 onSignIn: { signIn(device, agent: $0.agent, profileId: $0.profileId) },
-                onKeepSignedIn: { signIn(device, agent: $0.agent, profileId: $0.profileId) },
+                onKeepSignedIn: { keepSignedIn(device, row: $0) },
                 onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) },
                 onSignOut: { signOutAccountTarget = AccountRemoveTarget(row: $0) }
             )
@@ -540,15 +540,29 @@ struct AgentsView: View {
         .accessibilityIdentifier("device-card-\(device.deviceId)")
     }
 
-    /// The sign-in sheet on ONE login (its icon's account menu): Sign in,
-    /// Switch to / Renew Keep signed in alike — a claude sign-in is the
-    /// long-lived login by default (EXP-1600).
+    /// The sign-in sheet on ONE login (its icon's account menu's Sign in) —
+    /// a claude sign-in is the long-lived login by default (EXP-1600).
     private func signIn(_ device: SteerDevice, agent: String, profileId: String?) {
         loginTarget = AgentLoginTarget(
             deviceId: device.deviceId,
             deviceLabel: deviceName(device),
             agent: agent,
             profileId: profileId
+        )
+    }
+
+    /// EXP-1626: Switch to Keep signed in ADDS a new long-lived profile
+    /// (no profileId, named `copy.switchedName` with this login's label) and
+    /// leaves the browser login untouched; Renew renews this profile in
+    /// place (`AgentAccountsRows.keepSignedInRequest`).
+    private func keepSignedIn(_ device: SteerDevice, row: AgentProfileUsageRow) {
+        let request = AgentAccountsRows.keepSignedInRequest(row)
+        loginTarget = AgentLoginTarget(
+            deviceId: device.deviceId,
+            deviceLabel: deviceName(device),
+            agent: row.agent,
+            profileId: request.profileId,
+            name: request.name
         )
     }
 

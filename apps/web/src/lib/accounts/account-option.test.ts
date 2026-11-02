@@ -141,6 +141,27 @@ describe(`flattenAccounts (EXP-872)`, () => {
     })
   })
 
+  it(`omits fiveHour for a login that reports no session window`, () => {
+    // EXP-1626: a Keep signed in login reports the weekly window alone.
+    const options = flattenAccounts({
+      agentAccounts: {
+        claude: {
+          signedIn: true,
+          profiles: [
+            {
+              id: `kept`,
+              signedIn: true,
+              email: `kept@x.test`,
+              active: true,
+              usage: { windows: [{ key: `weekly`, label: `Week`, percent: 30 }] },
+            },
+          ],
+        },
+      },
+    })
+    expect(options[0]?.limits).toEqual({ week: 0.3 })
+  })
+
   it(`omits limits for a login with no usage report`, () => {
     const options = flattenAccounts(ACCOUNT_FIXTURE)
     expect(options.find((option) => option.id === `home`)?.limits).toBeUndefined()

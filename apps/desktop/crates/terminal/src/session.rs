@@ -181,6 +181,12 @@ impl Terminal {
         self.emulator.screen_lines()
     }
 
+    /// EXP-1626: a handle that ends the child for sure (SIGHUP + SIGTERM,
+    /// then SIGKILL), usable after the tab itself is gone.
+    pub fn terminator(&self) -> eagent::spawn::Terminator {
+        self.pty.terminator(self.exit_slot.clone())
+    }
+
     /// Kill the child (tab close, §6.13). Guarded on liveness to avoid
     /// signalling a reaped (potentially reused) pid.
     pub fn kill(&self) {

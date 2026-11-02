@@ -136,6 +136,31 @@ final class AccountOptionTests: XCTestCase {
         )
     }
 
+    func testOmitsFiveHourForALoginThatReportsNoSessionWindow() {
+        // EXP-1626: a Keep signed in login reports the weekly window alone.
+        let options = AccountOptions.flatten(
+            accounts: [
+                "claude": AgentAccount(
+                    signedIn: true,
+                    profiles: [
+                        AgentAccountProfile(
+                            id: "kept",
+                            active: true,
+                            signedIn: true,
+                            email: "kept@x.test",
+                            usage: AgentUsage(windows: [
+                                AgentUsageWindow(key: "weekly", label: "Week", percent: 30),
+                            ])
+                        ),
+                    ]
+                ),
+            ],
+            usage: nil,
+            launchDefaults: nil
+        )
+        XCTAssertEqual(options.first?.limits, AccountLimits(fiveHour: nil, week: 0.3))
+    }
+
     func testOmitsLimitsForALoginWithNoUsageReport() {
         XCTAssertNil(fixture().first { $0.id == "home" }?.limits)
     }

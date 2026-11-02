@@ -480,6 +480,85 @@ final class AgentAccountsRowsTests: XCTestCase {
         XCTAssertNil(garbled.tokenExpiresAt)
     }
 
+    // EXP-1626: a long-lived Add's `name` decodes off a profile entry, rides
+    // the row (trimmed; blank = none) and leads the label ladder: name, else
+    // email, else the plan, else "No email".
+    func testANamedLoginIsLabelledByItsName() throws {
+        let decoder = JSONDecoder()
+        let named = try decoder.decode(
+            AgentAccountProfile.self,
+            from: Data(#"{"id":"a","name":"Work (kept signed in)"}"#.utf8)
+        )
+        XCTAssertEqual(named.name, "Work (kept signed in)")
+        let garbled = try decoder.decode(AgentAccountProfile.self, from: Data(#"{"id":"b","name":7}"#.utf8))
+        XCTAssertEqual(garbled.id, "b")
+        XCTAssertNil(garbled.name)
+
+        let device = DeviceEntity(
+            id: "row-1",
+            userId: "me",
+            deviceId: "dev-1",
+            label: "Studio",
+            agentAccounts: """
+                {"claude":{"signedIn":true,"profiles":[
+                   {"id":"kept","signedIn":true,"name":"  Work (kept signed in) ","email":"work@acme.test"},
+                   {"id":"blank","signedIn":true,"name":"   ","email":"home@acme.test"},
+                   {"id":"bare","signedIn":true,"name":"Claude (kept signed in)"}
+                 ]}}
+                """,
+            agentUsage: nil,
+            lastSeenAt: "2026-11-02T11:59:00.000Z"
+        )
+        let rows = AgentAccountsRows.profileRows(devices: [device], currentUserId: "me", isOnline: { _ in true })
+        XCTAssertEqual(rows.map(\.name), ["Work (kept signed in)", nil, "Claude (kept signed in)"])
+        XCTAssertEqual(rows.map(AgentAccountsRows.loginLabel), [
+            "Work (kept signed in)", "home@acme.test", "Claude (kept signed in)",
+        ])
+        XCTAssertEqual(
+            AgentAccountsRows.loginLabel(row(deviceId: "d1", agent: "claude", email: "dev@acme.test")),
+            "dev@acme.test"
+        )
+    }
+
+    // EXP-1626: Switch to Keep signed in (no token) ADDS a profile named
+    // `copy.switchedName` with the login's label; Renew (a token) renews the
+    // profile in place, unnamed.
+    func testSwitchAddsANamedProfileAndRenewKeepsItsOwn() {
+        func login(tokenExpiresAt: String?, name: String? = nil) -> AgentProfileUsageRow {
+            AgentProfileUsageRow(
+                key: "dev:claude:work",
+                deviceId: "dev",
+                deviceLabel: "mint",
+                mine: true,
+                online: true,
+                agent: "claude",
+                profileId: "work",
+                active: true,
+                signedIn: true,
+                email: "me@example.com",
+                plan: nil,
+                usage: nil,
+                checkedAt: nil,
+                health: .ok,
+                tokenExpiresAt: tokenExpiresAt,
+                name: name
+            )
+        }
+        XCTAssertEqual(
+            AgentAccountsRows.keepSignedInRequest(login(tokenExpiresAt: nil)),
+            AgentAccountsRows.KeepSignedInRequest(profileId: nil, name: "me@example.com (kept signed in)")
+        )
+        XCTAssertEqual(
+            AgentAccountsRows.keepSignedInRequest(login(tokenExpiresAt: "", name: "Work")),
+            AgentAccountsRows.KeepSignedInRequest(profileId: nil, name: "Work (kept signed in)")
+        )
+        XCTAssertEqual(
+            AgentAccountsRows.keepSignedInRequest(login(tokenExpiresAt: "2027-10-01T10:00:00.000Z")),
+            AgentAccountsRows.KeepSignedInRequest(profileId: "work", name: nil)
+        )
+        XCTAssertEqual(DevicesList.switchedName(label: "a@b.test"), "a@b.test (kept signed in)")
+    }
+
     // MARK: - Signing in: the landing by email
 
     private func profile(

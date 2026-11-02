@@ -17,7 +17,7 @@ pub use eagent::spawn::{login_path, prewarm_login_path, ChildExit, SpawnSpec};
 /// EXP-1426 part 4b: the headless PTY (open/spawn, the shared writer, resize,
 /// the wait thread, kill) moved too — the engine's ACP `terminal/*`
 /// capability opens one with no emulator. Only the cell metrics stay here.
-pub use eagent::spawn::{build_command, winsize, ExitSlot, Pty};
+pub use eagent::spawn::{build_command, winsize, ExitSlot, Pty, Terminator};
 
 /// Open a PTY at `cols`×`rows` and spawn `spec` with the slave as its
 /// controlling tty (§6.3). The pixel extent starts at the emulator's

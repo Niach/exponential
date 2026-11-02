@@ -32,11 +32,17 @@ public enum DevicesList {
         public static let switchPrompt = "{label} · Switch to Keep signed in"
         public static let switchToKeepSignedIn = "Switch to Keep signed in"
         public static let renewKeepSignedIn = "Renew Keep signed in"
-        public static let keepSignedInNote = "Keep signed in: lasts 1 year, shows the 5h and weekly windows (not per model). We remind you to renew."
+        public static let keepSignedInNote = "Keep signed in: lasts 1 year, shows weekly usage only. We remind you to renew."
         public static let browserLoginNote = "Browser login: shows every usage window, but can sign out when its refresh rotates."
         public static let useBrowserLogin = "Use browser login (Advanced)"
         public static let useKeepSignedIn = "Use Keep signed in"
         public static let longLivedRefused = "A long-lived login needs a Claude account on this machine."
+        /// EXP-1626: the Add account sheet's Name field (claude only), its
+        /// placeholder (= the name a blank field gives), and the name a
+        /// Switch to Keep signed in gives the profile it adds.
+        public static let accountName = "Name"
+        public static let keptSignedInName = "Claude (kept signed in)"
+        public static let switchedName = "{label} (kept signed in)"
 
         /// `copy.status`: the account preview's warning-tone status line.
         public static func status(_ status: LoginStatus) -> String {
@@ -58,6 +64,12 @@ public enum DevicesList {
         public static let iconSize: CGFloat = 28
         public static let markSize: CGFloat = 16
         public static let maxAccountIcons = 5
+    }
+
+    /// EXP-1626: the name a Switch to Keep signed in gives the new profile
+    /// (`copy.switchedName` with the switched login's label).
+    public static func switchedName(label: String) -> String {
+        Copy.switchedName.replacingOccurrences(of: "{label}", with: label)
     }
 
     /// EXP-1600: the Keep signed in reminder window (`fixture.keepSignedIn`).
@@ -112,8 +124,8 @@ public enum DevicesList {
     public struct Login: Equatable, Sendable {
         public let agent: String
         public let profileId: String
-        /// `AgentAccountsRows.loginLabel` — the email, else the plan, else
-        /// the fallback.
+        /// `AgentAccountsRows.loginLabel` — the name (EXP-1626), else the
+        /// email, else the plan, else the fallback.
         public let label: String
         public let health: AgentAccountHealth
         /// EXP-1560: a fresh usage window at ≥ 100% (`limitHit(_:now:)`).

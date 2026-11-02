@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-02-keep-signed-in-fixed`,
+    date: `2026-11-02`,
+    title: `Keep signed in, fixed`,
+    summary: `Keep signed in from your phone shows its link again, names the account you add, and never leaves a sign-in running.`,
+    body: `- **Link and code**: a Keep signed in started from another device gets its link and code field again, and a rejected code now says so instead of spinning.
+- **Name it**: when you add a Keep signed in account you can give it a name, so two of them are easy to tell apart.
+- **Switch adds**: switching an account to Keep signed in adds a new one and leaves the browser login as it was.
+- **No leftovers**: closing the sign-in stops it on the machine, and a sign-in nobody finishes stops by itself after 10 minutes.
+- **Weekly usage**: a Keep signed in account shows weekly usage only, which is all Claude reports for it.`,
+  },
+  {
     id: `2026-11-02-sessions-track-work`,
     date: `2026-11-02`,
     title: `Sessions keep track of their work`,

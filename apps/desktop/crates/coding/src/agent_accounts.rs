@@ -219,6 +219,11 @@ pub struct AgentProfileEntry {
     /// expired or not; clients offer "Renew long-lived login" on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_expires_at: Option<String>,
+    /// EXP-1626: the name a long-lived Add gave this profile
+    /// ([`crate::agent_profiles::AgentProfile::name`]); clients label the
+    /// login by it before its email.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 impl AgentProfileEntry {

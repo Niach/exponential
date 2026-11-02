@@ -602,13 +602,20 @@ pub fn report_worktrees(
 
 /// `devices.completeCommand` — report a pulled command's outcome. `ok:
 /// false` in the RESULT means the row was already terminal (a redelivered
-/// duplicate raced the first completion) — expected, not an error.
+/// duplicate raced the first completion, or the requester cancelled it):
+/// EXP-1626 returns it as `Ok(false)` so a caller can say so (`Ok(true)` =
+/// the row took this outcome).
 pub fn complete_command(
     trpc: &TrpcClient,
     command_id: &str,
     ok: bool,
     message: Option<&str>,
-) -> Result<(), ApiError> {
+) -> Result<bool, ApiError> {
+    #[derive(Deserialize)]
+    struct Updated {
+        #[serde(default)]
+        ok: bool,
+    }
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
     struct Input<'a> {
@@ -617,7 +624,7 @@ pub fn complete_command(
         #[serde(skip_serializing_if = "Option::is_none")]
         message: Option<&'a str>,
     }
-    let _: OkResult = trpc.mutation(
+    let updated: Updated = trpc.mutation(
         "devices.completeCommand",
         &Input {
             command_id,
@@ -625,7 +632,7 @@ pub fn complete_command(
             message,
         },
     )?;
-    Ok(())
+    Ok(updated.ok)
 }
 
 /// `devices.createCommand` output.
@@ -679,10 +686,14 @@ pub fn create_agent_login_command(
 /// and keeps the one-year token it prints. EXP-1600: `profile_id` = that
 /// profile's login; `None` = a long-lived "Add account" (claude's default
 /// sign-in), which the machine adopts as a new profile.
+///
+/// EXP-1626: `name` = the NEW profile's name, sent on an Add only (a
+/// renewal keeps its profile's); blank is never sent.
 pub fn create_long_lived_login_command(
     trpc: &TrpcClient,
     device_id: &str,
     profile_id: Option<&str>,
+    name: Option<&str>,
 ) -> Result<CreatedCommand, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -693,15 +704,50 @@ pub fn create_long_lived_login_command(
         #[serde(skip_serializing_if = "Option::is_none")]
         profile_id: Option<&'a str>,
         long_lived: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<&'a str>,
     }
+    let profile_id = profile_id.map(str::trim).filter(|id| !id.is_empty());
     trpc.mutation(
         "devices.createCommand",
         &Input {
             device_id,
             kind: "agent_login",
             agent: "claude",
-            profile_id: profile_id.map(str::trim).filter(|id| !id.is_empty()),
+            profile_id,
             long_lived: true,
+            name: name
+                .map(str::trim)
+                .filter(|name| profile_id.is_none() && !name.is_empty()),
+        },
+    )
+}
+
+/// EXP-1626 — `devices.createCommand` for an `agent_login_cancel`: the
+/// requester closed its sign-in dialog before the login landed, so the
+/// machine stops the run of `login_command_id` (unless a code already went
+/// in). The server fails that row at once while it is still pending.
+pub fn create_login_cancel_command(
+    trpc: &TrpcClient,
+    device_id: &str,
+    agent: &str,
+    login_command_id: &str,
+) -> Result<CreatedCommand, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        device_id: &'a str,
+        kind: &'a str,
+        agent: &'a str,
+        login_command_id: &'a str,
+    }
+    trpc.mutation(
+        "devices.createCommand",
+        &Input {
+            device_id,
+            kind: "agent_login_cancel",
+            agent,
+            login_command_id,
         },
     )
 }
@@ -1344,7 +1390,7 @@ mod tests {
     #[test]
     fn long_lived_login_command_posts_the_profile_and_the_flag() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-ll"}}}"#);
-        let created = create_long_lived_login_command(&client(&base), "dev-1", Some("0a1b2c3d")).unwrap();
+        let created = create_long_lived_login_command(&client(&base), "dev-1", Some("0a1b2c3d"), Some("ignored")).unwrap();
         assert_eq!(created.id, "cmd-ll");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
@@ -1352,12 +1398,34 @@ mod tests {
         ));
         // EXP-1600: a long-lived Add names no profile.
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-add"}}}"#);
-        let created = create_long_lived_login_command(&client(&base), "dev-1", None).unwrap();
+        let created = create_long_lived_login_command(&client(&base), "dev-1", None, Some("  ")).unwrap();
         assert_eq!(created.id, "cmd-add");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
             r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","longLived":true}"#
         ));
+        // EXP-1626: an Add carries its name.
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-named"}}}"#);
+        create_long_lived_login_command(&client(&base), "dev-1", None, Some(" Work ")).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","longLived":true,"name":"Work"}"#
+        ));
+    }
+
+    /// EXP-1626: a cancel names the agent and the login command to stop;
+    /// `completeCommand`'s `{ok:false}` (row no longer pending) reads false.
+    #[test]
+    fn login_cancel_command_posts_the_login_command_id() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-x"}}}"#);
+        let created = create_login_cancel_command(&client(&base), "dev-1", "claude", "cmd-ll").unwrap();
+        assert_eq!(created.id, "cmd-x");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(
+            r#"{"deviceId":"dev-1","kind":"agent_login_cancel","agent":"claude","loginCommandId":"cmd-ll"}"#
+        ));
+        let (base, _captured) = one_shot_server(200, r#"{"result":{"data":{"ok":false}}}"#);
+        assert!(!complete_command(&client(&base), "cmd-x", true, Some("x")).unwrap());
     }
 
     /// EXP-765: the code goes back as its own command kind, beside the agent
@@ -1531,7 +1599,7 @@ mod tests {
             .ends_with(r#"{"deviceId":"dev-1","kind":"agent_update","agent":"claude"}"#));
 
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
-        complete_command(&client(&base), "cmd-9", false, Some("Uncommitted changes")).unwrap();
+        assert!(complete_command(&client(&base), "cmd-9", false, Some("Uncommitted changes")).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.starts_with("POST /api/trpc/devices.completeCommand HTTP/1.1"));
         assert!(request.ends_with(

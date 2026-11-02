@@ -54,6 +54,9 @@ final class DevicesListTests: XCTestCase {
             "useBrowserLogin": DevicesList.Copy.useBrowserLogin,
             "useKeepSignedIn": DevicesList.Copy.useKeepSignedIn,
             "longLivedRefused": DevicesList.Copy.longLivedRefused,
+            "accountName": DevicesList.Copy.accountName,
+            "keptSignedInName": DevicesList.Copy.keptSignedInName,
+            "switchedName": DevicesList.Copy.switchedName,
         ]
         XCTAssertEqual(declared, try XCTUnwrap(copy as? [String: String]))
     }

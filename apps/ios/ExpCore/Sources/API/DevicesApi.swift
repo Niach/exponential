@@ -207,9 +207,17 @@ private struct CreateCommandInput: Encodable {
     /// `profileId` instead of a browser login (claude only; EXP-1600: the
     /// default, an Add without a profile included). Nil is omitted.
     let longLived: Bool?
+    /// EXP-1626 `agent_login`: the NAME a long-lived ADD's new profile gets
+    /// (a setup token cannot name its account); the server keeps it only
+    /// for `longLived` with no `profileId`. Nil is omitted.
+    let name: String?
+    /// EXP-1626 `agent_login_cancel` (+ `agent`): the `agent_login` row the
+    /// requester walked away from — the machine stops that run. Nil is
+    /// omitted.
+    let loginCommandId: String?
 
     enum CodingKeys: String, CodingKey {
-        case deviceId, kind, agent, code, profileId, longLived
+        case deviceId, kind, agent, code, profileId, longLived, name, loginCommandId
         case switchAccount = "switch"
     }
 }
@@ -374,6 +382,9 @@ public final class DevicesApi: Sendable {
     /// that link, typed into the sign-in still waiting on the machine.
     /// EXP-1533: `agent_login` + `longLived` (claude + `profileId`) = the
     /// same sign-in flow minting a one-year login on that profile.
+    /// EXP-1626: `agent_login` + `name` names a long-lived Add's new
+    /// profile; `agent_login_cancel` + `agent` + `loginCommandId` stops a
+    /// sign-in whose sheet closed before it landed.
     public func createCommand(
         accountId: String,
         deviceId: String,
@@ -382,17 +393,23 @@ public final class DevicesApi: Sendable {
         switchAccount: Bool? = nil,
         code: String? = nil,
         profileId: String? = nil,
-        longLived: Bool? = nil
+        longLived: Bool? = nil,
+        name: String? = nil,
+        loginCommandId: String? = nil
     ) async throws -> CreatedDeviceCommand {
         try await trpc.mutation(
             accountId: accountId,
             path: "devices.createCommand",
             input: CreateCommandInput(
                 deviceId: deviceId, kind: kind, agent: agent, switchAccount: switchAccount,
-                code: code, profileId: profileId, longLived: longLived == true ? true : nil
+                code: code, profileId: profileId, longLived: longLived == true ? true : nil,
+                name: name, loginCommandId: loginCommandId
             )
         )
     }
+
+    /// EXP-1626: the kind a closed sign-in sheet queues for its login.
+    public static let agentLoginCancelKind = "agent_login_cancel"
 
     /// EXP-1196: the readiness block's remote Update pill — queue
     /// `agent_update {agent}`; the machine runs that agent CLI's own

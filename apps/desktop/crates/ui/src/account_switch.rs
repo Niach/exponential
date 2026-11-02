@@ -562,6 +562,7 @@ mod tests {
             health,
             unmonitored: false,
             token_expires_at: None,
+            name: None,
         }
     }
 

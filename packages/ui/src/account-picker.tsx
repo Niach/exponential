@@ -32,7 +32,9 @@ import { UsageWindows, usageTone, type UsageWindow } from "./usage-windows"
 
 /** The three usage fractions a login carries (`AccountOption.limits`). */
 export interface AccountLimits {
-  fiveHour: number
+  /** Absent when the login reports no 5h window (EXP-1626: a Keep signed
+   *  in login reports the weekly one alone) — no empty 5h bar is drawn. */
+  fiveHour?: number
   week: number
   model?: { label: string; used: number }
 }
@@ -58,14 +60,16 @@ export function limitTone(used: number): MeterTone {
   return usageTone(used * 100)
 }
 
-/** The bars in order: 5h, week, then the model window when there is one. */
+/** The bars in order: 5h (when reported), week, then the model window when
+ *  there is one. */
 export function accountLimitBars(
   limits: AccountLimits
 ): { key: string; label: string; used: number }[] {
-  const bars: { key: string; label: string; used: number }[] = [
-    { key: `fiveHour`, label: ACCOUNT_LIMIT_LABELS.fiveHour, used: limits.fiveHour },
-    { key: `week`, label: ACCOUNT_LIMIT_LABELS.week, used: limits.week },
-  ]
+  const bars: { key: string; label: string; used: number }[] = []
+  if (limits.fiveHour !== undefined) {
+    bars.push({ key: `fiveHour`, label: ACCOUNT_LIMIT_LABELS.fiveHour, used: limits.fiveHour })
+  }
+  bars.push({ key: `week`, label: ACCOUNT_LIMIT_LABELS.week, used: limits.week })
   if (limits.model) {
     bars.push({
       key: `model`,

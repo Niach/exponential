@@ -30,7 +30,9 @@
 // (`DeviceUsageWindow.percent / 100`): `fiveHour` = the `session` window,
 // `week` = the `weekly` window, `model` = the FIRST per-model window
 // (`label` = the model's name, `used` = its fraction). A login with no usage
-// report has no `limits` at all.
+// report has no `limits` at all. EXP-1626: a login that reports no `session`
+// window (a Keep signed in login: weekly only) has no `fiveHour` either, so
+// no empty 5h bar is drawn for it.
 //
 // Hand-mirrored ×4 against the same fixture and the same test names:
 //   desktop  apps/desktop/crates/coding/src/account_option.rs
@@ -64,7 +66,8 @@ export interface AccountOption {
    * dead login dies on its first call, so the row badges `needs_relogin`. */
   health: DeviceAgentHealth
   limits?: {
-    fiveHour: number
+    /** Absent when the login reports no `session` window (EXP-1626). */
+    fiveHour?: number
     week: number
     model?: { label: string; used: number }
   }
@@ -113,7 +116,7 @@ function optionLimits(
   const weekly = windows.find((window) => window.key === `weekly`)
   const model = windows.find((window) => window.key.startsWith(`model:`))
   return {
-    fiveHour: fraction(session?.percent),
+    ...(session ? { fiveHour: fraction(session.percent) } : {}),
     week: fraction(weekly?.percent),
     ...(model ? { model: { label: model.label, used: fraction(model.percent) } } : {}),
   }

@@ -349,6 +349,16 @@ impl Pty {
         }
     }
 
+    /// EXP-1626: a handle that ENDS the child for sure ([`Terminator`]):
+    /// `exit` = the wait thread's slot, which tells it whether the child
+    /// was already reaped (its pid then may belong to someone else).
+    pub fn terminator(&self, exit: ExitSlot) -> Terminator {
+        Terminator {
+            pid: self.process_id,
+            exit,
+        }
+    }
+
     /// Spawn the dedicated wait thread (§6.7): blocking `child.wait()` →
     /// captured `ChildExit` into the returned slot → `on_exit` (the emulator's
     /// `Wake::ChildExited`). Callable exactly once.
@@ -383,6 +393,66 @@ impl Pty {
             })
             .map_err(|err| io::Error::other(format!("spawn pty-wait thread: {err}")))?;
         Ok((slot, handle))
+    }
+}
+
+/// How long [`Terminator::terminate`] lets the child act on SIGHUP/SIGTERM
+/// before it SIGKILLs it.
+pub const TERMINATE_GRACE: Duration = Duration::from_secs(2);
+
+/// EXP-1626 — [`Pty::kill`] only sends SIGHUP (portable-pty's cloned
+/// killer), and a CLI that handles SIGHUP (`claude setup-token` waiting for
+/// a code did) outlives it. This one escalates: SIGHUP + SIGTERM now, then
+/// SIGKILL after [`TERMINATE_GRACE`] while the wait thread has not reaped
+/// the child (an unreaped child keeps its pid, so the signal can never
+/// reach a recycled one). The wait thread reaps it either way.
+#[derive(Clone)]
+pub struct Terminator {
+    pid: Option<u32>,
+    exit: ExitSlot,
+}
+
+impl Terminator {
+    fn exited(&self) -> bool {
+        self.exit.lock().map(|slot| slot.is_some()).unwrap_or(true)
+    }
+
+    /// End the child; a no-op once it exited. Never blocks: the SIGKILL
+    /// waits on a detached thread.
+    pub fn terminate(&self) {
+        #[cfg(unix)]
+        {
+            let Some(pid) = self.pid.and_then(|pid| i32::try_from(pid).ok()) else {
+                return;
+            };
+            if self.exited() {
+                return;
+            }
+            // SAFETY: plain signals to our own unreaped child.
+            unsafe {
+                libc::kill(pid, libc::SIGHUP);
+                libc::kill(pid, libc::SIGTERM);
+            }
+            let this = self.clone();
+            let _ = std::thread::Builder::new()
+                .name("pty-terminate".into())
+                .spawn(move || {
+                    let deadline = Instant::now() + TERMINATE_GRACE;
+                    while Instant::now() < deadline {
+                        if this.exited() {
+                            return;
+                        }
+                        std::thread::sleep(Duration::from_millis(50));
+                    }
+                    if !this.exited() {
+                        log::info!("pty terminate: pid {pid} outlived SIGTERM, sending SIGKILL");
+                        // SAFETY: still unreaped, so still our child's pid.
+                        unsafe {
+                            libc::kill(pid, libc::SIGKILL);
+                        }
+                    }
+                });
+        }
     }
 }
 
@@ -464,6 +534,46 @@ mod tests {
     fn dedup_prepend_empty_base() {
         let prepend = vec!["/a".to_owned()];
         assert_eq!(dedup_prepend(&prepend, ""), "/a");
+    }
+
+    /// EXP-1626: a child that ignores SIGHUP and SIGTERM (as `claude
+    /// setup-token` waiting for a code effectively did) still ends: the
+    /// terminator SIGKILLs it after the grace, and the wait thread reaps it.
+    #[cfg(unix)]
+    #[test]
+    fn a_terminator_ends_a_child_that_ignores_sighup_and_sigterm() {
+        let spec = SpawnSpec::new("sh").arg("-c").arg("trap '' HUP TERM; echo ready; sleep 60");
+        let mut pty = open_pty(&spec, 80, 24, DEFAULT_CELL_PX).unwrap();
+        let mut reader = pty.take_reader();
+        let reads = std::thread::spawn(move || {
+            let mut buf = [0u8; 256];
+            let mut seen = String::new();
+            while let Ok(n) = reader.read(&mut buf) {
+                if n == 0 {
+                    break;
+                }
+                seen.push_str(&String::from_utf8_lossy(&buf[..n]));
+                if seen.contains("ready") {
+                    break;
+                }
+            }
+        });
+        let (slot, wait) = pty.spawn_wait_thread(|| {}).unwrap();
+        let _ = reads.join();
+        let terminator = pty.terminator(slot.clone());
+        // Plain SIGHUP (the tab-close kill) does not end it.
+        pty.kill();
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(slot.lock().unwrap().is_none(), "the trap ignores SIGHUP");
+        terminator.terminate();
+        let deadline = Instant::now() + TERMINATE_GRACE + Duration::from_secs(5);
+        while slot.lock().unwrap().is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(slot.lock().unwrap().is_some(), "SIGKILLed and reaped");
+        wait.join().unwrap();
+        // Once reaped, terminating again is a no-op.
+        terminator.terminate();
     }
 
     #[test]

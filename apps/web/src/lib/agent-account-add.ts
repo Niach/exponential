@@ -37,3 +37,30 @@ export function addableAgents(row: AgentReporting): string[] {
     ...new Set([...(row.agents ?? []), ...(row.unauthedAgents ?? [])]),
   ]
 }
+
+/** EXP-1626: the longest name a long-lived Add may carry (the server's
+ *  `AGENT_PROFILE_NAME_MAX`, the device's cap). */
+export const ACCOUNT_NAME_MAX = 64
+
+/** EXP-1626: the `name` an `agent_login` carries — a setup token cannot name
+ *  its account, so only a long-lived ADD (no `profileId`) names the profile
+ *  it makes; trimmed, blank = none (the device's `keptSignedInName`). */
+export function agentLoginName(target: {
+  profileId?: string
+  longLived?: boolean
+  name?: string
+}): string | undefined {
+  if (!target.longLived || target.profileId) return undefined
+  const name = target.name?.trim().slice(0, ACCOUNT_NAME_MAX)
+  return name ? name : undefined
+}
+
+/** EXP-1626: the sign-in Add account hands the dialog: claude carries the
+ *  Name field's trimmed text (blank sends none); other agents never do. */
+export function addAccountTarget(
+  agent: string,
+  name: string
+): { agent: string; name?: string } {
+  const trimmed = agent === `claude` ? name.trim() : ``
+  return trimmed ? { agent, name: trimmed } : { agent }
+}

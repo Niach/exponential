@@ -1106,6 +1106,9 @@ export interface DeviceAgentProfileEntry {
   /** EXP-1533: when this claude login's long-lived `claude setup-token`
    * login stops working (ISO); present while the profile holds one. */
   tokenExpiresAt?: string
+  /** EXP-1626: the NAME a long-lived Add gave this profile (a setup token
+   * cannot name its account); the login's label wherever it shows. */
+  name?: string
 }
 
 /** EXP-849: the four health values, byte-identical with the desktop's
@@ -1165,6 +1168,8 @@ export const deviceAgentProfileSchema = z.object({
   unmonitored: z.boolean().nullish(),
   // EXP-1533: the long-lived claude login's expiry (ISO).
   tokenExpiresAt: z.string().max(64).nullish(),
+  // EXP-1626: a long-lived Add's profile name (the device caps it at 64).
+  name: z.string().max(256).nullish(),
   usage: z
     .object({
       fetchedAt: z.string().max(64).nullish(),

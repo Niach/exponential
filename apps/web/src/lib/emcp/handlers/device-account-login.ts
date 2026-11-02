@@ -14,6 +14,7 @@
 // answer and otherwise hands back the `commandId` to check on.
 import { loginIsLongLived, parseAgentLoginResult } from "@/lib/agent-usage"
 import type { AgentLoginProfileTarget } from "@/hooks/use-agent-login"
+import { agentLoginName } from "@/lib/agent-account-add"
 
 export interface DeviceAccountLoginInput {
   deviceId: string
@@ -23,6 +24,9 @@ export interface DeviceAccountLoginInput {
   /** EXP-1533: a one-year `claude setup-token` login. EXP-1600: the claude
    *  DEFAULT (absent = true for claude); false = the browser login. */
   longLived?: boolean
+  /** EXP-1626: a long-lived ADD's profile name (a setup token cannot name
+   *  its account); dropped for any other login. */
+  name?: string
   code?: string
   commandId?: string
 }
@@ -166,13 +170,16 @@ export async function deviceAccountLogin(
 
   // The SAME command as every client's Add account / Sign in: no profile =
   // add, a profileId = the login this re-login is for.
+  const longLived = loginIsLongLived(agent, input.longLived)
+  const name = agentLoginName({ profileId: input.profileId, longLived, name: input.name })
   const { id } = await deps.createCommand({
     deviceId,
     kind: `agent_login`,
     agent,
     switch: false,
     ...(input.profileId ? { profileId: input.profileId } : {}),
-    ...(loginIsLongLived(agent, input.longLived) ? { longLived: true } : {}),
+    ...(longLived ? { longLived: true } : {}),
+    ...(name ? { name } : {}),
   })
   return describe(await waitFor(id, deps, LOGIN_WAIT_MS))
 }

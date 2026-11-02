@@ -892,6 +892,17 @@ pub fn apply_outcome(
     entry.next_poll_at_secs = next_poll_at(entry, outcome, now);
 }
 
+/// EXP-1626 — hold the usage endpoint off for `secs` after a 429 (its
+/// `retry-after`, already floored and capped by the caller): the 429 floor
+/// and the next poll move out to it, never in. Applied after
+/// [`apply_outcome`], so it also stands when the token probe answered in the
+/// endpoint's place (whose success would otherwise clear the floor).
+pub fn hold_rate_limited(entry: &mut AgentCacheEntry, now: u64, secs: u64) {
+    let until = now + secs;
+    entry.rate_limited_until_secs = Some(entry.rate_limited_until_secs.unwrap_or(0).max(until));
+    entry.next_poll_at_secs = entry.next_poll_at_secs.max(until);
+}
+
 /// EXP-792: make `entry` due for one FORCED poll — past the scheduled next
 /// poll and the machine-wide shared TTL. Three floors survive a force:
 ///
