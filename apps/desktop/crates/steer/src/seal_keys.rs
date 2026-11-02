@@ -79,6 +79,9 @@ impl KeyApi for api::TrpcClient {
 /// Agent-to-agent delivery over eNet (`enet.rs` sets it once the node
 /// runs): `(target install, sealed message row)`.
 pub type DirectSender = Arc<dyn Fn(&coding::sealing::DeliverTo, &domain::rows::MessageRow) + Send + Sync>;
+/// #EXP-1483: a device's installs `(install_id, x25519_public)`, by its
+/// `devices.device_id`.
+pub type DeviceReaders = Arc<dyn Fn(&str) -> Vec<(String, String)> + Send + Sync>;
 
 /// One install's key holder. Cheap to clone.
 #[derive(Clone)]
@@ -100,6 +103,8 @@ struct HolderInner {
     refused: Mutex<HashSet<(String, u32)>>,
     stopped: AtomicBool,
     direct: Mutex<Option<DirectSender>>,
+    /// #EXP-1483: a device's installs from the eNet allowlist.
+    device_readers: Mutex<Option<DeviceReaders>>,
     /// The running loop's early-pass signal, and when it last fired.
     wake: Mutex<Option<Arc<tokio::sync::Notify>>>,
     woken_at: Mutex<Option<std::time::Instant>>,
@@ -118,6 +123,7 @@ impl KeyHolder {
                 refused: Mutex::default(),
                 stopped: AtomicBool::new(false),
                 direct: Mutex::new(None),
+                device_readers: Mutex::new(None),
                 wake: Mutex::new(None),
                 woken_at: Mutex::new(None),
             }),
@@ -131,6 +137,12 @@ impl KeyHolder {
     /// The agent-to-agent sender (the eNet half).
     pub fn set_direct_sender(&self, sender: DirectSender) {
         *lock(&self.inner.direct) = Some(sender);
+    }
+
+    /// #EXP-1483: where [`SealService::new_root_readers`] looks a device's
+    /// installs up (the eNet half).
+    pub fn set_device_readers(&self, readers: DeviceReaders) {
+        *lock(&self.inner.device_readers) = Some(readers);
     }
 
     /// Unwraps every held key not cached yet. Returns how many were new.
@@ -375,6 +387,11 @@ impl SealService for KeyHolder {
             *woken_at = Some(std::time::Instant::now());
             wake.notify_one();
         }
+    }
+
+    fn new_root_readers(&self, target_device: &str) -> Vec<(String, String)> {
+        let readers = lock(&self.inner.device_readers).clone();
+        readers.map(|readers| readers(target_device)).unwrap_or_default()
     }
 
     fn deliver_direct(&self, deliver_to: &coding::sealing::DeliverTo, message: &domain::rows::MessageRow) {
