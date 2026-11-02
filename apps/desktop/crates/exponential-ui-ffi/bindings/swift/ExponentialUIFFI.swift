@@ -8270,7 +8270,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_parse_records_json() != 4777) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json() != 62724) {
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json() != 33933) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_parse_records_source_json() != 14491) {
