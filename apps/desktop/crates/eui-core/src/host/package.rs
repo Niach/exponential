@@ -310,6 +310,12 @@ pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], exte
     if let Some(list) = p.get("extensions") {
         issues.extend(validate_extensions(list, catalog_ids, extensions));
     }
+    // VAPP-196: the package's tests: their shape, then (on an otherwise valid
+    // package) every one run; a failing test is an issue like a type error.
+    issues.extend(super::tests::validate_package_tests(p));
+    if issues.is_empty() {
+        issues.extend(super::tests::package_test_issues(pkg));
+    }
     issues
 }
 

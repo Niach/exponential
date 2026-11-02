@@ -3897,7 +3897,7 @@ export function registerExponentialTools(
             package: pkg,
             note,
           })
-          return ok({ ok: true, id: created.app.id, slug, version: created.app.headVersion, created: true })
+          return ok({ ok: true, id: created.app.id, slug, version: created.app.headVersion, created: true, ...testsPassed(pkg) })
         }
         // VAPP-176: a DRAFT takes its identity from the agent's first
         // upsert; the slug follows the name.
@@ -3914,7 +3914,7 @@ export function registerExponentialTools(
           current = renamed.app.slug
         }
         const result = await api.upsertPackage({ id: existing.app.id, package: pkg, note, sessionId })
-        return ok({ ok: true, id: existing.app.id, slug: current, version: result.version, created: false })
+        return ok({ ok: true, id: existing.app.id, slug: current, version: result.version, created: false, ...testsPassed(pkg) })
       } catch (e) {
         return err(e)
       }
@@ -4752,4 +4752,12 @@ export function registerExponentialTools(
       }
     )
   }
+}
+
+/** VAPP-196: an upsert that landed ran every package test and they all
+ *  passed (a failing one refuses the upsert as `/tests/<i>`); the editor
+ *  agent reads the count. */
+function testsPassed(pkg: unknown): { tests?: string } {
+  const tests = pkg && typeof pkg === `object` ? (pkg as { tests?: unknown }).tests : undefined
+  return Array.isArray(tests) && tests.length > 0 ? { tests: `${tests.length} passed` } : {}
 }

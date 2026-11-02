@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - VAPP-194: typed effects (eApps E1). `Actions.run(pkg, name, params, data, me, nowMs, zone, maxSteps)` (the plan `{writes, sets, calls}` or the one error), `Actions.applyBatch(rows, writes, records, me, now, newIds)` (all or nothing) and `Actions.effect(name)` over the core. `ExponentialHost.callFunction` runs `actions.<name>` as the surface's package action: every planned host call's gate and consent first, then the writes as ONE `records.batch {writes}`, then the data sets, then the calls; a failure lands nothing (ACTION_FAILED + `HostOptions.onActionFailed`). New `HostOptions.me` / `now` / `zone` / `onActionFailed`; `ActionsTest` replays `fixtures/actions.json`.
+- VAPP-196: package tests (eApps T1) over the core: `validatePackageJson` reports a package's malformed or failing `tests` (`/tests/<i>`), `runPackageTestsJson` runs them; `PackageTestsTest` replays `fixtures/package-tests.json`.
 
 ## 0.5.0 (2026-11-02)
 

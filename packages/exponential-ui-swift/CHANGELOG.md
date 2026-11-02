@@ -7,6 +7,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 - VAPP-191: `Expression` is now `Expressions` (`Expressions.evaluate` / `.check`): Foundation (macOS 15 / iOS 18) ships its own `Expression`, so a bare `Expression` was ambiguous in any file importing both (0.5.0's `ExpressionsTests` among them). Compose keeps `Expression`.
 - VAPP-194: typed effects (eApps E1). `Actions.run(_:action:params:data:me:nowMs:zone:maxSteps:)` (the plan `{writes, sets, calls}` or the one error), `Actions.applyBatch(rows:writes:records:me:now:newIds:)` (all or nothing) and `Actions.effect(_:)` over the core. `ExponentialHost.callFunction` runs `actions.<name>` as the surface's package action: every planned host call's gate and consent first, then the writes as ONE `records.batch {writes}`, then the data sets, then the calls; a failure lands nothing (ACTION_FAILED + `HostOptions.onActionFailed`). New `HostOptions.me` / `now` / `zone` / `onActionFailed`; `ActionsTests` replays `fixtures/actions.json`.
+- VAPP-196: package tests (eApps T1) over the core: `validatePackageJson` reports a package's malformed or failing `tests` (`/tests/<i>`), `runPackageTestsJson` runs them; `PackageTestsTests` replays `fixtures/package-tests.json`.
 
 ## 0.5.0 (2026-11-02)
 

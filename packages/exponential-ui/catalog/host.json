@@ -69,6 +69,12 @@
       "callPrefix": "actions.",
       "batchFunction": "records.batch"
     },
+    "tests": {
+      "$comment": "VAPP-196 (T1, src/host/tests.ts, fixtures/package-tests.json): `tests: [{name, records?, now?, as?, expr | query | action, expect}]` (at most `limits.tests`), run by validatePackage on an otherwise valid package, each against its own in-memory store seeded with `records` ({<kind>: [rows]}, a row = the kind's data + optional `id`, `author`), at `now` (UTC, default `defaults.now`) as the member `as` (default `defaults.as`). `kinds`: expr {expr, vars?} (a var {source: records:…} = that binding over the store), query {name, params?} (a package query), action {name, params?, data?} (the plan applied: {records, sets, calls}) or {error}. `expect` matches by the keys an object names, a list item by item, else JSON equality. A failing test = the install issue `/tests/<i>`: `<name>: expected <canonical JSON>, got <canonical JSON>` (got cut at `limits.gotMax` code points).",
+      "limits": { "tests": 50, "gotMax": 300 },
+      "defaults": { "now": "2026-01-01T00:00:00.000Z", "as": "member" },
+      "kinds": ["expr", "query", "action"]
+    },
     "tools": {
       "$comment": "VAPP-161: `tools: {<id>: {kind, title, description?, url | command, args?, env?}}`, ids in `idPattern`, checked in sorted order. kind `mcp` = an MCP server: `url` (absolute http(s): Streamable HTTP) XOR `command` (+ args, a local stdio process); kind `script` = `command` (+ args) run once per call with the args as JSON on stdin, its stdout JSON the result. `env` = variable NAMES the host passes through (never values). Functions: `tools.<id>.<tool>` calls an MCP server's tool, `tools.<id>` a script; listed in `functions` like any other. CONSENT (the host MUST): before a tool's FIRST call the host shows the toolConsent row {id, kind, transport: http|stdio|script, title, description, target: the url or the command line (an arg that is empty or holds whitespace, a quote or a backslash JSON-quoted), env} and asks allow / deny; deny = FUNCTION_DENIED; an allow is remembered under toolConsentKey = `<packageId>/<toolId>:` + the tool's canonical JSON, so ANY change asks again; policy alone never allows a tool call; a host that cannot run a kind refuses its calls with FUNCTION_NOT_FOUND and says so on the card.",
       "idPattern": "^[a-z][a-z0-9_-]{0,31}$",

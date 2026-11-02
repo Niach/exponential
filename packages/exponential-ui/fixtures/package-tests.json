@@ -1,0 +1,1125 @@
+{
+  "$comment": "VAPP-196 (eApps T1, spec docs/spec/apps.md §11): PACKAGE TESTS, one fixture for the TS reference (src/host/tests.ts) and the Rust core (eui_core::host::tests); Swift and Kotlin replay `validate` through validatePackage over the FFI. A package's `tests: [{name, records?, now?, as?, expr | query | action, expect}]` (at most limits.tests): `records` = {<kind>: [rows]} seeding the test's OWN in-memory store (a row = the kind's data, checked against its schema, plus optional `id` (default `<kind>-<n>`, n from 1 per kind) and `author` (default the test's member); every row stamped `now`); `now` = an ISO instant (default defaults.now; the zone is UTC); `as` = the member id the test runs as (default defaults.as: `mine`, `me`). Exactly one of: `expr: {expr, vars?}` (CEL; a var `{source: \"records:<kind>?…\"}` = that binding's value over the store, `?query=<name>` expanded; anything else a literal) → the value or {error}; `query: {name, params?}` (a package query over `records:<from>?query=<name>&<params>`) → the records value; `action: {name, params?, data?}` (runAction as `as` at `now`, then the plan's writes applied to the store, new ids `new-<n>`) → {records: {<kind>: [{…data, id, author}] in store order}, sets, calls} or {error}. `matches`: testMatches(expect, got): an object matches by the keys it names (a missing key reads null), recursively; a list item by item with the same length; anything else by JSON equality. `runs`: runPackageTests → [{name, pass, got}]. `validate`: validatePackage of the base `package` with a case's `with` keys replaced: the tests' SHAPE issues first (`/tests…`); a malformed test list runs no test, and nor does a package with any other issue; else every failing test is ONE issue at `/tests/<i>`: `<name>: expected <canonical JSON>, got <canonical JSON>` (got cut at limits.gotMax code points + `…`).",
+  "limits": {
+    "tests": 50,
+    "gotMax": 300
+  },
+  "defaults": {
+    "now": "2026-01-01T00:00:00.000Z",
+    "as": "member"
+  },
+  "package": {
+    "id": "acme.hours",
+    "name": "Hours",
+    "version": "1.0.0",
+    "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+    "functions": [
+      "harness.toast"
+    ],
+    "records": {
+      "entry": {
+        "title": "Entry",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "hours": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 24
+            },
+            "note": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        }
+      }
+    },
+    "queries": {
+      "week": {
+        "from": "entry",
+        "where": [
+          [
+            "date",
+            "between",
+            "${start}",
+            "${end}"
+          ]
+        ],
+        "aggregate": {
+          "hours": [
+            "sum",
+            "hours"
+          ],
+          "n": [
+            "count"
+          ]
+        }
+      }
+    },
+    "templates": {
+      "month": {
+        "components": [
+          {
+            "id": "root",
+            "component": "Button",
+            "props": {
+              "label": "Log"
+            },
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "actions.log",
+                  "args": {
+                    "date": {
+                      "path": "/form/date"
+                    },
+                    "hours": {
+                      "path": "/form/hours"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "data": {
+          "form": {
+            "date": "2026-11-02",
+            "hours": 7.5
+          }
+        }
+      }
+    },
+    "actions": {
+      "log": {
+        "params": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "hours": {
+              "type": "number"
+            },
+            "note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "steps": [
+          {
+            "require": "params.hours > 0",
+            "message": "Log more than 0 hours"
+          },
+          {
+            "require": "params.hours <= 24",
+            "message": "A day has 24 hours"
+          },
+          {
+            "records.upsert": {
+              "kind": "entry",
+              "data": {
+                "date": "params.date",
+                "hours": "params.hours",
+                "note": "params.note"
+              }
+            }
+          },
+          {
+            "set": {
+              "path": "/form/hours",
+              "value": 0
+            }
+          },
+          {
+            "call": "harness.toast",
+            "args": {
+              "message": "'Logged ' + formatDuration(params.hours, 'h:mm')"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "matches": [
+    {
+      "expect": {
+        "a": 1
+      },
+      "got": {
+        "a": 1,
+        "b": 2
+      },
+      "match": true
+    },
+    {
+      "expect": {
+        "a": null
+      },
+      "got": {},
+      "match": true
+    },
+    {
+      "expect": [
+        1,
+        2
+      ],
+      "got": [
+        1,
+        2,
+        3
+      ],
+      "match": false
+    },
+    {
+      "expect": [
+        {
+          "a": 1
+        }
+      ],
+      "got": [
+        {
+          "a": 1,
+          "b": 0
+        }
+      ],
+      "match": true
+    },
+    {
+      "expect": 1,
+      "got": 1,
+      "match": true
+    },
+    {
+      "expect": "1",
+      "got": 1,
+      "match": false
+    },
+    {
+      "expect": {},
+      "got": 5,
+      "match": false
+    },
+    {
+      "expect": null,
+      "got": null,
+      "match": true
+    }
+  ],
+  "runs": {
+    "tests": [
+      {
+        "name": "a duration",
+        "expr": {
+          "expr": "formatDuration(h, 'h:mm')",
+          "vars": {
+            "h": 7.5
+          }
+        },
+        "expect": "7:30"
+      },
+      {
+        "name": "my hours from a records binding",
+        "records": {
+          "entry": [
+            {
+              "date": "2026-11-02",
+              "hours": 2
+            },
+            {
+              "date": "2026-11-03",
+              "hours": 3,
+              "author": "ada"
+            },
+            {
+              "id": "old",
+              "date": "2026-10-20",
+              "hours": 8
+            }
+          ]
+        },
+        "expr": {
+          "expr": "entries.sum",
+          "vars": {
+            "entries": {
+              "source": "records:entry?mine=1&sum=hours"
+            }
+          }
+        },
+        "expect": 10
+      },
+      {
+        "name": "rows without an author are the member's",
+        "records": {
+          "entry": [
+            {
+              "date": "2026-11-02",
+              "hours": 2
+            },
+            {
+              "date": "2026-11-03",
+              "hours": 3,
+              "author": "ada"
+            },
+            {
+              "id": "old",
+              "date": "2026-10-20",
+              "hours": 8
+            }
+          ]
+        },
+        "as": "ada",
+        "expr": {
+          "expr": "entries.sum",
+          "vars": {
+            "entries": {
+              "source": "records:entry?mine=1&sum=hours"
+            }
+          }
+        },
+        "expect": 13
+      },
+      {
+        "name": "the clock",
+        "now": "2026-03-04T10:00:00Z",
+        "expr": {
+          "expr": "today()"
+        },
+        "expect": "2026-03-04"
+      },
+      {
+        "name": "an expected error",
+        "expr": {
+          "expr": "1 / 0"
+        },
+        "expect": {
+          "error": "division by zero"
+        }
+      },
+      {
+        "name": "the week's totals",
+        "records": {
+          "entry": [
+            {
+              "date": "2026-11-02",
+              "hours": 2
+            },
+            {
+              "date": "2026-11-03",
+              "hours": 3,
+              "author": "ada"
+            },
+            {
+              "id": "old",
+              "date": "2026-10-20",
+              "hours": 8
+            }
+          ]
+        },
+        "query": {
+          "name": "week",
+          "params": {
+            "start": "2026-11-02",
+            "end": "2026-11-08"
+          }
+        },
+        "expect": {
+          "count": 2,
+          "totals": {
+            "hours": 5,
+            "n": 2
+          }
+        }
+      },
+      {
+        "name": "logging lands a row and a toast",
+        "records": {
+          "entry": [
+            {
+              "date": "2026-11-02",
+              "hours": 2
+            },
+            {
+              "date": "2026-11-03",
+              "hours": 3,
+              "author": "ada"
+            },
+            {
+              "id": "old",
+              "date": "2026-10-20",
+              "hours": 8
+            }
+          ]
+        },
+        "action": {
+          "name": "log",
+          "params": {
+            "date": "2026-11-04",
+            "hours": 2
+          }
+        },
+        "expect": {
+          "records": {
+            "entry": [
+              {
+                "id": "entry-1"
+              },
+              {
+                "id": "entry-2"
+              },
+              {
+                "id": "old"
+              },
+              {
+                "id": "new-1",
+                "date": "2026-11-04",
+                "hours": 2,
+                "note": null,
+                "author": "member"
+              }
+            ]
+          },
+          "sets": [
+            {
+              "path": "/form/hours",
+              "value": 0
+            }
+          ],
+          "calls": [
+            {
+              "name": "harness.toast",
+              "args": {
+                "message": "Logged 2:00"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "zero hours are refused",
+        "action": {
+          "name": "log",
+          "params": {
+            "date": "2026-11-04",
+            "hours": 0
+          }
+        },
+        "expect": {
+          "error": "Log more than 0 hours"
+        }
+      }
+    ],
+    "results": [
+      {
+        "name": "a duration",
+        "pass": true,
+        "got": "7:30"
+      },
+      {
+        "name": "my hours from a records binding",
+        "pass": true,
+        "got": 10
+      },
+      {
+        "name": "rows without an author are the member's",
+        "pass": true,
+        "got": 13
+      },
+      {
+        "name": "the clock",
+        "pass": true,
+        "got": "2026-03-04"
+      },
+      {
+        "name": "an expected error",
+        "pass": true,
+        "got": {
+          "error": "division by zero"
+        }
+      },
+      {
+        "name": "the week's totals",
+        "pass": true,
+        "got": {
+          "rows": [
+            {
+              "date": "2026-11-02",
+              "hours": 2,
+              "id": "entry-1",
+              "createdAt": "2026-01-01T00:00:00.000Z",
+              "updatedAt": "2026-01-01T00:00:00.000Z",
+              "createdBy": "member",
+              "authorId": "member",
+              "author": ""
+            },
+            {
+              "date": "2026-11-03",
+              "hours": 3,
+              "id": "entry-2",
+              "createdAt": "2026-01-01T00:00:00.000Z",
+              "updatedAt": "2026-01-01T00:00:00.000Z",
+              "createdBy": "ada",
+              "authorId": "ada",
+              "author": ""
+            }
+          ],
+          "count": 2,
+          "totals": {
+            "count": 2,
+            "hours": 5,
+            "n": 2
+          }
+        }
+      },
+      {
+        "name": "logging lands a row and a toast",
+        "pass": true,
+        "got": {
+          "records": {
+            "entry": [
+              {
+                "date": "2026-11-02",
+                "hours": 2,
+                "id": "entry-1",
+                "author": "member"
+              },
+              {
+                "date": "2026-11-03",
+                "hours": 3,
+                "id": "entry-2",
+                "author": "ada"
+              },
+              {
+                "date": "2026-10-20",
+                "hours": 8,
+                "id": "old",
+                "author": "member"
+              },
+              {
+                "date": "2026-11-04",
+                "hours": 2,
+                "note": null,
+                "id": "new-1",
+                "author": "member"
+              }
+            ]
+          },
+          "sets": [
+            {
+              "path": "/form/hours",
+              "value": 0
+            }
+          ],
+          "calls": [
+            {
+              "name": "harness.toast",
+              "args": {
+                "message": "Logged 2:00"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "zero hours are refused",
+        "pass": true,
+        "got": {
+          "error": "Log more than 0 hours"
+        }
+      }
+    ]
+  },
+  "validate": [
+    {
+      "name": "every test passes",
+      "with": {
+        "tests": [
+          {
+            "name": "a duration",
+            "expr": {
+              "expr": "formatDuration(h, 'h:mm')",
+              "vars": {
+                "h": 7.5
+              }
+            },
+            "expect": "7:30"
+          },
+          {
+            "name": "my hours from a records binding",
+            "records": {
+              "entry": [
+                {
+                  "date": "2026-11-02",
+                  "hours": 2
+                },
+                {
+                  "date": "2026-11-03",
+                  "hours": 3,
+                  "author": "ada"
+                },
+                {
+                  "id": "old",
+                  "date": "2026-10-20",
+                  "hours": 8
+                }
+              ]
+            },
+            "expr": {
+              "expr": "entries.sum",
+              "vars": {
+                "entries": {
+                  "source": "records:entry?mine=1&sum=hours"
+                }
+              }
+            },
+            "expect": 10
+          },
+          {
+            "name": "rows without an author are the member's",
+            "records": {
+              "entry": [
+                {
+                  "date": "2026-11-02",
+                  "hours": 2
+                },
+                {
+                  "date": "2026-11-03",
+                  "hours": 3,
+                  "author": "ada"
+                },
+                {
+                  "id": "old",
+                  "date": "2026-10-20",
+                  "hours": 8
+                }
+              ]
+            },
+            "as": "ada",
+            "expr": {
+              "expr": "entries.sum",
+              "vars": {
+                "entries": {
+                  "source": "records:entry?mine=1&sum=hours"
+                }
+              }
+            },
+            "expect": 13
+          },
+          {
+            "name": "the clock",
+            "now": "2026-03-04T10:00:00Z",
+            "expr": {
+              "expr": "today()"
+            },
+            "expect": "2026-03-04"
+          },
+          {
+            "name": "an expected error",
+            "expr": {
+              "expr": "1 / 0"
+            },
+            "expect": {
+              "error": "division by zero"
+            }
+          },
+          {
+            "name": "the week's totals",
+            "records": {
+              "entry": [
+                {
+                  "date": "2026-11-02",
+                  "hours": 2
+                },
+                {
+                  "date": "2026-11-03",
+                  "hours": 3,
+                  "author": "ada"
+                },
+                {
+                  "id": "old",
+                  "date": "2026-10-20",
+                  "hours": 8
+                }
+              ]
+            },
+            "query": {
+              "name": "week",
+              "params": {
+                "start": "2026-11-02",
+                "end": "2026-11-08"
+              }
+            },
+            "expect": {
+              "count": 2,
+              "totals": {
+                "hours": 5,
+                "n": 2
+              }
+            }
+          },
+          {
+            "name": "logging lands a row and a toast",
+            "records": {
+              "entry": [
+                {
+                  "date": "2026-11-02",
+                  "hours": 2
+                },
+                {
+                  "date": "2026-11-03",
+                  "hours": 3,
+                  "author": "ada"
+                },
+                {
+                  "id": "old",
+                  "date": "2026-10-20",
+                  "hours": 8
+                }
+              ]
+            },
+            "action": {
+              "name": "log",
+              "params": {
+                "date": "2026-11-04",
+                "hours": 2
+              }
+            },
+            "expect": {
+              "records": {
+                "entry": [
+                  {
+                    "id": "entry-1"
+                  },
+                  {
+                    "id": "entry-2"
+                  },
+                  {
+                    "id": "old"
+                  },
+                  {
+                    "id": "new-1",
+                    "date": "2026-11-04",
+                    "hours": 2,
+                    "note": null,
+                    "author": "member"
+                  }
+                ]
+              },
+              "sets": [
+                {
+                  "path": "/form/hours",
+                  "value": 0
+                }
+              ],
+              "calls": [
+                {
+                  "name": "harness.toast",
+                  "args": {
+                    "message": "Logged 2:00"
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "name": "zero hours are refused",
+            "action": {
+              "name": "log",
+              "params": {
+                "date": "2026-11-04",
+                "hours": 0
+              }
+            },
+            "expect": {
+              "error": "Log more than 0 hours"
+            }
+          }
+        ]
+      },
+      "issues": []
+    },
+    {
+      "name": "no tests",
+      "with": {},
+      "issues": []
+    },
+    {
+      "name": "a wrong value",
+      "with": {
+        "tests": [
+          {
+            "name": "a duration",
+            "expr": {
+              "expr": "formatDuration(h, 'h:mm')",
+              "vars": {
+                "h": 7.5
+              }
+            },
+            "expect": "7:30"
+          },
+          {
+            "name": "a typo in the format",
+            "expr": {
+              "expr": "formatDuration(h, 'hh:mm')",
+              "vars": {
+                "h": 7.5
+              }
+            },
+            "expect": "7:30"
+          }
+        ]
+      },
+      "issues": [
+        {
+          "path": "/tests/1",
+          "message": "a typo in the format: expected \"7:30\", got \"07:30\""
+        }
+      ]
+    },
+    {
+      "name": "an action that refuses",
+      "with": {
+        "tests": [
+          {
+            "name": "25 hours",
+            "action": {
+              "name": "log",
+              "params": {
+                "date": "2026-11-04",
+                "hours": 25
+              }
+            },
+            "expect": {
+              "records": {
+                "entry": [
+                  {
+                    "hours": 25
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "issues": [
+        {
+          "path": "/tests/0",
+          "message": "25 hours: expected {\"records\":{\"entry\":[{\"hours\":25}]}}, got {\"error\":\"A day has 24 hours\"}"
+        }
+      ]
+    },
+    {
+      "name": "an error where a value was expected",
+      "with": {
+        "tests": [
+          {
+            "name": "divide",
+            "expr": {
+              "expr": "x / 0",
+              "vars": {
+                "x": 1
+              }
+            },
+            "expect": 1
+          }
+        ]
+      },
+      "issues": [
+        {
+          "path": "/tests/0",
+          "message": "divide: expected 1, got {\"error\":\"division by zero\"}"
+        }
+      ]
+    },
+    {
+      "name": "a long got is cut",
+      "with": {
+        "tests": [
+          {
+            "name": "all rows",
+            "records": {
+              "entry": [
+                {
+                  "date": "2026-11-02",
+                  "hours": 2
+                },
+                {
+                  "date": "2026-11-03",
+                  "hours": 3,
+                  "author": "ada"
+                },
+                {
+                  "id": "old",
+                  "date": "2026-10-20",
+                  "hours": 8
+                }
+              ]
+            },
+            "query": {
+              "name": "week",
+              "params": {
+                "start": "2026-01-01",
+                "end": "2026-12-31"
+              }
+            },
+            "expect": {
+              "count": 2
+            }
+          }
+        ]
+      },
+      "issues": [
+        {
+          "path": "/tests/0",
+          "message": "all rows: expected {\"count\":2}, got {\"count\":3,\"rows\":[{\"author\":\"\",\"authorId\":\"member\",\"createdAt\":\"2026-01-01T00:00:00.000Z\",\"createdBy\":\"member\",\"date\":\"2026-11-02\",\"hours\":2,\"id\":\"entry-1\",\"updatedAt\":\"2026-01-01T00:00:00.000Z\"},{\"author\":\"\",\"authorId\":\"ada\",\"createdAt\":\"2026-01-01T00:00:00.000Z\",\"createdBy\":\"ada\",\"date\":\"2026-11-…"
+        }
+      ]
+    },
+    {
+      "name": "a list matches item by item",
+      "with": {
+        "tests": [
+          {
+            "name": "one row too many",
+            "records": {
+              "entry": [
+                {
+                  "date": "2026-11-02",
+                  "hours": 2
+                },
+                {
+                  "date": "2026-11-03",
+                  "hours": 3,
+                  "author": "ada"
+                },
+                {
+                  "id": "old",
+                  "date": "2026-10-20",
+                  "hours": 8
+                }
+              ]
+            },
+            "action": {
+              "name": "log",
+              "params": {
+                "date": "2026-11-04",
+                "hours": 1
+              }
+            },
+            "expect": {
+              "records": {
+                "entry": [
+                  {},
+                  {},
+                  {}
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "issues": [
+        {
+          "path": "/tests/0",
+          "message": "one row too many: expected {\"records\":{\"entry\":[{},{},{}]}}, got {\"calls\":[{\"args\":{\"message\":\"Logged 1:00\"},\"name\":\"harness.toast\"}],\"records\":{\"entry\":[{\"author\":\"member\",\"date\":\"2026-11-02\",\"hours\":2,\"id\":\"entry-1\"},{\"author\":\"ada\",\"date\":\"2026-11-03\",\"hours\":3,\"id\":\"entry-2\"},{\"author\":\"member\",\"date\":\"2026-10-20\",\"hours\":8,\"id\":\"old\"},{\"author\":\"member\",\"dat…"
+        }
+      ]
+    },
+    {
+      "name": "malformed tests run none",
+      "with": {
+        "tests": [
+          {
+            "name": "a duration",
+            "expr": {
+              "expr": "formatDuration(h, 'h:mm')",
+              "vars": {
+                "h": 7.5
+              }
+            },
+            "expect": "7:30"
+          },
+          {
+            "name": "",
+            "expr": {
+              "expr": "1"
+            }
+          },
+          {
+            "name": "two kinds",
+            "expr": {
+              "expr": "1"
+            },
+            "query": {
+              "name": "week"
+            },
+            "expect": 1
+          },
+          {
+            "name": "seed",
+            "records": {
+              "nope": [],
+              "entry": [
+                {
+                  "date": "soon"
+                },
+                3,
+                {
+                  "id": 5,
+                  "date": "2026-01-01",
+                  "hours": 1
+                }
+              ]
+            },
+            "expr": {
+              "expr": "1"
+            },
+            "expect": 1
+          },
+          {
+            "name": "names",
+            "query": {
+              "name": "month"
+            },
+            "expect": 1
+          },
+          {
+            "name": "action",
+            "action": {
+              "name": "save"
+            },
+            "expect": 1
+          },
+          {
+            "name": "clock",
+            "now": "tomorrow",
+            "as": "",
+            "expr": {
+              "expr": 3
+            },
+            "expect": 1
+          },
+          {
+            "name": "broken a failure",
+            "expr": {
+              "expr": "1 / 0"
+            },
+            "expect": 5
+          }
+        ]
+      },
+      "issues": [
+        {
+          "path": "/tests/1/name",
+          "message": "name is a non-empty string"
+        },
+        {
+          "path": "/tests/1/expect",
+          "message": "expect is required"
+        },
+        {
+          "path": "/tests/2",
+          "message": "a test runs one of expr, query, action"
+        },
+        {
+          "path": "/tests/3/records/entry/0/date",
+          "message": "a date (YYYY-MM-DD)"
+        },
+        {
+          "path": "/tests/3/records/entry/0/hours",
+          "message": "required"
+        },
+        {
+          "path": "/tests/3/records/entry/1",
+          "message": "a row is an object"
+        },
+        {
+          "path": "/tests/3/records/entry/2/id",
+          "message": "id is a non-empty string"
+        },
+        {
+          "path": "/tests/3/records/nope",
+          "message": "records:nope names no declared kind"
+        },
+        {
+          "path": "/tests/4/query/name",
+          "message": "query month names no package query"
+        },
+        {
+          "path": "/tests/5/action/name",
+          "message": "action save names no package action"
+        },
+        {
+          "path": "/tests/6/now",
+          "message": "now is an ISO timestamp"
+        },
+        {
+          "path": "/tests/6/as",
+          "message": "as is a member id"
+        },
+        {
+          "path": "/tests/6/expr/expr",
+          "message": "expr is a string"
+        }
+      ]
+    },
+    {
+      "name": "tests is a list",
+      "with": {
+        "tests": {
+          "a": 1
+        }
+      },
+      "issues": [
+        {
+          "path": "/tests",
+          "message": "tests is a list of {name, expr | query | action, expect}"
+        }
+      ]
+    },
+    {
+      "name": "a package with other issues runs no tests",
+      "with": {
+        "tests": [
+          {
+            "name": "wrong",
+            "expr": {
+              "expr": "1"
+            },
+            "expect": 2
+          }
+        ],
+        "queries": {
+          "week": {
+            "from": "nope"
+          }
+        }
+      },
+      "issues": [
+        {
+          "path": "/queries/week/from",
+          "message": "records:nope names no declared kind"
+        }
+      ]
+    }
+  ]
+}
