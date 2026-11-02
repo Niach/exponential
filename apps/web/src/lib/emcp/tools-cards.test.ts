@@ -108,13 +108,15 @@ describe(`the show tool's registration (S-3)`, () => {
 })
 
 describe(`exponential_show with pictures only (F38)`, () => {
-  it(`synthesizes a valid surface: a Card holding the title, else the labels`, () => {
+  it(`synthesizes a valid surface: a Stack holding the title, else the labels`, () => {
     const card = buildSurfaceCard({
       surface: picturesOnlySurface(`Chats`, [{ label: `web chats` }]),
       title: `Chats`,
       pictures: [{ label: `web chats` }],
     })
-    expect(card.surface?.root).toMatchObject({ component: `Card` })
+    expect(card.surface?.root).toMatchObject({ component: `Stack` })
+    // #EXP-1447: the chat draws the card; a Card root would double it.
+    expect(showSurfaceProblem(picturesOnlySurface(`Chats`, [{ label: `web chats` }]), false)).toBeNull()
     expect(JSON.stringify(card.surface)).toContain(`"Chats"`)
     expect(card.pictures?.map((picture) => picture.label)).toEqual([`web chats`])
     expect(JSON.stringify(picturesOnlySurface(undefined, [{ label: `web a` }, { label: `ios a` }]))).toContain(`web a, ios a`)

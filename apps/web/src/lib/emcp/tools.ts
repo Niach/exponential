@@ -461,12 +461,13 @@ export function showSurfaceProblem(surface: { root: Record<string, unknown> }, a
   return null
 }
 
-/** F38: `exponential_show {pictures}` with no surface: a Card holding the
- *  title (else the picture labels) above the pictures. */
+/** F38: `exponential_show {pictures}` with no surface: a Stack holding the
+ *  title (else the picture labels) above the pictures; never a Card, the
+ *  chat already draws one around every surface (#EXP-1447). */
 export function picturesOnlySurface(title: string | undefined, pictures: readonly { label: string }[]) {
   const text = title?.trim() || pictures.map((picture) => picture.label).join(`, `)
   return {
-    root: { id: `c`, component: `Card`, children: [{ id: `h`, component: `Heading`, props: { text } }] },
+    root: { id: `s`, component: `Stack`, children: [{ id: `h`, component: `Heading`, props: { text } }] },
   }
 }
 
@@ -2856,7 +2857,7 @@ export function registerExponentialTools(
           if (ask && plan) throw new Error(`Pass ask or plan, not both: one card per call.`)
           if (!ask && !plan && !surface && !pictures?.length) throw new Error(`Pass surface, ask, plan or pictures.`)
           // F38: pictures alone (a result story's screenshots) = a surface
-          // card whose surface is a Card holding the title.
+          // card whose surface is a Stack holding the title.
           const shown = surface ?? picturesOnlySurface(title, pictures ?? [])
           const card = plan
             ? buildPlanCard({ plan: plan.text, questions: plan.questions, pictures, surface })
