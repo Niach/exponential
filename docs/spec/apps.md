@@ -401,6 +401,8 @@ The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <
 
 - ✅ (Q2, #VAPP-191) The string form is a **CEL subset**, hand-written as TS (`src/cel.ts`) + Rust (`eui_core::cel`) twins replaying ONE fixture (`fixtures/expressions.json`; FFI `evaluate_expression_json` / `check_expression_json`, SDKs `Expression.evaluate/check`). cel-js / the `cel` crates were not used: CEL splits int/uint/double (JSON has one number), their error texts and date handling would differ between the twins, and they would bloat the eUI bundle. One number type (`7 / 2` = 3.5); a missing field reads null. It is used as `{"call": "expr", "args": {"expr": "…", "vars": {…}}}` anywhere a value may be bound, and the arithmetic, date and duration rows above are also plain A2UI functions (`{"call": "mul", …}`) running the same table. Every `expr` is type-checked by `validatePackage` against its vars (a literal, a records binding's kind schema, the template data), issues at the JSON pointer. Caps: 1000 characters, nesting 32, no nested comprehensions, 10 000 steps. The team zone is the surface zone the host passes (`Formatter.offsetMinutes`, `HostZone`); there is no team timezone setting yet, so hosts pass the platform zone today. The Arrays and Text rows stay open.
 
+**Missing values are explicit (🆕 E2, #VAPP-195; adopted 2026-11-02):** a field that is not in its kind's `required`, and a var the checker cannot type, is typed `T?`. Arithmetic, comparisons and function arguments on a `T?` are install issues unless guarded: `has(r.f)`, `r.f == null ? … : …`, or `orElse(x, default)`. Every binding carries a fallback (`{"call": "expr", "args": {…, "default"}}`, shown when evaluation fails), so a renderer never paints undefined and never throws on a binding.
+
 ### 4.3 Time
 
 - Everything date-like is evaluated in the **team timezone**. `date` is a calendar day, not an instant.
@@ -414,6 +416,16 @@ The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <
 ```
 
 Computed fields are evaluated on read by the same evaluator. They are never stored, so they never go stale. Queries can filter, sort and group on them.
+
+### 4.5 Effects: pure bindings, all-or-nothing actions (🆕 E1, #VAPP-194; adopted 2026-11-02)
+
+One language at two levels, on the Q2 core:
+
+- **Expressions are pure.** Bindings, `visible`, computed fields and query params cannot write. Every function in the signature table carries an effect (`pure | write | host`), and the checker refuses an effectful one in a pure place at install (path + reason).
+- **Actions** (`actions: {<name>: {params, steps}}`, named by an `on.press`, an `exposes` run or an automation) are ordered steps: `require <expr>`, `records.upsert`, `records.delete`, `set <pointer> = <expr>` (the surface data model), and host functions from `functions` (behind the same policy and consent as today).
+- **All or nothing.** The steps evaluate against one snapshot. A false `require` (its message is the toast), the action step limit (100,000), an error, or a write refused by policy or schema discards the whole action. Record writes land as one unit: one Postgres transaction in the records service, one `RecordStore` batch on a client host, one outbox entry offline (O1).
+- An action runs where it was triggered: the client host for a press, the server broker for `exposes` and automations. The evaluator is the same ×4; fixture `actions.json`.
+- The authority stays the server (§3.4, §14): `require` guards a single write path. Cross-peer invariants are not promised on P2P stores (Spezl, §16).
 
 ---
 
@@ -623,7 +635,7 @@ Example: importing a timesheet workbook (one sheet per month, two members) into 
   - Any coding agent (Claude Code, OpenClaw) can do the same through MCP.
 - **Testing** 🆕 T1:
   - The package validator ✅ runs on every upsert.
-  - 🆕 `checks` in the package: `[{query, expect}]` assertions the editor runs against **draft sample records** (a `sample: true` flag, never synced to members, never counted in the quota).
+  - 🆕 `tests` in the package (#VAPP-196, adopted 2026-11-02): `[{name, records?, now?, as?, expr | query | action, expect}]`, run against their own sample records in an in-memory store at every install and in CI; a failing test is an install issue (`/tests/<i>`, expected vs got), like a type error.
   - Preview at phone and desktop widths, with a screen picker.
   - 🆕 A "Run as <member>" preview for the policy.
 - **Publishing:** draft → published (§2.3). Publish runs the migration check (§3.6) and shows the diff of `exposes` and automations. Changes to tools need an owner, as grants do today.
@@ -751,6 +763,8 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **Q2 ★** ✅ #VAPP-191 Expressions: mul/div/round/min/max, array aggregates, date maths in the team timezone, the string form. (C7)
 - **Q3** Computed fields. (C11)
 - **Q4** The broker's `records` run uses the Q1 evaluator: tools get the same query as the UI. (C15)
+- **E1** #VAPP-194 Typed effects: pure bindings vs all-or-nothing actions with `require` (§4.5). Before A1.
+- **E2** #VAPP-195 Optional types (`T?`) in the checker + a fallback on every binding (§4.2). With or before Q3.
 
 **Phase 3: Multi-screen apps** (unblocks CRM, hiring, approvals)
 
@@ -763,7 +777,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 4: Data in, and testing**
 
 - **X2** Spreadsheet import: the agent recipe first (documented in the editor brief), the mapping dialog second. (C13)
-- **T1** Package `checks` + sample records + "Run as" preview. (§11)
+- **T1** #VAPP-196 Package `tests` (sample records + expected values for expressions, queries and actions), run at install (a failing test is an install issue) and in CI, + "Run as" preview. (§11)
 
 **Phase 5: Automation and upstreams**
 
@@ -791,6 +805,8 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 ```
 R1 ─ R2 ─ R3 ─ R4
 S1 ─ Q1 ─ Q2 ─ Q3 ─ Q4
+            ├─ E2 ─ Q3
+            └─ E1 ─ A1 · E1 ─ T1
             └─ U1 ─ U2 ─ R5/R6/R7 ─ V1 ─ R8
 R2 ─ X2 · U2 ─ T1
 V1 ─ A1 ─ A2 ─ A3 · Q4 ─ M1 ─ M2 · M3
