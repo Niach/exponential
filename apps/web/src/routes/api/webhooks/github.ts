@@ -240,8 +240,8 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     if (event === `check_suite` || event === `workflow_run`) {
       const payload = JSON.parse(rawBody) as {
         action?: string
-        check_suite?: { head_branch?: string | null; pull_requests?: Array<{ number?: number }> }
-        workflow_run?: { head_branch?: string | null; pull_requests?: Array<{ number?: number }> }
+        check_suite?: { head_branch?: string | null; head_sha?: string | null; pull_requests?: Array<{ number?: number }> }
+        workflow_run?: { head_branch?: string | null; head_sha?: string | null; pull_requests?: Array<{ number?: number }> }
         repository?: { full_name?: string }
       }
       const suite = payload.check_suite ?? payload.workflow_run
@@ -252,7 +252,8 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
           numbers: (suite.pull_requests ?? []).flatMap((pr) => (typeof pr.number === `number` ? [pr.number] : [])),
           headBranch: suite.head_branch ?? null,
         })
-        for (const pr of prs) await repairPullRequestChecks(pr.id)
+        // Read at the suite's own commit, never whatever the branch has moved to.
+        for (const pr of prs) await repairPullRequestChecks(pr.id, Date.now(), { headSha: suite.head_sha ?? null })
       }
       return jsonResponse(200, { ok: true })
     }
