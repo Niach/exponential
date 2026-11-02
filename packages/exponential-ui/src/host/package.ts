@@ -14,6 +14,7 @@ import { validateTools } from "./tools"
 import type { PackageTool } from "./tools"
 import { validatePackageExposes, validateUpstreams } from "./exposes"
 import type { PackageExpose } from "./exposes"
+import { validatePackageExpressions } from "./expressions"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
@@ -234,6 +235,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
           issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `query ${name} names no package query` })
       })
     }
+  // VAPP-191: every expression in a template parses and type-checks.
+  issues.push(...validatePackageExpressions(pkg))
   if (pkg.tools !== undefined) issues.push(...validateTools(pkg.tools))
   if (pkg.upstreams !== undefined) issues.push(...validateUpstreams(pkg.upstreams))
   if (pkg.exposes !== undefined) issues.push(...validatePackageExposes(pkg.exposes, pkg.records, pkg.upstreams))

@@ -2741,6 +2741,40 @@ pub fn parse_records_json(query_json: String, kind: Option<String>) -> Result<St
     })
 }
 
+/// VAPP-191: evaluate an expression (the CEL subset, `eui_core::cel`) over
+/// `vars_json` (an object): `{"value": …}` or `{"error": "…"}`
+/// (`fixtures/expressions.json` `eval`). `now_ms` = the clock (`None` = the
+/// wall clock), `zone` = the team zone (`None` = UTC), `max_steps` = the
+/// step limit (`None` = 10 000).
+#[uniffi::export(default(max_steps = None))]
+pub fn evaluate_expression_json(expr: String, vars_json: String, now_ms: Option<f64>, zone: Option<Arc<dyn HostZone>>, max_steps: Option<u32>) -> Result<String, UiError> {
+    guarded("evaluate_expression_json", || {
+        let vars: serde_json::Map<String, Value> = parse(&vars_json)?;
+        let offset = move |ms: f64| zone.as_ref().map_or(0, |z| z.offset_minutes(ms));
+        let env = eui_core::cel::ExpressionEnv { now: now_ms, offset: Some(&offset), max_steps: max_steps.map(|s| s as usize) };
+        Ok(match eui_core::cel::evaluate_expression(&expr, &vars, &env) {
+            Ok(value) => serde_json::json!({ "value": value }),
+            Err(error) => serde_json::json!({ "error": error }),
+        }
+        .to_string())
+    })
+}
+
+/// VAPP-191: type-check an expression against `types_json` (name → type,
+/// spelled as JSON: `"number"`, `["date"]`, a row object): `{"type": …}` or
+/// `{"error": "…"}` (`fixtures/expressions.json` `check`).
+#[uniffi::export]
+pub fn check_expression_json(expr: String, types_json: String) -> Result<String, UiError> {
+    guarded("check_expression_json", || {
+        let types: serde_json::Map<String, Value> = parse(&types_json)?;
+        Ok(match eui_core::cel::check_expression(&expr, &types) {
+            Ok(t) => serde_json::json!({ "type": t }),
+            Err(error) => serde_json::json!({ "error": error }),
+        }
+        .to_string())
+    })
+}
+
 /// VAPP-190: a date's bucket key (`bucket` = day | week | month | quarter |
 /// year: `2026-10-05`, `2026-W41`, `2026-10`, `2026-Q4`, `2026`); null when
 /// the text holds no date that precise or the bucket is unknown

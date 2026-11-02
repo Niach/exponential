@@ -84,6 +84,7 @@ pub mod chart;
 pub mod code;
 pub mod conditions;
 pub mod data;
+pub mod cel;
 pub mod dates;
 pub mod direction;
 pub mod engine;

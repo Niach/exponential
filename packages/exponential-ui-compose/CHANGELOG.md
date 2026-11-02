@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-191: `Expression.evaluate(…)` / `Expression.check(…)` over the core's expression evaluator, `TimeZoneOffset` (a `java.util.TimeZone` as `HostZone`); `ExpressionsTest` replays `fixtures/expressions.json`. Bind-time `{call: "mul" …}` / `{call: "expr" …}` resolve through the core.
 - VAPP-190: `RecordsQuery.parseJson(json, kind)` → `Parsed(query, issues)` (the JSON form: group, aggregate, running, before, in / between / or) and `RecordsQuery.dateBucket(date, bucket)`; `value` answers `groups?`, `totals?`, `before?`. `RecordsQueryTest` replays `jsonCases`, `bucketCases` and the JSON `valueCases`.
 - VAPP-189: `RecordsQuery` (`parse(params, kind)`, `parse(source)`, `value(rows, me, now, names)`) and `RecordRow` in `at.exponential.ui.host`: the core's one records evaluator over the FFI; `RecordsQueryTest` replays `fixtures/records-query.json`.
 

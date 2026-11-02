@@ -293,6 +293,8 @@ pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], exte
             }
         }
     }
+    // VAPP-191: every expression in a template parses and type-checks.
+    issues.extend(super::expressions::validate_package_expressions(p));
     if let Some(tools) = p.get("tools") {
         issues.extend(validate_tools(tools));
     }

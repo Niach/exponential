@@ -7264,6 +7264,19 @@ public func chartExtentJson(kind: String, seriesJson: String, min: Double?, max:
 })
 }
 /**
+ * VAPP-191: type-check an expression against `types_json` (name → type,
+ * spelled as JSON: `"number"`, `["date"]`, a row object): `{"type": …}` or
+ * `{"error": "…"}` (`fixtures/expressions.json` `check`).
+ */
+public func checkExpressionJson(expr: String, typesJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_check_expression_json(
+        FfiConverterString.lower(expr),
+        FfiConverterString.lower(typesJson),$0
+    )
+})
+}
+/**
  * A2UI `a2uiClientCapabilities` JSON.
  */
 public func clientCapabilitiesJson(extensionIds: [String]) -> String  {
@@ -7400,6 +7413,24 @@ public func errorMessageJson(code: String, surfaceId: String, message: String, p
         FfiConverterString.lower(surfaceId),
         FfiConverterString.lower(message),
         FfiConverterOptionString.lower(path),$0
+    )
+})
+}
+/**
+ * VAPP-191: evaluate an expression (the CEL subset, `eui_core::cel`) over
+ * `vars_json` (an object): `{"value": …}` or `{"error": "…"}`
+ * (`fixtures/expressions.json` `eval`). `now_ms` = the clock (`None` = the
+ * wall clock), `zone` = the team zone (`None` = UTC), `max_steps` = the
+ * step limit (`None` = 10 000).
+ */
+public func evaluateExpressionJson(expr: String, varsJson: String, nowMs: Double?, zone: HostZone?, maxSteps: UInt32? = nil)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(
+        FfiConverterString.lower(expr),
+        FfiConverterString.lower(varsJson),
+        FfiConverterOptionDouble.lower(nowMs),
+        FfiConverterOptionTypeHostZone.lower(zone),
+        FfiConverterOptionUInt32.lower(maxSteps),$0
     )
 })
 }
@@ -8070,6 +8101,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_chart_extent_json() != 41730) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_check_expression_json() != 35251) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json() != 21405) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8107,6 +8141,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 45756) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json() != 50260) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 24175) {

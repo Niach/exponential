@@ -167,6 +167,30 @@ pub fn date_bucket(text: &str, bucket: DateBucket) -> Option<String> {
     }
 }
 
+/// VAPP-191: the days since 1970-01-01 of a calendar day (negative before;
+/// Howard Hinnant's days_from_civil), and back (`dayNumber` /
+/// `dayFromNumber` in dates.ts).
+pub fn day_number(y: i64, m: i64, d: i64) -> i64 {
+    let yy = if m <= 2 { y - 1 } else { y };
+    let era = yy.div_euclid(400);
+    let yoe = yy - era * 400;
+    let doy = (153 * (m + if m > 2 { -3 } else { 9 }) + 2).div_euclid(5) + d - 1;
+    let doe = yoe * 365 + yoe.div_euclid(4) - yoe.div_euclid(100) + doy;
+    era * 146_097 + doe - 719_468
+}
+
+pub fn day_from_number(n: i64) -> CalendarDay {
+    let z = n + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe.div_euclid(1460) + doe.div_euclid(36_524) - doe.div_euclid(146_096)).div_euclid(365);
+    let doy = doe - (365 * yoe + yoe.div_euclid(4) - yoe.div_euclid(100));
+    let mp = (5 * doy + 2).div_euclid(153);
+    let d = doy - (153 * mp + 2).div_euclid(5) + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    CalendarDay { y: yoe + era * 400 + i64::from(m <= 2), m, d }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
