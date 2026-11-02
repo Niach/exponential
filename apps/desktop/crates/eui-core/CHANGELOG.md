@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-189: `host::query`, the Rust twin of the TS records evaluator: `parse_records_query`, `parse_records_source`, `records_value` (`RecordRowRef`, `RecordsContext`) and `records_value_owned` (`RecordRow`), replaying `fixtures/records-query.json`; `host::record_store` keeps `RECORDS_FUNCTIONS` and re-exports the query.
+
 ## 0.4.0 (2026-11-02)
 
 - EXP-1604: THE Motion box (`layout_tree::motion_size`): unstyled, the composition's px (`width` + `maxWidth: 100%` + `aspectRatio`), shrinking with its aspect; a style width/height wins; a `src` animation gets none. The fixed measure's Motion intrinsic.

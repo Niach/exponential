@@ -6,7 +6,8 @@
 //   - bindings: the `exp:` scheme over the synced Electric collections
 //     (`exp:devices`; VAPP-119 `exp:issues`, `exp:boards`, `exp:members`,
 //     `exp:sessions`, `exp:comments`, `exp:attachments` off fixtures/app-sources.json;
-//     VAPP-122 `exp:records?kind=…` over the app's own rows: fixtures/app-records.json;
+//     VAPP-122 `exp:records?kind=…` over the app's own rows (VAPP-189: the eUI
+//     evaluator, @exponential_app/eui/host/query + fixtures/records-query.json);
 //     VAPP-161 the format's neutral `records:<kind>?…` + `records.*` = the same);
 //   - extensions: the app extension (`@exp/ui` appExtensionCatalog +
 //     appReactExtension) and its declarative packages (Devices);
@@ -41,7 +42,7 @@ import {
   teamMemberCollection,
   userCollection,
 } from "@/lib/collections"
-import { parseRecordsQuery, recordAuthor, recordsSourceParams, recordsValue, type AppRecordRow } from "@exp/domain-contract/app-records"
+import { RECORDS_SCHEME, parseRecordsQuery, recordAuthor, recordsValue, type RecordRow } from "@exponential_app/eui/host/query"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { appMediaAllowed } from "@exp/domain-contract/apps"
@@ -312,18 +313,19 @@ export interface RecordsScope {
   me: string | null
 }
 
-/** VAPP-122: `exp:records?kind=…` → the fixture's value over the synced
+/** VAPP-122: `exp:records?kind=…` → the eUI evaluator's value over the synced
  *  `app_records` rows of the app (names off the users shape), on every
  *  change of the records, the users or the apps (an `app=` slug may sync
  *  later); a value equal to the last one is not re-emitted. VAPP-159: the
  *  records load ON DEMAND, narrowed by the app (app-records.json SYNC), and
  *  both tables are kept incrementally. */
 function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope): () => void {
-  const query = parseRecordsQuery(recordsSourceParams(source) ?? source.params)
+  // VAPP-189: the neutral `records:<kind>?q` (the name wins) or `exp:records?kind=<kind>&q`.
+  const query = parseRecordsQuery(source.params, source.scheme === RECORDS_SCHEME ? source.name : null)
   let last: string | null = null
   let ready = false
   let appId: string | null = null
-  let records: IncrementalTable<AppRecordRow> | null = null
+  let records: IncrementalTable<RecordRow> | null = null
   const push = () => {
     if (!ready) return
     const rows = records?.rows() ?? []

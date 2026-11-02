@@ -7581,6 +7581,31 @@ public func parseDateValueJson(valueJson: String)throws  -> String?  {
 })
 }
 /**
+ * VAPP-189: query params (a JSON object of strings, as `parseSourceJson`
+ * gives them) → the structured records query JSON
+ * (`fixtures/records-query.json` `parseCases`). `kind` = the neutral
+ * source's own name (`records:<kind>`), which wins over a `kind` param.
+ */
+public func parseRecordsQueryJson(paramsJson: String, kind: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_parse_records_query_json(
+        FfiConverterString.lower(paramsJson),
+        FfiConverterOptionString.lower(kind),$0
+    )
+})
+}
+/**
+ * VAPP-189: `records:<kind>?…` → the records query JSON; null = not a
+ * records source (`sourceCases`).
+ */
+public func parseRecordsSourceJson(source: String) -> String?  {
+    return try!  FfiConverterOptionString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_parse_records_source_json(
+        FfiConverterString.lower(source),$0
+    )
+})
+}
+/**
  * A binding source URI → `{uri, scheme, name, params}` JSON, null when it
  * does not parse.
  */
@@ -7621,6 +7646,21 @@ public func qrMatrixJson(value: String, level: String) -> String  {
     uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(
         FfiConverterString.lower(value),
         FfiConverterString.lower(level),$0
+    )
+})
+}
+/**
+ * VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
+ * the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
+ * `query_json` = a parsed query, `context_json` = `{me, now, names}`;
+ * the value JSON, `null` without a kind.
+ */
+public func recordsValueJson(rowsJson: String, queryJson: String, contextJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_records_value_json(
+        FfiConverterString.lower(rowsJson),
+        FfiConverterString.lower(queryJson),
+        FfiConverterString.lower(contextJson),$0
     )
 })
 }
@@ -8087,6 +8127,12 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json() != 60626) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json() != 62724) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_records_source_json() != 14491) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_parse_source_json() != 38003) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8094,6 +8140,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json() != 21220) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_records_value_json() != 1018) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json() != 7405) {

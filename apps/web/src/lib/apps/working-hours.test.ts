@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import { resolveDynamic, sourceWithParams } from "@exponential_app/eui"
 import { parseSource } from "@exponential_app/eui"
-import { parseRecordsQuery } from "@exp/domain-contract/app-records"
+import { parseRecordsQuery } from "@exponential_app/eui/host/query"
 import template from "@exp/ui/exponential-ui/templates/working-hours.json"
 import { validateAppPackage } from "@/lib/apps/package"
 
@@ -30,10 +30,10 @@ describe(`the Working hours template (VAPP-119 / VAPP-153)`, () => {
       const q = rebind(id, event, ``)
       expect(q.mine, id).toBe(true)
       expect(q.user, id).toBeNull()
-      expect(q.kind).toBe(`entry`)
+      expect(q.from).toBe(`entry`)
     }
-    expect(rebind(`prev`, `press`, ``).month).toBe(`2026-09`)
-    expect(rebind(`next`, `press`, ``).month).toBe(`2026-11`)
+    expect(rebind(`prev`, `press`, ``).month?.key).toBe(`2026-09`)
+    expect(rebind(`next`, `press`, ``).month?.key).toBe(`2026-11`)
   })
   it(`declares the typed comment action and resolves its arguments (VAPP-120)`, () => {
     expect((template as { functions: string[] }).functions).toContain(`exponential.comments.create`)
@@ -48,6 +48,6 @@ describe(`the Working hours template (VAPP-119 / VAPP-153)`, () => {
       expect(q.mine, id).toBe(false)
       expect(q.user, id).toBe(`u2`)
     }
-    expect(rebind(`who`, `change`, `u2`).month).toBe(`2026-10`)
+    expect(rebind(`who`, `change`, `u2`).month?.key).toBe(`2026-10`)
   })
 })

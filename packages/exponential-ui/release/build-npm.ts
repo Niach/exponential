@@ -46,6 +46,8 @@ export const ENTRIES: Record<string, Record<string, string>> = {
     schema: `src/entries/schema.ts`,
     conformance: `src/conformance.ts`,
     host: `src/host/index.ts`,
+    // VAPP-189: the records evaluator alone (a server broker needs no router).
+    "host/query": `src/host/query.ts`,
     web: `src/web/index.ts`,
     "web/primitives": `src/web/primitives/index.ts`,
   },

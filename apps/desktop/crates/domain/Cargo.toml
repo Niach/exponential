@@ -18,6 +18,3 @@ chrono = { version = "0.4.38", default-features = false, features = ["std", "clo
 # VAPP-110: `apps::slugify` strips diacritics (NFKD), like the TS reference.
 unicode-normalization = "0.1"
 
-[dev-dependencies]
-# VAPP-161: `sourceCases` parse their source with the SDK's own parser.
-eui-core = { path = "../eui-core" }

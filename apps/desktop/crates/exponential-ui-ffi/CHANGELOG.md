@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-189: `parse_records_query_json(params_json, kind)`, `parse_records_source_json(source)`, `records_value_json(rows_json, query_json, context_json)`: the records evaluator (`fixtures/records-query.json`).
+
 ## 0.4.0 (2026-11-02)
 
 - EXP-1605: `motion_read_dotlottie_machine(data)`: a `.lottie`'s first state machine (manifest order) as JSON, "" without one.

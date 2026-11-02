@@ -7,12 +7,12 @@ store, tool runners, extensions), never how (Exponential serves records from
 its synced store, spezl from a p2p store over eNet). `catalog/host.json`
 `package` is the machine-readable contract; this page is the prose spec other
 docs link to (spezl `docs/spec/blocks.md`). The TS reference is `src/host/`
-(`package.ts`, `records.ts`, `record-store.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
+(`package.ts`, `records.ts`, `record-store.ts`, `query.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
 the Rust core (`apps/desktop/crates/eui-core/src/host/`) mirrors every
 pure rule. Fixtures: `fixtures/host-router.json` (package validation, replayed
-by every renderer through the core) and `fixtures/host-package.json` (records
-queries and values, tool consent, extension compatibility, canonical JSON,
-signatures).
+by every renderer through the core), `fixtures/records-query.json` (the
+records query and its value) and `fixtures/host-package.json` (tool consent,
+extension compatibility, canonical JSON, signatures).
 
 ## Versions
 
@@ -55,22 +55,36 @@ the reserved row keys are in `catalog/host.json` `package.records`). The
 host provides the store; the format fixes what a surface sees and calls.
 
 **Read** = the binding source `records:<kind>[?query]`. The value is
-`{rows: [{…data, id, createdAt, updatedAt, createdBy, author}], count}`:
-`count` = the matching rows before `limit`. The neutral query:
+`{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?}`
+(`authorId` = the row's author, `authorId ?? createdBy`):
+`count` = the matching rows before `limit`. The query (URL sugar of the
+structured query, below):
 
 | key | meaning |
 | --- | --- |
-| `mine=1` | only the viewer's rows (`createdBy` = the viewer) |
+| `mine=1` | only the viewer's rows (by author: `authorId`, else `createdBy`) |
+| `user=<id>` | only that user's rows (by author) |
 | `sort=<field\|createdAt\|updatedAt>` | default `createdAt` |
 | `order=asc\|desc` | default `desc` (newest first) |
 | `limit=<n>` | default 100, capped at 500 |
+| `sum=<field>` | `sum` = Σ of the field over the matches (before `limit`) |
+| `by=<dateField>&month=YYYY-MM` | the month view: that month's rows only, `month` = {key, label, prev, next, today, days (every day with its count and sum), labels/counts/sums}; no `month` = the month of now |
+| `app=<slug>` | another app's rows (the HOST decides which rows that is) |
 | `<field>=v` | a data field equals `v` (as text) |
-| `<field>.gt\|gte\|lt\|lte=v` | numbers when both parse, else text (code points) |
+| `<field>.gt\|gte\|lt\|lte=v` | numbers when both parse, else text (code units) |
 
-Ties sort by `id`. The keys `kind`, `app`, `user`, `sum`, `by`, `month` are
-RESERVED for host extensions (Exponential implements them: `sum`, the month
-view, another app's rows; `packages/domain-contract/fixtures/app-records.json`);
-a host that does not implement one ignores it, never filters a field by it.
+Ties sort by `id`. The reserved keys (`catalog/host.json`
+`package.records.query.reserved`) never filter a field. VAPP-189: ONE
+evaluator for every host. The params parse INTO the structured query
+`{from, app, mine, user, where: [{field, op, value}], sort: [{field, order}],
+limit, sum, month: {field, key} | null}` (`parseRecordsQuery(params, kind?)`,
+`parseRecordsSource(source)`), and `recordsValue(rows, query, {me, now,
+names})` evaluates it over the rows of any store
+(`@exponential_app/eui/host/query`, the Rust core's `host::query`, the FFI's
+`parse_records_query_json` / `parse_records_source_json` /
+`records_value_json` for the Swift and Compose SDKs);
+`fixtures/records-query.json` locks all of it. A JSON query form (group-by,
+aggregates, more operators) will add keys next to these.
 A template binding to `records:<kind>` names a declared kind (else an install
 issue). A package with a `sources` allowlist lists `records:<kind>` or
 `records:*`.
@@ -87,8 +101,8 @@ or `records.*`), never behind a consent card (the app's own rows):
 Every write lands in every live `records:` binding of the package (on every
 peer, for a p2p store). `RecordStore` (`src/host/record-store.ts`) is the
 interface a host implements; `MemoryRecordStore` + `recordsHost(pkg, store)`
-are the reference (resolver + both functions), `recordsValue` the derivation
-`fixtures/host-package.json` `recordsValue` locks.
+are the reference (resolver + both functions); the evaluator reads the rows
+of whatever store the host has.
 
 Exponential: `records:<kind>?q` = its `exp:records?kind=<kind>&q` (the name
 wins over a `kind` param) and `records.*` = `harness.records.*`; both spellings

@@ -216,18 +216,39 @@ fn same_text(got: &str, expected: &str) -> Result<(), String> {
     }
 }
 
-/// VAPP-161 `host-package.json`: recordsQuery, consent (rows + keys),
-/// toolCalls, extensions, canonical and signatures (`signedText`; the
-/// Ed25519 verdicts stay with the hosts' own curves).
+/// VAPP-189 `records-query.json`: parseCases, sourceCases, valueCases.
+pub fn records_query_cases() -> Vec<Case> {
+    use eui_core::host::{parse_records_query, parse_records_source, records_value_owned, RecordRow, RecordsContext};
+    use std::collections::{BTreeMap, HashMap};
+    let f = fixture("records-query.json");
+    let params_of = |c: &Value| -> BTreeMap<String, String> { serde_json::from_value(c["params"].clone()).unwrap() };
+    let mut out = Vec::new();
+    for c in list(&f, "parseCases") {
+        let got = parse_records_query(&params_of(c), c["kind"].as_str());
+        out.push((format!("parse: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
+    }
+    for c in list(&f, "sourceCases") {
+        let got = parse_source(c["source"].as_str().unwrap()).and_then(|s| parse_records_source(&s));
+        out.push((format!("source: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
+    }
+    for c in list(&f, "valueCases") {
+        let query = parse_records_query(&params_of(c), c["kind"].as_str());
+        let rows: Vec<RecordRow> = serde_json::from_value(c["rows"].clone()).unwrap();
+        let names: HashMap<String, String> = serde_json::from_value(c["names"].clone()).unwrap();
+        let ctx = RecordsContext { me: c["me"].as_str(), now: c["now"].as_str().unwrap(), names: &names };
+        let got = records_value_owned(&rows, &query, ctx).unwrap_or(Value::Null);
+        out.push((format!("value: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+    }
+    out
+}
+
+/// VAPP-161 `host-package.json`: consent (rows + keys), toolCalls,
+/// extensions, canonical and signatures (`signedText`; the Ed25519 verdicts
+/// stay with the hosts' own curves).
 pub fn package_cases() -> Vec<Case> {
-    use eui_core::host::{canonical_json, package_file_signed_bytes, parse_records_source, tool_call, tool_consent, tool_consent_key, validate_package_with, AvailableExtension};
+    use eui_core::host::{canonical_json, package_file_signed_bytes, tool_call, tool_consent, tool_consent_key, validate_package_with, AvailableExtension};
     let f = fixture("host-package.json");
     let mut out = Vec::new();
-    for c in list(&f, "recordsQuery") {
-        let source = c["source"].as_str().unwrap();
-        let got = parse_source(source).and_then(|s| parse_records_source(&s));
-        out.push((format!("recordsQuery: {source}"), same(&to_value(&got), &c["expected"])));
-    }
     for c in list(&f, "consent") {
         let package_id = c["packageId"].as_str().unwrap();
         let mut result = same(&to_value(&tool_consent(&c["package"])), &c["expected"]);

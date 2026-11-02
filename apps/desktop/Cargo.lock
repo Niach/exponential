@@ -2579,7 +2579,6 @@ name = "domain"
 version = "0.14.101"
 dependencies = [
  "chrono",
- "eui-core",
  "regex",
  "serde",
  "serde_json",

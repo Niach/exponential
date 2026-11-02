@@ -15,6 +15,7 @@ pub mod decoders;
 pub mod exposes;
 pub mod package;
 pub mod policy;
+pub mod query;
 pub mod record_store;
 pub mod records;
 pub mod router;
@@ -34,7 +35,11 @@ pub use policy::{
     safe_href, FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, MediaRule, UrlDecision, UrlPolicy, BUILTIN_FUNCTIONS,
 };
 pub use router::{normalize_path, HostRouter, SurfaceInfo};
-pub use record_store::{parse_records_source, RecordsFilter, RecordsQuery, RECORDS_FUNCTIONS, RECORDS_RESERVED_PARAMS, RECORDS_SCHEME};
+pub use query::{
+    month_days, month_label, parse_records_query, parse_records_source, records_value, records_value_owned, shift_month, RecordRow, RecordRowRef, RecordsContext, RecordsDay, RecordsFilter, RecordsFilterOp, RecordsMonthView, RecordsOrder,
+    RecordsQuery, RecordsSortKey, RECORDS_FILTER_OPS, RECORDS_MONTHS, RECORDS_RESERVED_PARAMS, RECORDS_ROW_KEYS, RECORDS_SCHEME, RECORDS_WEEKDAYS,
+};
+pub use record_store::RECORDS_FUNCTIONS;
 pub use records::{is_record_kind, validate_record, validate_record_schema, RECORD_FIELD_TYPES, RECORD_FORMATS, RECORD_RESERVED_KEYS};
 pub use signature::{canonical_json, package_file_signed_bytes, AUTHOR_KEY_PREFIX, AUTHOR_NAME_MAX, PACKAGE_FILE_SIGNATURE_ALG, PACKAGE_FILE_SIGNATURE_CONTEXT};
 pub use sources::{parse_source, source_with_params, ParsedSource};

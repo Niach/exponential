@@ -2717,6 +2717,50 @@ pub fn validate_record_json(schema_json: String, data_json: String) -> Result<St
     })
 }
 
+/// VAPP-189: query params (a JSON object of strings, as `parseSourceJson`
+/// gives them) → the structured records query JSON
+/// (`fixtures/records-query.json` `parseCases`). `kind` = the neutral
+/// source's own name (`records:<kind>`), which wins over a `kind` param.
+#[uniffi::export]
+pub fn parse_records_query_json(params_json: String, kind: Option<String>) -> Result<String, UiError> {
+    guarded("parse_records_query_json", || {
+        let params: std::collections::BTreeMap<String, String> = parse(&params_json)?;
+        Ok(json_string(&h::parse_records_query(&params, kind.as_deref())))
+    })
+}
+
+/// VAPP-189: `records:<kind>?…` → the records query JSON; null = not a
+/// records source (`sourceCases`).
+#[uniffi::export]
+pub fn parse_records_source_json(source: String) -> Option<String> {
+    shield("parse_records_source_json", || None, || {
+        h::parse_source(&source).and_then(|s| h::parse_records_source(&s)).map(|q| json_string(&q))
+    })
+}
+
+/// VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
+/// the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
+/// `query_json` = a parsed query, `context_json` = `{me, now, names}`;
+/// the value JSON, `null` without a kind.
+#[uniffi::export]
+pub fn records_value_json(rows_json: String, query_json: String, context_json: String) -> Result<String, UiError> {
+    guarded("records_value_json", || {
+        #[derive(serde::Deserialize)]
+        struct Context {
+            #[serde(default)]
+            me: Option<String>,
+            now: String,
+            #[serde(default)]
+            names: std::collections::HashMap<String, String>,
+        }
+        let rows: Vec<h::RecordRow> = parse(&rows_json)?;
+        let query: h::RecordsQuery = parse(&query_json)?;
+        let ctx: Context = parse(&context_json)?;
+        let value = h::records_value_owned(&rows, &query, h::RecordsContext { me: ctx.me.as_deref(), now: &ctx.now, names: &ctx.names });
+        Ok(value.map_or_else(|| "null".to_string(), |v| v.to_string()))
+    })
+}
+
 /// A package template as its server messages (JSON array), null when the
 /// package has no such template. `data_json` = the caller's data.
 #[uniffi::export]

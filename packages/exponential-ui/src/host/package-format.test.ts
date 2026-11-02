@@ -15,10 +15,8 @@ import {
   base64UrlDecode,
   canonicalJson,
   packageFileSignedBytes,
-  parseRecordsSource,
   parseSource,
   recordsHost,
-  recordsValue,
   signPackageFile,
   supportedCatalogIds,
   toolCall,
@@ -27,15 +25,11 @@ import {
   validatePackage,
   verifyPackageFile,
 } from "."
-import type { AppPackage, AvailableExtension, PackageTool, RecordRow } from "."
+import type { AppPackage, AvailableExtension, PackageTool } from "."
 
 // VAPP-161: the package format (docs/package-format.md) against
 // fixtures/host-package.json; validation itself replays host-router.json.
 
-const parsed = (source: string) => {
-  const p = parseSource(source)
-  return p ? parseRecordsSource(p) : null
-}
 
 describe(`package format (VAPP-161)`, () => {
   test(`the constants are the catalog's`, () => {
@@ -52,12 +46,6 @@ describe(`package format (VAPP-161)`, () => {
     for (const id of [`acme.devices`, `acme.scoped`, `acme.hours`, `acme.v1`]) expect(validatePackage((router.packages as Record<string, unknown>)[id])).toEqual([])
   })
 
-  test.each(fixture.recordsQuery)(`parseRecordsSource $source`, (c) => {
-    expect(parsed(c.source)).toEqual(c.expected as never)
-  })
-  test.each(fixture.recordsValue)(`recordsValue: $name`, (c) => {
-    expect(recordsValue(c.rows as RecordRow[], parsed(c.source)!, { me: c.me, names: c.names as Record<string, string> })).toEqual(c.expected as never)
-  })
   test.each(fixture.consent)(`toolConsent $packageId`, (c) => {
     const tools = ((c.package as { tools?: Record<string, PackageTool> }).tools ?? {}) as Record<string, PackageTool>
     expect(toolConsent(c.package as { tools?: Record<string, PackageTool> })).toEqual(c.expected as never)

@@ -21,7 +21,8 @@ import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIss
 import { validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
-import { APP_RECORDS_ON_BEHALF, APP_RECORDS_OWNERSHIP, APP_RECORDS_QUERY, canChangeRecord, importAuthor, recordAuthor, writeAsVerdict } from "@exp/domain-contract/app-records"
+import { APP_RECORDS_ON_BEHALF, APP_RECORDS_OWNERSHIP, canChangeRecord, importAuthor, recordAuthor, writeAsVerdict } from "@exp/domain-contract/app-records"
+import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
 import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
@@ -533,7 +534,7 @@ export const appsRouter = router({
         appRefSchema.and(
           z.object({
             kind: kindSchema.optional(),
-            limit: z.number().int().min(1).max(APP_RECORDS_QUERY.limitMax).default(APP_RECORDS_QUERY.limitDefault),
+            limit: z.number().int().min(1).max(RECORDS_QUERY.limitMax).default(RECORDS_QUERY.limitDefault),
             offset: z.number().int().min(0).default(0),
           })
         )
