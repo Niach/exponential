@@ -1572,15 +1572,15 @@ pub fn build_surface_card(
     Ok(Value::Object(card))
 }
 
-/// `picturesOnlySurface`: a Card holding the title (else the picture
-/// labels) above the pictures.
+/// `picturesOnlySurface`: a Stack holding the title (else the picture
+/// labels) above the pictures; never a Card (#EXP-1447).
 pub fn pictures_only_surface(title: Option<&str>, pictures: &[PictureInput]) -> Value {
     let text = title
         .map(str::trim)
         .filter(|t| !t.is_empty())
         .map(str::to_string)
         .unwrap_or_else(|| pictures.iter().map(|p| p.label.as_str()).collect::<Vec<_>>().join(", "));
-    json!({ "root": { "id": "c", "component": "Card", "children": [{ "id": "h", "component": "Heading", "props": { "text": text } }] } })
+    json!({ "root": { "id": "s", "component": "Stack", "children": [{ "id": "h", "component": "Heading", "props": { "text": text } }] } })
 }
 
 fn component_group(component: &str) -> Option<String> {
@@ -1654,6 +1654,15 @@ mod tests {
 
     fn fixture() -> Value {
         serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/sealed-content.json")).unwrap()
+    }
+
+    #[test]
+    fn pictures_only_surface_is_a_stack_never_a_card() {
+        let pictures = [PictureInput { label: "web a".into(), caption: None, attachment_id: None }];
+        let surface = pictures_only_surface(None, &pictures);
+        assert_eq!(surface["root"]["component"], "Stack");
+        assert_eq!(surface["root"]["children"][0]["props"]["text"], "web a");
+        assert_eq!(show_surface_problem(&surface, false), None);
     }
 
     fn hex32(v: &Value) -> [u8; 32] {
