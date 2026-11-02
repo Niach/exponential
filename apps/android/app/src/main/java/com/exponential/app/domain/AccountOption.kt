@@ -45,9 +45,12 @@ import com.exponential.app.data.api.SteerDevice
 /** The FIRST per-model window of a login: its own name and its fraction. */
 data class AccountModelLimit(val label: String, val used: Double)
 
-/** The three usage fractions a login carries (0-1, never percentages). */
+/** The three usage fractions a login carries (0-1, never percentages).
+ *  [fiveHour] is null when the login reports no `session` window (EXP-1626:
+ *  a Keep signed in login reports the weekly one alone), so no empty 5h bar
+ *  is drawn for it. */
 data class AccountLimits(
-    val fiveHour: Double,
+    val fiveHour: Double?,
     val week: Double,
     val model: AccountModelLimit? = null,
 )
@@ -181,7 +184,7 @@ object AccountOptions {
 
     /** The email a row reads as — the header's fallback ladder. */
     private fun optionEmail(row: AgentProfileUsageRow): String =
-        AgentAccountsRows.accountName(row.email, row.plan)
+        AgentAccountsRows.accountName(row.email, row.plan, row.name)
 
     private fun optionLimits(row: AgentProfileUsageRow): AccountLimits? = limitsOf(row.usage)
 
@@ -192,7 +195,7 @@ object AccountOptions {
         if (windows.isEmpty()) return null
         val model = windows.firstOrNull { it.key.startsWith(MODEL_WINDOW_PREFIX) }
         return AccountLimits(
-            fiveHour = fraction(windows.firstOrNull { it.key == WINDOW_SESSION }),
+            fiveHour = windows.firstOrNull { it.key == WINDOW_SESSION }?.let { fraction(it) },
             week = fraction(windows.firstOrNull { it.key == WINDOW_WEEKLY }),
             model = model?.let { AccountModelLimit(label = it.label, used = fraction(it)) },
         )

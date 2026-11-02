@@ -267,6 +267,34 @@ class AgentAccountsRowsTest {
     }
 
     @Test
+    fun `a reported name labels the login before its email`() {
+        // EXP-1626: a long-lived Add's name, reported on the profile.
+        val rows = AgentAccountsRows.loginRows(
+            mapOf(
+                "claude" to AgentAccount(
+                    profiles = listOf(
+                        AgentAccountProfile(id = "p1", email = "a@acme.test", signedIn = true, name = " Work "),
+                        AgentAccountProfile(id = "p2", email = "b@acme.test", signedIn = true, name = "  "),
+                        AgentAccountProfile(id = "p3", signedIn = true, plan = "max", name = "Claude (kept signed in)"),
+                    ),
+                ),
+            ),
+            null,
+        )
+        assertEquals(
+            listOf("Work", "b@acme.test", "Claude (kept signed in)"),
+            rows.map(AgentAccountsRows::loginLabel),
+        )
+        assertEquals("Work", rows[0].name)
+        assertNull(rows[1].name)
+        assertEquals("Work", AgentAccountsRows.accountName("a@acme.test", "max", "Work"))
+        assertEquals("a@acme.test", AgentAccountsRows.accountName("a@acme.test", "max", null))
+        assertEquals("No email", AgentAccountsRows.accountName(null, null, " "))
+        // The Switch's new profile is named after the login it came from.
+        assertEquals("a@acme.test (kept signed in)", DevicesList.switchedName("a@acme.test"))
+    }
+
+    @Test
     fun `the login label is the identity, never the status`() {
         assertEquals(
             "a@acme.test",

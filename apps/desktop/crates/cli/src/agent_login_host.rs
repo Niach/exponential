@@ -62,6 +62,15 @@
 //! The retired `import: "true"` (EXP-1532: nothing ever copies the
 //! machine's AMBIENT login into a profile) is refused by the payload parse:
 //! the command completes ok:false with `agent_login::IMPORT_REMOVED`.
+//!
+//! EXP-1626: every run is bounded (`agent_login::LOGIN_RUN_TIMEOUT` after
+//! it started, past a fresh code's `CODE_GRACE`) and ended for sure (the
+//! PTY child gets SIGTERM, then SIGKILL: `claude setup-token` outlived the
+//! plain SIGHUP). A long-lived run answers its code command on the OUTCOME
+//! (`agent_login::PendingCode`), a browser run at the keystroke. An
+//! `agent_login_cancel` ([`cancel`]) stops the run of the `agent_login` it
+//! names unless a code already went in. A long-lived Add carries the name
+//! its new profile gets.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -85,15 +94,34 @@ const ROWS: u16 = 36;
 /// How often the grid is read. Same cadence as the desktop's login poll.
 const POLL_INTERVAL: Duration = Duration::from_millis(250);
 
-/// How long a sign-in may run before the PTY is killed. A device-auth link
-/// expires long before this; a login nobody finishes must not hold an agent
-/// CLI open on the machine forever.
-const LOGIN_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+/// EXP-765: one code the requester handed back, with the `agent_login_code`
+/// command the run answers once it typed it (EXP-1626: a long-lived run
+/// answers on the outcome).
+pub struct CodeDelivery {
+    pub code: String,
+    pub command_id: String,
+}
 
-/// EXP-765: one slot per agent id — the sender a LIVE login polls for the
-/// code the requester hands back. Registered by [`run`]'s thread for the
-/// login's lifetime, read by [`enter_code`].
-pub type CodeInbox = Arc<Mutex<HashMap<String, flume::Sender<String>>>>;
+/// EXP-1626: what [`cancel`] reaches of a live run.
+#[derive(Clone, Default)]
+struct RunControl {
+    /// Raised by a cancel: the run stops on its next tick.
+    cancel: Arc<AtomicBool>,
+    /// A code went into the run (a cancel then leaves it alone).
+    code_entered: Arc<AtomicBool>,
+}
+
+/// The live logins: EXP-765's code slot per agent id (the sender a LIVE
+/// login polls for the code the requester hands back) and EXP-1626's runs
+/// by `agent_login` command id (what a cancel names). Registered by
+/// [`run`]'s thread for the login's lifetime.
+#[derive(Default)]
+pub struct LoginInbox {
+    codes: HashMap<String, flume::Sender<CodeDelivery>>,
+    runs: HashMap<String, RunControl>,
+}
+
+pub type CodeInbox = Arc<Mutex<LoginInbox>>;
 
 /// The two sentences a code command completes with — the clients show a
 /// failed row's `result` verbatim, and the success line is byte-identical on
@@ -104,10 +132,10 @@ pub type CodeInbox = Arc<Mutex<HashMap<String, flume::Sender<String>>>>;
 pub const CODE_ENTERED: &str = "Signing in…";
 pub const NO_LOGIN_WAITING: &str = "No sign-in is waiting for a code on this machine.";
 
-/// EXP-765: run one `agent_login_code` command — type the code into the
-/// login that is waiting for it. Completes at once, either way: there is
-/// nothing to watch after the write (the login's own run reports the exit),
-/// and a redelivery of a completed id never reaches this executor.
+/// EXP-765: run one `agent_login_code` command — hand the code to the login
+/// that is waiting for it. The RUN answers it (EXP-1626): a browser login
+/// once the code is typed, a long-lived one on its outcome; with no login
+/// waiting it completes here, at once.
 pub fn enter_code(ctx: &Ctx, command: &api::devices::PendingCommand, codes: &CodeInbox) {
     let agent = command.payload["agent"].as_str().unwrap_or_default();
     let code = command.payload["code"].as_str().unwrap_or_default().trim();
@@ -118,13 +146,50 @@ pub fn enter_code(ctx: &Ctx, command: &api::devices::PendingCommand, codes: &Cod
     let sender = codes
         .lock()
         .ok()
-        .and_then(|inbox| inbox.get(agent).cloned());
-    let delivered = matches!(sender, Some(sender) if sender.send(code.to_string()).is_ok());
-    if delivered {
-        complete(ctx, &command.id, true, CODE_ENTERED);
-    } else {
+        .and_then(|inbox| inbox.codes.get(agent).cloned());
+    let delivered = matches!(sender, Some(sender) if sender
+        .send(CodeDelivery { code: code.to_string(), command_id: command.id.clone() })
+        .is_ok());
+    if !delivered {
         complete(ctx, &command.id, false, NO_LOGIN_WAITING);
     }
+}
+
+/// EXP-1626 — what a cancel of `login_command_id` does, and the run it
+/// reaches.
+fn cancel_lookup(
+    inbox: &LoginInbox,
+    login_command_id: &str,
+) -> (agent_login::CancelDisposition, Option<RunControl>) {
+    let run = inbox.runs.get(login_command_id).cloned();
+    let disposition = agent_login::CancelDisposition::of(
+        run.is_some(),
+        run.as_ref().is_some_and(|run| run.code_entered.load(Ordering::SeqCst)),
+    );
+    (disposition, run)
+}
+
+/// EXP-1626: run one `agent_login_cancel` command — the requester closed
+/// its sign-in dialog before the login landed. The named run is stopped
+/// (its child killed, its staging dropped) unless a code already went in;
+/// the cancel completes ok either way, and with no such run.
+pub fn cancel(ctx: &Ctx, command: &api::devices::PendingCommand, codes: &CodeInbox) {
+    let login_command_id = match agent_login::parse_cancel_payload(&command.payload) {
+        Ok(id) => id,
+        Err(message) => {
+            complete(ctx, &command.id, false, &message);
+            return;
+        }
+    };
+    let (disposition, run) = match codes.lock() {
+        Ok(inbox) => cancel_lookup(&inbox, &login_command_id),
+        Err(_) => (agent_login::CancelDisposition::NoRun, None),
+    };
+    log::info!("agent_login: cancel {} of sign-in {login_command_id}: {disposition:?}", command.id);
+    if let (agent_login::CancelDisposition::Stop, Some(run)) = (disposition, run) {
+        run.cancel.store(true, Ordering::SeqCst);
+    }
+    complete(ctx, &command.id, true, disposition.message());
 }
 
 /// Start one `agent_login` command. Validation and the dedupe claim happen
@@ -150,6 +215,7 @@ pub fn run(
     let agent = request.agent;
     let target = request.target;
     let long_lived = request.long_lived;
+    let name = request.name;
 
     // The redelivery gate. Claimed here, on the serialized worker, so two
     // pulls of the same id can never both pass it.
@@ -171,11 +237,24 @@ pub fn run(
     let thread = std::thread::Builder::new()
         .name("exp-agent-login".to_string())
         .spawn(move || {
+            // EXP-1626: what a cancel of this command reaches.
+            let control = RunControl::default();
+            if let Ok(mut inbox) = codes.lock() {
+                inbox.runs.insert(command_id.clone(), control.clone());
+            }
             let outcome = match (long_lived, target.intended()) {
-                (true, Some(profile)) => {
-                    sign_in_long_lived(&trpc, &settings, &data_dir, profile, &command_id, &codes)
-                }
-                (true, None) => add_long_lived(&trpc, &settings, &data_dir, &command_id, &codes),
+                (true, Some(profile)) => sign_in_long_lived(
+                    &trpc, &settings, &data_dir, profile, &command_id, &codes, &control,
+                ),
+                (true, None) => add_long_lived(
+                    &trpc,
+                    &settings,
+                    &data_dir,
+                    name.as_deref(),
+                    &command_id,
+                    &codes,
+                    &control,
+                ),
                 _ => sign_in(
                     &trpc,
                     &settings,
@@ -184,8 +263,12 @@ pub fn run(
                     target.intended(),
                     &command_id,
                     &codes,
+                    &control,
                 ),
             };
+            if let Ok(mut inbox) = codes.lock() {
+                inbox.runs.remove(&command_id);
+            }
             if let Some((ok, message)) = outcome {
                 complete_with(&trpc, &command_id, ok, &message);
             }
@@ -211,6 +294,7 @@ pub fn run(
 /// in a fresh staging dir, and COMMIT it by email once the CLI exits signed
 /// in. Returns the completion still owed, `None` when the command already
 /// completed with the link.
+#[allow(clippy::too_many_arguments)]
 fn sign_in(
     trpc: &Arc<api::trpc::TrpcClient>,
     settings: &Settings,
@@ -219,6 +303,7 @@ fn sign_in(
     intended: Option<&str>,
     command_id: &str,
     codes: &CodeInbox,
+    control: &RunControl,
 ) -> Option<(bool, String)> {
     // EXP-1232: a managed Codex sign-in fetches the pinned build first; a
     // failed fetch is the completion.
@@ -236,7 +321,7 @@ fn sign_in(
     // browser on the machine — the requester opens the published link.
     let mut plan = agent_login::login_plan(settings, agent, true);
     plan.spawn.env.push(env);
-    let run = drive_with_inbox(trpc, &plan, agent, command_id, codes, false);
+    let run = drive_with_inbox(trpc, &plan, agent, command_id, codes, control, false);
     if !run.signed_in {
         agent_login::abandon_login(agent, &staging);
         return run.completion;
@@ -267,12 +352,13 @@ fn sign_in_long_lived(
     profile: &str,
     command_id: &str,
     codes: &CodeInbox,
+    control: &RunControl,
 ) -> Option<(bool, String)> {
     let plan = match agent_login::long_lived_plan(settings, data_dir, profile, true) {
         Ok(plan) => plan,
         Err(message) => return Some((false, message)),
     };
-    let run = drive_with_inbox(trpc, &plan, CodingAgent::Claude, command_id, codes, true);
+    let run = drive_with_inbox(trpc, &plan, CodingAgent::Claude, command_id, codes, control, true);
     let Some(scraped) = run.setup_token else {
         log::info!("agent_login: the long-lived sign-in ended without a token ({profile})");
         return run.completion;
@@ -293,25 +379,28 @@ fn sign_in_long_lived(
 /// a fresh staging dir, driven like any sign-in; the token it printed makes
 /// that dir a new profile, no token abandons it. Returns the completion
 /// still owed, `None` when the command already completed with the link.
+/// EXP-1626: `name` = the new profile's name.
 fn add_long_lived(
     trpc: &Arc<api::trpc::TrpcClient>,
     settings: &Settings,
     data_dir: &std::path::Path,
+    name: Option<&str>,
     command_id: &str,
     codes: &CodeInbox,
+    control: &RunControl,
 ) -> Option<(bool, String)> {
     let agent = CodingAgent::Claude;
     let (staging, plan) = match agent_login::long_lived_add_plan(settings, data_dir, true) {
         Ok(started) => started,
         Err(message) => return Some((false, message)),
     };
-    let run = drive_with_inbox(trpc, &plan, agent, command_id, codes, true);
+    let run = drive_with_inbox(trpc, &plan, agent, command_id, codes, control, true);
     let Some(scraped) = run.setup_token else {
         log::info!("agent_login: the long-lived Add ended without a token");
         agent_login::abandon_login(agent, &staging);
         return run.completion;
     };
-    match agent_login::commit_setup_token_add(data_dir, &staging, scraped) {
+    match agent_login::commit_setup_token_add(data_dir, &staging, scraped, name) {
         Ok((profile, expires_at)) => {
             log::info!("agent_login: claude long-lived login added ({profile}, until {expires_at})");
             run.completion.map(|_| (true, "Signed in".to_string()))
@@ -330,22 +419,28 @@ fn drive_with_inbox(
     agent: CodingAgent,
     command_id: &str,
     codes: &CodeInbox,
+    control: &RunControl,
     scrape_token: bool,
 ) -> DriveOutcome {
     // EXP-765: the slot the requester's code lands in while this login runs.
     // Keyed by agent — one login per agent at a time is what the server's
     // pending-dedupe already guarantees.
-    let (code_tx, code_rx) = flume::unbounded::<String>();
+    let (code_tx, code_rx) = flume::unbounded::<CodeDelivery>();
     if let Ok(mut inbox) = codes.lock() {
-        inbox.insert(agent.id().to_string(), code_tx.clone());
+        inbox.codes.insert(agent.id().to_string(), code_tx.clone());
     }
-    let run = drive(trpc, plan, agent, command_id, &code_rx, scrape_token);
+    let run = drive(trpc, plan, agent, command_id, &code_rx, control, scrape_token);
     if let Ok(mut inbox) = codes.lock() {
         // Only OUR slot — a login started after this one exited must keep
         // its own.
-        if inbox.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
-            inbox.remove(agent.id());
+        if inbox.codes.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
+            inbox.codes.remove(agent.id());
         }
+    }
+    // EXP-1626: a code that arrived as the run ended was never typed — it
+    // is answered, never left pending.
+    while let Ok(late) = code_rx.try_recv() {
+        complete_with(trpc, &late.command_id, false, agent_login::SIGN_IN_ENDED);
     }
     run
 }
@@ -362,13 +457,15 @@ struct DriveOutcome {
 
 /// Run the login `plan` to its end (its env points the CLI's config-dir
 /// variable at the staging dir, or a long-lived run's profile dir).
-/// `scrape_token` = watch the grid for the token `claude setup-token` prints.
+/// `scrape_token` = watch the grid for the token `claude setup-token` prints
+/// (a long-lived run: its code is answered on the outcome).
 fn drive(
     trpc: &Arc<api::trpc::TrpcClient>,
     plan: &agent_login::LoginPlan,
     agent: CodingAgent,
     command_id: &str,
-    code_rx: &flume::Receiver<String>,
+    code_rx: &flume::Receiver<CodeDelivery>,
+    control: &RunControl,
     scrape_token: bool,
 ) -> DriveOutcome {
     let mut emulator = Emulator::new(COLS, ROWS);
@@ -407,6 +504,10 @@ fn drive(
     let mut exited = false;
     let mut clean_exit = false;
     let mut setup_token = None;
+    // EXP-1626: a long-lived run's code in flight, and when one last went in.
+    let mut pending_code: Option<agent_login::PendingCode> = None;
+    let mut last_code_at: Option<Instant> = None;
+    let mut cancelled = false;
     loop {
         std::thread::sleep(POLL_INTERVAL);
         // Nobody paints this grid — the wakes exist only to keep the read
@@ -421,12 +522,14 @@ fn drive(
                 setup_token = Some(found);
             }
         }
+        let observation = observe_login_screen(agent.id(), &lines);
 
         if !published {
-            match observe_login_screen(agent.id(), &lines) {
+            match &observation {
                 LoginObservation::Url { url, code } => {
-                    let progress = LoginProgress::url(agent, url, code);
+                    let progress = LoginProgress::url(agent, url.clone(), code.clone());
                     complete_with(trpc, command_id, true, &progress.to_result_text());
+                    log::info!("agent_login: {command_id} published the sign-in link");
                     published = true;
                 }
                 LoginObservation::MethodPicker if !method_picker_answered => {
@@ -439,18 +542,48 @@ fn drive(
                 LoginObservation::Failed(message) => {
                     // Falls through to the kill below — a failed login
                     // screen sits there waiting for a keypress otherwise.
-                    failure = Some(message);
+                    failure = Some(message.clone());
                     break;
                 }
                 LoginObservation::MethodPicker | LoginObservation::Nothing => {}
+            }
+        }
+        // EXP-1626: a long-lived run's code completes on its outcome; a
+        // refused code ends the run (the requester's retry starts afresh).
+        if let Some(pending) = pending_code.as_mut() {
+            let refusal = match &observation {
+                LoginObservation::Failed(message) => Some(message.as_str()),
+                _ => None,
+            };
+            if let Some((ok, message)) = pending.observe(setup_token.is_some(), refusal) {
+                log::info!("agent_login: code {} settled: ok={ok}", pending.command_id);
+                complete_with(trpc, &pending.command_id, ok, &message);
+                pending_code = None;
+                if !ok {
+                    failure = Some(message);
+                    break;
+                }
             }
         }
         // EXP-765: the code the requester handed back — typed as the one
         // line the CLI's "Paste code here" prompt is waiting for. Written
         // whether or not the URL was observed: the prompt is the CLI's
         // business, and a code with nobody waiting is harmless input.
-        while let Ok(code) = code_rx.try_recv() {
-            pty.writer_write(format!("{code}\r").as_bytes());
+        while let Ok(delivery) = code_rx.try_recv() {
+            let failure_on_screen = matches!(observation, LoginObservation::Failed(_));
+            pty.writer_write(format!("{}\r", delivery.code).as_bytes());
+            // Never the code itself.
+            log::info!("agent_login: code {} typed into {command_id}", delivery.command_id);
+            control.code_entered.store(true, Ordering::SeqCst);
+            last_code_at = Some(Instant::now());
+            if scrape_token {
+                let next = agent_login::PendingCode::new(delivery.command_id, failure_on_screen);
+                if let Some(replaced) = pending_code.replace(next) {
+                    complete_with(trpc, &replaced.command_id, false, "A newer code replaced this one.");
+                }
+            } else {
+                complete_with(trpc, &delivery.command_id, true, CODE_ENTERED);
+            }
         }
 
         let exit = exit_slot
@@ -466,15 +599,25 @@ fn drive(
         if read_thread.is_finished() {
             break;
         }
-        if started.elapsed() >= LOGIN_TIMEOUT {
-            log::info!("agent_login: {} timed out — killing the login", agent.id());
+        // EXP-1626: the requester walked away.
+        if control.cancel.load(Ordering::SeqCst) {
+            log::info!("agent_login: {command_id} cancelled by the requester — stopping the login");
+            cancelled = true;
+            break;
+        }
+        if agent_login::login_run_expired(started.elapsed(), last_code_at.map(|at| at.elapsed())) {
+            log::info!("agent_login: {command_id} ({}) timed out — stopping the login", agent.id());
             break;
         }
     }
     // A published link leaves the CLI waiting for the browser, and that is
-    // fine WHILE we watch it — but nothing outlives this function.
+    // fine WHILE we watch it — but nothing outlives this function. EXP-1626:
+    // SIGHUP alone did not end `claude setup-token`: SIGTERM, then SIGKILL.
     if !exited {
-        pty.kill();
+        match exit_slot.as_ref() {
+            Some(slot) => pty.terminator(Arc::clone(slot)).terminate(),
+            None => pty.kill(),
+        }
     }
     // EXP-1533: the token is the CLI's LAST output — one more read once the
     // read loop has drained it, or an exit right after printing loses it.
@@ -484,10 +627,17 @@ fn drive(
             setup_token = Some(found);
         }
     }
+    // EXP-1626: a code still in flight is answered by whether a token came.
+    if let Some(pending) = pending_code.take() {
+        let (ok, message) = pending.ended(setup_token.is_some());
+        log::info!("agent_login: code {} settled at the end: ok={ok}", pending.command_id);
+        complete_with(trpc, &pending.command_id, ok, &message);
+    }
 
     let signed_in = clean_exit && failure.is_none();
-    if published {
-        // Already completed the moment the link appeared.
+    if published || cancelled {
+        // Already completed the moment the link appeared — or the server
+        // failed the cancelled row itself.
         return DriveOutcome { completion: None, signed_in, setup_token };
     }
     // A failed row's `result` IS the error caption on every client — plain
@@ -507,9 +657,12 @@ fn complete(ctx: &Ctx, command_id: &str, ok: bool, message: &str) {
     complete_with(&ctx.trpc, command_id, ok, message);
 }
 
+/// EXP-1626: a failed call and a row no longer pending both warn.
 fn complete_with(trpc: &Arc<api::trpc::TrpcClient>, command_id: &str, ok: bool, message: &str) {
-    if let Err(err) = api::devices::complete_command(trpc, command_id, ok, Some(message)) {
-        log::debug!("completeCommand for the sign-in failed: {err}");
+    match api::devices::complete_command(trpc, command_id, ok, Some(message)) {
+        Ok(true) => {}
+        Ok(false) => log::warn!("agent_login: completeCommand {command_id}: the row was no longer pending"),
+        Err(err) => log::warn!("agent_login: completeCommand {command_id} failed: {err}"),
     }
 }
 
@@ -532,21 +685,40 @@ mod tests {
     /// with no login waiting, the send has no receiver.
     #[test]
     fn a_code_reaches_only_the_live_login_slot() {
-        let codes: CodeInbox = Arc::new(Mutex::new(HashMap::new()));
-        let (tx, rx) = flume::unbounded::<String>();
-        codes.lock().unwrap().insert("claude".to_string(), tx.clone());
-        let slot = codes.lock().unwrap().get("claude").cloned().unwrap();
-        assert!(slot.send("abc#xyz".to_string()).is_ok());
-        assert_eq!(rx.try_recv().unwrap(), "abc#xyz");
-        assert!(codes.lock().unwrap().get("codex").is_none());
+        let codes = CodeInbox::default();
+        let (tx, rx) = flume::unbounded::<CodeDelivery>();
+        codes.lock().unwrap().codes.insert("claude".to_string(), tx.clone());
+        let slot = codes.lock().unwrap().codes.get("claude").cloned().unwrap();
+        let delivery = |code: &str| CodeDelivery { code: code.to_string(), command_id: "c-1".to_string() };
+        assert!(slot.send(delivery("abc#xyz")).is_ok());
+        let got = rx.try_recv().unwrap();
+        assert_eq!((got.code.as_str(), got.command_id.as_str()), ("abc#xyz", "c-1"));
+        assert!(codes.lock().unwrap().codes.get("codex").is_none());
         // The run's exit removes only ITS slot.
-        let (other, _other_rx) = flume::unbounded::<String>();
-        assert!(!codes.lock().unwrap().get("claude").unwrap().same_channel(&other));
-        assert!(codes.lock().unwrap().get("claude").unwrap().same_channel(&tx));
+        let (other, _other_rx) = flume::unbounded::<CodeDelivery>();
+        assert!(!codes.lock().unwrap().codes.get("claude").unwrap().same_channel(&other));
+        assert!(codes.lock().unwrap().codes.get("claude").unwrap().same_channel(&tx));
         // Once the receiver is gone the send fails — the executor answers
         // "no sign-in waiting" instead of a completion that lies.
         drop(rx);
-        assert!(tx.send("late".to_string()).is_err());
+        assert!(tx.send(delivery("late")).is_err());
+    }
+
+    /// EXP-1626: a cancel finds the run by its `agent_login` command id and
+    /// stops it unless a code went in; an unknown id is nothing to stop.
+    #[test]
+    fn a_cancel_reaches_the_run_of_its_login_command() {
+        use coding::agent_login::CancelDisposition;
+        let mut inbox = LoginInbox::default();
+        let run = RunControl::default();
+        inbox.runs.insert("login-1".to_string(), run.clone());
+        let (disposition, found) = cancel_lookup(&inbox, "login-1");
+        assert_eq!(disposition, CancelDisposition::Stop);
+        found.unwrap().cancel.store(true, Ordering::SeqCst);
+        assert!(run.cancel.load(Ordering::SeqCst), "the live run sees the flag");
+        assert_eq!(cancel_lookup(&inbox, "login-2").0, CancelDisposition::NoRun);
+        run.code_entered.store(true, Ordering::SeqCst);
+        assert_eq!(cancel_lookup(&inbox, "login-1").0, CancelDisposition::CodeEntered);
     }
 
     /// An unknown agent never reaches a PTY, with the sentence the clients

@@ -536,15 +536,18 @@ pub(crate) const ACCOUNT_LIMIT_WEEK: &str = "week";
 /// sit beside a menu row rather than over it.
 const ACCOUNT_LIMITS_W: f32 = 140.;
 
-/// EXP-992 — the bars ONE account option draws, in order: `5h`, `week`, then
+/// EXP-992 — the bars ONE account option draws, in order: `5h` (only when the
+/// login reports that window, EXP-1626), `week`, then
 /// the per-model window when the login reports one, labelled by the window's
 /// OWN name LOWER-CASED (`fable`). `used` is the fraction the option already
 /// carries. Mirrored ×4 (web `accountLimitBars`).
 pub(crate) fn account_limit_bars(limits: &coding::AccountLimits) -> Vec<(String, f32)> {
-    let mut bars = vec![
-        (ACCOUNT_LIMIT_FIVE_HOUR.to_string(), limits.five_hour),
-        (ACCOUNT_LIMIT_WEEK.to_string(), limits.week),
-    ];
+    let mut bars: Vec<(String, f32)> = limits
+        .five_hour
+        .map(|used| (ACCOUNT_LIMIT_FIVE_HOUR.to_string(), used))
+        .into_iter()
+        .collect();
+    bars.push((ACCOUNT_LIMIT_WEEK.to_string(), limits.week));
     if let Some(model) = &limits.model {
         bars.push((model.label.to_lowercase(), model.used));
     }
@@ -747,6 +750,8 @@ pub(crate) struct AgentProfileUsageRow {
     pub unmonitored: bool,
     /// EXP-1533: the login's long-lived claude token expiry, when it holds one.
     pub token_expires_at: Option<String>,
+    /// EXP-1626: the name a long-lived Add gave the profile.
+    pub name: Option<String>,
 }
 
 /// `Some(trimmed)` for a non-blank string — the wire uses "absent" and "empty
@@ -828,6 +833,7 @@ pub(crate) fn agent_profile_usage_rows(
                 health: coding::agent_accounts::Health::Unknown,
                 unmonitored: false,
                 token_expires_at: None,
+                name: None,
             };
             let profiles = account.map(|account| account.profiles.as_slice()).unwrap_or(&[]);
             for profile in profiles {
@@ -852,6 +858,7 @@ pub(crate) fn agent_profile_usage_rows(
                     health: profile.health(),
                     unmonitored: profile.unmonitored,
                     token_expires_at: profile.token_expires_at.clone(),
+                    name: non_empty(profile.name.as_deref()),
                     ..base(&profile.id)
                 });
             }
@@ -895,7 +902,12 @@ pub(crate) const NO_LOGIN_REPORTED: &str = "No login reported";
 /// The `· plan` tail the row adds when an email AND a plan are both known is
 /// the CALLER's (it renders muted), so the label itself stays one identity.
 pub(crate) fn login_label(row: &AgentProfileUsageRow) -> String {
-    coding::agent_accounts::account_name(row.email.as_deref(), row.plan.as_deref())
+    // EXP-1626: a long-lived Add's name wins (a setup token cannot name its
+    // account, so two of them would otherwise read alike).
+    match row.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
+        Some(name) => name.to_string(),
+        None => coding::agent_accounts::account_name(row.email.as_deref(), row.plan.as_deref()),
+    }
 }
 
 /// The contract position of an agent id, unknown ids last (they still sort
@@ -1317,7 +1329,7 @@ mod tests {
     #[test]
     fn account_limit_bars_read_five_hour_week_then_the_lowercased_model() {
         let bars = account_limit_bars(&coding::AccountLimits {
-            five_hour: 0.4,
+            five_hour: Some(0.4),
             week: 0.85,
             model: Some(coding::AccountModelLimit {
                 label: "Fable".into(),
@@ -1334,11 +1346,18 @@ mod tests {
         );
         // A login with no per-model window draws two bars, never an empty one.
         let two = account_limit_bars(&coding::AccountLimits {
-            five_hour: 0.05,
+            five_hour: Some(0.05),
             week: 0.5,
             model: None,
         });
         assert_eq!(two.len(), 2);
+        // EXP-1626: a login with no 5h window (Keep signed in) draws no 5h bar.
+        let weekly_only = account_limit_bars(&coding::AccountLimits {
+            five_hour: None,
+            week: 0.3,
+            model: None,
+        });
+        assert_eq!(weekly_only, vec![("week".to_string(), 0.3)]);
 
         assert_eq!(limit_severity(0.74), Severity::Normal);
         assert_eq!(limit_severity(0.75), Severity::Warning);
@@ -1796,6 +1815,7 @@ mod tests {
                 health: coding::agent_accounts::Health::from_signed_in(signed_in),
                 unmonitored: false,
                 token_expires_at: None,
+                name: None,
             }
         };
         assert_eq!(attention_rank(&row("Air", "claude", "4e5f6a7b", false, 0)), 0);
@@ -1873,6 +1893,7 @@ mod tests {
             health: coding::agent_accounts::Health::Ok,
             unmonitored: false,
             token_expires_at: None,
+            name: None,
         }
     }
 

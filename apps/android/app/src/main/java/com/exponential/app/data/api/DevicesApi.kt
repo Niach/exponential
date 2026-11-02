@@ -350,6 +350,10 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
  * EXP-1533: [longLived] (claude) mints a one-year `claude setup-token` login
  * through the same link + code flow. EXP-1600: the DEFAULT claude sign-in,
  * an Add (no [profileId]) included.
+ *
+ * EXP-1626: [name] names the NEW profile a long-lived ADD makes (a setup
+ * token cannot name its account); sent only for a long-lived Add, trimmed,
+ * capped at [AGENT_PROFILE_NAME_MAX] (the server's bound).
  */
 fun agentLoginCommand(
     deviceId: String,
@@ -357,14 +361,38 @@ fun agentLoginCommand(
     switchAccount: Boolean,
     profileId: String? = null,
     longLived: Boolean = false,
+    name: String? = null,
 ): JsonObject =
     buildJsonObject {
         put("deviceId", deviceId)
         put("kind", "agent_login")
         put("agent", agent)
         put("switch", switchAccount)
-        profileId?.trim()?.takeIf { it.isNotEmpty() }?.let { put("profileId", it) }
+        val profile = profileId?.trim()?.takeIf { it.isNotEmpty() }
+        profile?.let { put("profileId", it) }
         if (longLived) put("longLived", true)
+        if (longLived && profile == null) {
+            name?.trim()?.take(AGENT_PROFILE_NAME_MAX)?.trim()?.takeIf { it.isNotEmpty() }
+                ?.let { put("name", it) }
+        }
+    }
+
+/** EXP-1626: the longest profile name `agent_login` takes (server `AGENT_PROFILE_NAME_MAX`). */
+const val AGENT_PROFILE_NAME_MAX = 64
+
+/**
+ * The `agent_login_cancel` input for [DevicesApi.createCommand] (EXP-1626) —
+ * the requester closed its sign-in sheet before the login landed: the machine
+ * stops the `agent_login` run [loginCommandId] (its `claude setup-token`
+ * child is killed and its staging dropped) unless a code was already handed
+ * to it; a row the machine never picked up is failed server-side.
+ */
+fun agentLoginCancelCommand(deviceId: String, agent: String, loginCommandId: String): JsonObject =
+    buildJsonObject {
+        put("deviceId", deviceId)
+        put("kind", "agent_login_cancel")
+        put("agent", agent)
+        put("loginCommandId", loginCommandId)
     }
 
 /**

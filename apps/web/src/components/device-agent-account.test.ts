@@ -18,6 +18,10 @@ import {
   agentLoginLanding,
   agentOfLoginCodeKey,
   alreadyAddedCopy,
+  keepSignedInTarget,
+  loginName,
+  reportedLoginName,
+  switchedName,
   type AccountChipRow,
 } from "@/components/device-agent-account"
 import type { SteerDevice } from "@/lib/steer-devices"
@@ -131,6 +135,52 @@ describe(`accountChipLabel`, () => {
       `dev@acme.test`
     )
     expect(accountChipLabel(chip())).toBe(`No email`)
+  })
+})
+
+// EXP-1626: a login's label = its name, else its email, else the fallback.
+describe(`loginName`, () => {
+  it(`prefers the name a long-lived Add gave the profile`, () => {
+    expect(loginName({ name: `Work`, email: `dev@acme.test`, plan: `max` })).toBe(`Work`)
+    expect(loginName({ name: `  `, email: `dev@acme.test` })).toBe(`dev@acme.test`)
+    expect(loginName({ name: null, email: null, plan: `pro` })).toBe(`pro`)
+    expect(loginName({})).toBe(`No email`)
+    expect(accountChipLabel(chip({ name: `Work`, email: `dev@acme.test` }))).toBe(`Work`)
+  })
+
+  it(`reads the name the machine reports for one profile`, () => {
+    const accounts = {
+      claude: {
+        profiles: [
+          { id: `a`, name: ` Work ` },
+          { id: `b` },
+        ],
+      },
+    } as never
+    expect(reportedLoginName(accounts, `claude`, `a`)).toBe(`Work`)
+    expect(reportedLoginName(accounts, `claude`, `b`)).toBeNull()
+    expect(reportedLoginName(accounts, `codex`, `a`)).toBeNull()
+    expect(reportedLoginName(undefined, `claude`, `a`)).toBeNull()
+  })
+})
+
+// EXP-1626: Switch ADDS a named long-lived profile; Renew stays in place.
+describe(`keepSignedInTarget`, () => {
+  it(`adds a new named profile for a switch`, () => {
+    expect(switchedName(`dev@acme.test`)).toBe(`dev@acme.test (kept signed in)`)
+    expect(keepSignedInTarget(chip({ profileId: `work` }), `dev@acme.test`)).toEqual({
+      longLived: true,
+      name: `dev@acme.test (kept signed in)`,
+    })
+  })
+
+  it(`renews the token profile in place`, () => {
+    expect(
+      keepSignedInTarget(
+        chip({ profileId: `work`, tokenExpiresAt: `2027-10-01T00:00:00.000Z` }),
+        `Work`
+      )
+    ).toEqual({ profileId: `work`, longLived: true })
   })
 })
 

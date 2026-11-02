@@ -571,6 +571,8 @@ impl DoctorReport {
                     active: Some(&profile.id) == active.as_ref(),
                     checked_at: now.to_string(),
                     last_login_at: profile.last_login_at.clone(),
+                    // EXP-1626: a long-lived Add's name rides as the label.
+                    name: profile.name.clone(),
                     // EXP-849: `auth status` answers IDENTITY only. Health is
                     // the usage probe's verdict and the collector stamps it
                     // (`agent_usage::apply_health`); a login this probe names

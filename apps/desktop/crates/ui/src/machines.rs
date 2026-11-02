@@ -169,9 +169,23 @@ pub(crate) struct DeviceCard {
     /// NO_LOGIN_REPORTED`]); a missing one means the device simply has not
     /// answered yet ("Checking…"), and the two must not read the same.
     pub(crate) accounts_reported: bool,
+    /// EXP-1626: the names the device reported for its logins (a
+    /// long-lived Add's), by [`AgentProfileUsageRow::key`].
+    pub(crate) login_names: std::collections::BTreeMap<String, String>,
 }
 
 impl DeviceCard {
+    /// EXP-1626: the name the device reported for `login`, if any.
+    pub(crate) fn login_name(&self, login: &AgentProfileUsageRow) -> Option<&str> {
+        self.login_names.get(&login.key).map(String::as_str)
+    }
+
+    /// EXP-1626 — a login's label everywhere on the card: its `name`, else
+    /// [`crate::usage_bar::login_label`] (the email, else the fallback).
+    pub(crate) fn login_label(&self, login: &AgentProfileUsageRow) -> String {
+        login_label_named(self.login_name(login), login)
+    }
+
     /// The same gate the login menus apply: mine, and either this very
     /// install (the login runs in a tab right here) or an online device.
     fn actionable(&self) -> bool {
@@ -204,7 +218,7 @@ impl DeviceCard {
                 .map(|login| DeviceListLogin {
                     agent: login.agent.clone(),
                     profile_id: login.profile_id.clone(),
-                    label: crate::usage_bar::login_label(login),
+                    label: self.login_label(login),
                     health: login.health,
                     limit_hit: limit_hit(login.usage.as_ref(), now_epoch),
                     token_expires_at: login.token_expires_at.clone(),
@@ -252,7 +266,13 @@ const COPY_SWITCH_PROMPT: &str = "{label} · Switch to Keep signed in";
 pub(crate) const COPY_SWITCH_TO_KEEP_SIGNED_IN: &str = "Switch to Keep signed in";
 pub(crate) const COPY_RENEW_KEEP_SIGNED_IN: &str = "Renew Keep signed in";
 pub(crate) const COPY_KEEP_SIGNED_IN_NOTE: &str =
-    "Keep signed in: lasts 1 year, shows the 5h and weekly windows (not per model). We remind you to renew.";
+    "Keep signed in: lasts 1 year, shows weekly usage only. We remind you to renew.";
+/// EXP-1626: the Add account dialog's name field (claude only), its
+/// placeholder (the name a long-lived Add gets when left blank), and the
+/// name "Switch to Keep signed in" gives the profile it adds.
+pub(crate) const COPY_ACCOUNT_NAME: &str = "Name";
+pub(crate) const COPY_KEPT_SIGNED_IN_NAME: &str = "Claude (kept signed in)";
+pub(crate) const COPY_SWITCHED_NAME: &str = "{label} (kept signed in)";
 pub(crate) const COPY_BROWSER_LOGIN_NOTE: &str =
     "Browser login: shows every usage window, but can sign out when its refresh rotates.";
 pub(crate) const COPY_USE_BROWSER_LOGIN: &str = "Use browser login (Advanced)";
@@ -266,6 +286,31 @@ pub(crate) const COPY_DEVICE_ACTIONS: &str = "Device actions";
 pub(crate) const COPY_SETTINGS: &str = DEVICE_SETTINGS;
 pub(crate) const COPY_REMOVE_FROM_TEAM: &str = "Remove from this team";
 pub(crate) const COPY_MORE_ACCOUNTS: &str = "More accounts";
+
+/// EXP-1626 — the label of a login named `name` (a long-lived Add's): the
+/// name, else [`crate::usage_bar::login_label`].
+pub(crate) fn login_label_named(name: Option<&str>, login: &AgentProfileUsageRow) -> String {
+    name.map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| crate::usage_bar::login_label(login))
+}
+
+/// EXP-1626 — the names a device row reported for its logins, keyed like
+/// [`AgentProfileUsageRow::key`] (`device:agent:profile`).
+pub(crate) fn device_login_names(row: &domain::rows::DeviceRow) -> std::collections::BTreeMap<String, String> {
+    let device_id = row.device_id.clone().unwrap_or_default();
+    crate::device_settings::parse_agent_map::<coding::AgentAccount>(row.agent_accounts.as_ref())
+        .into_iter()
+        .flat_map(|(agent, account)| {
+            let device_id = device_id.clone();
+            account.profiles.into_iter().filter_map(move |profile| {
+                let name = profile.name.as_deref().map(str::trim).filter(|name| !name.is_empty())?;
+                Some((format!("{device_id}:{agent}:{}", profile.id), name.to_string()))
+            })
+        })
+        .collect()
+}
 
 /// One login PROFILE a device reported (web `DeviceListLogin`).
 #[derive(Clone, Debug, PartialEq)]
@@ -925,6 +970,7 @@ impl MachinesSection {
                     .agent_accounts
                     .as_ref()
                     .is_some_and(|value| !value.is_null()),
+                login_names: device_login_names(row),
                 device_id,
             };
             if owned {
@@ -1034,6 +1080,14 @@ impl MachinesSection {
                         let device_label = device.label.clone();
                         let own = device.own;
                         let profile_id = profile_id.clone();
+                        // EXP-1626: a renewal stays in place; a switch adds a
+                        // profile named after this login's label.
+                        let renew = *status == LoginStatus::Renew;
+                        let account_label = device
+                            .logins
+                            .get(slot)
+                            .map(|login| device.login_label(login))
+                            .unwrap_or_default();
                         AttentionPill {
                             label: action.label(Some(*status)),
                             busy: false,
@@ -1047,6 +1101,8 @@ impl MachinesSection {
                                         device_label.clone(),
                                         own,
                                         profile_id.clone(),
+                                        renew,
+                                        &account_label,
                                         window,
                                         cx,
                                     );
@@ -1519,16 +1575,21 @@ fn row_tag(label: &'static str, cx: &App) -> gpui::Div {
 /// EXP-1560 — the account header the preview AND the login menu lead with:
 /// the email (else [`crate::usage_bar::login_label`]), the plan muted under
 /// it, the attention status in warning tone, then the usage windows.
+/// EXP-1626: a NAMED login (`name`, a long-lived Add's) leads with its name.
 pub(crate) fn account_header(
     login: &AgentProfileUsageRow,
+    name: Option<&str>,
     status: Option<LoginStatus>,
     now_epoch: i64,
     cx: &App,
 ) -> gpui::Div {
-    let title = login
-        .email
-        .clone()
-        .unwrap_or_else(|| crate::usage_bar::login_label(login));
+    let title = match name.map(str::trim).filter(|name| !name.is_empty()) {
+        Some(name) => name.to_string(),
+        None => login
+            .email
+            .clone()
+            .unwrap_or_else(|| crate::usage_bar::login_label(login)),
+    };
     // The plan rides UNDER an address only: a title that already is the
     // plan must not print it twice.
     let plan = login.email.as_ref().and(login.plan.clone());
@@ -1573,11 +1634,12 @@ pub(crate) fn account_header(
 pub(crate) fn account_preview(
     id: SharedString,
     login: &AgentProfileUsageRow,
+    name: Option<&str>,
     flag: Option<&LoginFlag>,
     now_epoch: i64,
     cx: &App,
 ) -> gpui::Div {
-    let header = account_header(login, flag.map(|flag| flag.status), now_epoch, cx);
+    let header = account_header(login, name, flag.map(|flag| flag.status), now_epoch, cx);
     let pill = flag.and_then(|flag| flag.sign_in.clone()).map(|pill| {
         let on_click = pill.on_click.clone();
         div().child(
@@ -1614,7 +1676,8 @@ fn account_icon(
         Some(agent) => crate::coding_selects::agent_mark(agent),
         None => Icon::new(registry::SETTINGS_AGENTS),
     };
-    let label = SharedString::from(crate::usage_bar::login_label(login));
+    let label = SharedString::from(device.login_label(login));
+    let name = device.login_name(login).map(str::to_string);
     let actions = if device.actionable() && !inert {
         chip_actions(
             login.signed_in,
@@ -1640,16 +1703,24 @@ fn account_icon(
             let profile_id = login.profile_id.clone();
             let account_label = label.clone();
             let header_login = login.clone();
+            let header_name = name.clone();
             button
                 .pointer_menu(move |menu, _window, cx| {
                     let header_login = header_login.clone();
+                    let header_name = header_name.clone();
                     // The same header the hover previews, at the menu's top.
                     let mut menu = menu
                         .item(
                             PopupMenuItem::element(move |_, cx| {
                                 div()
                                     .py_1()
-                                    .child(account_header(&header_login, status, now_epoch, cx))
+                                    .child(account_header(
+                                        &header_login,
+                                        header_name.as_deref(),
+                                        status,
+                                        now_epoch,
+                                        cx,
+                                    ))
                             })
                             .disabled(true),
                         )
@@ -1672,11 +1743,13 @@ fn account_icon(
                                 window,
                                 cx,
                             ),
-                            ChipAction::KeepSignedIn { .. } => crate::agent_login::keep_signed_in_on_device(
+                            ChipAction::KeepSignedIn { renew } => crate::agent_login::keep_signed_in_on_device(
                                 device_id.clone(),
                                 device_label.clone(),
                                 own,
                                 profile_id.clone(),
+                                renew,
+                                &account_label,
                                 window,
                                 cx,
                             ),
@@ -1735,7 +1808,14 @@ fn account_icon(
                 .p_2p5()
                 .trigger(trigger)
                 .content(move |_, _, cx| {
-                    account_preview(preview_id.clone(), &preview_login, flag.as_ref(), now_epoch, cx)
+                    account_preview(
+                        preview_id.clone(),
+                        &preview_login,
+                        name.as_deref(),
+                        flag.as_ref(),
+                        now_epoch,
+                        cx,
+                    )
                 }),
         )
         .when(badged, |this| {
@@ -1863,6 +1943,7 @@ mod tests {
             unauthed_agents: Vec::new(),
             logins: Vec::new(),
             accounts_reported: false,
+            login_names: Default::default(),
         }
     }
 
@@ -1884,7 +1965,33 @@ mod tests {
             health: coding::agent_accounts::Health::Ok,
             unmonitored: false,
             token_expires_at: None,
+            name: None,
         }
+    }
+
+    /// EXP-1626: a login's label is its reported `name`, else its email,
+    /// else the no-email fallback; the names come off the device row's
+    /// `agentAccounts` profiles, keyed like the login rows.
+    #[test]
+    fn a_named_login_is_labelled_by_its_name() {
+        let mut login = login_row(true, true);
+        let mut card = device(true, None);
+        assert_eq!(card.login_label(&login), coding::agent_accounts::NO_EMAIL_LABEL);
+        login.email = Some("dev@acme.test".into());
+        assert_eq!(card.login_label(&login), "dev@acme.test");
+        let row: domain::rows::DeviceRow = serde_json::from_value(serde_json::json!({
+            "id": "row-1",
+            "device_id": "dev-1",
+            "agent_accounts": {"claude": {"signedIn": true, "checkedAt": "", "profiles": [
+                {"id": "0a1b2c3d", "signedIn": true, "checkedAt": "", "name": "Work"},
+                {"id": "0a1b2c3e", "signedIn": true, "checkedAt": "", "name": "  "}
+            ]}}
+        }))
+        .unwrap();
+        card.login_names = device_login_names(&row);
+        assert_eq!(card.login_names.len(), 1, "a blank name is no name");
+        assert_eq!(card.login_label(&login), "Work");
+        assert_eq!(card.login_name(&login), Some("Work"));
     }
 
     #[test]
@@ -1980,6 +2087,9 @@ mod tests {
             ("useBrowserLogin", COPY_USE_BROWSER_LOGIN),
             ("useKeepSignedIn", COPY_USE_KEEP_SIGNED_IN),
             ("longLivedRefused", COPY_LONG_LIVED_REFUSED),
+            ("accountName", COPY_ACCOUNT_NAME),
+            ("keptSignedInName", COPY_KEPT_SIGNED_IN_NAME),
+            ("switchedName", COPY_SWITCHED_NAME),
         ] {
             assert_eq!(copy[key].as_str(), Some(ours), "copy.{key}");
         }
@@ -1998,7 +2108,9 @@ mod tests {
             );
         }
         assert_eq!(copy["status"].as_object().map(|status| status.len()), Some(5));
-        assert_eq!(copy.as_object().map(|copy| copy.len()), Some(27), "a new copy key");
+        assert_eq!(copy.as_object().map(|copy| copy.len()), Some(30), "a new copy key");
+        // EXP-1626: the device's default name IS the placeholder.
+        assert_eq!(COPY_KEPT_SIGNED_IN_NAME, coding::agent_login::KEPT_SIGNED_IN_NAME);
         assert_eq!(
             fixture["keepSignedIn"]["renewWithinDays"].as_i64(),
             Some(KEEP_SIGNED_IN_RENEW_WITHIN_DAYS)

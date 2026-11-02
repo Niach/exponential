@@ -122,6 +122,51 @@ export interface AccountChipRow {
   /** EXP-1533: when the profile's long-lived claude login expires (ISO);
    *  present while it holds one. */
   tokenExpiresAt?: string | null
+  /** EXP-1626: the name a long-lived Add gave the profile (`loginName`). */
+  name?: string | null
+}
+
+/** EXP-1626: what a login is CALLED everywhere (chip, hover card, menu
+ *  header, attention text, confirms): the NAME a long-lived Add gave it
+ *  (a setup token cannot name its account), else `accountName` (its email,
+ *  else its plan, else the no-email fallback). Hand-mirrored ×4. */
+export function loginName(
+  login:
+    | { name?: string | null; email?: string | null; plan?: string | null }
+    | null
+    | undefined
+): string {
+  return login?.name?.trim() || accountName(login)
+}
+
+/** EXP-1626: the name the machine REPORTS for one login (`profiles[].name`),
+ *  or null — the usage rows do not carry it, the device's report does. */
+export function reportedLoginName(
+  accounts: Partial<Record<string, Pick<DeviceAgentAccount, `profiles`> | null>> | null | undefined,
+  agent: string,
+  profileId: string
+): string | null {
+  const profile = accounts?.[agent]?.profiles?.find((p) => p?.id === profileId)
+  return profile?.name?.trim() || null
+}
+
+/** EXP-1626: `{label} (kept signed in)` — the profile Switch to Keep signed
+ *  in ADDS beside the browser login it came from (devices-list.json). */
+export function switchedName(label: string): string {
+  return DEVICES_LIST_COPY.switchedName.replace(`{label}`, () => label)
+}
+
+/** EXP-1626: the sign-in "Switch to Keep signed in" / "Renew Keep signed in"
+ *  queue for a login. Renew (the profile holds a token) re-signs IN PLACE;
+ *  Switch ADDS a new long-lived profile named after the switched login and
+ *  leaves that browser login untouched. */
+export function keepSignedInTarget(
+  row: Pick<AccountChipRow, `profileId` | `tokenExpiresAt`>,
+  label: string
+): { profileId?: string; longLived: true; name?: string } {
+  return row.tokenExpiresAt
+    ? { profileId: row.profileId, longLived: true }
+    : { longLived: true, name: switchedName(label) }
 }
 
 /** EXP-1533: the long-lived entry this row offers, or null (claude only).
@@ -161,9 +206,9 @@ export function accountChipActionable(device: SteerDevice): boolean {
   return deviceIsMine(device) && deviceIsOnline(device)
 }
 
-/** The login a confirm names (`accountName`): its address. */
+/** The login a confirm names (`loginName`): its name, else its address. */
 export function accountChipLabel(row: AccountChipRow): string {
-  return accountName(row)
+  return loginName(row)
 }
 
 /** profile id → the `lastLoginAt` the machine reported for it, captured when
@@ -190,7 +235,7 @@ export function agentLoginBaseline(account: LoginReporting): AgentLoginBaseline 
 /** Where a sign-in landed: the profile and whether it was a DUPLICATE. */
 export interface AgentLoginLanding {
   profileId: string
-  /** The landed login's name (`accountName`). */
+  /** The landed login's name (`loginName`). */
   email: string
   /** The machine already held that email and refreshed it: the login was
    *  "Add account" (no intended profile) or meant for ANOTHER profile. */
@@ -215,7 +260,7 @@ export function agentLoginLanding(
     if (existed && baseline[profile.id] === profile.lastLoginAt) continue
     return {
       profileId: profile.id,
-      email: accountName(profile),
+      email: loginName(profile),
       duplicate:
         existed && (!intendedProfileId || intendedProfileId !== profile.id),
     }
@@ -238,6 +283,7 @@ export function AccountChipMenu({
   row,
   accountLabel,
   onSignIn,
+  onKeepSignedIn,
   header,
   trigger,
 }: {
@@ -253,6 +299,9 @@ export function AccountChipMenu({
    *  dialog's import graph). A claude sign-in is the long-lived `claude
    *  setup-token` login by default (EXP-1600). */
   onSignIn: () => void
+  /** EXP-1626: Switch to / Renew Keep signed in (`keepSignedInTarget`: a
+   *  Switch ADDS a named long-lived profile). Defaults to `onSignIn`. */
+  onKeepSignedIn?: () => void
   /** A-16: the login's limits, drawn above the entries. */
   header?: ReactNode
   trigger: ReactNode
@@ -299,6 +348,8 @@ export function AccountChipMenu({
   // The login dialog is hosted elsewhere in the tree — hand off a tick after
   // the menu closes, or the close's focus return swallows it.
   const signIn = () => setTimeout(() => onSignIn(), 0)
+  const keepSignedIn = () =>
+    setTimeout(() => (onKeepSignedIn ?? onSignIn)(), 0)
   const longLived = longLivedAction(row)
 
   return (
@@ -319,7 +370,7 @@ export function AccountChipMenu({
             </DropdownMenuItem>
           )}
           {longLived && actions.includes(longLived) && (
-            <DropdownMenuItem onSelect={signIn}>
+            <DropdownMenuItem onSelect={keepSignedIn}>
               <LongLivedIcon />
               {longLived}
             </DropdownMenuItem>

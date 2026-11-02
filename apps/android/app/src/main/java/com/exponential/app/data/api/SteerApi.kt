@@ -182,6 +182,11 @@ data class AgentAccountProfile(
      * signed in" instead of "Switch to Keep signed in" (EXP-1600).
      */
     @SerialName("tokenExpiresAt") val tokenExpiresAt: String? = null,
+    /**
+     * EXP-1626: the NAME a long-lived Add gave this profile (a setup token
+     * cannot name its account) — the login's label wherever it shows.
+     */
+    @SerialName("name") val name: String? = null,
 )
 
 /**

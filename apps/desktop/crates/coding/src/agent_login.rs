@@ -176,6 +176,10 @@ pub struct LoginRequest {
     /// anything else). EXP-1600: on a profile it lands there; on an Add it
     /// becomes a NEW profile ([`long_lived_add_plan`]).
     pub long_lived: bool,
+    /// EXP-1626: the name a long-lived ADD gives its new profile (`name`,
+    /// trimmed, at most [`PROFILE_NAME_MAX`] chars); `None` elsewhere, and
+    /// the commit then names it [`KEPT_SIGNED_IN_NAME`].
+    pub name: Option<String>,
 }
 
 /// The sentences both hosts refuse a remote login with (the clients show a
@@ -192,6 +196,145 @@ pub const IMPORT_REMOVED: &str = "Import was removed: sign this account in on th
 pub const LONG_LIVED_NEEDS_PROFILE: &str = "A long-lived login needs a Claude account on this machine.";
 /// EXP-1600: a `longLived` login for an agent other than claude.
 pub const LONG_LIVED_CLAUDE_ONLY: &str = "A long-lived login is Claude only.";
+/// EXP-1626: the result of an `agent_login` the requester walked away from
+/// (`agent_login_cancel`), byte-identical to the server's
+/// `AGENT_LOGIN_CANCELLED` (apps/web `lib/trpc/devices.ts`).
+pub const LOGIN_CANCELLED: &str = "The sign-in was cancelled.";
+/// EXP-1626: the name a long-lived Add's profile gets when the request named
+/// none (devices-list.json `copy.keptSignedInName`).
+pub const KEPT_SIGNED_IN_NAME: &str = "Claude (kept signed in)";
+/// EXP-1626: the longest profile name kept (the server's
+/// `AGENT_PROFILE_NAME_MAX`).
+pub const PROFILE_NAME_MAX: usize = 64;
+/// EXP-1626: a long-lived run's pending code command, failed when the run
+/// ends without a token.
+pub const SIGN_IN_ENDED: &str = "The sign-in ended before it finished.";
+/// EXP-1626: the success line of a code command (the ×4 `SIGNING_IN`).
+pub const SIGNING_IN: &str = "Signing in…";
+/// EXP-1626: what an `agent_login_cancel` answers when the run it names
+/// already took a code (it is left to finish).
+pub const CANCEL_TOO_LATE: &str = "A code was already entered: the sign-in continues.";
+/// EXP-1626: what an `agent_login_cancel` answers when no run of that
+/// command is live here (nothing to stop).
+pub const NOTHING_TO_CANCEL: &str = "No sign-in of that request is running on this machine.";
+
+/// EXP-1626: how long ANY sign-in run (remote, or a local long-lived one)
+/// may live before the machine stops it itself.
+pub const LOGIN_RUN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+/// EXP-1626: a code typed this recently keeps a run alive past
+/// [`LOGIN_RUN_TIMEOUT`] until the grace passes.
+pub const CODE_GRACE: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// EXP-1626 — whether a sign-in run that started `elapsed` ago (and last
+/// took a code `since_code` ago, if ever) is to be stopped now.
+pub fn login_run_expired(
+    elapsed: std::time::Duration,
+    since_code: Option<std::time::Duration>,
+) -> bool {
+    elapsed >= LOGIN_RUN_TIMEOUT && since_code.is_none_or(|since| since >= CODE_GRACE)
+}
+
+/// EXP-1626 — what an `agent_login_cancel` does to the run it names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CancelDisposition {
+    /// No live run of that command here: answered ok, nothing to stop.
+    NoRun,
+    /// The run already took a code: left to finish (answered ok).
+    CodeEntered,
+    /// Stop it: kill its child, drop its staging (answered ok).
+    Stop,
+}
+
+impl CancelDisposition {
+    pub fn of(run_found: bool, code_entered: bool) -> Self {
+        match (run_found, code_entered) {
+            (false, _) => CancelDisposition::NoRun,
+            (true, true) => CancelDisposition::CodeEntered,
+            (true, false) => CancelDisposition::Stop,
+        }
+    }
+
+    /// The cancel command's (ok) result.
+    pub fn message(self) -> &'static str {
+        match self {
+            CancelDisposition::NoRun => NOTHING_TO_CANCEL,
+            CancelDisposition::CodeEntered => CANCEL_TOO_LATE,
+            CancelDisposition::Stop => LOGIN_CANCELLED,
+        }
+    }
+}
+
+/// EXP-1626 — the `loginCommandId` of an `agent_login_cancel` payload.
+pub fn parse_cancel_payload(payload: &serde_json::Value) -> Result<String, String> {
+    let agent = payload["agent"].as_str().unwrap_or_default();
+    let id = payload["loginCommandId"].as_str().unwrap_or_default().trim();
+    if CodingAgent::parse(agent).is_none() || id.is_empty() {
+        return Err(MALFORMED_PAYLOAD.to_string());
+    }
+    Ok(id.to_string())
+}
+
+/// EXP-1626 — a code typed into a LONG-LIVED run, waiting for its outcome:
+/// `claude setup-token` takes the code, then either prints the token or
+/// says `OAuth error: … Press Enter to retry.` The code command completes
+/// on that outcome, never at the keystroke.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PendingCode {
+    pub command_id: String,
+    /// A failure was already on screen when the code went in (a retry):
+    /// it counts only once the screen showed something else first.
+    failed_at_entry: bool,
+    cleared: bool,
+}
+
+impl PendingCode {
+    /// `failure_on_screen` = what the screen observed as the code went in.
+    pub fn new(command_id: impl Into<String>, failure_on_screen: bool) -> Self {
+        Self {
+            command_id: command_id.into(),
+            failed_at_entry: failure_on_screen,
+            cleared: !failure_on_screen,
+        }
+    }
+
+    /// One look at the run: `token` = a setup token was scraped, `failure`
+    /// = the screen's claude `Failed` observation. `Some((ok, result))` =
+    /// complete the code command with it now.
+    pub fn observe(&mut self, token: bool, failure: Option<&str>) -> Option<(bool, String)> {
+        if token {
+            return Some((true, SIGNING_IN.to_string()));
+        }
+        match failure {
+            Some(message) if self.cleared || !self.failed_at_entry => {
+                Some((false, message.to_string()))
+            }
+            Some(_) => None,
+            None => {
+                self.cleared = true;
+                None
+            }
+        }
+    }
+
+    /// The run ended: `token` = it printed one.
+    pub fn ended(&self, token: bool) -> (bool, String) {
+        if token {
+            (true, SIGNING_IN.to_string())
+        } else {
+            (false, SIGN_IN_ENDED.to_string())
+        }
+    }
+}
+
+/// EXP-1626 — a requested profile name: trimmed, capped at
+/// [`PROFILE_NAME_MAX`] chars, blank = none.
+pub fn clean_profile_name(raw: Option<&str>) -> Option<String> {
+    let name = raw?.trim();
+    if name.is_empty() {
+        return None;
+    }
+    Some(name.chars().take(PROFILE_NAME_MAX).collect::<String>().trim_end().to_string())
+}
 
 /// Parse an `agent_login` payload: `{agent, switch?: "true"|"false",
 /// profileId?}`. `switch` is still validated but means nothing any more (a
@@ -234,7 +377,11 @@ pub fn parse_login_payload(payload: &serde_json::Value) -> Result<LoginRequest, 
     if long_lived && agent != CodingAgent::Claude {
         return Err(LONG_LIVED_CLAUDE_ONLY.to_string());
     }
-    Ok(LoginRequest { agent, target, long_lived })
+    // EXP-1626: only a long-lived ADD names the profile it makes.
+    let name = (long_lived && target == LoginTarget::Add)
+        .then(|| clean_profile_name(payload["name"].as_str()))
+        .flatten();
+    Ok(LoginRequest { agent, target, long_lived, name })
 }
 
 /// EXP-1533 — the long-lived login of claude profile `profile_id`: `claude
@@ -280,11 +427,13 @@ pub fn long_lived_add_plan(
 /// ([`agent_profiles::adopt_dir`]), its `lastLoginAt` is stamped with no
 /// email (a setup token names nobody) and its usage cache forgotten. Any
 /// failure abandons the staging dir. Returns `(profile id, expiry ISO)`;
-/// the token itself never leaves this function.
+/// the token itself never leaves this function. EXP-1626: the new profile
+/// is NAMED `name` ([`KEPT_SIGNED_IN_NAME`] when the request gave none).
 pub fn commit_setup_token_add(
     data_dir: &Path,
     staging: &Path,
     scraped: (String, Option<i64>),
+    name: Option<&str>,
 ) -> Result<(String, String), String> {
     let agent = CodingAgent::Claude;
     let (token, lifetime) = scraped;
@@ -304,6 +453,10 @@ pub fn commit_setup_token_add(
             return Err(format!("Could not add the account: {err}"));
         }
     };
+    let name = clean_profile_name(name).unwrap_or_else(|| KEPT_SIGNED_IN_NAME.to_string());
+    if let Err(err) = agent_profiles::set_name(data_dir, agent, &profile.id, Some(&name)) {
+        log::warn!("agent_login: the long-lived login's name was not recorded ({}): {err}", profile.id);
+    }
     if let Err(err) = agent_profiles::stamp_login(data_dir, agent, &profile.id, None) {
         log::warn!("agent_login: the long-lived login stamp was not recorded ({}): {err}", profile.id);
     }
@@ -726,7 +879,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             add,
-            LoginRequest { agent: CodingAgent::Claude, target: LoginTarget::Add, long_lived: false }
+            LoginRequest { agent: CodingAgent::Claude, target: LoginTarget::Add, long_lived: false, name: None }
         );
         let existing = parse_login_payload(&serde_json::json!({
             "agent": "codex", "switch": "false", "profileId": " 0badf00d "
@@ -794,7 +947,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             add,
-            LoginRequest { agent: CodingAgent::Claude, target: LoginTarget::Add, long_lived: true }
+            LoginRequest { agent: CodingAgent::Claude, target: LoginTarget::Add, long_lived: true, name: None }
         );
         for payload in [
             serde_json::json!({"agent": "codex", "profileId": "0badf00d", "longLived": "true"}),
@@ -870,6 +1023,7 @@ mod tests {
             &dir,
             &staging,
             ("sk-ant-oat01-added-123456".to_string(), Some(365 * 86_400)),
+            None,
         )
         .unwrap();
         assert!(!staging.exists());
@@ -882,6 +1036,23 @@ mod tests {
         assert_eq!(stored.token, "sk-ant-oat01-added-123456");
         assert_eq!(stored.expires_at, expires);
         assert_eq!(agent_profiles::known_email(&dir, CodingAgent::Claude, &id), None);
+        // EXP-1626: no name asked for = the default name.
+        assert_eq!(profiles[0].name.as_deref(), Some(KEPT_SIGNED_IN_NAME));
+
+        // EXP-1626: a named Add keeps its name on the NEW profile.
+        let (staging, _) = long_lived_add_plan(&settings, &dir, true).unwrap();
+        let (named, _) = commit_setup_token_add(
+            &dir,
+            &staging,
+            ("sk-ant-oat01-named-123456".to_string(), None),
+            Some("  Work laptop  "),
+        )
+        .unwrap();
+        let profile = agent_profiles::get(&dir, CodingAgent::Claude, &named).unwrap();
+        assert_eq!(profile.name.as_deref(), Some("Work laptop"));
+        let first = agent_profiles::get(&dir, CodingAgent::Claude, &id).unwrap();
+        assert_eq!(first.name.as_deref(), Some(KEPT_SIGNED_IN_NAME), "the other profile kept its name");
+        assert!(agent_profiles::remove(&dir, CodingAgent::Claude, &named).is_ok());
 
         // A run that printed no token is abandoned: nothing is added.
         let (staging, _) = long_lived_add_plan(&settings, &dir, false).unwrap();
@@ -889,6 +1060,100 @@ mod tests {
         assert!(!staging.exists());
         assert_eq!(agent_profiles::list(&dir, CodingAgent::Claude).len(), 1);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1626: `name` rides only a long-lived ADD — trimmed, capped at 64
+    /// chars, blank = none; a profile's long-lived login or a browser login
+    /// ignores it.
+    #[test]
+    fn a_long_lived_add_parses_its_name() {
+        let parse = |payload: serde_json::Value| parse_login_payload(&payload).unwrap().name;
+        assert_eq!(
+            parse(serde_json::json!({"agent": "claude", "longLived": "true", "name": "  Work  "})),
+            Some("Work".to_string())
+        );
+        assert_eq!(parse(serde_json::json!({"agent": "claude", "longLived": "true", "name": "   "})), None);
+        assert_eq!(parse(serde_json::json!({"agent": "claude", "longLived": "true"})), None);
+        assert_eq!(parse(serde_json::json!({"agent": "claude", "longLived": "true", "name": 7})), None);
+        let long = "n".repeat(100);
+        assert_eq!(
+            parse(serde_json::json!({"agent": "claude", "longLived": "true", "name": long})),
+            Some("n".repeat(PROFILE_NAME_MAX))
+        );
+        assert_eq!(
+            parse(serde_json::json!({
+                "agent": "claude", "longLived": "true", "profileId": "0badf00d", "name": "Work"
+            })),
+            None,
+            "a renewal keeps the profile's name"
+        );
+        assert_eq!(parse(serde_json::json!({"agent": "claude", "name": "Work"})), None);
+        // Multi-byte names cap by CHAR, never mid-codepoint.
+        assert_eq!(clean_profile_name(Some(&"é".repeat(70))), Some("é".repeat(PROFILE_NAME_MAX)));
+    }
+
+    /// EXP-1626: a run is stopped 10 minutes after it started, unless a
+    /// code went in during the last minute (then once that minute passed).
+    #[test]
+    fn a_login_run_expires_after_ten_minutes_unless_a_code_just_went_in() {
+        let min = |m: u64| std::time::Duration::from_secs(m * 60);
+        let sec = std::time::Duration::from_secs;
+        assert!(!login_run_expired(min(9), None));
+        assert!(login_run_expired(min(10), None));
+        assert!(login_run_expired(min(30), None));
+        assert!(!login_run_expired(min(10), Some(sec(5))));
+        assert!(!login_run_expired(min(11), Some(sec(59))));
+        assert!(login_run_expired(min(11), Some(sec(60))));
+        assert!(login_run_expired(min(10), Some(min(4))));
+        assert!(!login_run_expired(min(2), Some(min(4))));
+    }
+
+    /// EXP-1626: a cancel stops a live run unless a code went in; no run is
+    /// nothing to stop. Every answer is ok.
+    #[test]
+    fn a_cancel_stops_only_a_live_run_with_no_code_in_it() {
+        assert_eq!(CancelDisposition::of(false, false), CancelDisposition::NoRun);
+        assert_eq!(CancelDisposition::of(false, true), CancelDisposition::NoRun);
+        assert_eq!(CancelDisposition::of(true, true), CancelDisposition::CodeEntered);
+        assert_eq!(CancelDisposition::of(true, false), CancelDisposition::Stop);
+        assert_eq!(CancelDisposition::Stop.message(), "The sign-in was cancelled.");
+        assert_eq!(
+            parse_cancel_payload(&serde_json::json!({"agent": "claude", "loginCommandId": " c-1 "})),
+            Ok("c-1".to_string())
+        );
+        for bad in [
+            serde_json::json!({"agent": "claude"}),
+            serde_json::json!({"loginCommandId": "c-1"}),
+            serde_json::json!({"agent": "pi", "loginCommandId": "c-1"}),
+        ] {
+            assert_eq!(parse_cancel_payload(&bad), Err(MALFORMED_PAYLOAD.to_string()));
+        }
+    }
+
+    /// EXP-1626: a long-lived run's code completes on its OUTCOME: the
+    /// token → `Signing in…`; setup-token's refusal after the code → that
+    /// sentence; the run ending with neither → failed. A refusal already on
+    /// screen when the code went in counts only once the screen moved on.
+    #[test]
+    fn a_long_lived_code_completes_on_its_outcome() {
+        let refused = "That code wasn't accepted.";
+        let mut code = PendingCode::new("code-1", false);
+        assert_eq!(code.command_id, "code-1");
+        assert_eq!(code.observe(false, None), None, "still waiting");
+        assert_eq!(code.observe(true, None), Some((true, SIGNING_IN.to_string())));
+
+        let mut code = PendingCode::new("code-2", false);
+        assert_eq!(code.observe(false, Some(refused)), Some((false, refused.to_string())));
+
+        let code = PendingCode::new("code-3", false);
+        assert_eq!(code.ended(false), (false, SIGN_IN_ENDED.to_string()));
+        assert_eq!(code.ended(true), (true, SIGNING_IN.to_string()));
+
+        // A retry typed over the previous refusal.
+        let mut code = PendingCode::new("code-4", true);
+        assert_eq!(code.observe(false, Some(refused)), None, "the OLD refusal");
+        assert_eq!(code.observe(false, None), None);
+        assert_eq!(code.observe(false, Some(refused)), Some((false, refused.to_string())));
     }
 
     /// A codex `auth.json` names its login by the id token's claims, read

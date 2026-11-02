@@ -50,6 +50,8 @@ data class AgentProfileUsageRow(
     val checkedAt: String?,
     /** EXP-1533: the long-lived (claude `setup-token`) login's expiry, null = none. */
     val tokenExpiresAt: String? = null,
+    /** EXP-1626: the name a long-lived Add gave the profile, null = none. */
+    val name: String? = null,
 )
 
 object AgentAccountsRows {
@@ -183,6 +185,7 @@ object AgentAccountsRows {
                     checkedAt = nonEmpty(profile.checkedAt) ?: nonEmpty(account.checkedAt)
                         ?: nonEmpty(usageAt),
                     tokenExpiresAt = nonEmpty(profile.tokenExpiresAt),
+                    name = nonEmpty(profile.name),
                 )
             }
         }
@@ -205,14 +208,15 @@ object AgentAccountsRows {
     }
 
     /**
-     * EXP-909: a login row's identity line — WHO the login is: its email, else
-     * the bare plan an agent reports instead of an address ([accountName]).
+     * EXP-909: a login row's identity line — WHO the login is: EXP-1626 its
+     * name (a long-lived Add's), else its email, else the bare plan an agent
+     * reports instead of an address ([accountName]).
      *
      * NEVER a status (EXP-862's rule, kept): the health badge beside it is the
      * single signed-out notice, and the brand mark says which agent. The device
      * is not in it either — the row it sits under already named the machine.
      */
-    fun loginLabel(row: AgentProfileUsageRow): String = accountName(row.email, row.plan)
+    fun loginLabel(row: AgentProfileUsageRow): String = accountName(row.email, row.plan, row.name)
 
     /** EXP-1013: what a login with no known address and no plan is called. ×4. */
     const val NO_EMAIL_LABEL = "No email"
@@ -222,10 +226,12 @@ object AgentAccountsRows {
      * sheets; ×4 `accountName`): its EMAIL, signed in or not (the device keeps
      * the last address a signed-out login answered with). An agent that
      * reports no address (codex's API-key login) is named by its plan; a login
-     * nobody ever signed in to is "No email". A login has no other name.
+     * nobody ever signed in to is "No email". EXP-1626: a NAME the device
+     * reports (a long-lived Add's — a setup token cannot name its account)
+     * comes before all of them.
      */
-    fun accountName(email: String?, plan: String?): String =
-        nonEmpty(email) ?: nonEmpty(plan) ?: NO_EMAIL_LABEL
+    fun accountName(email: String?, plan: String?, name: String? = null): String =
+        nonEmpty(name) ?: nonEmpty(email) ?: nonEmpty(plan) ?: NO_EMAIL_LABEL
 
     /**
      * EXP-849/EXP-909: a login row's health badge, or null when there is

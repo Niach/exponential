@@ -1978,8 +1978,8 @@ fn spawn_device_worker(
         let mut last_inventory_fp: Option<u64> = None;
         // EXP-765: where a live login's requester drops the authorization
         // code claude's browser page showed (one slot per agent).
-        let login_codes: crate::agent_login_host::CodeInbox =
-            Arc::new(Mutex::new(std::collections::HashMap::new()));
+        // EXP-1626: and the live runs a cancel can reach.
+        let login_codes = crate::agent_login_host::CodeInbox::default();
         while let Ok(work) = rx.recv() {
             match work {
                 DeviceWork::ServerDefaults { defaults, stamp } => {
@@ -2227,6 +2227,11 @@ fn run_device_command(
             crate::agent_login_host::enter_code(ctx, command, login_codes);
             return;
         }
+        // EXP-1626: the requester closed its sign-in dialog — stop that run.
+        "agent_login_cancel" => {
+            crate::agent_login_host::cancel(ctx, command, login_codes);
+            return;
+        }
         // EXP-792: force one agent's usage re-read past the shared TTL
         // (never past the 429 floor — a hot refusal names when).
         "agent_usage_refresh" => {
@@ -2397,10 +2402,12 @@ fn run_device_command(
                         Err(error) => (false, error),
                     };
                     log::info!("agent update ({}): {message}", agent.id());
-                    if let Err(err) =
-                        api::devices::complete_command(&ctx.trpc, &command_id, ok, Some(&message))
-                    {
-                        log::debug!("completeCommand failed (redelivery will retry): {err}");
+                    match api::devices::complete_command(&ctx.trpc, &command_id, ok, Some(&message)) {
+                        Ok(true) => {}
+                        Ok(false) => log::warn!("completeCommand {command_id}: the row was no longer pending"),
+                        Err(err) => {
+                            log::warn!("completeCommand {command_id} failed (redelivery will retry): {err}")
+                        }
                     }
                     if let Ok(mut guard) = claimed.lock() {
                         guard.remove(&command_id);

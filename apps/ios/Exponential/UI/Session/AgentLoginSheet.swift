@@ -34,6 +34,11 @@ struct AgentLoginTarget: Identifiable {
     /// sheet's "Use browser login (Advanced)" (or the one fallback when an
     /// older device refuses a long-lived Add).
     var browserLogin = false
+    /// EXP-1626: the NAME a long-lived ADD gives the profile it makes (the
+    /// Add account sheet's Name field, or `copy.switchedName` for a Switch to
+    /// Keep signed in); it rides `agent_login` only while `longLived` with
+    /// no `profileId`.
+    var name: String? = nil
 
     /// EXP-1533/EXP-1600: a claude sign-in is the long-lived `claude
     /// setup-token` login BY DEFAULT (Add account, Sign in, Switch, Renew):
@@ -46,6 +51,32 @@ struct AgentLoginTarget: Identifiable {
     var id: String {
         "\(deviceId):\(agent):\(profileId ?? "new")"
     }
+
+    /// EXP-1626: the name `agent_login` carries — a long-lived Add's only,
+    /// trimmed and capped at the server's 64; blank sends none (the device
+    /// names the profile `copy.keptSignedInName`).
+    var queuedName: String? {
+        guard longLived, profileId == nil else { return nil }
+        let trimmed = String(
+            (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(64)
+        )
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+/// EXP-1626: the sheet's in-flight login, held by REFERENCE so the polling
+/// task and the dismissal agree on it after the view itself is gone.
+@MainActor
+private final class LoginFlight {
+    /// The queued `agent_login` row, once the server answered.
+    var commandId: String?
+    /// That row came back failed (or was never created): nothing to cancel.
+    var failed = false
+    /// The login landed: closing is the success path, not a walk-away.
+    var landed = false
+    /// The sheet is gone: polls stop, and a row created after that is
+    /// cancelled at once.
+    var closed = false
 }
 
 struct AgentLoginSheet: View {
@@ -80,6 +111,8 @@ struct AgentLoginSheet: View {
     @State private var browserOverride: Bool?
     /// EXP-1600: an Add the device refused long-lived re-queues ONCE.
     @State private var fellBack = false
+    /// EXP-1626: what a dismissal needs to know to cancel the login.
+    @State private var flight = LoginFlight()
 
     /// The target as currently queued, in its current mode.
     private var current: AgentLoginTarget {
@@ -111,6 +144,10 @@ struct AgentLoginSheet: View {
             started = true
             queueLogin()
         }
+        // EXP-1626: closed before the login landed (and unless the machine
+        // already failed it) = `agent_login_cancel`: the machine stops that
+        // run instead of leaving its sign-in waiting for 10 minutes.
+        .onDisappear { sheetClosed() }
         // Closes itself on success: the machine stamps `lastLoginAt` on the
         // profile the login COMMITTED into and its next heartbeat reports it
         // (`AgentAccountsRows.loginLanding`). Landing on a login the machine
@@ -120,6 +157,7 @@ struct AgentLoginSheet: View {
             if now.duplicate {
                 toaster.warning(AgentAccountsRows.alreadyAddedToast(now))
             }
+            flight.landed = true
             finish()
         }
     }
@@ -281,14 +319,18 @@ struct AgentLoginSheet: View {
         codeDraft = ""
         pendingLogin = true
         baseline = AgentAccountsRows.loginBaseline(liveAccount)
+        flight.commandId = nil
+        flight.failed = false
         let queued = current
         Task {
             let outcome = await run(
                 kind: "agent_login",
                 profileId: queued.profileId,
-                longLived: queued.longLived
+                longLived: queued.longLived,
+                name: queued.queuedName
             )
             pendingLogin = false
+            if case .failed = outcome { flight.failed = true }
             switch outcome {
             case let .done(result): loginResult = result
             // EXP-1600: an older device refuses a long-lived Add: re-queue
@@ -325,6 +367,8 @@ struct AgentLoginSheet: View {
                 loginResult = nil
                 codeDraft = ""
                 codeResult = result
+            // EXP-1626: a refused code leaves the link (and the field) on
+            // screen for another try; the failure is the error toast.
             case let .failed(message):
                 toaster.error(
                     FeedbackStates.Errors.title(verb: "send", thing: "the code"),
@@ -343,13 +387,21 @@ struct AgentLoginSheet: View {
         case unanswered
     }
 
+    /// EXP-1626: how long a sign-in's poll watches its row — a person
+    /// reads the link, signs in in a browser and pastes the code back, so it
+    /// matches the machine's own 10-minute limit on an unfinished run.
+    private static let pollInterval: Duration = .seconds(2)
+    private static let pollAttempts = 300
+
     /// Queue the command, then poll its row ~2s until terminal (bounded).
     private func run(
         kind: String,
         code: String? = nil,
         profileId: String? = nil,
-        longLived: Bool = false
+        longLived: Bool = false,
+        name: String? = nil
     ) async -> CommandOutcome {
+        let flight = flight
         do {
             let created = try await deps.devicesApi.createCommand(
                 accountId: accountId,
@@ -358,11 +410,20 @@ struct AgentLoginSheet: View {
                 agent: target.agent,
                 code: code,
                 profileId: profileId,
-                longLived: longLived ? true : nil
+                longLived: longLived ? true : nil,
+                name: name
             )
-            for _ in 0..<60 {
-                try? await Task.sleep(for: .seconds(2))
-                if Task.isCancelled { return .unanswered }
+            if kind == "agent_login" {
+                flight.commandId = created.id
+                // Closed while the row was being created: cancel it now.
+                if flight.closed {
+                    cancelLogin(created.id)
+                    return .unanswered
+                }
+            }
+            for _ in 0..<Self.pollAttempts {
+                try? await Task.sleep(for: Self.pollInterval)
+                if Task.isCancelled || flight.closed { return .unanswered }
                 guard let command = try? await deps.devicesApi.getCommand(
                     accountId: accountId, commandId: created.id
                 ) else { continue }
@@ -374,6 +435,33 @@ struct AgentLoginSheet: View {
             return .unanswered
         } catch {
             return .failed(error.userFacingMessage)
+        }
+    }
+
+    /// EXP-1626: the sheet went away. Unless the login landed, failed or was
+    /// never created, ask the machine to stop it.
+    private func sheetClosed() {
+        flight.closed = true
+        guard !flight.landed, !flight.failed, let id = flight.commandId else { return }
+        cancelLogin(id)
+    }
+
+    /// EXP-1626: `agent_login_cancel {agent, loginCommandId}`, fire and
+    /// forget — the sheet is closing, so nobody is left to show an error,
+    /// and a run nobody finishes stops itself after 10 minutes anyway.
+    private func cancelLogin(_ loginCommandId: String) {
+        let api = deps.devicesApi
+        let accountId = accountId
+        let deviceId = target.deviceId
+        let agent = target.agent
+        Task.detached {
+            _ = try? await api.createCommand(
+                accountId: accountId,
+                deviceId: deviceId,
+                kind: DevicesApi.agentLoginCancelKind,
+                agent: agent,
+                loginCommandId: loginCommandId
+            )
         }
     }
 }
@@ -393,6 +481,9 @@ struct AddAccountSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var agent = ""
+    /// EXP-1626: the Name field (claude only) — what a long-lived Add calls
+    /// the profile it makes; blank = `copy.keptSignedInName`.
+    @State private var name = ""
     @State private var loginTarget: AgentLoginTarget?
 
     /// Every agent INSTALLED on the machine — runnable or signed out; either
@@ -446,6 +537,29 @@ struct AddAccountSheet: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
+
+                    // EXP-1626: a setup token cannot name its account, so a
+                    // claude Add names the profile it makes (blank = the
+                    // placeholder). Codex names itself by email: no field.
+                    if resolvedAgent == "claude" {
+                        GlassDivider()
+
+                        HStack(spacing: 8) {
+                            Text(DevicesList.Copy.accountName)
+                                .foregroundStyle(.white.opacity(TextOpacity.primary))
+                            Spacer(minLength: 8)
+                            GlassTextField(
+                                DevicesList.Copy.keptSignedInName,
+                                text: $name,
+                                bordered: false,
+                                accessibilityIdentifier: "add-account-name"
+                            )
+                            .multilineTextAlignment(.trailing)
+                            .autocorrectionDisabled()
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 12)
+                    }
                 }
                 .glassSection()
                 .padding(.horizontal, GlassSheetTokens.headerHPadding)
@@ -453,11 +567,14 @@ struct AddAccountSheet: View {
             },
             primaryAction: {
                 GlassSubmitButton("Sign in", enabled: !resolvedAgent.isEmpty) {
-                    // No intended profile: "Add account" names none.
+                    // No intended profile: "Add account" names none. EXP-1626:
+                    // a claude Add carries its Name; `queuedName` trims it
+                    // and sends it only while long-lived (blank = none).
                     loginTarget = AgentLoginTarget(
                         deviceId: device.deviceId,
                         deviceLabel: LaunchVocabulary.deviceName(device),
-                        agent: resolvedAgent
+                        agent: resolvedAgent,
+                        name: resolvedAgent == "claude" ? name : nil
                     )
                 }
             }

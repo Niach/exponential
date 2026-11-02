@@ -60,6 +60,10 @@ import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.AgentProfileUsageRow
 import com.exponential.app.domain.AgentUsagePresentation
 import com.exponential.app.domain.DevicesList
+import com.exponential.app.data.api.AGENT_PROFILE_NAME_MAX
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.foundation.text.KeyboardOptions
+import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.SessionTree
@@ -279,15 +283,11 @@ fun AgentsScreen(
                                         )
                                     },
                                     // EXP-1533/EXP-1600: the same sheet, queuing a
-                                    // long-lived login (Switch to / Renew Keep signed in).
-                                    onKeepSignedIn = { row ->
-                                        loginTarget = AgentLoginTarget(
-                                            device = device,
-                                            agent = row.agent,
-                                            profileId = row.profileId,
-                                            longLived = true,
-                                        )
-                                    },
+                                    // long-lived login. EXP-1626: Renew re-signs
+                                    // the token profile IN PLACE; Switch ADDS a new
+                                    // long-lived profile named after the login it
+                                    // came from, which stays untouched.
+                                    onKeepSignedIn = { row -> loginTarget = keepSignedInTarget(device, row) },
                                     onAddAccount = { addAccountDevice = device },
                                     onUpdate = { viewModel.requestDeviceUpdate(device.deviceId) },
                                 )
@@ -426,9 +426,9 @@ fun AgentsScreen(
     addAccountDevice?.let { device ->
         AddAccountSheet(
             device = device,
-            onPick = { agent ->
+            onPick = { agent, name ->
                 addAccountDevice = null
-                loginTarget = AgentLoginTarget(device = device, agent = agent)
+                loginTarget = AgentLoginTarget(device = device, agent = agent, name = name)
             },
             onDismiss = { addAccountDevice = null },
         )
@@ -477,7 +477,8 @@ private fun AccountConfirmDialog(
 @Composable
 private fun AddAccountSheet(
     device: SteerDevice,
-    onPick: (String) -> Unit,
+    /** The picked agent and (claude, EXP-1626) the trimmed name, null = blank. */
+    onPick: (String, String?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     // EXP-862: the pick is remembered as the user's CHOICE, never keyed on the
@@ -487,6 +488,10 @@ private fun AddAccountSheet(
     var pickedAgent by remember { mutableStateOf("") }
     val agents = AgentAccountsRows.addableAgents(device)
     val agent = pickedAgent.takeIf { it in agents } ?: agents.firstOrNull() ?: ""
+    // EXP-1626: a setup token cannot name its account, so a claude Add names
+    // its new profile here (blank = the machine's `copy.keptSignedInName`).
+    var name by remember { mutableStateOf("") }
+    val namesProfile = agent == DevicesList.KEEP_SIGNED_IN_AGENT
     GlassSheet(
         title = "Add account",
         onDismiss = onDismiss,
@@ -512,6 +517,28 @@ private fun AddAccountSheet(
                         onSelect = { pickedAgent = it },
                     )
                 }
+                if (namesProfile) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        DevicesList.Copy.ACCOUNT_NAME,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                        modifier = Modifier.padding(horizontal = 20.dp),
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    GlassTextField(
+                        value = name,
+                        onValueChange = { name = it.take(AGENT_PROFILE_NAME_MAX) },
+                        placeholder = DevicesList.Copy.KEPT_SIGNED_IN_NAME,
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                        textStyle = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp)
+                            .testTag("add-account-name"),
+                    )
+                }
                 Spacer(Modifier.height(12.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
@@ -522,7 +549,9 @@ private fun AddAccountSheet(
                         icon = ExpIcons.uiSignIn,
                         primary = true,
                         enabled = agent.isNotEmpty(),
-                        onClick = { onPick(agent) },
+                        onClick = {
+                            onPick(agent, name.trim().takeIf { namesProfile && it.isNotEmpty() })
+                        },
                     )
                 }
             }
@@ -530,6 +559,26 @@ private fun AddAccountSheet(
         }
     }
 }
+
+/**
+ * EXP-1626: the sign-in a login's Keep signed in action opens. Renew (the
+ * login holds a `tokenExpiresAt`) re-signs that token profile IN PLACE;
+ * Switch (a browser login) ADDS a new long-lived profile — no `profileId`,
+ * named `copy.switchedName` after the switched login — and leaves the browser
+ * login untouched.
+ */
+internal fun keepSignedInTarget(device: SteerDevice, row: AgentProfileUsageRow): AgentLoginTarget =
+    if (row.tokenExpiresAt != null) {
+        AgentLoginTarget(device = device, agent = row.agent, profileId = row.profileId, longLived = true)
+    } else {
+        AgentLoginTarget(
+            device = device,
+            agent = row.agent,
+            profileId = null,
+            longLived = true,
+            name = DevicesList.switchedName(AgentAccountsRows.loginLabel(row)),
+        )
+    }
 
 /** Never render a bare blank row: a label-less machine falls back to its id. */
 private val SteerDevice.displayLabel: String get() = deviceLabel.ifBlank { deviceId }
@@ -938,9 +987,9 @@ private fun DeviceLoginIcon(
     val busy = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
     var menuOpen by remember { mutableStateOf(false) }
     val actions = if (actionable) AgentAccountsRows.chipActions(row) else emptyList()
-    // The plan line only when the header is the EMAIL: a login that has
-    // nothing but its plan must not read "max" twice.
-    val plan = row.plan?.takeIf { row.email != null }
+    // The plan line only when the header is a name or the EMAIL: a login
+    // that has nothing but its plan must not read "max" twice.
+    val plan = row.plan?.takeIf { row.email != null || row.name != null }
     val status = item?.status?.let { DevicesList.Copy.STATUS[it] }
     val description = buildString {
         append("${agentLabel(row.agent)}, $label")
@@ -984,8 +1033,10 @@ private fun DeviceLoginIcon(
                     .testTag("device-login-preview"),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
+                // EXP-1626: the header is the login's label (its name, else
+                // its email), the same one the chip and attention text use.
                 Text(
-                    row.email ?: label,
+                    label,
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,

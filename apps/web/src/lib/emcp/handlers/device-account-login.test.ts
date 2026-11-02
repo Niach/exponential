@@ -97,6 +97,33 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
     expect(codex.created[0]).not.toHaveProperty(`longLived`)
   })
 
+  // EXP-1626: a long-lived ADD names the profile it makes; a re-login, the
+  // browser login and codex never carry a name.
+  it(`passes name through for a long-lived add only`, async () => {
+    const add = deps([{ status: `done`, result: URL_RESULT }])
+    await deviceAccountLogin({ deviceId: `dev`, agent: `claude`, name: ` Work ` }, add.built)
+    expect(add.created[0]).toEqual({
+      deviceId: `dev`,
+      kind: `agent_login`,
+      agent: `claude`,
+      switch: false,
+      longLived: true,
+      name: `Work`,
+    })
+    for (const input of [
+      { profileId: `p1` },
+      { longLived: false },
+      { agent: `codex` },
+    ]) {
+      const other = deps([{ status: `done`, result: URL_RESULT }])
+      await deviceAccountLogin(
+        { deviceId: `dev`, agent: `claude`, name: `Work`, ...input },
+        other.built
+      )
+      expect(other.created[0]).not.toHaveProperty(`name`)
+    }
+  })
+
   it(`hands back the commandId when the machine has not answered in time`, async () => {
     const { built } = deps([{}])
     const result = await deviceAccountLogin({ deviceId: `dev`, agent: `claude` }, built)

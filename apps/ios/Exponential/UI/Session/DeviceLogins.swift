@@ -33,7 +33,8 @@ struct DeviceLogins: View {
     let onSignIn: (AgentProfileUsageRow) -> Void
     /// EXP-1600: "Switch to Keep signed in" / "Renew Keep signed in" on a
     /// claude login (and a `keep_signed_in` item's action) — the host opens
-    /// the same `AgentLoginSheet`, long-lived for that profile.
+    /// the same `AgentLoginSheet`, long-lived: EXP-1626 a Switch ADDS a new
+    /// named profile, a Renew renews this one.
     let onKeepSignedIn: (AgentProfileUsageRow) -> Void
     /// EXP-862: ask to remove this login from the machine (the host confirms).
     let onRemove: (AgentProfileUsageRow) -> Void

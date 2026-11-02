@@ -623,6 +623,8 @@ export interface AgentProfileUsageRow {
   /** EXP-1533: the long-lived claude login's expiry (ISO), null when the
    *  profile holds none. */
   tokenExpiresAt: string | null
+  /** EXP-1626: the name a long-lived Add gave the profile, null when none. */
+  name?: string | null
 }
 
 type UsageDeviceRow = Pick<
@@ -689,6 +691,7 @@ export function deviceLoginRows(
         unmonitored: profile.unmonitored === true,
         checkedAt: profile.checkedAt ?? account?.checkedAt ?? null,
         tokenExpiresAt: profile.tokenExpiresAt || null,
+        name: profile.name?.trim() || null,
       })
     }
   }
@@ -730,16 +733,26 @@ export const NO_EMAIL_LABEL = `No email`
  * no address (codex's API-key login) is named by its plan; a login nobody
  * ever signed in to is "No email". Profiles carry no other name. */
 export function accountName(
-  login: { email?: string | null; plan?: string | null } | null | undefined
+  login:
+    | { name?: string | null; email?: string | null; plan?: string | null }
+    | null
+    | undefined
 ): string {
-  return login?.email?.trim() || login?.plan?.trim() || NO_EMAIL_LABEL
+  // EXP-1626: a long-lived Add's NAME wins (a setup token cannot name its
+  // account, so two of them would otherwise read alike).
+  return (
+    login?.name?.trim() ||
+    login?.email?.trim() ||
+    login?.plan?.trim() ||
+    NO_EMAIL_LABEL
+  )
 }
 
 /** EXP-909: what a login row is CALLED — its identity, never its status
  * (`accountName`). The brand mark beside it says which agent, the device row
  * above it says which machine, and the health badge says what is wrong. */
 export function loginLabel(
-  row: Pick<AgentProfileUsageRow, `email` | `plan`>
+  row: Pick<AgentProfileUsageRow, `email` | `plan` | `name`>
 ): string {
   return accountName(row)
 }

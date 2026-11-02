@@ -9,9 +9,15 @@ import {
   DialogHeader,
   DialogTitle,
   GlassGroup,
+  GlassInputRow,
 } from "@exp/ui"
+import { DEVICES_LIST_COPY } from "@exp/domain-contract/devices-list"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
-import { addableAgents } from "@/lib/agent-account-add"
+import {
+  ACCOUNT_NAME_MAX,
+  addAccountTarget,
+  addableAgents,
+} from "@/lib/agent-account-add"
 import type { SteerDevice } from "@/lib/steer-devices"
 
 // EXP-827: "Add account" — sign in with another account on a machine and hand
@@ -24,6 +30,11 @@ import type { SteerDevice } from "@/lib/steer-devices"
 // EXP-909: DEVICE-BOUND. The dialog used to pick the machine too, because it
 // hung off a cross-device Accounts section with no machine in hand; it is
 // opened from a row UNDER one now, so the only question left is which agent.
+//
+// EXP-1626: and, for claude, a NAME: its default sign-in is Keep signed in
+// (`claude setup-token`), whose token cannot say whose account it is, so the
+// new profile is called what the person types here (blank = the device's
+// `keptSignedInName`).
 
 export function AddAccountDialog({
   open,
@@ -38,9 +49,11 @@ export function AddAccountDialog({
 }) {
   const agents = useMemo(() => addableAgents(device), [device])
   const [agent, setAgent] = useState<string>(``)
+  const [name, setName] = useState(``)
   // The default latches on open: the machine's first installed agent.
   useEffect(() => {
     if (!open) return
+    setName(``)
     setAgent((current) => (agents.includes(current) ? current : (agents[0] ?? ``)))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
@@ -52,7 +65,8 @@ export function AddAccountDialog({
     onOpenChange(false)
     // The sign-in dialog is hosted elsewhere in the tree; open it after this
     // one closed (the Radix close + focus return would swallow it otherwise).
-    setTimeout(() => requestAgentLogin({ device, agent }), 0)
+    const target = addAccountTarget(agent, name)
+    setTimeout(() => requestAgentLogin({ device, ...target }), 0)
   }
 
   return (
@@ -83,6 +97,24 @@ export function AddAccountDialog({
                 />
               </span>
             </div>
+            {agent === `claude` && (
+              <GlassInputRow
+                id="add-account-name"
+                label={DEVICES_LIST_COPY.accountName}
+                placeholder={DEVICES_LIST_COPY.keptSignedInName}
+                value={name}
+                maxLength={ACCOUNT_NAME_MAX}
+                autoComplete="off"
+                onChange={(event) => setName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === `Enter`) {
+                    event.preventDefault()
+                    submit()
+                  }
+                }}
+                data-testid="add-account-name"
+              />
+            )}
           </GlassGroup>
         )}
         <DialogFooter>

@@ -20,7 +20,9 @@
 //! * `limits` are FRACTIONS 0..1 off the usage windows (`percent / 100`):
 //!   `five_hour` = the `session` window, `week` = the `weekly` window,
 //!   `model` = the FIRST per-model window. A login with no usage report has
-//!   no limits at all.
+//!   no limits at all; EXP-1626: one that reports no `session` window (a
+//!   Keep signed in login: weekly only) has no `five_hour`, so no empty 5h
+//!   bar is drawn for it.
 
 use crate::agent::CodingAgent;
 use crate::agent_accounts::{AgentAccounts, Health};
@@ -45,7 +47,8 @@ pub struct AccountModelLimit {
 /// reported no windows for.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccountLimits {
-    pub five_hour: f32,
+    /// `None` when the login reports no `session` window (EXP-1626).
+    pub five_hour: Option<f32>,
     pub week: f32,
     pub model: Option<AccountModelLimit>,
 }
@@ -248,7 +251,7 @@ pub fn account_limits(usage: &AgentUsage) -> Option<AccountLimits> {
             used: fraction(Some(window.percent)),
         });
     Some(AccountLimits {
-        five_hour: fraction(find("session")),
+        five_hour: find("session").map(|percent| fraction(Some(percent))),
         week: fraction(find("weekly")),
         model,
     })
@@ -457,7 +460,7 @@ mod tests {
         assert_eq!(
             by_id("work").limits,
             Some(AccountLimits {
-                five_hour: 0.4,
+                five_hour: Some(0.4),
                 week: 0.85,
                 model: Some(AccountModelLimit {
                     label: "Opus".to_string(),
@@ -469,8 +472,28 @@ mod tests {
         assert_eq!(
             by_id("main").limits,
             Some(AccountLimits {
-                five_hour: 0.05,
+                five_hour: Some(0.05),
                 week: 0.5,
+                model: None,
+            })
+        );
+        // EXP-1626: a login reporting the weekly window alone (Keep signed
+        // in) has no 5h fraction at all, never a 0.
+        let weekly_only = AgentUsage {
+            fetched_at: "2026-11-02T10:00:00.000Z".to_string(),
+            stale: false,
+            windows: vec![crate::agent_usage::UsageWindow {
+                key: "weekly".to_string(),
+                label: "Week".to_string(),
+                percent: 30,
+                resets_at: None,
+            }],
+        };
+        assert_eq!(
+            account_limits(&weekly_only),
+            Some(AccountLimits {
+                five_hour: None,
+                week: 0.3,
                 model: None,
             })
         );

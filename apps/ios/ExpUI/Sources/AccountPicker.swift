@@ -26,12 +26,14 @@ public enum AccountLimitLabels {
     public static let fiveHour = "5h"
     public static let week = "week"
 
-    /// The bars in order: 5h, week, then the model window when there is one.
+    /// The bars in order: 5h (only when the login reports it, EXP-1626), week,
+    /// then the model window when there is one.
     public static func bars(_ limits: AccountLimits) -> [(label: String, used: Double)] {
-        var bars: [(label: String, used: Double)] = [
-            (fiveHour, limits.fiveHour),
-            (week, limits.week),
-        ]
+        var bars: [(label: String, used: Double)] = []
+        if let used = limits.fiveHour {
+            bars.append((fiveHour, used))
+        }
+        bars.append((week, limits.week))
         if let model = limits.model {
             bars.append((model.label.lowercased(), model.used))
         }

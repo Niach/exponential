@@ -47,9 +47,10 @@ internal val AccountLimitBarsWidth: Dp = 136.dp
 /** One drawn bar: what it is called and how full it is (0-1). */
 internal data class AccountLimitBar(val label: String, val used: Double)
 
-/** The bars in order: 5h, week, then the model window when there is one. */
+/** The bars in order: 5h (only when the login reports it, EXP-1626), week,
+ *  then the model window when there is one. */
 internal fun accountLimitBars(limits: AccountLimits): List<AccountLimitBar> = buildList {
-    add(AccountLimitBar(LIMIT_LABEL_FIVE_HOUR, limits.fiveHour))
+    limits.fiveHour?.let { add(AccountLimitBar(LIMIT_LABEL_FIVE_HOUR, it)) }
     add(AccountLimitBar(LIMIT_LABEL_WEEK, limits.week))
     limits.model?.let { add(AccountLimitBar(it.label.lowercase(), it.used)) }
 }

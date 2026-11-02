@@ -51,6 +51,16 @@
 //! There is no import (EXP-1532): an old client's `agent_login {agent,
 //! import: "true"}` is refused by the payload parse
 //! (`agent_login::IMPORT_REMOVED`); every profile signs in on its own.
+//!
+//! EXP-1626: every remote run, and every local long-lived one, is BOUNDED:
+//! [`REMOTE_URL_TIMEOUT`] after it started (past a code's
+//! `agent_login::CODE_GRACE`) the machine closes its tab, which kills the
+//! child for sure (`Terminator`: SIGTERM, then SIGKILL) and drops staging.
+//! A long-lived run's code command completes on its OUTCOME (the token, or
+//! setup-token's refusal), never at the keystroke. An `agent_login_cancel`
+//! ([`cancel_remote_login`]) stops the run of the login command it names
+//! unless a code already went in. A long-lived Add carries the NAME its new
+//! profile gets.
 
 use crate::toast::Toast;
 use std::collections::{BTreeMap, HashMap};
@@ -58,7 +68,7 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use gpui::{
     div, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString,
@@ -85,9 +95,13 @@ use crate::queries;
 /// PTY itself.
 const POLL: Duration = Duration::from_millis(250);
 
-/// How long a remote login may run without ever showing a URL before the
-/// command is failed back to the requester.
-const REMOTE_URL_TIMEOUT: Duration = Duration::from_secs(600);
+/// How long a remote login (or a local long-lived one) may run before the
+/// machine stops it (EXP-1626: whether or not its link was published; a
+/// code typed in the last `agent_login::CODE_GRACE` holds it that long
+/// more). A run that never showed a URL fails its command with
+/// [`NO_LINK_IN_TIME`].
+const REMOTE_URL_TIMEOUT: Duration = agent_login::LOGIN_RUN_TIMEOUT;
+const NO_LINK_IN_TIME: &str = "The sign-in did not produce a link in time.";
 
 /// The two sentences a code command completes with — byte-identical to the
 /// daemon executor (`cli::agent_login_host`); the clients show a failed
@@ -97,7 +111,7 @@ const REMOTE_URL_TIMEOUT: Duration = Duration::from_secs(600);
 /// about a machine finishing something. It is the ×4 `SIGNING_IN` string
 /// (web `agent-login-dialog.tsx`), so a client that does print the wire text
 /// prints exactly what its own spinner says.
-const SIGNING_IN: &str = "Signing in…";
+const SIGNING_IN: &str = agent_login::SIGNING_IN;
 const CODE_ENTERED: &str = SIGNING_IN;
 const NO_LOGIN_WAITING: &str = "No sign-in is waiting for a code on this machine.";
 
@@ -105,9 +119,56 @@ const NO_LOGIN_WAITING: &str = "No sign-in is waiting for a code on this machine
 /// authorization code gets typed. Local and remote logins both register (a
 /// code can be sent to a machine whose own user opened the tab); a run's
 /// finish removes ITS entry only, so a login started after it keeps its own.
+/// EXP-1626: remote runs also by their `agent_login` command id — what an
+/// `agent_login_cancel` names.
 #[derive(Default)]
 struct LoginTabs {
-    by_agent: HashMap<String, (Entity<TerminalManager>, TabId)>,
+    by_agent: HashMap<String, Arc<LoginRun>>,
+    by_command: HashMap<String, Arc<LoginRun>>,
+}
+
+/// EXP-1626 — what an `agent_login_cancel` of `login_command_id` does, and
+/// to which run.
+fn cancel_lookup(
+    by_command: &HashMap<String, Arc<LoginRun>>,
+    login_command_id: &str,
+) -> (agent_login::CancelDisposition, Option<Arc<LoginRun>>) {
+    let run = by_command.get(login_command_id).cloned();
+    let disposition = agent_login::CancelDisposition::of(
+        run.is_some(),
+        run.as_ref().is_some_and(|run| run.code_entered()),
+    );
+    (disposition, run)
+}
+
+/// EXP-1626: run an `agent_login_cancel` device command — the requester
+/// closed its sign-in dialog before the login landed. The run of the named
+/// `agent_login` is stopped (its tab closed: the child killed, staging
+/// dropped) unless a code already went in; either way, and with no such
+/// run, the cancel completes ok.
+pub(crate) fn cancel_remote_login(command: api::devices::PendingCommand, cx: &mut App) {
+    let login_command_id = match agent_login::parse_cancel_payload(&command.payload) {
+        Ok(id) => id,
+        Err(message) => {
+            complete(&command.id, false, message, cx);
+            return;
+        }
+    };
+    let (disposition, run) = cancel_lookup(&cx.default_global::<LoginTabs>().by_command, &login_command_id);
+    log::info!(
+        "[agent-login] cancel {} of sign-in {login_command_id}: {disposition:?}",
+        command.id
+    );
+    if let (agent_login::CancelDisposition::Stop, Some(run)) = (disposition, run) {
+        // The server already failed a still-pending row with
+        // `LOGIN_CANCELLED`; nothing this run says may answer it again.
+        if let Some(remote) = run.remote.as_ref() {
+            remote.published.store(true, Ordering::SeqCst);
+        }
+        stop_run(&run, "cancelled by the requester", cx);
+    }
+    complete(&command.id, true, disposition.message().to_string(), cx);
+    // Like a code, the claim stays: a redelivery must not run it twice.
 }
 
 impl gpui::Global for LoginTabs {}
@@ -128,21 +189,38 @@ pub(crate) fn enter_remote_code(command: api::devices::PendingCommand, cx: &mut 
         .get(&agent)
         .cloned();
     let typed = match target {
-        Some((manager, tab)) if !code.is_empty() => {
-            match tab_state(&manager, tab, cx) {
-                Some((_, true)) => {
+        Some(run) if !code.is_empty() => match run.opened.get().cloned() {
+            Some((manager, tab)) => match tab_state(&manager, tab, cx) {
+                Some((lines, true)) => {
+                    let failure_on_screen = matches!(
+                        steer::agent_login_driver::observe_login_screen(&agent, &lines),
+                        steer::agent_login_driver::LoginObservation::Failed(_)
+                    );
                     write_input(&manager, tab, format!("{code}\r").as_bytes(), cx);
-                    true
+                    // Never the code itself.
+                    log::info!(
+                        "[agent-login] code {} typed into the {agent} sign-in tab ({})",
+                        command.id,
+                        run.label()
+                    );
+                    Some((run, failure_on_screen))
                 }
-                _ => false,
-            }
-        }
-        _ => false,
+                _ => None,
+            },
+            None => None,
+        },
+        _ => None,
     };
-    if typed {
-        complete(&command.id, true, CODE_ENTERED.to_string(), cx);
-    } else {
-        complete(&command.id, false, NO_LOGIN_WAITING.to_string(), cx);
+    match typed {
+        // EXP-1626: a long-lived run answers the code on its OUTCOME.
+        Some((run, failure_on_screen)) if run.long_lived => {
+            run.note_code(Some(&command.id), failure_on_screen, cx);
+        }
+        Some((run, _)) => {
+            run.note_code(None, false, cx);
+            complete(&command.id, true, CODE_ENTERED.to_string(), cx);
+        }
+        None => complete(&command.id, false, NO_LOGIN_WAITING.to_string(), cx),
     }
     // The claim is deliberately NOT released: `complete` lands on the
     // background executor, and a beat in between would otherwise type the
@@ -163,14 +241,20 @@ struct RemoteLogin {
 /// login it only decides whether a login that lands on ANOTHER known email
 /// warns. EXP-1600: claude signs in long-lived by default.
 pub(crate) fn open_login_tab(agent: CodingAgent, intended: Option<String>, cx: &mut App) {
-    open_login_tab_as(agent, intended, agent == CodingAgent::Claude, cx);
+    open_login_tab_as(agent, intended, agent == CodingAgent::Claude, None, cx);
 }
 
 /// [`open_login_tab`] in an explicit mode: `long_lived` (claude only) =
 /// `claude setup-token`, else the CLI's browser login.
-fn open_login_tab_as(agent: CodingAgent, intended: Option<String>, long_lived: bool, cx: &mut App) {
+fn open_login_tab_as(
+    agent: CodingAgent,
+    intended: Option<String>,
+    long_lived: bool,
+    name: Option<String>,
+    cx: &mut App,
+) {
     if long_lived && agent == CodingAgent::Claude {
-        start_long_lived(intended, None, cx);
+        start_long_lived(intended, None, name, cx);
         return;
     }
     let target = match intended {
@@ -199,7 +283,12 @@ pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut
     };
     // EXP-1533/1612: long-lived on a profile, or (no profile) an Add.
     if request.long_lived {
-        start_long_lived(request.target.intended().map(str::to_string), Some(remote), cx);
+        start_long_lived(
+            request.target.intended().map(str::to_string),
+            Some(remote),
+            request.name.clone(),
+            cx,
+        );
         return;
     }
     start(request.agent, request.target, Some(remote), cx);
@@ -285,17 +374,15 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
             }
         };
         plan.spawn.env.push(env);
-        let run = LoginRun {
+        let run = LoginRun::new(
             agent,
             settings,
-            staging: Some(staging),
-            intended: target.intended().map(str::to_string),
+            Some(staging),
+            target.intended().map(str::to_string),
             remote,
-            long_lived: false,
-            setup_token: Mutex::new(None),
-            finished: AtomicBool::new(false),
-            tab: OnceLock::new(),
-        };
+            false,
+            None,
+        );
         let _ = cx.update(|cx| spawn_login_tab(plan, run, cx));
     })
     .detach();
@@ -305,8 +392,14 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
 /// `claude setup-token` in the profile's dir, in a login tab like any
 /// sign-in (`remote` = answer that `agent_login` command with the link).
 /// EXP-1600: `profile: None` = a long-lived Add, run in a fresh staging dir
-/// that becomes a new profile once the token is in.
-fn start_long_lived(profile: Option<String>, remote: Option<RemoteLogin>, cx: &mut App) {
+/// that becomes a new profile once the token is in. EXP-1626: `name` = that
+/// new profile's name (ignored on a profile's renewal).
+fn start_long_lived(
+    profile: Option<String>,
+    remote: Option<RemoteLogin>,
+    name: Option<String>,
+    cx: &mut App,
+) {
     let agent = CodingAgent::Claude;
     let settings = CodingHub::global(cx).read(cx).settings.clone();
     let data_dir = crate::coding_flow::coding_data_dir(cx);
@@ -327,17 +420,8 @@ fn start_long_lived(profile: Option<String>, remote: Option<RemoteLogin>, cx: &m
             return;
         }
     };
-    let run = LoginRun {
-        agent,
-        settings,
-        staging,
-        intended: profile,
-        remote,
-        long_lived: true,
-        setup_token: Mutex::new(None),
-        finished: AtomicBool::new(false),
-        tab: OnceLock::new(),
-    };
+    let name = profile.is_none().then_some(name).flatten();
+    let run = LoginRun::new(agent, settings, staging, profile, remote, true, name);
     // Deferred like [`start`]: the caller is inside a window's update.
     cx.defer(move |cx| spawn_login_tab(plan, run, cx));
 }
@@ -370,11 +454,124 @@ struct LoginRun {
     setup_token: Mutex<Option<(String, Option<i64>)>>,
     finished: AtomicBool,
     /// EXP-765: the tab this run opened — set once it exists, so `finish`
-    /// can drop exactly this entry from [`LoginTabs`].
-    tab: OnceLock<TabId>,
+    /// can drop exactly this entry from [`LoginTabs`] (and EXP-1626's stop
+    /// can close it).
+    opened: OnceLock<(Entity<TerminalManager>, TabId)>,
+    /// EXP-1626: ends the tab's child for sure, even once the tab is gone.
+    terminator: OnceLock<terminal::pty::Terminator>,
+    /// EXP-1626: a long-lived Add's new profile name.
+    name: Option<String>,
+    /// EXP-1626: the run's clock ([`REMOTE_URL_TIMEOUT`]).
+    started: Instant,
+    /// EXP-1626: when a code last went into the tab (`CODE_GRACE`, and a
+    /// cancel leaves a run that took one alone).
+    last_code_at: Mutex<Option<Instant>>,
+    /// EXP-1626: a long-lived run's code command, answered on its outcome.
+    pending_code: Mutex<Option<agent_login::PendingCode>>,
 }
 
 impl LoginRun {
+    fn new(
+        agent: CodingAgent,
+        settings: coding::Settings,
+        staging: Option<PathBuf>,
+        intended: Option<String>,
+        remote: Option<RemoteLogin>,
+        long_lived: bool,
+        name: Option<String>,
+    ) -> Self {
+        Self {
+            agent,
+            settings,
+            staging,
+            intended,
+            remote,
+            long_lived,
+            setup_token: Mutex::new(None),
+            finished: AtomicBool::new(false),
+            opened: OnceLock::new(),
+            terminator: OnceLock::new(),
+            name,
+            started: Instant::now(),
+            last_code_at: Mutex::new(None),
+            pending_code: Mutex::new(None),
+        }
+    }
+
+    /// What the log calls this run: its command id, or `local`.
+    fn label(&self) -> String {
+        match self.remote.as_ref() {
+            Some(remote) => format!("sign-in {}", remote.command_id),
+            None => "local sign-in".to_string(),
+        }
+    }
+
+    /// EXP-1626: a code went into this run's tab.
+    fn code_entered(&self) -> bool {
+        self.last_code_at.lock().map(|at| at.is_some()).unwrap_or(true)
+    }
+
+    /// EXP-1626: a code just went in. `command_id` = a long-lived run's
+    /// code command, answered on the outcome ([`Self::settle_code`]); one
+    /// still pending from an earlier code is answered as superseded.
+    fn note_code(&self, command_id: Option<&str>, failure_on_screen: bool, cx: &mut App) {
+        if let Ok(mut at) = self.last_code_at.lock() {
+            *at = Some(Instant::now());
+        }
+        let Some(command_id) = command_id else {
+            return;
+        };
+        let replaced = self.pending_code.lock().ok().and_then(|mut slot| {
+            slot.replace(agent_login::PendingCode::new(command_id, failure_on_screen))
+        });
+        if let Some(replaced) = replaced {
+            complete(&replaced.command_id, false, "A newer code replaced this one.".to_string(), cx);
+        }
+    }
+
+    /// The time since the last code, if one went in.
+    fn since_code(&self) -> Option<Duration> {
+        self.last_code_at.lock().ok().and_then(|at| *at).map(|at| at.elapsed())
+    }
+
+    fn has_token(&self) -> bool {
+        self.setup_token.lock().map(|slot| slot.is_some()).unwrap_or(false)
+    }
+
+    /// EXP-1626: one look at a long-lived run with a code in flight — the
+    /// token answers it ok, setup-token's refusal (`failure`) answers it
+    /// failed with that sentence.
+    fn settle_code(&self, failure: Option<&str>, cx: &mut App) {
+        let token = self.has_token();
+        let settled = self.pending_code.lock().ok().and_then(|mut slot| {
+            let outcome = slot.as_mut()?.observe(token, failure)?;
+            slot.take().map(|code| (code.command_id, outcome))
+        });
+        if let Some((command_id, (ok, message))) = settled {
+            log::info!("[agent-login] code {command_id} settled ({}): ok={ok}", self.label());
+            // A refused code protects nothing: the requester's retry may
+            // cancel this run, and the grace no longer applies.
+            if !ok {
+                if let Ok(mut at) = self.last_code_at.lock() {
+                    *at = None;
+                }
+            }
+            complete(&command_id, ok, message, cx);
+        }
+    }
+
+    /// EXP-1626: the run ended — a code still in flight is answered by
+    /// whether a token came out.
+    fn settle_code_on_end(&self, cx: &mut App) {
+        let token = self.has_token();
+        let pending = self.pending_code.lock().ok().and_then(|mut slot| slot.take());
+        if let Some(code) = pending {
+            let (ok, message) = code.ended(token);
+            log::info!("[agent-login] code {} settled at the end ({}): ok={ok}", code.command_id, self.label());
+            complete(&code.command_id, ok, message, cx);
+        }
+    }
+
     /// EXP-1533: keep the setup token `lines` show, if any.
     fn note_screen(&self, lines: &[String]) {
         if !self.long_lived {
@@ -396,15 +593,30 @@ impl LoginRun {
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
-        if let Some(tab) = self.tab.get().copied() {
+        // EXP-1626: a hand-closed tab only SIGHUPs its child; whatever
+        // ended the run, its child ends too (a no-op once it exited).
+        if let Some(terminator) = self.terminator.get() {
+            terminator.terminate();
+        }
+        if let Some((_, tab)) = self.opened.get() {
+            let tab = *tab;
             let tabs = cx.default_global::<LoginTabs>();
-            if tabs.by_agent.get(self.agent.id()).is_some_and(|(_, open)| *open == tab) {
+            if tabs
+                .by_agent
+                .get(self.agent.id())
+                .is_some_and(|run| run.opened.get().is_some_and(|(_, open)| *open == tab))
+            {
                 tabs.by_agent.remove(self.agent.id());
+            }
+            if let Some(remote) = self.remote.as_ref() {
+                tabs.by_command.remove(&remote.command_id);
             }
         }
         self.answer_remote("The sign-in ended before a link appeared.", cx);
         let agent = self.agent;
         if self.long_lived {
+            // The exit hook read the grid once more: the token is in by now.
+            self.settle_code_on_end(cx);
             self.finish_long_lived(cx);
             return;
         }
@@ -464,7 +676,7 @@ impl LoginRun {
             }
             return;
         };
-        let (profile, staging) = (self.intended.clone(), self.staging.clone());
+        let (profile, staging, name) = (self.intended.clone(), self.staging.clone(), self.name.clone());
         let data_dir = crate::coding_flow::coding_data_dir(cx);
         cx.spawn(async move |cx| {
             let stored = cx
@@ -473,7 +685,7 @@ impl LoginRun {
                     match (profile, staging) {
                         (Some(profile), _) => agent_login::store_setup_token(&data_dir, &profile, scraped),
                         (None, Some(staging)) => {
-                            agent_login::commit_setup_token_add(&data_dir, &staging, scraped)
+                            agent_login::commit_setup_token_add(&data_dir, &staging, scraped, name.as_deref())
                                 .map(|(_, expires_at)| expires_at)
                         }
                         (None, None) => Err(agent_login::LONG_LIVED_NEEDS_PROFILE.to_string()),
@@ -591,16 +803,27 @@ fn spawn_login_tab(plan: coding::LoginPlan, run: LoginRun, cx: &mut App) {
                 panel.launch_agent_login(agent, &plan, Some(exit_hook), cx)
             })
             .ok()?;
-        Some((manager, tab))
+        // EXP-1626: the handle that ends this child for sure.
+        let terminator = manager
+            .read(cx)
+            .tab(tab)
+            .map(|open| open.view.read(cx).session().borrow().terminator());
+        Some((manager, tab, terminator))
     });
     match opened {
-        Ok(Some((manager, tab))) => {
+        Ok(Some((manager, tab, terminator))) => {
             // EXP-765: this is where a handed-back code gets typed while the
             // tab lives. Latest wins per agent (a second login supersedes).
-            let _ = run.tab.set(tab);
-            cx.default_global::<LoginTabs>()
-                .by_agent
-                .insert(agent.id().to_string(), (manager.clone(), tab));
+            let _ = run.opened.set((manager.clone(), tab));
+            if let Some(terminator) = terminator {
+                let _ = run.terminator.set(terminator);
+            }
+            let tabs = cx.default_global::<LoginTabs>();
+            tabs.by_agent.insert(agent.id().to_string(), Arc::clone(&run));
+            // EXP-1626: what an `agent_login_cancel` names.
+            if let Some(remote) = run.remote.as_ref() {
+                tabs.by_command.insert(remote.command_id.clone(), Arc::clone(&run));
+            }
             // Closing the tab by hand never fires the exit hook — watch the
             // manager for it (the `LocalSessions::insert` idiom). Detached:
             // the subscription lives with the manager, and the run's own
@@ -618,14 +841,15 @@ fn spawn_login_tab(plan: coding::LoginPlan, run: LoginRun, cx: &mut App) {
             // and ghost button; a tab has no dialog, so its toast does).
             if run.remote.is_none() && agent == CodingAgent::Claude {
                 let (long_lived, intended) = (run.long_lived, run.intended.clone());
+                let name = run.name.clone();
                 let (note, other) = login_mode_copy(long_lived);
-                let switch_manager = manager.clone();
+                let switch_run = Arc::clone(&run);
                 notify(
                     Toast::info(note).action(other, move |_, cx| {
                         // Closing the tab finishes this run (nothing to
                         // commit), then the other mode starts afresh.
-                        switch_manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
-                        open_login_tab_as(agent, intended.clone(), !long_lived, cx);
+                        stop_run(&switch_run, "switched to the other sign-in mode", cx);
+                        open_login_tab_as(agent, intended.clone(), !long_lived, name.clone(), cx);
                     }),
                     cx,
                 );
@@ -639,8 +863,25 @@ fn spawn_login_tab(plan: coding::LoginPlan, run: LoginRun, cx: &mut App) {
     }
 }
 
+/// EXP-1626 — stop a run: its child is ended for sure (SIGTERM, then
+/// SIGKILL) and its tab closed, which finishes the run unclean (staging
+/// dropped, nothing committed). A run with no tab yet has nothing to stop.
+fn stop_run(run: &Arc<LoginRun>, reason: &str, cx: &mut App) {
+    log::info!("[agent-login] stopping the {} ({reason})", run.label());
+    if let Some(terminator) = run.terminator.get() {
+        terminator.terminate();
+    }
+    if let Some((manager, tab)) = run.opened.get().cloned() {
+        manager.update(cx, |manager, cx| manager.close_tab(tab, cx));
+    }
+    // Belt: the `TabClosed` watch normally finished it already.
+    run.finish(false, cx);
+}
+
 /// The 250ms foreground grid watch: for a remote run, publishes the sign-in
-/// URL the instant the driver recognizes one.
+/// URL the instant the driver recognizes one; for a long-lived run, keeps
+/// the token it prints and answers a code on its outcome. EXP-1626: every
+/// watched run is stopped [`REMOTE_URL_TIMEOUT`] after it started.
 fn watch_login(
     manager: Entity<TerminalManager>,
     tab: TabId,
@@ -648,11 +889,10 @@ fn watch_login(
     cx: &mut App,
 ) {
     if run.remote.is_none() && !run.long_lived {
-        return; // nothing to watch: a local claude/codex login
+        return; // nothing to watch: a local browser login
     }
     let agent = run.agent;
     cx.spawn(async move |cx| {
-        let started = std::time::Instant::now();
         // The defensive Enter is written ONCE: the picker stays on screen
         // for several polls, and one `\r` per 250ms tick would walk the CLI
         // through every prompt after it.
@@ -681,28 +921,29 @@ fn watch_login(
                 let _ = cx.update(|cx| run.finish(clean, cx));
                 return;
             }
-            if let Some(remote) = run.remote.as_ref() {
-                if remote.published.load(Ordering::SeqCst) {
-                    if run.long_lived {
-                        continue;
-                    }
-                    return;
-                }
-                match steer::agent_login_driver::observe_login_screen(agent.id(), &lines) {
+            let observation = steer::agent_login_driver::observe_login_screen(agent.id(), &lines);
+            // EXP-1626: a code in a long-lived run completes on its outcome.
+            if run.long_lived {
+                let failure = match &observation {
+                    steer::agent_login_driver::LoginObservation::Failed(message) => Some(message.as_str()),
+                    _ => None,
+                };
+                let _ = cx.update(|cx| run.settle_code(failure, cx));
+            }
+            if let Some(remote) = run.remote.as_ref().filter(|remote| !remote.published.load(Ordering::SeqCst)) {
+                match observation {
                     steer::agent_login_driver::LoginObservation::Url { url, code } => {
                         if remote
                             .published
                             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                             .is_ok()
                         {
+                            log::info!("[agent-login] {}: published the sign-in link", run.label());
                             let progress = LoginProgress::url(agent, url, code);
                             let _ = cx.update(|cx| {
                                 complete(&remote.command_id, true, progress.to_result_text(), cx)
                             });
                         }
-                        // The next tick stops (a long-lived run keeps
-                        // watching for its token).
-                        continue;
                     }
                     // Defensive: `--claudeai` skips the method picker, but a
                     // CLI that shows one anyway is one Enter from the URL.
@@ -718,32 +959,22 @@ fn watch_login(
                             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                             .is_ok()
                         {
+                            log::info!("[agent-login] {}: the CLI failed before a link: {message}", run.label());
                             let _ = cx
                                 .update(|cx| complete(&remote.command_id, false, message, cx));
                         }
-                        // The next tick stops (a long-lived run keeps
-                        // watching for its token).
-                        continue;
                     }
                     steer::agent_login_driver::LoginObservation::Nothing => {}
                 }
-                if started.elapsed() >= REMOTE_URL_TIMEOUT {
-                    if remote
-                        .published
-                        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-                        .is_ok()
-                    {
-                        let _ = cx.update(|cx| {
-                            complete(
-                                &remote.command_id,
-                                false,
-                                "The sign-in did not produce a link in time.".to_string(),
-                                cx,
-                            )
-                        });
-                    }
-                    continue;
-                }
+            }
+            // EXP-1626: nothing outlives the bound — published or not, a
+            // run nobody finished is stopped (a fresh code buys its grace).
+            if agent_login::login_run_expired(run.started.elapsed(), run.since_code()) {
+                let _ = cx.update(|cx| {
+                    run.answer_remote(NO_LINK_IN_TIME, cx);
+                    stop_run(&run, "timed out", cx);
+                });
+                return;
             }
         }
     })
@@ -775,18 +1006,22 @@ fn write_input(manager: &Entity<TerminalManager>, tab: TabId, bytes: &[u8], cx: 
 }
 
 /// `devices.completeCommand` on the background executor (the only writer of
-/// a command's `result`).
+/// a command's `result`). EXP-1626: a failed call and a row that was no
+/// longer pending (`{ok:false}`) both warn with the command id.
 fn complete(command_id: &str, ok: bool, message: String, cx: &mut App) {
     let Some(trpc) = queries::trpc_client(cx) else {
+        log::warn!("[agent-login] completeCommand {command_id}: not signed in, the answer is lost");
         return;
     };
     let command_id = command_id.to_string();
     cx.background_executor()
         .spawn(async move {
-            if let Err(err) =
-                api::devices::complete_command(&trpc, &command_id, ok, Some(&message))
-            {
-                log::debug!("[agent-login] completeCommand failed: {err}");
+            match api::devices::complete_command(&trpc, &command_id, ok, Some(&message)) {
+                Ok(true) => {}
+                Ok(false) => log::warn!(
+                    "[agent-login] completeCommand {command_id}: the row was no longer pending"
+                ),
+                Err(err) => log::warn!("[agent-login] completeCommand {command_id} failed: {err}"),
             }
         })
         .detach();
@@ -924,33 +1159,59 @@ pub(crate) fn sign_in_on_device(
     }
     // EXP-1600: claude signs in long-lived by default.
     let long_lived = agent == CodingAgent::Claude;
-    open_login_dialog(device_id, device_label, agent, intended, long_lived, window, cx);
+    open_login_dialog(device_id, device_label, agent, intended, long_lived, None, window, cx);
 }
 
-/// EXP-1533/1612 — "Switch to Keep signed in" / "Renew Keep signed in" on
+/// EXP-1626 — the Add account dialog's Continue: [`sign_in_on_device`] with
+/// no target, carrying the `name` a claude (long-lived) Add gives its new
+/// profile.
+fn add_account_on_device(
+    device: LoginDevice,
+    agent: CodingAgent,
+    name: Option<String>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let name = agent_login::clean_profile_name(name.as_deref()).filter(|_| agent == CodingAgent::Claude);
+    if device.own {
+        open_login_tab_as(agent, None, agent == CodingAgent::Claude, name, cx);
+        return;
+    }
+    let long_lived = agent == CodingAgent::Claude;
+    open_login_dialog(device.device_id, device.label, agent, None, long_lived, name, window, cx);
+}
+
+/// EXP-1626 — the name "Switch to Keep signed in" gives the NEW profile it
+/// adds (`copy.switchedName`, `{label}` = the switched login's label).
+pub(crate) fn switched_name(label: &str) -> String {
+    crate::machines::COPY_SWITCHED_NAME.replace("{label}", label)
+}
+
+/// EXP-1533/1612 — "Renew Keep signed in" / "Switch to Keep signed in" on
 /// claude login `profile_id` of `device`: a login tab here, or the remote
 /// sign-in dialog queuing `agent_login {longLived}` on another of mine.
+/// EXP-1626: `renew` (the profile holds a token) renews it IN PLACE; a
+/// switch ADDS a new long-lived profile named [`switched_name`] of `label`
+/// and leaves the browser login it came from untouched.
 pub(crate) fn keep_signed_in_on_device(
     device_id: String,
     device_label: SharedString,
     own: bool,
     profile_id: String,
+    renew: bool,
+    label: &str,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let (profile, name) = match renew {
+        true => (Some(profile_id), None),
+        false => (None, Some(switched_name(label))),
+    };
     if own {
-        start_long_lived(Some(profile_id), None, cx);
+        start_long_lived(profile, None, name, cx);
         return;
     }
-    open_login_dialog(
-        device_id,
-        device_label,
-        CodingAgent::Claude,
-        Some(profile_id),
-        true,
-        window,
-        cx,
-    );
+    open_login_dialog(device_id, device_label, CodingAgent::Claude, profile, true, name, window, cx);
 }
 
 /// A remote sign-in's landing (accounts contract E): the dialog captures each
@@ -1048,12 +1309,14 @@ impl LoginDialogState {
 /// browser" field is here too. The EXP-862 rewrite drew the link inline and
 /// dropped that field, which left a claude re-login on another machine with a
 /// link and nowhere to type the code the browser showed.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn open_login_dialog(
     device_id: String,
     device_label: SharedString,
     agent: CodingAgent,
     intended: Option<String>,
     long_lived: bool,
+    name: Option<String>,
     window: &mut Window,
     cx: &mut App,
 ) {
@@ -1067,7 +1330,7 @@ pub(crate) fn open_login_dialog(
     let spec = native_dialog::DialogSpec::new(title, size(px(460.), px(height)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
-            LoginDialogView::new(device_id, device_label, agent, intended, long_lived, window, cx)
+            LoginDialogView::new(device_id, device_label, agent, intended, long_lived, name, window, cx)
         });
         native_dialog::DialogContent::new(view)
     });
@@ -1087,6 +1350,11 @@ struct LoginDialogView {
     /// EXP-1600: this dialog already re-queued a refused long-lived Add as
     /// the browser login (it does so once).
     fell_back: bool,
+    /// EXP-1626: the name a long-lived Add gives its new profile.
+    name: Option<String>,
+    /// EXP-1626: the `agent_login` command the live attempt queued — what
+    /// closing the dialog (or a retry) cancels before the login landed.
+    login_command: Option<String>,
     state: LoginDialogState,
     /// EXP-940: which attempt the phases belong to. A retry bumps it, so the
     /// abandoned attempt's poll and its timeout land on a stale generation and
@@ -1108,15 +1376,20 @@ struct LoginDialogView {
 }
 
 impl LoginDialogView {
+    #[allow(clippy::too_many_arguments)]
     fn new(
         device_id: String,
         device_label: SharedString,
         agent: CodingAgent,
         intended: Option<String>,
         long_lived: bool,
+        name: Option<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
+        // EXP-1626: closing the dialog before the login landed stops the
+        // run on the machine (`agent_login_cancel`).
+        cx.on_release(|this: &mut Self, cx: &mut App| this.cancel_login(cx)).detach();
         let devices = sync::Store::global(cx).collections().devices.clone();
         let baseline = login_stamps(&device_logins(&device_id, agent, cx));
         // EXP-940: the landing no longer makes the dialog VANISH mid-sentence.
@@ -1139,6 +1412,8 @@ impl LoginDialogView {
                         notify(Toast::warning(warning), cx);
                     }
                     this.state = LoginDialogState::SignedIn;
+                    // Landed: there is nothing left to cancel.
+                    this.login_command = None;
                     // Nothing this attempt still has in flight may speak now.
                     this.attempt = this.attempt.wrapping_add(1);
                     cx.notify();
@@ -1164,6 +1439,8 @@ impl LoginDialogView {
             intended,
             long_lived,
             fell_back: false,
+            name,
+            login_command: None,
             state: LoginDialogState::Queueing,
             attempt: 0,
             poll: None,
@@ -1183,6 +1460,9 @@ impl LoginDialogView {
     /// [`LoginOutcome`], whose code field is an `InputState` and needs the
     /// window it lives in.
     fn request(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        // EXP-1626: a retry (or a mode switch) abandons the last attempt's
+        // run: stop it, or the machine holds two sign-ins at once.
+        self.cancel_login(cx);
         self.attempt = self.attempt.wrapping_add(1);
         let attempt = self.attempt;
         self.state = LoginDialogState::Queueing;
@@ -1201,6 +1481,7 @@ impl LoginDialogView {
         let agent = self.agent;
         let intended = self.intended.clone();
         let long_lived = self.long_lived;
+        let name = self.name.clone();
         self.poll = Some(cx.spawn_in(window, async move |this, cx| {
             // A fresh client per call: `TrpcClient` is not shareable, and
             // building one is a token-provider lookup, not a connection.
@@ -1217,6 +1498,7 @@ impl LoginDialogView {
                                 &trpc,
                                 &device_id,
                                 intended.as_deref(),
+                                name.as_deref(),
                             ),
                             false => api::devices::create_agent_login_command(
                                 &trpc,
@@ -1238,10 +1520,18 @@ impl LoginDialogView {
                     return;
                 }
             };
-            if this
-                .update(cx, |this, cx| this.settle(attempt, LoginDialogState::Waiting, cx))
-                .is_err()
-            {
+            let queued_id = command_id.clone();
+            let live = this.update(cx, |this, cx| {
+                // EXP-1626: remembered for the cancel — unless the attempt
+                // already moved on, in which case this run is cancelled now.
+                if this.attempt == attempt {
+                    this.login_command = Some(queued_id);
+                } else {
+                    queue_login_cancel(&this.device_id, this.agent, &queued_id, cx);
+                }
+                this.settle(attempt, LoginDialogState::Waiting, cx)
+            });
+            if !matches!(live, Ok(true)) {
                 return;
             }
             loop {
@@ -1314,6 +1604,17 @@ impl LoginDialogView {
             });
         })
         .detach();
+    }
+
+    /// EXP-1626: the live attempt's login has not landed — cancel its
+    /// `agent_login` on the machine (once).
+    fn cancel_login(&mut self, cx: &mut App) {
+        if self.state == LoginDialogState::SignedIn {
+            return;
+        }
+        if let Some(command_id) = self.login_command.take() {
+            queue_login_cancel(&self.device_id, self.agent, &command_id, cx);
+        }
     }
 
     /// Write a phase that belongs to the LIVE attempt; an abandoned one (a
@@ -1474,6 +1775,25 @@ impl LoginDialogView {
         })
         .detach();
     }
+}
+
+/// EXP-1626 — queue `agent_login_cancel` for `login_command_id` on
+/// `device_id` (fire and forget: a failure only warns).
+fn queue_login_cancel(device_id: &str, agent: CodingAgent, login_command_id: &str, cx: &mut App) {
+    let Some(trpc) = queries::trpc_client(cx) else {
+        return;
+    };
+    let (device_id, login_command_id) = (device_id.to_string(), login_command_id.to_string());
+    log::info!("[agent-login] cancelling sign-in {login_command_id} on {device_id}");
+    cx.background_executor()
+        .spawn(async move {
+            if let Err(err) =
+                api::devices::create_login_cancel_command(&trpc, &device_id, agent.id(), &login_command_id)
+            {
+                log::warn!("[agent-login] cancel of sign-in {login_command_id} not queued: {err}");
+            }
+        })
+        .detach();
 }
 
 /// What a finished `agent_login` command says. A login completes EARLY, the
@@ -1648,7 +1968,7 @@ impl Render for LoginDialogView {
 /// device picker went with the cross-device Accounts section that used to be
 /// the other way in.
 pub(crate) fn open_add_account_dialog_for(device_id: String, window: &mut Window, cx: &mut App) {
-    let spec = native_dialog::DialogSpec::new("Add account", size(px(460.), px(280.)));
+    let spec = native_dialog::DialogSpec::new("Add account", size(px(460.), px(324.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let device_id = device_id.clone();
         let view = cx.new(|cx| AddAccountDialogView::new(device_id, window, cx));
@@ -1661,11 +1981,18 @@ struct AddAccountDialogView {
     /// The machine the dialog was opened ON — fixed for its lifetime.
     device_id: String,
     agent: Option<CodingAgent>,
+    /// EXP-1626: the NAME a claude (long-lived) Add gives its new profile
+    /// (`copy.accountName`; blank = `copy.keptSignedInName`).
+    name: Entity<gpui_component::input::InputState>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AddAccountDialogView {
     fn new(device_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let name = cx.new(|cx| {
+            gpui_component::input::InputState::new(window, cx)
+                .placeholder(crate::machines::COPY_KEPT_SIGNED_IN_NAME)
+        });
         let devices = add_account_devices(None, &[], cx);
         let agent = devices
             .iter()
@@ -1683,6 +2010,7 @@ impl AddAccountDialogView {
             devices,
             device_id,
             agent,
+            name,
             _subscriptions: subscriptions,
         }
     }
@@ -1706,16 +2034,9 @@ impl AddAccountDialogView {
         let (Some(device), Some(agent)) = (self.selected().cloned(), self.agent) else {
             return;
         };
+        let name = Some(self.name.read(cx).value().to_string());
         native_dialog::close_then(window, cx, move |window, cx| {
-            sign_in_on_device(
-                device.device_id.clone(),
-                device.label.clone(),
-                device.own,
-                agent,
-                None,
-                window,
-                cx,
-            );
+            add_account_on_device(device, agent, name, window, cx);
         });
     }
 }
@@ -1755,7 +2076,7 @@ impl AddAccountDialogView {
 }
 
 impl Render for AddAccountDialogView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         // EXP-909: the machine is the one the row belongs to. It dropping off
         // the list mid-dialog (offline, the daemon stopped) is the only empty
@@ -1793,9 +2114,20 @@ impl Render for AddAccountDialogView {
         v_flex()
             .w_full()
             .gap_4()
-            .child(crate::surface::glass_group_rows(vec![
-                crate::surface::glass_picker_row("Agent", None, agent_picker, cx),
-            ]))
+            .child(crate::surface::glass_group_rows({
+                let mut rows = vec![crate::surface::glass_picker_row("Agent", None, agent_picker, cx)];
+                // EXP-1626: a setup token cannot name its account — claude's
+                // Add names it here, under the agent pick.
+                if self.agent == Some(CodingAgent::Claude) {
+                    rows.push(crate::surface::glass_input_row(
+                        crate::machines::COPY_ACCOUNT_NAME,
+                        crate::surface::glass_row_input(crate::controls::glass_input(&self.name, window, cx))
+                            .into_any_element(),
+                        cx,
+                    ));
+                }
+                rows
+            }))
             .child(div().text_xs().text_color(muted).child(caption))
             .child(
                 h_flex()
@@ -1896,6 +2228,48 @@ mod tests {
             login_mode_copy(false),
             (crate::machines::COPY_BROWSER_LOGIN_NOTE, crate::machines::COPY_USE_KEEP_SIGNED_IN)
         );
+    }
+
+    /// EXP-1626: a cancel names the run by its `agent_login` command id and
+    /// stops it unless a code already went in; no run = nothing to stop.
+    #[test]
+    fn a_cancel_finds_the_run_of_its_login_command() {
+        use agent_login::CancelDisposition;
+        let remote = |id: &str| RemoteLogin {
+            command_id: id.to_string(),
+            published: Arc::new(AtomicBool::new(true)),
+        };
+        let run = Arc::new(LoginRun::new(
+            CodingAgent::Claude,
+            coding::Settings::default(),
+            None,
+            None,
+            Some(remote("login-1")),
+            true,
+            Some("Work".into()),
+        ));
+        let mut by_command = HashMap::new();
+        by_command.insert("login-1".to_string(), Arc::clone(&run));
+        let (disposition, found) = cancel_lookup(&by_command, "login-1");
+        assert_eq!(disposition, CancelDisposition::Stop);
+        assert!(Arc::ptr_eq(&found.unwrap(), &run));
+        assert_eq!(cancel_lookup(&by_command, "login-2").0, CancelDisposition::NoRun);
+        assert_eq!(run.label(), "sign-in login-1");
+        // A code went in: the run is left to finish.
+        if let Ok(mut at) = run.last_code_at.lock() {
+            *at = Some(Instant::now());
+        }
+        assert!(run.code_entered());
+        assert_eq!(cancel_lookup(&by_command, "login-1").0, CancelDisposition::CodeEntered);
+        assert!(run.since_code().is_some_and(|since| since < agent_login::CODE_GRACE));
+    }
+
+    /// EXP-1626: "Switch to Keep signed in" names the profile it adds after
+    /// the switched login's label (`copy.switchedName`).
+    #[test]
+    fn a_switch_names_its_new_profile_after_the_login() {
+        assert_eq!(switched_name("dennis@straehhuber.com"), "dennis@straehhuber.com (kept signed in)");
+        assert_eq!(REMOTE_URL_TIMEOUT, Duration::from_secs(600));
     }
 
     /// Accounts contract E: a remote sign-in lands on the row whose

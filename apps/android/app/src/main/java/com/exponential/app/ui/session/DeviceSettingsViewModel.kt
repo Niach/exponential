@@ -6,6 +6,7 @@ import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.api.DeviceCommandDto
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
+import com.exponential.app.data.api.agentLoginCancelCommand
 import com.exponential.app.data.api.agentLoginCodeCommand
 import com.exponential.app.data.api.agentLoginCommand
 import com.exponential.app.data.api.agentUpdateCommand
@@ -21,6 +22,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -306,19 +308,85 @@ class DeviceSettingsViewModel @Inject constructor(
         profileId: String? = null,
         /** EXP-1533: a long-lived claude login (`claude setup-token`). */
         longLived: Boolean = false,
+        /** EXP-1626: the name a long-lived ADD gives its new profile. */
+        name: String? = null,
     ) {
-        issueCommand(
-            key = agentLoginCommandKey(deviceId, agent, profileId),
-            command = agentLoginCommand(deviceId, agent, switchAccount, profileId, longLived),
+        val key = agentLoginCommandKey(deviceId, agent, profileId)
+        // EXP-1626: a re-queue of the same sign-in (the mode toggle, the
+        // refused-Add fallback, a Retry) replaces the run before it: stop
+        // following it, and stop it on the machine unless it already failed.
+        val run = LoginRun()
+        loginRuns.put(key, run)?.let { stopLoginRun(it, deviceId, agent) }
+        run.job = issueCommand(
+            key = key,
+            command = agentLoginCommand(deviceId, agent, switchAccount, profileId, longLived, name),
             deviceOnline = deviceOnline,
             verb = "start",
             thing = "the sign-in",
             // The toast's Retry re-queues the SAME login (long-lived included).
-            retry = { agentLogin(deviceId, agent, switchAccount, deviceOnline, profileId, longLived) },
+            retry = { agentLogin(deviceId, agent, switchAccount, deviceOnline, profileId, longLived, name) },
             // EXP-1600: an older device refusing a long-lived Add is no failure
             // to toast: the sign-in sheet re-queues it as the browser login.
             quiet = { longLived && profileId == null && isLongLivedRefused(it) },
+            // EXP-1626: the link + code of a slow machine's long-lived sign-in
+            // can take minutes; follow it as long as the machine itself would.
+            pollDeadlineMs = LOGIN_POLL_DEADLINE_MS,
+            onCreated = { id ->
+                run.commandId = id
+                // Closed while the row was still being queued: stop it now.
+                if (run.stopped) {
+                    sendLoginCancel(deviceId, agent, id)
+                    throw CancellationException("sign-in closed")
+                }
+            },
+            onState = { if (it is DeviceCommandUiState.Failed) run.failed = true },
         )
+    }
+
+    /** EXP-1626: one queued `agent_login` — what a cancel names, and its poll. */
+    private class LoginRun {
+        @Volatile var commandId: String? = null
+        @Volatile var stopped = false
+        @Volatile var failed = false
+        @Volatile var job: Job? = null
+    }
+
+    // EXP-1626: the live sign-in per slot ([agentLoginCommandKey]).
+    private val loginRuns = java.util.concurrent.ConcurrentHashMap<String, LoginRun>()
+
+    /**
+     * EXP-1626: the sign-in sheet closed. [landed] = the login committed on
+     * the device (nothing to stop); otherwise, unless the login already
+     * failed, queue `agent_login_cancel` so the machine stops that run (its
+     * `claude setup-token` child and its staging) instead of holding it for
+     * its 10-minute bound. Fire-and-forget on a process-lifetime scope: the
+     * dismiss may clear this ViewModel mid-request.
+     */
+    fun closeAgentLogin(deviceId: String, agent: String, profileId: String?, landed: Boolean) {
+        val run = loginRuns.remove(agentLoginCommandKey(deviceId, agent, profileId)) ?: return
+        if (landed) {
+            run.job?.cancel()
+            return
+        }
+        stopLoginRun(run, deviceId, agent)
+    }
+
+    /** Stop following [run] and, unless it failed, cancel it on the machine. */
+    private fun stopLoginRun(run: LoginRun, deviceId: String, agent: String) {
+        run.stopped = true
+        // Not queued yet: the run cancels itself once the server names its row.
+        val commandId = run.commandId ?: return
+        run.job?.cancel()
+        if (!run.failed) sendLoginCancel(deviceId, agent, commandId)
+    }
+
+    private fun sendLoginCancel(deviceId: String, agent: String, loginCommandId: String) {
+        val accountId = auth.activeAccountId.value ?: return
+        deviceSettingsFlushScope.launch {
+            runCatching {
+                devicesApi.createCommand(accountId, agentLoginCancelCommand(deviceId, agent, loginCommandId))
+            }
+        }
     }
 
     /**
@@ -342,6 +410,7 @@ class DeviceSettingsViewModel @Inject constructor(
             deviceOnline = deviceOnline,
             verb = "send",
             thing = "the code",
+            pollDeadlineMs = LOGIN_POLL_DEADLINE_MS,
         )
     }
 
@@ -376,10 +445,22 @@ class DeviceSettingsViewModel @Inject constructor(
         retry: (() -> Unit)? = null,
         /** A failure the caller handles itself: no toast. */
         quiet: (String) -> Boolean = { false },
-    ) {
+        pollDeadlineMs: Long = COMMAND_POLL_DEADLINE_MS,
+        onCreated: (String) -> Unit = {},
+        /** Every transition, before it lands in [commandStates]. */
+        onState: (DeviceCommandUiState) -> Unit = {},
+    ): Job =
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
-            runDeviceCommand(devicesApi, accountId, command, deviceOnline) { state ->
+            runDeviceCommand(
+                devicesApi,
+                accountId,
+                command,
+                deviceOnline,
+                pollDeadlineMs = pollDeadlineMs,
+                onCreated = onCreated,
+            ) { state ->
+                onState(state)
                 if (state is DeviceCommandUiState.Failed && !quiet(state.message)) _failure.value = FailedAction(verb, thing, state.message, retry = retry)
                 if (state is DeviceCommandUiState.Done) {
                     markDone(key, state.message)
@@ -388,13 +469,14 @@ class DeviceSettingsViewModel @Inject constructor(
                 }
             }
         }
-    }
 
     /**
      * Land a command's Done state. EXP-765: a completed `login-code:` also
      * retires that sign-in's `login:` state — the machine has the code, so the
      * link it published belongs to a sign-in that is finishing, and leaving it
-     * on screen would invite a second, stale attempt.
+     * on screen would invite a second, stale attempt. EXP-1626: only a Done
+     * does: a FAILED code (the machine rejected it) leaves the link up for
+     * another paste, and the failure is the toast.
      */
     private fun markDone(key: String, message: String?) {
         var next = _commandStates.value + (key to DeviceCommandUiState.Done(message))
@@ -419,6 +501,10 @@ internal suspend fun runDeviceCommand(
     accountId: String,
     command: kotlinx.serialization.json.JsonObject,
     deviceOnline: Boolean,
+    /** How long an online machine's command is followed before it reads Queued. */
+    pollDeadlineMs: Long = COMMAND_POLL_DEADLINE_MS,
+    /** The queued row's id, as soon as the server returns it (EXP-1626: a cancel names it). */
+    onCreated: (String) -> Unit = {},
     onState: (DeviceCommandUiState) -> Unit,
 ) {
     onState(DeviceCommandUiState.Sending)
@@ -432,12 +518,13 @@ internal suspend fun runDeviceCommand(
             )
             return
         }
+    onCreated(created.id)
     if (!deviceOnline) {
         onState(DeviceCommandUiState.Queued)
         return
     }
     onState(DeviceCommandUiState.Running)
-    val deadline = System.currentTimeMillis() + COMMAND_POLL_DEADLINE_MS
+    val deadline = System.currentTimeMillis() + pollDeadlineMs
     while (System.currentTimeMillis() < deadline) {
         delay(COMMAND_POLL_INTERVAL_MS)
         val row = runCatching { devicesApi.getCommand(accountId, created.id) }
@@ -470,3 +557,10 @@ private const val AUTOSAVE_DEBOUNCE_MS = 800L
 
 private const val COMMAND_POLL_INTERVAL_MS = 2_000L
 private const val COMMAND_POLL_DEADLINE_MS = 90_000L
+
+/**
+ * EXP-1626: `agent_login` / `agent_login_code` are followed for as long as the
+ * machine keeps a sign-in run alive (it stops one nobody finishes after 10
+ * minutes), so a slow machine's link never reads as a stale Queued.
+ */
+private const val LOGIN_POLL_DEADLINE_MS = 10 * 60_000L

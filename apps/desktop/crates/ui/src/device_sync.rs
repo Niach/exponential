@@ -298,10 +298,11 @@ pub fn start_device_sync(account: &api::Account, cx: &mut App) {
             // the code for it — the write goes into that tab's PTY.
             for command in outcome.deferred {
                 let _ = cx.update(|cx| {
-                    if command.kind == "agent_login_code" {
-                        crate::agent_login::enter_remote_code(command, cx);
-                    } else {
-                        crate::agent_login::start_remote_login(command, cx);
+                    match command.kind.as_str() {
+                        "agent_login_code" => crate::agent_login::enter_remote_code(command, cx),
+                        // EXP-1626: stop the run the requester walked away from.
+                        "agent_login_cancel" => crate::agent_login::cancel_remote_login(command, cx),
+                        _ => crate::agent_login::start_remote_login(command, cx),
                     }
                 });
             }
@@ -1023,6 +1024,19 @@ fn run_device_command(
         }
         return CommandDisposition::Deferred(command.clone());
     }
+    // EXP-1626: the requester closed its sign-in dialog — the run to stop
+    // lives on the foreground (its tab), so the cancel goes there, claimed
+    // like a code so a redelivery never runs it twice.
+    if command.kind == "agent_login_cancel" {
+        if let Err(refusal) = coding::agent_login::parse_cancel_payload(&command.payload) {
+            complete(snapshot, &command.id, false, &refusal);
+            return CommandDisposition::Completed;
+        }
+        if !claim_login(&snapshot.inflight_logins, &command.id) {
+            return CommandDisposition::AlreadyRunning;
+        }
+        return CommandDisposition::Deferred(command.clone());
+    }
     // The agent CLI's own self-updater (`claude update` / `codex update`),
     // requested from the device settings dialog — the daemon's arm twin.
     // Minutes of download, so it runs on its own thread and completes
@@ -1054,10 +1068,14 @@ fn run_device_command(
                     Err(error) => (false, error),
                 };
                 log::info!("[device-sync] agent update ({}): {message}", agent.id());
-                if let Err(err) =
-                    api::devices::complete_command(&trpc, &command_id, ok, Some(&message))
-                {
-                    log::debug!("[device-sync] completeCommand failed (redelivery retries): {err}");
+                match api::devices::complete_command(&trpc, &command_id, ok, Some(&message)) {
+                    Ok(true) => {}
+                    Ok(false) => log::warn!(
+                        "[device-sync] completeCommand {command_id}: the row was no longer pending"
+                    ),
+                    Err(err) => log::warn!(
+                        "[device-sync] completeCommand {command_id} failed (redelivery retries): {err}"
+                    ),
                 }
                 if let Ok(mut guard) = claimed.lock() {
                     guard.remove(&command_id);
@@ -1336,9 +1354,14 @@ fn change_agent_profile_here(
 }
 
 fn complete(snapshot: &BeatSnapshot, command_id: &str, ok: bool, message: &str) {
-    if let Err(err) = api::devices::complete_command(&snapshot.trpc, command_id, ok, Some(message))
-    {
-        log::debug!("[device-sync] completeCommand failed (redelivery retries): {err}");
+    match api::devices::complete_command(&snapshot.trpc, command_id, ok, Some(message)) {
+        Ok(true) => {}
+        Ok(false) => {
+            log::warn!("[device-sync] completeCommand {command_id}: the row was no longer pending")
+        }
+        Err(err) => {
+            log::warn!("[device-sync] completeCommand {command_id} failed (redelivery retries): {err}")
+        }
     }
 }
 

@@ -60,6 +60,17 @@ pub use eagent::usage::{
 /// The Anthropic OAuth usage endpoint.
 pub const CLAUDE_USAGE_URL: &str = "https://api.anthropic.com/api/oauth/usage";
 
+/// The OAuth scope the usage endpoint wants. A login without it (a
+/// `claude setup-token` login carries `user:inference` alone) is never sent
+/// there.
+pub const USAGE_SCOPE: &str = "user:profile";
+
+/// EXP-1626 — the longest `retry-after` a usage 429 is honoured for. Past
+/// this the header is more likely wrong than meant, and a login nobody
+/// re-reads for a day shows numbers nobody should trust (the same ceiling as
+/// [`usage_cache::MAX_PIN_SECS`]).
+pub const MAX_RETRY_AFTER_SECS: u64 = usage_cache::MAX_PIN_SECS;
+
 /// Whole-request budget for the usage GET.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -288,6 +299,11 @@ pub struct ClaudeOauthCredential {
     /// which is treated as live (the endpoint's 401 is the real gate).
     pub expires_at_ms: Option<i64>,
     pub subscription_type: Option<String>,
+    /// EXP-1626: the credential names its scopes and `user:profile` is not
+    /// among them — an inference-only login (what `claude setup-token`
+    /// mints). The usage endpoint does not serve it (measured on 2.1.316: a
+    /// 429 with a `retry-after`, not a 401/403), so it is never asked.
+    pub inference_only: bool,
 }
 
 impl fmt::Debug for ClaudeOauthCredential {
@@ -296,6 +312,7 @@ impl fmt::Debug for ClaudeOauthCredential {
             .field("access_token", &"<redacted>")
             .field("expires_at_ms", &self.expires_at_ms)
             .field("subscription_type", &self.subscription_type)
+            .field("inference_only", &self.inference_only)
             .finish()
     }
 }
@@ -335,10 +352,22 @@ pub fn parse_claude_credentials(raw: &str) -> Option<ClaudeOauthCredential> {
         .into_iter()
         .find_map(|field| oauth.get(field).and_then(Value::as_str))
         .map(str::to_string);
+    // No `scopes` at all = an older store that never wrote them: assume the
+    // browser login's full set, as the CLI does.
+    let inference_only = oauth
+        .get("scopes")
+        .and_then(Value::as_array)
+        .is_some_and(|scopes| {
+            !scopes
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|scope| scope == USAGE_SCOPE)
+        });
     Some(ClaudeOauthCredential {
         access_token,
         expires_at_ms,
         subscription_type,
+        inference_only,
     })
 }
 
@@ -394,9 +423,24 @@ pub enum UsageFetch {
     Ok(String),
     /// 401/403 — the credential no longer answers for usage.
     Unauthorized,
-    /// 429 — back off past the policy's floor.
-    RateLimited,
+    /// 429 — back off past the policy's floor, or past the response's own
+    /// `retry-after` when it asks for longer (EXP-1626: the endpoint answers
+    /// an inference-only token this way too, so a 429 is never retried on the
+    /// ordinary cadence).
+    RateLimited { retry_after_secs: Option<u64> },
     Failed,
+}
+
+/// EXP-1626 — a `retry-after` header's wait in seconds: delta-seconds or an
+/// HTTP-date (RFC 7231), `None` when it is neither. A date in the past is a
+/// zero wait (the policy's floor still applies on top).
+pub fn parse_retry_after(value: &str, now_secs: u64) -> Option<u64> {
+    let value = value.trim();
+    if let Ok(secs) = value.parse::<u64>() {
+        return Some(secs);
+    }
+    let at = chrono::DateTime::parse_from_rfc2822(value).ok()?.timestamp();
+    Some(u64::try_from(at).unwrap_or(0).saturating_sub(now_secs))
 }
 
 /// GET the OAuth usage endpoint with `access_token`. Blocking, 10 s, over
@@ -417,7 +461,13 @@ pub fn fetch_oauth_usage(access_token: &str, user_agent: &str) -> UsageFetch {
                 Err(_) => UsageFetch::Failed,
             },
             401 | 403 => UsageFetch::Unauthorized,
-            429 => UsageFetch::RateLimited,
+            429 => UsageFetch::RateLimited {
+                retry_after_secs: response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| parse_retry_after(value, crate::run_registry::now_secs())),
+            },
             _ => UsageFetch::Failed,
         },
         Err(_) => UsageFetch::Failed,
@@ -815,6 +865,19 @@ fn collect_inner(
             {
                 polled = true;
                 changed = true;
+                // EXP-1626: may the CLI probe stand in for an endpoint that
+                // declines this login? Judged BEFORE the slot is claimed (the
+                // claim makes nothing due), on the token probe's own rationed
+                // cadence — it is a model request, never one per endpoint beat.
+                let holds_token = agent == CodingAgent::Claude
+                    && !target.token_usage
+                    && target
+                        .dir
+                        .as_deref()
+                        .and_then(crate::claude_token::valid)
+                        .is_some();
+                let token_fallback =
+                    holds_token && usage_cache::token_probe_due(&entry, now, target.forced);
                 // Claim the slot BEFORE the (slow) fetch and persist it, so the
                 // sibling process sharing this token (IDE vs daemon) sees the
                 // poll as taken instead of spending a second request.
@@ -836,19 +899,38 @@ fn collect_inner(
                         fresh_token.as_deref(),
                     )
                 };
-                if let Some(account) = probe.account {
-                    // Persist the identity: the not-due beats in between re-use it
-                    // instead of dropping back to the doctor's presence-only row.
-                    entry.account = Some(account.clone());
-                    apply_account(&mut accounts, &id, &target, account);
+                let rate_limited_secs = probe.rate_limited_secs;
+                // A declined endpoint on a profile that holds a token: the
+                // token probe answers in its place when its cadence is due;
+                // between two of its probes the decline dims nothing (the
+                // token's numbers are the ones shown), only the 429's hold
+                // stands.
+                let probe = match (probe.endpoint_declined && holds_token, token_fallback) {
+                    (true, true) => Some(token_probe(data_dir, settings, target.dir.as_deref())),
+                    (true, false) => None,
+                    (false, _) => Some(probe),
+                };
+                if probe.is_none() {
+                    polled = false;
                 }
-                // EXP-881: the ENDPOINT answered, so stamp the read that a
-                // live frame is compared against. Only here — a live apply
-                // moves `fetched_at_secs`, never this.
-                if probe.windows.is_some() {
-                    entry.endpoint_fetched_at_secs = Some(now);
+                if let Some(probe) = probe {
+                    if let Some(account) = probe.account {
+                        // Persist the identity: the not-due beats in between re-use it
+                        // instead of dropping back to the doctor's presence-only row.
+                        entry.account = Some(account.clone());
+                        apply_account(&mut accounts, &id, &target, account);
+                    }
+                    // EXP-881: the ENDPOINT answered, so stamp the read that a
+                    // live frame is compared against. Only here — a live apply
+                    // moves `fetched_at_secs`, never this.
+                    if probe.windows.is_some() {
+                        entry.endpoint_fetched_at_secs = Some(now);
+                    }
+                    usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
                 }
-                usage_cache::apply_outcome(&mut entry, probe.outcome, probe.windows, now, &stamp);
+                if let Some(secs) = rate_limited_secs {
+                    usage_cache::hold_rate_limited(&mut entry, now, secs);
+                }
                 usage_cache::schedule_live_endpoint(&mut entry, now);
                 cache.insert(cache_id.clone(), entry.clone());
             }
@@ -1445,6 +1527,26 @@ struct AgentProbe {
     outcome: PollOutcome,
     windows: Option<Vec<UsageWindow>>,
     account: Option<crate::agent_accounts::AgentAccount>,
+    /// EXP-1626: the usage endpoint answered 429 — the floor (seconds) its
+    /// `retry-after` asked for, at least [`usage_cache::RATE_LIMITED_FLOOR_SECS`].
+    /// Held even when the token probe answered in its place.
+    rate_limited_secs: Option<u64>,
+    /// EXP-1626: the endpoint does not serve this login (an inference-only
+    /// credential, never sent; or a 429) — a profile that also holds a
+    /// long-lived token reads its windows through the CLI probe instead.
+    endpoint_declined: bool,
+}
+
+impl AgentProbe {
+    /// The defaults every literal spreads: no 429, the endpoint not declined.
+    /// (Its own three fields are always spelled out at the literal.)
+    const NONE: AgentProbe = AgentProbe {
+        outcome: PollOutcome::Failed,
+        windows: None,
+        account: None,
+        rate_limited_secs: None,
+        endpoint_declined: false,
+    };
 }
 
 /// EXP-754/EXP-881 — the windows a live session on `profile` published, when
@@ -1525,6 +1627,7 @@ fn live_probe(
         windows: Some(windows),
         // A rate-limit frame names no identity; the cached one stays.
         account: None,
+        ..AgentProbe::NONE
     })
 }
 
@@ -1766,12 +1869,14 @@ fn probe_agent(
                         outcome: PollOutcome::Failed,
                         windows: None,
                         account: None,
+                        ..AgentProbe::NONE
                     }
                 }
                 CredentialRead::Missing => AgentProbe {
                     outcome: PollOutcome::Failed,
                     windows: None,
                     account: None,
+                    ..AgentProbe::NONE
                 },
                 CredentialRead::Found(credential) => {
                     // EXP-852: stamp what this read saw on EVERY read, the
@@ -1779,6 +1884,20 @@ fn probe_agent(
                     // refresh cadence's input, so flipping the setting on
                     // must not owe a blind store read first.
                     usage_cache::note_credential_expiry(entry, credential.expires_at_ms);
+                    // EXP-1626: an inference-only credential is never sent to
+                    // the usage endpoint (it 429s, it never answers) — the
+                    // numbers are the CLI probe's, when the profile holds a
+                    // long-lived token, and the live frames' otherwise. Not a
+                    // 401: the login itself is fine.
+                    if credential.inference_only {
+                        return AgentProbe {
+                            outcome: PollOutcome::Failed,
+                            windows: None,
+                            account: None,
+                            endpoint_declined: true,
+                            ..AgentProbe::NONE
+                        };
+                    }
                     if credential.expired(now as i64 * 1000) {
                         // EXP-881: the rotation ran on this beat whatever the
                         // keep-alive setting said, so this is the arm where it
@@ -1791,6 +1910,7 @@ fn probe_agent(
                             outcome: PollOutcome::Failed,
                             windows: None,
                             account: None,
+                            ..AgentProbe::NONE
                         };
                     }
                     fetch_and_parse(&credential.access_token, &user_agent)
@@ -1834,12 +1954,14 @@ fn probe_agent(
                         },
                         windows,
                         account,
+                        ..AgentProbe::NONE
                     }
                 }
                 Err(_) => AgentProbe {
                     outcome: PollOutcome::Failed,
                     windows: None,
                     account: None,
+                    ..AgentProbe::NONE
                 },
             }
         }
@@ -1866,12 +1988,22 @@ fn token_probe(data_dir: &Path, settings: &Settings, config_dir: Option<&Path>) 
         outcome: if windows.is_some() { PollOutcome::Changed } else { PollOutcome::Failed },
         windows,
         account: None,
+        ..AgentProbe::NONE
     }
 }
 
 /// The token probe's own config home (`CLAUDE_CONFIG_DIR`), inside the
 /// data dir: never a profile's, so the probe cannot touch a stored login.
 pub const TOKEN_PROBE_DIR: &str = "claude-usage-probe";
+
+/// EXP-1626 — how long a 429 holds the endpoint: its `retry-after` when it
+/// names one, never under [`usage_cache::RATE_LIMITED_FLOOR_SECS`] and never
+/// past [`MAX_RETRY_AFTER_SECS`].
+fn rate_limit_floor(retry_after_secs: Option<u64>) -> u64 {
+    retry_after_secs
+        .unwrap_or(0)
+        .clamp(usage_cache::RATE_LIMITED_FLOOR_SECS, MAX_RETRY_AFTER_SECS)
+}
 
 fn fetch_and_parse(access_token: &str, user_agent: &str) -> AgentProbe {
     match fetch_oauth_usage(access_token, user_agent) {
@@ -1880,27 +2012,33 @@ fn fetch_and_parse(access_token: &str, user_agent: &str) -> AgentProbe {
                 outcome: PollOutcome::Changed,
                 windows: Some(windows),
                 account: None,
+                ..AgentProbe::NONE
             },
             None => AgentProbe {
                 outcome: PollOutcome::Failed,
                 windows: None,
                 account: None,
+                ..AgentProbe::NONE
             },
         },
         UsageFetch::Unauthorized => AgentProbe {
             outcome: PollOutcome::Unauthorized,
             windows: None,
             account: None,
+            ..AgentProbe::NONE
         },
-        UsageFetch::RateLimited => AgentProbe {
+        UsageFetch::RateLimited { retry_after_secs } => AgentProbe {
             outcome: PollOutcome::RateLimited,
             windows: None,
             account: None,
+            rate_limited_secs: Some(rate_limit_floor(retry_after_secs)),
+            endpoint_declined: true,
         },
         UsageFetch::Failed => AgentProbe {
             outcome: PollOutcome::Failed,
             windows: None,
             account: None,
+            ..AgentProbe::NONE
         },
     }
 }
@@ -2664,7 +2802,7 @@ mod tests {
             format!(
                 "#!/bin/sh\necho \"$CLAUDE_CODE_OAUTH_TOKEN $CLAUDE_CONFIG_DIR\" >> '{}'\n\
                  echo '{{\"type\":\"system\",\"subtype\":\"init\"}}'\n\
-                 echo '{{\"type\":\"rate_limit_event\",\"rate_limit_info\":{{\"status\":\"allowed\",\"unifiedWindows\":{{\"five_hour\":{{\"utilization\":0.07,\"resetsAt\":4092066000}},\"seven_day\":{{\"utilization\":0.31,\"resetsAt\":4092066000}}}}}}}}'\n",
+                 echo '{{\"type\":\"rate_limit_event\",\"rate_limit_info\":{{\"status\":\"allowed\",\"unifiedWindows\":{{\"seven_day\":{{\"utilization\":0.31,\"resetsAt\":4092066000}}}}}}}}'\n",
                 calls.display()
             ),
         )
@@ -2697,9 +2835,10 @@ mod tests {
         crate::claude_token::write(&home, &token).unwrap();
         let payload = collect_if_due(&dir, &settings, &report, now);
         let usage = payload.usage.get("claude").expect("the probe's windows");
+        // EXP-1626: the weekly window alone, as the token's headers carry it.
         assert_eq!(
             usage.windows.iter().map(|window| (window.key.as_str(), window.percent)).collect::<Vec<_>>(),
-            vec![("session", 7), ("weekly", 31)]
+            vec![("weekly", 31)]
         );
         let logged = std::fs::read_to_string(&calls).unwrap();
         assert_eq!(
@@ -2714,10 +2853,20 @@ mod tests {
 
         // A run on the login moves the numbers without a probe.
         let session = live::attach(CodingAgent::Claude, MAIN);
-        live::publish(CodingAgent::Claude, MAIN, vec![session_window(12)]);
+        live::publish(
+            CodingAgent::Claude,
+            MAIN,
+            vec![UsageWindow {
+                key: "weekly".to_string(),
+                label: "Week".to_string(),
+                percent: 33,
+                resets_at: Some("2099-09-06T14:00:00.000Z".to_string()),
+            }],
+        );
         let payload = collect_if_due(&dir, &settings, &report, now + 620);
         let usage = payload.usage.get("claude").expect("the live windows");
-        assert_eq!(usage.windows[0].percent, 12);
+        assert_eq!(usage.windows.len(), 1, "no 5h row appears");
+        assert_eq!(usage.windows[0].percent, 33);
         assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 1);
         drop(session);
         live::reset();
@@ -2726,6 +2875,123 @@ mod tests {
         collect_if_due(&dir, &settings, &report, now + 620 + usage_cache::TOKEN_PROBE_SECS);
         assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 2);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1626 — a browser-eligible login whose stored credential is
+    /// inference-only (no `user:profile` scope) is never sent to the usage
+    /// endpoint (which 429s such a token): when the profile holds a
+    /// long-lived token the CLI probe answers in its place, and between two
+    /// of the probe's slots the decline dims nothing and spawns nothing.
+    #[cfg(unix)]
+    #[test]
+    fn an_inference_only_credential_reads_through_the_token_probe_not_the_endpoint() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("inference-only");
+        let calls = dir.join("calls");
+        let cli = dir.join("fake-claude");
+        let home = crate::agent_profiles::profile_dir(&dir, CodingAgent::Claude, MAIN).unwrap();
+        std::fs::write(
+            home.join(".credentials.json"),
+            r#"{"claudeAiOauth":{"accessToken":"at-inference","expiresAt":4092066000000,"scopes":["user:inference"]}}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            &cli,
+            format!(
+                "#!/bin/sh\necho probe >> '{}'\n\
+                 echo '{{\"type\":\"rate_limit_event\",\"rate_limit_info\":{{\"status\":\"allowed\",\"unifiedWindows\":{{\"seven_day\":{{\"utilization\":0.4,\"resetsAt\":4092066000}}}}}}}}'\n",
+                calls.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let settings = Settings {
+            claude_path: cli.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let report = claude_ready_report();
+        let now = crate::run_registry::now_secs() - 2000;
+
+        let token = crate::claude_token::SetupToken::minted(
+            "sk-ant-oat01-inference".into(),
+            chrono::Utc::now(),
+            crate::claude_token::TOKEN_LIFETIME_SECS,
+        );
+        crate::claude_token::write(&home, &token).unwrap();
+        let payload = collect_if_due(&dir, &settings, &report, now);
+        let usage = payload.usage.get("claude").expect("the token probe's windows");
+        assert_eq!(
+            usage.windows.iter().map(|window| (window.key.as_str(), window.percent)).collect::<Vec<_>>(),
+            vec![("weekly", 40)]
+        );
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 1);
+
+        // The endpoint cadence comes round again inside the token's floor:
+        // no spawn, and the numbers stay undimmed.
+        let payload = collect_if_due(&dir, &settings, &report, now + 600);
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 1);
+        assert!(!payload.usage.get("claude").expect("kept").stale);
+
+        // The token gone: nothing reads the windows, the endpoint is still
+        // not asked — the old numbers dim, and the login is NOT painted
+        // `Needs re-login` (nor held behind a 429 it never got).
+        crate::claude_token::remove(&home).unwrap();
+        let payload = collect_if_due(&dir, &settings, &report, now + 1_200);
+        assert!(payload.usage.get("claude").expect("kept, dimmed").stale);
+        assert_eq!(std::fs::read_to_string(&calls).unwrap().lines().count(), 1);
+        let entry = usage_cache::load(&dir)
+            .get(&usage_cache::entry_key("claude", MAIN))
+            .cloned()
+            .unwrap();
+        assert_ne!(entry.health.as_deref(), Some("needs_relogin"));
+        assert_eq!(entry.rate_limited_until_secs, None);
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1626 — a 429's `retry-after` is honoured (delta-seconds or an
+    /// HTTP-date), never under the policy's floor nor past the cap, and the
+    /// hold outlives a success folded in after it.
+    #[test]
+    fn a_usage_429_holds_for_its_retry_after() {
+        assert_eq!(parse_retry_after("120", 1_000), Some(120));
+        assert_eq!(parse_retry_after(" 3600 ", 1_000), Some(3600));
+        assert_eq!(parse_retry_after("Thu, 01 Jan 1970 00:20:00 GMT", 1_000), Some(200));
+        assert_eq!(parse_retry_after("Thu, 01 Jan 1970 00:00:10 GMT", 1_000), Some(0));
+        assert_eq!(parse_retry_after("soon", 1_000), None);
+
+        assert_eq!(rate_limit_floor(None), usage_cache::RATE_LIMITED_FLOOR_SECS);
+        assert_eq!(rate_limit_floor(Some(5)), usage_cache::RATE_LIMITED_FLOOR_SECS);
+        assert_eq!(rate_limit_floor(Some(1_800)), 1_800);
+        assert_eq!(rate_limit_floor(Some(10 * 86_400)), MAX_RETRY_AFTER_SECS);
+
+        let now = 1_000_000;
+        let mut entry = AgentCacheEntry::default();
+        usage_cache::apply_outcome(&mut entry, PollOutcome::Changed, Some(vec![session_window(5)]), now, "s");
+        usage_cache::hold_rate_limited(&mut entry, now, 1_800);
+        assert_eq!(entry.rate_limited_until_secs, Some(now + 1_800));
+        assert_eq!(entry.next_poll_at_secs, now + 1_800);
+        assert!(!usage_cache::poll_due(&entry, now + 1_799));
+        assert_eq!(usage_cache::force_due(&mut entry.clone(), now + 10), Err(now + 1_800));
+        // Never pulled in by a shorter one.
+        usage_cache::hold_rate_limited(&mut entry, now, 300);
+        assert_eq!(entry.rate_limited_until_secs, Some(now + 1_800));
+    }
+
+    /// EXP-1626 — only a credential that NAMES its scopes without
+    /// `user:profile` is inference-only; a store without `scopes` is the
+    /// browser login's full set.
+    #[test]
+    fn an_inference_only_credential_is_read_off_its_scopes() {
+        let only = parse_claude_credentials(r#"{"claudeAiOauth":{"accessToken":"a","scopes":["user:inference"]}}"#).unwrap();
+        assert!(only.inference_only);
+        let full = parse_claude_credentials(r#"{"claudeAiOauth":{"accessToken":"a","scopes":["user:inference","user:profile"]}}"#).unwrap();
+        assert!(!full.inference_only);
+        let unnamed = parse_claude_credentials(r#"{"claudeAiOauth":{"accessToken":"a"}}"#).unwrap();
+        assert!(!unnamed.inference_only);
     }
 
     /// EXP-819 — a live claude session moves the session and weekly windows

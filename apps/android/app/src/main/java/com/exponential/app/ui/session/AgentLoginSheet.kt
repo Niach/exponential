@@ -20,7 +20,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import com.exponential.app.domain.AgentAccountsRows
 import com.exponential.app.domain.DevicesList
 import androidx.compose.runtime.remember
@@ -69,6 +71,12 @@ internal data class AgentLoginTarget(
      * refresh-grant browser login. Codex has no setup-token: always false.
      */
     val longLived: Boolean = agent == DevicesList.KEEP_SIGNED_IN_AGENT,
+    /**
+     * EXP-1626: the name a long-lived ADD (no [profileId]) gives the NEW
+     * profile — the Add account sheet's Name field, or a Switch's
+     * `copy.switchedName`. A setup token cannot name its account.
+     */
+    val name: String? = null,
 )
 
 /**
@@ -147,7 +155,17 @@ internal fun AgentLoginSheet(
             deviceOnline = device.online,
             profileId = target.profileId,
             longLived = longLived,
+            name = target.name,
         )
+    }
+
+    // EXP-1626: closing the sheet before the login lands stops the run on the
+    // machine (`agent_login_cancel`); a landed one only stops being followed.
+    val landedNow by rememberUpdatedState(landing != null)
+    DisposableEffect(target) {
+        onDispose {
+            viewModel.closeAgentLogin(device.deviceId, target.agent, target.profileId, landed = landedNow)
+        }
     }
 
     val state = commandStates[agentLoginCommandKey(device.deviceId, target.agent, target.profileId)]

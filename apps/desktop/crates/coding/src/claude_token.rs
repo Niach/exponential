@@ -11,14 +11,20 @@
 //! The trade-off, by Anthropic's design: the token only carries
 //! `user:inference` (the CLI asks for exactly that scope and nothing can
 //! widen it), so it cannot read the usage endpoint (`user:profile`) or name
-//! its account. A profile keeps its browser login (when it has one) for
-//! exactly that — the email it shows and every usage window — while runs
-//! spend the token. A token-only profile shows the email it last signed in
-//! as (`agent_profiles::known_email`), and its 5h + weekly windows come from
-//! the `anthropic-ratelimit-unified-*` headers every model response carries,
-//! as the CLI reports them in its `rate_limit_event`: live from its runs, and
-//! between runs from [`probe_usage`] (EXP-1607). The per-model weekly is the
-//! endpoint's alone, so a token-only profile never shows it.
+//! its account. Measured on 2.1.316 (EXP-1626): the endpoint answers such a
+//! token with a 429 and a `retry-after`, not a 401/403 — so it is never sent
+//! there at all ([`crate::agent_usage`] keeps it off the endpoint, and a 429
+//! is honoured, never retried on the beat). A profile keeps its browser
+//! login (when it has one) for exactly that — the email it shows and every
+//! usage window — while runs spend the token. A token-only profile shows the
+//! email it last signed in as (`agent_profiles::known_email`), and its
+//! windows come from the `anthropic-ratelimit-unified-*` headers every model
+//! response carries, as the CLI reports them in its `rate_limit_event`: live
+//! from its runs, and between runs from [`probe_usage`] (EXP-1607). For this
+//! scope those headers carry the WEEKLY window only — no 5h (session) window
+//! — so a token-only profile shows its weekly usage and nothing else (the
+//! per-model weekly is the endpoint's alone). Should a 5h window ever appear
+//! in the frame it is read like any other.
 //!
 //! The token is a secret: it is written 0600 ([`eagent::atomic_file`]),
 //! never logged, never `Debug`ged, and never leaves the machine — the
@@ -184,7 +190,8 @@ pub fn parse_probe_output(stdout: &str) -> Option<Vec<UsageWindow>> {
         .last()
 }
 
-/// EXP-1607 — read a token-only login's 5h + weekly windows: run
+/// EXP-1607 — read a token-only login's windows (measured: the weekly one
+/// alone, EXP-1626): run
 /// [`PROBE_ARGS`] with the token in `scratch_dir` (its own config home, so
 /// the probe never touches the profile's stored login or transcripts).
 /// Blocking. The caller rations it: it is a model request, and it counts
@@ -250,25 +257,37 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// The measured 2.1.316 probe output (an inference-only login): the
-    /// windows come off the LAST frame that carries any, the other lines are
-    /// noise, and output with no frame is no answer.
+    /// The measured 2.1.316 probe output (an inference-only login, EXP-1626):
+    /// the frames carry the WEEKLY window alone, never a 5h one. The windows
+    /// come off the LAST frame that carries any, the other lines are noise,
+    /// and output with no frame is no answer.
     #[test]
     fn a_probe_reads_the_windows_off_the_rate_limit_event() {
         let stdout = [
             r#"{"type":"system","subtype":"init"}"#,
             r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1793905200,"rateLimitType":"seven_day","unifiedWindows":{"seven_day":{"utilization":0.2,"resetsAt":1793905200}}}}"#,
             "not json",
-            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1793905200,"rateLimitType":"seven_day","overageStatus":"rejected","unifiedWindows":{"five_hour":{"utilization":0.07,"resetsAt":1793577600},"seven_day":{"utilization":0.31,"resetsAt":1793905200,"status":"allowed"}}}}"#,
+            r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1793905200,"rateLimitType":"seven_day","overageStatus":"rejected","unifiedWindows":{"seven_day":{"utilization":0.31,"resetsAt":1793905200,"status":"allowed"}}}}"#,
             r#"{"type":"result","subtype":"success"}"#,
         ]
         .join("\n");
         let windows = parse_probe_output(&stdout).expect("windows");
         assert_eq!(
             windows.iter().map(|window| (window.key.as_str(), window.percent)).collect::<Vec<_>>(),
+            vec![("weekly", 31)],
+            "weekly only: no empty 5h window is invented"
+        );
+        assert_eq!(windows[0].resets_at.as_deref(), Some("2026-11-05T19:00:00.000Z"));
+        // Should a 5h window ever ride the frame, it still parses.
+        let with_session = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"allowed","unifiedWindows":{"five_hour":{"utilization":0.07,"resetsAt":1793577600},"seven_day":{"utilization":0.31,"resetsAt":1793905200}}}}"#;
+        assert_eq!(
+            parse_probe_output(with_session)
+                .unwrap()
+                .iter()
+                .map(|window| (window.key.as_str(), window.percent))
+                .collect::<Vec<_>>(),
             vec![("session", 7), ("weekly", 31)]
         );
-        assert_eq!(windows[1].resets_at.as_deref(), Some("2026-11-05T19:00:00.000Z"));
         // A frame without the map still answers for its limiting window.
         let triple = r#"{"type":"rate_limit_event","rate_limit_info":{"status":"rejected","resetsAt":1793905200,"rateLimitType":"five_hour","utilization":1.0}}"#;
         assert_eq!(parse_probe_output(triple).unwrap()[0].percent, 100);

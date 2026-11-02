@@ -7,9 +7,10 @@
 // waiting for it. Both are tracked per agent under the keys
 // `device-agent-account.tsx` defines, polled via `devices.getCommand` while
 // the consumer is mounted and `active`.
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
+import { agentLoginName } from "@/lib/agent-account-add"
 import {
   agentLoginCodeKey,
   agentLoginKey,
@@ -39,6 +40,10 @@ export interface AgentLoginProfileTarget {
   /** EXP-1533: a one-year `claude setup-token` login for `profileId` (claude
    *  only) — the same link + code round trip as a browser sign-in. */
   longLived?: boolean
+  /** EXP-1626: the NAME a long-lived ADD (no `profileId`) gives the profile
+   *  it makes — a setup token cannot name its account. Dropped otherwise;
+   *  blank = the device's default. */
+  name?: string
 }
 
 export interface AgentLogin {
@@ -54,6 +59,12 @@ export interface AgentLogin {
   queueLoginCode: (agent: string, code: string) => void
   /** Whether any login/code command is still in flight. */
   busy: boolean
+  /** EXP-1626: the id of the LATEST `agent_login` queued for `agent` (null
+   *  until the server answered the queue). The dialog cancels it on close. */
+  loginCommandIdFor: (agent: string) => string | null
+  /** EXP-1626: stop a sign-in the requester walked away from
+   *  (`agent_login_cancel`), fire-and-forget: every error is swallowed. */
+  cancelLogin: (agent: string, loginCommandId: string) => void
 }
 
 export function useAgentLogin({
@@ -72,6 +83,11 @@ export function useAgentLogin({
   const [tracked, setTracked] = useState<TrackedCommand[]>([])
   const [results, setResults] = useState<Record<string, string>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
+  // EXP-1626: key → the id of the last command queued under it.
+  const [lastIds, setLastIds] = useState<Record<string, string>>({})
+  // EXP-1626: command id → the device it was queued on, so a cancel still
+  // reaches it after the consumer let go of its target (a closing dialog).
+  const commandDevices = useRef<Record<string, string>>({})
 
   const queueCommand = async (
     key: string,
@@ -81,6 +97,12 @@ export function useAgentLogin({
   ) => {
     if (!deviceId) return
     setErrors((current) => ({ ...current, [key]: `` }))
+    setLastIds((current) => {
+      if (!(key in current)) return current
+      const next = { ...current }
+      delete next[key]
+      return next
+    })
     setResults((current) => {
       if (!(key in current)) return current
       const next = { ...current }
@@ -97,7 +119,9 @@ export function useAgentLogin({
         // global link.
         { context: { skipErrorToast: true } }
       )
+      commandDevices.current[id] = deviceId
       setTracked((current) => [...current, { id, key }])
+      setLastIds((current) => ({ ...current, [key]: id }))
     } catch (error) {
       setErrors((current) => ({
         ...current,
@@ -176,7 +200,27 @@ export function useAgentLogin({
       switch: switchAccount,
       ...(target.profileId ? { profileId: target.profileId } : {}),
       ...(target.longLived ? { longLived: true } : {}),
+      ...(agentLoginName(target) ? { name: agentLoginName(target) } : {}),
     })
+  }
+
+  const cancelLogin = (agent: string, loginCommandId: string) => {
+    const target = commandDevices.current[loginCommandId] ?? deviceId
+    if (!target || !agent) return
+    // Stop watching it: its row fails as cancelled, which must not surface
+    // as the next sign-in's failure.
+    setTracked((current) => current.filter((c) => c.id !== loginCommandId))
+    void trpc.devices.createCommand
+      .mutate(
+        {
+          deviceId: target,
+          kind: `agent_login_cancel`,
+          agent,
+          loginCommandId,
+        },
+        { context: { skipErrorToast: true } }
+      )
+      .catch(() => {})
   }
 
   const queueLoginCode = (agent: string, code: string) =>
@@ -195,5 +239,12 @@ export function useAgentLogin({
     codeError: errors[agentLoginCodeKey(agent)] ?? ``,
   })
 
-  return { stateFor, queueLogin, queueLoginCode, busy: tracked.length > 0 }
+  return {
+    stateFor,
+    queueLogin,
+    queueLoginCode,
+    busy: tracked.length > 0,
+    loginCommandIdFor: (agent) => lastIds[agentLoginKey(agent)] ?? null,
+    cancelLogin,
+  }
 }

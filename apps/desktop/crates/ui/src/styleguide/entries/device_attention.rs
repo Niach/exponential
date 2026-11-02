@@ -73,6 +73,7 @@ fn login(
         // EXP-1600: every claude login keeps signed in (a far expiry), so
         // only the specimen's dead login badges: no switch prompt.
         token_expires_at: (agent == "claude").then(|| "2099-01-01T00:00:00Z".to_string()),
+        name: None,
     }
 }
 
@@ -99,6 +100,7 @@ fn card(row_id: &str, label: &str, version: &str, logins: Vec<AgentProfileUsageR
         // The specimen's order IS the web island's (claude · claude · codex).
         logins,
         accounts_reported: true,
+        login_names: Default::default(),
     }
 }
 
@@ -195,6 +197,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let preview = machines::account_preview(
         SharedString::from("sg-device-attention-preview"),
         &badged_login,
+        None,
         badged_flag.as_ref(),
         chrono::Utc::now().timestamp(),
         cx,
