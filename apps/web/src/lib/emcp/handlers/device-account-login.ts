@@ -10,23 +10,23 @@
 // becomes a profile). Only the URL and the typed code travel: the credential
 // is written by the CLI on the machine and never leaves it.
 //
+// EXP-1626: every sign-in is the CLI's normal BROWSER login; `longLived` is
+// Persist login on an EXISTING claude profile (`claude setup-token` attached
+// to it), so it needs that `profileId`.
+//
 // One call per step, each bounded: the tool waits a little for the device's
 // answer and otherwise hands back the `commandId` to check on.
 import { loginIsLongLived, parseAgentLoginResult } from "@/lib/agent-usage"
 import type { AgentLoginProfileTarget } from "@/hooks/use-agent-login"
-import { agentLoginName } from "@/lib/agent-account-add"
 
 export interface DeviceAccountLoginInput {
   deviceId: string
   agent: string
   /** The login this sign-in is FOR (a re-login); absent = add an account. */
   profileId?: string
-  /** EXP-1533: a one-year `claude setup-token` login. EXP-1600: the claude
-   *  DEFAULT (absent = true for claude); false = the browser login. */
+  /** EXP-1626: Persist login — a one-year `claude setup-token` attached to
+   *  the existing `profileId` (required). Absent = the browser login. */
   longLived?: boolean
-  /** EXP-1626: a long-lived ADD's profile name (a setup token cannot name
-   *  its account); dropped for any other login. */
-  name?: string
   code?: string
   commandId?: string
 }
@@ -78,6 +78,10 @@ export type DeviceAccountLoginResult =
 export const LOGIN_WAIT_MS = 25_000
 export const CODE_WAIT_MS = 15_000
 const POLL_MS = 1_000
+
+/** EXP-1626: the refusals of a `longLived` call that is not Persist login. */
+export const PERSIST_NEEDS_PROFILE = `longLived persists an existing login: pass profileId (agentAccounts.claude.profiles[].id). To add an account, omit longLived (the browser login).`
+export const PERSIST_CLAUDE_ONLY = `longLived (Persist login) is Claude only.`
 
 const PENDING_NEXT = `The machine has not answered yet (offline or busy); call again with this commandId.`
 const SIGNING_IN_NEXT = `The code went in. The login appears under agentAccounts in exponential_devices_list after the machine's next heartbeat (~30s).`
@@ -169,9 +173,13 @@ export async function deviceAccountLogin(
   }
 
   // The SAME command as every client's Add account / Sign in: no profile =
-  // add, a profileId = the login this re-login is for.
+  // add, a profileId = the login this re-login is for; longLived = Persist
+  // login on that profile.
+  if (input.longLived) {
+    if (agent !== `claude`) throw new Error(PERSIST_CLAUDE_ONLY)
+    if (!input.profileId) throw new Error(PERSIST_NEEDS_PROFILE)
+  }
   const longLived = loginIsLongLived(agent, input.longLived)
-  const name = agentLoginName({ profileId: input.profileId, longLived, name: input.name })
   const { id } = await deps.createCommand({
     deviceId,
     kind: `agent_login`,
@@ -179,7 +187,6 @@ export async function deviceAccountLogin(
     switch: false,
     ...(input.profileId ? { profileId: input.profileId } : {}),
     ...(longLived ? { longLived: true } : {}),
-    ...(name ? { name } : {}),
   })
   return describe(await waitFor(id, deps, LOGIN_WAIT_MS))
 }

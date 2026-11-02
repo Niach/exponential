@@ -39,6 +39,7 @@ class AgentAccountsRowsTest {
         health: AgentHealth = AgentHealthRules.derived(signedIn),
         active: Boolean = true,
         tokenExpiresAt: String? = null,
+        usageSource: String? = null,
     ) = AgentProfileUsageRow(
         key = "$deviceId:$agent:$profileId",
         deviceId = deviceId,
@@ -55,6 +56,7 @@ class AgentAccountsRowsTest {
         usage = usage,
         checkedAt = checkedAt,
         tokenExpiresAt = tokenExpiresAt,
+        usageSource = usageSource,
     )
 
     private fun usage(fetchedAt: String, percent: Int, stale: Boolean = false) = AgentUsage(
@@ -143,7 +145,7 @@ class AgentAccountsRowsTest {
                   "profiles":[
                     {"id":"p-dev","label":"Default","active":true,"signedIn":true,"email":"dev@acme.test","plan":"max","checkedAt":"2026-08-28T11:10:00.000Z"},
                     {"id":"work","label":"Work","active":false,"signedIn":true,"email":"alex@northwind.dev","plan":"team",
-                     "tokenExpiresAt":"2027-11-01T00:00:00.000Z",
+                     "tokenExpiresAt":"2027-11-01T00:00:00.000Z","usageSource":"token","name":"Ignored",
                      "usage":${usageJson("2026-08-28T11:50:00.000Z", "weekly", 9)}},
                     {"id":"old","active":false,"signedIn":false}
                   ]}}
@@ -173,6 +175,11 @@ class AgentAccountsRowsTest {
         // EXP-1533: a long-lived login carries its expiry; the others none.
         assertEquals("2027-11-01T00:00:00.000Z", work.tokenExpiresAt)
         assertNull(active.tokenExpiresAt)
+        // EXP-1626: the persisted login's usage source; a reported `name`
+        // (an older device's) never labels it.
+        assertEquals("token", work.usageSource)
+        assertNull(active.usageSource)
+        assertEquals("alex@northwind.dev", AgentAccountsRows.loginLabel(work))
         // An inactive profile with no address: "No email", no fallback numbers.
         val old = rows[2]
         assertEquals("No email", AgentAccountsRows.loginLabel(old))
@@ -267,31 +274,27 @@ class AgentAccountsRowsTest {
     }
 
     @Test
-    fun `a reported name labels the login before its email`() {
-        // EXP-1626: a long-lived Add's name, reported on the profile.
-        val rows = AgentAccountsRows.loginRows(
-            mapOf(
-                "claude" to AgentAccount(
-                    profiles = listOf(
-                        AgentAccountProfile(id = "p1", email = "a@acme.test", signedIn = true, name = " Work "),
-                        AgentAccountProfile(id = "p2", email = "b@acme.test", signedIn = true, name = "  "),
-                        AgentAccountProfile(id = "p3", signedIn = true, plan = "max", name = "Claude (kept signed in)"),
-                    ),
-                ),
+    fun `a persisted login says which login feeds its usage`() {
+        // EXP-1626: only a login with a token gets the line.
+        assertNull(AgentAccountsRows.persistedLine(row(deviceId = "mint", agent = "claude")))
+        assertNull(AgentAccountsRows.persistedLine(row(deviceId = "mint", agent = "claude", tokenExpiresAt = "")))
+        assertEquals(
+            "Persisted · usage from the browser login",
+            AgentAccountsRows.persistedLine(
+                row(deviceId = "mint", agent = "claude", tokenExpiresAt = "2027-11-01T00:00:00.000Z"),
             ),
-            null,
         )
         assertEquals(
-            listOf("Work", "b@acme.test", "Claude (kept signed in)"),
-            rows.map(AgentAccountsRows::loginLabel),
+            "Persisted · browser login expired, weekly usage only",
+            AgentAccountsRows.persistedLine(
+                row(
+                    deviceId = "mint",
+                    agent = "claude",
+                    tokenExpiresAt = "2027-11-01T00:00:00.000Z",
+                    usageSource = "token",
+                ),
+            ),
         )
-        assertEquals("Work", rows[0].name)
-        assertNull(rows[1].name)
-        assertEquals("Work", AgentAccountsRows.accountName("a@acme.test", "max", "Work"))
-        assertEquals("a@acme.test", AgentAccountsRows.accountName("a@acme.test", "max", null))
-        assertEquals("No email", AgentAccountsRows.accountName(null, null, " "))
-        // The Switch's new profile is named after the login it came from.
-        assertEquals("a@acme.test (kept signed in)", DevicesList.switchedName("a@acme.test"))
     }
 
     @Test
@@ -351,7 +354,7 @@ class AgentAccountsRowsTest {
         // is no "make it the default" entry any more.
         listOf(true, false).forEach { active ->
             assertEquals(
-                listOf("Switch to Keep signed in", "Sign out", "Remove account"),
+                listOf("Persist login", "Sign out", "Remove account"),
                 AgentAccountsRows.chipActions(
                     chip(signedIn = true, active = active, health = AgentHealth.Ok),
                 ),
@@ -371,7 +374,7 @@ class AgentAccountsRowsTest {
         // The last used login is removable like any other: every row is a
         // profile dir Exponential created.
         assertEquals(
-            listOf("Switch to Keep signed in", "Sign out", "Remove account"),
+            listOf("Persist login", "Sign out", "Remove account"),
             AgentAccountsRows.chipActions(other),
         )
     }
@@ -411,14 +414,13 @@ class AgentAccountsRowsTest {
         )
     }
 
-    // EXP-1600: a claude login that does not sign in offers the switch to
-    // Keep signed in (before "Sign out"), "Renew Keep signed in" once the row
-    // carries an expiry; a claude Sign in already IS Keep signed in, so a
-    // login that signs in offers no second entry. Codex never does.
+    // EXP-1626: a claude login that does not sign in offers "Persist login"
+    // (before "Sign out"), "Renew persisted login" once the row carries an
+    // expiry; a login that signs in offers no second entry. Codex never does.
     @Test
     fun `a claude login offers the long-lived sign-in`() {
         assertEquals(
-            listOf("Renew Keep signed in", "Sign out", "Remove account"),
+            listOf("Renew persisted login", "Sign out", "Remove account"),
             AgentAccountsRows.chipActions(
                 row(deviceId = "mint", agent = "claude", tokenExpiresAt = "2027-11-01T00:00:00.000Z"),
             ),
@@ -447,7 +449,7 @@ class AgentAccountsRowsTest {
             ),
         )
         assertEquals(
-            listOf("Switch to Keep signed in", "Sign out", "Remove account"),
+            listOf("Persist login", "Sign out", "Remove account"),
             AgentAccountsRows.chipActions(row(deviceId = "mint", agent = "claude", tokenExpiresAt = "")),
         )
         assertEquals(

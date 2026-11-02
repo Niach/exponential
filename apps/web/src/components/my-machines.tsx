@@ -75,9 +75,9 @@ import { Empty } from "@/components/empty"
 import { useAgentUsageRefresh } from "@/hooks/use-agent-usage-refresh"
 import {
   deviceLoginRows,
+  loginLabel,
   type AgentProfileUsageRow,
 } from "@/lib/agent-usage"
-import { loginName } from "@/components/device-agent-account"
 
 // This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
 // — concepts, never raw lucide glyphs (CLAUDE.md icon rule).
@@ -385,7 +385,7 @@ function DeviceCard({
     logins: logins.map((login) => ({
       agent: login.agent,
       profileId: login.profileId,
-      label: loginName(login),
+      label: loginLabel(login),
       health: login.health,
       limitHit: loginLimitHit(login, now),
       tokenExpiresAt: login.tokenExpiresAt,

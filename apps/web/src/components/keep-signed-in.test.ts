@@ -1,12 +1,12 @@
-// EXP-1600: Keep signed in is the default claude sign-in — the mode rule
-// and the hover card pill a login item's action reads.
+// EXP-1626: Persist login — the mode rule (the browser login unless asked),
+// the hover card pill a login item's action reads, and the persisted line.
 import { describe, expect, it } from "vitest"
-import { loginIsLongLived } from "@/lib/agent-usage"
+import { loginIsLongLived, persistedLine } from "@/lib/agent-usage"
 import { loginActionLabel } from "@/components/device-logins"
 
 describe(`loginIsLongLived`, () => {
-  it(`defaults claude to the long-lived login; false = the browser login`, () => {
-    expect(loginIsLongLived(`claude`)).toBe(true)
+  it(`is the browser login unless Persist login asks for the token`, () => {
+    expect(loginIsLongLived(`claude`)).toBe(false)
     expect(loginIsLongLived(`claude`, true)).toBe(true)
     expect(loginIsLongLived(`claude`, false)).toBe(false)
   })
@@ -18,12 +18,27 @@ describe(`loginIsLongLived`, () => {
 })
 
 describe(`loginActionLabel`, () => {
-  const item = (action: `sign_in` | `keep_signed_in`, status: `signed_out` | `renew` | `switch`) =>
+  const item = (action: `sign_in` | `keep_signed_in`, status: `signed_out` | `renew`) =>
     ({ kind: `login`, agent: `claude`, profileId: `a`, text: ``, action, status }) as const
 
-  it(`reads the fixture copy per action and status`, () => {
+  it(`reads the fixture copy per action`, () => {
     expect(loginActionLabel(item(`sign_in`, `signed_out`))).toBe(`Sign in`)
-    expect(loginActionLabel(item(`keep_signed_in`, `switch`))).toBe(`Switch to Keep signed in`)
-    expect(loginActionLabel(item(`keep_signed_in`, `renew`))).toBe(`Renew Keep signed in`)
+    expect(loginActionLabel(item(`keep_signed_in`, `renew`))).toBe(`Renew persisted login`)
+  })
+})
+
+describe(`persistedLine`, () => {
+  it(`says which login feeds a persisted profile's usage`, () => {
+    const at = `2027-11-01T00:00:00.000Z`
+    expect(persistedLine({ tokenExpiresAt: at, usageSource: null })).toBe(
+      `Persisted · usage from the browser login`
+    )
+    expect(persistedLine({ tokenExpiresAt: at, usageSource: `token` })).toBe(
+      `Persisted · browser login expired, weekly usage only`
+    )
+  })
+
+  it(`is absent without a token`, () => {
+    expect(persistedLine({ tokenExpiresAt: null, usageSource: `token` })).toBeNull()
   })
 })

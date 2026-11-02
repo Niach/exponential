@@ -79,39 +79,15 @@ class DevicesWireFormatTest {
             """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false}""",
             agentLoginCommand("dev-1", "claude", false).toString(),
         )
-        // EXP-1533: the long-lived claude login rides the same command.
+        // EXP-1533/EXP-1626: Persist login rides the same command, for an
+        // existing profile; Add account / Sign in never send longLived.
         assertEquals(
             """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false,"profileId":"p-1","longLived":true}""",
             agentLoginCommand("dev-1", "claude", false, profileId = "p-1", longLived = true).toString(),
         )
-        // EXP-1600: Keep signed in is the default claude sign-in, an Add (no
-        // profile) included.
         assertEquals(
-            """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false,"longLived":true}""",
-            agentLoginCommand("dev-1", "claude", false, longLived = true).toString(),
-        )
-        // EXP-1626: a long-lived ADD names its new profile (trimmed); a
-        // re-sign of an existing profile and a browser login never do.
-        assertEquals(
-            """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false,"longLived":true,"name":"Work"}""",
-            agentLoginCommand("dev-1", "claude", false, longLived = true, name = "  Work ").toString(),
-        )
-        assertEquals(
-            """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false,"profileId":"p-1","longLived":true}""",
-            agentLoginCommand("dev-1", "claude", false, profileId = "p-1", longLived = true, name = "Work").toString(),
-        )
-        assertEquals(
-            """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false}""",
-            agentLoginCommand("dev-1", "claude", false, name = "Work").toString(),
-        )
-        assertEquals(
-            """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false,"longLived":true}""",
-            agentLoginCommand("dev-1", "claude", false, longLived = true, name = "   ").toString(),
-        )
-        assertEquals(
-            AGENT_PROFILE_NAME_MAX,
-            agentLoginCommand("dev-1", "claude", false, longLived = true, name = "x".repeat(100))
-                .getValue("name").toString().trim('"').length,
+            """{"deviceId":"dev-1","kind":"agent_login","agent":"claude","switch":false,"profileId":"p-1"}""",
+            agentLoginCommand("dev-1", "claude", false, profileId = "p-1").toString(),
         )
         // EXP-1626: stop a sign-in the requester walked away from.
         assertEquals(

@@ -25,7 +25,6 @@ final class DevicesListTests: XCTestCase {
             "signed_out": DevicesList.Copy.status(.signedOut),
             "limit": DevicesList.Copy.status(.limit),
             "renew": DevicesList.Copy.status(.renew),
-            "switch": DevicesList.Copy.status(.switchPrompt),
         ])
         let declared: [String: String] = [
             "mine": DevicesList.Copy.mine,
@@ -46,17 +45,12 @@ final class DevicesListTests: XCTestCase {
             "removeFromTeam": DevicesList.Copy.removeFromTeam,
             "moreAccounts": DevicesList.Copy.moreAccounts,
             "renewSoon": DevicesList.Copy.renewSoon,
-            "switchPrompt": DevicesList.Copy.switchPrompt,
-            "switchToKeepSignedIn": DevicesList.Copy.switchToKeepSignedIn,
-            "renewKeepSignedIn": DevicesList.Copy.renewKeepSignedIn,
-            "keepSignedInNote": DevicesList.Copy.keepSignedInNote,
-            "browserLoginNote": DevicesList.Copy.browserLoginNote,
-            "useBrowserLogin": DevicesList.Copy.useBrowserLogin,
-            "useKeepSignedIn": DevicesList.Copy.useKeepSignedIn,
             "longLivedRefused": DevicesList.Copy.longLivedRefused,
-            "accountName": DevicesList.Copy.accountName,
-            "keptSignedInName": DevicesList.Copy.keptSignedInName,
-            "switchedName": DevicesList.Copy.switchedName,
+            "persistLogin": DevicesList.Copy.persistLogin,
+            "renewPersistedLogin": DevicesList.Copy.renewPersistedLogin,
+            "persistNote": DevicesList.Copy.persistNote,
+            "persistedBrowser": DevicesList.Copy.persistedBrowser,
+            "persistedToken": DevicesList.Copy.persistedToken,
         ]
         XCTAssertEqual(declared, try XCTUnwrap(copy as? [String: String]))
     }

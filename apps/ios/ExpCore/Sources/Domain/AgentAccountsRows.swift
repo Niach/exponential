@@ -44,9 +44,11 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
     /// EXP-1533: when this login's long-lived (`claude setup-token`) token
     /// expires (ISO), nil while it holds none.
     public let tokenExpiresAt: String?
-    /// EXP-1626: the name a long-lived Add gave this login, nil when it has
-    /// none — first in `loginLabel`'s ladder.
-    public let name: String?
+    /// EXP-1626: where a PERSISTED login's usage comes from — `"token"` once
+    /// its browser login died and the token's weekly window stands in; nil
+    /// (or anything else) = the browser login. Read only with a token
+    /// (`persistedLine`).
+    public let usageSource: String?
 
     public var id: String { key }
 
@@ -66,7 +68,7 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
         checkedAt: String?,
         health: AgentAccountHealth = .unknown,
         tokenExpiresAt: String? = nil,
-        name: String? = nil
+        usageSource: String? = nil
     ) {
         self.key = key
         self.deviceId = deviceId
@@ -83,7 +85,7 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
         self.checkedAt = checkedAt
         self.health = health
         self.tokenExpiresAt = tokenExpiresAt
-        self.name = name
+        self.usageSource = usageSource
     }
 }
 
@@ -184,7 +186,7 @@ public enum AgentAccountsRows {
                     // entry that reports none derives from its `signedIn`.
                     health: AgentAccountHealth.of(profile),
                     tokenExpiresAt: nonEmpty(profile.tokenExpiresAt),
-                    name: nonEmpty(profile.name?.trimmingCharacters(in: .whitespacesAndNewlines))
+                    usageSource: nonEmpty(profile.usageSource)
                 ))
             }
         }
@@ -267,15 +269,12 @@ public enum AgentAccountsRows {
         nonEmpty(email) ?? nonEmpty(plan) ?? noEmailLabel
     }
 
-    /// A login's title everywhere (chip, menu header, attention text,
-    /// pickers): who it IS. EXP-1626: its `name` (a long-lived Add's, since a
-    /// setup token cannot name its account), else `accountName` (the email,
-    /// else the plan, else "No email"). NEVER a status: the brand mark says
-    /// which agent, the row above says which machine, and the health badge
-    /// says whether it still works. Locked ×4 by `the login label is the
-    /// identity, never the status`.
+    /// A login's title on its device row: who it IS (`accountName`). NEVER a
+    /// status: the brand mark says which agent, the row above says which
+    /// machine, and the health badge says whether it still works. Locked ×4 by
+    /// `the login label is the identity, never the status`.
     public static func loginLabel(_ row: AgentProfileUsageRow) -> String {
-        nonEmpty(row.name) ?? accountName(email: row.email, plan: row.plan)
+        accountName(email: row.email, plan: row.plan)
     }
 
     /// The badge a LOGIN row wears, or nil when there is nothing to say —
@@ -337,42 +336,28 @@ public enum AgentAccountsRows {
         row.signedIn
     }
 
-    /// EXP-1533/EXP-1600: the chip menu's long-lived entry, right after
+    /// EXP-1626 PERSIST LOGIN: the chip menu's persist entry, right after
     /// "Sign in" — a claude login only (the one agent with a `setup-token`),
-    /// and only when the menu does NOT sign it in (that Sign in already is
-    /// Keep signed in): "Switch to Keep signed in" without a token, "Renew
-    /// Keep signed in" with one (`devices-list.json` copy). It drives the
-    /// same remote sign-in sheet, long-lived. Nil = no entry.
+    /// and only when the menu does NOT sign it in (persisting is an option on
+    /// an EXISTING signed-in login): "Persist login" without a token, "Renew
+    /// persisted login" with one (`devices-list.json` copy). It drives the
+    /// same remote sign-in sheet, long-lived on THIS profile. Nil = no entry.
     public static func chipLongLivedLabel(_ row: AgentProfileUsageRow) -> String? {
         guard row.agent == "claude", !chipSignsIn(row) else { return nil }
         return nonEmpty(row.tokenExpiresAt) == nil
-            ? DevicesList.Copy.switchToKeepSignedIn
-            : DevicesList.Copy.renewKeepSignedIn
+            ? DevicesList.Copy.persistLogin
+            : DevicesList.Copy.renewPersistedLogin
     }
 
-    /// EXP-1626: what the chip's long-lived entry queues. "Switch to Keep
-    /// signed in" (no token yet) ADDS a new long-lived profile — no
-    /// `profileId`, named `copy.switchedName` with this login's label — and
-    /// leaves the browser login it came from untouched; "Renew Keep signed
-    /// in" (a token) renews this profile IN PLACE (its `profileId`, no name).
-    public struct KeepSignedInRequest: Equatable, Sendable {
-        public let profileId: String?
-        public let name: String?
-
-        public init(profileId: String?, name: String?) {
-            self.profileId = profileId
-            self.name = name
-        }
-    }
-
-    public static func keepSignedInRequest(_ row: AgentProfileUsageRow) -> KeepSignedInRequest {
-        if nonEmpty(row.tokenExpiresAt) == nil {
-            return KeepSignedInRequest(
-                profileId: nil,
-                name: DevicesList.switchedName(label: loginLabel(row))
-            )
-        }
-        return KeepSignedInRequest(profileId: row.profileId, name: nil)
+    /// EXP-1626 WHICH ONE IS ACTIVE: the preview header's muted line under
+    /// the plan for a PERSISTED login (one with `tokenExpiresAt`) —
+    /// `persistedToken` once its usage comes from the token (`usageSource`
+    /// `token`), else `persistedBrowser`. Nil without a token.
+    public static func persistedLine(_ row: AgentProfileUsageRow) -> String? {
+        guard nonEmpty(row.tokenExpiresAt) != nil else { return nil }
+        return row.usageSource == "token"
+            ? DevicesList.Copy.persistedToken
+            : DevicesList.Copy.persistedBrowser
     }
 
     /// The confirm the destructive entry asks, pinned ×4: it names the login

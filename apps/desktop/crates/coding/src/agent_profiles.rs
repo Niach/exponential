@@ -57,10 +57,6 @@ pub struct AgentProfile {
     /// When a sign-in or an import last committed into this profile.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_login_at: Option<String>,
-    /// EXP-1626: the name a long-lived Add gave this profile (a setup token
-    /// names no account); the heartbeat reports it as the login's `name`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
 }
 
 /// `profiles.json`: the profiles and the last used id. A legacy
@@ -205,7 +201,6 @@ pub fn create(data_dir: &Path, agent: CodingAgent) -> io::Result<AgentProfile> {
         id,
         created_at: crate::agent_accounts::now_iso(),
         last_login_at: None,
-        name: None,
     };
     index.profiles.push(profile.clone());
     write_index(data_dir, agent, &index)?;
@@ -222,7 +217,6 @@ pub(crate) fn create_with_id(data_dir: &Path, agent: CodingAgent, id: &str) -> i
         id: id.to_string(),
         created_at: crate::agent_accounts::now_iso(),
         last_login_at: None,
-        name: None,
     };
     index.profiles.push(profile.clone());
     write_index(data_dir, agent, &index)?;
@@ -265,7 +259,6 @@ pub fn adopt_dir(data_dir: &Path, agent: CodingAgent, staging: &Path) -> io::Res
         id,
         created_at: crate::agent_accounts::now_iso(),
         last_login_at: None,
-        name: None,
     };
     index.profiles.push(profile.clone());
     write_index(data_dir, agent, &index)?;
@@ -367,16 +360,6 @@ pub fn find_by_email(
             .or_else(|| emails.get(id).cloned())
             .is_some_and(|seen| same_email(&seen, email))
     })
-}
-
-/// EXP-1626 — name profile `id` (trimmed; blank clears it).
-pub fn set_name(data_dir: &Path, agent: CodingAgent, id: &str, name: Option<&str>) -> io::Result<()> {
-    let mut index = read_index(data_dir, agent);
-    let Some(profile) = index.profiles.iter_mut().find(|profile| profile.id == id) else {
-        return Err(io::Error::new(io::ErrorKind::NotFound, "no such profile"));
-    };
-    profile.name = name.map(str::trim).filter(|name| !name.is_empty()).map(str::to_string);
-    write_index(data_dir, agent, &index)
 }
 
 /// A sign-in or an import COMMITTED into `id`: stamp its `lastLoginAt` and

@@ -139,7 +139,7 @@ describe(`account limit bars`, () => {
       { key: `model`, label: `fable`, used: 0.1 },
     ])
     expect(accountLimitBars({ fiveHour: 0, week: 0 })).toHaveLength(2)
-    // EXP-1626: a login with no 5h window (Keep signed in) draws no 5h bar.
+    // EXP-1626: a login with no 5h window (a persisted token) draws no 5h bar.
     expect(accountLimitBars({ week: 0.3 })).toEqual([{ key: `week`, label: `week`, used: 0.3 }])
     expect(ACCOUNT_LIMIT_LABELS).toEqual({ fiveHour: `5h`, week: `week` })
   })

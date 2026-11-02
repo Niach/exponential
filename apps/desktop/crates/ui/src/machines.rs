@@ -169,23 +169,9 @@ pub(crate) struct DeviceCard {
     /// NO_LOGIN_REPORTED`]); a missing one means the device simply has not
     /// answered yet ("Checking…"), and the two must not read the same.
     pub(crate) accounts_reported: bool,
-    /// EXP-1626: the names the device reported for its logins (a
-    /// long-lived Add's), by [`AgentProfileUsageRow::key`].
-    pub(crate) login_names: std::collections::BTreeMap<String, String>,
 }
 
 impl DeviceCard {
-    /// EXP-1626: the name the device reported for `login`, if any.
-    pub(crate) fn login_name(&self, login: &AgentProfileUsageRow) -> Option<&str> {
-        self.login_names.get(&login.key).map(String::as_str)
-    }
-
-    /// EXP-1626 — a login's label everywhere on the card: its `name`, else
-    /// [`crate::usage_bar::login_label`] (the email, else the fallback).
-    pub(crate) fn login_label(&self, login: &AgentProfileUsageRow) -> String {
-        login_label_named(self.login_name(login), login)
-    }
-
     /// The same gate the login menus apply: mine, and either this very
     /// install (the login runs in a tab right here) or an online device.
     fn actionable(&self) -> bool {
@@ -218,7 +204,7 @@ impl DeviceCard {
                 .map(|login| DeviceListLogin {
                     agent: login.agent.clone(),
                     profile_id: login.profile_id.clone(),
-                    label: self.login_label(login),
+                    label: crate::usage_bar::login_label(login),
                     health: login.health,
                     limit_hit: limit_hit(login.usage.as_ref(), now_epoch),
                     token_expires_at: login.token_expires_at.clone(),
@@ -258,27 +244,21 @@ pub(crate) const COPY_SIGN_IN: &str = "Sign in";
 const COPY_STATUS_NEEDS_RELOGIN: &str = "Needs re-login";
 const COPY_STATUS_SIGNED_OUT: &str = "Signed out";
 const COPY_STATUS_LIMIT: &str = "Limit reached";
-const COPY_STATUS_RENEW: &str = "Keep signed in ends soon";
-const COPY_STATUS_SWITCH: &str = "Not kept signed in";
-const COPY_RENEW_SOON: &str = "{label} · Keep signed in ends soon";
-const COPY_SWITCH_PROMPT: &str = "{label} · Switch to Keep signed in";
-/// EXP-1600: Keep signed in, claude's default sign-in (the fixture's copy).
-pub(crate) const COPY_SWITCH_TO_KEEP_SIGNED_IN: &str = "Switch to Keep signed in";
-pub(crate) const COPY_RENEW_KEEP_SIGNED_IN: &str = "Renew Keep signed in";
-pub(crate) const COPY_KEEP_SIGNED_IN_NOTE: &str =
-    "Keep signed in: lasts 1 year, shows weekly usage only. We remind you to renew.";
-/// EXP-1626: the Add account dialog's name field (claude only), its
-/// placeholder (the name a long-lived Add gets when left blank), and the
-/// name "Switch to Keep signed in" gives the profile it adds.
-pub(crate) const COPY_ACCOUNT_NAME: &str = "Name";
-pub(crate) const COPY_KEPT_SIGNED_IN_NAME: &str = "Claude (kept signed in)";
-pub(crate) const COPY_SWITCHED_NAME: &str = "{label} (kept signed in)";
-pub(crate) const COPY_BROWSER_LOGIN_NOTE: &str =
-    "Browser login: shows every usage window, but can sign out when its refresh rotates.";
-pub(crate) const COPY_USE_BROWSER_LOGIN: &str = "Use browser login (Advanced)";
-pub(crate) const COPY_USE_KEEP_SIGNED_IN: &str = "Use Keep signed in";
-/// An older device's refusal of a long-lived Add (its
-/// `LONG_LIVED_NEEDS_PROFILE`): the dialog falls back to the browser login.
+const COPY_STATUS_RENEW: &str = "Persisted login ends soon";
+const COPY_RENEW_SOON: &str = "{label} · Persisted login ends soon";
+/// EXP-1626: Persist login, an option on an existing claude login (the
+/// fixture's copy): the menu entry, its renewal, the dialog's one muted
+/// line, and the preview header's line saying which login is active.
+pub(crate) const COPY_PERSIST_LOGIN: &str = "Persist login";
+pub(crate) const COPY_RENEW_PERSISTED_LOGIN: &str = "Renew persisted login";
+pub(crate) const COPY_PERSIST_NOTE: &str =
+    "Persist login keeps this account's runs signed in for 1 year, even if its browser login expires. We remind you to renew.";
+pub(crate) const COPY_PERSISTED_BROWSER: &str = "Persisted · usage from the browser login";
+pub(crate) const COPY_PERSISTED_TOKEN: &str = "Persisted · browser login expired, weekly usage only";
+/// An older device's refusal of a long-lived login with no profile (its
+/// `LONG_LIVED_NEEDS_PROFILE`). Fixture-locked only: no client falls back
+/// on it any more (EXP-1626: no client queues a long-lived Add).
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const COPY_LONG_LIVED_REFUSED: &str = "A long-lived login needs a Claude account on this machine.";
 /// EXP-1600: `fixture.keepSignedIn.renewWithinDays`.
 pub(crate) const KEEP_SIGNED_IN_RENEW_WITHIN_DAYS: i64 = 30;
@@ -287,29 +267,15 @@ pub(crate) const COPY_SETTINGS: &str = DEVICE_SETTINGS;
 pub(crate) const COPY_REMOVE_FROM_TEAM: &str = "Remove from this team";
 pub(crate) const COPY_MORE_ACCOUNTS: &str = "More accounts";
 
-/// EXP-1626 — the label of a login named `name` (a long-lived Add's): the
-/// name, else [`crate::usage_bar::login_label`].
-pub(crate) fn login_label_named(name: Option<&str>, login: &AgentProfileUsageRow) -> String {
-    name.map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(str::to_string)
-        .unwrap_or_else(|| crate::usage_bar::login_label(login))
-}
-
-/// EXP-1626 — the names a device row reported for its logins, keyed like
-/// [`AgentProfileUsageRow::key`] (`device:agent:profile`).
-pub(crate) fn device_login_names(row: &domain::rows::DeviceRow) -> std::collections::BTreeMap<String, String> {
-    let device_id = row.device_id.clone().unwrap_or_default();
-    crate::device_settings::parse_agent_map::<coding::AgentAccount>(row.agent_accounts.as_ref())
-        .into_iter()
-        .flat_map(|(agent, account)| {
-            let device_id = device_id.clone();
-            account.profiles.into_iter().filter_map(move |profile| {
-                let name = profile.name.as_deref().map(str::trim).filter(|name| !name.is_empty())?;
-                Some((format!("{device_id}:{agent}:{}", profile.id), name.to_string()))
-            })
-        })
-        .collect()
+/// EXP-1626 — the preview header's persisted line: `None` for a login with
+/// no token; else which login is active (`usageSource: "token"` = the
+/// browser login cannot serve the usage, the token's probe does).
+pub(crate) fn persisted_line(login: &AgentProfileUsageRow) -> Option<&'static str> {
+    login.token_expires_at.as_ref()?;
+    Some(match login.usage_from_token {
+        true => COPY_PERSISTED_TOKEN,
+        false => COPY_PERSISTED_BROWSER,
+    })
 }
 
 /// One login PROFILE a device reported (web `DeviceListLogin`).
@@ -355,10 +321,8 @@ pub(crate) enum LoginStatus {
     NeedsRelogin,
     SignedOut,
     Limit,
-    /// EXP-1600: the long-lived login ends within the renewal window.
+    /// EXP-1600/1626: the persisted login ends within the renewal window.
     Renew,
-    /// EXP-1600: a claude login made before Keep signed in was the default.
-    Switch,
 }
 
 impl LoginStatus {
@@ -370,7 +334,6 @@ impl LoginStatus {
             LoginStatus::SignedOut => "signed_out",
             LoginStatus::Limit => "limit",
             LoginStatus::Renew => "renew",
-            LoginStatus::Switch => "switch",
         }
     }
 
@@ -381,7 +344,6 @@ impl LoginStatus {
             LoginStatus::SignedOut => COPY_STATUS_SIGNED_OUT,
             LoginStatus::Limit => COPY_STATUS_LIMIT,
             LoginStatus::Renew => COPY_STATUS_RENEW,
-            LoginStatus::Switch => COPY_STATUS_SWITCH,
         }
     }
 }
@@ -402,22 +364,19 @@ pub(crate) enum AttentionKind {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AttentionAction {
     SignIn,
-    /// EXP-1600: the long-lived sign-in of that claude profile (renew, or
-    /// switch a browser login over).
+    /// EXP-1600/1626: renew the persisted login of that claude profile
+    /// (wire `keep_signed_in`; only the `renew` reminder carries it).
     KeepSignedIn,
     Update,
 }
 
 impl AttentionAction {
-    /// The pill's label; a `keep_signed_in` pill reads by the item's
-    /// `status` (`renew` = renew, else switch).
-    pub(crate) fn label(self, status: Option<LoginStatus>) -> &'static str {
+    /// The pill's label (EXP-1626: a `keep_signed_in` pill is always the
+    /// renewal, `copy.renewPersistedLogin`).
+    pub(crate) fn label(self) -> &'static str {
         match self {
             AttentionAction::SignIn => COPY_SIGN_IN,
-            AttentionAction::KeepSignedIn if status == Some(LoginStatus::Renew) => {
-                COPY_RENEW_KEEP_SIGNED_IN
-            }
-            AttentionAction::KeepSignedIn => COPY_SWITCH_TO_KEEP_SIGNED_IN,
+            AttentionAction::KeepSignedIn => COPY_RENEW_PERSISTED_LOGIN,
             AttentionAction::Update => COPY_UPDATE,
         }
     }
@@ -457,10 +416,11 @@ pub(crate) struct DeviceListRow {
 /// iOS / Android `DevicesList`) and replayed against every case of
 /// `devices-list.json`. Items in order: every `needs_relogin` login, every
 /// `signed_out` login, every OTHER login at its limit (never an action),
-/// then (own devices, EXP-1600) every OTHER claude login whose long-lived
-/// login is due for renewal, then every OTHER claude login holding none
-/// (both `keep_signed_in`, actionable on my online device), then the update
-/// line (the caller's own device only). A login yields at
+/// then (own devices, EXP-1600/1626) every OTHER claude login whose
+/// persisted login is due for renewal (`keep_signed_in`, actionable on my
+/// online device; a login WITHOUT a token is never an item: persisting is
+/// an option, not a prompt), then the update line (the caller's own device
+/// only). A login yields at
 /// most one item; an agent with no login PROFILE is not an item: it is not
 /// in `logins` at all.
 pub(crate) fn device_attention(input: &DeviceListInput) -> DeviceListRow {
@@ -496,37 +456,31 @@ pub(crate) fn device_attention(input: &DeviceListInput) -> DeviceListRow {
             action: None,
         });
     }
-    // EXP-1600: the yearly renewal reminder, then the switch prompt for a
-    // claude login made before Keep signed in became the default.
+    // EXP-1626: the yearly reminder of a PERSISTED login.
     if input.mine {
         let quiet = |login: &DeviceListLogin| {
             login.agent != coding::CodingAgent::Claude.id()
                 || matches!(login.health, Health::NeedsRelogin | Health::SignedOut)
                 || login.limit_hit
         };
-        for (status, template) in [
-            (LoginStatus::Renew, COPY_RENEW_SOON),
-            (LoginStatus::Switch, COPY_SWITCH_PROMPT),
-        ] {
-            for login in input.logins.iter().filter(|login| !quiet(login)) {
-                let expires = login.token_expires_at.as_deref().filter(|at| !at.is_empty());
-                let due = match status {
-                    LoginStatus::Renew => expires.is_some_and(|at| keep_signed_in_due(at, input.now)),
-                    _ => expires.is_none(),
-                };
-                if !due {
-                    continue;
-                }
-                attention.push(AttentionItem {
-                    kind: AttentionKind::Login {
-                        agent: login.agent.clone(),
-                        profile_id: login.profile_id.clone(),
-                        status,
-                    },
-                    text: template.replace("{label}", &login.label),
-                    action: can_sign_in.then_some(AttentionAction::KeepSignedIn),
-                });
+        for login in input.logins.iter().filter(|login| !quiet(login)) {
+            let due = login
+                .token_expires_at
+                .as_deref()
+                .filter(|at| !at.is_empty())
+                .is_some_and(|at| keep_signed_in_due(at, input.now));
+            if !due {
+                continue;
             }
+            attention.push(AttentionItem {
+                kind: AttentionKind::Login {
+                    agent: login.agent.clone(),
+                    profile_id: login.profile_id.clone(),
+                    status: LoginStatus::Renew,
+                },
+                text: COPY_RENEW_SOON.replace("{label}", &login.label),
+                action: can_sign_in.then_some(AttentionAction::KeepSignedIn),
+            });
         }
     }
     if input.mine {
@@ -970,7 +924,6 @@ impl MachinesSection {
                     .agent_accounts
                     .as_ref()
                     .is_some_and(|value| !value.is_null()),
-                login_names: device_login_names(row),
                 device_id,
             };
             if owned {
@@ -1071,38 +1024,28 @@ impl MachinesSection {
                     else {
                         continue;
                     };
-                    // `sign_in` = THE sign-in (claude: Keep signed in);
-                    // EXP-1600 `keep_signed_in` = switch / renew that
-                    // profile's long-lived login.
+                    // `sign_in` = THE (browser) sign-in; EXP-1626
+                    // `keep_signed_in` = renew that profile's persisted
+                    // login, in place.
                     let sign_in = item.action.map(|action| {
                         let agent = coding::CodingAgent::parse(agent);
                         let device_id = device.device_id.clone();
                         let device_label = device.label.clone();
                         let own = device.own;
                         let profile_id = profile_id.clone();
-                        // EXP-1626: a renewal stays in place; a switch adds a
-                        // profile named after this login's label.
-                        let renew = *status == LoginStatus::Renew;
-                        let account_label = device
-                            .logins
-                            .get(slot)
-                            .map(|login| device.login_label(login))
-                            .unwrap_or_default();
                         AttentionPill {
-                            label: action.label(Some(*status)),
+                            label: action.label(),
                             busy: false,
                             on_click: Some(Rc::new(move |window: &mut Window, cx: &mut App| {
                                 let Some(agent) = agent else {
                                     return;
                                 };
                                 if action == AttentionAction::KeepSignedIn {
-                                    crate::agent_login::keep_signed_in_on_device(
+                                    crate::agent_login::persist_login_on_device(
                                         device_id.clone(),
                                         device_label.clone(),
                                         own,
                                         profile_id.clone(),
-                                        renew,
-                                        &account_label,
                                         window,
                                         cx,
                                     );
@@ -1574,22 +1517,19 @@ fn row_tag(label: &'static str, cx: &App) -> gpui::Div {
 
 /// EXP-1560 — the account header the preview AND the login menu lead with:
 /// the email (else [`crate::usage_bar::login_label`]), the plan muted under
-/// it, the attention status in warning tone, then the usage windows.
-/// EXP-1626: a NAMED login (`name`, a long-lived Add's) leads with its name.
+/// it, EXP-1626's persisted line muted under that ([`persisted_line`]), the
+/// attention status in warning tone, then the usage windows.
 pub(crate) fn account_header(
     login: &AgentProfileUsageRow,
-    name: Option<&str>,
     status: Option<LoginStatus>,
     now_epoch: i64,
     cx: &App,
 ) -> gpui::Div {
-    let title = match name.map(str::trim).filter(|name| !name.is_empty()) {
-        Some(name) => name.to_string(),
-        None => login
-            .email
-            .clone()
-            .unwrap_or_else(|| crate::usage_bar::login_label(login)),
-    };
+    let title = login
+        .email
+        .clone()
+        .unwrap_or_else(|| crate::usage_bar::login_label(login));
+    let persisted = persisted_line(login);
     // The plan rides UNDER an address only: a title that already is the
     // plan must not print it twice.
     let plan = login.email.as_ref().and(login.plan.clone());
@@ -1614,6 +1554,9 @@ pub(crate) fn account_header(
                 .when_some(plan, |this, plan| {
                     this.child(div().text_xs().text_color(muted).child(SharedString::from(plan)))
                 })
+                .when_some(persisted, |this, line| {
+                    this.child(div().text_xs().text_color(muted).child(line))
+                })
                 .when_some(status, |this, status| {
                     this.child(
                         div()
@@ -1634,12 +1577,11 @@ pub(crate) fn account_header(
 pub(crate) fn account_preview(
     id: SharedString,
     login: &AgentProfileUsageRow,
-    name: Option<&str>,
     flag: Option<&LoginFlag>,
     now_epoch: i64,
     cx: &App,
 ) -> gpui::Div {
-    let header = account_header(login, name, flag.map(|flag| flag.status), now_epoch, cx);
+    let header = account_header(login, flag.map(|flag| flag.status), now_epoch, cx);
     let pill = flag.and_then(|flag| flag.sign_in.clone()).map(|pill| {
         let on_click = pill.on_click.clone();
         div().child(
@@ -1676,8 +1618,7 @@ fn account_icon(
         Some(agent) => crate::coding_selects::agent_mark(agent),
         None => Icon::new(registry::SETTINGS_AGENTS),
     };
-    let label = SharedString::from(device.login_label(login));
-    let name = device.login_name(login).map(str::to_string);
+    let label = SharedString::from(crate::usage_bar::login_label(login));
     let actions = if device.actionable() && !inert {
         chip_actions(
             login.signed_in,
@@ -1703,24 +1644,16 @@ fn account_icon(
             let profile_id = login.profile_id.clone();
             let account_label = label.clone();
             let header_login = login.clone();
-            let header_name = name.clone();
             button
                 .pointer_menu(move |menu, _window, cx| {
                     let header_login = header_login.clone();
-                    let header_name = header_name.clone();
                     // The same header the hover previews, at the menu's top.
                     let mut menu = menu
                         .item(
                             PopupMenuItem::element(move |_, cx| {
                                 div()
                                     .py_1()
-                                    .child(account_header(
-                                        &header_login,
-                                        header_name.as_deref(),
-                                        status,
-                                        now_epoch,
-                                        cx,
-                                    ))
+                                    .child(account_header(&header_login, status, now_epoch, cx))
                             })
                             .disabled(true),
                         )
@@ -1743,13 +1676,12 @@ fn account_icon(
                                 window,
                                 cx,
                             ),
-                            ChipAction::KeepSignedIn { renew } => crate::agent_login::keep_signed_in_on_device(
+                            // EXP-1626: persist (or renew) THIS profile, in place.
+                            ChipAction::Persist { .. } => crate::agent_login::persist_login_on_device(
                                 device_id.clone(),
                                 device_label.clone(),
                                 own,
                                 profile_id.clone(),
-                                renew,
-                                &account_label,
                                 window,
                                 cx,
                             ),
@@ -1808,14 +1740,7 @@ fn account_icon(
                 .p_2p5()
                 .trigger(trigger)
                 .content(move |_, _, cx| {
-                    account_preview(
-                        preview_id.clone(),
-                        &preview_login,
-                        name.as_deref(),
-                        flag.as_ref(),
-                        now_epoch,
-                        cx,
-                    )
+                    account_preview(preview_id.clone(), &preview_login, flag.as_ref(), now_epoch, cx)
                 }),
         )
         .when(badged, |this| {
@@ -1943,7 +1868,6 @@ mod tests {
             unauthed_agents: Vec::new(),
             logins: Vec::new(),
             accounts_reported: false,
-            login_names: Default::default(),
         }
     }
 
@@ -1965,33 +1889,42 @@ mod tests {
             health: coding::agent_accounts::Health::Ok,
             unmonitored: false,
             token_expires_at: None,
-            name: None,
+            usage_from_token: false,
         }
     }
 
-    /// EXP-1626: a login's label is its reported `name`, else its email,
-    /// else the no-email fallback; the names come off the device row's
-    /// `agentAccounts` profiles, keyed like the login rows.
+    /// EXP-1626: no profile names — a login's label is its email, else the
+    /// no-email fallback, whatever an older device still reports as `name`;
+    /// the device's `usageSource: "token"` reaches the row.
     #[test]
-    fn a_named_login_is_labelled_by_its_name() {
+    fn a_login_is_labelled_by_its_email_and_carries_its_usage_source() {
         let mut login = login_row(true, true);
-        let mut card = device(true, None);
-        assert_eq!(card.login_label(&login), coding::agent_accounts::NO_EMAIL_LABEL);
+        assert_eq!(crate::usage_bar::login_label(&login), coding::agent_accounts::NO_EMAIL_LABEL);
         login.email = Some("dev@acme.test".into());
-        assert_eq!(card.login_label(&login), "dev@acme.test");
+        assert_eq!(crate::usage_bar::login_label(&login), "dev@acme.test");
         let row: domain::rows::DeviceRow = serde_json::from_value(serde_json::json!({
             "id": "row-1",
             "device_id": "dev-1",
+            "user_id": "me",
             "agent_accounts": {"claude": {"signedIn": true, "checkedAt": "", "profiles": [
-                {"id": "0a1b2c3d", "signedIn": true, "checkedAt": "", "name": "Work"},
-                {"id": "0a1b2c3e", "signedIn": true, "checkedAt": "", "name": "  "}
+                {"id": "0a1b2c3d", "signedIn": true, "checkedAt": "", "name": "Work",
+                 "tokenExpiresAt": "2027-11-02T00:00:00.000Z", "usageSource": "token"},
+                {"id": "0a1b2c3e", "signedIn": true, "checkedAt": "", "email": "b@x.at",
+                 "tokenExpiresAt": "2027-11-02T00:00:00.000Z"},
+                {"id": "0a1b2c3f", "signedIn": true, "checkedAt": "", "email": "c@x.at"}
             ]}}
         }))
         .unwrap();
-        card.login_names = device_login_names(&row);
-        assert_eq!(card.login_names.len(), 1, "a blank name is no name");
-        assert_eq!(card.login_label(&login), "Work");
-        assert_eq!(card.login_name(&login), Some("Work"));
+        let rows = crate::usage_bar::agent_profile_usage_rows(&[row], "me", |_| true);
+        let by_id = |id: &str| rows.iter().find(|row| row.profile_id == id).unwrap();
+        assert_eq!(crate::usage_bar::login_label(by_id("0a1b2c3d")), coding::agent_accounts::NO_EMAIL_LABEL);
+        assert!(by_id("0a1b2c3d").usage_from_token);
+        assert!(!by_id("0a1b2c3e").usage_from_token);
+        // The preview header's persisted line (`copy.persistedToken` /
+        // `copy.persistedBrowser`), none without a token.
+        assert_eq!(persisted_line(by_id("0a1b2c3d")), Some(COPY_PERSISTED_TOKEN));
+        assert_eq!(persisted_line(by_id("0a1b2c3e")), Some(COPY_PERSISTED_BROWSER));
+        assert_eq!(persisted_line(by_id("0a1b2c3f")), None);
     }
 
     #[test]
@@ -2079,17 +2012,12 @@ mod tests {
             ("removeFromTeam", COPY_REMOVE_FROM_TEAM),
             ("moreAccounts", COPY_MORE_ACCOUNTS),
             ("renewSoon", COPY_RENEW_SOON),
-            ("switchPrompt", COPY_SWITCH_PROMPT),
-            ("switchToKeepSignedIn", COPY_SWITCH_TO_KEEP_SIGNED_IN),
-            ("renewKeepSignedIn", COPY_RENEW_KEEP_SIGNED_IN),
-            ("keepSignedInNote", COPY_KEEP_SIGNED_IN_NOTE),
-            ("browserLoginNote", COPY_BROWSER_LOGIN_NOTE),
-            ("useBrowserLogin", COPY_USE_BROWSER_LOGIN),
-            ("useKeepSignedIn", COPY_USE_KEEP_SIGNED_IN),
             ("longLivedRefused", COPY_LONG_LIVED_REFUSED),
-            ("accountName", COPY_ACCOUNT_NAME),
-            ("keptSignedInName", COPY_KEPT_SIGNED_IN_NAME),
-            ("switchedName", COPY_SWITCHED_NAME),
+            ("persistLogin", COPY_PERSIST_LOGIN),
+            ("renewPersistedLogin", COPY_RENEW_PERSISTED_LOGIN),
+            ("persistNote", COPY_PERSIST_NOTE),
+            ("persistedBrowser", COPY_PERSISTED_BROWSER),
+            ("persistedToken", COPY_PERSISTED_TOKEN),
         ] {
             assert_eq!(copy[key].as_str(), Some(ours), "copy.{key}");
         }
@@ -2098,7 +2026,6 @@ mod tests {
             LoginStatus::SignedOut,
             LoginStatus::Limit,
             LoginStatus::Renew,
-            LoginStatus::Switch,
         ] {
             assert_eq!(
                 copy["status"][status.wire()].as_str(),
@@ -2107,10 +2034,12 @@ mod tests {
                 status.wire()
             );
         }
-        assert_eq!(copy["status"].as_object().map(|status| status.len()), Some(5));
-        assert_eq!(copy.as_object().map(|copy| copy.len()), Some(30), "a new copy key");
-        // EXP-1626: the device's default name IS the placeholder.
-        assert_eq!(COPY_KEPT_SIGNED_IN_NAME, coding::agent_login::KEPT_SIGNED_IN_NAME);
+        assert_eq!(copy["status"].as_object().map(|status| status.len()), Some(4));
+        assert_eq!(copy.as_object().map(|copy| copy.len()), Some(25), "a new copy key");
+        assert_eq!(COPY_LONG_LIVED_REFUSED, coding::agent_login::LONG_LIVED_NEEDS_PROFILE);
+        // EXP-1626: the pills and the menu read the same copy.
+        assert_eq!(AttentionAction::KeepSignedIn.label(), COPY_RENEW_PERSISTED_LOGIN);
+        assert_eq!(crate::usage_bar::ChipAction::Persist { renew: false }.label(), COPY_PERSIST_LOGIN);
         assert_eq!(
             fixture["keepSignedIn"]["renewWithinDays"].as_i64(),
             Some(KEEP_SIGNED_IN_RENEW_WITHIN_DAYS)

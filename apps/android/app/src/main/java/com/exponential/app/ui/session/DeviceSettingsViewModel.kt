@@ -306,29 +306,23 @@ class DeviceSettingsViewModel @Inject constructor(
          * abandoned sign-in's late result never lands in another sheet.
          */
         profileId: String? = null,
-        /** EXP-1533: a long-lived claude login (`claude setup-token`). */
+        /** EXP-1533/EXP-1626: Persist login (`claude setup-token`) on [profileId]. */
         longLived: Boolean = false,
-        /** EXP-1626: the name a long-lived ADD gives its new profile. */
-        name: String? = null,
     ) {
         val key = agentLoginCommandKey(deviceId, agent, profileId)
-        // EXP-1626: a re-queue of the same sign-in (the mode toggle, the
-        // refused-Add fallback, a Retry) replaces the run before it: stop
+        // EXP-1626: a re-queue of the same sign-in (a reopen, a Retry) replaces the run before it: stop
         // following it, and stop it on the machine unless it already failed.
         val run = LoginRun()
         loginRuns.put(key, run)?.let { stopLoginRun(it, deviceId, agent) }
         run.job = issueCommand(
             key = key,
-            command = agentLoginCommand(deviceId, agent, switchAccount, profileId, longLived, name),
+            command = agentLoginCommand(deviceId, agent, switchAccount, profileId, longLived),
             deviceOnline = deviceOnline,
             verb = "start",
             thing = "the sign-in",
             // The toast's Retry re-queues the SAME login (long-lived included).
-            retry = { agentLogin(deviceId, agent, switchAccount, deviceOnline, profileId, longLived, name) },
-            // EXP-1600: an older device refusing a long-lived Add is no failure
-            // to toast: the sign-in sheet re-queues it as the browser login.
-            quiet = { longLived && profileId == null && isLongLivedRefused(it) },
-            // EXP-1626: the link + code of a slow machine's long-lived sign-in
+            retry = { agentLogin(deviceId, agent, switchAccount, deviceOnline, profileId, longLived) },
+            // EXP-1626: the link + code of a slow machine's sign-in
             // can take minutes; follow it as long as the machine itself would.
             pollDeadlineMs = LOGIN_POLL_DEADLINE_MS,
             onCreated = { id ->
@@ -443,8 +437,6 @@ class DeviceSettingsViewModel @Inject constructor(
         verb: String,
         thing: String,
         retry: (() -> Unit)? = null,
-        /** A failure the caller handles itself: no toast. */
-        quiet: (String) -> Boolean = { false },
         pollDeadlineMs: Long = COMMAND_POLL_DEADLINE_MS,
         onCreated: (String) -> Unit = {},
         /** Every transition, before it lands in [commandStates]. */
@@ -461,7 +453,7 @@ class DeviceSettingsViewModel @Inject constructor(
                 onCreated = onCreated,
             ) { state ->
                 onState(state)
-                if (state is DeviceCommandUiState.Failed && !quiet(state.message)) _failure.value = FailedAction(verb, thing, state.message, retry = retry)
+                if (state is DeviceCommandUiState.Failed) _failure.value = FailedAction(verb, thing, state.message, retry = retry)
                 if (state is DeviceCommandUiState.Done) {
                     markDone(key, state.message)
                 } else {

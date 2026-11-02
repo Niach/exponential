@@ -167,7 +167,7 @@ class AccountOptionTest {
 
     @Test
     fun `omits fiveHour for a login that reports no session window`() {
-        // EXP-1626: a Keep signed in login reports the weekly window alone.
+        // EXP-1626: a login fed by its persisted token reports the weekly window alone.
         assertEquals(
             AccountLimits(fiveHour = null, week = 0.3),
             AccountOptions.limitsOf(

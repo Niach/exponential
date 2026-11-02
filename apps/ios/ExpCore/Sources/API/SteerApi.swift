@@ -204,12 +204,12 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
     public let lastLoginAt: String?
     /// EXP-1533: when the profile's long-lived (`claude setup-token`) login
     /// expires (ISO), present only while the profile holds one — the chip
-    /// menu then offers "Renew long-lived login" instead of "Keep signed in".
+    /// menu then offers "Renew persisted login" instead of "Persist login".
     public let tokenExpiresAt: String?
-    /// EXP-1626: the NAME a long-lived Add gave this profile (a setup token
-    /// cannot name its account) — the login's label wherever it shows
-    /// (`AgentAccountsRows.loginLabel`).
-    public let name: String?
+    /// EXP-1626: where a persisted profile's usage comes from — `"token"`
+    /// once its browser login died and the token's weekly window stands in;
+    /// absent = the browser login (`AgentAccountsRows.persistedLine`).
+    public let usageSource: String?
 
     public init(
         id: String,
@@ -222,7 +222,7 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         health: String? = nil,
         lastLoginAt: String? = nil,
         tokenExpiresAt: String? = nil,
-        name: String? = nil
+        usageSource: String? = nil
     ) {
         self.id = id
         self.active = active
@@ -234,12 +234,12 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         self.health = health
         self.lastLoginAt = lastLoginAt
         self.tokenExpiresAt = tokenExpiresAt
-        self.name = name
+        self.usageSource = usageSource
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, active, signedIn, email, plan, checkedAt, usage, health, lastLoginAt
-        case tokenExpiresAt, name
+        case tokenExpiresAt, usageSource
     }
 
     /// Only the id is load-bearing; every other field degrades on its own so
@@ -256,7 +256,7 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         health = try? c.decodeIfPresent(String.self, forKey: .health)
         lastLoginAt = try? c.decodeIfPresent(String.self, forKey: .lastLoginAt)
         tokenExpiresAt = try? c.decodeIfPresent(String.self, forKey: .tokenExpiresAt)
-        name = try? c.decodeIfPresent(String.self, forKey: .name)
+        usageSource = try? c.decodeIfPresent(String.self, forKey: .usageSource)
     }
 }
 

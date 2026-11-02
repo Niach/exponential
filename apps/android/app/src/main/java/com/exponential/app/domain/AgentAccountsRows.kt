@@ -48,10 +48,11 @@ data class AgentProfileUsageRow(
     val usage: AgentUsage?,
     /** The "as of …" fallback when the usage is stale or absent. */
     val checkedAt: String?,
-    /** EXP-1533: the long-lived (claude `setup-token`) login's expiry, null = none. */
+    /** EXP-1533: the persisted (claude `setup-token`) login's expiry, null = none. */
     val tokenExpiresAt: String? = null,
-    /** EXP-1626: the name a long-lived Add gave the profile, null = none. */
-    val name: String? = null,
+    /** EXP-1626: `token` = the persisted login's usage comes from its token
+     *  (the browser login expired); null = from the browser login. */
+    val usageSource: String? = null,
 )
 
 object AgentAccountsRows {
@@ -185,7 +186,7 @@ object AgentAccountsRows {
                     checkedAt = nonEmpty(profile.checkedAt) ?: nonEmpty(account.checkedAt)
                         ?: nonEmpty(usageAt),
                     tokenExpiresAt = nonEmpty(profile.tokenExpiresAt),
-                    name = nonEmpty(profile.name),
+                    usageSource = nonEmpty(profile.usageSource),
                 )
             }
         }
@@ -208,15 +209,14 @@ object AgentAccountsRows {
     }
 
     /**
-     * EXP-909: a login row's identity line — WHO the login is: EXP-1626 its
-     * name (a long-lived Add's), else its email, else the bare plan an agent
-     * reports instead of an address ([accountName]).
+     * EXP-909: a login row's identity line — WHO the login is: its email, else
+     * the bare plan an agent reports instead of an address ([accountName]).
      *
      * NEVER a status (EXP-862's rule, kept): the health badge beside it is the
      * single signed-out notice, and the brand mark says which agent. The device
      * is not in it either — the row it sits under already named the machine.
      */
-    fun loginLabel(row: AgentProfileUsageRow): String = accountName(row.email, row.plan, row.name)
+    fun loginLabel(row: AgentProfileUsageRow): String = accountName(row.email, row.plan)
 
     /** EXP-1013: what a login with no known address and no plan is called. ×4. */
     const val NO_EMAIL_LABEL = "No email"
@@ -226,12 +226,10 @@ object AgentAccountsRows {
      * sheets; ×4 `accountName`): its EMAIL, signed in or not (the device keeps
      * the last address a signed-out login answered with). An agent that
      * reports no address (codex's API-key login) is named by its plan; a login
-     * nobody ever signed in to is "No email". EXP-1626: a NAME the device
-     * reports (a long-lived Add's — a setup token cannot name its account)
-     * comes before all of them.
+     * nobody ever signed in to is "No email". A login has no other name.
      */
-    fun accountName(email: String?, plan: String?, name: String? = null): String =
-        nonEmpty(name) ?: nonEmpty(email) ?: nonEmpty(plan) ?: NO_EMAIL_LABEL
+    fun accountName(email: String?, plan: String?): String =
+        nonEmpty(email) ?: nonEmpty(plan) ?: NO_EMAIL_LABEL
 
     /**
      * EXP-849/EXP-909: a login row's health badge, or null when there is
@@ -247,14 +245,15 @@ object AgentAccountsRows {
     const val ACTION_REMOVE = "Remove account"
 
     /**
-     * EXP-1533/EXP-1600: a claude login's long-lived sign-in (`claude
-     * setup-token`, one year; the DEFAULT claude sign-in since EXP-1600) —
-     * "Switch to Keep signed in" until the row carries `tokenExpiresAt`, then
-     * "Renew Keep signed in" (`devices-list.json` copy). The same remote
-     * sign-in sheet as [ACTION_SIGN_IN], queuing `agent_login` with `longLived`.
+     * EXP-1533/EXP-1626: "Persist login" — an OPTION on an existing signed-in
+     * claude login: a one-year `claude setup-token` attached to THAT profile.
+     * "Persist login" until the row carries `tokenExpiresAt`, then "Renew
+     * persisted login" (`devices-list.json` copy). The same remote sign-in
+     * sheet as [ACTION_SIGN_IN], queuing `agent_login` with `longLived` and
+     * the profile's id.
      */
-    const val ACTION_SWITCH_TO_KEEP_SIGNED_IN = DevicesList.Copy.SWITCH_TO_KEEP_SIGNED_IN
-    const val ACTION_RENEW_KEEP_SIGNED_IN = DevicesList.Copy.RENEW_KEEP_SIGNED_IN
+    const val ACTION_PERSIST_LOGIN = DevicesList.Copy.PERSIST_LOGIN
+    const val ACTION_RENEW_PERSISTED_LOGIN = DevicesList.Copy.RENEW_PERSISTED_LOGIN
 
     /** The agent whose logins offer the long-lived sign-in (EXP-1533). */
     private const val LONG_LIVED_AGENT = DevicesList.KEEP_SIGNED_IN_AGENT
@@ -263,9 +262,8 @@ object AgentAccountsRows {
      * EXP-862: what a login's chip menu offers, on a machine row or on an
      * account row — the SAME rule on every client, in this fixed order:
      *  - signed out, or a credential that expired here: a sign-in first;
-     *  - EXP-1600, a claude login that does NOT sign in: switch it to Keep
-     *    signed in (or renew the long-lived login it already holds) — a
-     *    claude Sign in already IS Keep signed in;
+     *  - EXP-1626, a claude login that does NOT sign in: persist it (or renew
+     *    the persisted login it already holds);
      *  - EXP-1137, signed in: sign it out (the row stays);
      *  - remove: any login.
      *
@@ -287,15 +285,31 @@ object AgentAccountsRows {
         if (signsIn) out += ACTION_SIGN_IN
         if (agent == LONG_LIVED_AGENT && !signsIn) {
             out += if (nonEmpty(tokenExpiresAt) != null) {
-                ACTION_RENEW_KEEP_SIGNED_IN
+                ACTION_RENEW_PERSISTED_LOGIN
             } else {
-                ACTION_SWITCH_TO_KEEP_SIGNED_IN
+                ACTION_PERSIST_LOGIN
             }
         }
         if (signedIn) out += ACTION_SIGN_OUT
         out += ACTION_REMOVE
         return out
     }
+
+    /**
+     * EXP-1626: the preview header's muted line under the plan for a PERSISTED
+     * login (one with `tokenExpiresAt`): which login feeds its usage —
+     * `copy.persistedToken` when the device reports `usageSource: token`
+     * (the browser login expired), else `copy.persistedBrowser`. Null without
+     * a token.
+     */
+    fun persistedLine(row: AgentProfileUsageRow): String? = when {
+        nonEmpty(row.tokenExpiresAt) == null -> null
+        row.usageSource == USAGE_SOURCE_TOKEN -> DevicesList.Copy.PERSISTED_TOKEN
+        else -> DevicesList.Copy.PERSISTED_BROWSER
+    }
+
+    /** EXP-1626: the profile `usageSource` of a persisted login fed by its token. */
+    const val USAGE_SOURCE_TOKEN = "token"
 
     /** [chipActions] for an account row's machine chip. */
     fun chipActions(row: AgentProfileUsageRow): List<String> =

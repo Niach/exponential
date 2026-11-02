@@ -49,7 +49,7 @@ class DevicesListTest {
         assertEquals(int("iconSize"), DevicesList.Card.ICON_SIZE)
         assertEquals(int("markSize"), DevicesList.Card.MARK_SIZE)
         assertEquals(int("maxAccountIcons"), DevicesList.Card.MAX_ACCOUNT_ICONS)
-        // EXP-1600: the Keep signed in reminder window.
+        // EXP-1626: the persisted login reminder window.
         assertEquals(
             fixture.getValue("keepSignedIn").jsonObject.getValue("renewWithinDays").jsonPrimitive.content.toInt(),
             DevicesList.KeepSignedIn.RENEW_WITHIN_DAYS,
@@ -135,5 +135,17 @@ class DevicesListTest {
         assertFalse(DevicesList.keepSignedInDue("2026-12-02T12:00:00.000Z", now))
         assertTrue(DevicesList.keepSignedInDue("2026-10-01T00:00:00.000Z", now))
         assertTrue(DevicesList.keepSignedInDue("garbage", now))
+    }
+
+    // EXP-1626: the renewal reminder's pill is the persist sign-in's Renew.
+    @Test
+    fun renewPillLabel() {
+        val item = DevicesList.AttentionItem(
+            kind = DevicesList.Kind.Login,
+            text = "",
+            action = DevicesList.Action.KeepSignedIn,
+            status = DevicesList.Status.Renew,
+        )
+        assertEquals("Renew persisted login", DevicesList.actionLabel(item))
     }
 }

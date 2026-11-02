@@ -219,12 +219,17 @@ pub struct AgentProfileEntry {
     /// expired or not; clients offer "Renew long-lived login" on it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_expires_at: Option<String>,
-    /// EXP-1626: the name a long-lived Add gave this profile
-    /// ([`crate::agent_profiles::AgentProfile::name`]); clients label the
-    /// login by it before its email.
+    /// EXP-1626: `"token"` when this login's reported usage comes from its
+    /// PERSISTED token's probe because the browser login cannot serve it
+    /// (its refresh grant died, the endpoint refuses it, or there is none);
+    /// absent while the browser login feeds the usage. Clients say which one
+    /// is active under the plan ([`USAGE_SOURCE_TOKEN`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
+    pub usage_source: Option<String>,
 }
+
+/// EXP-1626: the one [`AgentProfileEntry::usage_source`] value.
+pub const USAGE_SOURCE_TOKEN: &str = "token";
 
 impl AgentProfileEntry {
     /// The account half of this row, as the top-level shape.

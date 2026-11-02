@@ -223,6 +223,13 @@ pub struct AgentCacheEntry {
     /// profile) and by a sign-in commit ([`forget_profile`]).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub relogin_required: bool,
+    /// EXP-1626 — the numbers in [`Self::usage`] came from the PERSISTED
+    /// token's probe (`claude_token::probe_usage`) because the browser login
+    /// could not serve them; the heartbeat reports the login's
+    /// `usageSource: "token"`. Set and cleared only by a read that produced
+    /// windows (a live frame never moves it).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub usage_from_token: bool,
     /// When the ENDPOINT is next owed a poll while a PARTIAL live publisher
     /// (claude's `rate_limit_event`) answers for this login. Unix seconds;
     /// `None` = owed now. Live applies stamp `fetched_at_secs` and

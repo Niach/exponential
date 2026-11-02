@@ -137,7 +137,8 @@ final class AccountOptionTests: XCTestCase {
     }
 
     func testOmitsFiveHourForALoginThatReportsNoSessionWindow() {
-        // EXP-1626: a Keep signed in login reports the weekly window alone.
+        // EXP-1626: a login whose usage comes from its persisted token
+        // reports the weekly window alone.
         let options = AccountOptions.flatten(
             accounts: [
                 "claude": AgentAccount(

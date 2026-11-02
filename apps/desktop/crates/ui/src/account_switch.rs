@@ -562,7 +562,7 @@ mod tests {
             health,
             unmonitored: false,
             token_expires_at: None,
-            name: None,
+            usage_from_token: false,
         }
     }
 

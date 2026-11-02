@@ -31,7 +31,7 @@
 // `week` = the `weekly` window, `model` = the FIRST per-model window
 // (`label` = the model's name, `used` = its fraction). A login with no usage
 // report has no `limits` at all. EXP-1626: a login that reports no `session`
-// window (a Keep signed in login: weekly only) has no `fiveHour` either, so
+// window (a persisted login on its token: weekly only) has no `fiveHour` either, so
 // no empty 5h bar is drawn for it.
 //
 // Hand-mirrored ×4 against the same fixture and the same test names:

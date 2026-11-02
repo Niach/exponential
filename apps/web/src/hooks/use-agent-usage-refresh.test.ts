@@ -38,6 +38,7 @@ function row(overrides: Partial<AgentProfileUsageRow> = {}): AgentProfileUsageRo
     unmonitored: false,
     checkedAt: null,
     tokenExpiresAt: null,
+    usageSource: null,
     ...overrides,
   }
 }

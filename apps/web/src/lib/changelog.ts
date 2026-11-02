@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-02-persist-login`,
+    date: `2026-11-02`,
+    title: `Persist login`,
+    summary: `Claude sign-ins use the browser login again, and any Claude account can now persist its login for a year.`,
+    body: `- **Browser login again**: adding or signing in a Claude account uses the browser login, which shows every usage window and names the account.
+- **Persist login**: on a signed-in Claude account, Persist login keeps its runs signed in for a year, even if the browser login expires. Nothing to name or type.
+- **What's active**: an account's card says whether usage comes from the browser login or, once that expired, from the persisted login.
+- **Still fixed**: sign-ins from your phone get their link and code field, and an unfinished sign-in stops on the machine.`,
+  },
+  {
     id: `2026-11-02-keep-signed-in-fixed`,
     date: `2026-11-02`,
     title: `Keep signed in, fixed`,

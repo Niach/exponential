@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest"
 import {
   deviceAccountLogin,
+  PERSIST_CLAUDE_ONLY,
+  PERSIST_NEEDS_PROFILE,
   type DeviceAccountLoginDeps,
   type DeviceCommandRow,
 } from "./device-account-login"
@@ -43,7 +45,6 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
       kind: `agent_login`,
       agent: `claude`,
       switch: false,
-      longLived: true,
     })
     expect(result).toMatchObject({
       status: `url`,
@@ -60,8 +61,9 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
     expect(resign.created[0]).toMatchObject({ profileId: `p1` })
   })
 
-  // EXP-1533: "Keep signed in" — the same command, flagged long-lived.
-  it(`passes longLived through to the command`, async () => {
+  // EXP-1626: Persist login — the same command for an existing profile,
+  // flagged long-lived.
+  it(`passes longLived through for an existing profile`, async () => {
     const keep = deps([{ status: `done`, result: URL_RESULT }])
     await deviceAccountLogin(
       { deviceId: `dev`, agent: `claude`, profileId: `p1`, longLived: true },
@@ -77,51 +79,28 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
     })
   })
 
-  // EXP-1600: Keep signed in is claude's default; false = the browser login;
-  // codex never carries the flag.
-  it(`defaults claude to the long-lived login, never codex`, async () => {
+  // EXP-1626: the browser login is the default; longLived without a profile
+  // (or on codex) is refused before any device command.
+  it(`defaults to the browser login and refuses a persist without a profile`, async () => {
     const add = deps([{ status: `done`, result: URL_RESULT }])
     await deviceAccountLogin({ deviceId: `dev`, agent: `claude` }, add.built)
-    expect(add.created[0]).toEqual({
-      deviceId: `dev`,
-      kind: `agent_login`,
-      agent: `claude`,
-      switch: false,
-      longLived: true,
-    })
+    expect(add.created[0]).not.toHaveProperty(`longLived`)
     const browser = deps([{ status: `done`, result: URL_RESULT }])
     await deviceAccountLogin({ deviceId: `dev`, agent: `claude`, longLived: false }, browser.built)
     expect(browser.created[0]).not.toHaveProperty(`longLived`)
+    const noProfile = deps([{ status: `done`, result: URL_RESULT }])
+    await expect(
+      deviceAccountLogin({ deviceId: `dev`, agent: `claude`, longLived: true }, noProfile.built)
+    ).rejects.toThrow(PERSIST_NEEDS_PROFILE)
+    expect(noProfile.created).toEqual([])
     const codex = deps([{ status: `done`, result: URL_RESULT }])
-    await deviceAccountLogin({ deviceId: `dev`, agent: `codex` }, codex.built)
-    expect(codex.created[0]).not.toHaveProperty(`longLived`)
-  })
-
-  // EXP-1626: a long-lived ADD names the profile it makes; a re-login, the
-  // browser login and codex never carry a name.
-  it(`passes name through for a long-lived add only`, async () => {
-    const add = deps([{ status: `done`, result: URL_RESULT }])
-    await deviceAccountLogin({ deviceId: `dev`, agent: `claude`, name: ` Work ` }, add.built)
-    expect(add.created[0]).toEqual({
-      deviceId: `dev`,
-      kind: `agent_login`,
-      agent: `claude`,
-      switch: false,
-      longLived: true,
-      name: `Work`,
-    })
-    for (const input of [
-      { profileId: `p1` },
-      { longLived: false },
-      { agent: `codex` },
-    ]) {
-      const other = deps([{ status: `done`, result: URL_RESULT }])
-      await deviceAccountLogin(
-        { deviceId: `dev`, agent: `claude`, name: `Work`, ...input },
-        other.built
+    await expect(
+      deviceAccountLogin(
+        { deviceId: `dev`, agent: `codex`, profileId: `p1`, longLived: true },
+        codex.built
       )
-      expect(other.created[0]).not.toHaveProperty(`name`)
-    }
+    ).rejects.toThrow(PERSIST_CLAUDE_ONLY)
+    expect(codex.created).toEqual([])
   })
 
   it(`hands back the commandId when the machine has not answered in time`, async () => {
