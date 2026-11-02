@@ -93,6 +93,9 @@ const CAPS = [
   `automations`,
   `resume-run`,
   `agent-login`,
+  // EXP-1583: the composer "+" menu's Computer use row (contract
+  // `computerUseCap`).
+  `computer-use-run`,
 ]
 
 const RECONNECT_MS = 2_000

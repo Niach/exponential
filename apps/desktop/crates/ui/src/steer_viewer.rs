@@ -8124,7 +8124,7 @@ impl SteerSessionView {
     /// A running session never moves device here; the work rows belong to a
     /// start.
     fn render_plus_menu(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
-        use crate::chat_screen::{composer_menu_rows, titled_row, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
+        use crate::chat_screen::{composer_menu_rows, ComposerMenuConditions, ComposerMenuRow as Row, ComposerSurface};
         let view = cx.entity().downgrade();
         let session_id = self.session_id.to_string();
         let surface = if self.row.as_ref().and_then(|row| row.agent_id.as_deref()).is_some_and(|id| !id.is_empty()) {
@@ -8259,7 +8259,7 @@ impl SteerSessionView {
                             continue;
                         };
                         let value = crate::account_switch::current_caption(&targets);
-                        menu.submenu_with_icon(row.icon().map(Icon::new), titled_row(row, value), window, cx, move |mut sub, _, _| {
+                        menu.submenu_with_value(row.icon().map(Icon::new), row.label(), value, window, cx, move |mut sub, _, _| {
                             let agent = context.agent;
                             for target in &targets {
                                 let session_id = context.session_id.clone();
@@ -8298,7 +8298,7 @@ impl SteerSessionView {
                         let picked = model_picked.clone();
                         let view = view.clone();
                         let session_id = session_id.clone();
-                        menu.submenu_with_icon(row.icon().map(Icon::new), titled_row(row, Some(value)), window, cx, move |mut sub, _, _| {
+                        menu.submenu_with_value(row.icon().map(Icon::new), row.label(), Some(value), window, cx, move |mut sub, _, _| {
                             for (label, value) in models {
                                 let view = view.clone();
                                 let session_id = session_id.clone();

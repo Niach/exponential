@@ -2893,9 +2893,8 @@ impl ComposerMenuConditions {
             account: temporary,
             model: temporary,
             repositories: repositories > 1,
-            // NEW-39: like web's composer-plus-menu (EXP-1293), `sessions.send`
-            // carries no subagent model, so the Subagents row hides.
-            subagent_model: false,
+            // EXP-1583: `sessions.send` carries it; claude only.
+            subagent_model: options.subagent_picked.is_some(),
             ultracode: options.ultracode.is_some(),
             mcp: !options.mcp_servers.is_empty(),
             computer_use: options.computer_use.is_some(),
@@ -2987,15 +2986,6 @@ impl RunnerMenu {
             .and_then(|id| self.repos.iter().find(|repo| repo.id == id))
             .or_else(|| self.repos.first())
             .map(|repo| repo.full_name.clone())
-    }
-}
-
-/// A runner submenu's title: the row's word, then ` · value` when one is
-/// picked (the fixture: value = the picked label).
-pub(crate) fn titled_row(row: ComposerMenuRow, value: Option<String>) -> String {
-    match value {
-        Some(value) if !value.is_empty() => format!("{} · {value}", row.label()),
-        _ => row.label().to_string(),
     }
 }
 
@@ -3105,9 +3095,10 @@ pub(crate) fn plus_menu(
                 let devices = runner.devices.clone();
                 let picked = runner.device_picked.clone();
                 let view = view.clone();
-                menu.submenu_with_icon(
+                menu.submenu_with_value(
                     Some(row.menu_icon()),
-                    titled_row(row, runner.device_value()),
+                    row.label(),
+                    runner.device_value(),
                     window,
                     cx,
                     move |mut sub, _, _| {
@@ -3137,9 +3128,10 @@ pub(crate) fn plus_menu(
                 let accounts = runner.accounts.clone();
                 let picked = runner.account_picked.clone();
                 let view = view.clone();
-                menu.submenu_with_icon(
+                menu.submenu_with_value(
                     Some(row.menu_icon()),
-                    titled_row(row, runner.account_value()),
+                    row.label(),
+                    runner.account_value(),
                     window,
                     cx,
                     move |mut sub, _, _| {
@@ -3177,9 +3169,10 @@ pub(crate) fn plus_menu(
                 let models = runner.models;
                 let picked = runner.model_picked.clone();
                 let view = view.clone();
-                menu.submenu_with_icon(
+                menu.submenu_with_value(
                     Some(row.menu_icon()),
-                    titled_row(row, runner.model_value()),
+                    row.label(),
+                    runner.model_value(),
                     window,
                     cx,
                     move |mut sub, _, _| {
@@ -3204,9 +3197,10 @@ pub(crate) fn plus_menu(
                 let repos = runner.repos.clone();
                 let picked = runner.repo_picked.clone().or_else(|| repos.first().map(|repo| repo.id.clone()));
                 let view = view.clone();
-                menu.submenu_with_icon(
+                menu.submenu_with_value(
                     Some(row.menu_icon()),
-                    titled_row(row, runner.repo_value()),
+                    row.label(),
+                    runner.repo_value(),
                     window,
                     cx,
                     move |mut sub, _, _| {
@@ -3230,12 +3224,15 @@ pub(crate) fn plus_menu(
             }
             (_, None) => menu,
             (ComposerMenuRow::Effort, Some(options)) => {
-                let effort_title = format!("{} · {}", options.effort_label, options.effort_value());
+                let effort_label = SharedString::from(options.effort_label);
+                let effort_value = SharedString::from(options.effort_value());
                 if options.effort_locked {
                     // Ultracode IS the effort level: the row says so and opens nothing.
-                    let label = SharedString::from(effort_title);
                     menu.item(
-                        PopupMenuItem::element(move |_, cx| menu_row(None, label.clone(), None, true, cx))
+                        PopupMenuItem::element(move |_, cx| {
+                            let value = menu_row_value(Some(effort_value.clone()), false, cx);
+                            menu_row(None, effort_label.clone(), Some(value), true, cx)
+                        })
                             .disabled(true)
                             .icon(row.menu_icon()),
                     )
@@ -3243,9 +3240,10 @@ pub(crate) fn plus_menu(
                     let choices = options.effort_choices;
                     let picked = options.effort_picked.clone();
                     let view = view.clone();
-                    menu.submenu_with_icon(
+                    menu.submenu_with_value(
                         Some(row.menu_icon()),
-                        effort_title,
+                        effort_label,
+                        Some(effort_value),
                         window,
                         cx,
                         move |mut sub, _, _| {
@@ -3271,9 +3269,10 @@ pub(crate) fn plus_menu(
                     continue;
                 };
                 let view = view.clone();
-                menu.submenu_with_icon(
+                menu.submenu_with_value(
                     Some(row.menu_icon()),
-                    format!("{MENU_SUBAGENTS} · {value}"),
+                    MENU_SUBAGENTS,
+                    Some(value),
                     window,
                     cx,
                     move |mut sub, _, _| {

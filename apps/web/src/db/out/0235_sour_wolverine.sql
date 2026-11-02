@@ -1,0 +1,1 @@
+ALTER TABLE "sessions" ADD COLUMN "subagent_model" varchar(64);

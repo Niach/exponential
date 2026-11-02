@@ -10,6 +10,7 @@ import {
   githubBudgetLowForToken,
   isGithubRateLimited,
 } from "@/lib/integrations/github-client"
+import { repairPullRequestChecksIfStale } from "@/lib/integrations/pr-checks"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
 import {
   applyPullRequestBase,
@@ -131,6 +132,15 @@ export async function runPrPollPass(now: Date = new Date()): Promise<void> {
             break
           case `none`:
             break
+        }
+        // EXP-1608: no webhooks reach a polling instance, so no check_run
+        // either: a still-open PR whose checks are unsettled (or were read at
+        // an older head) is repaired here, inside the same budget back-off.
+        // A missing checks:read is negative-cached per installation in
+        // pr-checks, so it costs nothing after the first refusal.
+        if (state.state === `open` && !state.merged && (LIVE_PR_STATES as readonly string[]).includes(row.state)) {
+          if (githubBudgetLowForToken(token)) backedOff++
+          else await repairPullRequestChecksIfStale(row.id, state.headSha ?? null)
         }
       } catch (err) {
         if (isGithubRateLimited(err)) {

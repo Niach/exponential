@@ -216,9 +216,10 @@ fn same_text(got: &str, expected: &str) -> Result<(), String> {
     }
 }
 
-/// VAPP-189 `records-query.json`: parseCases, sourceCases, valueCases.
+/// VAPP-189 `records-query.json`: parseCases, sourceCases, valueCases;
+/// VAPP-190 jsonCases, bucketCases, expandCases.
 pub fn records_query_cases() -> Vec<Case> {
-    use eui_core::host::{parse_records_query, parse_records_source, records_value_owned, RecordRow, RecordsContext};
+    use eui_core::host::{expand_query_source, parse_records_json, parse_records_query, parse_records_source, records_value_owned, RecordRow, RecordsContext};
     use std::collections::{BTreeMap, HashMap};
     let f = fixture("records-query.json");
     let params_of = |c: &Value| -> BTreeMap<String, String> { serde_json::from_value(c["params"].clone()).unwrap() };
@@ -231,8 +232,25 @@ pub fn records_query_cases() -> Vec<Case> {
         let got = parse_source(c["source"].as_str().unwrap()).and_then(|s| parse_records_source(&s));
         out.push((format!("source: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
     }
+    for c in list(&f, "jsonCases") {
+        let (query, issues) = parse_records_json(&c["query"], c["kind"].as_str());
+        let got = serde_json::json!({"query": to_value(&query), "issues": to_value(&issues)});
+        out.push((format!("json: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+    }
+    for c in list(&f, "bucketCases") {
+        let bucket = eui_core::dates::DateBucket::parse(c["bucket"].as_str().unwrap()).unwrap();
+        let got = eui_core::dates::date_bucket(c["date"].as_str().unwrap(), bucket);
+        out.push((format!("bucket: {} by {}", c["date"], c["bucket"]), same(&to_value(&got), &c["expected"])));
+    }
+    for c in list(&f, "expandCases") {
+        let got = expand_query_source(c["source"].as_str().unwrap(), c.get("queries"));
+        out.push((format!("expand: {}", c["name"].as_str().unwrap()), same_text(&got, c["expected"].as_str().unwrap())));
+    }
     for c in list(&f, "valueCases") {
-        let query = parse_records_query(&params_of(c), c["kind"].as_str());
+        let query = match c.get("query") {
+            Some(json) => parse_records_json(json, c["kind"].as_str()).0,
+            None => parse_records_query(&params_of(c), c["kind"].as_str()),
+        };
         let rows: Vec<RecordRow> = serde_json::from_value(c["rows"].clone()).unwrap();
         let names: HashMap<String, String> = serde_json::from_value(c["names"].clone()).unwrap();
         let ctx = RecordsContext { me: c["me"].as_str(), now: c["now"].as_str().unwrap(), names: &names };

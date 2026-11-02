@@ -173,6 +173,7 @@ describe(`fetchPullState`, () => {
           merged: true,
           merged_by: { login: `octocat`, id: 1 },
           base: { ref: `exp/EXP-314` },
+          head: { sha: `abc123` },
         })
       )
     )
@@ -182,6 +183,7 @@ describe(`fetchPullState`, () => {
       mergedBy: { login: `octocat`, id: 1 },
       baseRef: `exp/EXP-314`,
       mergeCommitSha: null,
+      headSha: `abc123`,
     })
   })
 
@@ -196,6 +198,7 @@ describe(`fetchPullState`, () => {
       mergedBy: null,
       baseRef: null,
       mergeCommitSha: null,
+      headSha: null,
     })
   })
 })

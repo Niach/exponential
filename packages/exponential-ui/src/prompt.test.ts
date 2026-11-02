@@ -1,6 +1,7 @@
 // VAPP-85: the model-facing prompt and its budget on record.
 
 import { describe, expect, test } from "bun:test"
+import { EXPRESSION_CALL_NAMES } from "./cel"
 import budget from "../fixtures/prompt-budget.json" with { type: "json" }
 import extensionFixture from "../fixtures/catalog-extension.json" with { type: "json" }
 import { CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, componentNames, coreCatalog } from "./catalog"
@@ -34,7 +35,9 @@ describe(`catalog prompt`, () => {
     // Round 4: every function with its arguments, the action shapes, updateDataModel, filter, token-only colours.
     for (const needle of [`Functions ({call, args}`, `regex(value:str,pattern:str)→bool`, `filter(items:array,query:str,fields:array,where:obj)→array`, `set(path:str,value:any)→void`, `{event: {name, context?}}`, `{functionCall: {call, args}}`, `updateDataModel{surfaceId, path, value}`, `never #hex`, `closes the Dialog or Drawer`, `app.toast`])
       expect(full, needle).toContain(needle)
-    for (const name of coreCatalog.functions.names) expect(full, name).toMatch(new RegExp(`[ (]${name}\\(`))
+    // VAPP-191: same signatures share an entry (add|sub(…)); the expression
+    // functions are reached through expr (the apps catalog lists them).
+    for (const name of coreCatalog.functions.names) if (name === `expr` || !EXPRESSION_CALL_NAMES.includes(name)) expect(full, name).toMatch(new RegExp(`[ (|]${name}[|(]`))
   })
 
   test(`the lite prompt drops overlays, media, Chart, data tables and the rarer controls`, () => {

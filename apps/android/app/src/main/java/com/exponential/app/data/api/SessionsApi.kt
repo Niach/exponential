@@ -37,6 +37,8 @@ data class SessionsSendInput(
     val effort: String? = null,
     val computerUse: Boolean? = null,
     val ultracode: Boolean? = null,
+    /** EXP-1583: claude only — the model its subagents run on. */
+    val subagentModel: String? = null,
     val mcpServerIds: List<String>? = null,
     // The message.
     val text: String? = null,
@@ -77,6 +79,7 @@ data class SessionsSendInput(
             effort: String? = null,
             computerUse: Boolean? = null,
             ultracode: Boolean? = null,
+            subagentModel: String? = null,
             mcpServerIds: List<String>? = null,
         ): SessionsSendInput = SessionsSendInput(
             teamId = teamId,
@@ -87,6 +90,7 @@ data class SessionsSendInput(
             effort = effort,
             computerUse = computerUse,
             ultracode = ultracode,
+            subagentModel = subagentModel?.takeIf { it.isNotEmpty() },
             mcpServerIds = mcpServerIds?.takeIf { it.isNotEmpty() },
             text = text?.takeIf { it.isNotBlank() },
             attachmentIds = attachmentIds?.takeIf { it.isNotEmpty() },

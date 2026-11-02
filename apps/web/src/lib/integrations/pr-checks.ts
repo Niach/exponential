@@ -14,7 +14,12 @@ import {
 import { db } from "@/db/connection"
 import { messages, pullRequestChecks, pullRequests, repositories, sessions } from "@/db/schema"
 import { githubApiHeaders, resolveRepoInstallationToken } from "@/lib/integrations/github-app"
-import { githubFetch, isGithubRateLimited } from "@/lib/integrations/github-client"
+import {
+  githubBudgetKey,
+  githubFetch,
+  type GithubClientDeps,
+  isGithubRateLimited,
+} from "@/lib/integrations/github-client"
 import { insertMessage, inSession } from "@/lib/sessions/messages"
 import type { Tx } from "@/lib/sessions/tx"
 import { generateTxId } from "@/lib/trpc"
@@ -365,6 +370,9 @@ export async function pullRequestsForCheck(opts: {
 const requiredCache = new TtlPromiseCache<Set<string>>({ ttlMs: 10 * 60_000, maxEntries: 500 })
 
 export function requiredChecksFor(repoFullName: string, base: string, token: string): Promise<Set<string>> {
+  // No checks readable on this installation = no checks known: which of them
+  // would be required does not matter, so its two reads are not spent.
+  if (checksDenied(token)) return Promise.resolve(new Set())
   return requiredCache.get(`${repoFullName}#${base}`, async () => {
     const names = new Set<string>()
     const branch = encodeURIComponent(base)
@@ -396,36 +404,91 @@ export function requiredChecksFor(repoFullName: string, base: string, token: str
   })
 }
 
+// A GitHub App without "Checks: Read-only" gets a 403 ("Resource not
+// accessible by integration") on every check-runs read. github-client already
+// turned a rate-limit 403 into a throw, so a 403 that reaches here is that
+// refusal: it is remembered PER INSTALLATION for a while, so a missing
+// permission costs ~nothing (no checks known) instead of one call per live PR
+// per minute, and it is logged once per installation.
+export const CHECKS_DENIED_TTL_MS = 45 * 60_000
+const deniedUntil = new Map<string, number>()
+
+/** True while `token`'s installation is known to lack checks:read. */
+export function checksDenied(token: string, now: number = Date.now()): boolean {
+  const key = githubBudgetKey(token)
+  const until = deniedUntil.get(key)
+  if (until === undefined) return false
+  if (until > now) return true
+  deniedUntil.delete(key)
+  return false
+}
+
+function markChecksDenied(token: string, repoFullName: string, now: number): void {
+  const key = githubBudgetKey(token)
+  const known = deniedUntil.has(key)
+  deniedUntil.set(key, now + CHECKS_DENIED_TTL_MS)
+  if (!known) {
+    console.warn(
+      `[pr-checks] GitHub refused the check runs of ${repoFullName} (${key}): the GitHub App needs Repository permissions "Checks: Read-only" and "Actions: Read-only" plus the Check run, Check suite and Workflow run events, accepted on the installation. Until then no checks are known; retrying in ${CHECKS_DENIED_TTL_MS / 60_000} min.`
+    )
+  }
+}
+
+// 100 = GitHub's page cap; past MAX_PAGES the list is not a full snapshot.
+const CHECK_RUNS_PER_PAGE = 100
+const CHECK_RUNS_MAX_PAGES = 5
+
 /** GitHub's check runs at `ref` (a sha or branch), or null when they cannot
- *  be read (no checks:read yet, rate limited, gone): "no checks known". */
+ *  be read (no checks:read yet, rate limited, gone): "no checks known".
+ *  `complete` = false when more runs exist than were read (no snapshot). */
 export async function fetchGithubCheckRuns(
   repoFullName: string,
   ref: string,
-  token: string
-): Promise<{ headSha: string | null; checks: CheckInput[] } | null> {
+  token: string,
+  deps: GithubClientDeps = {}
+): Promise<{ headSha: string | null; checks: CheckInput[]; complete: boolean } | null> {
+  const now = deps.now?.() ?? Date.now()
+  if (checksDenied(token, now)) return null
   const path = ref.split(`/`).map(encodeURIComponent).join(`/`)
-  let res: Response
-  try {
-    res = await githubFetch(`/repos/${repoFullName}/commits/${path}/check-runs?filter=latest&per_page=100`, {
-      headers: githubApiHeaders(token),
-    })
-  } catch (err) {
-    if (!isGithubRateLimited(err)) console.error(`[pr-checks] check runs of ${repoFullName}@${ref}`, err)
-    return null
+  const runs: Array<Parameters<typeof checkFromGithubRun>[0] & { head_sha?: string }> = []
+  let complete = false
+  for (let page = 1; page <= CHECK_RUNS_MAX_PAGES; page++) {
+    let res: Response
+    try {
+      res = await githubFetch(
+        `/repos/${repoFullName}/commits/${path}/check-runs?filter=latest&per_page=${CHECK_RUNS_PER_PAGE}&page=${page}`,
+        { headers: githubApiHeaders(token) },
+        deps
+      )
+    } catch (err) {
+      if (!isGithubRateLimited(err)) console.error(`[pr-checks] check runs of ${repoFullName}@${ref}`, err)
+      return null
+    }
+    if (res.status === 403) {
+      markChecksDenied(token, repoFullName, now)
+      return null
+    }
+    // 404/422 = no such ref.
+    if (!res.ok) return null
+    const data = (await res.json()) as {
+      total_count?: number
+      check_runs?: Array<Parameters<typeof checkFromGithubRun>[0] & { head_sha?: string }>
+    }
+    const batch = data.check_runs ?? []
+    runs.push(...batch)
+    const total = typeof data.total_count === `number` ? data.total_count : null
+    if (batch.length < CHECK_RUNS_PER_PAGE || (total !== null && runs.length >= total)) {
+      complete = true
+      break
+    }
   }
-  // 403 = the App lacks checks:read (the human step); 404/422 = no such ref.
-  if (!res.ok) return null
-  const data = (await res.json()) as {
-    check_runs?: Array<Parameters<typeof checkFromGithubRun>[0] & { head_sha?: string }>
-  }
-  const runs = data.check_runs ?? []
   // filter=latest already keeps one run per name; keep the first anyway.
   const byName = new Map<string, CheckInput>()
   for (const run of runs) {
     const check = checkFromGithubRun(run)
     if (check && !byName.has(check.name)) byName.set(check.name, check)
   }
-  return { headSha: runs[0]?.head_sha ?? null, checks: [...byName.values()] }
+  return { headSha: runs[0]?.head_sha ?? null, checks: [...byName.values()], complete }
 }
 
 // One repair read per PR per minute, however many ops/deliveries ask.
@@ -433,8 +496,14 @@ const REPAIR_THROTTLE_MS = 60_000
 const lastRepair = new Map<string, number>()
 
 /** Re-read a live PR's checks from GitHub (a missed delivery, the next `pr`
- *  op). Throttled; never throws. */
-export async function repairPullRequestChecks(pullRequestId: string, now: number = Date.now()): Promise<void> {
+ *  op, the GITHUB_POLLING poller). `headSha` = the PR's head commit when the
+ *  caller knows it (read at that commit, never at whatever the branch points
+ *  to by then); else the head branch. Throttled; never throws. */
+export async function repairPullRequestChecks(
+  pullRequestId: string,
+  now: number = Date.now(),
+  opts: { headSha?: string | null } = {}
+): Promise<void> {
   const last = lastRepair.get(pullRequestId)
   if (last !== undefined && now - last < REPAIR_THROTTLE_MS) return
   lastRepair.set(pullRequestId, now)
@@ -456,8 +525,9 @@ export async function repairPullRequestChecks(pullRequestId: string, now: number
     if (!row || !(LIVE_PR_STATES as readonly string[]).includes(row.state)) return
     const token = await resolveRepoInstallationToken(row.fullName, { fallbackInstallationId: row.installationId })
     if (!token) return
-    const runs = await fetchGithubCheckRuns(row.fullName, row.head, token)
-    if (!runs?.headSha) {
+    const runs = await fetchGithubCheckRuns(row.fullName, opts.headSha || row.head, token)
+    const headSha = runs?.headSha ?? opts.headSha ?? null
+    if (!runs || !headSha || runs.checks.length === 0) {
       // No run at the head at all: nothing known (an older head's rows go).
       if (runs && runs.checks.length === 0) {
         await db.delete(pullRequestChecks).where(eq(pullRequestChecks.pullRequestId, row.id))
@@ -466,10 +536,39 @@ export async function repairPullRequestChecks(pullRequestId: string, now: number
       return
     }
     const required = await requiredChecksFor(row.fullName, row.base, token)
-    await writePullRequestChecks({ pullRequestId: row.id, headSha: runs.headSha, checks: runs.checks, snapshot: true, required })
+    // A list cut at the page cap is no full snapshot: upsert, drop nothing.
+    await writePullRequestChecks({ pullRequestId: row.id, headSha, checks: runs.checks, snapshot: runs.complete, required })
   } catch (err) {
     console.error(`[pr-checks] repair of ${pullRequestId} failed`, err)
   }
+}
+
+/** The GITHUB_POLLING poller (no webhooks): a live PR's checks are re-read
+ *  when they are not settled (none/pending) or were read at an older head
+ *  than `headSha` (a push after a green run). → whether it repaired. */
+export async function repairPullRequestChecksIfStale(
+  pullRequestId: string,
+  headSha: string | null,
+  now: number = Date.now()
+): Promise<boolean> {
+  const [pr] = await db
+    .select({ checksState: pullRequests.checksState })
+    .from(pullRequests)
+    .where(eq(pullRequests.id, pullRequestId))
+    .limit(1)
+  if (!pr) return false
+  let stale = pr.checksState === `none` || pr.checksState === `pending`
+  if (!stale && headSha) {
+    const [other] = await db
+      .select({ id: pullRequestChecks.id })
+      .from(pullRequestChecks)
+      .where(and(eq(pullRequestChecks.pullRequestId, pullRequestId), ne(pullRequestChecks.headSha, headSha)))
+      .limit(1)
+    stale = Boolean(other)
+  }
+  if (!stale) return false
+  await repairPullRequestChecks(pullRequestId, now, { headSha })
+  return true
 }
 
 /** What `exponential_pr` returns as `checks`. A live PR whose state is not
@@ -510,4 +609,5 @@ export async function loadPullRequestChecks(pullRequestId: string): Promise<Chec
 export function resetPrChecksForTests(): void {
   lastRepair.clear()
   requiredCache.clear()
+  deniedUntil.clear()
 }

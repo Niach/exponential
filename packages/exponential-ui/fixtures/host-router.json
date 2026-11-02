@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package that stays valid. VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list.",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package that stays valid. VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (the neutral and Exponential's spelling), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object.",
   "packages": {
     "acme.devices": {
       "id": "acme.devices",
@@ -976,6 +976,201 @@
       "exposes": {
         "list": {}
       }
+    },
+    "acme.queries": {
+      "formatVersion": 2,
+      "id": "acme.queries",
+      "name": "Hours with queries",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "month": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": {
+                "path": "/days/count"
+              }
+            }
+          ],
+          "bindings": [
+            {
+              "path": "/days",
+              "source": "records:entry?query=month&month=2026-10&start=2026-10-01&end=2026-10-31"
+            },
+            {
+              "path": "/carry",
+              "source": "exp:records?kind=entry&query=before&before=2026-10-01"
+            },
+            {
+              "path": "/plain",
+              "source": "records:entry?mine=1"
+            }
+          ]
+        }
+      },
+      "sources": [
+        "records:*",
+        "exp:records"
+      ],
+      "records": {
+        "entry": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "hours": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "date"
+            ]
+          }
+        }
+      },
+      "queries": {
+        "before": {
+          "before": "${before}",
+          "group": [
+            "author"
+          ],
+          "aggregate": {
+            "total": [
+              "sum",
+              "hours"
+            ]
+          }
+        },
+        "month": {
+          "from": "entry",
+          "where": [
+            [
+              "date",
+              "between",
+              "${start}",
+              "${end}"
+            ]
+          ],
+          "month": {
+            "field": "date",
+            "key": "${month}"
+          },
+          "group": [
+            "author",
+            {
+              "bucket": "date",
+              "by": "day"
+            }
+          ],
+          "aggregate": {
+            "hours": [
+              "sum",
+              "hours"
+            ]
+          },
+          "running": {
+            "hours": "sum"
+          }
+        }
+      }
+    },
+    "acme.badqueries": {
+      "id": "acme.badqueries",
+      "name": "Bad queries",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "x"
+            }
+          ],
+          "bindings": [
+            {
+              "path": "/a",
+              "source": "records:entry?query=nope"
+            },
+            {
+              "path": "/b",
+              "source": "exp:records?kind=entry&query=missing"
+            },
+            {
+              "path": "/c",
+              "source": "exp:issues?query=free+text"
+            }
+          ]
+        }
+      },
+      "records": {
+        "entry": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "hours": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "date"
+            ]
+          }
+        }
+      },
+      "queries": {
+        "Bad-Name": {
+          "from": "entry"
+        },
+        "other": {
+          "from": "todo"
+        },
+        "typo": {
+          "from": "entry",
+          "grup": [
+            "author"
+          ],
+          "aggregate": {
+            "n": [
+              "median",
+              "hours"
+            ]
+          }
+        },
+        "list": [
+          1
+        ]
+      }
+    },
+    "acme.querieslist": {
+      "id": "acme.querieslist",
+      "name": "Queries list",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "t": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "x"
+            }
+          ]
+        }
+      },
+      "queries": [
+        "month"
+      ]
     }
   },
   "flows": [
@@ -2093,6 +2288,100 @@
           ]
         }
       ]
+    },
+    {
+      "name": "VAPP-190: a binding's query=<name> follows the package's named query (templates filled from its params, as q=<canonical JSON>); a later bindDataModel on the surface too; a source without one stays as written",
+      "packages": [
+        "acme.queries"
+      ],
+      "installIssues": {
+        "acme.queries": []
+      },
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "applyTemplate": {
+              "surfaceId": "q",
+              "templateId": "month"
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "q",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "q",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Text",
+                  "text": {
+                    "path": "/days/count"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "bind",
+              "surfaceId": "q",
+              "path": "/days",
+              "source": "records:entry?q=%7B%22aggregate%22%3A%7B%22hours%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22from%22%3A%22entry%22%2C%22group%22%3A%5B%22author%22%2C%7B%22bucket%22%3A%22date%22%2C%22by%22%3A%22day%22%7D%5D%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-10%22%7D%2C%22running%22%3A%7B%22hours%22%3A%22sum%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22between%22%2C%222026-10-01%22%2C%222026-10-31%22%5D%5D%7D"
+            },
+            {
+              "op": "bind",
+              "surfaceId": "q",
+              "path": "/carry",
+              "source": "exp:records?kind=entry&q=%7B%22aggregate%22%3A%7B%22total%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22before%22%3A%222026-10-01%22%2C%22group%22%3A%5B%22author%22%5D%7D"
+            },
+            {
+              "op": "bind",
+              "surfaceId": "q",
+              "path": "/plain",
+              "source": "records:entry?mine=1"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "q",
+              "path": "/days",
+              "source": "records:entry?query=month&month=2026-11&start=2026-11-01&end=2026-11-30"
+            }
+          },
+          "expected": [
+            {
+              "op": "bind",
+              "surfaceId": "q",
+              "path": "/days",
+              "source": "records:entry?q=%7B%22aggregate%22%3A%7B%22hours%22%3A%5B%22sum%22%2C%22hours%22%5D%7D%2C%22from%22%3A%22entry%22%2C%22group%22%3A%5B%22author%22%2C%7B%22bucket%22%3A%22date%22%2C%22by%22%3A%22day%22%7D%5D%2C%22month%22%3A%7B%22field%22%3A%22date%22%2C%22key%22%3A%222026-11%22%7D%2C%22running%22%3A%7B%22hours%22%3A%22sum%22%7D%2C%22where%22%3A%5B%5B%22date%22%2C%22between%22%2C%222026-11-01%22%2C%222026-11-30%22%5D%5D%7D"
+            }
+          ]
+        },
+        {
+          "message": {
+            "version": "v0.9",
+            "bindDataModel": {
+              "surfaceId": "q",
+              "path": "/days",
+              "source": "records:entry?query=unknown&month=2026-11"
+            }
+          },
+          "expected": [
+            {
+              "op": "bind",
+              "surfaceId": "q",
+              "path": "/days",
+              "source": "records:entry?query=unknown&month=2026-11"
+            }
+          ]
+        }
+      ]
     }
   ],
   "validation": [
@@ -2445,6 +2734,52 @@
         {
           "path": "/exposes",
           "message": "exposes is a list of tools"
+        }
+      ]
+    },
+    {
+      "package": "acme.queries",
+      "expected": []
+    },
+    {
+      "package": "acme.badqueries",
+      "expected": [
+        {
+          "path": "/queries/Bad-Name",
+          "message": "a query name is a letter, then letters, digits and underscores"
+        },
+        {
+          "path": "/queries/list",
+          "message": "a query is an object"
+        },
+        {
+          "path": "/queries/other/from",
+          "message": "records:todo names no declared kind"
+        },
+        {
+          "path": "/queries/typo/grup",
+          "message": "unknown key grup"
+        },
+        {
+          "path": "/queries/typo/aggregate/n",
+          "message": "an aggregate is [sum|avg|min|max|count|countDistinct|first|last, field] (count: the field is optional)"
+        },
+        {
+          "path": "/templates/t/bindings/0/source",
+          "message": "query nope names no package query"
+        },
+        {
+          "path": "/templates/t/bindings/1/source",
+          "message": "query missing names no package query"
+        }
+      ]
+    },
+    {
+      "package": "acme.querieslist",
+      "expected": [
+        {
+          "path": "/queries",
+          "message": "queries is an object of named queries"
         }
       ]
     }

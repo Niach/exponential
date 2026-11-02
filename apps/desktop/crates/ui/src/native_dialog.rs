@@ -38,12 +38,12 @@ use gpui::{
     actions, div, prelude::FluentBuilder as _, px, size, AnyElement, AnyView, App,
     AppContext as _, Entity, FocusHandle, Focusable, FontWeight, Global,
     InteractiveElement as _, IntoElement, KeyBinding, MouseButton, ParentElement, Pixels, Render,
-    SharedString, Size, Styled, Window, WindowId,
+    ScrollHandle, SharedString, Size, Styled, StatefulInteractiveElement as _, Window, WindowId,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    scroll::ScrollableElement as _,
+    scroll::{ScrollableElement as _, Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use domain::prompts::{Prompt, Role};
@@ -201,6 +201,10 @@ pub(crate) struct DialogSpec {
     /// instead of centered — the web palette's `sm:top-[15%]`, so a panel
     /// that grows with its content extends downward like a dropdown.
     anchor_top: Option<f32>,
+    /// #EXP-1588: the panel HUGS its content (the web `DialogContent`'s
+    /// auto height) up to the viewport cap instead of `size.height`; the
+    /// body scrolls past the cap. Every alert.
+    hug: bool,
 }
 
 impl DialogSpec {
@@ -210,6 +214,7 @@ impl DialogSpec {
             size,
             native_chrome: true,
             anchor_top: None,
+            hug: false,
         }
     }
 
@@ -223,6 +228,13 @@ impl DialogSpec {
     /// EXP-285's resize floor. An in-window panel is not user-resizable; kept
     /// so the callers read the same.
     pub(crate) fn resizable(self, _min_size: Size<Pixels>) -> Self {
+        self
+    }
+
+    /// #EXP-1588: size the panel to its content (see [`DialogSpec::hug`]);
+    /// `size.height` is ignored.
+    pub(crate) fn hug(mut self) -> Self {
+        self.hug = true;
         self
     }
 
@@ -375,6 +387,7 @@ fn push_layer(
         size: spec.size,
         header: spec.native_chrome,
         anchor_top: spec.anchor_top,
+        hug: spec.hug,
         previous_focus,
         focus_handle: cx.focus_handle(),
     });
@@ -415,6 +428,8 @@ struct DialogShell {
     /// Whether the panel draws the title + ✕ header row.
     header: bool,
     anchor_top: Option<f32>,
+    /// See [`DialogSpec::hug`].
+    hug: bool,
     /// What held focus before the dialog opened; it gets it back on close.
     previous_focus: Option<FocusHandle>,
     focus_handle: FocusHandle,
@@ -505,6 +520,7 @@ impl Render for DialogShell {
         let closable = self.can_close(cx);
         let on_enter = self.content.on_enter.clone();
         let viewport = window.viewport_size();
+        let hug = self.hug;
 
         // The header: the dialog's title + ✕ (every dialog with chrome), or
         // the chromeless lightbox's own header with its extra actions.
@@ -563,6 +579,13 @@ impl Render for DialogShell {
                 .when(header.is_none(), |this| this.pt_4())
                 .child(inner)
                 .into_any_element()
+        } else if self.hug {
+            // #EXP-1588: content-sized, shrinking (never growing) under the
+            // cap.
+            v_flex()
+                .min_h_0()
+                .child(self.content.view.clone())
+                .into_any_element()
         } else {
             div()
                 .flex_1()
@@ -573,8 +596,9 @@ impl Render for DialogShell {
 
         let panel = panel_frame(cx)
             .id("native-dialog-panel")
+            .debug_selector(|| "native-dialog-panel".into())
             .w(width)
-            .h(height)
+            .map(|this| if hug { this.max_h(max_h) } else { this.h(height) })
             .key_context(CONTEXT)
             .track_focus(&self.focus_handle)
             // A press inside the panel never reaches the scrim's dismiss.
@@ -591,7 +615,8 @@ impl Render for DialogShell {
             })
             .child(
                 v_flex()
-                    .size_full()
+                    .w_full()
+                    .map(|this| if hug { this.min_h_0() } else { this.h_full() })
                     // EXP-771: the panel wash the dialog body always wore.
                     .bg(t::glass::FILL_PANEL.to_hsla())
                     .children(header)
@@ -666,9 +691,8 @@ pub(crate) struct AlertSpec {
     /// label-only, every alert before it.
     ok_icon: Option<ExpIcon>,
     /// Window width; [`ALERT_WIDTH`] unless a footer needs more room.
+    /// The height is the content's (#EXP-1588, the web dialog's).
     width: Pixels,
-    /// Total height, the header included (see [`AlertSpec::height`]).
-    height: Pixels,
     /// Whether the footer draws Cancel next to OK. `false` (EXP-697) is for
     /// the informational alerts that only have something to dismiss — the
     /// window's own ✕ / Escape does the same job as a Cancel there.
@@ -719,8 +743,6 @@ impl AlertSpec {
             ok_variant: ButtonVariant::Primary,
             ok_icon: None,
             width: px(ALERT_WIDTH),
-            // EXP-285: trimmed 240 → 220 — alerts size closer to content.
-            height: px(220.),
             cancel: true,
             footer: true,
             content: None,
@@ -862,13 +884,6 @@ impl AlertSpec {
         self
     }
 
-    /// Total window height (the titlebar strip is part of it — EXP-287 kept
-    /// this meaning so the existing per-alert overrides still read true).
-    pub(crate) fn height(mut self, height: Pixels) -> Self {
-        self.height = height;
-        self
-    }
-
     pub(crate) fn content(
         mut self,
         content: impl Fn(&mut Window, &mut App) -> AnyElement + 'static,
@@ -920,18 +935,16 @@ impl AlertSpec {
 /// Open a confirm dialog over `window`. Unlike a content dialog it may
 /// STACK over an open one (a confirm raised from inside Device settings).
 pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
-    // `AlertSpec::height` is the whole alert, header included (EXP-287
-    // kept that meaning); `DialogSpec::size` is the content below it.
-    let content_height = (spec.height - crate::title_bar::TITLE_BAR_HEIGHT).max(px(0.));
-    let dialog_size = size(spec.width, content_height);
+    // #EXP-1588: the panel hugs the alert (web's auto-height dialog).
+    let dialog_size = size(spec.width, px(0.));
     let title = spec.title.clone();
-    push_layer(window, cx, DialogSpec::new(title, dialog_size), move |_, cx| {
+    push_layer(window, cx, DialogSpec::new(title, dialog_size).hug(), move |_, cx| {
         let on_closed = spec.on_closed.clone();
         let view = cx.new(|cx| {
             if let Some(on_closed) = on_closed {
                 cx.on_release(move |_, cx| on_closed(cx)).detach();
             }
-            AlertView { spec }
+            AlertView::new(spec)
         });
         let on_enter = view.clone();
         DialogContent::new(view)
@@ -943,7 +956,7 @@ pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
 /// An alert OUTSIDE the scrim, for the styleguide's dialog specimens: the
 /// real [`AlertView`] over the SAME [`AlertSpec`] the product opens, in the
 /// product's panel ([`panel_frame`] + [`panel_header`]) at the alert's own
-/// width and height. `key` keeps the view across frames
+/// width, hugging its content like the product. `key` keeps the view across frames
 /// (`window.use_keyed_state`).
 pub(crate) fn alert_specimen(
     key: &'static str,
@@ -952,15 +965,14 @@ pub(crate) fn alert_specimen(
     cx: &mut App,
 ) -> gpui::Div {
     let title = spec.title.clone();
-    let height = spec.height - crate::title_bar::TITLE_BAR_HEIGHT + px(HEADER_H + 2.);
     let width = spec.width;
-    let view = window.use_keyed_state(key, cx, |_, _| AlertView { spec });
-    panel_frame(cx).w(width).h(height).child(
+    let view = window.use_keyed_state(key, cx, |_, _| AlertView::new(spec));
+    panel_frame(cx).w(width).child(
         v_flex()
-            .size_full()
+            .w_full()
             .bg(t::glass::FILL_PANEL.to_hsla())
             .child(panel_header(title, None, Some(close_button("native-alert-specimen-close", true, cx))))
-            .child(div().flex_1().min_h_0().child(view)),
+            .child(view),
     )
 }
 
@@ -975,12 +987,9 @@ pub(crate) fn alert_card_specimen(
     cx: &mut App,
 ) -> gpui::Div {
     let width = spec.width;
-    // The window's height less its title band: the body's fixed room.
-    let height = spec.height - crate::title_bar::TITLE_BAR_HEIGHT;
-    let view = window.use_keyed_state(key, cx, |_, _| AlertView { spec });
+    let view = window.use_keyed_state(key, cx, |_, _| AlertView::new(spec));
     v_flex()
         .w(width)
-        .h(height)
         .flex_shrink_0()
         .rounded(px(t::radius::XL))
         .border_1()
@@ -988,14 +997,19 @@ pub(crate) fn alert_card_specimen(
         .bg(t::glass::FILL_PANEL.to_hsla())
         .shadow_2xl()
         .text_color(cx.theme().foreground)
-        .child(div().size_full().p_1().child(view))
+        .child(div().w_full().p_1().child(view))
 }
 
 struct AlertView {
     spec: AlertSpec,
+    body_scroll: ScrollHandle,
 }
 
 impl AlertView {
+    fn new(spec: AlertSpec) -> Self {
+        Self { spec, body_scroll: ScrollHandle::new() }
+    }
+
     /// The OK button's click (and Enter, for [`AlertEnter::Ok`]).
     fn confirm(view: &Entity<Self>, window: &mut Window, cx: &mut App) {
         if view.read(cx).spec.ok_disabled {
@@ -1031,19 +1045,28 @@ impl Render for AlertView {
         let extra = self.spec.content.as_ref().map(|content| content(window, cx));
 
         // No header row here — the dialog panel's header carries the title.
+        // #EXP-1588: content-sized; under the panel's viewport cap the
+        // body shrinks and scrolls, the footer stays pinned.
         v_flex()
-            .size_full()
+            .w_full()
+            .min_h_0()
             .px_4()
             .pb_4()
             .gap_3()
             .child(
+                // gpui's own scroll + the overlay scrollbar (the create
+                // board/team dialogs' shape): gpui-component's
+                // `overflow_y_scrollbar` wrapper measures 0 in an auto-height
+                // parent, which hid the body of every hugging alert.
                 v_flex()
-                    .flex_1()
+                    .relative()
                     .min_h_0()
-                    // EXP-287: a description longer than the alert's fixed
-                    // height used to clip silently; scroll it instead (the
-                    // footer below stays pinned either way).
-                    .overflow_y_scrollbar()
+                    .child(
+                v_flex()
+                    .id("native-alert-body")
+                    .min_h_0()
+                    .overflow_y_scroll()
+                    .track_scroll(&self.body_scroll)
                     .gap_3()
                     .children(self.spec.question.clone().map(|question| {
                         // #EXP-1553: web's dialog title (bold, a step up).
@@ -1062,6 +1085,13 @@ impl Render for AlertView {
                         )
                     })
                     .children(extra),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .inset_0()
+                            .child(Scrollbar::new(&self.body_scroll).axis(ScrollbarAxis::Vertical)),
+                    ),
             )
             .when(self.spec.footer, |this| { this.child(
                 h_flex()
@@ -1109,6 +1139,7 @@ impl Render for AlertView {
                     }))
                     .child(
                         Button::new("native-alert-ok")
+                            .debug_selector(|| "native-alert-ok".into())
                             .with_variant(self.spec.ok_variant)
                             .web_sm()
                             .when_some(self.spec.ok_icon.clone(), |button, icon| {
@@ -1170,3 +1201,94 @@ mod prompt_tests {
         assert_eq!(danger.enter_answer(), AlertEnter::Cancel);
     }
 }
+
+#[cfg(test)]
+mod hug_tests {
+    use super::*;
+    use gpui::{point, Bounds, VisualTestContext};
+
+    struct Probe(Pixels);
+
+    impl Render for Probe {
+        fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+            div().debug_selector(|| "probe-view".into()).w_full().h(self.0)
+        }
+    }
+
+    /// Opens `spec` in a test window and returns the panel's, the probe
+    /// content's and the OK button's bounds, and the viewport height.
+    fn layout(
+        spec: impl FnOnce(&mut App) -> AlertSpec,
+        cx: &mut gpui::TestAppContext,
+    ) -> (Bounds<Pixels>, Option<Bounds<Pixels>>, Option<Bounds<Pixels>>, Pixels) {
+        let cx: &mut VisualTestContext = cx.add_empty_window();
+        cx.update(|window, cx| {
+            gpui_component::init(cx);
+            init(cx);
+            let spec = spec(cx);
+            open_alert(window, cx, spec);
+        });
+        for _ in 0..2 {
+            cx.draw(point(px(0.), px(0.)), size(px(900.), px(600.)), |window, cx| {
+                div()
+                    .size_full()
+                    .children(render_layer(window, cx))
+            });
+        }
+        (
+            cx.debug_bounds("native-dialog-panel").expect("the panel draws"),
+            cx.debug_bounds("probe-view"),
+            cx.debug_bounds("native-alert-ok"),
+            cx.update(|window, _| window.viewport_size().height),
+        )
+    }
+
+    /// #EXP-1588: the panel hugs a content block (#1590's Add device
+    /// collapsed to its header): header + the block + the padding, nothing
+    /// more, nothing less.
+    #[gpui::test]
+    fn an_alert_hugs_its_content(cx: &mut gpui::TestAppContext) {
+        let (panel, probe, ok, _) = layout(
+            |cx| {
+                let probe = cx.new(|_| Probe(px(240.)));
+                AlertSpec::new("Add device", "", "Done")
+                    .without_footer()
+                    .width(px(512.))
+                    .content(move |_, _| v_flex().gap_3().child(probe.clone()).into_any_element())
+            },
+            cx,
+        );
+        let probe = probe.expect("the content draws");
+        assert_eq!(probe.size.height, px(240.), "the content keeps its height");
+        assert!(ok.is_none(), "no footer");
+        // header + content + `pb_4` + the 1px border top and bottom.
+        assert_eq!(panel.size.height, px(HEADER_H + 240. + 16. + 2.));
+    }
+
+    /// A plain confirm: as tall as its words and footer, far under the old
+    /// fixed 220.
+    #[gpui::test]
+    fn a_confirm_hugs_its_footer(cx: &mut gpui::TestAppContext) {
+        let (panel, _, ok, _) = layout(|_| AlertSpec::new("Delete", "Gone for good.", "Delete"), cx);
+        let ok = ok.expect("the footer draws");
+        assert!(panel.size.height < px(200.), "hugs: {:?}", panel.size.height);
+        assert!(ok.bottom() <= panel.bottom() - px(16.), "the footer sits inside the padding");
+    }
+
+    /// Past the window the panel caps at the viewport less the gutters;
+    /// the body scrolls and the footer stays on the panel.
+    #[gpui::test]
+    fn a_tall_alert_caps_and_keeps_its_footer(cx: &mut gpui::TestAppContext) {
+        let (panel, _, ok, viewport_h) = layout(
+            |cx| {
+                let probe = cx.new(|_| Probe(px(4000.)));
+                AlertSpec::new("Long", "", "OK").content(move |_, _| probe.clone().into_any_element())
+            },
+            cx,
+        );
+        assert_eq!(panel.size.height, viewport_h - px(2. * GUTTER));
+        let ok = ok.expect("the footer draws");
+        assert!(ok.bottom() <= panel.bottom(), "the footer stays on the panel");
+    }
+}
+

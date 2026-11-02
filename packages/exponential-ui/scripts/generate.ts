@@ -1160,6 +1160,19 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     input: { id: `pagination`, component: `Pagination`, props: { totalPages: 5, page: { path: `/page` } } },
     datasets: [{ page: `5` }, { page: `1` }, { page: 9 }, {}],
   },
+  {
+    // VAPP-191: the expression functions and the CEL string form at bind
+    // time (no today/now: the fixture has no clock; UTC).
+    name: `Text/expressions:bound`,
+    input: {
+      id: `text`,
+      component: `Text`,
+      props: { text: { call: `formatDuration`, args: { hours: { call: `expr`, args: { expr: `round(minutes / 60, 2)`, vars: { minutes: { path: `/minutes` } } } }, format: `h:mm` } } },
+      accessibility: { label: { call: `dateAdd`, args: { date: { path: `/day` }, n: 1, unit: `month` } } },
+      visible: { call: `expr`, args: { expr: `weekday(d) >= 6 || mul(minutes, 2) > 1000`, vars: { d: { path: `/day` }, minutes: { path: `/minutes` } } } },
+    },
+    datasets: [{ minutes: 450, day: `2026-01-31` }, { minutes: 600, day: `2026-02-02` }, { minutes: 450, day: `2026-02-02` }, { minutes: `x`, day: `nope` }, {}],
+  },
 ]
 
 function bindExtraCases() {

@@ -775,6 +775,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_builtin_theme_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_chart_extent_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_check_expression_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_client_capabilities_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_code_text(
@@ -787,6 +789,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_control_geometry_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_core_catalog_id(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_date_bucket(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_decide_function(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_decide_url_json(
@@ -798,6 +802,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_default_theme_id(
 external fun uniffi_exponential_ui_ffi_checksum_func_display_string_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_error_message_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_evaluate_expression_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_extension_errors(
 ): Short
@@ -830,6 +836,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json(
 external fun uniffi_exponential_ui_ffi_checksum_func_package_policy_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json(
 ): Short
@@ -1466,6 +1474,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_builtin_theme_json(`id`: RustBuff
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_chart_extent_json(`kind`: RustBuffer.ByValue,`seriesJson`: RustBuffer.ByValue,`min`: RustBuffer.ByValue,`max`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_check_expression_json(`expr`: RustBuffer.ByValue,`typesJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_client_capabilities_json(`extensionIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_code_text(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1478,6 +1488,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_control_geometry_json(`themeJson`
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_core_catalog_id(uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_date_bucket(`date`: RustBuffer.ByValue,`bucket`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_decide_function(`policyJson`: RustBuffer.ByValue,`name`: RustBuffer.ByValue,`registered`: Byte,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_decide_url_json(`policyJson`: RustBuffer.ByValue,`url`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1489,6 +1501,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_default_theme_id(uniffi_out_err: 
 external fun uniffi_exponential_ui_ffi_fn_func_display_string_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_error_message_json(`code`: RustBuffer.ByValue,`surfaceId`: RustBuffer.ByValue,`message`: RustBuffer.ByValue,`path`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(`expr`: RustBuffer.ByValue,`varsJson`: RustBuffer.ByValue,`nowMs`: RustBuffer.ByValue,`zone`: RustBuffer.ByValue,`maxSteps`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_extension_errors(`extensionJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1521,6 +1535,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(`min`: Double,`ma
 external fun uniffi_exponential_ui_ffi_fn_func_package_policy_json(`functionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_parse_records_json(`queryJson`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_parse_records_query_json(`paramsJson`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -10138,6 +10154,22 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * VAPP-191: type-check an expression against `types_json` (name → type,
+         * spelled as JSON: `"number"`, `["date"]`, a row object): `{"type": …}` or
+         * `{"error": "…"}` (`fixtures/expressions.json` `check`).
+         */
+    @Throws(UiException::class) fun `checkExpressionJson`(`expr`: kotlin.String, `typesJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_check_expression_json(
+    
+        FfiConverterString.lower(`expr`),FfiConverterString.lower(`typesJson`),_status)
+}
+    )
+    }
+    
+
+        /**
          * A2UI `a2uiClientCapabilities` JSON.
          */ fun `clientCapabilitiesJson`(`extensionIds`: List<kotlin.String>): kotlin.String {
             return FfiConverterString.lift(
@@ -10209,6 +10241,22 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_core_catalog_id(
     
         _status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-190: a date's bucket key (`bucket` = day | week | month | quarter |
+         * year: `2026-10-05`, `2026-W41`, `2026-10`, `2026-Q4`, `2026`); null when
+         * the text holds no date that precise or the bucket is unknown
+         * (`bucketCases`).
+         */ fun `dateBucket`(`date`: kotlin.String, `bucket`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_date_bucket(
+    
+        FfiConverterString.lower(`date`),FfiConverterString.lower(`bucket`),_status)
 }
     )
     }
@@ -10291,6 +10339,24 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_error_message_json(
     
         FfiConverterString.lower(`code`),FfiConverterString.lower(`surfaceId`),FfiConverterString.lower(`message`),FfiConverterOptionalString.lower(`path`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-191: evaluate an expression (the CEL subset, `eui_core::cel`) over
+         * `vars_json` (an object): `{"value": …}` or `{"error": "…"}`
+         * (`fixtures/expressions.json` `eval`). `now_ms` = the clock (`None` = the
+         * wall clock), `zone` = the team zone (`None` = UTC), `max_steps` = the
+         * step limit (`None` = 10 000).
+         */
+    @Throws(UiException::class) fun `evaluateExpressionJson`(`expr`: kotlin.String, `varsJson`: kotlin.String, `nowMs`: kotlin.Double?, `zone`: HostZone?, `maxSteps`: kotlin.UInt? = null): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_evaluate_expression_json(
+    
+        FfiConverterString.lower(`expr`),FfiConverterString.lower(`varsJson`),FfiConverterOptionalDouble.lower(`nowMs`),FfiConverterOptionalTypeHostZone.lower(`zone`),FfiConverterOptionalUInt.lower(`maxSteps`),_status)
 }
     )
     }
@@ -10529,6 +10595,22 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(
     
         FfiConverterString.lower(`valueJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-190: the JSON query form (a package's `queries`, the `q` param) →
+         * `{query, issues: [{path, message}]}` (`fixtures/records-query.json`
+         * `jsonCases`). `kind` = a source's own kind, which wins over `from`.
+         */
+    @Throws(UiException::class) fun `parseRecordsJson`(`queryJson`: kotlin.String, `kind`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_records_json(
+    
+        FfiConverterString.lower(`queryJson`),FfiConverterOptionalString.lower(`kind`),_status)
 }
     )
     }

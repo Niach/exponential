@@ -986,8 +986,8 @@
         "file": "shots/composer-dialog-menu/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 43882,
-        "sha256": "3dd0a9b2bee9f306a7735605c58ef539df80ec0edbf18ccb3db222feba4a3062"
+        "bytes": 39156,
+        "sha256": "b8c0b9f915f8bab75ff234ae8fd161d66d54183f663e42927f6faf7edaa26cf6"
       }
     },
     "composer-menu": {
@@ -995,29 +995,29 @@
         "file": "shots/composer-menu/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 20630,
-        "sha256": "bdf23f9c3ca87f51123dc908a1d51bb21451e00bdd9138720ab9449200b73877"
+        "bytes": 26688,
+        "sha256": "2164c0847252ba622a78f5891c5f5921dbd3afa8a7add39b033c64f92cfb4855"
       },
       "desktop": {
         "file": "shots/composer-menu/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 34876,
-        "sha256": "513d44262f202dca7e1e2d623c0fef03253589aa7120458f11d41123fdb4cf7e"
+        "bytes": 38962,
+        "sha256": "69a992f70e6773021e65cefd2aec997540802f8b715cbda26e4b6c017076a275"
       },
       "ios": {
         "file": "shots/composer-menu/ios.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 20844,
-        "sha256": "39a86070fdf84bb92e228da1ebcc393d91cfdc0e1584bc0761ab155e29a8a272"
+        "bytes": 26584,
+        "sha256": "0f056385ae52f21d4c04b1162c75358a517ecf6270e70af85344ce969577027f"
       },
       "web": {
         "file": "shots/composer-menu/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 33408,
-        "sha256": "17a79e76ab101b81f91b9a1bc526cd503619a54e0c6573b558a0838e70ff4ede"
+        "bytes": 37158,
+        "sha256": "9116d5f2420dde05b82d59cb3a614d2d513579f89c2df4d74b7ebdc191822226"
       },
       "web-mobile": {
         "file": "shots/composer-menu/web-mobile.webp",
@@ -4843,8 +4843,8 @@
         "file": "shots/pr-checks/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 33570,
-        "sha256": "376084c9ef1cb3dd9b2602c89490c37b8c285ae15918d0f524f731deeebbef0e"
+        "bytes": 31934,
+        "sha256": "9d2424437f70a22b019877f7bb0071e52fb33cb410ff9b7b0b781844c5b268a0"
       },
       "ios": {
         "file": "shots/pr-checks/ios.webp",

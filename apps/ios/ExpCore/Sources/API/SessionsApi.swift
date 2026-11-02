@@ -27,6 +27,9 @@ public struct SessionLaunchOptions: Sendable, Equatable {
     public var computerUse: Bool?
     /// Claude only.
     public var ultracode: Bool?
+    /// EXP-1583: the model claude's subagents run on (claude only; a blank
+    /// is never sent).
+    public var subagentModel: String?
     /// The team MCP servers the session gets; nil = none picked.
     public var mcpServerIds: [String]?
 
@@ -37,6 +40,7 @@ public struct SessionLaunchOptions: Sendable, Equatable {
         effort: String? = nil,
         computerUse: Bool? = nil,
         ultracode: Bool? = nil,
+        subagentModel: String? = nil,
         mcpServerIds: [String]? = nil
     ) {
         self.cli = cli
@@ -45,6 +49,7 @@ public struct SessionLaunchOptions: Sendable, Equatable {
         self.effort = effort
         self.computerUse = computerUse
         self.ultracode = ultracode
+        self.subagentModel = subagentModel
         self.mcpServerIds = mcpServerIds
     }
 }
@@ -99,7 +104,7 @@ public enum SessionsSendInput: Sendable, Equatable {
 extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
-        case cli, account, model, effort, computerUse, ultracode, mcpServerIds
+        case cli, account, model, effort, computerUse, ultracode, subagentModel, mcpServerIds
         case text, attachmentIds, issueIds, promptId, repositoryId, agentId, appId
     }
 
@@ -112,6 +117,7 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(options.effort, forKey: .effort)
             try c.encodeIfPresent(options.computerUse, forKey: .computerUse)
             try c.encodeIfPresent(options.ultracode, forKey: .ultracode)
+            try c.encodeIfPresent(options.subagentModel.flatMap { $0.isEmpty ? nil : $0 }, forKey: .subagentModel)
             try c.encodeIfPresent(options.mcpServerIds, forKey: .mcpServerIds)
         }
         switch self {
