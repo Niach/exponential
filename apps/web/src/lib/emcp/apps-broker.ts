@@ -21,9 +21,8 @@ import {
   type CallToolResult,
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js"
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
+import { and, eq, isNull } from "drizzle-orm"
 import { actionGrantable, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
-import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
 import {
   effectiveAccess,
   grantErrors,
@@ -49,17 +48,17 @@ import {
 } from "@exp/emcp/exposes"
 import { UPSTREAM_ERRORS } from "@exp/emcp/upstream"
 import { db } from "@/db/connection"
-import { appAccess, appRecords, apps, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
+import { appAccess, apps, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
 import type { EmcpCaller, ServeOptions, ToolProvider } from "@/lib/emcp/gate"
 import { resolveMcpToolGates } from "@/lib/emcp/gates"
 import { jsonResponse } from "@/lib/emcp/helpers"
 import { buildMcpAccess } from "@/lib/emcp/scope"
 import { createExponentialMcpServer, type McpUser } from "@/lib/emcp/server"
-import { caller as trpcCaller } from "@/lib/emcp/tools"
 import { resolveForLaunch } from "@/lib/emcp/upstream/credentials"
 import { callUpstreamTool } from "@/lib/emcp/upstream/mcp-client"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { requestViaApp } from "@/lib/emcp/via-app"
+import { getAppRecord, queryAppRecords, upsertRecord } from "@/lib/apps/records-service"
 
 /** The endpoint's path (Settings › MCP shows it). */
 export const APPS_MCP_PATH = `/api/mcp/apps`
@@ -288,31 +287,23 @@ async function runRecords(ctx: BrokerContext, tool: BrokerTool, input: Record<st
     data?: unknown
     limit?: unknown
   }
-  const columns = { id: appRecords.id, data: appRecords.data, createdBy: appRecords.createdBy, authorId: appRecords.authorId, createdAt: appRecords.createdAt, updatedAt: appRecords.updatedAt }
-  const own = and(eq(appRecords.appId, tool.app.id), eq(appRecords.kind, run.kind), isNull(appRecords.deletedAt))
+  // #VAPP-193: every read and write runs through the records service.
+  const app = { id: tool.app.id, teamId: tool.app.teamId }
   if (run.op === `get`) {
     if (typeof resolved.id !== `string` || !UUID.test(resolved.id)) return brokerError(tool, `invalidArguments`, `a record id is a uuid`)
-    const [row] = await db.select(columns).from(appRecords).where(and(own, eq(appRecords.id, resolved.id))).limit(1)
+    const row = await getAppRecord(app, run.kind, resolved.id)
     return row ? answer(tool, { record: row }) : brokerError(tool, `toolError`, `record not found`)
   }
   if (run.op === `list`) {
-    const where = resolved.where && typeof resolved.where === `object` && !Array.isArray(resolved.where) ? resolved.where : {}
-    const asked = typeof resolved.limit === `number` && Number.isFinite(resolved.limit) ? Math.floor(resolved.limit) : RECORDS_QUERY.limitDefault
-    const limit = Math.min(Math.max(asked, 1), RECORDS_QUERY.limitMax)
-    const rows = await db
-      .select(columns)
-      .from(appRecords)
-      .where(and(own, Object.keys(where).length > 0 ? sql`${appRecords.data} @> ${json(where)}::jsonb` : undefined))
-      .orderBy(desc(appRecords.createdAt), asc(appRecords.id))
-      .limit(limit)
+    const where = resolved.where && typeof resolved.where === `object` && !Array.isArray(resolved.where) ? (resolved.where as Record<string, unknown>) : {}
+    const rows = await queryAppRecords(app, run.kind, where, typeof resolved.limit === `number` ? resolved.limit : undefined)
     return answer(tool, { records: rows, count: rows.length })
   }
-  // upsert: the records router's own validation, quota and patch merge.
+  // upsert: the records service's own validation, quota and patch merge.
   if (!resolved.data || typeof resolved.data !== `object` || Array.isArray(resolved.data)) return brokerError(tool, `invalidArguments`, `data is an object`)
   if (resolved.id !== undefined && (typeof resolved.id !== `string` || !UUID.test(resolved.id))) return brokerError(tool, `invalidArguments`, `a record id is a uuid`)
   try {
-    const out = await trpcCaller(ctx.user, ctx.request).apps.records.upsert({
-      id: tool.app.id,
+    const out = await upsertRecord(ctx.user.id, { id: tool.app.id }, {
       kind: run.kind,
       data: resolved.data as Record<string, unknown>,
       recordId: resolved.id as string | undefined,

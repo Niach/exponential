@@ -777,6 +777,9 @@ CREATE OR REPLACE TRIGGER propagate_app_deleted_at
   WHEN (OLD.deleted_at IS DISTINCT FROM NEW.deleted_at)
   EXECUTE FUNCTION propagate_app_deleted_at();
 
+-- #VAPP-193: SECURITY DEFINER (search_path pinned): the records service
+-- inserts as role `eapps`, which has no grant on `apps`; the mirror read
+-- runs as this function's owner (the app's main role).
 CREATE OR REPLACE FUNCTION populate_app_record_mirror()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -785,12 +788,48 @@ BEGIN
   NEW.updated_by := COALESCE(NEW.updated_by, NEW.created_by);
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
 
 CREATE OR REPLACE TRIGGER populate_app_record_mirror
   BEFORE INSERT ON app_records
   FOR EACH ROW
   EXECUTE FUNCTION populate_app_record_mirror();
+
+-- #VAPP-193: the RLS backstop of the records service (lib/apps/records-service.ts,
+-- docs/spec/apps.md §12.2). A NOLOGIN role `eapps` with grants on
+-- `app_records` ONLY (no DELETE: deletes are soft); the service switches each
+-- records transaction to it (SET LOCAL ROLE) with `eapps.team` + `eapps.apps`
+-- set, so a wrong query sees and writes only that team's listed apps. The
+-- main role keeps owning the table (owners bypass RLS: the purge, the quota
+-- count, cascades, triggers and Electric, a superuser, are unchanged). An
+-- unset scope = NULL = no row.
+-- Creating the role needs CREATEROLE (or a superuser): without it this
+-- block only WARNS, so the rest of this file still applies, and the records
+-- service fails closed (SET ROLE eapps errors) until the role exists.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'eapps') THEN
+    CREATE ROLE eapps NOLOGIN NOINHERIT NOBYPASSRLS;
+  END IF;
+  IF NOT pg_has_role(current_user, 'eapps', 'SET') THEN
+    EXECUTE format('GRANT eapps TO %I', current_user);
+  END IF;
+  REVOKE ALL ON app_records FROM eapps;
+  GRANT SELECT, INSERT, UPDATE ON app_records TO eapps;
+  ALTER TABLE app_records ENABLE ROW LEVEL SECURITY;
+  DROP POLICY IF EXISTS eapps_scope ON app_records;
+  CREATE POLICY eapps_scope ON app_records TO eapps
+    USING (
+      team_id = NULLIF(current_setting('eapps.team', true), '')::uuid
+      AND app_id = ANY (string_to_array(NULLIF(current_setting('eapps.apps', true), ''), ',')::uuid[])
+    )
+    WITH CHECK (
+      team_id = NULLIF(current_setting('eapps.team', true), '')::uuid
+      AND app_id = ANY (string_to_array(NULLIF(current_setting('eapps.apps', true), ''), ',')::uuid[])
+    );
+EXCEPTION WHEN insufficient_privilege THEN
+  RAISE WARNING 'eapps: cannot create or grant role eapps (needs CREATEROLE); app records stay unavailable until it exists';
+END $$;
 
 -- 9b. The same fan-out for archive/unarchive (EXP-500). Archiving is trash
 --     WITHOUT the purge: an archived board and all of its history leave every

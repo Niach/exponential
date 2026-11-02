@@ -310,6 +310,7 @@ The defaults are `member/member/author/author`. This is the common case, and it 
 The server enforces the policy. The shape enforces `read: author` with a row filter on `author_id`: a private kind never syncs to other members' devices.
 
 4. **Field-level privacy is out.** Use a separate kind with `read: owners` (for example, salary next to a hiring candidate).
+5. **The Postgres scope** ✅ (#VAPP-193), a backstop under layers 1 to 3, not a replacement. Every server read and write of a record runs through ONE service (`apps/web/src/lib/apps/records-service.ts`), which checks layers 1 to 3, ownership and quota, then runs the record statements as the `NOLOGIN` role `eapps` scoped to one team and its apps (§12.2). Ownership and policy stay in the service, never in RLS.
 
 ### 3.5 History, undo, retention, quotas
 
@@ -647,6 +648,7 @@ Added here:
 ### 12.2 Data isolation
 
 - Every query is scoped by `(team_id, app_id)`, and shapes are member-only ✅.
+- **RLS backstop** ✅ (#VAPP-193). The records service runs each operation in a transaction: the checks and every other table first (membership, `app_access`, the app row, plan and quota), then `SET LOCAL ROLE eapps`, `eapps.team` and `eapps.apps` (the hosting app plus any read targets), and `statement_timeout = 2s`. The role has `SELECT, INSERT, UPDATE` on `app_records` and nothing else (deletes are soft). A policy (`USING` + `WITH CHECK`) limits it to `team_id = eapps.team AND app_id = ANY(eapps.apps)`. A wrong query then sees no other team's or app's rows, cannot read any other table, cannot write outside its scope, and stops after 2 s. The structured query becomes a parameterised query over a fixed column list, so app text never becomes SQL. The insert trigger that reads `apps` is `SECURITY DEFINER` with a pinned `search_path`. The main role owns the table and bypasses RLS: the watchdog purge, the quota count, cascades and Electric (replication and snapshots) are unchanged, and the shape proxy stays their guard. The role and policy live in the idempotent custom SQL applied at boot, so self-host gets them too. The connection's role needs `CREATEROLE` (or superuser) once to create `eapps`.
 - 🆕 The `author` policy filters rows in the shape itself.
 - Spezl keeps records in a per-app eNet records space.
 
