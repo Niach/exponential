@@ -57,22 +57,33 @@ describe(`events`, () => {
       fixture(cardTree, { name: `Ada` })(e)
       e.plugin = { onAction: plugin }
     })
-    document.body.addEventListener(`xui-action`, (e) => {
+    const listener = (e: CustomEvent<SurfaceActionDetail>) => {
       seen.push(e.detail)
       e.detail.waitUntil(d.promise)
-    })
-    const button = el.querySelector(`[data-xui-id="save"]`) as HTMLButtonElement
-    button.click()
-    expect(plugin).toHaveBeenCalledTimes(1)
-    expect(plugin.mock.calls[0][0]).toMatchObject({ surfaceId: `main`, name: `save`, componentId: `save`, context: { name: `Ada` } })
-    expect(seen).toHaveLength(1)
-    expect(seen[0]).toMatchObject({ name: `save`, event: `press`, context: { name: `Ada` } })
-    expect(button.getAttribute(`aria-busy`)).toBe(`true`)
-    expect(button.disabled).toBe(true)
-    d.resolve()
-    await tick()
-    expect(button.hasAttribute(`aria-busy`)).toBe(false)
-    expect(button.disabled).toBe(false)
+    }
+    document.body.addEventListener(`xui-action`, listener as EventListener)
+    try {
+      const button = el.querySelector(`[data-xui-id="save"]`) as HTMLButtonElement
+      button.click()
+      expect(plugin).toHaveBeenCalledTimes(1)
+      expect(plugin.mock.calls[0][0]).toMatchObject({ surfaceId: `main`, name: `save`, componentId: `save`, context: { name: `Ada` } })
+      expect(seen).toHaveLength(1)
+      expect(seen[0]).toMatchObject({ name: `save`, event: `press`, context: { name: `Ada` } })
+      expect(button.getAttribute(`aria-busy`)).toBe(`true`)
+      // EXP-1556: a pending Button refuses presses but keeps its idle look
+      // (only `disabled` dims), so it is busy, not disabled.
+      expect(button.disabled).toBe(false)
+      button.click()
+      expect(plugin).toHaveBeenCalledTimes(1)
+      expect(seen).toHaveLength(1)
+      d.resolve()
+      await tick()
+      expect(button.hasAttribute(`aria-busy`)).toBe(false)
+      button.click()
+      expect(plugin).toHaveBeenCalledTimes(2)
+    } finally {
+      document.body.removeEventListener(`xui-action`, listener as EventListener)
+    }
   })
 
   it(`xui-action: the plugin's promise is joined too`, async () => {

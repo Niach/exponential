@@ -157,7 +157,8 @@ describe(`dates: keyboard + dismissal parity`, () => {
       await settle(page)
       const activeOption = () => page.evaluate(() => document.querySelector(`[role="listbox"]`)?.getAttribute(`aria-activedescendant`)?.replace(/^.*-list-/, ``) ?? null)
       out.push(await active(page), await activeOption(), await page.locator(`.xui-TimePicker-trigger`).getAttribute(`aria-expanded`))
-      for (const key of [`ArrowDown`, `ArrowDown`, `ArrowUp`, `End`, `Home`, `4`]) {
+      // EXP-1556: the options read HH:mm, so the type-ahead for 04:00 is `0` `4`.
+      for (const key of [`ArrowDown`, `ArrowDown`, `ArrowUp`, `End`, `Home`, `0`, `4`]) {
         await page.keyboard.press(key)
         await settle(page)
         out.push([key, await activeOption()])
@@ -258,13 +259,15 @@ describe(`media parity`, () => {
       return page.evaluate(() => ({
         images: document.querySelectorAll(`.xui-surface img`).length,
         states: Array.from(document.querySelectorAll(`[data-xui-c="Image"]`)).map((e) => [e.getAttribute(`data-state`), e.getAttribute(`role`), e.getAttribute(`aria-label`), Boolean(e.querySelector(`.xui-Image-fallback`))]),
-        video: [document.querySelector(`video`)!.hasAttribute(`src`), document.querySelector(`video`)!.hasAttribute(`poster`)],
-        audio: document.querySelector(`audio`)!.hasAttribute(`src`),
+        // EXP-1556: a Video is its poster + play button until pressed; a denied
+        // src leaves the button disabled (no player) and a denied poster paints nothing.
+        video: [document.querySelectorAll(`video`).length, document.querySelectorAll(`.xui-video-poster`).length, (document.querySelector(`[data-xui-c="Video"] .xui-media-play`) as HTMLButtonElement | null)?.disabled ?? null],
+        audio: [document.querySelector(`audio`)!.hasAttribute(`src`), (document.querySelector(`[data-xui-c="AudioPlayer"] .xui-media-play`) as HTMLButtonElement | null)?.disabled ?? null],
         avatar: document.querySelector(`.xui-Avatar-fallback`)?.textContent ?? null,
         leaked: /javascript:|file:\/\//.test(document.querySelector(`.xui-surface`)!.innerHTML),
       }))
     })
-    expect(r).toEqual({ images: 0, states: [[`error`, `img`, `Denied`, true], [`error`, `img`, `File`, true]], video: [false, false], audio: false, avatar: `JD`, leaked: false })
+    expect(r).toEqual({ images: 0, states: [[`error`, `img`, `Denied`, true], [`error`, `img`, `File`, true]], video: [0, 0, true], audio: [false, true], avatar: `JD`, leaked: false })
     expect(s).toEqual(r)
   })
 })

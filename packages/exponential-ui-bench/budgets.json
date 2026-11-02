@@ -577,7 +577,7 @@
       "element-chromium": {
         "cold-start": {
           "firstPaintMs": 512.7,
-          "nodes": 690,
+          "nodes": 689,
           "coldStartMs": 628.2,
           "memoryMb": 32.5
         },
@@ -628,7 +628,7 @@
       "react-chromium": {
         "cold-start": {
           "firstPaintMs": 440.7,
-          "nodes": 690,
+          "nodes": 689,
           "coldStartMs": 749.7,
           "memoryMb": 24.2
         },
@@ -679,7 +679,7 @@
       "solid-chromium": {
         "cold-start": {
           "firstPaintMs": 506.1,
-          "nodes": 690,
+          "nodes": 689,
           "coldStartMs": 641.5,
           "memoryMb": 32.2
         },
@@ -851,7 +851,7 @@
     "mint": {
       "core": {
         "cold-start": {
-          "allocations": 234529,
+          "allocations": 234787,
           "coldStartMs": 21.3,
           "firstPaintMs": 15.1,
           "memoryMb": 30.4,
