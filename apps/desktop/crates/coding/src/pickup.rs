@@ -25,6 +25,7 @@ use domain::contract::{
     SESSION_STATUS_RUNNING,
 };
 use domain::rows::{MessageRow, SessionRow};
+use domain::sealed::SealState;
 
 /// What the host knows about one session it runs RIGHT NOW (an engine is
 /// attached in this process).
@@ -560,6 +561,10 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
             let unconsumed = m.consumed_at.as_deref().is_none_or(str::is_empty);
             if is_sealed_message(m) && (unconsumed || held_open.contains(m.id.as_str())) {
                 Cow::Owned(open_for_agent(m))
+            } else if unconsumed && m.seal == Some(SealState::Unreadable) {
+                // #EXP-1479: a row the sync store opened in place and could
+                // never read reads the locked placeholder, as a raw one does.
+                Cow::Owned(MessageRow { body: Some(crate::sealing::LOCKED_TEXT.to_string()), ..m.clone() })
             } else {
                 Cow::Borrowed(m)
             }
@@ -575,7 +580,7 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     let inputs: Vec<MessageRow> = all_messages
         .iter()
         .copied()
-        .filter(|m| is_pending_input(m))
+        .filter(|m| is_pending_input(m) && !awaits_key(m))
         .map(|m| MessageRow {
             body: Some(with_issue_brief(
                 &with_attachment_embeds(&input_text(m, input.sessions), &m.attachment_ids),
@@ -596,7 +601,7 @@ pub fn plan(input: PickupInput<'_>) -> Vec<PickupAction> {
     let answered_cards: Vec<MessageRow> = all_messages
         .iter()
         .copied()
-        .filter(|m| is_answered_tool_card(m))
+        .filter(|m| is_answered_tool_card(m) && !awaits_key(m))
         .map(|m| MessageRow { body: Some(answered_card_text(m)), ..m.clone() })
         .collect();
     let mut answered: HashMap<&str, Vec<&MessageRow>> = HashMap::new();
@@ -1020,6 +1025,16 @@ fn message_order(a: &MessageRow, b: &MessageRow) -> std::cmp::Ordering {
 fn is_sealed_message(message: &MessageRow) -> bool {
     message.body.as_deref().is_some_and(|body| body.starts_with(crate::sealing::SEALED_BODY_PREFIX))
         || message.card.as_ref().is_some_and(|card| card.get("sealed").is_some())
+}
+
+/// #EXP-1479: a row the sync store opened IN PLACE (the desktop's
+/// collections, `sync::sealed::Opener`) while this install held no key for
+/// its epoch yet (`noKey`): its body reads empty and its card only the clear
+/// part. It is not handed on — a wake would seed an empty turn and consume
+/// the person's message unread — but waits: the store re-opens it once a
+/// holder wraps the key, and the next pass delivers the real text.
+fn awaits_key(message: &MessageRow) -> bool {
+    message.seal == Some(SealState::Locked)
 }
 
 /// The agent-facing copy of a sealed row ([`crate::sealing::open_message`]:
@@ -4181,6 +4196,41 @@ mod tests {
         assert_eq!(bodies(messages), expected);
         let [PickupAction::Deliver { messages, .. }] = live.as_slice() else { panic!("{live:?}") };
         assert_eq!(bodies(messages), expected);
+    }
+
+    /// #EXP-1479: the desktop's sync store opens a sealed row IN PLACE; one
+    /// that arrived before this install held its tree key reads `noKey`
+    /// (body empty). It is never handed on as an empty turn (the resume said
+    /// "Nothing has been asked yet" and consumed the person's answer
+    /// unread): it waits, and once the store re-opens it the same message
+    /// wakes the session with its text. One that can never open reads the
+    /// locked placeholder, never an empty turn.
+    #[test]
+    fn a_message_waiting_for_its_key_is_held_not_consumed_empty() {
+        let row = session("sk", "idle", DEV, "2026-10-01T00:00:00Z");
+        let locked = MessageRow {
+            body: Some(String::new()),
+            seal: Some(SealState::Locked),
+            ..message("mk", "sk", "2026-10-02T00:00:01Z")
+        };
+        let waiting = Pass::new(vec![row.clone()], vec![locked.clone()]).run();
+        assert!(waiting.is_empty(), "held until its key arrives: {waiting:?}");
+        let live = Pass::new(vec![row.clone()], vec![locked.clone()]).live("sk", LiveView::default()).run();
+        assert!(live.is_empty(), "never delivered empty to a live engine either: {live:?}");
+
+        let opened = MessageRow {
+            body: Some("all but not 4".to_string()),
+            seal: Some(SealState::Opened),
+            ..locked.clone()
+        };
+        let woke = Pass::new(vec![row.clone()], vec![opened]).run();
+        let [PickupAction::Resume { messages, .. }] = woke.as_slice() else { panic!("{woke:?}") };
+        assert_eq!(messages.iter().map(|m| m.body.as_deref()).collect::<Vec<_>>(), vec![Some("all but not 4")]);
+
+        let unreadable = MessageRow { seal: Some(SealState::Unreadable), ..locked };
+        let woke = Pass::new(vec![row], vec![unreadable]).run();
+        let [PickupAction::Resume { messages, .. }] = woke.as_slice() else { panic!("{woke:?}") };
+        assert_eq!(messages[0].body.as_deref(), Some(crate::sealing::LOCKED_TEXT));
     }
 
     /// FEED-180: a SEALED message's attachments (clear `attachment_ids`, the
