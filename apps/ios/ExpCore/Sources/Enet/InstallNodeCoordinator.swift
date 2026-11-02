@@ -41,17 +41,18 @@ public final class InstallNodeCoordinator: @unchecked Sendable {
             task = Task.detached(priority: .utility) { [weak self] in
                 var last: [InstallAccount]?
                 var refreshedAt = ContinuousClock.now
+                // #EXP-1623 (Android #EXP-1590): passes in a row that did not
+                // fully land; > 0 retries on `EnetRetry`, not the 10 min refresh.
+                var failures = 0
                 while !Task.isCancelled {
                     guard let self else { return }
                     let current = self.snapshot()
                     let now = ContinuousClock.now
-                    if current != last {
+                    let wait = EnetRetry.wait(failures: failures, refresh: Self.refreshInterval)
+                    if current != last || (!current.isEmpty && now - refreshedAt >= wait) || self.takeWake() {
                         last = current
                         refreshedAt = now
-                        await self.service.sync(current)
-                    } else if !current.isEmpty, now - refreshedAt >= Self.refreshInterval {
-                        refreshedAt = now
-                        await self.service.sync(current)
+                        failures = await self.service.sync(current) ? 0 : failures + 1
                     }
                     try? await Task.sleep(for: Self.tick)
                 }
@@ -71,7 +72,19 @@ public final class InstallNodeCoordinator: @unchecked Sendable {
     /// network and migrates its paths. Fire-and-forget, off the main thread.
     public func networkChange() {
         let service = service
+        // #EXP-1623: the network that just came back is usually why the last
+        // pass failed: the next tick re-runs it.
+        lock.withLock { wakePending = true }
         Task.detached(priority: .utility) { await service.networkChange() }
+    }
+
+    private var wakePending = false
+
+    private func takeWake() -> Bool {
+        lock.withLock {
+            defer { wakePending = false }
+            return wakePending
+        }
     }
 
     /// An explicit sign-out of this install from one account: revokes the
@@ -99,5 +112,16 @@ public final class InstallNodeCoordinator: @unchecked Sendable {
                 return InstallAccount(accountId: account.id, userId: userId, teamIds: teams)
             }
             .sorted { $0.accountId < $1.accountId }
+    }
+}
+
+/// #EXP-1623 (Android `EnetRetry`, #EXP-1590): a node pass that did not fully
+/// land (start, `installs.register` or `installs.list` failed) retries within
+/// seconds, backing off to a minute, instead of waiting the 10 min refresh.
+public enum EnetRetry {
+    public static let backoff: [Duration] = [.seconds(1), .seconds(3), .seconds(10), .seconds(30), .seconds(60)]
+
+    public static func wait(failures: Int, refresh: Duration) -> Duration {
+        failures <= 0 ? refresh : backoff[min(failures, backoff.count) - 1]
     }
 }

@@ -18,6 +18,26 @@ final class SteerEnetTests: XCTestCase {
         try XCTUnwrap(try fixture()[key] as? [[String: Any]])
     }
 
+
+    // #EXP-1623: a send that ignores cancellation (the uniffi dial) no longer
+    // holds the caller past its deadline: the clock wins the race.
+    func testWithTimeoutReturnsAtTheDeadlineEvenIfTheBodyIgnoresCancellation() async {
+        let started = ContinuousClock.now
+        do {
+            _ = try await SteerEnetLink.withTimeout(.milliseconds(100)) { () async throws -> Int in
+                await withCheckedContinuation { continuation in
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 3) { continuation.resume() }
+                }
+                return 1
+            }
+            XCTFail("expected a timeout")
+        } catch {
+            XCTAssertTrue(error is SteerEnetTimeout, "\(error)")
+        }
+        XCTAssertLessThan(ContinuousClock.now - started, .seconds(1))
+        let value = try? await SteerEnetLink.withTimeout(.seconds(2)) { 7 }
+        XCTAssertEqual(value, 7)
+    }
     func testConstantsMatchTheFixture() throws {
         let f = try fixture()
         XCTAssertEqual(f["tag"] as? String, SteerEnet.tag)

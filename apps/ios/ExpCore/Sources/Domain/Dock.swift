@@ -287,6 +287,44 @@ public enum Dock {
         return best.map { ThreadDockQueue(sessionId: $0.sessionId, sessionName: $0.name) }
     }
 
+    /// #EXP-1623: what a thread knows of one Live child's Queue before it
+    /// pays for that child's stream.
+    public enum ChildQueueState: Equatable, Sendable {
+        case open
+        case closed
+        /// Never read (no stream yet, or its replay has not landed).
+        case unknown
+    }
+
+    public struct ThreadQueueProbe: Equatable, Sendable {
+        public let sessionId: String
+        public let activeAt: Double?
+        public let state: ChildQueueState
+
+        public init(sessionId: String, activeAt: Double?, state: ChildQueueState) {
+            self.sessionId = sessionId
+            self.activeAt = activeAt
+            self.state = state
+        }
+    }
+
+    /// #EXP-1623: the ONE Live child a thread attaches a stream to for THE
+    /// THREAD QUEUE, instead of one per Live child (#EXP-1545 opened a
+    /// stream and a full replay for every one of them on open). None while
+    /// the root's own Queue is open (the root wins); else the children in
+    /// `threadDockQueue`'s order (most recently active first, none = oldest,
+    /// ties by id) and the first that is not known closed: an open one is
+    /// the pick itself, an unknown one is read next. Every child known
+    /// closed = none.
+    public static func threadQueueProbe(rootOpen: Bool, children: [ThreadQueueProbe]) -> String? {
+        guard !rootOpen else { return nil }
+        let ordered = children.sorted { a, b in
+            let x = a.activeAt ?? -.infinity, y = b.activeAt ?? -.infinity
+            return x != y ? x > y : a.sessionId < b.sessionId
+        }
+        return ordered.first { $0.state != .closed }?.sessionId
+    }
+
     /// The band: the pile (or the fan while `expanded`), the front card, the
     /// open sheet.
     public static func view(rows: [Row], expanded: Bool, openId: String?) -> View {

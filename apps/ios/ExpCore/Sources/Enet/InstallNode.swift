@@ -204,21 +204,24 @@ public actor InstallNodeService {
     /// refresh): starts the node if needed, registers every account not yet
     /// registered by this node, and reloads the allowlist. An empty list
     /// stops the node.
-    public func sync(_ accounts: [InstallAccount]) async {
+    /// #EXP-1623: true once the pass fully landed (node up, every account
+    /// registered, every allowlist read); false = retry soon (`EnetRetry`).
+    @discardableResult
+    public func sync(_ accounts: [InstallAccount]) async -> Bool {
         self.accounts = accounts
         installIds = installIds.filter { id, _ in accounts.contains { $0.accountId == id } }
         guard !accounts.isEmpty else {
             await stop()
-            return
+            return true
         }
         // At most one rotation per pass: a second FORBIDDEN means something
         // else is wrong, and looping would mint identities forever.
         for attempt in 0..<2 {
             guard let seed = identity.loadOrCreate() else {
                 logger.error("No install identity (keychain refused it): eNet stays off")
-                return
+                return false
             }
-            guard await ensureNode(seed) != nil else { return }
+            guard await ensureNode(seed) != nil else { return false }
             if await registerPending(seed: seed) || attempt == 1 { break }
             logger.info("The registry revoked this install: rotating its identity")
             identity.rotate()
@@ -226,14 +229,16 @@ public actor InstallNodeService {
             await stop()
             onIdentityRotated()
         }
-        await refreshAllowlist()
+        let listed = await refreshAllowlist()
+        return listed && accounts.allSatisfy { installIds[$0.accountId] != nil }
     }
 
     /// Reloads the allowlist from `installs.list` for every team of every
     /// account. A failed list keeps that team's current entries out of the
     /// revoke set (one flaky call must not cut every peer off).
-    public func refreshAllowlist() async {
-        guard let node else { return }
+    @discardableResult
+    public func refreshAllowlist() async -> Bool {
+        guard let node else { return false }
         var lists: [[InstallEntry]] = []
         var failed = false
         for account in accounts {
@@ -253,6 +258,7 @@ public actor InstallNodeService {
         if !failed {
             for peer in revoke { try? node.revoke(peer: peer) }
         }
+        return !failed
     }
 
     /// One account signs out: on an explicit sign-out of THIS install the

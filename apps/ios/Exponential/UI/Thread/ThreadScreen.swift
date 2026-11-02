@@ -129,6 +129,15 @@ struct ThreadScreen: View {
     /// card), keyed by session id; released once a child ends or the screen
     /// goes.
     @State private var childModels: [String: AgentSessionModel] = [:]
+    /// #EXP-1623: when each child claim was taken: a child whose Queue is
+    /// still unread `childProbeDeadline` later reads closed for the probe,
+    /// so an unreachable host never pins it; the tick re-asks the probe then.
+    @State private var childAttachedAt: [String: Date] = [:]
+    @State private var childProbeTick = 0
+    /// #EXP-1623: claims are taken only while the screen is on screen; a
+    /// covered screen still observes its inputs.
+    @State private var onScreen = false
+    private static let childProbeDeadline: TimeInterval = 15
     /// EXP-1343: the shown session page's model (its embedded view's claim);
     /// nil off a session page.
     @State private var sessionPageModel: (id: String, model: AgentSessionModel)?
@@ -452,8 +461,14 @@ struct ThreadScreen: View {
         .onChange(of: rows?.guidePullRequest?.id) { _, _ in mergeState = WorkMergeState() }
         // EXP-1323: the live tail follows the root while it is not ended.
         .onChange(of: model?.view?.liveSessionId, initial: true) { _, _ in syncLiveTail() }
-        // #EXP-1545: the Live children's relay slots follow the tree.
-        .onChange(of: liveChildIds, initial: true) { _, _ in syncChildModels() }
+        // #EXP-1545/#EXP-1623: the ONE Live child's relay slots follow the
+        // tree and what is known of each child's Queue (its own scope: the
+        // probe reads the attached child's slots).
+        .background {
+            BodySlice {
+                Color.clear.onChange(of: childProbeInput, initial: true) { _, _ in syncChildModels() }
+            }
+        }
         // A newer agent message read here is read: re-stamp the root.
         .onChange(of: newestAgentMessageAt) { _, newest in
             if newest != nil { markRead() }
@@ -699,34 +714,40 @@ struct ThreadScreen: View {
                     // N-12: THE Dock over the Conversation's bottom edge: the
                     // suggested tasks, the live root's Queue, queued
                     // messages and banners, then THE composer (always).
-                    let dockRows = conversationDockRows(rows: rows, view: view)
-                    DockView(
-                        rows: dockRows,
-                        openId: $dockOpenId,
-                        renderSheet: { row, close in conversationDockSheet(row, rows: rows, view: view, close: close) },
-                        renderAction: { row in
-                            row.id == "banner:closed"
-                                ? liveModel.map(SessionDock.reconnect)
-                                : SessionDock.agentHintAction(row) { text in reply(text, sessionId: rows.root.id) }
-                        }
-                    ) {
-                        // EXP-1211: the agent's quick replies, directly above
-                        // the composer.
-                        SessionComposerReplies(sessionId: view.composer.sessionId)
-                        ThreadComposer(
-                            sessionId: view.composer.sessionId,
-                            root: rows.root,
-                            placeholder: rows.composerPlaceholder(view),
-                            busySessionIds: rows.sessions
-                                .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
-                                .map(\.id),
-                            onExpand: {
-                                // Remember the pin BEFORE the inset moves it.
-                                pinOnInset = atBottom
+                    // #EXP-1623: THE Dock is its own observation scope. Built
+                    // inline, every live model's slots it reads (the root's
+                    // and the Live child's) were tracked by this screen's
+                    // body, so their frames re-rendered the whole thread.
+                    BodySlice {
+                        let dockRows = conversationDockRows(rows: rows, view: view)
+                        DockView(
+                            rows: dockRows,
+                            openId: $dockOpenId,
+                            renderSheet: { row, close in conversationDockSheet(row, rows: rows, view: view, close: close) },
+                            renderAction: { row in
+                                row.id == "banner:closed"
+                                    ? liveModel.map(SessionDock.reconnect)
+                                    : SessionDock.agentHintAction(row) { text in reply(text, sessionId: rows.root.id) }
                             }
-                        )
+                        ) {
+                            // EXP-1211: the agent's quick replies, directly above
+                            // the composer.
+                            SessionComposerReplies(sessionId: view.composer.sessionId)
+                            ThreadComposer(
+                                sessionId: view.composer.sessionId,
+                                root: rows.root,
+                                placeholder: rows.composerPlaceholder(view),
+                                busySessionIds: rows.sessions
+                                    .filter { $0.busy && $0.status != DomainContract.sessionStatusEnded }
+                                    .map(\.id),
+                                onExpand: {
+                                    // Remember the pin BEFORE the inset moves it.
+                                    pinOnInset = atBottom
+                                }
+                            )
+                        }
+                        .floatingBarEdge(!dockRows.isEmpty)
                     }
-                    .floatingBarEdge(!dockRows.isEmpty)
                     // EXP-1316 (Android 247c806b33): the floating composer's
                     // MEASURED height (capsule or open card, + its edge) is
                     // the conversation's bottom inset; a pinned conversation
@@ -1073,24 +1094,81 @@ struct ThreadScreen: View {
     }
 
     /// #EXP-1545: the tree's not-ended children (any depth).
-    private var liveChildIds: [String] {
+    private var liveChildren: [SessionEntity] {
         (rows?.sessions ?? [])
             .filter { $0.parentId != nil && $0.status != DomainContract.sessionStatusEnded }
-            .map(\.id)
-            .sorted()
+            .sorted { $0.id < $1.id }
     }
 
-    /// #EXP-1545: ONE claim per Live child (`attachSteerModel` / `detach`
-    /// pairs, like the root's); an ended or gone child is released.
+    /// #EXP-1623: each Live child as the probe sees it: when it was last
+    /// active and what is known of its Queue without opening its stream.
+    private var childProbes: [Dock.ThreadQueueProbe] {
+        liveChildren.map { session in
+            let activeAt = Stories.ms(session.lastTurnAt) ?? Stories.ms(session.startedAt)
+            return Dock.ThreadQueueProbe(
+                sessionId: session.id, activeAt: activeAt,
+                state: childQueueState(session.id, activeAt: activeAt)
+            )
+        }
+    }
+
+    private struct ChildProbeInput: Equatable {
+        let rootOpen: Bool
+        let probes: [Dock.ThreadQueueProbe]
+        let tick: Int
+    }
+
+    private var childProbeInput: ChildProbeInput {
+        ChildProbeInput(rootOpen: liveModel.map(Self.queueOpen) ?? false, probes: childProbes, tick: childProbeTick)
+    }
+
+    private func childQueueState(_ id: String, activeAt: Double?) -> Dock.ChildQueueState {
+        let store = deps.steerSessions
+        let model = childModels[id] ?? store.peek(accountId: accountId, sessionId: id)
+        if let model, Self.queueOpen(model) { return .open }
+        if store.queueReadClosed(accountId: accountId, sessionId: id, activeAt: activeAt) { return .closed }
+        if let model {
+            // No device feeds it (`starting`): nothing to read there yet, so
+            // the next child in line is; it is read again once it turns.
+            if model.phase == .starting { return .closed }
+            if case .closed = model.phase { return .closed }
+            if model.replayed || model.isOver { return .closed }
+            if let at = childAttachedAt[id], Date().timeIntervalSince(at) >= Self.childProbeDeadline {
+                return .closed
+            }
+            return .unknown
+        }
+        return .unknown
+    }
+
+    private static func queueOpen(_ model: AgentSessionModel) -> Bool {
+        !(model.taskQueue(now: Date())?.todo.items.isEmpty ?? true)
+    }
+
+    /// #EXP-1623 (was #EXP-1545's one claim per Live child: a stream and a
+    /// full join replay for every child on open): ONE claim, on the child
+    /// `Dock.threadQueueProbe` names; a child read closed is released and
+    /// remembered as closed until it is active again.
     private func syncChildModels() {
-        let wanted = Set(liveChildIds)
-        for id in childModels.keys where !wanted.contains(id) {
+        guard onScreen else { return }
+        let input = childProbeInput
+        let probes = input.probes
+        let wanted = Dock.threadQueueProbe(rootOpen: input.rootOpen, children: probes)
+        for probe in probes where probe.state == .closed {
+            deps.steerSessions.noteQueueClosed(accountId: accountId, sessionId: probe.sessionId, activeAt: probe.activeAt)
+        }
+        for id in childModels.keys where id != wanted {
             childModels[id] = nil
+            childAttachedAt[id] = nil
             deps.steerSessions.detach(accountId: accountId, sessionId: id)
         }
-        for id in wanted where childModels[id] == nil {
-            guard let session = rows?.session(id: id) else { continue }
-            childModels[id] = deps.attachSteerModel(accountId: accountId, session: session)
+        if let wanted, childModels[wanted] == nil, let session = rows?.session(id: wanted) {
+            childModels[wanted] = deps.attachSteerModel(accountId: accountId, session: session)
+            childAttachedAt[wanted] = Date()
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(Self.childProbeDeadline))
+                childProbeTick &+= 1
+            }
         }
     }
 
@@ -1099,6 +1177,7 @@ struct ThreadScreen: View {
             deps.steerSessions.detach(accountId: accountId, sessionId: id)
         }
         childModels = [:]
+        childAttachedAt = [:]
     }
 
     private func releaseLiveTail() {
@@ -1334,6 +1413,7 @@ struct ThreadScreen: View {
         model?.start()
         syncIssueModels()
         syncLiveTail()
+        onScreen = true
         syncChildModels()
         markRead()
     }
@@ -1343,6 +1423,7 @@ struct ThreadScreen: View {
         model?.stop()
         stopIssueModel()
         releaseLiveTail()
+        onScreen = false
         releaseChildModels()
     }
 

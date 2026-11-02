@@ -1162,17 +1162,36 @@ public enum AgentFeed {
     public static func applyThought(
         _ feed: [AgentFeedItem], thoughtId: String, started: Bool, durationMs: Int?
     ) -> [AgentFeedItem]? {
+        var next = feed
+        return applyThought(&next, thoughtId: thoughtId, started: started, durationMs: durationMs) ? next : nil
+    }
+
+    /// The same fold IN PLACE (#EXP-1623: a replay folds thousands of events,
+    /// and a copy of the whole feed per event made it quadratic). False = no
+    /// row holds that id; the feed is untouched.
+    /// #EXP-1623: whether the NEWEST row with that thought id is still
+    /// running; nil = no row holds it.
+    public static func thoughtRunning(_ feed: [AgentFeedItem], thoughtId: String) -> Bool? {
+        for item in feed.reversed() {
+            if case let .thought(_, id, running, _, _) = item, id == thoughtId { return running }
+        }
+        return nil
+    }
+
+    @discardableResult
+    public static func applyThought(
+        _ feed: inout [AgentFeedItem], thoughtId: String, started: Bool, durationMs: Int?
+    ) -> Bool {
         guard let index = feed.lastIndex(where: {
             if case let .thought(_, id, _, _, _) = $0 { return id == thoughtId }
             return false
-        }), case let .thought(id, _, _, _, subagentId) = feed[index] else { return nil }
-        if started { return feed }
-        var next = feed
-        next[index] = .thought(
+        }), case let .thought(id, _, _, _, subagentId) = feed[index] else { return false }
+        if started { return true }
+        feed[index] = .thought(
             id: id, thoughtId: thoughtId, running: false, durationMs: durationMs,
             subagentId: subagentId
         )
-        return next
+        return true
     }
 
     /// EXP-1324: a turn that ENDED settles every thought still open — a
@@ -1180,17 +1199,23 @@ public enum AgentFeed {
     /// (web `steer-session-store` parity). Nil = nothing was open.
     public static func settleThoughts(_ feed: [AgentFeedItem]) -> [AgentFeedItem]? {
         var next = feed
+        return settleThoughts(&next) ? next : nil
+    }
+
+    /// The same settle IN PLACE (#EXP-1623); false = nothing was open.
+    @discardableResult
+    public static func settleThoughts(_ feed: inout [AgentFeedItem]) -> Bool {
         var changed = false
-        for index in next.indices {
-            guard case let .thought(id, thoughtId, running, durationMs, subagentId) = next[index], running
+        for index in feed.indices {
+            guard case let .thought(id, thoughtId, running, durationMs, subagentId) = feed[index], running
             else { continue }
-            next[index] = .thought(
+            feed[index] = .thought(
                 id: id, thoughtId: thoughtId, running: false, durationMs: durationMs,
                 subagentId: subagentId
             )
             changed = true
         }
-        return changed ? next : nil
+        return changed
     }
 
     /// EXP-785/786: fold a `tool_update` into the NEWEST tool row whose
@@ -1206,10 +1231,22 @@ public enum AgentFeed {
         return applyToolUpdate(feed: feed, update: update)
     }
 
-    /// The same fold over the DECODED payload — what the view model runs.
+    /// The same fold over the DECODED payload.
     public static func applyToolUpdate(
         feed: [AgentFeedItem], update: AgentToolUpdate
     ) -> [AgentFeedItem]? {
+        var next = feed
+        return applyToolUpdate(&next, update: update) == nil ? nil : next
+    }
+
+    /// The same fold IN PLACE — what the view model runs (#EXP-1623: a copy
+    /// of the whole feed per `tool_update` made a replay quadratic). Returns
+    /// the patched row's index and its weight before the patch, so the
+    /// caller moves its byte count by the delta; nil = no row holds that id.
+    @discardableResult
+    public static func applyToolUpdate(
+        _ feed: inout [AgentFeedItem], update: AgentToolUpdate
+    ) -> (index: Int, oldBytes: Int)? {
         let id = update.id
         guard let at = feed.lastIndex(where: { item in
                   if case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _) = item {
@@ -1222,6 +1259,7 @@ public enum AgentFeed {
                   settled, failed, diff, preview, output, script, settledAt
               ) = feed[at]
         else { return nil }
+        let oldBytes = itemBytes(feed[at])
         var nextSettled = settled
         var nextFailed = failed
         var nextSettledAt = settledAt
@@ -1239,15 +1277,14 @@ public enum AgentFeed {
         let nextOutput = update.output ?? output
         // EXP-1279: the code-mode log, same rule.
         let nextScript = update.script ?? script
-        var next = feed
-        next[at] = .tool(
+        feed[at] = .tool(
             id: rowId, name: name, detail: detail, subagentId: subagentId,
             callId: callId, toolKind: toolKind,
             settled: nextSettled, failed: nextFailed, diff: nextDiff,
             preview: nextPreview, output: nextOutput, script: nextScript,
             settledAt: nextSettledAt
         )
-        return next
+        return (at, oldBytes)
     }
 
     // MARK: - Turn edges (EXP-848)
@@ -1591,7 +1628,16 @@ public enum AgentFeed {
     public static func mergeNarration(
         _ feed: [AgentFeedItem], text: String, messageId: String?, subagentId: String?
     ) -> [AgentFeedItem]? {
-        guard let messageId, !messageId.isEmpty else { return nil }
+        var next = feed
+        return mergeNarration(&next, text: text, messageId: messageId, subagentId: subagentId) ? next : nil
+    }
+
+    /// The same merge IN PLACE (#EXP-1623); false = nothing to merge into.
+    @discardableResult
+    public static func mergeNarration(
+        _ feed: inout [AgentFeedItem], text: String, messageId: String?, subagentId: String?
+    ) -> Bool {
+        guard let messageId, !messageId.isEmpty else { return false }
         var index = feed.count - 1
         while index >= 0 {
             let item = feed[index]
@@ -1599,21 +1645,20 @@ public enum AgentFeed {
                previousSubagent == subagentId {
                 // The lane's latest prose: the same message grows, another one
                 // opens a new bubble.
-                guard previousMessage == messageId else { return nil }
-                var out = feed
-                out[index] = .narration(
+                guard previousMessage == messageId else { return false }
+                feed[index] = .narration(
                     id: id, text: existing + text, messageId: messageId, subagentId: subagentId
                 )
-                return out
+                return true
             }
             // Another lane's row is invisible to this one — look past it.
             guard item.subagentKey == subagentId else {
                 index -= 1
                 continue
             }
-            return nil
+            return false
         }
-        return nil
+        return false
     }
 
     /// Ids of the question items still answerable: every card the desktop has

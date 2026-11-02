@@ -231,7 +231,12 @@ struct AgentSessionView: View {
     /// "Jump to bottom" land on the true end.
     @ViewBuilder
     private func runFace(_ model: AgentSessionModel) -> some View {
-        feedBody(model)
+        // #EXP-1623: the transcript is its own observation scope too, so a
+        // feed write re-renders the transcript, never this view's chrome,
+        // header and modifiers around it.
+        BodySlice {
+            feedBody(model)
+        }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 // EXP-1358: the band is its OWN observation scope. Built
                 // inline, every draft read it makes (`trimmedDraft`,
@@ -528,7 +533,7 @@ struct AgentSessionView: View {
 
     @ViewBuilder
     private func feedBody(_ model: AgentSessionModel) -> some View {
-        if model.feed.isEmpty, let status = historyStatus(model) {
+        if !model.hasFeed, let status = historyStatus(model) {
             // EXP-773: a finished session's transcript lives on the machine
             // that ran it. Say which machine when it can't answer (VAPP-43:
             // no device fed the join).
@@ -538,7 +543,7 @@ struct AgentSessionView: View {
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .multilineTextAlignment(.center)
             }
-        } else if model.feed.isEmpty, model.phase == .starting,
+        } else if !model.hasFeed, model.phase == .starting,
                   SteerNoFeed.state(
                       ended: model.sessionEnded, busy: (model.session ?? session).busy
                   ) == .idle {
@@ -548,14 +553,14 @@ struct AgentSessionView: View {
             centeredState {
                 EmptyState(title: SteerNoFeed.idleTitle, description: SteerNoFeed.idleText)
             }
-        } else if model.feed.isEmpty,
+        } else if !model.hasFeed,
                   model.phase == .connecting || model.phase == .starting || model.phase == .idle {
             // EXP-1275 (D8): a first load is skeleton rows, never a spinner.
             SkeletonRows(rows: 3, rowHeight: 28, dividers: false)
                 .transcriptColumn()
                 .frame(maxHeight: .infinity, alignment: .top)
                 .padding(.top, 8)
-        } else if model.feed.isEmpty, model.phase == .live, model.latestDiff == nil {
+        } else if !model.hasFeed, model.phase == .live, model.latestDiff == nil {
             centeredState {
                 Text("Waiting for activity…")
                     .font(.subheadline)
@@ -836,7 +841,7 @@ struct AgentSessionView: View {
                     // sits inside the band's safe-area inset). Only while
                     // scrolled away from the newest row of a non-empty feed.
                     ZStack {
-                        if !atBottom, !model.feed.isEmpty {
+                        if !atBottom, model.hasFeed {
                             JumpToBottomButton {
                                 // Re-arm follow directly (Android parity: the
                                 // tap sets follow=true) instead of waiting
