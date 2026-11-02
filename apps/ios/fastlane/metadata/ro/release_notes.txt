@@ -25,3 +25,6 @@
 - O pornire care n-a început niciodată arată „Nu a putut porni” în loc să stea inactivă
 - Reluarea mai multor sesiuni întrerupte deodată funcționează
 - Conversațiile se deschid mai repede și rămân fluide cât lucrează un agent: actualizările live nu mai redesenează toată conversația sau câmpul de scriere, transcrierile lungi se încarcă fără blocaje, iar conexiunea cu calculatoarele tale revine în câteva secunde
+- Chaturile live se redesenează mai rar cât timp lucrează un agent, așa că derularea rămâne fluidă
+- Înregistrările aplicațiilor aparțin autorului lor; proprietarii echipei pot introduce înregistrări pentru alții
+- Agenții pot afișa mici animații în cardurile lor

@@ -25,3 +25,6 @@
 - Een start die nooit begon toont "Kon niet starten" in plaats van stil te staan
 - Meerdere onderbroken sessies tegelijk hervatten werkt
 - Chats openen sneller en blijven soepel terwijl een agent werkt: live-updates tekenen niet langer de hele chat of het invoerveld opnieuw, lange transcripten laden zonder te haperen en de verbinding met je machines herstelt binnen enkele seconden
+- Live chats tekenen minder vaak opnieuw terwijl een agent werkt, zodat scrollen soepel blijft
+- App-records zijn van hun auteur; teameigenaren kunnen records voor anderen invoeren
+- Agents kunnen kleine animaties in hun kaarten tonen

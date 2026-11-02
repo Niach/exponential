@@ -25,3 +25,6 @@
 - Egy soha el nem indult indítás „Nem sikerült elindítani” feliratot mutat tétlenség helyett
 - Több megszakadt munkamenet egyszerre folytatható
 - A csevegések gyorsabban nyílnak és gördülékenyek maradnak, amíg egy ügynök dolgozik: az élő frissítések már nem rajzolják újra az egész csevegést vagy a szövegmezőt, a hosszú átiratok fagyás nélkül töltődnek be, és a gépeiddel való kapcsolat másodperceken belül helyreáll
+- Az élő csevegések ritkábban rajzolódnak újra, amíg egy ügynök dolgozik, így a görgetés gördülékeny marad
+- Az alkalmazások rekordjai a szerzőjükhöz tartoznak; a csapat tulajdonosai másoknak is felvehetnek rekordokat
+- Az ügynökök kis animációkat mutathatnak a kártyáikon
