@@ -11605,7 +11605,6 @@
           24
         ],
         "id" : "file-upload.browse",
-        "opacity" : 0.5,
         "part" : "browse",
         "radius" : 10
       }
