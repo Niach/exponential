@@ -891,6 +891,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_motion_compile(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie_machine(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_number(
@@ -1573,6 +1575,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_zoom_json(`requestJson`: RustBuff
 external fun uniffi_exponential_ui_ffi_fn_func_motion_compile(`dialectJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie_machine(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun ffi_exponential_ui_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -10949,6 +10953,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
             return FfiConverterString.lift(
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(
+    
+        FfiConverterByteArray.lower(`data`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The first state machine of a `.lottie` archive as JSON, or "" (EXP-1605,
+         * README › Interactivity §1).
+         */
+    @Throws(UiException::class) fun `motionReadDotlottieMachine`(`data`: kotlin.ByteArray): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie_machine(
     
         FfiConverterByteArray.lower(`data`),_status)
 }

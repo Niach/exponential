@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1605: `motion_read_dotlottie_machine(data)`: a `.lottie`'s first state machine (manifest order) as JSON, "" without one.
 ## 0.3.0 (2026-10-31)
 
 - VAPP-180 (with the SDK): a package's `exposes` and `upstreams`, validated by the core.

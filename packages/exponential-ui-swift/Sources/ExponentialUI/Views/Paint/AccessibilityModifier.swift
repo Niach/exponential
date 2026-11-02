@@ -80,6 +80,8 @@ struct A11yInfo: Equatable {
         case ("Box", "indicator"): return "tablist"
         case ("List", "divider"): return "hidden"
         case ("Box", _) where n.pressable: return "button"
+        // EXP-1605: a Motion with `on.press` is a button.
+        case ("Motion", _) where n.pressable: return "button"
         default: break
         }
         if n.part == nil {
@@ -124,6 +126,11 @@ struct A11yInfo: Equatable {
             let activity = VoiceWaveFrame.activity(n.props.str("activity"))
             info.label = "\(name), \(activity)"
             info.traits = .isImage
+            return info
+        case ("Motion", _) where n.pressable:
+            // EXP-1605 (a11y.json): with `on.press` a button named by `label`.
+            info.label = a.label ?? n.props.str("label")
+            info.traits = .isButton
             return info
         case ("QrCode", _), ("Motion", _):
             // VAPP-162, EXP-1604 (a11y.json): an img named by `label`; decorative

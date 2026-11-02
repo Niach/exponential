@@ -270,6 +270,16 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
         // VAPP-162, EXP-1604: a QrCode / Motion is an image named by its label (decorative
         // without one); a QrScanner names its own viewfinder (the camera
         // state is the composable's).
+        // EXP-1605 (a11y.json): a Motion with `on.press` is a button named by its label.
+        c == "Motion" && node.pressable -> {
+            val index = node.index
+            val name = a.label ?: node.props.str("label")
+            clearAndSetSemantics {
+                contentDescription = name
+                role = Role.Button
+                onClick { model.press(index); true }
+            }
+        }
         c == "QrCode" || c == "Motion" -> {
             val name = a.label ?: node.props.str("label").ifEmpty { null }
             if (name == null) hiddenFromAccessibility() else clearAndSetSemantics {
