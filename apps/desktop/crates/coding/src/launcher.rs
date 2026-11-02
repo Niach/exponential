@@ -2962,7 +2962,9 @@ fn prepare_resume(
                     branch,
                     &default_branch,
                     ahead,
-                    native_resume && message.is_empty() && !switching,
+                    // #EXP-1479: only a resume NO message woke waits
+                    // unasked; one a message woke says nothing of the kind.
+                    native_resume && message.is_empty() && resume.message_id.is_none() && !switching,
                 )
             })
         })
@@ -6052,6 +6054,42 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         );
         assert_eq!(prepared.repository_id.as_deref(), Some("repo-resume-reclaimed"));
         assert!(captured.lock().unwrap()[0].contains("repositories.installationToken"));
+    }
+
+    /// #EXP-1479: a reclaimed worktree resumed by a MESSAGE whose text reads
+    /// empty still carries the note, never "Nothing has been asked yet": a
+    /// person asked something. Only a resume no message woke waits unasked.
+    #[test]
+    fn a_reclaimed_resume_woken_by_a_message_never_says_nothing_was_asked() {
+        for woken in [true, false] {
+            let dir = temp_dir(if woken { "resume-reclaimed-woken" } else { "resume-reclaimed-alone" });
+            let (base, _captured) = canned_server_recording(vec![
+                (200, TOKEN_OK.to_string()),
+                (200, RESOLVE_NONE.to_string()),
+            ]);
+            let layout = dir.0.join("repos").join("acme").join("web.worktrees").join("session-9a8b7c6d");
+            let mut deps = make_deps(&base, &dir.0, fake_worktrees(&layout));
+            let mut record = resume_record(&dir.0, "sess-old6");
+            record.cwd = layout.clone();
+            record.clone = Some(dir.0.join("repos").join("acme").join("web"));
+            record.repo = Some("acme/web".to_string());
+            record.repository_id = Some("repo-resume-reclaimed".to_string());
+            record.branch = Some("exp/session-9a8b7c6d".to_string());
+            record.base_branch = Some("main".to_string());
+            assert!(record.workspace_reclaimed());
+            seed_transcript(&dir.0, &mut deps, "claude-1");
+            let mut req = resume_request(record);
+            let resume = req.resume.as_mut().unwrap();
+            resume.prompt = String::new();
+            if !woken {
+                resume.message_id = None;
+            }
+
+            let prepared = ready(launch(req, &deps));
+            let prompt = seed_prompt(&prepared);
+            assert!(prompt.starts_with("Your worktree was reclaimed"), "{prompt}");
+            assert_eq!(prompt.contains("Nothing has been asked yet"), !woken, "woken = {woken}: {prompt}");
+        }
     }
 
     /// EXP-1536 A (#1560 review): a resume whose recorded folder the device
