@@ -159,7 +159,8 @@ interprets Lottie, the dialect or the clock itself.
 ## Interactivity (M4, EXP-1605): the contract for every renderer
 
 1. **State machine**: the `stateMachine` prop (dotLottie 2 JSON), else a
-   `.lottie` `src`'s first state machine → `set_state_machine`. While one
+   `.lottie` `src`'s first state machine (uniffi:
+   `motion_read_dotlottie_machine`) → `set_state_machine`. While one
    runs, its current state's playback replaces the playback props.
 2. **Inputs**: the `inputs` prop (literal or bound) → `sm_set_inputs` on
    every change (so a data model drives the states).

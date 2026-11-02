@@ -299,6 +299,8 @@ fun SurfaceModel.press(index: Int) {
         return
     }
     if (n.isTextField || (n.component == "Slider" && n.part == "track") || n.component == "Segmented") return
+    // EXP-1605: a Motion's state machine gets the click first.
+    motionDrivers[n.id]?.post("click")
     when (owner.component) {
         "Checkbox", "Switch" -> {
             val external = owner.props["checked"] ?: JsonValue.Bool(false)
@@ -355,12 +357,14 @@ fun SurfaceModel.pressDown(id: String) {
     val i = indexOf(id)
     if (i != null && isDisabled(i)) return
     pressedId = id
+    motionDrivers[id]?.post("pointerDown")
     setInteraction(id) { it.copy(pressed = true) }
 }
 
 /** Pointer up: clear the state; the press itself is the click's action. */
 fun SurfaceModel.pressUp(id: String) {
     if (pressedId == id) pressedId = null
+    motionDrivers[id]?.post("pointerUp")
     setInteraction(id) { it.copy(pressed = false) }
 }
 

@@ -7946,6 +7946,17 @@ public func motionReadDotlottie(data: Data)throws  -> String  {
     )
 })
 }
+/**
+ * The first state machine of a `.lottie` archive as JSON, or "" (EXP-1605,
+ * README › Interactivity §1).
+ */
+public func motionReadDotlottieMachine(data: Data)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie_machine(
+        FfiConverterData.lower(data),$0
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -8164,6 +8175,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie() != 13234) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie_machine() != 23083) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale() != 12162) {

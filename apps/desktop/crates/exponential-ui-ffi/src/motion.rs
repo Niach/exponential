@@ -160,6 +160,17 @@ pub fn motion_read_dotlottie(data: Vec<u8>) -> Result<String, UiError> {
     file.animations.into_iter().next().map(|(_, a)| a.to_string()).ok_or_else(|| invalid("no animation in the archive"))
 }
 
+/// The first state machine of a `.lottie` archive as JSON, or "" (EXP-1605,
+/// README › Interactivity §1).
+#[uniffi::export]
+pub fn motion_read_dotlottie_machine(data: Vec<u8>) -> Result<String, UiError> {
+    let file = eui_motion::dotlottie::read(&data)
+        .map_err(|issues| UiError::Invalid { reason: serde_json::to_string(&issues).unwrap_or_default() })?;
+    // The manifest's first `stateMachines` entry, else the first file.
+    let first = file.manifest["stateMachines"][0]["id"].as_str().and_then(|id| file.state_machines.get(id));
+    Ok(first.or_else(|| file.state_machines.values().next()).map(|m| m.to_string()).unwrap_or_default())
+}
+
 fn sync(g: &mut Inner) {
     if let Some(m) = &g.machine {
         g.playback = m.playback().clone();

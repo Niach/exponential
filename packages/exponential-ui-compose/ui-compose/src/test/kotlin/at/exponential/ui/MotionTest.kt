@@ -117,6 +117,35 @@ class MotionTest {
         assertEquals(listOf(48f, 48f), MotionPlayer(lottie, "").size())
     }
 
+    /** EXP-1605: `fixtures/motion-state.json` over uniffi: the status after every step, and the state's playback reaching the clock (its poster frame). */
+    @Test
+    fun stateFixtureReplays() {
+        Fixtures.require()
+        val f = Fixtures.json("motion-state.json")
+        val lottie = f["lottie"]!!.json
+        for (c in f["cases"]!!.array!!) {
+            val id = c["id"]!!.string!!
+            val player = MotionPlayer(lottie, "")
+            assertTrue(id, player.setStateMachine(c["machine"]!!.json))
+            fun check(want: JsonValue, at: String) {
+                val got = JsonValue.parse(player.smStatus())
+                assertEquals("$id $at state", want["state"], got["state"])
+                assertEquals("$id $at entered", want["entered"], got["entered"])
+                assertEquals("$id $at final", want["final"], got["final"])
+                assertEquals("$id $at inputs", want["inputs"], got["inputs"])
+                assertEquals("$id $at range", want["range"]!!.array!![0].number!!, player.posterFrame(), 1e-6)
+            }
+            check(c["initial"]!!, "initial")
+            c["steps"]!!.array!!.forEachIndexed { n, s ->
+                val step = s["step"]!!
+                step["post"]?.string?.let { player.smPost(it, step["layer"]?.string ?: "") }
+                step["set"]?.takeIf { it.obj != null }?.let { player.smSetInputs(it.json) }
+                if (step["complete"]?.bool == true) player.smPost("complete", "")
+                check(s, "step $n")
+            }
+        }
+    }
+
     @Test
     fun atMostEightAnimatePerSurface() {
         val m = makeModel()
