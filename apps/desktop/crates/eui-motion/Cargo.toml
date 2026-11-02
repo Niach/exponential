@@ -13,7 +13,11 @@ categories = ["rendering", "graphics"]
 exclude = ["tests/", "examples/"]
 
 [features]
-default = ["decompile"]
+default = ["decompile", "ordered"]
+# serde_json keeps source key order and parses floats exactly (the dialect's
+# byte-stable round trip, the CLI); off in the WASM, where only rendering
+# and validation run (it saves ~10 KB gz).
+ordered = ["serde_json/preserve_order", "serde_json/float_roundtrip"]
 # Lottie → dialect (CLI, tooling); off in the WASM (players and the server
 # validator only compile).
 decompile = []
@@ -25,7 +29,7 @@ raster = ["dep:tiny-skia", "dep:image", "dep:base64"]
 serde = { version = "1", features = ["derive"] }
 # dotLottie (zip, deflate): the version already in apps/desktop/Cargo.lock.
 miniz_oxide = { version = "0.8", default-features = false, features = ["with-alloc"] }
-serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
+serde_json = "1"
 # Glyph outlines for text layers without `chars` (the version already in
 # apps/desktop/Cargo.lock via fontdb; no_std-capable, small in WASM).
 ttf-parser = { version = "0.25", default-features = false, features = ["std", "opentype-layout"] }

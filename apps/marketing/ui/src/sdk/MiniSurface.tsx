@@ -3,7 +3,7 @@
    layout. The prerender paints the empty box in the page scheme's ground;
    `mode` (the live scheme) reaches only the renderer. */
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react"
-import { flatten, surfaceMessages, type Nested } from "./a2ui"
+import { A2UI_VERSION, flatten, surfaceMessages, type Nested } from "./a2ui"
 import { groundVars } from "./backgrounds"
 import { useNearViewport, useRuntime } from "./Island"
 
@@ -17,6 +17,7 @@ export function MiniSurface({
   minWidth,
   inert,
   className,
+  data,
 }: {
   domId: string
   tree: Nested
@@ -31,11 +32,13 @@ export function MiniSurface({
   minWidth?: number
   inert?: boolean
   className?: string
+  /** The surface's data model (an updateDataModel at `/`). */
+  data?: Record<string, unknown>
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const near = useNearViewport(ref)
   const runtime = useRuntime(near)
-  const messages = useMemo(() => surfaceMessages(`mini`, flatten(tree)), [tree])
+  const messages = useMemo(() => [...surfaceMessages(`mini`, flatten(tree)), ...(data ? [{ version: A2UI_VERSION, updateDataModel: { surfaceId: `mini`, path: `/`, value: data } }] : [])], [tree, data])
   const box = useContentWidth(ref, minWidth !== undefined)
   const scale = minWidth && box > 0 ? Math.min(zoom, box / minWidth) : zoom
   return (

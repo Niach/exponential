@@ -7048,7 +7048,13 @@
       "description": "A vector animation (Lottie-compatible) drawn identically everywhere: loaders, success states, illustrated empty states, small explainers.",
       "children": "none",
       "slots": [],
-      "events": [],
+      "events": [
+        "press",
+        "hover",
+        "visible",
+        "complete",
+        "state"
+      ],
       "basic": [],
       "props": [
         {
@@ -7065,7 +7071,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "The composition [width, height] in px (required with layers); the box keeps its aspect."
+          "description": "The composition [width, height] px (with layers)."
         },
         {
           "name": "duration",
@@ -7073,7 +7079,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "The composition's length in ms (required with layers)."
+          "description": "Length in ms (with layers)."
         },
         {
           "name": "fps",
@@ -7082,7 +7088,7 @@
           "bindable": false,
           "responsive": false,
           "default": 60,
-          "description": "Frames per second of the composition."
+          "description": "Frames per second."
         },
         {
           "name": "assets",
@@ -7090,7 +7096,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Precompositions {id: {layers}} referenced by precomp layers."
+          "description": "Precomps {id: {layers}}."
         },
         {
           "name": "markers",
@@ -7098,7 +7104,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Named segments [{name, time, duration}] in ms."
+          "description": "Named segments [{name, time, duration}] ms."
         },
         {
           "name": "lottie",
@@ -7106,7 +7112,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "A Lottie JSON animation instead of layers (expressions are refused)."
+          "description": "Lottie JSON instead of layers (no expressions)."
         },
         {
           "name": "src",
@@ -7114,7 +7120,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "An attached .json or .lottie file instead of layers (attachments only)."
+          "description": "An attached .json or .lottie instead of layers."
         },
         {
           "name": "autoplay",
@@ -7132,7 +7138,7 @@
           "bindable": false,
           "responsive": false,
           "default": true,
-          "description": "Repeats forever; false plays once and holds the last frame."
+          "description": "Repeats; false plays once and holds."
         },
         {
           "name": "plays",
@@ -7140,7 +7146,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Plays this many times, then holds (overrides loop)."
+          "description": "Plays this many times (overrides loop)."
         },
         {
           "name": "direction",
@@ -7158,7 +7164,7 @@
           "bindable": false,
           "responsive": false,
           "default": 1,
-          "description": "Playback speed multiplier."
+          "description": "Speed multiplier."
         },
         {
           "name": "segment",
@@ -7166,7 +7172,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Plays only [from, to] ms of the composition."
+          "description": "Plays only [from, to] ms."
         },
         {
           "name": "marker",
@@ -7174,7 +7180,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Plays only this marker's segment."
+          "description": "Plays only this marker."
         },
         {
           "name": "progress",
@@ -7182,7 +7188,7 @@
           "required": false,
           "bindable": true,
           "responsive": false,
-          "description": "Scrubs to this point (0–1) instead of playing; bind it to drive the animation from data."
+          "description": "Scrubs (0–1) instead of playing."
         },
         {
           "name": "play",
@@ -7191,7 +7197,7 @@
           "bindable": true,
           "responsive": false,
           "default": true,
-          "description": "Pauses the animation while false."
+          "description": "Pauses while false."
         },
         {
           "name": "poster",
@@ -7199,7 +7205,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "The still frame (ms) shown before playing, off-screen and under reduced motion; defaults to the first."
+          "description": "The still frame (ms) for reduced motion and before play."
         },
         {
           "name": "fit",
@@ -7208,7 +7214,7 @@
           "bindable": false,
           "responsive": false,
           "default": "contain",
-          "description": "How the composition fills the box."
+          "description": "How it fills the box."
         },
         {
           "name": "slots",
@@ -7216,7 +7222,23 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Lottie slot overrides {slotId: value} (recolouring a Lottie file)."
+          "description": "Lottie slot overrides {slotId: value}."
+        },
+        {
+          "name": "stateMachine",
+          "type": "object",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "A dotLottie state machine driving playback (a .lottie src brings its own)."
+        },
+        {
+          "name": "inputs",
+          "type": "object",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "State-machine inputs {name: value}; bind to drive states from data."
         },
         {
           "name": "label",
@@ -7224,7 +7246,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "What the animation shows, for screen readers; omit for decoration."
+          "description": "What it shows, for screen readers."
         },
         {
           "name": "style",
@@ -7237,8 +7259,10 @@
       ],
       "accessibility": {
         "role": "img",
-        "notes": "img named by label; decorative (hidden) without one; never focusable",
-        "keys": []
+        "notes": "img named by label; decorative (hidden) without one; with on.press it is a button (focusable, named by label) and its state machine gets the click",
+        "keys": [
+          "Enter/Space: press (with on.press)"
+        ]
       },
       "example": {
         "id": "example",

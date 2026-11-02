@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.4.0 (2026-11-02)
+
+- EXP-1584: `Motion` (media, lite): vector animation, Lottie-compatible, the same pixels on every renderer. Sources: the inline dialect (`layers` with `size`/`duration`/…, ms, SVG path data, CSS easings, `$color` tokens, `{light, dark}`), `lottie`, or an attached `.json`/`.lottie` `src`. Playback (`autoplay`, `loop`/`plays`, `direction`, `speed`, `segment`/`marker`, `poster`, bindable `progress`/`play`, `fit`, `slots`) and interactivity (`stateMachine` = dotLottie 2 state machines, bindable `inputs`, events `press`, `hover`, `visible`, `complete`, `state`). The engine is the Rust `eui-motion` (`wasm/motion/`, lazy; `@exponential_app/eui/motion`, `…/motion/server` with `motionPropsProblems`); the Canvas2D painter is `src/web/primitives/motion*.ts`. Fixtures `motion-frames.json`, `motion-validate.json`, `motion-playback.json`, `motion-state.json`; `catalog/limits.json › motion`; the spec `docs/spec/motion.md`. Prompt budget 8,750 (a named exception, +619 tokens).
+
 - EXP-1586: `ZoomableImage` (media): a picture that zooms (trackpad pinch, ⌘/ctrl+wheel, double-tap/click, keys + − 0 1) and pans (drag with momentum, plain wheel), with THE zoom pill (− / percent Menu / + / fit, auto-hiding). The maths is `src/zoom.ts` (ported by the Rust core's `zoom`, the FFI's `zoom_json`), locked by `fixtures/zoom.json`; the spec is `catalog/style.json` `zoomableImage`; the web gesture controller + classes are `src/web/primitives/zoomable-image.ts`. Strings `zoomIn`, `zoomOut`, `zoomToFit`, `zoomLevel`, `zoomFit`; builtin icons `ZoomableImage.zoomOut|zoomIn|fit`. Prompt budget 8,131 (a named exception, +97 tokens).
 - EXP-1493: the Carousel `counter` pill moves to the track's top-END corner (mirrored under RTL), off the page's own heading: `CAROUSEL_CLASSES.counter` = `end-2`, the base CSS `inset-inline-end` (round-6 contract §3).
 

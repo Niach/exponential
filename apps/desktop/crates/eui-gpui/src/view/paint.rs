@@ -649,12 +649,16 @@ impl SurfaceView {
             }
         }
         let toast_root = owner == "Toast" && n.part.as_deref() == Some("root");
-        let hoverable = n.pressable || self.cache.hover_styled.get(index as usize).copied().unwrap_or(false) || is_text_field(n) || toast_root || style.transition.is_some();
+        let motion = n.component == "Motion" && n.part.is_none();
+        let hoverable = motion || n.pressable || self.cache.hover_styled.get(index as usize).copied().unwrap_or(false) || is_text_field(n) || toast_root || style.transition.is_some();
         if hoverable && n.trigger_for.as_deref().is_none_or(|t| !self.opens_on_hover(t)) {
             let hid = id.clone();
             let toast = toast_root.then(|| n.owner.clone()).flatten();
             el = el.on_hover(cx.listener(move |this, hovered: &bool, window, cx| {
                 this.hover(&hid, *hovered, cx);
+                if motion {
+                    this.motion_hover(&hid, *hovered, cx);
+                }
                 if let Some(t) = &toast {
                     this.toast_hovered(t, *hovered, window, cx);
                 }
@@ -689,6 +693,14 @@ impl SurfaceView {
                     .absolute()
                     .size_full(),
                 );
+        }
+        // EXP-1605: a Motion without `on.press` still feeds its state
+        // machine pointer down / up / click (a pressable one through press).
+        if motion && !n.pressable {
+            let (down, up) = (id.clone(), id.clone());
+            el = el
+                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _, _, cx| this.motion_pointer(&down, true, false, cx)))
+                .on_mouse_up(MouseButton::Left, cx.listener(move |this, _, _, cx| this.motion_pointer(&up, false, true, cx)));
         }
         if n.pressable && !is_text_field(n) {
             let (down, up, out) = (id.clone(), id.clone(), id);

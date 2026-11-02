@@ -245,6 +245,11 @@ impl SurfaceView {
         if is_text_field(&n) || matches!((n.component.as_str(), n.part.as_deref()), ("Slider", Some("track")) | ("Segmented", _)) {
             return;
         }
+        // EXP-1605: a pressable Motion's click (pointer or Enter / Space)
+        // reaches its state machine first.
+        if n.component == "Motion" && n.part.is_none() {
+            self.motion_interact(&n.id, &eui_motion::state_machine::Interaction::Click { layer: None }, cx);
+        }
         self.fire(index, "press", None, cx);
     }
 
@@ -259,6 +264,9 @@ impl SurfaceView {
             return;
         }
         self.pressed = Some(id.to_string());
+        if self.is_motion(id) {
+            self.motion_pointer(id, true, false, cx);
+        }
         if self.set_interaction(id, |s| {
             s.pressed = true;
             s.focus_visible = false;
@@ -271,6 +279,9 @@ impl SurfaceView {
     pub(crate) fn press_up(&mut self, id: &str, window: &mut Window, cx: &mut Context<Self>) {
         let was = self.pressed.take();
         self.set_interaction(id, |s| s.pressed = false);
+        if self.is_motion(id) {
+            self.motion_pointer(id, false, false, cx);
+        }
         cx.notify();
         if was.as_deref() == Some(id) {
             if let Some(index) = self.cache.index_of(id) {

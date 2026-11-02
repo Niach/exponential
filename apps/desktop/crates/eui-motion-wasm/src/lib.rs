@@ -18,6 +18,7 @@ pub struct MotionPlayer {
     packed: Vec<f32>,
     playback: eui_motion::playback::Playback,
     timeline: eui_motion::playback::Timeline,
+    machine: Option<eui_motion::state_machine::StateMachine>,
 }
 
 #[wasm_bindgen]
@@ -29,7 +30,7 @@ impl MotionPlayer {
         let slots: Map<String, Value> = if slots.is_empty() { Map::new() } else { serde_json::from_str(slots).unwrap_or_default() };
         let motion = Motion::load_with(source.as_bytes(), &Limits::default(), &slots).map_err(|i| JsValue::from_str(&issues_json(&i)))?;
         let timeline = motion.timeline();
-        Ok(Self { motion, list: DisplayList::default(), packed: Vec::new(), playback: Default::default(), timeline })
+        Ok(Self { motion, list: DisplayList::default(), packed: Vec::new(), playback: Default::default(), timeline, machine: None })
     }
 
     pub fn width(&self) -> f32 {
@@ -96,11 +97,62 @@ impl MotionPlayer {
         self.timeline.at_progress(&self.playback, progress)
     }
 
+    /// Start a dotLottie state machine (JSON); its current state's playback
+    /// replaces `setPlayback`. Returns false when it has no states.
+    #[wasm_bindgen(js_name = setStateMachine)]
+    pub fn set_state_machine(&mut self, json: &str) -> bool {
+        self.machine = serde_json::from_str(json).ok().and_then(|v| eui_motion::state_machine::StateMachine::parse(&v));
+        self.sync_machine();
+        self.machine.is_some()
+    }
+    /// Report an interaction (click, pointerDown, pointerUp, pointerEnter,
+    /// pointerExit, complete, loopComplete; `layer` = the hit layer or "").
+    /// Returns whether the state changed (restart the clock).
+    #[wasm_bindgen(js_name = smPost)]
+    pub fn sm_post(&mut self, kind: &str, layer: &str) -> bool {
+        let layer = (!layer.is_empty()).then(|| layer.to_string());
+        let changed = match (&mut self.machine, eui_motion::state_machine::Interaction::parse(kind, layer)) {
+            (Some(m), Some(eui_motion::state_machine::Interaction::Complete)) => m.complete(),
+            (Some(m), Some(i)) => m.post(&i),
+            _ => false,
+        };
+        self.sync_machine();
+        changed
+    }
+    /// Write state-machine inputs (JSON object); returns whether the state changed.
+    #[wasm_bindgen(js_name = smSetInputs)]
+    pub fn sm_set_inputs(&mut self, json: &str) -> bool {
+        let mut changed = false;
+        if let (Some(m), Ok(Value::Object(o))) = (&mut self.machine, serde_json::from_str::<Value>(json)) {
+            for (k, v) in &o {
+                changed |= m.set_input(k, v);
+            }
+        }
+        self.sync_machine();
+        changed
+    }
+    /// `{state, entered: [...], final, inputs}`; `entered` drains (→ `on.state` actions).
+    #[wasm_bindgen(js_name = smStatus)]
+    pub fn sm_status(&mut self) -> String {
+        match &mut self.machine {
+            Some(m) => json!({"state": m.state(), "entered": m.take_entered(), "final": m.is_final(), "inputs": m.inputs_json()}).to_string(),
+            None => "null".into(),
+        }
+    }
+
     /// Sample `frame` into the packed f32 encoding (a copy into JS memory).
     pub fn sample(&mut self, frame: f64) -> js_sys::Float32Array {
         self.motion.sample(frame, &mut self.list);
         self.list.encode(&mut self.packed);
         js_sys::Float32Array::from(self.packed.as_slice())
+    }
+}
+
+impl MotionPlayer {
+    fn sync_machine(&mut self) {
+        if let Some(m) = &self.machine {
+            self.playback = m.playback().clone();
+        }
     }
 }
 

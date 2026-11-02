@@ -28,6 +28,7 @@ pub mod playback;
 pub mod raster;
 pub mod render;
 pub mod shapes;
+pub mod state_machine;
 pub mod text;
 pub mod validate;
 

@@ -2547,64 +2547,70 @@
           "description": "The animation, top layer first, in the composition's px (origin top-left). Layer: {type: shape|solid|null|precomp|text, id?, parent?: id, in?/out? ms, transform?: {anchor, position [x,y], scale [100,100] %, rotation deg clockwise, opacity 0–100}, shapes: […], matte?: {source: id, mode: alpha|luma}, masks?: [{path, mode: add|subtract|intersect}]}. Shapes draw top first; a style paints every shape before it in its group: rect {position (centre), size, radius}, ellipse {position, size}, star|polygon {points, outerRadius, innerRadius}, path {d: SVG path data}; fill {color}, stroke {color, width, cap, join, dash: [len, gap]}, gradient-fill {kind: linear|radial, start, end, stops: [[0, colour], [1, colour]]}; trim {start, end, offset} (percent, draw-on lines), repeater {copies, transform}, round-corners {radius}; group {shapes, transform}. Colours: $color.* tokens (follow light/dark), #hex, or {light, dark}. Animate any value: {keys: [{t: ms, v: value, ease: linear|ease-in|ease-out|ease-in-out|hold|[x1,y1,x2,y2]}, …]}; tokens cannot animate. Keep it small; loops end on their first pose. No expressions."
         },
         "size": {
-          "description": "The composition [width, height] in px (required with layers); the box keeps its aspect."
+          "description": "The composition [width, height] px (with layers)."
         },
         "duration": {
-          "description": "The composition's length in ms (required with layers)."
+          "description": "Length in ms (with layers)."
         },
         "fps": {
-          "description": "Frames per second of the composition."
+          "description": "Frames per second."
         },
         "assets": {
-          "description": "Precompositions {id: {layers}} referenced by precomp layers."
+          "description": "Precomps {id: {layers}}."
         },
         "markers": {
-          "description": "Named segments [{name, time, duration}] in ms."
+          "description": "Named segments [{name, time, duration}] ms."
         },
         "lottie": {
-          "description": "A Lottie JSON animation instead of layers (expressions are refused)."
+          "description": "Lottie JSON instead of layers (no expressions)."
         },
         "src": {
-          "description": "An attached .json or .lottie file instead of layers (attachments only)."
+          "description": "An attached .json or .lottie instead of layers."
         },
         "autoplay": {
           "description": "Plays when visible; false shows the poster."
         },
         "loop": {
-          "description": "Repeats forever; false plays once and holds the last frame."
+          "description": "Repeats; false plays once and holds."
         },
         "plays": {
-          "description": "Plays this many times, then holds (overrides loop)."
+          "description": "Plays this many times (overrides loop)."
         },
         "direction": {
           "description": "Forward, reverse, or back and forth."
         },
         "speed": {
-          "description": "Playback speed multiplier."
+          "description": "Speed multiplier."
         },
         "segment": {
-          "description": "Plays only [from, to] ms of the composition."
+          "description": "Plays only [from, to] ms."
         },
         "marker": {
-          "description": "Plays only this marker's segment."
+          "description": "Plays only this marker."
         },
         "progress": {
-          "description": "Scrubs to this point (0–1) instead of playing; bind it to drive the animation from data."
+          "description": "Scrubs (0–1) instead of playing."
         },
         "play": {
-          "description": "Pauses the animation while false."
+          "description": "Pauses while false."
         },
         "poster": {
-          "description": "The still frame (ms) shown before playing, off-screen and under reduced motion; defaults to the first."
+          "description": "The still frame (ms) for reduced motion and before play."
         },
         "fit": {
-          "description": "How the composition fills the box."
+          "description": "How it fills the box."
         },
         "slots": {
-          "description": "Lottie slot overrides {slotId: value} (recolouring a Lottie file)."
+          "description": "Lottie slot overrides {slotId: value}."
+        },
+        "stateMachine": {
+          "description": "A dotLottie state machine driving playback (a .lottie src brings its own)."
+        },
+        "inputs": {
+          "description": "State-machine inputs {name: value}; bind to drive states from data."
         },
         "label": {
-          "description": "What the animation shows, for screen readers; omit for decoration."
+          "description": "What it shows, for screen readers."
         },
         "style": {
           "description": "Extra Box styles for the box."

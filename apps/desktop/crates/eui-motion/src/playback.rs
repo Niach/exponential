@@ -24,6 +24,8 @@ pub struct Playback {
     pub speed: f64,
     /// `[from, to]` in ms of the composition, or a marker name.
     pub segment: Option<Segment>,
+    /// A segment in composition FRAMES (dotLottie state machines); wins over `segment`.
+    pub segment_frames: Option<[f64; 2]>,
     /// The still frame (ms) shown before playing, when paused off-screen,
     /// and under reduced motion. `None` = the segment's first frame.
     pub poster: Option<f64>,
@@ -43,7 +45,7 @@ pub enum Segment {
 
 impl Default for Playback {
     fn default() -> Self {
-        Self { autoplay: true, r#loop: LoopCount::Flag(true), direction: Direction::Forward, speed: 1.0, segment: None, poster: None }
+        Self { autoplay: true, r#loop: LoopCount::Flag(true), direction: Direction::Forward, speed: 1.0, segment: None, segment_frames: None, poster: None }
     }
 }
 
@@ -75,6 +77,7 @@ impl Playback {
             },
             speed: num("speed").unwrap_or(d.speed),
             segment,
+            segment_frames: None,
             poster: num("poster"),
         }
     }
@@ -100,6 +103,14 @@ pub struct Timeline {
 }
 
 impl Timeline {
+    /// The playing range of `p` (frame segments win over ms segments).
+    pub fn range_of(&self, p: &Playback) -> (f64, f64) {
+        match p.segment_frames {
+            Some([a, b]) if b > a => (a.clamp(self.in_point, self.out_point), b.clamp(self.in_point, self.out_point)),
+            _ => self.range(p.segment.as_ref()),
+        }
+    }
+
     /// The playing range `[a, b)` in frames.
     pub fn range(&self, segment: Option<&Segment>) -> (f64, f64) {
         let (ip, op) = (self.in_point, self.out_point);
@@ -127,7 +138,7 @@ impl Timeline {
 
     /// The frame `elapsed_ms` after play started.
     pub fn tick(&self, p: &Playback, elapsed_ms: f64) -> Tick {
-        let (a, b) = self.range(p.segment.as_ref());
+        let (a, b) = self.range_of(p);
         let len = b - a;
         if !p.autoplay || len <= 0.0 || self.frame_rate <= 0.0 {
             return Tick { frame: self.poster(p), done: false };
@@ -164,13 +175,13 @@ impl Timeline {
 
     /// The frame a bound `progress` (0–1) shows within the segment.
     pub fn at_progress(&self, p: &Playback, progress: f64) -> f64 {
-        let (a, b) = self.range(p.segment.as_ref());
+        let (a, b) = self.range_of(p);
         a + (b - a) * progress.clamp(0.0, 1.0).min(1.0 - 1e-9)
     }
 
     /// The poster frame (reduced motion, paused, before play).
     pub fn poster(&self, p: &Playback) -> f64 {
-        let (a, b) = self.range(p.segment.as_ref());
+        let (a, b) = self.range_of(p);
         match p.poster {
             Some(ms) => (self.in_point + ms / 1000.0 * self.frame_rate).clamp(a, Self::last(a, b)),
             None => a,

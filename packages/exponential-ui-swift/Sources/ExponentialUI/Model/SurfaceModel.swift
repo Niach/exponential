@@ -148,6 +148,9 @@ public final class SurfaceModel {
     @ObservationIgnored var toastTimers: [String: ToastTimer] = [:]
     @ObservationIgnored var toastHeld: [String: Set<String>] = [:]
     @ObservationIgnored var copyResets: [String: Task<Void, Never>] = [:]
+    /// EXP-1605: the mounted Motions' state-machine drivers, by node id
+    /// (a press, pointer down / up reach the machine through the model).
+    @ObservationIgnored var motionDrivers: [String: MotionDriver] = [:]
     @ObservationIgnored var focusTrigger: String?
     @ObservationIgnored var pendingDay: (owner: String, iso: String)?
     @ObservationIgnored var focusSerial = 0

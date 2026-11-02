@@ -4,7 +4,8 @@
 //! (`apps/styleguide/src/entries/motion.specimens.json`), so the twin cannot
 //! drift: a spinner, a success check drawing on, a Slider scrubbing a
 //! Motion through its bound `progress`, and a themed illustration in light
-//! and dark.
+//! and dark; EXP-1605: the `interactive` state-machine specimens (a like
+//! button toggled by clicks, a bar following a bound `inputs.level`).
 
 use eui_core::theme::Mode;
 use gpui::{div, px, App, Div, ParentElement as _, SharedString, Styled as _, Window};
@@ -34,7 +35,8 @@ fn illustration(key: &'static str, label: &str, mode: Mode, window: &mut Window,
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let doc = specimens();
     let cases = styleguide_surface_in("sg-motion-cases", doc["cases"].clone(), None, Some(doc["data"].clone()), window, cx);
+    let interactive = styleguide_surface_in("sg-motion-interactive", doc["interactive"].clone(), None, Some(doc["data"].clone()), window, cx);
     let light = illustration("sg-motion-light", "Light", Mode::Light, window, cx);
     let dark = illustration("sg-motion-dark", "Dark", Mode::Dark, window, cx);
-    v_flex().gap_6().child(div().w_full().child(cases)).child(h_flex().gap_6().items_start().child(light).child(dark))
+    v_flex().gap_6().child(div().w_full().child(cases)).child(div().w_full().child(interactive)).child(h_flex().gap_6().items_start().child(light).child(dark))
 }

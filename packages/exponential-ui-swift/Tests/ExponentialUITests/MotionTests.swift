@@ -100,6 +100,130 @@ final class MotionTests: XCTestCase {
         XCTAssertEqual(motions.map { m.motionMayAnimate($0.index) }, Array(repeating: true, count: 8) + [false, false])
     }
 
+    // MARK: - State machines (EXP-1605)
+
+    /// `fixtures/motion-state.json` over uniffi: the status after every step,
+    /// and the state's playback reaching the clock (its poster frame).
+    func testStateFixtureReplays() throws {
+        try XCTSkipUnless(Fixtures.available())
+        let f = try Fixtures.json("motion-state.json")
+        let lottie = f["lottie"]!.json
+        for c in f["cases"]!.array! {
+            let id = c["id"]!.string!
+            let player = try MotionPlayer(lottieJson: lottie, slotsJson: "")
+            XCTAssertTrue(player.setStateMachine(json: c["machine"]!.json), id)
+            func check(_ want: JSONValue, _ at: String) {
+                let got = JSONValue.parse(player.smStatus())
+                XCTAssertEqual(got["state"], want["state"], "\(id) \(at) state")
+                XCTAssertEqual(got["entered"], want["entered"], "\(id) \(at) entered")
+                XCTAssertEqual(got["final"], want["final"], "\(id) \(at) final")
+                XCTAssertEqual(got["inputs"], want["inputs"], "\(id) \(at) inputs")
+                XCTAssertEqual(player.posterFrame(), want["range"]!.array![0].number!, accuracy: 1e-6, "\(id) \(at) range")
+            }
+            check(c["initial"]!, "initial")
+            for (n, s) in c["steps"]!.array!.enumerated() {
+                let step = s["step"]!
+                if let kind = step["post"]?.string { _ = player.smPost(kind: kind, layer: step["layer"]?.string ?? "") }
+                if let set = step["set"], set.object != nil { _ = player.smSetInputs(json: set.json) }
+                if step["complete"]?.bool == true { _ = player.smPost(kind: "complete", layer: "") }
+                check(s, "step \(n)")
+            }
+        }
+    }
+
+    /// A tap on a pressable Motion: the machine gets the click (state
+    /// change → clock restart → `on.state {state}`), then `on.press`; the
+    /// machine's final state and a finished play send `on.complete` once.
+    func testTapDrivesTheMachineAndEmitsEvents() throws {
+        try XCTSkipUnless(Fixtures.available())
+        let f = try Fixtures.json("motion-state.json")
+        let toggle = try XCTUnwrap(f["cases"]!.array!.first { $0["id"]?.string == "toggle-on-click" })
+        let host = RecordingHost()
+        let m = try SurfaceModel(id: "motion", options: SurfaceOptions(), host: host)
+        let on: JSONValue = .object(["press": .object(["event": .object(["name": .string("pressed")])]),
+                                     "state": .object(["event": .object(["name": .string("state")])]),
+                                     "complete": .object(["event": .object(["name": .string("completed")])]),
+                                     "hover": .object(["event": .object(["name": .string("hovered")])]),
+                                     "visible": .object(["event": .object(["name": .string("seen")])])])
+        let motion: JSONValue = .object(["id": .string("m"), "component": .string("Motion"), "on": on,
+                                         "props": .object(["lottie": f["lottie"]!, "stateMachine": toggle["machine"]!, "label": .string("Toggle")])])
+        try m.setNested(json: JSONValue.object(["id": .string("col"), "component": .string("Stack"), "children": .array([motion])]).json)
+        m.setViewport(width: 390, height: 800)
+        let i = try XCTUnwrap(m.index(of: "m"))
+        let n = try XCTUnwrap(m.node(i))
+        XCTAssertTrue(n.pressable)
+        let a11y = A11yInfo.of(n, model: m, style: m.style(i))
+        XCTAssertEqual(a11y.role, "button")
+        XCTAssertEqual(a11y.label, "Toggle")
+        XCTAssertTrue(a11y.traits.contains(.isButton))
+
+        let d = MotionDriver(id: "m")
+        d.attach(m)
+        d.appeared()
+        d.appeared()
+        d.start(try MotionPlayer(lottieJson: f["lottie"]!.json, slotsJson: ""), machine: toggle["machine"]!.json)
+        XCTAssertTrue(d.running)
+        XCTAssertEqual(host.actions.map(\.name), ["seen", "state"])
+        XCTAssertEqual(host.actions.last?.context["state"]?.string, "off")
+        host.actions.removeAll()
+
+        // The clock finished `off`'s play: on.complete, once.
+        d.finished(d.generation)
+        d.finished(d.generation)
+        XCTAssertTrue(d.done)
+        XCTAssertEqual(host.actions.map(\.name), ["completed"])
+        host.actions.removeAll()
+
+        // Tap = pointer down / up (no state change) + the press.
+        let before = d.generation
+        m.pressDown("m")
+        m.pressUp("m")
+        m.press(i)
+        XCTAssertEqual(host.actions.map(\.name), ["state", "pressed"])
+        XCTAssertEqual(host.actions.first?.context["state"]?.string, "on")
+        XCTAssertGreaterThan(d.generation, before, "the state changed: the clock restarts")
+        XCTAssertFalse(d.done)
+        XCTAssertEqual(JSONValue.parse(d.player!.smStatus())["state"]?.string, "on")
+        host.actions.removeAll()
+
+        // Hover: pointerEnter (no transition here) + on.hover.
+        d.hover(true)
+        d.hover(false)
+        XCTAssertEqual(host.actions.map(\.name), ["hovered"])
+        host.actions.removeAll()
+
+        // Unmounted: presses no longer reach the machine.
+        d.detach()
+        m.press(i)
+        XCTAssertEqual(host.actions.map(\.name), ["pressed"])
+        XCTAssertEqual(JSONValue.parse(d.player!.smStatus())["state"]?.string, "on")
+    }
+
+    /// Bound inputs drive the states; a final state sends on.complete once.
+    func testInputsDriveTheMachine() throws {
+        try XCTSkipUnless(Fixtures.available())
+        let f = try Fixtures.json("motion-state.json")
+        let c = try XCTUnwrap(f["cases"]!.array!.first { $0["id"]?.string == "progress-thresholds" })
+        let host = RecordingHost()
+        let m = try SurfaceModel(id: "motion", options: SurfaceOptions(), host: host)
+        let on: JSONValue = .object(["state": .object(["event": .object(["name": .string("state")])]),
+                                     "complete": .object(["event": .object(["name": .string("completed")])])])
+        try m.setNested(json: JSONValue.object(["id": .string("m"), "component": .string("Motion"), "on": on,
+                                                "props": .object(["lottie": f["lottie"]!, "stateMachine": c["machine"]!])]).json)
+        m.setViewport(width: 390, height: 800)
+        let d = MotionDriver(id: "m")
+        d.attach(m)
+        d.start(try MotionPlayer(lottieJson: f["lottie"]!.json, slotsJson: ""), machine: c["machine"]!.json)
+        host.actions.removeAll()
+        d.setInputs(.object(["level": .number(60)]))
+        d.setInputs(.object(["level": .number(60)]))
+        d.setInputs(.object(["level": .number(100)]))
+        XCTAssertEqual(host.actions.map(\.name), ["state", "state", "completed"])
+        XCTAssertEqual(host.actions.map { $0.context["state"]?.string }, ["high", "done", nil])
+        d.finished(d.generation)
+        XCTAssertEqual(host.actions.count, 3, "complete once per state")
+    }
+
     // MARK: - Pixels
 
     static func paint(_ list: MotionList, images: [CGImage?]) -> CGImage? {

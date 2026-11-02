@@ -151,6 +151,61 @@ export class MotionPlayer {
         wasm.motionplayer_setPlayback(this.__wbg_ptr, ptr0, len0);
     }
     /**
+     * Start a dotLottie state machine (JSON); its current state's playback
+     * replaces `setPlayback`. Returns false when it has no states.
+     * @param {string} json
+     * @returns {boolean}
+     */
+    setStateMachine(json) {
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.motionplayer_setStateMachine(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * Report an interaction (click, pointerDown, pointerUp, pointerEnter,
+     * pointerExit, complete, loopComplete; `layer` = the hit layer or "").
+     * Returns whether the state changed (restart the clock).
+     * @param {string} kind
+     * @param {string} layer
+     * @returns {boolean}
+     */
+    smPost(kind, layer) {
+        const ptr0 = passStringToWasm0(kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(layer, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.motionplayer_smPost(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        return ret !== 0;
+    }
+    /**
+     * Write state-machine inputs (JSON object); returns whether the state changed.
+     * @param {string} json
+     * @returns {boolean}
+     */
+    smSetInputs(json) {
+        const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.motionplayer_smSetInputs(this.__wbg_ptr, ptr0, len0);
+        return ret !== 0;
+    }
+    /**
+     * `{state, entered: [...], final, inputs}`; `entered` drains (→ `on.state` actions).
+     * @returns {string}
+     */
+    smStatus() {
+        let deferred1_0;
+        let deferred1_1;
+        try {
+            const ret = wasm.motionplayer_smStatus(this.__wbg_ptr);
+            deferred1_0 = ret[0];
+            deferred1_1 = ret[1];
+            return getStringFromWasm0(ret[0], ret[1]);
+        } finally {
+            wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+        }
+    }
+    /**
      * The frame `elapsedMs` after play started; NaN-free. `done()` tells a finished finite loop.
      * @param {number} elapsed_ms
      * @returns {number}

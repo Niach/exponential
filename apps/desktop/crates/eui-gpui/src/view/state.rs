@@ -494,6 +494,8 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("VoiceWave", None) if str_of(n, "label").is_some() => Role::Image,
         ("VoiceWave", None) => return None,
         // EXP-1604: an img named by its label; decorative without one.
+        // EXP-1605: with `on.press` it is a button named by its label.
+        ("Motion", None) if n.pressable => Role::Button,
         ("Motion", None) if str_of(n, "label").is_some() => Role::Image,
         ("Motion", None) => return None,
         ("QrCode", None) if str_of(n, "label").is_some() => Role::Image,

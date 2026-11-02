@@ -1199,3 +1199,15 @@ fn round5_qr_matrix_bars_badge_and_hold_cross_the_facade() {
     assert!(!surface.is_held("b".into()));
     assert!(surface.hold(i, "{\"do\": \"nope\"}".into()).is_err());
 }
+
+/// EXP-1605: a `.lottie`'s first state machine (manifest order), "" without one.
+#[test]
+fn dotlottie_machine_reads_the_first() {
+    let anim = json!({"v": "5.12.0", "fr": 30, "ip": 0, "op": 30, "w": 10, "h": 10, "layers": []});
+    let a = json!({"initial": "a", "states": [{"name": "a", "type": "PlaybackState"}]});
+    let b = json!({"initial": "b", "states": [{"name": "b", "type": "PlaybackState"}]});
+    let file = eui_motion::dotlottie::write("x", &anim, &[], &[("z".into(), a.clone()), ("b".into(), b)]);
+    let got: Value = serde_json::from_str(&motion_read_dotlottie_machine(file).unwrap()).unwrap();
+    assert_eq!(got, a);
+    assert_eq!(motion_read_dotlottie_machine(eui_motion::dotlottie::write("x", &anim, &[], &[])).unwrap(), "");
+}

@@ -891,6 +891,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_motion_compile(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_motion_read_dotlottie_machine(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_hostformatter_number(
@@ -1105,7 +1107,15 @@ external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sample(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_playback(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_set_state_machine(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_size(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_post(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_set_inputs(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_sm_status(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_method_motionplayer_tick(
 ): Short
@@ -1418,7 +1428,15 @@ external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sample(`ptr`: Long
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_set_playback(`ptr`: Long,`playbackJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): Unit
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_set_state_machine(`ptr`: Long,`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
 external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_size(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_post(`ptr`: Long,`kind`: RustBuffer.ByValue,`layer`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_set_inputs(`ptr`: Long,`json`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Byte
+external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_status(`ptr`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_method_motionplayer_tick(`ptr`: Long,`elapsedMs`: Double,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -1557,6 +1575,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_zoom_json(`requestJson`: RustBuff
 external fun uniffi_exponential_ui_ffi_fn_func_motion_compile(`dialectJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie_machine(`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun ffi_exponential_ui_ffi_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -4214,9 +4234,32 @@ public interface MotionPlayerInterface {
     fun `setPlayback`(`playbackJson`: kotlin.String)
     
     /**
+     * Start a dotLottie state machine (JSON); its current state's playback
+     * replaces `set_playback`. False when it has no states.
+     */
+    fun `setStateMachine`(`json`: kotlin.String): kotlin.Boolean
+    
+    /**
      * Composition width and height.
      */
     fun `size`(): List<kotlin.Float>
+    
+    /**
+     * Report an interaction (click, pointerDown, pointerUp, pointerEnter,
+     * pointerExit, complete, loopComplete; `layer` = the hit layer or "").
+     * True when the state changed (restart the clock).
+     */
+    fun `smPost`(`kind`: kotlin.String, `layer`: kotlin.String): kotlin.Boolean
+    
+    /**
+     * Write state-machine inputs (a JSON object); true when the state changed.
+     */
+    fun `smSetInputs`(`json`: kotlin.String): kotlin.Boolean
+    
+    /**
+     * `{state, entered, final, inputs}` as JSON (`entered` drains), or "null".
+     */
+    fun `smStatus`(): kotlin.String
     
     /**
      * The frame `elapsed_ms` after play started.
@@ -4429,12 +4472,79 @@ open class MotionPlayer: Disposable, AutoCloseable, MotionPlayerInterface
 
     
     /**
+     * Start a dotLottie state machine (JSON); its current state's playback
+     * replaces `set_playback`. False when it has no states.
+     */override fun `setStateMachine`(`json`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_set_state_machine(
+        it,
+        FfiConverterString.lower(`json`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
      * Composition width and height.
      */override fun `size`(): List<kotlin.Float> {
             return FfiConverterSequenceFloat.lift(
     callWithHandle {
     uniffiRustCall() { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_size(
+        it,
+        _status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Report an interaction (click, pointerDown, pointerUp, pointerEnter,
+     * pointerExit, complete, loopComplete; `layer` = the hit layer or "").
+     * True when the state changed (restart the clock).
+     */override fun `smPost`(`kind`: kotlin.String, `layer`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_post(
+        it,
+        FfiConverterString.lower(`kind`),FfiConverterString.lower(`layer`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * Write state-machine inputs (a JSON object); true when the state changed.
+     */override fun `smSetInputs`(`json`: kotlin.String): kotlin.Boolean {
+            return FfiConverterBoolean.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_set_inputs(
+        it,
+        FfiConverterString.lower(`json`),_status)
+}
+    }
+    )
+    }
+    
+
+    
+    /**
+     * `{state, entered, final, inputs}` as JSON (`entered` drains), or "null".
+     */override fun `smStatus`(): kotlin.String {
+            return FfiConverterString.lift(
+    callWithHandle {
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_method_motionplayer_sm_status(
         it,
         _status)
 }
@@ -10843,6 +10953,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
             return FfiConverterString.lift(
     uniffiRustCallWithError(UiException) { _status ->
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie(
+    
+        FfiConverterByteArray.lower(`data`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The first state machine of a `.lottie` archive as JSON, or "" (EXP-1605,
+         * README › Interactivity §1).
+         */
+    @Throws(UiException::class) fun `motionReadDotlottieMachine`(`data`: kotlin.ByteArray): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_motion_read_dotlottie_machine(
     
         FfiConverterByteArray.lower(`data`),_status)
 }

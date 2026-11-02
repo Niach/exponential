@@ -1334,8 +1334,8 @@ function promptBudget() {
     // VAPP-162 (a named budget exception): MessageBubble, CallSurface, Plan, QrCode, QrScanner + Segmented orientation, Button hold, VoiceWave variant: +1,967 chars / +490 tokens after trimming every new description; the budget is the measured total (7,900), no slack.
     // EXP-1495 (a named budget exception): Outline, Mosaic + Carousel counter/thumbnails: +134 tokens after trimming the new descriptions; the measured total (8,034), no slack.
     // EXP-1586 (a named budget exception): ZoomableImage, +97 tokens after trimming every new description; the measured total (8,131), no slack.
-    // EXP-1604 (a named budget exception, approved in EXP-1584: ≤ +700): Motion, +645 tokens (its dialect guide); the measured total (8,776), no slack.
-    budgetTokens: 8776,
+    // EXP-1604/1605 (a named budget exception, approved in EXP-1584: ≤ +700): Motion with its dialect guide and state machine, +619 tokens; the measured total (8,750), no slack.
+    budgetTokens: 8750,
     full: { components: visible.length, ...size(full) },
     lite: { components: lite.length, ...size(liteText) },
     terse: { components: visible.length, ...size(terse) },

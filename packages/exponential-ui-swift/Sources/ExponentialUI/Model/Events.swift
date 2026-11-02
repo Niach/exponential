@@ -117,6 +117,8 @@ extension SurfaceModel {
         default:
             if n.isTextField { return }
         }
+        // EXP-1605: a Motion's state machine gets the click first.
+        motionDrivers[n.id]?.post("click")
         fire(index, "press")
     }
 
@@ -150,6 +152,7 @@ extension SurfaceModel {
         if let prev = pressedId, prev != id { setInteraction(prev) { $0.pressed = false } }
         if let i = byId[id], isDisabled(i) { return }
         pressedId = id
+        motionDrivers[id]?.post("pointerDown")
         setInteraction(id) {
             $0.pressed = true
             $0.focusVisible = false
@@ -159,6 +162,7 @@ extension SurfaceModel {
     /// Pointer up: clear the state; the press itself is the button's action.
     public func pressUp(_ id: String) {
         if pressedId == id { pressedId = nil }
+        motionDrivers[id]?.post("pointerUp")
         setInteraction(id) { $0.pressed = false }
         // A dismissal remembered for the trigger under this press is spent
         // once the press resolved.
@@ -167,6 +171,7 @@ extension SurfaceModel {
     /// A press that left its node (a drag out): no `press`.
     public func pressCancel(_ id: String) {
         if pressedId == id { pressedId = nil }
+        motionDrivers[id]?.post("pointerUp")
         setInteraction(id) { $0.pressed = false }
     }
 

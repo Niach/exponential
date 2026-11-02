@@ -4192,13 +4192,27 @@
         "slots": {
           "type": "object"
         },
+        "stateMachine": {
+          "type": "object"
+        },
+        "inputs": {
+          "type": "object",
+          "bindable": true
+        },
         "label": {
           "type": "string"
         },
         "style": {
           "type": "style"
         }
-      }
+      },
+      "events": [
+        "press",
+        "hover",
+        "visible",
+        "complete",
+        "state"
+      ]
     }
   }
 }

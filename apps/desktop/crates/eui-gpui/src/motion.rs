@@ -65,11 +65,29 @@ pub fn inline_lottie(props: &Map<String, Value>) -> Result<Option<Value>, String
 /// A fetched `src`: Lottie JSON, or a dotLottie archive (its first
 /// animation, its themes ignored: the theme's slots apply).
 pub fn fetched_lottie(bytes: &[u8]) -> Result<Value, String> {
+    fetched_motion(bytes).map(|(a, _)| a)
+}
+
+/// A fetched `src` with its state machine (EXP-1605): a dotLottie
+/// archive's FIRST state machine (`s/`), `None` for plain Lottie JSON.
+pub fn fetched_motion(bytes: &[u8]) -> Result<(Value, Option<Value>), String> {
     if bytes.starts_with(b"PK") {
         let dl = eui_motion::dotlottie::read(bytes).map_err(issues_text)?;
-        return dl.animations.into_iter().next().map(|(_, a)| a).ok_or_else(|| "the .lottie file has no animation".to_string());
+        let machine = dl.state_machines.into_iter().next().map(|(_, m)| m);
+        let animation = dl.animations.into_iter().next().map(|(_, a)| a).ok_or_else(|| "the .lottie file has no animation".to_string())?;
+        return Ok((animation, machine));
     }
-    serde_json::from_slice(bytes).map_err(|e| e.to_string())
+    serde_json::from_slice(bytes).map(|a| (a, None)).map_err(|e| e.to_string())
+}
+
+/// The node's own state machine (`stateMachine`: dotLottie 2 JSON, an
+/// object or its text).
+pub fn machine_prop(props: &Map<String, Value>) -> Option<Value> {
+    match props.get("stateMachine")? {
+        v @ Value::Object(_) => Some(v.clone()),
+        Value::String(s) => serde_json::from_str(s).ok(),
+        _ => None,
+    }
 }
 
 fn issues_text(issues: Vec<eui_motion::Issue>) -> String {

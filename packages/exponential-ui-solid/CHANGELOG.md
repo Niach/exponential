@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.4.0 (2026-11-02)
+
 - EXP-1586: the `ZoomableImage` native and primitive, DOM-identical to React (zoomable-image.parity cases); the Menu's press opening is `PressMenu`, shared with the percent button's presets Menu.
 - EXP-1493: the Carousel `counter` pill (and the `CarouselCounter` primitive) sits at the track's top-END corner (mirrored under RTL), like React.
 

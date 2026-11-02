@@ -210,8 +210,8 @@
     },
     "Motion": {
       "role": "img",
-      "notes": "img named by label; decorative (hidden) without one; never focusable",
-      "keys": []
+      "notes": "img named by label; decorative (hidden) without one; with on.press it is a button (focusable, named by label) and its state machine gets the click",
+      "keys": ["Enter/Space: press (with on.press)"]
     },
     "Image": {
       "role": "img",

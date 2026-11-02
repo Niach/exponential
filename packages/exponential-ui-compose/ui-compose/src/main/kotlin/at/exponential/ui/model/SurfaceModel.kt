@@ -351,6 +351,9 @@ class SurfaceModel(
     internal val interaction = HashMap<String, InteractionState>()
     internal var pressedId: String? = null
     internal val revisions = HashMap<String, Int>()
+
+    /** EXP-1605: the composed Motions' state-machine drivers by node id (press, pointer down / up reach the machine here). */
+    internal val motionDrivers = HashMap<String, at.exponential.ui.compose.MotionDriver>()
     internal val fieldsMap = HashMap<String, FieldState>()
 
     /** The host-owned text fields by node id (`writeGeneration` = reload the view's value). */

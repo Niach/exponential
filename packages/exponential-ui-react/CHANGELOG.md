@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.4.0 (2026-11-02)
+
 - EXP-1586: the `ZoomableImage` native (pinch / ⌘-wheel / double-click / + − 0 1 zoom, drag and scroll pan with rubber band and mouse momentum, THE zoom pill with its presets Menu, `zoom` and `tap` events, a bindable `scale`) and its `ZoomableImage` primitive, both on the shared zoom controller.
 - EXP-1493: the Carousel `counter` pill (and the `CarouselCounter` primitive) sits at the track's top-END corner (mirrored under RTL), off the page's own heading.
 
