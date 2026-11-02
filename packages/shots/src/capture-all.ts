@@ -33,8 +33,9 @@
  * no orphan relay stub or desktop window behind.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
-import { homedir } from "node:os"
-import { dirname, join } from "node:path"
+import { createHash } from "node:crypto"
+import { homedir, tmpdir } from "node:os"
+import { dirname, join, resolve } from "node:path"
 import {
   PLATFORMS,
   captureFor,
@@ -848,8 +849,26 @@ const PACKAGE_IOS = {
   bundleId: `at.exponential.ui.kitchensink`,
   /** The Snapfile's phone, so the package shot frames like the fastlane ones. */
   simulator: `iPhone 17 Pro Max`,
-  settleMs: 3_000,
+  /** After the `-frames` file (written 2 s after the first layout). */
+  settleMs: 500,
+  /** EXP-1558: launch → painted frames, cold simulator included. */
+  paintTimeoutMs: 45_000,
 } as const
+
+/** EXP-1558: wait for the example's `-frames` JSON to list at least one node. */
+async function waitForPaintedFrames(path: string, timeoutMs: number): Promise<boolean> {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    try {
+      const doc = JSON.parse(readFileSync(path, `utf8`)) as { frames?: unknown[] }
+      if ((doc.frames?.length ?? 0) > 0) return true
+    } catch {
+      /* not written yet, or mid-write */
+    }
+    await sleep(250)
+  }
+  return false
+}
 
 /**
  * Is EVERY view in scope a `package` capture (the SDK example apps)? Such a
@@ -924,6 +943,12 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[], lane?
   const root = repoRoot()
   const fail = (detail: string) => outcomes.push({ platform: `ios`, ok: false, detail, failedViews: views })
 
+  // EXP-1558: the example imports `ExponentialUI`, which the SDK's
+  // Package.swift declares only when the xcframework exists: build its
+  // simulator slice when missing, and name it in EXPONENTIAL_UI_FFI so a
+  // SwiftPM manifest cached before it existed is evaluated again.
+  const ffiError = await ensureIosFfi(`Exponential UI FFI`)
+  if (ffiError) return void fail(ffiError)
   const build = await run({
     cmd: [
       `xcodebuild`,
@@ -941,6 +966,7 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[], lane?
       `build`,
     ],
     cwd: root,
+    env: { EXPONENTIAL_UI_FFI: join(root, IOS_FFI[0].xcframework) },
     stream: true,
     label: `[ios:package]`,
     timeoutMs: 45 * 60_000,
@@ -991,11 +1017,31 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[], lane?
     // A stale raw file would be stored as if this run had produced it.
     rmSync(png, { force: true })
     mkdirSync(dirname(png), { recursive: true })
-    await simctl([`terminate`, udid, PACKAGE_IOS.bundleId])
-    const launched = await simctl([`launch`, udid, PACKAGE_IOS.bundleId, `-shot`, viewId, ...(lane?.extraArgs?.(viewId) ?? [])])
-    if (launched.code !== 0) {
+    // EXP-1558: a fixed settle after `launch` photographed a cold launch's
+    // empty window (status bar only) for a third of the specimens. The app
+    // writes `-frames <path>` two seconds after its first layout, so its
+    // arrival (with at least one painted node) is the readiness signal; a
+    // launch that never paints is retried once, then fails the view.
+    const extra = lane?.extraArgs?.(viewId) ?? []
+    const framesAt = extra.indexOf(`-frames`)
+    const frames = framesAt >= 0 ? extra[framesAt + 1]! : join(tmpdir(), `exp-shots-ios-package`, `${viewId}.frames.json`)
+    const args = framesAt >= 0 ? extra : [...extra, `-frames`, frames]
+    mkdirSync(dirname(frames), { recursive: true })
+    let painted = false
+    let launchCode = 0
+    for (let attempt = 0; attempt < 2 && !painted; attempt += 1) {
+      rmSync(frames, { force: true })
+      await simctl([`terminate`, udid, PACKAGE_IOS.bundleId])
+      const launched = await simctl([`launch`, udid, PACKAGE_IOS.bundleId, `-shot`, viewId, ...args])
+      launchCode = launched.code
+      if (launched.code !== 0) continue
+      painted = await waitForPaintedFrames(frames, PACKAGE_IOS.paintTimeoutMs)
+    }
+    if (!painted) {
       failed.push(viewId)
-      console.log(`  fail  ${viewId} — simctl launch exited ${launched.code}`)
+      console.log(
+        `  fail  ${viewId} — ${launchCode !== 0 ? `simctl launch exited ${launchCode}` : `the example painted no node within ${formatDuration(PACKAGE_IOS.paintTimeoutMs)} (twice)`}`
+      )
       continue
     }
     await sleep(PACKAGE_IOS.settleMs)
@@ -1409,19 +1455,112 @@ function laneViewIds(
     .map((view) => view.id)
 }
 
+/**
+ * EXP-1558: the two gitignored xcframeworks the iOS app links only when they
+ * exist (apps/ios/Project.swift `hasExponentialUi` / `hasEnetNode`). Without
+ * the eUI one every Exponential UI surface draws its "Preview" placeholder;
+ * without the eNet one ExpCore compiles with no `ENET_NODE` and every session
+ * page reads "No live transcript". Neither fails a build, so the lane checks.
+ */
+const IOS_FFI = [
+  {
+    label: `Exponential UI FFI`,
+    xcframework: `packages/exponential-ui-swift/Binaries/ExponentialUIFFI.xcframework`,
+    script: `apps/desktop/crates/exponential-ui-ffi/build-ios.sh`,
+    targetsEnv: `EXPONENTIAL_UI_APPLE_TARGETS`,
+  },
+  {
+    label: `eNet FFI`,
+    xcframework: `apps/desktop/crates/exponential-net-ffi/out/ExponentialNetFFI.xcframework`,
+    script: `apps/desktop/crates/exponential-net-ffi/build-ios.sh`,
+    targetsEnv: `ENET_APPLE_TARGETS`,
+  },
+] as const
+
+/** The simulator slice this Mac runs (`ios-arm64-simulator`, or x86_64 on Intel). */
+function iosSimArch(): { rust: string; slice: string } {
+  return process.arch === `arm64`
+    ? { rust: `aarch64-apple-ios-sim`, slice: `arm64` }
+    : { rust: `x86_64-apple-ios`, slice: `x86_64` }
+}
+
+/** Does the xcframework carry a simulator slice for this Mac's arch? */
+function hasIosSimSlice(xcframework: string): boolean {
+  const dir = join(repoRoot(), xcframework)
+  if (!existsSync(dir)) return false
+  const arch = iosSimArch().slice
+  return readdirSync(dir).some((entry) => /^ios-.*-simulator$/.test(entry) && entry.includes(arch))
+}
+
+let iosFfi: Promise<string | undefined> | undefined
+/**
+ * EXP-1558: build every missing FFI's simulator slice (only that one: the
+ * device + macOS slices are the release build's), ONCE per run. Resolves an
+ * error message when a build fails or leaves no slice; never degrades.
+ */
+function ensureIosFfi(only?: (typeof IOS_FFI)[number][`label`]): Promise<string | undefined> {
+  const build = async (ffi: (typeof IOS_FFI)[number]): Promise<string | undefined> => {
+    if (hasIosSimSlice(ffi.xcframework)) return undefined
+    console.log(`\n── ios: ${ffi.label} — ${ffi.xcframework} has no simulator slice, building it ──`)
+    const result = await run({
+      cmd: [`bash`, ffi.script],
+      cwd: repoRoot(),
+      env: { [ffi.targetsEnv]: iosSimArch().rust },
+      stream: true,
+      label: `[ios:ffi]`,
+      timeoutMs: 60 * 60_000,
+    })
+    if (result.code !== 0) return `${ffi.label}: \`bash ${ffi.script}\` exited ${result.code}`
+    if (!hasIosSimSlice(ffi.xcframework)) return `${ffi.label}: ${ffi.script} ran, but ${ffi.xcframework} has no ${iosSimArch().slice} simulator slice`
+    return undefined
+  }
+  if (only) return build(IOS_FFI.find((ffi) => ffi.label === only)!)
+  iosFfi ??= (async () => {
+    for (const ffi of IOS_FFI) {
+      const error = await build(ffi)
+      if (error) return error
+    }
+    return undefined
+  })()
+  return iosFfi
+}
+
 let iosGenerated: Promise<void> | undefined
 
-/** `tuist generate` ONCE for both iOS fastlane lanes (they skip their own). */
+/**
+ * `tuist generate` ONCE for both iOS fastlane lanes (they skip their own).
+ * EXP-1558: after the FFIs, `tuist clean manifests` first: Tuist caches the
+ * evaluated Project.swift, whose `hasExponentialUi`/`hasEnetNode` read the
+ * file system, so a project generated before an xcframework existed keeps
+ * linking without it. Then the generated project must carry both, or the
+ * lane fails here instead of shipping placeholder shots.
+ */
 function generateIos(): Promise<void> {
-  iosGenerated ??= run({
-    cmd: [`tuist`, `generate`, `--no-open`],
-    cwd: join(repoRoot(), `apps/ios`),
-    stream: true,
-    label: `[ios:generate]`,
-    timeoutMs: 10 * 60_000,
-  }).then((result) => {
-    if (result.code !== 0) throw new Error(`tuist generate exited ${result.code}`)
-  })
+  const ios = join(repoRoot(), `apps/ios`)
+  const step = async (cmd: string[], label: string) => {
+    const result = await run({ cmd, cwd: ios, stream: true, label: `[ios:${label}]`, timeoutMs: 10 * 60_000 })
+    if (result.code !== 0) throw new Error(`${cmd.join(` `)} exited ${result.code}`)
+  }
+  iosGenerated ??= (async () => {
+    const ffi = await ensureIosFfi()
+    if (ffi) throw new Error(`iOS FFI: ${ffi} — the app would paint "Preview" boxes and "No live transcript"`)
+    // A fresh worktree has no resolved packages yet.
+    if (!existsSync(join(ios, `Tuist/.build`))) await step([`tuist`, `install`], `install`)
+    await step([`tuist`, `clean`, `manifests`], `clean`)
+    await step([`tuist`, `generate`, `--no-open`], `generate`)
+    const pbxproj = join(ios, `Exponential.xcodeproj/project.pbxproj`)
+    const project = existsSync(pbxproj) ? readFileSync(pbxproj, `utf8`) : ``
+    const missing = [
+      project.includes(`ENET_NODE`) ? undefined : `ENET_NODE (ExpCore without the eNet node)`,
+      project.includes(`ExponentialUIWrapper`) ? undefined : `ExponentialUI (the app without the eUI painter)`,
+    ].filter(Boolean)
+    if (missing.length > 0) {
+      throw new Error(
+        `tuist generated apps/ios without ${missing.join(` and `)} although both xcframeworks exist — ` +
+          `\`cd apps/ios && tuist clean manifests && tuist install && tuist generate --no-open\` and re-run`
+      )
+    }
+  })()
   return iosGenerated
 }
 
@@ -1508,7 +1647,7 @@ async function waitForAndroidBoot(timeoutMs = 120_000): Promise<void> {
  * is exactly the condition the steering shots need. A capture that starts early
  * photographs "Reconnecting…".
  */
-async function startRelayStub(): Promise<Child | undefined> {
+async function startRelayStub(skipSeed: boolean): Promise<Child | undefined> {
   const secret = process.env.STEER_RELAY_SECRET ?? readEnvFile().STEER_RELAY_SECRET
   if (!secret) {
     throw new Error(
@@ -1528,6 +1667,24 @@ async function startRelayStub(): Promise<Child | undefined> {
   const relayUrl = process.env.SHOTS_RELAY_URL?.trim() || `ws://localhost:4002`
 
   console.log(`\n── steer relay stub (${relayUrl}) ─────────────────────`)
+  // EXP-1558: a second stub on the same relay registers the demo machine
+  // twice and its eNet node revokes the first one's install mid-capture, so a
+  // `--skip-seed` run (parallel lanes, a rerun) REUSES the stub this checkout
+  // already runs. A seeding run replaces it: the seed wipes the rows it wrote.
+  const running = runningStub(relayUrl)
+  if (running && skipSeed) {
+    console.log(`  reusing the running stub (pid ${running.pid}); it is left running afterwards`)
+    return undefined
+  }
+  if (running) {
+    console.log(`  stopping the running stub (pid ${running.pid}): this run reseeds`)
+    try {
+      process.kill(running.pid, `SIGTERM`)
+    } catch {
+      /* already gone */
+    }
+    await sleep(1_000)
+  }
   const child = track(
     Bun.spawn({
       cmd: [`bun`, `run`, `screenshots:desktop`],
@@ -1584,6 +1741,30 @@ async function startRelayStub(): Promise<Child | undefined> {
     )
   }
   return child
+}
+
+/**
+ * The stub `screenshots:desktop` runs from THIS checkout, when it is alive and
+ * on the same relay and database (its record: apps/web/scripts/screenshot-desktop.ts).
+ */
+function runningStub(relayUrl: string): { pid: number } | undefined {
+  const key = createHash(`sha1`).update(resolve(repoRoot())).digest(`hex`).slice(0, 12)
+  const file = join(tmpdir(), `exp-screenshot-stub-${key}.json`)
+  let record: { pid?: number; relayUrl?: string; databaseUrl?: string }
+  try {
+    record = JSON.parse(readFileSync(file, `utf8`))
+  } catch {
+    return undefined
+  }
+  const databaseUrl = process.env.SHOTS_DATABASE_URL ?? process.env.DATABASE_URL
+  if (!record.pid || record.relayUrl !== relayUrl) return undefined
+  if (databaseUrl && record.databaseUrl && record.databaseUrl !== databaseUrl) return undefined
+  try {
+    process.kill(record.pid, 0)
+  } catch {
+    return undefined
+  }
+  return { pid: record.pid }
 }
 
 /** Minimal `.env` reader — only ever consulted for STEER_RELAY_SECRET. */
@@ -2302,7 +2483,7 @@ async function main(): Promise<number> {
     // first and `$device` is unresolvable on every freshly-seeded run — which
     // silently skipped `machine-settings` (the Device settings dialog) forever.
     // ONE stub serves every lane: the relay replays its log to each viewer.
-    if (relayNeeded) relay = await startRelayStub()
+    if (relayNeeded) relay = await startRelayStub(options.skipSeed)
 
     ids = await fetchDemoIds()
     console.log(

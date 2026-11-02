@@ -96,6 +96,7 @@ final class AppDependencies: @unchecked Sendable {
         // EXP-1267: screenshot runs start from a fresh-install state without
         // erasing the simulator (capture-only, `-uiTesting` + DEBUG).
         UITestingSession.resetIfRequested(accountStore: accountStore)
+        UITestingSession.installEndEditingHook()
         #endif
         let auth = AuthRepository(accountStore: accountStore)
         let httpClient = HTTPClient(auth: auth)

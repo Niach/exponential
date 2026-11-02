@@ -1648,6 +1648,7 @@ pub(crate) fn root_dock(
         None => None,
     };
     let (actions, card) = composer.update(cx, |composer, cx| {
+        composer.dev_type_composer_text(window, cx);
         (composer.session_dock_actions(cx), composer.render_session_composer(window, cx))
     });
     let band = crate::dock::band(

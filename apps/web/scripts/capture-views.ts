@@ -39,8 +39,8 @@ import {
   type WebCapture,
   type WebIdentity,
 } from "@exp/view-catalog"
-import { launchContext, login, settle, shot, waitForAnchor } from "./lib/capture-web"
-import { RECIPES, recipeContext, type RecipeCtx } from "./lib/view-recipes"
+import { launchContext, login, parkPointer, settle, shot, waitForAnchor } from "./lib/capture-web"
+import { KEEPS_POINTER, RECIPES, recipeContext, type RecipeCtx } from "./lib/view-recipes"
 import type { NotificationReadState } from "./lib/demo-notifications"
 import {
   DEMO_EMAIL,
@@ -323,6 +323,8 @@ async function captureView(
   // sessionStorage and would otherwise pile up in every later shot.
   await clearWorkTabs(page)
   await page.goto(`${ctx.baseUrl}${resolveRoute(capture.route, ctx, db)}`)
+  // EXP-1558: no hover carried over from the previous view's clicks.
+  await parkPointer(page)
 
   // Recipe FIRST, anchor after: most recipe-driven views anchor on text the
   // recipe itself reveals ("Create an account", "Priority", "@Composable"), and
@@ -335,6 +337,8 @@ async function captureView(
   if (recipe) await recipe(page, ctx)
 
   await waitForAnchor(page, capture.anchor)
+  // EXP-1558: …nor from the recipe's own clicks, unless the hover IS the view.
+  if (!capture.recipe || !KEEPS_POINTER.has(capture.recipe)) await parkPointer(page)
   await settle(page, capture.settleMs)
   await shot(page, outPath, { fullPage: capture.fullPage })
 }
