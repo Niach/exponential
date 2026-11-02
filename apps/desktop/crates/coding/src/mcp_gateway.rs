@@ -186,7 +186,7 @@ impl SealingTransform {
                         (Some(body), None, None)
                     }
                     None => {
-                        let seal = match self.new_root_seal() {
+                        let seal = match self.new_root_seal(None) {
                             Ok(seal) => seal,
                             Err(err) => {
                                 unsealed("sessions_send", &err)?;
@@ -199,7 +199,7 @@ impl SealingTransform {
                     }
                 }
             }
-            (None, false) => match self.new_root_seal() {
+            (None, false) => match self.new_root_seal(obj.get("deviceId").and_then(Value::as_str)) {
                 Err(err) => {
                     // A fresh root is a NEW tree: no key holder = no key, so
                     // it is keyless and plaintext stays legal there (no
@@ -259,14 +259,18 @@ impl SealingTransform {
             .map_err(|err| SealError::NoKey(format!("sessions.sendTarget failed: {err}")))
     }
 
-    /// A fresh tree key for a new thread, wrapped for this install (its
-    /// other readers get theirs through `pending`).
-    fn new_root_seal(&self) -> Result<NewRootSeal, SealError> {
+    /// A fresh tree key for a new thread, wrapped for this install and
+    /// (#EXP-1483) the installs of `target_device`, the device the send
+    /// starts it on, so its pickup opens the brief at once; other readers
+    /// (and a target whose seal key is unknown here) get theirs through
+    /// `pending`.
+    fn new_root_seal(&self, target_device: Option<&str>) -> Result<NewRootSeal, SealError> {
         let service = sealing::sealer()?;
         let (Some(install_id), Some(public)) = (service.install_id(), service.install_public()) else {
             return Err(SealError::NoKey("this install cannot wrap a tree key yet".into()));
         };
-        sealing::seal_new_root(&install_id, &public, &[])
+        let readers = target_device.map(|device| service.new_root_readers(device)).unwrap_or_default();
+        sealing::seal_new_root(&install_id, &public, &readers)
     }
 
     /// `sessions_send {sessionId, answer}`: the target's open card read
@@ -606,6 +610,9 @@ impl SealingTransform {
             // takes it over the caller's tree key.
             if let Some(seal) = seal.filter(|_| target != self.session_id) {
                 service.adopt(target, &seal);
+                // #EXP-1483: any reader not wrapped above gets its wrap from
+                // this install's next pending pass: run it now.
+                service.wake();
             }
         } else if let Some(parent) = sent.get("parentId").and_then(Value::as_str) {
             if let Some(root) = self.root_for(parent) {
@@ -1944,6 +1951,43 @@ mod tests {
         assert!(out["error"].as_str().is_some_and(|e| e.contains("could not be sealed")), "{out}");
         assert_eq!(calls_of(&server, SEND_TOOL).len(), sends);
         assert!(server.calls.lock().unwrap().iter().any(|(t, url)| t == "trpc:sessions.sendTarget" && url.as_str().unwrap_or_default().contains("a1")));
+        codemode::revoke("s-own");
+        sealing::uninstall();
+    }
+
+    /// #EXP-1483: a new thread's key is wrapped for its target device at
+    /// creation, so that device's pickup opens the brief without waiting
+    /// for a pending pass; a device with no known seal key keeps the old
+    /// fallback (this install's wrap alone).
+    #[test]
+    fn a_new_thread_wraps_its_key_for_the_target_device() {
+        let _serial = serial();
+        let install = enet_core::PushKeypair::generate();
+        let target = enet_core::PushKeypair::generate();
+        let fake = Arc::new(crate::sealing::test_support::FakeService {
+            install_public: Some(install.public()),
+            device_installs: vec![("d-target".into(), "install-target".into(), sealing::b64url_encode(&target.public()))],
+            ..Default::default()
+        });
+        sealing::install(fake.clone());
+        let answer: Answer = Arc::new(|_, _| json!({ "sessionId": "root-new", "messageId": "m", "status": "queued", "deliverTo": null }));
+        let server = fake_server(answer, json!({}));
+        let grant = gateway(&server, "s-own", "root-own");
+
+        call(&grant, SEND_TOOL, json!({ "text": "start this", "deviceId": "d-target" }));
+        let sent = calls_of(&server, SEND_TOOL).pop().unwrap();
+        let wraps = sent["seal"]["wraps"].as_array().unwrap();
+        assert_eq!(wraps.iter().map(|w| w["installId"].as_str().unwrap()).collect::<Vec<_>>(), ["install-1", "install-target"]);
+        let secret = sealing::unwrap_tree_key(&target.secret(), wraps[1]["wrapped"].as_str().unwrap()).unwrap();
+        let opened = enet_core::sealed::open_body(sent["text"].as_str().unwrap(), &|_| Some(secret));
+        assert_eq!(opened.text.as_deref(), Some("start this"));
+
+        // A device without a known seal key: this install's wrap alone.
+        call(&grant, SEND_TOOL, json!({ "text": "start that", "deviceId": "d-unknown" }));
+        let sent = calls_of(&server, SEND_TOOL).pop().unwrap();
+        let wraps = sent["seal"]["wraps"].as_array().unwrap();
+        assert_eq!(wraps.len(), 1);
+        assert_eq!(wraps[0]["installId"], "install-1");
         codemode::revoke("s-own");
         sealing::uninstall();
     }

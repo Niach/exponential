@@ -331,6 +331,13 @@ pub trait SealService: Send + Sync {
     fn install_public(&self) -> Option<[u8; 32]> {
         None
     }
+    /// #EXP-1483: the installs (`(install_id, x25519_public)`) of
+    /// `target_device` (the `devices.device_id` a new thread will run on),
+    /// wrapped into a NEW root's key at creation so its pickup opens the
+    /// brief at once. Empty = none known (they wait for `pending`).
+    fn new_root_readers(&self, _target_device: &str) -> Vec<(String, String)> {
+        Vec::new()
+    }
     /// `root`'s current (epoch, public key) for WRITING into its own tree:
     /// the cached key, else `publicKeys`, else a fresh tree key this
     /// install creates (`sessionKeys.create`, epoch 1).
@@ -858,6 +865,8 @@ pub(crate) mod test_support {
         pub install_public: Option<[u8; 32]>,
         /// [`SealService::resolve_root`] answers.
         pub roots: Mutex<HashMap<String, String>>,
+        /// [`SealService::new_root_readers`]: `(device, install, public)`.
+        pub device_installs: Vec<(String, String, String)>,
     }
 
     impl SealService for FakeService {
@@ -872,6 +881,13 @@ pub(crate) mod test_support {
         }
         fn resolve_root(&self, session_id: &str) -> Option<String> {
             self.roots.lock().unwrap().get(session_id).cloned()
+        }
+        fn new_root_readers(&self, target_device: &str) -> Vec<(String, String)> {
+            self.device_installs
+                .iter()
+                .filter(|(device, _, _)| device == target_device)
+                .map(|(_, install, public)| (install.clone(), public.clone()))
+                .collect()
         }
         fn ensure_key(&self, root_id: &str) -> Result<(u32, [u8; 32]), String> {
             if let Some(current) = self.keyring.current(root_id) {

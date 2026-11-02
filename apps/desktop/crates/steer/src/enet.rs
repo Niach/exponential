@@ -663,7 +663,10 @@ async fn run_node(inner: &Arc<Inner>) {
         if matches!(registered, Registered::Yes) {
             start_holder(&inner, &identity);
             match lock(&inner.holder).as_ref() {
-                Some(holder) => holder.set_direct_sender(direct_sender(&inner)),
+                Some(holder) => {
+                    holder.set_direct_sender(direct_sender(&inner));
+                    holder.set_device_readers(device_readers(&inner));
+                }
                 // No key API on this registry: no holder will come.
                 None => coding::sealing::expect_service(false),
             }
@@ -709,6 +712,32 @@ fn start_holder(inner: &Arc<Inner>, identity: &Identity) {
     holder.spawn(&tokio::runtime::Handle::current(), Arc::clone(&inner.holder_wake));
     *lock(&inner.holder) = Some(holder);
     log::info!("enet: key holder running");
+}
+
+/// #EXP-1483: the key holder's view of a device's installs (the MCP
+/// gateway wraps a new thread's key for its target device): off the last
+/// allowlist pass ([`target_device_installs`]).
+fn device_readers(inner: &Arc<Inner>) -> crate::seal_keys::DeviceReaders {
+    let weak = Arc::downgrade(inner);
+    Arc::new(move |device: &str| {
+        let Some(inner) = weak.upgrade() else { return Vec::new() };
+        let entries = lock(&inner.entries);
+        target_device_installs(&entries, &inner.spec.user_id, device)
+    })
+}
+
+/// The installs on `entries` bound to `device` (`devices.device_id`), as
+/// `(install_id, x25519_public)`: only `own_user`'s when it has one there
+/// (the server's reader rule takes the starter's own devices row of a
+/// machine first), so a wrap never names an install that is no reader.
+pub fn target_device_installs(entries: &[InstallEntry], own_user: &str, device: &str) -> Vec<(String, String)> {
+    let on_device: Vec<&InstallEntry> = entries.iter().filter(|e| e.device_id.as_deref() == Some(device)).collect();
+    let own = on_device.iter().any(|e| e.user_id == own_user);
+    on_device
+        .into_iter()
+        .filter(|e| !own || e.user_id == own_user)
+        .map(|e| (e.install_id.clone(), e.x25519_public.clone()))
+        .collect()
 }
 
 /// EXP-1458: the key holder's agent-to-agent sender: the sealed row as a
@@ -871,5 +900,29 @@ async fn log_events(inner: Arc<Inner>, mut events: tokio::sync::mpsc::UnboundedR
             }
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(install: &str, user: &str, device: Option<&str>) -> InstallEntry {
+        serde_json::from_value(serde_json::json!({
+            "installId": install, "userId": user, "kind": "daemon", "endpointId": "e",
+            "x25519Public": format!("pk-{install}"), "deviceId": device,
+        }))
+        .unwrap()
+    }
+
+    /// #EXP-1483: a new thread's target device installs, the caller's own
+    /// first (the server's reader rule), never another device's.
+    #[test]
+    fn target_device_installs_prefer_the_callers_own() {
+        let entries =
+            [entry("a", "me", Some("d1")), entry("b", "mate", Some("d1")), entry("c", "me", Some("d2")), entry("d", "mate", Some("d3"))];
+        assert_eq!(target_device_installs(&entries, "me", "d1"), [("a".to_string(), "pk-a".to_string())]);
+        assert_eq!(target_device_installs(&entries, "me", "d3"), [("d".to_string(), "pk-d".to_string())]);
+        assert!(target_device_installs(&entries, "me", "d9").is_empty());
     }
 }
