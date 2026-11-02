@@ -28,3 +28,6 @@
 - Livechattar ritas om mindre medan en agent arbetar, så att rullningen förblir smidig
 - Appars poster tillhör sin författare; teamägare kan lägga in poster åt andra
 - Agenter kan visa små animationer i sina kort
+- Förbli inloggad från telefonen visar länk och kod igen, och en avvisad kod säger det
+- Namnge ett Förbli inloggad-konto när du lägger till det
+- Stänger du en inloggning stoppas den på datorn

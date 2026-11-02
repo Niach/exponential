@@ -28,3 +28,6 @@
 - Live-Chats zeichnen weniger neu, während ein Agent arbeitet, damit das Scrollen flüssig bleibt
 - App-Einträge gehören ihrem Autor; Team-Owner können Einträge für andere anlegen
 - Agenten können kleine Animationen in ihren Karten zeigen
+- „Angemeldet bleiben“ vom Handy zeigt wieder Link und Code, und ein abgelehnter Code wird gemeldet
+- Gib einem „Angemeldet bleiben“-Konto beim Hinzufügen einen Namen
+- Das Schließen einer Anmeldung beendet sie auf dem Gerät

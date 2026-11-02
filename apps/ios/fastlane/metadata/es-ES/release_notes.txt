@@ -28,3 +28,6 @@
 - Los chats en directo se redibujan menos mientras un agente trabaja, así el desplazamiento sigue fluido
 - Los registros de las apps pertenecen a su autor; los propietarios del equipo pueden crear registros para otros
 - Los agentes pueden mostrar pequeñas animaciones en sus tarjetas
+- Mantener la sesión desde el móvil vuelve a mostrar el enlace y el código, y un código rechazado lo indica
+- Pon nombre a una cuenta de Mantener la sesión al añadirla
+- Cerrar un inicio de sesión lo detiene en la máquina
