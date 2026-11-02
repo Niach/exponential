@@ -34,7 +34,7 @@ const EXPR = `{ "call": "expr", "args": {
   "vars": { "total": { "path": "/month/totals/hours" } },
   "default": "0:00" } }`
 
-const ACTION = `"actions": {
+const PACKAGE_ACTION = `"actions": {
   "log": {
     "params": { "type": "object", "required": ["date", "hours"],
       "properties": { "date": { "type": "string", "format": "date" }, "hours": { "type": "number" } } },
@@ -435,7 +435,7 @@ export function AppsDocsPage() {
               should give. They run every time the app is saved, so a broken
               formula, query or action is caught in the editor.
             </p>
-            <DocsCode language="json">{ACTION}</DocsCode>
+            <DocsCode language="json">{PACKAGE_ACTION}</DocsCode>
             <p>
               The query and the formulas run the same way on the web, the
               desktop app, iOS and Android, over the records already on the
