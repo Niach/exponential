@@ -10,8 +10,10 @@ import SwiftUI
 ///   the password while one is set). Link = the LINK-mode browser handoff
 ///   (`SignInLinkSession`); Unlink / Remove confirm first and are disabled
 ///   while the row is the last way in.
-/// - "Passkeys": list + confirmed Remove only. Registering a passkey is a web
-///   ceremony, so the band carries no Add action.
+/// - "Passkeys": list + confirmed Remove, and (EXP-1596, web + Android
+///   parity) the band's trailing "Add passkey" while the instance offers
+///   passkeys: the platform authenticator registers one
+///   (`PasskeyRegistrationCeremony`).
 ///
 /// Every call takes the SCREEN's `accountId` — Settings can show a
 /// non-active account.
@@ -28,6 +30,12 @@ struct SignInMethodsSection: View {
     @State private var pendingLink: String?
     @State private var showChangeEmail = false
     @State private var linkSession = SignInLinkSession()
+    // EXP-1596: an Add passkey ceremony in flight; the band's pill spins.
+    @State private var addingPasskey = false
+    @State private var passkeyCeremony = PasskeyRegistrationCeremony()
+
+    /// Web's name for a passkey made on an iPhone (`suggestedPasskeyName`).
+    private static let passkeyName = "iPhone"
 
     private enum Confirm: Identifiable {
         case unlink(SignInProvider)
@@ -105,7 +113,22 @@ struct SignInMethodsSection: View {
 
     private func passkeysBand(_ methods: SignInMethods) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand("Passkeys")
+            // EXP-1596: the band's Add passkey action, web's (an https
+            // instance only: `passkeyEnabled`).
+            GlassSectionBand("Passkeys") {
+                if methods.passkeyEnabled {
+                    GlassPill(
+                        "Add passkey",
+                        mode: .action { Task { await addPasskey() } },
+                        enabled: !addingPasskey
+                    ) {
+                        if addingPasskey {
+                            ProgressView().controlSize(.mini).tint(.white)
+                        }
+                    }
+                    .accessibilityIdentifier("passkey-add")
+                }
+            }
 
             if methods.passkeys.isEmpty {
                 EmptyState(.passkeys)
@@ -307,6 +330,60 @@ struct SignInMethodsSection: View {
             toaster.error(title, description: error.trpcUserMessage)
         }
         busyId = nil
+        await load()
+    }
+
+    /// EXP-1596 Add passkey (web `PasskeysSection` handleAdd, Android
+    /// `addPasskey`): the creation options for this account's session, the
+    /// platform authenticator signs them, the attestation goes back, the list
+    /// reloads. A dismissed system sheet is silent; every other failure is the
+    /// failed-action toast (FEED-79), the server's message (a stale session)
+    /// as its description. Options for any rp but this instance are refused,
+    /// the login path's guard (`relyingPartyMatchesInstance`).
+    private func addPasskey() async {
+        guard !addingPasskey,
+              let account = deps.auth.accounts.first(where: { $0.id == accountId }),
+              let token = account.token else { return }
+        let instanceUrl = account.instanceUrl
+        addingPasskey = true
+        defer { addingPasskey = false }
+        let failedTitle = FeedbackStates.Errors.title(verb: "add", thing: "the passkey")
+
+        let options: PasskeyRegistrationOptions
+        switch await deps.authApi.passkeyRegistrationOptions(
+            instanceUrl: instanceUrl, token: token, name: Self.passkeyName
+        ) {
+        case let .success(served): options = served
+        case let .failure(message):
+            toaster.error(failedTitle, description: message.isEmpty ? nil : message)
+            return
+        }
+        guard PasskeyWire.relyingPartyMatchesInstance(rpId: options.rpId, instanceUrl: instanceUrl) else {
+            toaster.error(failedTitle)
+            return
+        }
+
+        let attestation: PasskeyAttestation
+        switch await passkeyCeremony.register(options) {
+        case let .created(created): attestation = created
+        case .cancelled: return
+        case .failed:
+            // The system error's text is framework jargon; Android's toast
+            // carries no description here either.
+            toaster.error(failedTitle)
+            return
+        }
+
+        if let message = await deps.authApi.verifyPasskeyRegistration(
+            instanceUrl: instanceUrl,
+            token: token,
+            cookieHeader: options.cookieHeader,
+            attestation: attestation,
+            name: Self.passkeyName
+        ) {
+            toaster.error(failedTitle, description: message.isEmpty ? nil : message)
+            return
+        }
         await load()
     }
 

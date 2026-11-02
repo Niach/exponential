@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-passkeys-on-iphone",
+    date: "2026-11-02",
+    title: "Passkeys on your iPhone",
+    summary: "Add a passkey from the iOS app, and the Assistant wears its own mark in its chat on every phone.",
+    body: r#"- **Add passkey on iPhone**: Settings, Account, Passkeys now has Add passkey on iOS too, like the web and Android.
+- **Assistant mark**: the Assistant's chat header and call show the Exponential mark on iOS and Android, not a robot."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_173: ChangelogEntry = ChangelogEntry {
     id: "2026-11-02-subagents-menu-values",
     date: "2026-11-02",
     title: "Subagents and menu values",
