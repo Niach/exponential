@@ -2021,8 +2021,9 @@ final class AgentSessionModel {
     /// Mirrors the Android `FrameResult.live` handling.
     private func markLive() {
         // EXP-773: a device answered, so whatever arrives next IS the
-        // transcript.
-        history = nil
+        // transcript. #EXP-1623: written only when set; this runs on every
+        // frame, and the transcript reads it (a write per tick re-rendered it).
+        if history != nil { history = nil }
         // EXP-796/VAPP-43: an ENDED run's transcript comes down a joined link
         // too — the device's stored replay, closed by `bye {history}` — and
         // that link is not a live run. The synced row is the truth: the phase
