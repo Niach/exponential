@@ -241,6 +241,8 @@ mod x11_dialog_type;
 pub mod window_size;
 mod shell;
 #[cfg(test)]
+mod alert_gallery;
+#[cfg(test)]
 mod transcript_bench;
 
 pub use actions::*;

@@ -231,7 +231,6 @@ impl ApiKeysPane {
              teams and boards you choose; revoke it here at any time.",
             "Create key",
         )
-        .height(gpui::px(520.))
         .content(move |window, cx| {
             let muted = cx.theme().muted_foreground;
             v_flex()
@@ -367,7 +366,6 @@ impl ApiKeysPane {
                 .unwrap_or_else(|| "expu_\u{2026}".into())
         });
         let spec = AlertSpec::new(title, description, ok_label)
-            .height(gpui::px(260.))
             .content(move |_, cx| {
                 h_flex()
                     .gap_2()

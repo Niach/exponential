@@ -530,7 +530,6 @@ impl McpServersPane {
             "Only your sessions use it. Stored encrypted; nobody can read it back.",
             "Save key",
         )
-        .height(gpui::px(300.))
         .content(move |window, cx| {
             v_flex()
                 .gap_1()
@@ -642,7 +641,6 @@ impl McpServersPane {
              tools until you connect again; other members keep theirs.",
             "Disconnect",
         )
-        .height(gpui::px(250.))
         .content(move |_, _| {
             div()
                 .text_sm()
@@ -748,7 +746,6 @@ impl McpServersPane {
              This cannot be undone.",
             "Remove",
         )
-        .height(gpui::px(260.))
         .content(move |_, _| {
             div()
                 .text_sm()

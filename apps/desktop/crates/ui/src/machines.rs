@@ -1730,13 +1730,12 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
         Rc::new(RefCell::new(None));
     // P33: no subtitle (the cards say it). EXP-1557: the web dialog's
     // shape: no footer (the ✕, Escape and the scrim close it), web's
-    // `max-w-lg`, and the two cards' own height (the body scrolls when the
-    // server card's code field grows it).
+    // `max-w-lg`, and the two cards' own height (#EXP-1588: the panel
+    // hugs them; the body scrolls past the window cap).
     let spec = AlertSpec::new("Add device", "", "Done")
         .without_cancel()
         .without_footer()
         .width(px(512.))
-        .height(px(400.))
         .content(move |window, cx| {
         let card = server_card
             .borrow_mut()

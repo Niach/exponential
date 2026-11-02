@@ -556,7 +556,6 @@ impl StatusesPane {
             "Delete status",
         )
         .ok_variant(ButtonVariant::Danger)
-        .height(gpui::px(320.))
         .content(move |_, _| dialog_content.clone().into_any_element())
         .on_ok(move |_, cx| {
             let reassign_to = content.read(cx).selected_id.clone();
