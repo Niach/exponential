@@ -1,0 +1,5 @@
+- Claude sign-ins use the browser login again
+- Persist login keeps a Claude account's runs signed in for a year, with nothing to type
+- An account's card says which login is active
+- Sign-ins started from your phone show their link and code again, and a rejected code says so
+- Closing a sign-in stops it on the machine

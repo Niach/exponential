@@ -15,11 +15,11 @@
 - La pagina Dispositivi mostra ogni dispositivo come una scheda
 - Le chat, la schermata di nuova chat e le Impostazioni hanno lo stesso aspetto delle altre app
 - Zoom sulle immagini: ogni visualizzatore di immagini ingrandisce e sposta
-- Claude resta connesso per impostazione predefinita: un nuovo accesso dura un anno
+- Gli accessi a Claude usano di nuovo l'accesso dal browser
 - Le tabelle larghe scorrono in orizzontale invece di comprimere le colonne
 - Il pulsante Merge mostra i controlli CI della tua pull request
 - Il lavoro di una sessione viene salvato man mano, così continua su qualsiasi dispositivo
-- Gli accessi permanenti mostrano l'uso di 5 ore e settimanale
+- Mantieni accesso tiene connesse per un anno le esecuzioni di un account Claude, senza digitare nulla
 - Gli orari dicono «proprio ora» invece di «tra 0 secondi»
 - Una sessione in coda su un dispositivo offline passa all'altro tuo computer
 - Un avvio mai partito mostra «Impossibile avviare» invece di restare inattivo
@@ -28,6 +28,6 @@
 - Le chat dal vivo si ridisegnano meno mentre un agente lavora, così lo scorrimento resta fluido
 - I record delle app appartengono al loro autore; i proprietari del team possono inserire record per altri
 - Gli agenti possono mostrare piccole animazioni nelle loro schede
-- Resta connesso dal telefono mostra di nuovo link e codice, e un codice rifiutato viene segnalato
-- Dai un nome a un account Resta connesso quando lo aggiungi
+- Gli accessi avviati dal telefono mostrano di nuovo link e codice, e un codice rifiutato viene segnalato
+- La scheda di un account indica quale accesso è attivo
 - Chiudere un accesso lo interrompe sulla macchina

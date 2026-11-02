@@ -15,11 +15,11 @@
 - Az Eszközök oldal minden eszközt kártyaként mutat
 - A csevegések, az új csevegés képernyője és a Beállítások ugyanúgy néznek ki, mint a többi alkalmazásban
 - Képek nagyítása: minden képmegjelenítő nagyít és görget
-- A Claude alapértelmezetten bejelentkezve marad: egy új bejelentkezés egy évig tart
+- A Claude-bejelentkezések ismét a böngészős bejelentkezést használják
 - A széles táblázatok oldalra görgethetők, ahelyett hogy összenyomnák az oszlopokat
 - A Merge gomb mutatja a pull request CI-ellenőrzéseit
 - A munkamenet munkája folyamatosan mentődik, így bármely eszközön folytatódik
-- A tartós bejelentkezések mutatják az 5 órás és heti használatukat
+- A Bejelentkezés megőrzése egy évig bejelentkezve tartja egy Claude-fiók futásait, gépelés nélkül
 - Az időpontok „épp most”-ot írnak „0 másodperc múlva” helyett
 - Egy offline eszközön várakozó munkamenet átkerül a másik gépedre
 - Egy soha el nem indult indítás „Nem sikerült elindítani” feliratot mutat tétlenség helyett
@@ -28,6 +28,6 @@
 - Az élő csevegések ritkábban rajzolódnak újra, amíg egy ügynök dolgozik, így a görgetés gördülékeny marad
 - Az alkalmazások rekordjai a szerzőjükhöz tartoznak; a csapat tulajdonosai másoknak is felvehetnek rekordokat
 - Az ügynökök kis animációkat mutathatnak a kártyáikon
-- A Bejelentkezve maradás a telefonról újra mutatja a linket és a kódot, az elutasított kódot pedig jelzi
-- Adj nevet a Bejelentkezve maradás fióknak, amikor hozzáadod
+- A telefonról indított bejelentkezések újra mutatják a linket és a kódot, az elutasított kódot pedig jelzik
+- A fiók kártyája mutatja, melyik bejelentkezés aktív
 - A bejelentkezés bezárása leállítja azt a gépen

@@ -15,11 +15,11 @@
 - Siden Enheder viser hver enhed som et kort
 - Chats, skærmen til ny chat og Indstillinger ser ud som i de andre apps
 - Zoom ind på billeder: alle billedfremvisere kan zoome og panorere
-- Claude forbliver logget ind som standard: et nyt login holder et år
+- Claude-logins bruger igen browser-login
 - Brede tabeller ruller sidelæns i stedet for at klemme kolonnerne
 - Merge-knappen viser din pull requests CI-tjek
 - En sessions arbejde gemmes løbende, så det fortsætter på enhver enhed
-- Bliv logget ind-logins viser deres 5-timers og ugentlige forbrug
+- Bevar login holder en Claude-kontos kørsler logget ind i et år, uden at du skal skrive noget
 - Tider viser "lige nu" i stedet for "om 0 sekunder"
 - En ventende session på en offline enhed flytter til din anden maskine
 - En start, der aldrig gik i gang, viser "Kunne ikke starte" i stedet for at stå stille
@@ -28,6 +28,6 @@
 - Live-chats tegnes mindre om, mens en agent arbejder, så rulning forbliver jævn
 - App-poster tilhører deres forfatter; teamejere kan oprette poster for andre
 - Agenter kan vise små animationer i deres kort
-- Forbliv logget ind fra din telefon viser igen link og kode, og en afvist kode siger det
-- Giv en Forbliv logget ind-konto et navn, når du tilføjer den
+- Logins startet fra din telefon viser igen link og kode, og en afvist kode siger det
+- En kontos kort viser, hvilket login der er aktivt
 - Lukker du et login, stopper det på maskinen

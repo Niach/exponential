@@ -15,11 +15,11 @@
 - Stránka Zariadenia zobrazuje každé zariadenie ako kartu
 - Chaty, obrazovka nového chatu a Nastavenia vyzerajú rovnako ako v ostatných aplikáciách
 - Približovanie obrázkov: každý prehliadač obrázkov približuje a posúva
-- Claude zostáva predvolene prihlásený: nové prihlásenie vydrží rok
+- Prihlásenia do Claude opäť používajú prihlásenie v prehliadači
 - Široké tabuľky sa posúvajú do strán namiesto stláčania stĺpcov
 - Tlačidlo Merge ukazuje CI kontroly vášho pull requestu
 - Práca relácie sa priebežne ukladá, takže pokračuje na akomkoľvek zariadení
-- Trvalé prihlásenia ukazujú svoje 5-hodinové a týždenné využitie
+- Trvalé prihlásenie udrží behy účtu Claude prihlásené rok, bez písania čohokoľvek
 - Časy ukazujú „práve teraz“ namiesto „o 0 sekúnd“
 - Čakajúca relácia na zariadení offline sa presunie na váš iný počítač
 - Spustenie, ktoré nikdy nezačalo, ukáže „Nepodarilo sa spustiť“ namiesto nečinnosti
@@ -28,6 +28,6 @@
 - Živé chaty sa počas práce agenta prekresľujú menej, takže posúvanie zostáva plynulé
 - Záznamy aplikácií patria svojmu autorovi; vlastníci tímu môžu zadávať záznamy za ostatných
 - Agenti môžu vo svojich kartách zobrazovať malé animácie
-- Zostať prihlásený z telefónu opäť zobrazuje odkaz a kód a odmietnutý kód to oznámi
-- Pomenujte účet Zostať prihlásený pri jeho pridaní
+- Prihlásenia spustené z telefónu opäť zobrazujú odkaz a kód a odmietnutý kód to oznámi
+- Karta účtu ukazuje, ktoré prihlásenie je aktívne
 - Zatvorenie prihlásenia ho na počítači ukončí

@@ -15,11 +15,11 @@
 - Enheter-siden viser hver enhet som et kort
 - Chatter, skjermen for ny chat og Innstillinger ser ut som i de andre appene
 - Zoom inn på bilder: alle bildevisninger kan zoome og panorere
-- Claude forblir pålogget som standard: en ny pålogging varer et år
+- Claude-pålogginger bruker nettleserpålogging igjen
 - Brede tabeller ruller sidelengs i stedet for å klemme kolonnene
 - Merge-knappen viser CI-sjekkene til pull requesten din
 - En økts arbeid lagres underveis, så den fortsetter på hvilken som helst enhet
-- Forbli pålogget-pålogginger viser bruken for 5 timer og uke
+- Behold pålogging holder kjøringene til en Claude-konto pålogget i et år, uten at du skriver noe
 - Tider viser «akkurat nå» i stedet for «om 0 sekunder»
 - En ventende økt på en frakoblet enhet flytter til den andre maskinen din
 - En start som aldri begynte viser «Kunne ikke starte» i stedet for å stå stille
@@ -28,6 +28,6 @@
 - Live-chatter tegnes mindre på nytt mens en agent jobber, så rullingen holder seg jevn
 - App-poster tilhører forfatteren sin; teameiere kan legge inn poster for andre
 - Agenter kan vise små animasjoner i kortene sine
-- Forbli pålogget fra telefonen viser lenke og kode igjen, og en avvist kode sier fra
-- Gi en Forbli pålogget-konto et navn når du legger den til
+- Pålogginger startet fra telefonen viser lenke og kode igjen, og en avvist kode sier fra
+- Kortet til en konto viser hvilken pålogging som er aktiv
 - Lukker du en pålogging, stopper den på maskinen
