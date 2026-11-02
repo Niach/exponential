@@ -4230,8 +4230,8 @@
         "file": "shots/onboarding-create-team/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 22796,
-        "sha256": "9a2d7f4836be0dfd04a37b0f23732fb99dd13fd003ac2d7e9ce93a9d86e9974f"
+        "bytes": 22482,
+        "sha256": "ad32667b8de284d5c0abfbee15409626293a3c4a96201c00f9aafb3bb5960b7b"
       },
       "desktop": {
         "file": "shots/onboarding-create-team/desktop.webp",
@@ -4267,8 +4267,8 @@
         "file": "shots/onboarding-devices/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 44264,
-        "sha256": "6abe25b70952cd9bba7d519743639e795138e6548507a16782cd9da7f59b79f8"
+        "bytes": 42286,
+        "sha256": "7020f92eedaa09d89b5777a981699181da3a22aafafb293b5e3b14ba75e50554"
       },
       "desktop": {
         "file": "shots/onboarding-devices/desktop.webp",
@@ -5723,8 +5723,8 @@
         "file": "shots/thread/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 65418,
-        "sha256": "29065f424fb3405191812481e6d7e477d857e34b1d65fb0f8ac9b381d94c2d5d"
+        "bytes": 68220,
+        "sha256": "6a96b746ccd46effe6acfd2d7b441159403b422348b22c697a4fe479a34a3d68"
       },
       "desktop": {
         "file": "shots/thread/desktop.webp",
