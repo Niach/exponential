@@ -47,8 +47,8 @@ data class AccountModelLimit(val label: String, val used: Double)
 
 /** The three usage fractions a login carries (0-1, never percentages).
  *  [fiveHour] is null when the login reports no `session` window (EXP-1626:
- *  a Keep signed in login reports the weekly one alone), so no empty 5h bar
- *  is drawn for it. */
+ *  a login whose usage comes from its persisted token reports the weekly
+ *  one alone), so no empty 5h bar is drawn for it. */
 data class AccountLimits(
     val fiveHour: Double?,
     val week: Double,
@@ -184,7 +184,7 @@ object AccountOptions {
 
     /** The email a row reads as — the header's fallback ladder. */
     private fun optionEmail(row: AgentProfileUsageRow): String =
-        AgentAccountsRows.accountName(row.email, row.plan, row.name)
+        AgentAccountsRows.accountName(row.email, row.plan)
 
     private fun optionLimits(row: AgentProfileUsageRow): AccountLimits? = limitsOf(row.usage)
 

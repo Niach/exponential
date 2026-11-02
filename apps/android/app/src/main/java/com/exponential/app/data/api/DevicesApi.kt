@@ -347,13 +347,10 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
  * one); [profileId] only names the login the sign-in was FOR, so the device can
  * tell a duplicate apart. Absent = "Add account".
  *
- * EXP-1533: [longLived] (claude) mints a one-year `claude setup-token` login
- * through the same link + code flow. EXP-1600: the DEFAULT claude sign-in,
- * an Add (no [profileId]) included.
- *
- * EXP-1626: [name] names the NEW profile a long-lived ADD makes (a setup
- * token cannot name its account); sent only for a long-lived Add, trimmed,
- * capped at [AGENT_PROFILE_NAME_MAX] (the server's bound).
+ * EXP-1533/EXP-1626: [longLived] (claude) = "Persist login": a one-year
+ * `claude setup-token` attached to the EXISTING profile [profileId] through
+ * the same link + code flow. Add account and Sign in never send it (the
+ * normal browser login).
  */
 fun agentLoginCommand(
     deviceId: String,
@@ -361,24 +358,15 @@ fun agentLoginCommand(
     switchAccount: Boolean,
     profileId: String? = null,
     longLived: Boolean = false,
-    name: String? = null,
 ): JsonObject =
     buildJsonObject {
         put("deviceId", deviceId)
         put("kind", "agent_login")
         put("agent", agent)
         put("switch", switchAccount)
-        val profile = profileId?.trim()?.takeIf { it.isNotEmpty() }
-        profile?.let { put("profileId", it) }
+        profileId?.trim()?.takeIf { it.isNotEmpty() }?.let { put("profileId", it) }
         if (longLived) put("longLived", true)
-        if (longLived && profile == null) {
-            name?.trim()?.take(AGENT_PROFILE_NAME_MAX)?.trim()?.takeIf { it.isNotEmpty() }
-                ?.let { put("name", it) }
-        }
     }
-
-/** EXP-1626: the longest profile name `agent_login` takes (server `AGENT_PROFILE_NAME_MAX`). */
-const val AGENT_PROFILE_NAME_MAX = 64
 
 /**
  * The `agent_login_cancel` input for [DevicesApi.createCommand] (EXP-1626) —

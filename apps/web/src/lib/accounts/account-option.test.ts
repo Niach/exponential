@@ -142,7 +142,7 @@ describe(`flattenAccounts (EXP-872)`, () => {
   })
 
   it(`omits fiveHour for a login that reports no session window`, () => {
-    // EXP-1626: a Keep signed in login reports the weekly window alone.
+    // EXP-1626: a persisted login on its token reports the weekly window alone.
     const options = flattenAccounts({
       agentAccounts: {
         claude: {

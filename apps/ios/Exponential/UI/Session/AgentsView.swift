@@ -527,7 +527,7 @@ struct AgentsView: View {
                 attention: row.attention,
                 readOnly: !device.isMine,
                 onSignIn: { signIn(device, agent: $0.agent, profileId: $0.profileId) },
-                onKeepSignedIn: { keepSignedIn(device, row: $0) },
+                onPersistLogin: { persistLogin(device, row: $0) },
                 onRemove: { removeAccountTarget = AccountRemoveTarget(row: $0) },
                 onSignOut: { signOutAccountTarget = AccountRemoveTarget(row: $0) }
             )
@@ -541,7 +541,7 @@ struct AgentsView: View {
     }
 
     /// The sign-in sheet on ONE login (its icon's account menu's Sign in) —
-    /// a claude sign-in is the long-lived login by default (EXP-1600).
+    /// the agent's normal browser login (EXP-1626).
     private func signIn(_ device: SteerDevice, agent: String, profileId: String?) {
         loginTarget = AgentLoginTarget(
             deviceId: device.deviceId,
@@ -551,18 +551,17 @@ struct AgentsView: View {
         )
     }
 
-    /// EXP-1626: Switch to Keep signed in ADDS a new long-lived profile
-    /// (no profileId, named `copy.switchedName` with this login's label) and
-    /// leaves the browser login untouched; Renew renews this profile in
-    /// place (`AgentAccountsRows.keepSignedInRequest`).
-    private func keepSignedIn(_ device: SteerDevice, row: AgentProfileUsageRow) {
-        let request = AgentAccountsRows.keepSignedInRequest(row)
+    /// EXP-1626 PERSIST LOGIN: "Persist login" / "Renew persisted login"
+    /// (account menu only) — the same sign-in sheet, long-lived on THIS
+    /// existing profile: the machine attaches a one-year token to it and
+    /// never touches the browser login it holds.
+    private func persistLogin(_ device: SteerDevice, row: AgentProfileUsageRow) {
         loginTarget = AgentLoginTarget(
             deviceId: device.deviceId,
             deviceLabel: deviceName(device),
             agent: row.agent,
-            profileId: request.profileId,
-            name: request.name
+            profileId: row.profileId,
+            longLived: true
         )
     }
 

@@ -49,14 +49,16 @@
 //! re-probe on the way out re-reads the profile index, so a new profile
 //! rides the next heartbeat by itself.
 //!
-//! EXP-1533: `longLived: "true"` (claude, with a `profileId`) runs `claude
-//! setup-token` inside that profile's dir instead: the same link and code
-//! hand-off, then the one-year token it prints is scraped off the grid and
-//! stored in the profile ([`agent_login::store_setup_token`]). Nothing is
-//! committed by email, and the command's result never carries the token.
-//! EXP-1600: `longLived` with NO `profileId` is a long-lived Add (claude's
-//! default sign-in): `claude setup-token` in a fresh staging dir, whose
-//! token then makes that dir a NEW profile
+//! EXP-1533/1626: `longLived: "true"` (claude, with a `profileId`) PERSISTS
+//! that profile's login: `claude setup-token` in a fresh STAGING dir (never
+//! inside the profile, so the browser login it holds is never touched), the
+//! same link and code hand-off, then the one-year token it prints is
+//! scraped off the grid and attached to the profile
+//! ([`agent_login::commit_setup_token`]) and the staging dir dropped.
+//! Nothing is committed by email, and the command's result never carries
+//! the token. `longLived` with NO `profileId` (an older client's long-lived
+//! Add, EXP-1600) still works: `claude setup-token` in a fresh staging dir,
+//! whose token then makes that dir a new profile
 //! ([`agent_login::commit_setup_token_add`]); no token = abandoned.
 //!
 //! The retired `import: "true"` (EXP-1532: nothing ever copies the
@@ -69,8 +71,7 @@
 //! plain SIGHUP). A long-lived run answers its code command on the OUTCOME
 //! (`agent_login::PendingCode`), a browser run at the keystroke. An
 //! `agent_login_cancel` ([`cancel`]) stops the run of the `agent_login` it
-//! names unless a code already went in. A long-lived Add carries the name
-//! its new profile gets.
+//! names unless a code already went in.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -215,7 +216,6 @@ pub fn run(
     let agent = request.agent;
     let target = request.target;
     let long_lived = request.long_lived;
-    let name = request.name;
 
     // The redelivery gate. Claimed here, on the serialized worker, so two
     // pulls of the same id can never both pass it.
@@ -246,15 +246,9 @@ pub fn run(
                 (true, Some(profile)) => sign_in_long_lived(
                     &trpc, &settings, &data_dir, profile, &command_id, &codes, &control,
                 ),
-                (true, None) => add_long_lived(
-                    &trpc,
-                    &settings,
-                    &data_dir,
-                    name.as_deref(),
-                    &command_id,
-                    &codes,
-                    &control,
-                ),
+                (true, None) => {
+                    add_long_lived(&trpc, &settings, &data_dir, &command_id, &codes, &control)
+                }
                 _ => sign_in(
                     &trpc,
                     &settings,
@@ -341,10 +335,11 @@ fn sign_in(
     }
 }
 
-/// EXP-1533 — one remote LONG-LIVED sign-in of claude profile `profile`:
-/// `claude setup-token` in the profile's dir, driven like any sign-in, then
-/// the token it printed is stored in the profile. Returns the completion
-/// still owed, `None` when the command already completed with the link.
+/// EXP-1533/1626 — one remote PERSIST of claude profile `profile`'s login:
+/// `claude setup-token` in a fresh staging dir, driven like any sign-in,
+/// then the token it printed is attached to the profile and the staging dir
+/// dropped (either way). Returns the completion still owed, `None` when the
+/// command already completed with the link.
 fn sign_in_long_lived(
     trpc: &Arc<api::trpc::TrpcClient>,
     settings: &Settings,
@@ -354,18 +349,20 @@ fn sign_in_long_lived(
     codes: &CodeInbox,
     control: &RunControl,
 ) -> Option<(bool, String)> {
-    let plan = match agent_login::long_lived_plan(settings, data_dir, profile, true) {
-        Ok(plan) => plan,
+    let agent = CodingAgent::Claude;
+    let (staging, plan) = match agent_login::long_lived_plan(settings, data_dir, profile, true) {
+        Ok(started) => started,
         Err(message) => return Some((false, message)),
     };
-    let run = drive_with_inbox(trpc, &plan, CodingAgent::Claude, command_id, codes, control, true);
+    let run = drive_with_inbox(trpc, &plan, agent, command_id, codes, control, true);
     let Some(scraped) = run.setup_token else {
-        log::info!("agent_login: the long-lived sign-in ended without a token ({profile})");
+        log::info!("agent_login: the persist sign-in ended without a token ({profile})");
+        agent_login::abandon_login(agent, &staging);
         return run.completion;
     };
-    match agent_login::store_setup_token(data_dir, profile, scraped) {
+    match agent_login::commit_setup_token(data_dir, profile, &staging, scraped) {
         Ok(expires_at) => {
-            log::info!("agent_login: claude long-lived login stored ({profile}, until {expires_at})");
+            log::info!("agent_login: claude login persisted ({profile}, until {expires_at})");
             run.completion.map(|_| (true, "Signed in".to_string()))
         }
         Err(message) => {
@@ -379,12 +376,12 @@ fn sign_in_long_lived(
 /// a fresh staging dir, driven like any sign-in; the token it printed makes
 /// that dir a new profile, no token abandons it. Returns the completion
 /// still owed, `None` when the command already completed with the link.
-/// EXP-1626: `name` = the new profile's name.
+/// EXP-1626: an older client's only (current clients add with the browser
+/// login and persist it afterwards).
 fn add_long_lived(
     trpc: &Arc<api::trpc::TrpcClient>,
     settings: &Settings,
     data_dir: &std::path::Path,
-    name: Option<&str>,
     command_id: &str,
     codes: &CodeInbox,
     control: &RunControl,
@@ -400,7 +397,7 @@ fn add_long_lived(
         agent_login::abandon_login(agent, &staging);
         return run.completion;
     };
-    match agent_login::commit_setup_token_add(data_dir, &staging, scraped, name) {
+    match agent_login::commit_setup_token_add(data_dir, &staging, scraped) {
         Ok((profile, expires_at)) => {
             log::info!("agent_login: claude long-lived login added ({profile}, until {expires_at})");
             run.completion.map(|_| (true, "Signed in".to_string()))
@@ -456,7 +453,8 @@ struct DriveOutcome {
 }
 
 /// Run the login `plan` to its end (its env points the CLI's config-dir
-/// variable at the staging dir, or a long-lived run's profile dir).
+/// variable at the run's staging dir — EXP-1626: a persist run's too,
+/// never a profile's).
 /// `scrape_token` = watch the grid for the token `claude setup-token` prints
 /// (a long-lived run: its code is answered on the outcome).
 fn drive(

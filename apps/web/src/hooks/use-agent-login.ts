@@ -10,7 +10,6 @@
 import { useEffect, useRef, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
-import { agentLoginName } from "@/lib/agent-account-add"
 import {
   agentLoginCodeKey,
   agentLoginKey,
@@ -37,13 +36,10 @@ export interface AgentLoginState {
  * only uses this for its duplicate check. */
 export interface AgentLoginProfileTarget {
   profileId?: string
-  /** EXP-1533: a one-year `claude setup-token` login for `profileId` (claude
-   *  only) — the same link + code round trip as a browser sign-in. */
+  /** EXP-1626: Persist login — a one-year `claude setup-token` attached to
+   *  the EXISTING `profileId` (claude only; dropped without one) — the same
+   *  link + code round trip as a browser sign-in. Absent = the browser login. */
   longLived?: boolean
-  /** EXP-1626: the NAME a long-lived ADD (no `profileId`) gives the profile
-   *  it makes — a setup token cannot name its account. Dropped otherwise;
-   *  blank = the device's default. */
-  name?: string
 }
 
 export interface AgentLogin {
@@ -199,8 +195,7 @@ export function useAgentLogin({
       agent,
       switch: switchAccount,
       ...(target.profileId ? { profileId: target.profileId } : {}),
-      ...(target.longLived ? { longLived: true } : {}),
-      ...(agentLoginName(target) ? { name: agentLoginName(target) } : {}),
+      ...(target.longLived && target.profileId ? { longLived: true } : {}),
     })
   }
 

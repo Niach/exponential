@@ -53,8 +53,6 @@ export interface DeviceLogin {
   health: DeviceHealth
   email: string | null
   plan: string | null
-  /** EXP-1626: the name a long-lived Add gave the profile (`loginName`). */
-  name?: string | null
   usage: DeviceUsage | null
   unmonitored: boolean
   checkedAt: string | null
@@ -167,7 +165,6 @@ export function deviceLogins(device: DeviceListRow): DeviceLogin[] {
         health: loginHealth(profile),
         email: str(profile.email),
         plan: str(profile.plan),
-        name: str(profile.name),
         // The active login's numbers may ride only the pre-profile slot.
         usage: parseDeviceUsage(profile.usage) ?? (active ? (usageMap[agent] ?? null) : null),
         unmonitored: profile.unmonitored === true,
@@ -189,12 +186,9 @@ export function deviceWorstHealth(logins: readonly DeviceLogin[]): DeviceHealth 
   return worst
 }
 
-/** EXP-1013: a login's ONE name — EXP-1626: the name a long-lived Add gave
- *  it, else its email, else its plan, else `No email`. */
-export function loginName(login: Pick<DeviceLogin, `email` | `plan` | `name`>): string {
-  return (
-    login.name?.trim() || login.email?.trim() || login.plan?.trim() || NO_EMAIL_LABEL
-  )
+/** EXP-1013: a login's ONE name — its email, else its plan, else `No email`. */
+export function loginName(login: Pick<DeviceLogin, `email` | `plan`>): string {
+  return login.email?.trim() || login.plan?.trim() || NO_EMAIL_LABEL
 }
 
 /** EXP-862: what a login row says about its numbers. */
@@ -345,11 +339,7 @@ export function loginLanding(
     if (existed && baseline[id] === at) continue
     return {
       profileId: id,
-      email: loginName({
-        name: str(profile.name),
-        email: str(profile.email),
-        plan: str(profile.plan),
-      }),
+      email: loginName({ email: str(profile.email), plan: str(profile.plan) }),
       duplicate: existed && (!target.profileId || target.profileId !== id),
     }
   }

@@ -16,6 +16,7 @@
 
 import { contract } from "@exp/domain-contract"
 import { SESSION_CARD_COPY } from "@exp/domain-contract/session-tree"
+import { DEVICES_LIST_COPY } from "@exp/domain-contract/devices-list"
 import { relativeTime } from "@/components/comment-rows/format"
 import type { SessionUsageState } from "@/lib/agent-feed"
 import type {
@@ -623,8 +624,10 @@ export interface AgentProfileUsageRow {
   /** EXP-1533: the long-lived claude login's expiry (ISO), null when the
    *  profile holds none. */
   tokenExpiresAt: string | null
-  /** EXP-1626: the name a long-lived Add gave the profile, null when none. */
-  name?: string | null
+  /** EXP-1626: where a PERSISTED login's usage comes from: `token` = its
+   *  browser login's refresh grant died and the token's weekly window feeds
+   *  it; null = the browser login (or no token at all). */
+  usageSource: `token` | null
 }
 
 type UsageDeviceRow = Pick<
@@ -691,7 +694,7 @@ export function deviceLoginRows(
         unmonitored: profile.unmonitored === true,
         checkedAt: profile.checkedAt ?? account?.checkedAt ?? null,
         tokenExpiresAt: profile.tokenExpiresAt || null,
-        name: profile.name?.trim() || null,
+        usageSource: profile.usageSource === `token` ? `token` : null,
       })
     }
   }
@@ -733,26 +736,16 @@ export const NO_EMAIL_LABEL = `No email`
  * no address (codex's API-key login) is named by its plan; a login nobody
  * ever signed in to is "No email". Profiles carry no other name. */
 export function accountName(
-  login:
-    | { name?: string | null; email?: string | null; plan?: string | null }
-    | null
-    | undefined
+  login: { email?: string | null; plan?: string | null } | null | undefined
 ): string {
-  // EXP-1626: a long-lived Add's NAME wins (a setup token cannot name its
-  // account, so two of them would otherwise read alike).
-  return (
-    login?.name?.trim() ||
-    login?.email?.trim() ||
-    login?.plan?.trim() ||
-    NO_EMAIL_LABEL
-  )
+  return login?.email?.trim() || login?.plan?.trim() || NO_EMAIL_LABEL
 }
 
 /** EXP-909: what a login row is CALLED — its identity, never its status
  * (`accountName`). The brand mark beside it says which agent, the device row
  * above it says which machine, and the health badge says what is wrong. */
 export function loginLabel(
-  row: Pick<AgentProfileUsageRow, `email` | `plan` | `name`>
+  row: Pick<AgentProfileUsageRow, `email` | `plan`>
 ): string {
   return accountName(row)
 }
@@ -832,10 +825,21 @@ export function refreshAllowedAt(
   return next > now.getTime() ? new Date(next) : null
 }
 
-/** EXP-1600: Keep signed in (`claude setup-token`, one year, no refresh grant
- *  to lose) is the DEFAULT claude sign-in on every client and the MCP;
- *  `longLived: false` asks for the refresh-grant browser login (Advanced).
- *  Every other agent has no setup-token. Hand-mirrored ×4. */
+/** EXP-1626: every sign-in is the agent CLI's normal BROWSER login;
+ *  `longLived: true` is Persist login (`claude setup-token` attached to an
+ *  EXISTING profile), claude only. Hand-mirrored ×4. */
 export function loginIsLongLived(agent: string, longLived?: boolean | null): boolean {
-  return agent === `claude` && longLived !== false
+  return agent === `claude` && longLived === true
+}
+
+/** EXP-1626: the preview header's persisted line for a login, or null: a
+ *  profile with a token says which login feeds its usage
+ *  (devices-list.json `persistedToken` / `persistedBrowser`). */
+export function persistedLine(
+  login: Pick<AgentProfileUsageRow, `tokenExpiresAt` | `usageSource`>
+): string | null {
+  if (!login.tokenExpiresAt) return null
+  return login.usageSource === `token`
+    ? DEVICES_LIST_COPY.persistedToken
+    : DEVICES_LIST_COPY.persistedBrowser
 }

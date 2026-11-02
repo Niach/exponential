@@ -680,20 +680,17 @@ pub fn create_agent_login_command(
     )
 }
 
-/// EXP-1533 — `devices.createCommand` for a LONG-LIVED claude login on one
-/// of the caller's own machines: the same `agent_login` (link + code
-/// hand-off), flagged `longLived`, so the machine runs `claude setup-token`
-/// and keeps the one-year token it prints. EXP-1600: `profile_id` = that
-/// profile's login; `None` = a long-lived "Add account" (claude's default
-/// sign-in), which the machine adopts as a new profile.
-///
-/// EXP-1626: `name` = the NEW profile's name, sent on an Add only (a
-/// renewal keeps its profile's); blank is never sent.
+/// EXP-1533/1626 — `devices.createCommand` for "Persist login" (or its
+/// renewal) on claude login `profile_id` of one of the caller's own
+/// machines: the same `agent_login` (link + code hand-off), flagged
+/// `longLived`, so the machine runs `claude setup-token` and attaches the
+/// one-year token it prints to THAT profile. Always names the profile:
+/// every sign-in is the browser login, persisting is an option on an
+/// existing one.
 pub fn create_long_lived_login_command(
     trpc: &TrpcClient,
     device_id: &str,
-    profile_id: Option<&str>,
-    name: Option<&str>,
+    profile_id: &str,
 ) -> Result<CreatedCommand, ApiError> {
     #[derive(Serialize)]
     #[serde(rename_all = "camelCase")]
@@ -701,24 +698,17 @@ pub fn create_long_lived_login_command(
         device_id: &'a str,
         kind: &'a str,
         agent: &'a str,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        profile_id: Option<&'a str>,
+        profile_id: &'a str,
         long_lived: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        name: Option<&'a str>,
     }
-    let profile_id = profile_id.map(str::trim).filter(|id| !id.is_empty());
     trpc.mutation(
         "devices.createCommand",
         &Input {
             device_id,
             kind: "agent_login",
             agent: "claude",
-            profile_id,
+            profile_id: profile_id.trim(),
             long_lived: true,
-            name: name
-                .map(str::trim)
-                .filter(|name| profile_id.is_none() && !name.is_empty()),
         },
     )
 }
@@ -1385,31 +1375,17 @@ mod tests {
         }
     }
 
-    /// EXP-1533/1612: a long-lived login is claude's `agent_login` on a
-    /// profile, or an Add (no profile), flagged `longLived`.
+    /// EXP-1533/1626: Persist login is claude's `agent_login` on a
+    /// profile, flagged `longLived`.
     #[test]
     fn long_lived_login_command_posts_the_profile_and_the_flag() {
         let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-ll"}}}"#);
-        let created = create_long_lived_login_command(&client(&base), "dev-1", Some("0a1b2c3d"), Some("ignored")).unwrap();
+        let created = create_long_lived_login_command(&client(&base), "dev-1", " 0a1b2c3d ").unwrap();
         assert_eq!(created.id, "cmd-ll");
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        // EXP-1626: the profile it persists, and nothing else (no name).
         assert!(request.ends_with(
             r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","profileId":"0a1b2c3d","longLived":true}"#
-        ));
-        // EXP-1600: a long-lived Add names no profile.
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-add"}}}"#);
-        let created = create_long_lived_login_command(&client(&base), "dev-1", None, Some("  ")).unwrap();
-        assert_eq!(created.id, "cmd-add");
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(
-            r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","longLived":true}"#
-        ));
-        // EXP-1626: an Add carries its name.
-        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"id":"cmd-named"}}}"#);
-        create_long_lived_login_command(&client(&base), "dev-1", None, Some(" Work ")).unwrap();
-        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(request.ends_with(
-            r#"{"deviceId":"dev-1","kind":"agent_login","agent":"claude","longLived":true,"name":"Work"}"#
         ));
     }
 

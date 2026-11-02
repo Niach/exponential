@@ -21,7 +21,7 @@
 //!   `five_hour` = the `session` window, `week` = the `weekly` window,
 //!   `model` = the FIRST per-model window. A login with no usage report has
 //!   no limits at all; EXP-1626: one that reports no `session` window (a
-//!   Keep signed in login: weekly only) has no `five_hour`, so no empty 5h
+//!   login whose usage comes from its persisted token: weekly only) has no `five_hour`, so no empty 5h
 //!   bar is drawn for it.
 
 use crate::agent::CodingAgent;

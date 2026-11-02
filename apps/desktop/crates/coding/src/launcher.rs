@@ -5918,6 +5918,86 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(record.account().as_deref(), Some(target.id.as_str()));
     }
 
+    /// EXP-1626 — PERSIST LOGIN: an account switch (a resume onto another
+    /// login, the rotation's path too) onto a PERSISTED profile runs on its
+    /// token (`CLAUDE_CODE_OAUTH_TOKEN`) beside the profile's config dir, and
+    /// the browser login the profile holds is left exactly as it was.
+    #[test]
+    fn an_account_switch_onto_a_persisted_login_runs_on_its_token() {
+        let dir = temp_dir("resume-switch-persisted");
+        let base = canned_server(vec![(200, RESOLVE_NONE.to_string())]);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        seed_transcript(&dir.0, &mut deps, "claude-1");
+        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let target_dir =
+            crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &target.id).unwrap();
+        let browser = r#"{"claudeAiOauth":{"accessToken":"at-browser","refreshToken":"rt-browser","expiresAt":1}}"#;
+        fs::write(target_dir.join(".credentials.json"), browser).unwrap();
+        crate::claude_token::write(
+            &target_dir,
+            &crate::claude_token::SetupToken::minted(
+                "sk-ant-oat01-persisted".into(),
+                chrono::Utc::now(),
+                crate::claude_token::TOKEN_LIFETIME_SECS,
+            ),
+        )
+        .unwrap();
+
+        let mut req = resume_request(resume_record(&dir.0, "sess-old"));
+        req.options.account = Some(target.id.clone());
+        let prepared = ready(launch(req, &deps));
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&(crate::claude_token::TOKEN_ENV.to_string(), "sk-ant-oat01-persisted".to_string())));
+        assert!(prepared
+            .spawn
+            .env
+            .contains(&("CLAUDE_CONFIG_DIR".to_string(), target_dir.to_string_lossy().into_owned())));
+        assert_eq!(fs::read_to_string(target_dir.join(".credentials.json")).unwrap(), browser);
+    }
+
+    /// EXP-1626 — every spawn site goes through [`apply_account_env`] (a
+    /// fresh session, a resume, an account switch, an agent shell): a
+    /// PERSISTED profile (a browser login AND a valid token) always gets the
+    /// token env, a lapsed token none, codex never.
+    #[test]
+    fn a_persisted_profile_runs_on_its_token_whatever_its_browser_login_says() {
+        let dir = temp_dir("persisted-env");
+        let profile = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let home = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Claude, &profile.id).unwrap();
+        // The browser login is long expired (its grant dead): irrelevant.
+        fs::write(home.join(".credentials.json"), r#"{"claudeAiOauth":{"accessToken":"at","expiresAt":1}}"#).unwrap();
+        let base = SpawnSpec::new("claude");
+        let plain = apply_account_env(base.clone(), CodingAgent::Claude, &dir.0, Some(&profile.id));
+        assert!(!plain.env.iter().any(|(key, _)| key == crate::claude_token::TOKEN_ENV));
+        crate::claude_token::write(
+            &home,
+            &crate::claude_token::SetupToken::minted("sk-ant-oat01-p".into(), chrono::Utc::now(), 3_600),
+        )
+        .unwrap();
+        let persisted = apply_account_env(base.clone(), CodingAgent::Claude, &dir.0, Some(&profile.id));
+        assert!(persisted
+            .env
+            .contains(&(crate::claude_token::TOKEN_ENV.to_string(), "sk-ant-oat01-p".to_string())));
+        assert_eq!(
+            long_lived_env(&dir.0, CodingAgent::Claude, Some(&profile.id)),
+            Some((crate::claude_token::TOKEN_ENV.to_string(), "sk-ant-oat01-p".to_string()))
+        );
+        assert_eq!(long_lived_env(&dir.0, CodingAgent::Codex, Some(&profile.id)), None);
+        // A lapsed token is no token: the run falls back on the browser login.
+        crate::claude_token::write(
+            &home,
+            &crate::claude_token::SetupToken::minted(
+                "sk-ant-oat01-old".into(),
+                chrono::Utc::now() - chrono::Duration::days(400),
+                crate::claude_token::TOKEN_LIFETIME_SECS,
+            ),
+        )
+        .unwrap();
+        assert_eq!(long_lived_env(&dir.0, CodingAgent::Claude, Some(&profile.id)), None);
+    }
+
     /// EXP-935: a switch with nothing to say, picked on the usage WALL,
     /// still opens the turn itself (the walled work continues); the same
     /// pick on an idle, unwalled session resumes idle — no turn of its own.

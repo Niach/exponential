@@ -603,13 +603,21 @@ pub fn profile_usage_snapshot(
         .map(|profile| {
             let entry = cache.get(&usage_cache::entry_key(agent.id(), &profile.id));
             let account = entry.and_then(|entry| entry.account.as_ref());
-            let health = entry
-                .and_then(|entry| entry.health.as_deref())
-                .map(crate::agent_accounts::Health::parse)
-                .unwrap_or(crate::agent_accounts::Health::Unknown);
-            let signed_in = account.map(|account| account.signed_in).unwrap_or(
-                health == crate::agent_accounts::Health::Ok,
-            );
+            // EXP-1626: a PERSISTED login (a valid token) is usable whatever
+            // its browser login's cache row says — runs spend the token, so
+            // a dead refresh grant never takes it out of the rotation.
+            let persisted = holds_valid_token(data_dir, agent, &profile.id);
+            let health = match persisted {
+                true => crate::agent_accounts::Health::Ok,
+                false => entry
+                    .and_then(|entry| entry.health.as_deref())
+                    .map(crate::agent_accounts::Health::parse)
+                    .unwrap_or(crate::agent_accounts::Health::Unknown),
+            };
+            let signed_in = persisted
+                || account.map(|account| account.signed_in).unwrap_or(
+                    health == crate::agent_accounts::Health::Ok,
+                );
             let mut windows = UsageWindows::default();
             if let Some(usage) = entry.and_then(|entry| entry.usage.as_ref()) {
                 for window in &usage.windows {
@@ -887,6 +895,12 @@ fn collect_inner(
                 usage_cache::save(data_dir, &cache);
                 let probe = if target.token_usage {
                     token_probe(data_dir, settings, target.dir.as_deref())
+                } else if holds_token && entry.relogin_required {
+                    // EXP-1626: a PERSISTED login whose browser refresh grant
+                    // is known dead: the browser login cannot serve usage any
+                    // more, so the endpoint is not asked at all — the token
+                    // answers (runs already spend it).
+                    AgentProbe { endpoint_declined: true, ..AgentProbe::NONE }
                 } else {
                     probe_agent(
                         agent,
@@ -900,20 +914,31 @@ fn collect_inner(
                     )
                 };
                 let rate_limited_secs = probe.rate_limited_secs;
+                // EXP-1626: the browser login cannot serve this login's usage
+                // — the endpoint declined it (inference-only, 429), refused
+                // it (401/403: the browser login is dead) or was never asked
+                // (its grant is dead, above).
+                let browser_declined = browser_cannot_serve(&probe);
                 // A declined endpoint on a profile that holds a token: the
                 // token probe answers in its place when its cadence is due;
                 // between two of its probes the decline dims nothing (the
                 // token's numbers are the ones shown), only the 429's hold
-                // stands.
-                let probe = match (probe.endpoint_declined && holds_token, token_fallback) {
-                    (true, true) => Some(token_probe(data_dir, settings, target.dir.as_deref())),
-                    (true, false) => None,
-                    (false, _) => Some(probe),
+                // stands. Never `needs_relogin` for it either: runs spend the
+                // token ([`apply_health`]).
+                let (probe, from_token) = match (browser_declined && holds_token, token_fallback) {
+                    (true, true) => (Some(token_probe(data_dir, settings, target.dir.as_deref())), true),
+                    (true, false) => (None, false),
+                    (false, _) => (Some(probe), target.token_usage),
                 };
                 if probe.is_none() {
                     polled = false;
                 }
                 if let Some(probe) = probe {
+                    // EXP-1626: which login the reported numbers came from
+                    // (`usageSource`), moved only by a read that produced some.
+                    if probe.windows.is_some() {
+                        entry.usage_from_token = from_token;
+                    }
                     if let Some(account) = probe.account {
                         // Persist the identity: the not-due beats in between re-use it
                         // instead of dropping back to the doctor's presence-only row.
@@ -958,6 +983,10 @@ fn collect_inner(
             }
             if let Some(row) = profile_row(&mut accounts, &id, &target.profile) {
                 row.usage = Some(snapshot.clone());
+                // EXP-1626: the persisted token's probe answers for it.
+                row.usage_source = entry
+                    .usage_from_token
+                    .then(|| crate::agent_accounts::USAGE_SOURCE_TOKEN.to_string());
             }
         }
     }
@@ -1394,11 +1423,7 @@ fn apply_health(
         // EXP-1533: runs spend a valid long-lived token, which no refresh
         // can rotate away: the browser login's 401 (or dead grant) does not
         // make this login need a re-login.
-        if agent == CodingAgent::Claude.id()
-            && crate::agent_profiles::profile_dir(data_dir, CodingAgent::Claude, profile)
-                .and_then(|dir| crate::claude_token::valid(&dir))
-                .is_some()
-        {
+        if agent == CodingAgent::Claude.id() && holds_valid_token(data_dir, CodingAgent::Claude, profile) {
             return crate::agent_accounts::Health::Ok;
         }
         cache
@@ -1438,6 +1463,16 @@ fn apply_health(
             account.health = Some(active);
         }
     }
+}
+
+/// EXP-1533/1626 — `profile` of `agent` holds a valid PERSISTED token
+/// (claude only): its runs spend it ([`crate::launcher::long_lived_env`]),
+/// so it is usable whatever its browser login says.
+fn holds_valid_token(data_dir: &Path, agent: CodingAgent, profile: &str) -> bool {
+    agent == CodingAgent::Claude
+        && crate::agent_profiles::profile_dir(data_dir, agent, profile)
+            .and_then(|dir| crate::claude_token::valid(&dir))
+            .is_some()
 }
 
 /// One login's row inside the wire map, when the payload carries profiles at
@@ -1990,6 +2025,14 @@ fn token_probe(data_dir: &Path, settings: &Settings, config_dir: Option<&Path>) 
         account: None,
         ..AgentProbe::NONE
     }
+}
+
+/// EXP-1626 — the browser login cannot serve this login's usage: the
+/// endpoint declined it (an inference-only credential, a 429) or refused it
+/// (401/403: the browser login is dead). A profile that holds a persisted
+/// token then reads its windows through the token's probe.
+fn browser_cannot_serve(probe: &AgentProbe) -> bool {
+    probe.endpoint_declined || probe.outcome == PollOutcome::Unauthorized
 }
 
 /// The token probe's own config home (`CLAUDE_CONFIG_DIR`), inside the
@@ -2780,7 +2823,7 @@ mod tests {
         }
     }
 
-    /// EXP-1607 — a token-only login (the Keep signed in default: no browser
+    /// EXP-1607 — a token-only login (a persisted token with no browser
     /// login, so the doctor calls it usage-INeligible) is still a target. Its
     /// first pass reads the windows through ONE CLI probe that carries the
     /// token in its own config home; the next beats inside the half-hour
@@ -2950,6 +2993,133 @@ mod tests {
         assert_eq!(entry.rate_limited_until_secs, None);
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1626 — PERSIST LOGIN: a profile holding a persisted token whose
+    /// BROWSER refresh grant is dead stays usable (health `ok`, signed in:
+    /// runs spend the token), the usage endpoint is not asked, the usage
+    /// reads through the token's probe (weekly only) and the wire row says
+    /// `usageSource: "token"`. Once the browser login serves again the
+    /// source goes back to it.
+    #[cfg(unix)]
+    #[test]
+    fn a_persisted_login_whose_browser_grant_died_reads_usage_through_its_token() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let _lock = live_lock();
+        live::reset();
+        let dir = usage_dir("persisted-dead-grant");
+        let calls = dir.join("calls");
+        let cli = dir.join("fake-claude");
+        let home = crate::agent_profiles::profile_dir(&dir, CodingAgent::Claude, MAIN).unwrap();
+        let browser = r#"{"claudeAiOauth":{"accessToken":"at-browser","refreshToken":"rt-dead","expiresAt":4092066000000,"scopes":["user:inference","user:profile"]}}"#;
+        std::fs::write(home.join(".credentials.json"), browser).unwrap();
+        std::fs::write(
+            &cli,
+            format!(
+                "#!/bin/sh\necho \"$CLAUDE_CODE_OAUTH_TOKEN $CLAUDE_CONFIG_DIR\" >> '{}'\n\
+                 echo '{{\"type\":\"rate_limit_event\",\"rate_limit_info\":{{\"status\":\"allowed\",\"unifiedWindows\":{{\"seven_day\":{{\"utilization\":0.25,\"resetsAt\":4092066000}}}}}}}}'\n",
+                calls.display()
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&cli, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let settings = Settings {
+            claude_path: cli.to_string_lossy().into_owned(),
+            ..Settings::default()
+        };
+        let report = claude_ready_report();
+        let now = crate::run_registry::now_secs() - 2000;
+        crate::claude_token::write(
+            &home,
+            &crate::claude_token::SetupToken::minted(
+                "sk-ant-oat01-persisted".into(),
+                chrono::Utc::now(),
+                crate::claude_token::TOKEN_LIFETIME_SECS,
+            ),
+        )
+        .unwrap();
+        // The keep-alive already saw the grant die (invalid_grant), and
+        // holds the refresh off.
+        let key = usage_cache::entry_key("claude", MAIN);
+        let mut cache = usage_cache::load(&dir);
+        cache.insert(
+            key.clone(),
+            AgentCacheEntry {
+                relogin_required: true,
+                health: Some(crate::agent_accounts::Health::NeedsRelogin.as_str().into()),
+                refresh_backoff_until_secs: Some(now + 86_400),
+                ..AgentCacheEntry::default()
+            },
+        );
+        usage_cache::save(&dir, &cache);
+
+        let payload = collect_if_due(&dir, &settings, &report, now);
+        let usage = payload.usage.get("claude").expect("the token probe's windows");
+        assert_eq!(
+            usage.windows.iter().map(|window| (window.key.as_str(), window.percent)).collect::<Vec<_>>(),
+            vec![("weekly", 25)]
+        );
+        let logged = std::fs::read_to_string(&calls).unwrap();
+        assert_eq!(
+            logged.trim(),
+            format!("sk-ant-oat01-persisted {}", dir.join(TOKEN_PROBE_DIR).display()),
+            "the probe spends the token in its own home, never the profile's"
+        );
+        let row = payload.accounts["claude"]
+            .profiles
+            .iter()
+            .find(|row| row.id == MAIN)
+            .cloned()
+            .expect("the profile row");
+        assert_eq!(row.usage_source.as_deref(), Some(crate::agent_accounts::USAGE_SOURCE_TOKEN));
+        assert!(row.signed_in);
+        assert_eq!(row.health(), crate::agent_accounts::Health::Ok, "usable for runs");
+        assert!(row.token_expires_at.is_some());
+        // The browser login is never touched by any of it.
+        assert_eq!(std::fs::read_to_string(home.join(".credentials.json")).unwrap(), browser);
+        let wire = serde_json::to_value(&row).unwrap();
+        assert_eq!(wire["usageSource"], "token");
+        // The rotation's snapshot (start picks, the wall's move) agrees: the
+        // cache still says `needs_relogin` for the browser login, the login
+        // is usable all the same.
+        let snapshot = profile_usage_snapshot(CodingAgent::Claude, &dir);
+        let usable = snapshot.iter().find(|row| row.profile_id == MAIN).unwrap();
+        assert!(usable.signed_in);
+        assert_eq!(usable.health, crate::agent_accounts::Health::Ok);
+        assert_eq!(
+            usage_cache::load(&dir).get(&key).unwrap().health.as_deref(),
+            Some(crate::agent_accounts::Health::NeedsRelogin.as_str()),
+            "the browser login's own verdict is kept, not rewritten"
+        );
+
+        // Once a browser read produced the numbers (the flag cleared, as the
+        // poll arm does), the row carries no source at all.
+        let mut cache = usage_cache::load(&dir);
+        let mut entry = cache.get(&key).cloned().unwrap();
+        assert!(entry.usage_from_token);
+        entry.usage_from_token = false;
+        cache.insert(key.clone(), entry);
+        usage_cache::save(&dir, &cache);
+        let payload = collect_if_due(&dir, &settings, &report, now + 60);
+        let row = payload.accounts["claude"].profiles.iter().find(|row| row.id == MAIN).cloned().unwrap();
+        assert_eq!(row.usage_source, None);
+        assert!(serde_json::to_value(&row).unwrap().get("usageSource").is_none());
+        live::reset();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// EXP-1626 — what counts as the browser login NOT serving the usage:
+    /// a declined endpoint and a 401/403; a failed or rate-limit-free read
+    /// is not (a flaky network is not a dead login).
+    #[test]
+    fn a_dead_or_declining_browser_login_cannot_serve_usage() {
+        let probe = |outcome, endpoint_declined| AgentProbe { outcome, endpoint_declined, ..AgentProbe::NONE };
+        assert!(browser_cannot_serve(&probe(PollOutcome::Unauthorized, false)));
+        assert!(browser_cannot_serve(&probe(PollOutcome::Failed, true)));
+        assert!(browser_cannot_serve(&probe(PollOutcome::RateLimited, true)));
+        assert!(!browser_cannot_serve(&probe(PollOutcome::Failed, false)));
+        assert!(!browser_cannot_serve(&probe(PollOutcome::Changed, false)));
     }
 
     /// EXP-1626 — a 429's `retry-after` is honoured (delta-seconds or an

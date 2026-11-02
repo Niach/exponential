@@ -204,20 +204,17 @@ private struct CreateCommandInput: Encodable {
     /// duplicate apart.
     let profileId: String?
     /// EXP-1533 `agent_login`: mint a one-year `claude setup-token` login for
-    /// `profileId` instead of a browser login (claude only; EXP-1600: the
-    /// default, an Add without a profile included). Nil is omitted.
+    /// `profileId` instead of a browser login (claude only; EXP-1626: only
+    /// "Persist login" / "Renew persisted login" on an existing profile —
+    /// every other sign-in is the browser login). Nil is omitted.
     let longLived: Bool?
-    /// EXP-1626 `agent_login`: the NAME a long-lived ADD's new profile gets
-    /// (a setup token cannot name its account); the server keeps it only
-    /// for `longLived` with no `profileId`. Nil is omitted.
-    let name: String?
     /// EXP-1626 `agent_login_cancel` (+ `agent`): the `agent_login` row the
     /// requester walked away from — the machine stops that run. Nil is
     /// omitted.
     let loginCommandId: String?
 
     enum CodingKeys: String, CodingKey {
-        case deviceId, kind, agent, code, profileId, longLived, name, loginCommandId
+        case deviceId, kind, agent, code, profileId, longLived, loginCommandId
         case switchAccount = "switch"
     }
 }
@@ -382,8 +379,7 @@ public final class DevicesApi: Sendable {
     /// that link, typed into the sign-in still waiting on the machine.
     /// EXP-1533: `agent_login` + `longLived` (claude + `profileId`) = the
     /// same sign-in flow minting a one-year login on that profile.
-    /// EXP-1626: `agent_login` + `name` names a long-lived Add's new
-    /// profile; `agent_login_cancel` + `agent` + `loginCommandId` stops a
+    /// EXP-1626: `agent_login_cancel` + `agent` + `loginCommandId` stops a
     /// sign-in whose sheet closed before it landed.
     public func createCommand(
         accountId: String,
@@ -394,7 +390,6 @@ public final class DevicesApi: Sendable {
         code: String? = nil,
         profileId: String? = nil,
         longLived: Bool? = nil,
-        name: String? = nil,
         loginCommandId: String? = nil
     ) async throws -> CreatedDeviceCommand {
         try await trpc.mutation(
@@ -403,7 +398,7 @@ public final class DevicesApi: Sendable {
             input: CreateCommandInput(
                 deviceId: deviceId, kind: kind, agent: agent, switchAccount: switchAccount,
                 code: code, profileId: profileId, longLived: longLived == true ? true : nil,
-                name: name, loginCommandId: loginCommandId
+                loginCommandId: loginCommandId
             )
         )
     }

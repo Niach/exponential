@@ -10,10 +10,11 @@ import SwiftUI
 /// `maxAccountIcons - 1` show, then a ghost `⋯` (More accounts) reveals the
 /// rest in place.
 ///
-/// Touch: tapping an icon opens THE account menu (Sign in / Switch to or
-/// Renew Keep signed in (claude, EXP-1600) / Sign out / Remove account — the existing chip rules,
-/// EXP-862/EXP-1137) headed by the login: the email (else the label), the plan
-/// muted, the attention item's status line in warning tone, then the usage
+/// Touch: tapping an icon opens THE account menu (Sign in / Persist login or
+/// Renew persisted login (claude, EXP-1626) / Sign out / Remove account — the
+/// existing chip rules, EXP-862/EXP-1137) headed by the login: the email (else
+/// the label), the plan muted, the persisted line muted (a login with a
+/// token), the attention item's status line in warning tone, then the usage
 /// windows. A team device's icon opens the header alone (a preview, never an
 /// action). Own, online cards with an agent to add end with a ghost `+` (Add
 /// account). A machine that reported accounts but holds no login says
@@ -31,11 +32,10 @@ struct DeviceLogins: View {
     /// Sign this login in — the host opens `AgentLoginSheet` on it (the
     /// PROFILE rides along, so a re-login repairs the login that was tapped).
     let onSignIn: (AgentProfileUsageRow) -> Void
-    /// EXP-1600: "Switch to Keep signed in" / "Renew Keep signed in" on a
-    /// claude login (and a `keep_signed_in` item's action) — the host opens
-    /// the same `AgentLoginSheet`, long-lived: EXP-1626 a Switch ADDS a new
-    /// named profile, a Renew renews this one.
-    let onKeepSignedIn: (AgentProfileUsageRow) -> Void
+    /// EXP-1626: "Persist login" / "Renew persisted login" on an existing
+    /// signed-in claude login — the host opens the same `AgentLoginSheet`,
+    /// long-lived on THIS profile.
+    let onPersistLogin: (AgentProfileUsageRow) -> Void
     /// EXP-862: ask to remove this login from the machine (the host confirms).
     let onRemove: (AgentProfileUsageRow) -> Void
     /// EXP-1137: ask to sign this login out on the machine (the host confirms).
@@ -156,8 +156,9 @@ struct DeviceLogins: View {
     }
 
     /// The account preview's header ×4: the email (else the label), the plan
-    /// muted, the attention item's status line in warning tone, then the
-    /// usage windows with their resets.
+    /// muted, the persisted line muted (EXP-1626: which login is active, for
+    /// a login with a token), the attention item's status line in warning
+    /// tone, then the usage windows with their resets.
     @ViewBuilder
     private func menuHeader(_ row: AgentProfileUsageRow, item: DevicesList.AttentionItem?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -172,6 +173,13 @@ struct DeviceLogins: View {
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                         .lineLimit(1)
+                }
+                if let persisted = AgentAccountsRows.persistedLine(row) {
+                    Text(persisted)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("device-login-persisted")
                 }
                 if let status = item?.status {
                     Text(DevicesList.Copy.status(status))
@@ -204,16 +212,16 @@ struct DeviceLogins: View {
     private func menuItems(_ row: AgentProfileUsageRow) -> some View {
         // ONE rule, byte-identical with web's `accountChipActions`, the
         // desktop rows and Android, in this fixed order: Sign in, the
-        // long-lived login (EXP-1533, claude only), Sign out (EXP-1137),
+        // persist option (EXP-1626, claude only), Sign out (EXP-1137),
         // Remove account.
         if AgentAccountsRows.chipSignsIn(row) {
             GlassMenuItem("Sign in", icon: AppIcons.uiSignIn) {
                 onSignIn(row)
             }
         }
-        if let longLived = AgentAccountsRows.chipLongLivedLabel(row) {
-            GlassMenuItem(longLived, icon: AppIcons.uiClock) {
-                onKeepSignedIn(row)
+        if let persist = AgentAccountsRows.chipLongLivedLabel(row) {
+            GlassMenuItem(persist, icon: AppIcons.uiClock) {
+                onPersistLogin(row)
             }
         }
         if AgentAccountsRows.chipSignsOut(row) {

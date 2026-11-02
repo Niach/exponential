@@ -32,31 +32,23 @@ object DevicesList {
         const val SETTINGS = "Device settings"
         const val REMOVE_FROM_TEAM = "Remove from this team"
         const val MORE_ACCOUNTS = "More accounts"
-        /** EXP-1600: Keep signed in (the long-lived claude login) is the default. */
-        const val RENEW_SOON = "{label} · Keep signed in ends soon"
-        const val SWITCH_PROMPT = "{label} · Switch to Keep signed in"
-        const val SWITCH_TO_KEEP_SIGNED_IN = "Switch to Keep signed in"
-        const val RENEW_KEEP_SIGNED_IN = "Renew Keep signed in"
-        const val KEEP_SIGNED_IN_NOTE =
-            "Keep signed in: lasts 1 year, shows weekly usage only. We remind you to renew."
-        const val BROWSER_LOGIN_NOTE =
-            "Browser login: shows every usage window, but can sign out when its refresh rotates."
-        const val USE_BROWSER_LOGIN = "Use browser login (Advanced)"
-        const val USE_KEEP_SIGNED_IN = "Use Keep signed in"
         const val LONG_LIVED_REFUSED = "A long-lived login needs a Claude account on this machine."
-        /** EXP-1626: the Add account sheet's name field (claude only) and its blank default. */
-        const val ACCOUNT_NAME = "Name"
-        const val KEPT_SIGNED_IN_NAME = "Claude (kept signed in)"
-        /** EXP-1626: the name a "Switch to Keep signed in" gives the NEW profile. */
-        const val SWITCHED_NAME = "{label} (kept signed in)"
+        /** EXP-1626: the account menu's option on an existing signed-in claude login
+         *  (and its renewal: the account menu only, no renewal reminder). */
+        const val PERSIST_LOGIN = "Persist login"
+        const val RENEW_PERSISTED_LOGIN = "Renew persisted login"
+        /** EXP-1626: the persist sign-in dialog's one muted line. */
+        const val PERSIST_NOTE =
+            "Persist login keeps this account's runs signed in for 1 year, even if its browser login expires."
+        /** EXP-1626: the preview header's line under the plan for a persisted login. */
+        const val PERSISTED_BROWSER = "Persisted · usage from the browser login"
+        const val PERSISTED_TOKEN = "Persisted · browser login expired, weekly usage only"
 
         /** `copy.status`: the account preview's warning-tone status line. */
         val STATUS: Map<Status, String> = mapOf(
             Status.NeedsRelogin to "Needs re-login",
             Status.SignedOut to "Signed out",
             Status.Limit to "Limit reached",
-            Status.Renew to "Keep signed in ends soon",
-            Status.Switch to "Not kept signed in",
         )
 
         /** Fixture key → constant, for the replay test. */
@@ -78,18 +70,12 @@ object DevicesList {
             "settings" to SETTINGS,
             "removeFromTeam" to REMOVE_FROM_TEAM,
             "moreAccounts" to MORE_ACCOUNTS,
-            "renewSoon" to RENEW_SOON,
-            "switchPrompt" to SWITCH_PROMPT,
-            "switchToKeepSignedIn" to SWITCH_TO_KEEP_SIGNED_IN,
-            "renewKeepSignedIn" to RENEW_KEEP_SIGNED_IN,
-            "keepSignedInNote" to KEEP_SIGNED_IN_NOTE,
-            "browserLoginNote" to BROWSER_LOGIN_NOTE,
-            "useBrowserLogin" to USE_BROWSER_LOGIN,
-            "useKeepSignedIn" to USE_KEEP_SIGNED_IN,
             "longLivedRefused" to LONG_LIVED_REFUSED,
-            "accountName" to ACCOUNT_NAME,
-            "keptSignedInName" to KEPT_SIGNED_IN_NAME,
-            "switchedName" to SWITCHED_NAME,
+            "persistLogin" to PERSIST_LOGIN,
+            "renewPersistedLogin" to RENEW_PERSISTED_LOGIN,
+            "persistNote" to PERSIST_NOTE,
+            "persistedBrowser" to PERSISTED_BROWSER,
+            "persistedToken" to PERSISTED_TOKEN,
         )
     }
 
@@ -97,43 +83,17 @@ object DevicesList {
 
     enum class Kind(val wire: String) { Login("login"), Update("update"), UpdateQueued("update_queued") }
 
-    enum class Action(val wire: String) { SignIn("sign_in"), KeepSignedIn("keep_signed_in"), Update("update") }
+    enum class Action(val wire: String) { SignIn("sign_in"), Update("update") }
 
     /** EXP-1560: a login item's preview status (`copy.status` key). */
     enum class Status(val wire: String) {
         NeedsRelogin("needs_relogin"),
         SignedOut("signed_out"),
         Limit("limit"),
-        /** EXP-1600: the long-lived login ends within [KeepSignedIn.RENEW_WITHIN_DAYS]. */
-        Renew("renew"),
-        /** EXP-1600: a claude login made before Keep signed in became the default. */
-        Switch("switch"),
     }
 
-    /** EXP-1600: the Keep signed in reminder window (`fixture.keepSignedIn`). */
-    object KeepSignedIn {
-        const val RENEW_WITHIN_DAYS = 30
-    }
-
-    /** EXP-1626: the name a Switch to Keep signed in gives its new profile ([Copy.SWITCHED_NAME]). */
-    fun switchedName(label: String): String = Copy.SWITCHED_NAME.replace("{label}", label)
-
-    /** The agent whose logins are kept signed in (`claude setup-token`). */
+    /** The agent whose logins can be persisted (`claude setup-token`). */
     const val KEEP_SIGNED_IN_AGENT = "claude"
-
-    private const val DAY_MS = 24L * 60 * 60 * 1000
-
-    private fun isoMs(iso: String): Long? =
-        runCatching { java.time.Instant.parse(iso).toEpochMilli() }.getOrNull()
-
-    /** EXP-1600: a long-lived claude login due for renewal at [now] (ISO): its
-     *  token ends within [KeepSignedIn.RENEW_WITHIN_DAYS] days, or already ended.
-     *  An unparseable stamp counts as due. */
-    fun keepSignedInDue(tokenExpiresAt: String, now: String): Boolean {
-        val expires = isoMs(tokenExpiresAt) ?: return true
-        val at = isoMs(now) ?: return true
-        return expires - at <= KeepSignedIn.RENEW_WITHIN_DAYS * DAY_MS
-    }
 
     /** EXP-1560: the card grid's geometry (`fixture.card`), ×4. */
     object Card {
@@ -250,35 +210,7 @@ object DevicesList {
                 status = Status.Limit,
             )
         }
-        // EXP-1600: the yearly renewal reminder, then the switch prompt for a
-        // claude login made before Keep signed in became the default.
-        if (input.mine) {
-            fun quiet(login: DeviceListLogin) =
-                login.agent != KEEP_SIGNED_IN_AGENT || dead(login) || login.limitHit
-            for ((status, template) in listOf(
-                Status.Renew to Copy.RENEW_SOON,
-                Status.Switch to Copy.SWITCH_PROMPT,
-            )) {
-                for (login in input.logins) {
-                    if (quiet(login)) continue
-                    val token = login.tokenExpiresAt?.takeIf { it.isNotEmpty() }
-                    val due = if (status == Status.Renew) {
-                        token != null && keepSignedInDue(token, input.now)
-                    } else {
-                        token == null
-                    }
-                    if (!due) continue
-                    attention += AttentionItem(
-                        kind = Kind.Login,
-                        text = template.replace("{label}", login.label),
-                        action = if (canSignIn) Action.KeepSignedIn else null,
-                        agent = login.agent,
-                        profileId = login.profileId,
-                        status = status,
-                    )
-                }
-            }
-        }
+        // EXP-1626: a persisted login is never an item (no renewal reminder).
         if (input.mine) {
             if (input.updateQueued) {
                 attention += AttentionItem(Kind.UpdateQueued, Copy.UPDATE_QUEUED, null)
@@ -301,8 +233,6 @@ object DevicesList {
     fun actionLabel(item: AttentionItem): String? = when (item.action) {
         null -> null
         Action.SignIn -> Copy.SIGN_IN
-        Action.KeepSignedIn ->
-            if (item.status == Status.Renew) Copy.RENEW_KEEP_SIGNED_IN else Copy.SWITCH_TO_KEEP_SIGNED_IN
         Action.Update -> Copy.UPDATE
     }
 

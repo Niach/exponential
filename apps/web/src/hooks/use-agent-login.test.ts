@@ -2,8 +2,9 @@ import { act, renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { useAgentLogin } from "@/hooks/use-agent-login"
 
-// EXP-1626: the sign-in loop names a long-lived Add's profile, exposes the
-// `agent_login` id it tracks, and cancels it fire-and-forget.
+// EXP-1626: the sign-in loop queues the browser login by default, Persist
+// login only on an existing profile, exposes the `agent_login` id it tracks,
+// and cancels it fire-and-forget.
 
 const mocks = vi.hoisted(() => ({
   createCommand: vi.fn(),
@@ -34,36 +35,39 @@ function hook(deviceId: string | undefined = `dev`) {
 }
 
 describe(`useAgentLogin (EXP-1626)`, () => {
-  it(`sends a long-lived add's name and tracks the login command id`, async () => {
+  it(`queues the browser login by default and tracks the login command id`, async () => {
     const { result } = hook()
     expect(result.current.loginCommandIdFor(`claude`)).toBeNull()
-    act(() => result.current.queueLogin(`claude`, false, { longLived: true, name: ` Work ` }))
+    act(() => result.current.queueLogin(`claude`, false))
     await waitFor(() => expect(result.current.loginCommandIdFor(`claude`)).toBe(`login-1`))
     expect(mocks.createCommand.mock.calls[0][0]).toEqual({
       deviceId: `dev`,
       kind: `agent_login`,
       agent: `claude`,
       switch: false,
-      longLived: true,
-      name: `Work`,
     })
   })
 
-  it(`never names a re-login or the browser login`, async () => {
+  it(`persists only an existing profile, never an add`, async () => {
     const { result } = hook()
-    act(() =>
-      result.current.queueLogin(`claude`, false, { profileId: `p1`, longLived: true, name: `Work` })
-    )
-    act(() => result.current.queueLogin(`claude`, false, { longLived: false, name: `Work` }))
+    act(() => result.current.queueLogin(`claude`, false, { profileId: `p1`, longLived: true }))
+    await waitFor(() => expect(mocks.createCommand).toHaveBeenCalledTimes(1))
+    expect(mocks.createCommand.mock.calls[0][0]).toEqual({
+      deviceId: `dev`,
+      kind: `agent_login`,
+      agent: `claude`,
+      switch: false,
+      profileId: `p1`,
+      longLived: true,
+    })
+    act(() => result.current.queueLogin(`claude`, false, { longLived: true }))
     await waitFor(() => expect(mocks.createCommand).toHaveBeenCalledTimes(2))
-    for (const [input] of mocks.createCommand.mock.calls) {
-      expect(input).not.toHaveProperty(`name`)
-    }
+    expect(mocks.createCommand.mock.calls[1][0]).not.toHaveProperty(`longLived`)
   })
 
   it(`cancels on the device the login was queued on, swallowing errors`, async () => {
     const { result, rerender } = hook()
-    act(() => result.current.queueLogin(`claude`, false, { longLived: true }))
+    act(() => result.current.queueLogin(`claude`, false, { profileId: `p1`, longLived: true }))
     await waitFor(() => expect(result.current.loginCommandIdFor(`claude`)).toBe(`login-1`))
     // The dialog's target is gone by the time it closes.
     rerender({ id: undefined })

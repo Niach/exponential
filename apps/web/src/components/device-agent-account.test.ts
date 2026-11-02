@@ -4,9 +4,9 @@
 // the same three strings on every client.
 import { describe, expect, it } from "vitest"
 import {
-  ACTION_KEEP_SIGNED_IN,
+  ACTION_PERSIST_LOGIN,
   ACTION_REMOVE,
-  ACTION_RENEW_LONG_LIVED,
+  ACTION_RENEW_PERSISTED_LOGIN,
   ACTION_SIGN_IN,
   ACTION_SIGN_OUT,
   accountChipActionable,
@@ -18,10 +18,7 @@ import {
   agentLoginLanding,
   agentOfLoginCodeKey,
   alreadyAddedCopy,
-  keepSignedInTarget,
-  loginName,
-  reportedLoginName,
-  switchedName,
+  persistLoginTarget,
   type AccountChipRow,
 } from "@/components/device-agent-account"
 import type { SteerDevice } from "@/lib/steer-devices"
@@ -54,7 +51,7 @@ function device(patch: Partial<SteerDevice> = {}): SteerDevice {
 }
 
 describe(`accountChipActions`, () => {
-  // The order is fixed ×4: sign in, keep signed in (claude), sign out,
+  // The order is fixed ×4: sign in, persist login (claude), sign out,
   // remove.
   it(`offers the repairs that state allows`, () => {
     const codex = (patch: Partial<AccountChipRow> = {}) =>
@@ -83,10 +80,10 @@ describe(`accountChipActions`, () => {
     ])
   })
 
-  // EXP-1600: a claude "Sign in" IS Keep signed in, so a row that signs in
-  // has no second entry; a signed-in row offers the switch, or the renewal
-  // while it holds a token.
-  it(`offers claude's switch or renewal only when it does not sign in`, () => {
+  // EXP-1626: Persist login is an option on an EXISTING signed-in claude
+  // login: a row that signs in has none; a signed-in row offers Persist
+  // login, or the renewal while it holds a token.
+  it(`offers claude's persist or renewal only when it does not sign in`, () => {
     expect(
       accountChipActions(chip({ signedIn: false, health: `signed_out` }))
     ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
@@ -96,13 +93,13 @@ describe(`accountChipActions`, () => {
       ACTION_REMOVE,
     ])
     expect(accountChipActions(chip())).toEqual([
-      ACTION_KEEP_SIGNED_IN,
+      ACTION_PERSIST_LOGIN,
       ACTION_SIGN_OUT,
       ACTION_REMOVE,
     ])
     expect(
       accountChipActions(chip({ tokenExpiresAt: `2027-11-01T00:00:00.000Z` }))
-    ).toEqual([ACTION_RENEW_LONG_LIVED, ACTION_SIGN_OUT, ACTION_REMOVE])
+    ).toEqual([ACTION_RENEW_PERSISTED_LOGIN, ACTION_SIGN_OUT, ACTION_REMOVE])
     // Never on codex, token or not.
     expect(
       accountChipActions(
@@ -111,9 +108,9 @@ describe(`accountChipActions`, () => {
     ).toEqual([ACTION_SIGN_OUT, ACTION_REMOVE])
   })
 
-  it(`labels the long-lived entries byte-identically ×4`, () => {
-    expect(ACTION_KEEP_SIGNED_IN).toBe(`Switch to Keep signed in`)
-    expect(ACTION_RENEW_LONG_LIVED).toBe(`Renew Keep signed in`)
+  it(`labels the persist entries byte-identically ×4`, () => {
+    expect(ACTION_PERSIST_LOGIN).toBe(`Persist login`)
+    expect(ACTION_RENEW_PERSISTED_LOGIN).toBe(`Renew persisted login`)
   })
 })
 
@@ -138,47 +135,16 @@ describe(`accountChipLabel`, () => {
   })
 })
 
-// EXP-1626: a login's label = its name, else its email, else the fallback.
-describe(`loginName`, () => {
-  it(`prefers the name a long-lived Add gave the profile`, () => {
-    expect(loginName({ name: `Work`, email: `dev@acme.test`, plan: `max` })).toBe(`Work`)
-    expect(loginName({ name: `  `, email: `dev@acme.test` })).toBe(`dev@acme.test`)
-    expect(loginName({ name: null, email: null, plan: `pro` })).toBe(`pro`)
-    expect(loginName({})).toBe(`No email`)
-    expect(accountChipLabel(chip({ name: `Work`, email: `dev@acme.test` }))).toBe(`Work`)
-  })
-
-  it(`reads the name the machine reports for one profile`, () => {
-    const accounts = {
-      claude: {
-        profiles: [
-          { id: `a`, name: ` Work ` },
-          { id: `b` },
-        ],
-      },
-    } as never
-    expect(reportedLoginName(accounts, `claude`, `a`)).toBe(`Work`)
-    expect(reportedLoginName(accounts, `claude`, `b`)).toBeNull()
-    expect(reportedLoginName(accounts, `codex`, `a`)).toBeNull()
-    expect(reportedLoginName(undefined, `claude`, `a`)).toBeNull()
-  })
-})
-
-// EXP-1626: Switch ADDS a named long-lived profile; Renew stays in place.
-describe(`keepSignedInTarget`, () => {
-  it(`adds a new named profile for a switch`, () => {
-    expect(switchedName(`dev@acme.test`)).toBe(`dev@acme.test (kept signed in)`)
-    expect(keepSignedInTarget(chip({ profileId: `work` }), `dev@acme.test`)).toEqual({
+// EXP-1626: Persist login and its renewal both sign THAT profile in place.
+describe(`persistLoginTarget`, () => {
+  it(`targets the login's own profile, long-lived`, () => {
+    expect(persistLoginTarget(chip({ profileId: `work` }))).toEqual({
+      profileId: `work`,
       longLived: true,
-      name: `dev@acme.test (kept signed in)`,
     })
-  })
-
-  it(`renews the token profile in place`, () => {
     expect(
-      keepSignedInTarget(
-        chip({ profileId: `work`, tokenExpiresAt: `2027-10-01T00:00:00.000Z` }),
-        `Work`
+      persistLoginTarget(
+        chip({ profileId: `work`, tokenExpiresAt: `2027-10-01T00:00:00.000Z` })
       )
     ).toEqual({ profileId: `work`, longLived: true })
   })

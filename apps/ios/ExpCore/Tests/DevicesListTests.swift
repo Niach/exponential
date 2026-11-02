@@ -24,8 +24,6 @@ final class DevicesListTests: XCTestCase {
             "needs_relogin": DevicesList.Copy.status(.needsRelogin),
             "signed_out": DevicesList.Copy.status(.signedOut),
             "limit": DevicesList.Copy.status(.limit),
-            "renew": DevicesList.Copy.status(.renew),
-            "switch": DevicesList.Copy.status(.switchPrompt),
         ])
         let declared: [String: String] = [
             "mine": DevicesList.Copy.mine,
@@ -45,18 +43,12 @@ final class DevicesListTests: XCTestCase {
             "settings": DevicesList.Copy.settings,
             "removeFromTeam": DevicesList.Copy.removeFromTeam,
             "moreAccounts": DevicesList.Copy.moreAccounts,
-            "renewSoon": DevicesList.Copy.renewSoon,
-            "switchPrompt": DevicesList.Copy.switchPrompt,
-            "switchToKeepSignedIn": DevicesList.Copy.switchToKeepSignedIn,
-            "renewKeepSignedIn": DevicesList.Copy.renewKeepSignedIn,
-            "keepSignedInNote": DevicesList.Copy.keepSignedInNote,
-            "browserLoginNote": DevicesList.Copy.browserLoginNote,
-            "useBrowserLogin": DevicesList.Copy.useBrowserLogin,
-            "useKeepSignedIn": DevicesList.Copy.useKeepSignedIn,
             "longLivedRefused": DevicesList.Copy.longLivedRefused,
-            "accountName": DevicesList.Copy.accountName,
-            "keptSignedInName": DevicesList.Copy.keptSignedInName,
-            "switchedName": DevicesList.Copy.switchedName,
+            "persistLogin": DevicesList.Copy.persistLogin,
+            "renewPersistedLogin": DevicesList.Copy.renewPersistedLogin,
+            "persistNote": DevicesList.Copy.persistNote,
+            "persistedBrowser": DevicesList.Copy.persistedBrowser,
+            "persistedToken": DevicesList.Copy.persistedToken,
         ]
         XCTAssertEqual(declared, try XCTUnwrap(copy as? [String: String]))
     }
@@ -76,14 +68,9 @@ final class DevicesListTests: XCTestCase {
         XCTAssertEqual(DevicesList.columns(width: 0), 1)
     }
 
-    /// EXP-1600: the renewal window matches the fixture.
-    func testKeepSignedInMatchesTheFixture() throws {
-        let keep = try XCTUnwrap(try fixture()["keepSignedIn"] as? [String: Any])
-        XCTAssertEqual(keep["renewWithinDays"] as? Int, DevicesList.KeepSignedIn.renewWithinDays)
-        let now = try XCTUnwrap(DevicesList.parseIso("2026-11-01T12:00:00.000Z"))
-        XCTAssertTrue(DevicesList.keepSignedInDue("2026-12-01T12:00:00.000Z", now: now))
-        XCTAssertFalse(DevicesList.keepSignedInDue("2026-12-01T12:00:01Z", now: now))
-        XCTAssertTrue(DevicesList.keepSignedInDue("garbled", now: now))
+    /// EXP-1626: no renewal reminder, so no reminder window.
+    func testNoRenewalReminderWindow() throws {
+        XCTAssertNil(try fixture()["keepSignedIn"])
     }
 
     /// EXP-1560: `accountIcons` — five fit, a sixth folds behind `⋯`.

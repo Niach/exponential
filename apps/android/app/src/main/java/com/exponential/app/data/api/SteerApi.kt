@@ -177,16 +177,17 @@ data class AgentAccountProfile(
     @SerialName("usage") val usage: AgentUsage? = null,
     @SerialName("lastLoginAt") val lastLoginAt: String? = null,
     /**
-     * EXP-1533: set (ISO) while the profile holds a long-lived claude login
-     * (`claude setup-token`, one year): the menu offers "Renew Keep
-     * signed in" instead of "Switch to Keep signed in" (EXP-1600).
+     * EXP-1533: set (ISO) while the profile holds a persisted claude login
+     * (`claude setup-token`, one year): the menu offers "Renew persisted
+     * login" instead of "Persist login" (EXP-1626).
      */
     @SerialName("tokenExpiresAt") val tokenExpiresAt: String? = null,
     /**
-     * EXP-1626: the NAME a long-lived Add gave this profile (a setup token
-     * cannot name its account) — the login's label wherever it shows.
+     * EXP-1626: `token` = this persisted login's usage comes from its
+     * long-lived token (its browser login's refresh grant died); null = the
+     * browser login feeds it. The preview says which one is active.
      */
-    @SerialName("name") val name: String? = null,
+    @SerialName("usageSource") val usageSource: String? = null,
 )
 
 /**

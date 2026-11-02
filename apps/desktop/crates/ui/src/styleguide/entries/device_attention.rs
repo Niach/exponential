@@ -70,10 +70,10 @@ fn login(
         checked_at: None,
         health,
         unmonitored: false,
-        // EXP-1600: every claude login keeps signed in (a far expiry), so
-        // only the specimen's dead login badges: no switch prompt.
-        token_expires_at: (agent == "claude").then(|| "2099-01-01T00:00:00Z".to_string()),
-        name: None,
+        // EXP-1626: no login is persisted in the specimen (persisting is an
+        // option, never a prompt), so only its dead login badges.
+        token_expires_at: None,
+        usage_from_token: false,
     }
 }
 
@@ -100,7 +100,6 @@ fn card(row_id: &str, label: &str, version: &str, logins: Vec<AgentProfileUsageR
         // The specimen's order IS the web island's (claude · claude · codex).
         logins,
         accounts_reported: true,
-        login_names: Default::default(),
     }
 }
 
@@ -164,14 +163,14 @@ fn props(index: usize, device: DeviceCard) -> DeviceCardProps {
                 {
                     login_flags[slot] = Some(LoginFlag {
                         status: *status,
-                        sign_in: item.action.map(|action| inert(action.label(Some(*status)))),
+                        sign_in: item.action.map(|action| inert(action.label())),
                     });
                 }
             }
             AttentionKind::Update | AttentionKind::UpdateQueued => {
                 update_line = Some(UpdateLine {
                     text: SharedString::from(item.text.clone()),
-                    update: item.action.map(|action| inert(action.label(None))),
+                    update: item.action.map(|action| inert(action.label())),
                 });
             }
         }
@@ -197,7 +196,6 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let preview = machines::account_preview(
         SharedString::from("sg-device-attention-preview"),
         &badged_login,
-        None,
         badged_flag.as_ref(),
         chrono::Utc::now().timestamp(),
         cx,

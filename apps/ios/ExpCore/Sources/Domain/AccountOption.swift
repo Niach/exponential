@@ -10,10 +10,9 @@ import Foundation
 ///  - one option per SIGNED-IN login the device reports, across both contract
 ///    agents (`devices.agent_accounts[agent].profiles`, and ONLY those: no
 ///    ambient login is ever used, so none is synthesized);
-///  - the label is ALWAYS the agent's brand mark + the login's label
-///    (`AgentAccountsRows.loginLabel`): its NAME (EXP-1626, a long-lived
-///    Add's), else its EMAIL. A login reported without either shows its
-///    plan; with none of them, "No email";
+///  - the label is ALWAYS the agent's brand mark + the login's EMAIL (a
+///    profile has no other name). A login reported without an address shows
+///    its plan; with neither, "No email";
 ///  - the LAST USED login leads, marked by ORDER (it is first) and by a
 ///    check, not by a label: `isLastUsed` is true for exactly one option —
 ///    `defaultAgent`'s active login, else the first contract agent's active
@@ -31,8 +30,9 @@ import Foundation
 /// `limits` are FRACTIONS 0..1 off the usage windows (`percent / 100`):
 /// `fiveHour` = the `session` window, `week` = the `weekly` window, `model` =
 /// the FIRST per-model window. A login with no usage report has no `limits`
-/// at all; EXP-1626: one that reports no `session` window (a Keep signed in
-/// login: weekly only) has no `fiveHour`, so no empty 5h bar is drawn.
+/// at all; EXP-1626: one that reports no `session` window (a login whose
+/// usage comes from its persisted token: weekly only) has no `fiveHour`, so
+/// no empty 5h bar is drawn.
 
 /// The three usage fractions a login carries, 0..1.
 public struct AccountLimits: Equatable, Sendable {
@@ -183,11 +183,9 @@ public enum AccountOptions {
 
     // MARK: - Internals
 
-    /// The email a row reads as — see the header's fallback ladder. EXP-1626:
-    /// a named login (a long-lived Add) reads as its name first, the one
-    /// label rule (`AgentAccountsRows.loginLabel`).
+    /// The email a row reads as — see the header's fallback ladder.
     private static func optionEmail(_ row: AgentProfileUsageRow) -> String {
-        AgentAccountsRows.loginLabel(row)
+        AgentAccountsRows.accountName(email: row.email, plan: row.plan)
     }
 
     private static func fraction(_ percent: Double?) -> Double {

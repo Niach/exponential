@@ -31,22 +31,20 @@
 //! back as an `agent_login_code` command; [`enter_remote_code`] finds the
 //! agent's live login tab in [`LoginTabs`] and types it there.
 //!
-//! EXP-1533: "Keep signed in" runs `claude setup-token` INSIDE the chosen
-//! profile's dir instead ([`start_long_lived`], locally or off an
-//! `agent_login {longLived}`): the same tab, link and code hand-off; the
-//! one-year token it prints is scraped off the grid and stored in the
-//! profile, and the tab closes on a clean exit. Nothing commits by email.
+//! EXP-1533/1626: "Persist login" (an OPTION on an existing signed-in claude
+//! login, and its renewal) runs `claude setup-token` in a fresh STAGING dir
+//! ([`start_long_lived`], locally or off an `agent_login {profileId,
+//! longLived}`), never inside the profile, so the browser login the profile
+//! holds is never touched: the same tab, link and code hand-off; the
+//! one-year token it prints is scraped off the grid and attached to that
+//! profile (`agent_login::commit_setup_token`), the staging dir dropped, and
+//! the tab closes on a clean exit. Nothing commits by email.
 //!
-//! EXP-1600: Keep signed in is claude's DEFAULT sign-in. Every claude
-//! sign-in started here (Add account, Sign in, the menu; a tab on this
-//! machine or the dialog for another of mine) is long-lived; an Add runs
-//! `claude setup-token` in a fresh staging dir whose token makes it a NEW
-//! profile (`agent_login::commit_setup_token_add`). The browser login is the
-//! Advanced fallback: the dialog's ghost `Use browser login (Advanced)`
-//! (a local tab's toast offers the same) re-queues the SAME target in the
-//! other mode, and a device that refuses a long-lived Add as an older build
-//! (`machines::COPY_LONG_LIVED_REFUSED`) is re-queued once as the browser
-//! login.
+//! EXP-1626 (reverting EXP-1600's long-lived default): every sign-in (Add
+//! account, Sign in, the menu; a tab here or the dialog for another of
+//! mine) is the CLI's normal BROWSER login. An older client's long-lived
+//! Add (no profile) still lands as a new profile
+//! (`agent_login::commit_setup_token_add`).
 //!
 //! There is no import (EXP-1532): an old client's `agent_login {agent,
 //! import: "true"}` is refused by the payload parse
@@ -59,8 +57,7 @@
 //! A long-lived run's code command completes on its OUTCOME (the token, or
 //! setup-token's refusal), never at the keystroke. An `agent_login_cancel`
 //! ([`cancel_remote_login`]) stops the run of the login command it names
-//! unless a code already went in. A long-lived Add carries the NAME its new
-//! profile gets.
+//! unless a code already went in.
 
 use crate::toast::Toast;
 use std::collections::{BTreeMap, HashMap};
@@ -237,26 +234,11 @@ struct RemoteLogin {
 }
 
 /// Open a login tab for `agent` on this machine. `intended` = the profile
-/// the person clicked "Sign in" on (`None` = "Add account"); for a browser
-/// login it only decides whether a login that lands on ANOTHER known email
-/// warns. EXP-1600: claude signs in long-lived by default.
+/// the person clicked "Sign in" on (`None` = "Add account"); it only decides
+/// whether a login that lands on ANOTHER known email warns. EXP-1626: the
+/// CLI's browser login, for claude too (Persist login is its own entry,
+/// [`persist_login_on_device`]).
 pub(crate) fn open_login_tab(agent: CodingAgent, intended: Option<String>, cx: &mut App) {
-    open_login_tab_as(agent, intended, agent == CodingAgent::Claude, None, cx);
-}
-
-/// [`open_login_tab`] in an explicit mode: `long_lived` (claude only) =
-/// `claude setup-token`, else the CLI's browser login.
-fn open_login_tab_as(
-    agent: CodingAgent,
-    intended: Option<String>,
-    long_lived: bool,
-    name: Option<String>,
-    cx: &mut App,
-) {
-    if long_lived && agent == CodingAgent::Claude {
-        start_long_lived(intended, None, name, cx);
-        return;
-    }
     let target = match intended {
         Some(id) => LoginTarget::Profile(id),
         None => LoginTarget::Add,
@@ -281,14 +263,10 @@ pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut
         command_id: command.id.clone(),
         published: Arc::new(AtomicBool::new(false)),
     };
-    // EXP-1533/1612: long-lived on a profile, or (no profile) an Add.
+    // EXP-1533/1626: Persist login on a profile, or (no profile) an older
+    // client's long-lived Add.
     if request.long_lived {
-        start_long_lived(
-            request.target.intended().map(str::to_string),
-            Some(remote),
-            request.name.clone(),
-            cx,
-        );
+        start_long_lived(request.target.intended().map(str::to_string), Some(remote), cx);
         return;
     }
     start(request.agent, request.target, Some(remote), cx);
@@ -381,33 +359,26 @@ fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, c
             target.intended().map(str::to_string),
             remote,
             false,
-            None,
         );
         let _ = cx.update(|cx| spawn_login_tab(plan, run, cx));
     })
     .detach();
 }
 
-/// EXP-1533 — the long-lived claude login of `profile` on THIS machine:
-/// `claude setup-token` in the profile's dir, in a login tab like any
-/// sign-in (`remote` = answer that `agent_login` command with the link).
-/// EXP-1600: `profile: None` = a long-lived Add, run in a fresh staging dir
-/// that becomes a new profile once the token is in. EXP-1626: `name` = that
-/// new profile's name (ignored on a profile's renewal).
-fn start_long_lived(
-    profile: Option<String>,
-    remote: Option<RemoteLogin>,
-    name: Option<String>,
-    cx: &mut App,
-) {
+/// EXP-1533/1626 — PERSIST claude login `profile` on THIS machine:
+/// `claude setup-token` in a fresh STAGING dir (never the profile's, so its
+/// browser login is never touched), in a login tab like any sign-in
+/// (`remote` = answer that `agent_login` command with the link); the token
+/// is attached to the profile once the run printed it. `profile: None` = an
+/// older client's long-lived Add (EXP-1600): the staging dir becomes a new
+/// profile once the token is in.
+fn start_long_lived(profile: Option<String>, remote: Option<RemoteLogin>, cx: &mut App) {
     let agent = CodingAgent::Claude;
     let settings = CodingHub::global(cx).read(cx).settings.clone();
     let data_dir = crate::coding_flow::coding_data_dir(cx);
     let planned = match profile.as_deref() {
-        Some(profile) => agent_login::long_lived_plan(&settings, &data_dir, profile, remote.is_some())
-            .map(|plan| (None, plan)),
-        None => agent_login::long_lived_add_plan(&settings, &data_dir, remote.is_some())
-            .map(|(staging, plan)| (Some(staging), plan)),
+        Some(profile) => agent_login::long_lived_plan(&settings, &data_dir, profile, remote.is_some()),
+        None => agent_login::long_lived_add_plan(&settings, &data_dir, remote.is_some()),
     };
     let (staging, plan) = match planned {
         Ok(planned) => planned,
@@ -420,8 +391,7 @@ fn start_long_lived(
             return;
         }
     };
-    let name = profile.is_none().then_some(name).flatten();
-    let run = LoginRun::new(agent, settings, staging, profile, remote, true, name);
+    let run = LoginRun::new(agent, settings, Some(staging), profile, remote, true);
     // Deferred like [`start`]: the caller is inside a window's update.
     cx.defer(move |cx| spawn_login_tab(plan, run, cx));
 }
@@ -441,8 +411,8 @@ struct LoginRun {
     agent: CodingAgent,
     settings: coding::Settings,
     /// The fresh dir the CLI signs in inside; committed (or dropped) on
-    /// finish. `None` for a long-lived run of a profile (it runs in the
-    /// profile's dir); a long-lived Add has one (EXP-1600).
+    /// finish. EXP-1626: a persist run has one too (it never runs in the
+    /// profile's dir); always `Some` for a run that opened a tab.
     staging: Option<PathBuf>,
     /// The profile the person clicked "Sign in" on (`None` = Add account);
     /// a long-lived run's profile.
@@ -459,8 +429,6 @@ struct LoginRun {
     opened: OnceLock<(Entity<TerminalManager>, TabId)>,
     /// EXP-1626: ends the tab's child for sure, even once the tab is gone.
     terminator: OnceLock<terminal::pty::Terminator>,
-    /// EXP-1626: a long-lived Add's new profile name.
-    name: Option<String>,
     /// EXP-1626: the run's clock ([`REMOTE_URL_TIMEOUT`]).
     started: Instant,
     /// EXP-1626: when a code last went into the tab (`CODE_GRACE`, and a
@@ -478,7 +446,6 @@ impl LoginRun {
         intended: Option<String>,
         remote: Option<RemoteLogin>,
         long_lived: bool,
-        name: Option<String>,
     ) -> Self {
         Self {
             agent,
@@ -491,7 +458,6 @@ impl LoginRun {
             finished: AtomicBool::new(false),
             opened: OnceLock::new(),
             terminator: OnceLock::new(),
-            name,
             started: Instant::now(),
             last_code_at: Mutex::new(None),
             pending_code: Mutex::new(None),
@@ -668,7 +634,7 @@ impl LoginRun {
         let agent = self.agent;
         let scraped = self.setup_token.lock().ok().and_then(|mut slot| slot.take());
         let Some(scraped) = scraped else {
-            log::info!("[agent-login] the long-lived sign-in ended without a token");
+            log::info!("[agent-login] the persist sign-in ended without a token");
             if let Some(staging) = self.staging.clone() {
                 cx.background_executor()
                     .spawn(async move { agent_login::abandon_login(agent, &staging) })
@@ -676,18 +642,21 @@ impl LoginRun {
             }
             return;
         };
-        let (profile, staging, name) = (self.intended.clone(), self.staging.clone(), self.name.clone());
+        let (profile, staging) = (self.intended.clone(), self.staging.clone());
         let data_dir = crate::coding_flow::coding_data_dir(cx);
         cx.spawn(async move |cx| {
             let stored = cx
                 .background_executor()
                 .spawn(async move {
                     match (profile, staging) {
-                        (Some(profile), _) => agent_login::store_setup_token(&data_dir, &profile, scraped),
-                        (None, Some(staging)) => {
-                            agent_login::commit_setup_token_add(&data_dir, &staging, scraped, name.as_deref())
-                                .map(|(_, expires_at)| expires_at)
+                        // EXP-1626: Persist login — the token goes onto the
+                        // profile, the run's staging dir goes.
+                        (Some(profile), Some(staging)) => {
+                            agent_login::commit_setup_token(&data_dir, &profile, &staging, scraped)
                         }
+                        (Some(profile), None) => agent_login::store_setup_token(&data_dir, &profile, scraped),
+                        (None, Some(staging)) => agent_login::commit_setup_token_add(&data_dir, &staging, scraped)
+                            .map(|(_, expires_at)| expires_at),
                         (None, None) => Err(agent_login::LONG_LIVED_NEEDS_PROFILE.to_string()),
                     }
                 })
@@ -836,23 +805,10 @@ fn spawn_login_tab(plan: coding::LoginPlan, run: LoginRun, cx: &mut App) {
                 }
             })
             .detach();
-            // EXP-1600: a local claude sign-in says its trade-off and
-            // offers the other mode for the SAME target (the dialog's note
-            // and ghost button; a tab has no dialog, so its toast does).
-            if run.remote.is_none() && agent == CodingAgent::Claude {
-                let (long_lived, intended) = (run.long_lived, run.intended.clone());
-                let name = run.name.clone();
-                let (note, other) = login_mode_copy(long_lived);
-                let switch_run = Arc::clone(&run);
-                notify(
-                    Toast::info(note).action(other, move |_, cx| {
-                        // Closing the tab finishes this run (nothing to
-                        // commit), then the other mode starts afresh.
-                        stop_run(&switch_run, "switched to the other sign-in mode", cx);
-                        open_login_tab_as(agent, intended.clone(), !long_lived, name.clone(), cx);
-                    }),
-                    cx,
-                );
+            // EXP-1626: a local Persist login says what it does (the
+            // dialog's one muted line; a tab has no dialog, so a toast does).
+            if run.remote.is_none() && run.long_lived && run.intended.is_some() {
+                notify(Toast::info(crate::machines::COPY_PERSIST_NOTE), cx);
             }
             watch_login(manager, tab, run, cx);
         }
@@ -1027,28 +983,6 @@ fn complete(command_id: &str, ok: bool, message: String, cx: &mut App) {
         .detach();
 }
 
-/// EXP-1600 — a claude sign-in's trade-off line and the label of the
-/// button that switches to the other mode (devices-list.json `copy`).
-fn login_mode_copy(long_lived: bool) -> (&'static str, &'static str) {
-    if long_lived {
-        (crate::machines::COPY_KEEP_SIGNED_IN_NOTE, crate::machines::COPY_USE_BROWSER_LOGIN)
-    } else {
-        (crate::machines::COPY_BROWSER_LOGIN_NOTE, crate::machines::COPY_USE_KEEP_SIGNED_IN)
-    }
-}
-
-/// EXP-1600 — the dialog re-queues a refused long-lived Add ONCE as the
-/// browser login: the device is an older build that knows long-lived
-/// logins only on an existing profile.
-fn falls_back_to_browser(
-    long_lived: bool,
-    intended: Option<&str>,
-    fell_back: bool,
-    failure: &str,
-) -> bool {
-    long_lived && intended.is_none() && !fell_back && failure == crate::machines::COPY_LONG_LIVED_REFUSED
-}
-
 fn notify(toast: Toast, cx: &mut App) {
     crate::toast::show_in_active_window(toast, cx);
 }
@@ -1157,61 +1091,28 @@ pub(crate) fn sign_in_on_device(
         open_login_tab(agent, intended, cx);
         return;
     }
-    // EXP-1600: claude signs in long-lived by default.
-    let long_lived = agent == CodingAgent::Claude;
-    open_login_dialog(device_id, device_label, agent, intended, long_lived, None, window, cx);
+    // EXP-1626: the browser login, claude's included.
+    open_login_dialog(device_id, device_label, agent, intended, false, window, cx);
 }
 
-/// EXP-1626 — the Add account dialog's Continue: [`sign_in_on_device`] with
-/// no target, carrying the `name` a claude (long-lived) Add gives its new
-/// profile.
-fn add_account_on_device(
-    device: LoginDevice,
-    agent: CodingAgent,
-    name: Option<String>,
-    window: &mut Window,
-    cx: &mut App,
-) {
-    let name = agent_login::clean_profile_name(name.as_deref()).filter(|_| agent == CodingAgent::Claude);
-    if device.own {
-        open_login_tab_as(agent, None, agent == CodingAgent::Claude, name, cx);
-        return;
-    }
-    let long_lived = agent == CodingAgent::Claude;
-    open_login_dialog(device.device_id, device.label, agent, None, long_lived, name, window, cx);
-}
-
-/// EXP-1626 — the name "Switch to Keep signed in" gives the NEW profile it
-/// adds (`copy.switchedName`, `{label}` = the switched login's label).
-pub(crate) fn switched_name(label: &str) -> String {
-    crate::machines::COPY_SWITCHED_NAME.replace("{label}", label)
-}
-
-/// EXP-1533/1612 — "Renew Keep signed in" / "Switch to Keep signed in" on
-/// claude login `profile_id` of `device`: a login tab here, or the remote
-/// sign-in dialog queuing `agent_login {longLived}` on another of mine.
-/// EXP-1626: `renew` (the profile holds a token) renews it IN PLACE; a
-/// switch ADDS a new long-lived profile named [`switched_name`] of `label`
-/// and leaves the browser login it came from untouched.
-pub(crate) fn keep_signed_in_on_device(
+/// EXP-1533/1626 — "Persist login" / "Renew persisted login" on claude
+/// login `profile_id` of `device`, IN PLACE: a login tab here, or the remote
+/// sign-in dialog queuing `agent_login {profileId, longLived}` on another
+/// of mine. The machine attaches the token to that very profile and leaves
+/// its browser login untouched.
+pub(crate) fn persist_login_on_device(
     device_id: String,
     device_label: SharedString,
     own: bool,
     profile_id: String,
-    renew: bool,
-    label: &str,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let (profile, name) = match renew {
-        true => (Some(profile_id), None),
-        false => (None, Some(switched_name(label))),
-    };
     if own {
-        start_long_lived(profile, None, name, cx);
+        start_long_lived(Some(profile_id), None, cx);
         return;
     }
-    open_login_dialog(device_id, device_label, CodingAgent::Claude, profile, true, name, window, cx);
+    open_login_dialog(device_id, device_label, CodingAgent::Claude, Some(profile_id), true, window, cx);
 }
 
 /// A remote sign-in's landing (accounts contract E): the dialog captures each
@@ -1309,28 +1210,31 @@ impl LoginDialogState {
 /// browser" field is here too. The EXP-862 rewrite drew the link inline and
 /// dropped that field, which left a claude re-login on another machine with a
 /// link and nowhere to type the code the browser showed.
-#[allow(clippy::too_many_arguments)]
+///
+/// EXP-1626: `persist` (claude, `intended` set) = Persist login of that
+/// profile, whose one muted line is `copy.persistNote`; otherwise the
+/// browser login, with no mode line and no mode button.
 pub(crate) fn open_login_dialog(
     device_id: String,
     device_label: SharedString,
     agent: CodingAgent,
     intended: Option<String>,
-    long_lived: bool,
-    name: Option<String>,
+    persist: bool,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let persist = persist && agent == CodingAgent::Claude && intended.is_some();
     let title = if intended.is_none() {
         format!("Add a {} account", agent.label())
     } else {
         format!("Sign in to {}", agent.label())
     };
-    // EXP-1600: claude's dialog carries its mode line + button too.
-    let height = if agent == CodingAgent::Claude { 240. } else { 180. };
+    // EXP-1626: a persist dialog carries its one note line.
+    let height = if persist { 220. } else { 180. };
     let spec = native_dialog::DialogSpec::new(title, size(px(460.), px(height)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
-            LoginDialogView::new(device_id, device_label, agent, intended, long_lived, name, window, cx)
+            LoginDialogView::new(device_id, device_label, agent, intended, persist, window, cx)
         });
         native_dialog::DialogContent::new(view)
     });
@@ -1343,15 +1247,10 @@ struct LoginDialogView {
     /// The profile the person aimed at (`None` = Add account) — kept so "Try
     /// again" re-queues the SAME login, and read by the duplicate warning.
     intended: Option<String>,
-    /// EXP-1533/1612: the request is a long-lived claude login of
-    /// `intended` (an Add when `None`). Claude's default; the ghost button
-    /// flips it and re-queues.
+    /// EXP-1533/1626: the request is Persist login of claude profile
+    /// `intended` (`agent_login {profileId, longLived}`); otherwise the
+    /// browser login.
     long_lived: bool,
-    /// EXP-1600: this dialog already re-queued a refused long-lived Add as
-    /// the browser login (it does so once).
-    fell_back: bool,
-    /// EXP-1626: the name a long-lived Add gives its new profile.
-    name: Option<String>,
     /// EXP-1626: the `agent_login` command the live attempt queued — what
     /// closing the dialog (or a retry) cancels before the login landed.
     login_command: Option<String>,
@@ -1376,14 +1275,12 @@ struct LoginDialogView {
 }
 
 impl LoginDialogView {
-    #[allow(clippy::too_many_arguments)]
     fn new(
         device_id: String,
         device_label: SharedString,
         agent: CodingAgent,
         intended: Option<String>,
         long_lived: bool,
-        name: Option<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
@@ -1438,8 +1335,6 @@ impl LoginDialogView {
             agent,
             intended,
             long_lived,
-            fell_back: false,
-            name,
             login_command: None,
             state: LoginDialogState::Queueing,
             attempt: 0,
@@ -1481,7 +1376,6 @@ impl LoginDialogView {
         let agent = self.agent;
         let intended = self.intended.clone();
         let long_lived = self.long_lived;
-        let name = self.name.clone();
         self.poll = Some(cx.spawn_in(window, async move |this, cx| {
             // A fresh client per call: `TrpcClient` is not shareable, and
             // building one is a token-provider lookup, not a connection.
@@ -1493,14 +1387,12 @@ impl LoginDialogView {
                 .spawn({
                     let device_id = device_id.clone();
                     async move {
-                        match long_lived {
-                            true => api::devices::create_long_lived_login_command(
-                                &trpc,
-                                &device_id,
-                                intended.as_deref(),
-                                name.as_deref(),
-                            ),
-                            false => api::devices::create_agent_login_command(
+                        match (long_lived, intended.as_deref()) {
+                            // EXP-1626: Persist login of that profile.
+                            (true, Some(profile)) => {
+                                api::devices::create_long_lived_login_command(&trpc, &device_id, profile)
+                            }
+                            _ => api::devices::create_agent_login_command(
                                 &trpc,
                                 &device_id,
                                 agent.id(),
@@ -1562,23 +1454,6 @@ impl LoginDialogView {
                 }
                 let state = login_dialog_result(&row);
                 let _ = this.update_in(cx, |this, window, cx| {
-                    // EXP-1600: an older device refused the long-lived Add:
-                    // re-queue it ONCE as the browser login, quietly.
-                    if let LoginDialogState::Failed(message) = &state {
-                        if this.attempt == attempt
-                            && falls_back_to_browser(
-                                this.long_lived,
-                                this.intended.as_deref(),
-                                this.fell_back,
-                                message,
-                            )
-                        {
-                            this.long_lived = false;
-                            this.fell_back = true;
-                            cx.defer_in(window, |this, window, cx| this.request(window, cx));
-                            return;
-                        }
-                    }
                     let link = match &state {
                         LoginDialogState::Link { url, code } => Some((url.clone(), code.clone())),
                         _ => None,
@@ -1935,30 +1810,16 @@ impl Render for LoginDialogView {
         // pending line, the link, an error line and a caption that all said
         // the same thing in turn; what a reader needs is the one fact that is
         // true right now.
-        // EXP-1600: claude's dialog adds its mode's trade-off as ONE muted
-        // line, and the other mode as a ghost text button that re-queues
-        // the SAME target. Codex has neither.
-        let mode = (self.agent == CodingAgent::Claude && self.state != LoginDialogState::SignedIn)
-            .then(|| {
-                let (note, other) = login_mode_copy(self.long_lived);
-                v_flex()
-                    .w_full()
-                    .gap_1()
-                    .child(div().w_full().text_xs().text_color(muted).child(note))
-                    .child(
-                        h_flex().child(
-                            Button::new("agent-login-mode")
-                                .ghost()
-                                .small()
-                                .label(other)
-                                .on_click(cx.listener(|this, _, window, cx| {
-                                    this.long_lived = !this.long_lived;
-                                    this.request(window, cx);
-                                })),
-                        ),
-                    )
-            });
-        v_flex().w_full().gap_2().child(line).children(mode)
+        // EXP-1626: a Persist login dialog says what it does as ONE muted
+        // line; a browser sign-in has no mode line and no mode button.
+        let note = (self.long_lived && self.state != LoginDialogState::SignedIn).then(|| {
+            div()
+                .w_full()
+                .text_xs()
+                .text_color(muted)
+                .child(crate::machines::COPY_PERSIST_NOTE)
+        });
+        v_flex().w_full().gap_2().child(line).children(note)
     }
 }
 
@@ -1968,7 +1829,8 @@ impl Render for LoginDialogView {
 /// device picker went with the cross-device Accounts section that used to be
 /// the other way in.
 pub(crate) fn open_add_account_dialog_for(device_id: String, window: &mut Window, cx: &mut App) {
-    let spec = native_dialog::DialogSpec::new("Add account", size(px(460.), px(256.)));
+    // EXP-1626: one row (the agent) again — the Name row is gone.
+    let spec = native_dialog::DialogSpec::new("Add account", size(px(460.), px(212.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let device_id = device_id.clone();
         let view = cx.new(|cx| AddAccountDialogView::new(device_id, window, cx));
@@ -1981,18 +1843,11 @@ struct AddAccountDialogView {
     /// The machine the dialog was opened ON — fixed for its lifetime.
     device_id: String,
     agent: Option<CodingAgent>,
-    /// EXP-1626: the NAME a claude (long-lived) Add gives its new profile
-    /// (`copy.accountName`; blank = `copy.keptSignedInName`).
-    name: Entity<gpui_component::input::InputState>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AddAccountDialogView {
     fn new(device_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let name = cx.new(|cx| {
-            gpui_component::input::InputState::new(window, cx)
-                .placeholder(crate::machines::COPY_KEPT_SIGNED_IN_NAME)
-        });
         let devices = add_account_devices(None, &[], cx);
         let agent = devices
             .iter()
@@ -2010,7 +1865,6 @@ impl AddAccountDialogView {
             devices,
             device_id,
             agent,
-            name,
             _subscriptions: subscriptions,
         }
     }
@@ -2034,9 +1888,8 @@ impl AddAccountDialogView {
         let (Some(device), Some(agent)) = (self.selected().cloned(), self.agent) else {
             return;
         };
-        let name = Some(self.name.read(cx).value().to_string());
         native_dialog::close_then(window, cx, move |window, cx| {
-            add_account_on_device(device, agent, name, window, cx);
+            sign_in_on_device(device.device_id.clone(), device.label.clone(), device.own, agent, None, window, cx);
         });
     }
 }
@@ -2076,7 +1929,7 @@ impl AddAccountDialogView {
 }
 
 impl Render for AddAccountDialogView {
-    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let muted = cx.theme().muted_foreground;
         // EXP-909: the machine is the one the row belongs to. It dropping off
         // the list mid-dialog (offline, the daemon stopped) is the only empty
@@ -2114,20 +1967,9 @@ impl Render for AddAccountDialogView {
         v_flex()
             .w_full()
             .gap_4()
-            .child(crate::surface::glass_group_rows({
-                let mut rows = vec![crate::surface::glass_picker_row("Agent", None, agent_picker, cx)];
-                // EXP-1626: a setup token cannot name its account — claude's
-                // Add names it here, under the agent pick.
-                if self.agent == Some(CodingAgent::Claude) {
-                    rows.push(crate::surface::glass_input_row(
-                        crate::machines::COPY_ACCOUNT_NAME,
-                        crate::surface::glass_row_input(crate::controls::glass_input(&self.name, window, cx))
-                            .into_any_element(),
-                        cx,
-                    ));
-                }
-                rows
-            }))
+            .child(crate::surface::glass_group_rows(vec![
+                crate::surface::glass_picker_row("Agent", None, agent_picker, cx),
+            ]))
             .child(div().text_xs().text_color(muted).child(caption))
             .child(
                 h_flex()
@@ -2209,27 +2051,6 @@ mod tests {
         }
     }
 
-    /// EXP-1600: the mode line + button copy is the fixture's, and only a
-    /// long-lived ADD refused with `copy.longLivedRefused` falls back, once.
-    #[test]
-    fn a_refused_long_lived_add_falls_back_to_the_browser_login_once() {
-        let refused = crate::machines::COPY_LONG_LIVED_REFUSED;
-        assert_eq!(refused, agent_login::LONG_LIVED_NEEDS_PROFILE);
-        assert!(falls_back_to_browser(true, None, false, refused));
-        assert!(!falls_back_to_browser(true, None, true, refused));
-        assert!(!falls_back_to_browser(true, Some("0badf00d"), false, refused));
-        assert!(!falls_back_to_browser(false, None, false, refused));
-        assert!(!falls_back_to_browser(true, None, false, "Malformed command payload."));
-        assert_eq!(
-            login_mode_copy(true),
-            (crate::machines::COPY_KEEP_SIGNED_IN_NOTE, crate::machines::COPY_USE_BROWSER_LOGIN)
-        );
-        assert_eq!(
-            login_mode_copy(false),
-            (crate::machines::COPY_BROWSER_LOGIN_NOTE, crate::machines::COPY_USE_KEEP_SIGNED_IN)
-        );
-    }
-
     /// EXP-1626: a cancel names the run by its `agent_login` command id and
     /// stops it unless a code already went in; no run = nothing to stop.
     #[test]
@@ -2246,7 +2067,6 @@ mod tests {
             None,
             Some(remote("login-1")),
             true,
-            Some("Work".into()),
         ));
         let mut by_command = HashMap::new();
         by_command.insert("login-1".to_string(), Arc::clone(&run));
@@ -2264,11 +2084,9 @@ mod tests {
         assert!(run.since_code().is_some_and(|since| since < agent_login::CODE_GRACE));
     }
 
-    /// EXP-1626: "Switch to Keep signed in" names the profile it adds after
-    /// the switched login's label (`copy.switchedName`).
+    /// EXP-1626: every run is bounded at ten minutes.
     #[test]
-    fn a_switch_names_its_new_profile_after_the_login() {
-        assert_eq!(switched_name("dennis@straehhuber.com"), "dennis@straehhuber.com (kept signed in)");
+    fn a_login_run_is_bounded_at_ten_minutes() {
         assert_eq!(REMOTE_URL_TIMEOUT, Duration::from_secs(600));
     }
 

@@ -28,21 +28,17 @@ public enum DevicesList {
         public static let settings = "Device settings"
         public static let removeFromTeam = "Remove from this team"
         public static let moreAccounts = "More accounts"
-        public static let renewSoon = "{label} · Keep signed in ends soon"
-        public static let switchPrompt = "{label} · Switch to Keep signed in"
-        public static let switchToKeepSignedIn = "Switch to Keep signed in"
-        public static let renewKeepSignedIn = "Renew Keep signed in"
-        public static let keepSignedInNote = "Keep signed in: lasts 1 year, shows weekly usage only. We remind you to renew."
-        public static let browserLoginNote = "Browser login: shows every usage window, but can sign out when its refresh rotates."
-        public static let useBrowserLogin = "Use browser login (Advanced)"
-        public static let useKeepSignedIn = "Use Keep signed in"
         public static let longLivedRefused = "A long-lived login needs a Claude account on this machine."
-        /// EXP-1626: the Add account sheet's Name field (claude only), its
-        /// placeholder (= the name a blank field gives), and the name a
-        /// Switch to Keep signed in gives the profile it adds.
-        public static let accountName = "Name"
-        public static let keptSignedInName = "Claude (kept signed in)"
-        public static let switchedName = "{label} (kept signed in)"
+        /// EXP-1626 PERSIST LOGIN: the account menu's option on an existing
+        /// signed-in claude login (`persistLogin` without a token,
+        /// `renewPersistedLogin` with one; the account menu only, no renewal
+        /// reminder), the sign-in sheet's one muted line in that mode, and
+        /// the preview header's persisted line.
+        public static let persistLogin = "Persist login"
+        public static let renewPersistedLogin = "Renew persisted login"
+        public static let persistNote = "Persist login keeps this account's runs signed in for 1 year, even if its browser login expires."
+        public static let persistedBrowser = "Persisted · usage from the browser login"
+        public static let persistedToken = "Persisted · browser login expired, weekly usage only"
 
         /// `copy.status`: the account preview's warning-tone status line.
         public static func status(_ status: LoginStatus) -> String {
@@ -50,8 +46,6 @@ public enum DevicesList {
             case .needsRelogin: "Needs re-login"
             case .signedOut: "Signed out"
             case .limit: "Limit reached"
-            case .renew: "Keep signed in ends soon"
-            case .switchPrompt: "Not kept signed in"
             }
         }
     }
@@ -64,25 +58,6 @@ public enum DevicesList {
         public static let iconSize: CGFloat = 28
         public static let markSize: CGFloat = 16
         public static let maxAccountIcons = 5
-    }
-
-    /// EXP-1626: the name a Switch to Keep signed in gives the new profile
-    /// (`copy.switchedName` with the switched login's label).
-    public static func switchedName(label: String) -> String {
-        Copy.switchedName.replacingOccurrences(of: "{label}", with: label)
-    }
-
-    /// EXP-1600: the Keep signed in reminder window (`fixture.keepSignedIn`).
-    public enum KeepSignedIn {
-        public static let renewWithinDays = 30
-    }
-
-    /// EXP-1600 `keepSignedInDue`: a long-lived claude login due for renewal
-    /// at `now` — its token ends within `renewWithinDays` days, or already
-    /// ended. An unreadable stamp is due.
-    public static func keepSignedInDue(_ tokenExpiresAt: String, now: Date) -> Bool {
-        guard let expires = parseIso(tokenExpiresAt) else { return true }
-        return expires.timeIntervalSince(now) <= Double(KeepSignedIn.renewWithinDays) * 86_400
     }
 
     /// An ISO-8601 stamp, with or without fractional seconds.
@@ -124,8 +99,8 @@ public enum DevicesList {
     public struct Login: Equatable, Sendable {
         public let agent: String
         public let profileId: String
-        /// `AgentAccountsRows.loginLabel` — the name (EXP-1626), else the
-        /// email, else the plan, else the fallback.
+        /// `AgentAccountsRows.loginLabel` — the email, else the plan, else
+        /// the fallback.
         public let label: String
         public let health: AgentAccountHealth
         /// EXP-1560: a fresh usage window at ≥ 100% (`limitHit(_:now:)`).
@@ -222,16 +197,10 @@ public enum DevicesList {
         case needsRelogin = "needs_relogin"
         case signedOut = "signed_out"
         case limit
-        /// EXP-1600: the yearly renewal reminder.
-        case renew
-        /// EXP-1600: a claude login made before Keep signed in was the default.
-        case switchPrompt = "switch"
     }
 
     public enum ItemAction: String, Equatable, Sendable {
         case signIn = "sign_in"
-        /// EXP-1600: the long-lived sign-in on that profile.
-        case keepSignedIn = "keep_signed_in"
         case update
     }
 
@@ -275,9 +244,9 @@ public enum DevicesList {
     }
 
     /// `deviceListRow`: dead credentials first, then signed-out logins, then
-    /// every other login at its limit (never an action), then (own devices,
-    /// EXP-1600) every other claude login due for renewal, then every other
-    /// claude login without a token, then the update line (own devices only).
+    /// every other login at its limit (never an action), then the update line
+    /// (own devices only). EXP-1626: a persisted login is never an item (no
+    /// renewal reminder).
     public static func row(_ input: Input) -> Row {
         var attention: [AttentionItem] = []
         let canSignIn = input.mine && input.online
@@ -307,35 +276,6 @@ public enum DevicesList {
                 action: nil,
                 status: .limit
             ))
-        }
-        // EXP-1600: the yearly renewal reminder, then the switch prompt for a
-        // claude login made before Keep signed in became the default.
-        if input.mine {
-            func quiet(_ login: Login) -> Bool {
-                login.agent != "claude" || login.health == .needsRelogin
-                    || login.health == .signedOut || login.limitHit
-            }
-            let prompts: [(LoginStatus, String)] = [
-                (.renew, Copy.renewSoon),
-                (.switchPrompt, Copy.switchPrompt),
-            ]
-            for (status, template) in prompts {
-                for login in input.logins where !quiet(login) {
-                    let token = login.tokenExpiresAt.flatMap { $0.isEmpty ? nil : $0 }
-                    let due = status == .renew
-                        ? token.map { keepSignedInDue($0, now: input.now) } ?? false
-                        : token == nil
-                    guard due else { continue }
-                    attention.append(AttentionItem(
-                        kind: .login,
-                        agent: login.agent,
-                        profileId: login.profileId,
-                        text: template.replacingOccurrences(of: "{label}", with: login.label),
-                        action: canSignIn ? .keepSignedIn : nil,
-                        status: status
-                    ))
-                }
-            }
         }
         if input.mine {
             if input.updateQueued {

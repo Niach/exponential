@@ -30,37 +30,15 @@ struct AgentLoginTarget: Identifiable {
     /// The login whose Sign in was tapped (the INTENDED profile); nil = "Add
     /// account". It only decides whether the landing is a duplicate.
     var profileId: String? = nil
-    /// EXP-1600: the refresh-grant browser login instead of the default — the
-    /// sheet's "Use browser login (Advanced)" (or the one fallback when an
-    /// older device refuses a long-lived Add).
-    var browserLogin = false
-    /// EXP-1626: the NAME a long-lived ADD gives the profile it makes (the
-    /// Add account sheet's Name field, or `copy.switchedName` for a Switch to
-    /// Keep signed in); it rides `agent_login` only while `longLived` with
-    /// no `profileId`.
-    var name: String? = nil
-
-    /// EXP-1533/EXP-1600: a claude sign-in is the long-lived `claude
-    /// setup-token` login BY DEFAULT (Add account, Sign in, Switch, Renew):
-    /// the queued `agent_login` mints a one-year login. Codex has no
-    /// setup-token.
-    var longLived: Bool {
-        agent == "claude" && !browserLogin
-    }
+    /// EXP-1626 PERSIST LOGIN: "Persist login" / "Renew persisted login" on
+    /// an EXISTING signed-in claude login (`profileId` set) — the queued
+    /// `agent_login` mints a one-year `claude setup-token` login attached to
+    /// that profile. Every other sign-in (Add account, Sign in) is the
+    /// agent's normal browser login and leaves this false.
+    var longLived = false
 
     var id: String {
-        "\(deviceId):\(agent):\(profileId ?? "new")"
-    }
-
-    /// EXP-1626: the name `agent_login` carries — a long-lived Add's only,
-    /// trimmed and capped at the server's 64; blank sends none (the device
-    /// names the profile `copy.keptSignedInName`).
-    var queuedName: String? {
-        guard longLived, profileId == nil else { return nil }
-        let trimmed = String(
-            (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).prefix(64)
-        )
-        return trimmed.isEmpty ? nil : trimmed
+        "\(deviceId):\(agent):\(profileId ?? "new")\(longLived ? ":persist" : "")"
     }
 }
 
@@ -106,26 +84,14 @@ struct AgentLoginSheet: View {
     /// Every profile's `lastLoginAt` when the command was queued — what a
     /// landing is measured against (`AgentAccountsRows.loginLanding`).
     @State private var baseline: [String: String]?
-    /// EXP-1600: the mode the sheet switched to (the ghost button, or the
-    /// one browser fallback); nil = the target's own.
-    @State private var browserOverride: Bool?
-    /// EXP-1600: an Add the device refused long-lived re-queues ONCE.
-    @State private var fellBack = false
     /// EXP-1626: what a dismissal needs to know to cancel the login.
     @State private var flight = LoginFlight()
-
-    /// The target as currently queued, in its current mode.
-    private var current: AgentLoginTarget {
-        var target = target
-        if let browserOverride { target.browserLogin = browserOverride }
-        return target
-    }
 
     var body: some View {
         GlassSheetChrome(title: "Sign in") {
             VStack(alignment: .leading, spacing: 12) {
                 statusLine
-                modeNote
+                persistNote
                 link
                 if let codeResult {
                     Text(codeResult)
@@ -186,31 +152,16 @@ struct AgentLoginSheet: View {
         return "\(agent) on \(target.deviceLabel)"
     }
 
-    /// EXP-1600: claude only — ONE muted line saying the trade-off of the
-    /// current mode, and a ghost text button re-queuing the SAME target in
-    /// the other mode. Codex: neither.
+    /// EXP-1626: the persist sign-in's ONE muted line (`copy.persistNote`);
+    /// the browser login carries no mode line and no mode button.
     @ViewBuilder
-    private var modeNote: some View {
-        if target.agent == "claude" {
-            let longLived = current.longLived
-            VStack(alignment: .leading, spacing: 4) {
-                Text(longLived ? DevicesList.Copy.keepSignedInNote : DevicesList.Copy.browserLoginNote)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityIdentifier("agent-login-mode-note")
-                Button {
-                    browserOverride = longLived
-                    queueLogin()
-                } label: {
-                    Text(longLived ? DevicesList.Copy.useBrowserLogin : DevicesList.Copy.useKeepSignedIn)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
-                .buttonStyle(.plain)
-                .disabled(pendingLogin || pendingCode)
-                .accessibilityIdentifier("agent-login-mode-switch")
-            }
+    private var persistNote: some View {
+        if target.longLived {
+            Text(DevicesList.Copy.persistNote)
+                .font(.caption)
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("agent-login-persist-note")
         }
     }
 
@@ -321,26 +272,17 @@ struct AgentLoginSheet: View {
         baseline = AgentAccountsRows.loginBaseline(liveAccount)
         flight.commandId = nil
         flight.failed = false
-        let queued = current
+        let queued = target
         Task {
             let outcome = await run(
                 kind: "agent_login",
                 profileId: queued.profileId,
-                longLived: queued.longLived,
-                name: queued.queuedName
+                longLived: queued.longLived
             )
             pendingLogin = false
             if case .failed = outcome { flight.failed = true }
             switch outcome {
             case let .done(result): loginResult = result
-            // EXP-1600: an older device refuses a long-lived Add: re-queue
-            // ONCE as the browser login.
-            case let .failed(message)
-                where queued.longLived && queued.profileId == nil && !fellBack
-                && message == DevicesList.Copy.longLivedRefused:
-                fellBack = true
-                browserOverride = true
-                queueLogin()
             // FEED-79: a refusal is the error toast, never a red line.
             case let .failed(message):
                 toaster.error(
@@ -398,8 +340,7 @@ struct AgentLoginSheet: View {
         kind: String,
         code: String? = nil,
         profileId: String? = nil,
-        longLived: Bool = false,
-        name: String? = nil
+        longLived: Bool = false
     ) async -> CommandOutcome {
         let flight = flight
         do {
@@ -410,8 +351,7 @@ struct AgentLoginSheet: View {
                 agent: target.agent,
                 code: code,
                 profileId: profileId,
-                longLived: longLived ? true : nil,
-                name: name
+                longLived: longLived ? true : nil
             )
             if kind == "agent_login" {
                 flight.commandId = created.id
@@ -481,9 +421,6 @@ struct AddAccountSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @State private var agent = ""
-    /// EXP-1626: the Name field (claude only) — what a long-lived Add calls
-    /// the profile it makes; blank = `copy.keptSignedInName`.
-    @State private var name = ""
     @State private var loginTarget: AgentLoginTarget?
 
     /// Every agent INSTALLED on the machine — runnable or signed out; either
@@ -537,29 +474,6 @@ struct AddAccountSheet: View {
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 12)
-
-                    // EXP-1626: a setup token cannot name its account, so a
-                    // claude Add names the profile it makes (blank = the
-                    // placeholder). Codex names itself by email: no field.
-                    if resolvedAgent == "claude" {
-                        GlassDivider()
-
-                        HStack(spacing: 8) {
-                            Text(DevicesList.Copy.accountName)
-                                .foregroundStyle(.white.opacity(TextOpacity.primary))
-                            Spacer(minLength: 8)
-                            GlassTextField(
-                                DevicesList.Copy.keptSignedInName,
-                                text: $name,
-                                bordered: false,
-                                accessibilityIdentifier: "add-account-name"
-                            )
-                            .multilineTextAlignment(.trailing)
-                            .autocorrectionDisabled()
-                        }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 12)
-                    }
                 }
                 .glassSection()
                 .padding(.horizontal, GlassSheetTokens.headerHPadding)
@@ -567,14 +481,12 @@ struct AddAccountSheet: View {
             },
             primaryAction: {
                 GlassSubmitButton("Sign in", enabled: !resolvedAgent.isEmpty) {
-                    // No intended profile: "Add account" names none. EXP-1626:
-                    // a claude Add carries its Name; `queuedName` trims it
-                    // and sends it only while long-lived (blank = none).
+                    // No intended profile: "Add account" names none, and it is
+                    // the agent's normal browser login (EXP-1626).
                     loginTarget = AgentLoginTarget(
                         deviceId: device.deviceId,
                         deviceLabel: LaunchVocabulary.deviceName(device),
-                        agent: resolvedAgent,
-                        name: resolvedAgent == "claude" ? name : nil
+                        agent: resolvedAgent
                     )
                 }
             }

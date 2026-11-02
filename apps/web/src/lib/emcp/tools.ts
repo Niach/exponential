@@ -3327,13 +3327,12 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_devices_account_login`,
     {
-      description: `Sign an agent account in on one of your own machines (exponential_devices_list: online). The machine runs the agent CLI's own login; only the sign-in URL and the code you type travel, the credential never leaves the machine. Start: {deviceId, agent} adds an account (claude: name labels it), or profileId re-signs an existing login (agentAccounts.<agent>.profiles[].id, e.g. one that needs a re-login); the login lands on the profile with its email. Claude defaults to Keep signed in: a 1-year token, no refresh to lose, weekly usage only; longLived false = the browser login. Returns status url + url (+ code for codex: enter it at url). Claude: the browser then shows a code, call again with {deviceId, agent, code}. status pending = the machine has not answered yet, call again with commandId. The login appears in exponential_devices_list after the machine's next heartbeat.`,
+      description: `Sign an agent account in on one of your own machines (exponential_devices_list: online). The machine runs the agent CLI's own browser login; only the sign-in URL and the code you type travel, the credential never leaves the machine. Start: {deviceId, agent} adds an account, or profileId re-signs an existing login (agentAccounts.<agent>.profiles[].id, e.g. one that needs a re-login); the login lands on the profile with its email. longLived + profileId (claude) = Persist login: a 1-year token attached to that signed-in login so its runs survive the browser login expiring. Returns status url + url (+ code for codex: enter it at url). Claude: the browser then shows a code, call again with {deviceId, agent, code}. status pending = the machine has not answered yet, call again with commandId. The login appears in exponential_devices_list after the machine's next heartbeat.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         agent: z.enum(codingAgentValues),
         profileId: z.string().min(1).max(64).optional(),
         longLived: z.boolean().optional(),
-        name: z.string().trim().min(1).max(64).optional(),
         code: z.string().trim().min(1).max(512).optional(),
         commandId: uuidString.optional(),
       }),

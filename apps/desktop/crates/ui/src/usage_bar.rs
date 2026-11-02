@@ -750,8 +750,9 @@ pub(crate) struct AgentProfileUsageRow {
     pub unmonitored: bool,
     /// EXP-1533: the login's long-lived claude token expiry, when it holds one.
     pub token_expires_at: Option<String>,
-    /// EXP-1626: the name a long-lived Add gave the profile.
-    pub name: Option<String>,
+    /// EXP-1626: the login's usage came from its persisted token
+    /// (`usageSource: "token"`): the browser login cannot serve it.
+    pub usage_from_token: bool,
 }
 
 /// `Some(trimmed)` for a non-blank string — the wire uses "absent" and "empty
@@ -833,7 +834,7 @@ pub(crate) fn agent_profile_usage_rows(
                 health: coding::agent_accounts::Health::Unknown,
                 unmonitored: false,
                 token_expires_at: None,
-                name: None,
+                usage_from_token: false,
             };
             let profiles = account.map(|account| account.profiles.as_slice()).unwrap_or(&[]);
             for profile in profiles {
@@ -858,7 +859,8 @@ pub(crate) fn agent_profile_usage_rows(
                     health: profile.health(),
                     unmonitored: profile.unmonitored,
                     token_expires_at: profile.token_expires_at.clone(),
-                    name: non_empty(profile.name.as_deref()),
+                    usage_from_token: profile.usage_source.as_deref()
+                        == Some(coding::agent_accounts::USAGE_SOURCE_TOKEN),
                     ..base(&profile.id)
                 });
             }
@@ -902,12 +904,7 @@ pub(crate) const NO_LOGIN_REPORTED: &str = "No login reported";
 /// The `· plan` tail the row adds when an email AND a plan are both known is
 /// the CALLER's (it renders muted), so the label itself stays one identity.
 pub(crate) fn login_label(row: &AgentProfileUsageRow) -> String {
-    // EXP-1626: a long-lived Add's name wins (a setup token cannot name its
-    // account, so two of them would otherwise read alike).
-    match row.name.as_deref().map(str::trim).filter(|name| !name.is_empty()) {
-        Some(name) => name.to_string(),
-        None => coding::agent_accounts::account_name(row.email.as_deref(), row.plan.as_deref()),
-    }
+    coding::agent_accounts::account_name(row.email.as_deref(), row.plan.as_deref())
 }
 
 /// The contract position of an agent id, unknown ids last (they still sort
@@ -1034,10 +1031,12 @@ pub(crate) fn usage_caption(state: UsageState, as_of: Option<&str>) -> Option<St
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ChipAction {
     SignIn,
-    /// EXP-1533/1612: a claude login's long-lived `claude setup-token`
-    /// sign-in, offered only when the login does NOT sign in; `renew` = the
-    /// login already holds one.
-    KeepSignedIn { renew: bool },
+    /// EXP-1533/1626: "Persist login" — a claude login's `claude
+    /// setup-token` attached to THAT profile, offered only on an existing
+    /// login that does NOT sign in; `renew` = the login already holds a
+    /// token ("Renew persisted login": the account menu is its only entry,
+    /// there is no renewal reminder).
+    Persist { renew: bool },
     SignOut,
     Remove,
 }
@@ -1046,8 +1045,8 @@ impl ChipAction {
     pub(crate) fn label(self) -> &'static str {
         match self {
             ChipAction::SignIn => "Sign in",
-            ChipAction::KeepSignedIn { renew: false } => crate::machines::COPY_SWITCH_TO_KEEP_SIGNED_IN,
-            ChipAction::KeepSignedIn { renew: true } => crate::machines::COPY_RENEW_KEEP_SIGNED_IN,
+            ChipAction::Persist { renew: false } => crate::machines::COPY_PERSIST_LOGIN,
+            ChipAction::Persist { renew: true } => crate::machines::COPY_RENEW_PERSISTED_LOGIN,
             ChipAction::SignOut => "Sign out",
             ChipAction::Remove => "Remove account",
         }
@@ -1056,7 +1055,7 @@ impl ChipAction {
     pub(crate) fn icon(self) -> crate::icons::ExpIcon {
         match self {
             ChipAction::SignIn => crate::icons::registry::UI_SIGN_IN,
-            ChipAction::KeepSignedIn { .. } => crate::icons::registry::UI_CLOCK,
+            ChipAction::Persist { .. } => crate::icons::registry::UI_CLOCK,
             ChipAction::SignOut => crate::icons::registry::UI_SIGN_OUT,
             ChipAction::Remove => crate::icons::registry::UI_DELETE,
         }
@@ -1072,9 +1071,10 @@ impl ChipAction {
 /// in this fixed order:
 ///
 /// * a sign-in: signed out, or a credential that expired here;
-/// * EXP-1600, switch to / renew Keep signed in: claude only and only when
-///   it does NOT sign in (claude's sign-in already IS Keep signed in) —
-///   `long_lived` is `Some(holds a token)` for a claude login, else `None`;
+/// * EXP-1626, Persist login / Renew persisted login: claude only and only
+///   on an existing login that does NOT sign in (the sign-in is the browser
+///   login; persisting is an option on top of it) — `long_lived` is
+///   `Some(holds a token)` for a claude login, else `None`;
 /// * EXP-1137, sign out: signed in — the row stays;
 /// * remove: always (EXP-944: signed out or not — a dead login is the one
 ///   people most want gone).
@@ -1092,7 +1092,7 @@ pub(crate) fn chip_actions(
         out.push(ChipAction::SignIn);
     }
     if let Some(renew) = long_lived.filter(|_| !signs_in) {
-        out.push(ChipAction::KeepSignedIn { renew });
+        out.push(ChipAction::Persist { renew });
     }
     if signed_in {
         out.push(ChipAction::SignOut);
@@ -1351,7 +1351,7 @@ mod tests {
             model: None,
         });
         assert_eq!(two.len(), 2);
-        // EXP-1626: a login with no 5h window (Keep signed in) draws no 5h bar.
+        // EXP-1626: a login with no 5h window (usage from a persisted token) draws no 5h bar.
         let weekly_only = account_limit_bars(&coding::AccountLimits {
             five_hour: None,
             week: 0.3,
@@ -1815,7 +1815,7 @@ mod tests {
                 health: coding::agent_accounts::Health::from_signed_in(signed_in),
                 unmonitored: false,
                 token_expires_at: None,
-                name: None,
+                usage_from_token: false,
             }
         };
         assert_eq!(attention_rank(&row("Air", "claude", "4e5f6a7b", false, 0)), 0);
@@ -1893,7 +1893,7 @@ mod tests {
             health: coding::agent_accounts::Health::Ok,
             unmonitored: false,
             token_expires_at: None,
-            name: None,
+            usage_from_token: false,
         }
     }
 
@@ -2010,9 +2010,9 @@ mod tests {
             chip_actions(true, Health::NeedsRelogin, None),
             vec![ChipAction::SignIn, ChipAction::SignOut, ChipAction::Remove]
         );
-        // EXP-1600: a claude login that signs in signs in (claude's sign-in
-        // IS Keep signed in); one that does not offers the switch, or the
-        // renewal once it holds a long-lived login.
+        // EXP-1626: a claude login that signs in signs in (the browser
+        // login); one that does not offers Persist login, or its renewal
+        // once it holds a token.
         assert_eq!(
             chip_actions(false, Health::SignedOut, Some(false)),
             vec![ChipAction::SignIn, ChipAction::Remove]
@@ -2023,15 +2023,15 @@ mod tests {
         );
         assert_eq!(
             chip_actions(true, Health::Ok, Some(false)),
-            vec![ChipAction::KeepSignedIn { renew: false }, ChipAction::SignOut, ChipAction::Remove]
+            vec![ChipAction::Persist { renew: false }, ChipAction::SignOut, ChipAction::Remove]
         );
         assert_eq!(
             chip_actions(true, Health::Ok, Some(true)),
-            vec![ChipAction::KeepSignedIn { renew: true }, ChipAction::SignOut, ChipAction::Remove]
+            vec![ChipAction::Persist { renew: true }, ChipAction::SignOut, ChipAction::Remove]
         );
-        assert_eq!(ChipAction::KeepSignedIn { renew: false }.label(), "Switch to Keep signed in");
-        assert_eq!(ChipAction::KeepSignedIn { renew: true }.label(), "Renew Keep signed in");
-        assert!(!ChipAction::KeepSignedIn { renew: true }.destructive());
+        assert_eq!(ChipAction::Persist { renew: false }.label(), "Persist login");
+        assert_eq!(ChipAction::Persist { renew: true }.label(), "Renew persisted login");
+        assert!(!ChipAction::Persist { renew: true }.destructive());
         assert!(ChipAction::SignOut.destructive() && ChipAction::Remove.destructive());
         assert!(!ChipAction::SignIn.destructive());
         assert_eq!(ChipAction::SignOut.label(), "Sign out");
