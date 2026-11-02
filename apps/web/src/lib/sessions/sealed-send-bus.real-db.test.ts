@@ -277,6 +277,10 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     await expect(sendSession({ userId: w.owner, input: { sessionId: rootId, text: `PONG-7731 in clear` } })).rejects.toThrow(
       PLAIN_IN_SEALED_TREE_MESSAGE
     )
+    // #FEED-186: a sender outside any session is named as such.
+    await expect(
+      sendSession({ userId: w.owner, viaMcp: true, input: { sessionId: rootId, text: `from an MCP client` } })
+    ).rejects.toThrow(`this sender is not an Exponential session`)
     await expect(w.host.reply({ sessionId: childId, body: `a plaintext reply` })).rejects.toThrow(PLAIN_IN_SEALED_TREE_MESSAGE)
     // #FEED-184: the refusal names the writer's device and what sealing needs.
     await db.update(devices).set({ version: `0.14.94` }).where(eq(devices.deviceId, w.deviceId))

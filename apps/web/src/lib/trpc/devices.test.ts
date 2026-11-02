@@ -173,7 +173,8 @@ vi.mock(`@/lib/trpc/voice`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/trpc/voice")>()),
   stopMeetingUnlessPrivate: h.stopMeetingUnlessPrivate,
 }))
-vi.mock(`@/lib/client-version`, () => ({
+vi.mock(`@/lib/client-version`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/client-version")>()),
   versionPayload: () => ({
     android: { min: null, latest: null },
     ios: { min: null, latest: null },
@@ -389,7 +390,10 @@ describe(`devices.register`, () => {
 })
 
 describe(`devices.requestUpdate + heartbeat`, () => {
+  const behind = [{ id: `row-1`, kind: `server`, version: `0.8.0` }]
+
   it(`flags the row and the next heartbeat reports it`, async () => {
+    h.state.selectQueue = [behind]
     h.state.updateReturning = [
       [{ id: `row-1` }],
       [{ id: `row-1`, updateRequestedAt: new Date() }],
@@ -409,17 +413,39 @@ describe(`devices.requestUpdate + heartbeat`, () => {
     })
   })
 
-  // The plain click never probes the row — no select, no command.
+  // The plain click queues no command.
   it(`queues nothing without endSessions`, async () => {
+    h.state.selectQueue = [behind]
     await caller.requestUpdate({ deviceId: `dev-1` })
     expect(h.state.inserted).toHaveLength(0)
     expect(h.relayPostNudge).not.toHaveBeenCalled()
   })
 
+  // #FEED-186: a click the daemon could only drop answers with the error
+  // toast on every client instead of a spinner that silently stops.
+  it(`refuses a device already on the latest known build`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, kind: `server`, version: `0.9.0` }]]
+    await expect(caller.requestUpdate({ deviceId: `dev-1` })).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `Already up to date: 0.9.0 is the latest`,
+    })
+    expect(h.state.updates).toHaveLength(0)
+  })
+
+  it(`flags a device whose version is unknown`, async () => {
+    h.state.selectQueue = [[{ id: `row-1`, kind: `desktop`, version: null }]]
+    expect(await caller.requestUpdate({ deviceId: `dev-1` })).toEqual({ ok: true })
+  })
+
+  it(`404s a device the caller does not own`, async () => {
+    h.state.selectQueue = [[]]
+    await expect(caller.requestUpdate({ deviceId: `dev-x` })).rejects.toMatchObject({ code: `NOT_FOUND` })
+  })
+
   // FEED-36: "Update now" = the flag PLUS an `update_now` command the daemon
   // runs by ending every live session and restarting on the new version.
   it(`endSessions: true flags the row and enqueues update_now`, async () => {
-    h.state.selectQueue = [[{ id: `row-1` }], []]
+    h.state.selectQueue = [behind, []]
     h.state.insertReturning = [[{ id: `cmd-up` }]]
     expect(
       await caller.requestUpdate({ deviceId: `dev-1`, endSessions: true })
@@ -437,10 +463,7 @@ describe(`devices.requestUpdate + heartbeat`, () => {
   })
 
   it(`endSessions: true reuses a pending update_now instead of conflicting`, async () => {
-    h.state.selectQueue = [
-      [{ id: `row-1` }],
-      [{ id: `cmd-pending` }],
-    ]
+    h.state.selectQueue = [behind, [{ id: `cmd-pending` }]]
     expect(
       await caller.requestUpdate({ deviceId: `dev-1`, endSessions: true })
     ).toEqual({ ok: true })

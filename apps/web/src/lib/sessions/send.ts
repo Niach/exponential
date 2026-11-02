@@ -359,15 +359,30 @@ export async function plainWriterHint(
   writerSessionId: string | null | undefined
 ): Promise<string> {
   const needs = `the desktop app or CLI ${SEALING_WRITER_MIN_VERSION} or newer`
-  const [writer] = writerSessionId
-    ? await database
-        .select({ label: devices.label, kind: devices.kind, version: devices.version })
-        .from(sessions)
-        .innerJoin(devices, and(eq(devices.userId, sessions.userId), eq(devices.deviceId, sessions.deviceId)))
-        .where(eq(sessions.id, writerSessionId))
-        .limit(1)
-    : []
-  if (!writer) return `: sealing needs ${needs} (or an up-to-date web, iOS or Android app)`
+  // #FEED-186: no calling session = the sender is no Exponential session
+  // (an MCP client outside one, or an app that did not seal): say so
+  // instead of blaming devices that may well be current.
+  if (!writerSessionId) {
+    return `: this sender is not an Exponential session (an MCP client outside a session cannot seal). Send from the web, iOS or Android app, or from a session on ${needs}`
+  }
+  const [session] = await database
+    .select({ userId: sessions.userId, deviceId: sessions.deviceId })
+    .from(sessions)
+    .where(eq(sessions.id, writerSessionId))
+    .limit(1)
+  if (!session) return `: sealing needs ${needs} (or an up-to-date web, iOS or Android app)`
+  // #FEED-186: devices rows are per (user, deviceId): a teammate's session
+  // on a shared device has no row under its starter, so read the device by
+  // id, the starter's own row first, else the latest-seen one.
+  const [writer] = await database
+    .select({ label: devices.label, kind: devices.kind, version: devices.version })
+    .from(devices)
+    .where(eq(devices.deviceId, session.deviceId))
+    .orderBy(sql`(${devices.userId} = ${session.userId}) DESC`, sql`${devices.lastSeenAt} DESC NULLS LAST`)
+    .limit(1)
+  if (!writer) {
+    return `: its device ${session.deviceId} is not registered. Sealing needs ${needs}, signed in on that machine`
+  }
   const app = writer.kind === `desktop` ? `desktop app` : `CLI`
   const version = writer.version ? ` ${writer.version}` : ``
   const restart = writer.kind === `desktop` ? `app` : `daemon`
