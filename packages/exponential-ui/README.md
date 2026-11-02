@@ -191,6 +191,18 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
 - `catalogPrompt({extensions?, lite?, terse?})` — the compact system prompt.
 - `coreSchema(iconNames)` / `extensionSchema(ext, iconNames)` — JSON Schema.
 
+## Motion (`@exponential_app/eui/motion`, EXP-1584)
+
+The `Motion` component's engine is the Rust crate `eui-motion` (Lottie, the
+dialect, the display list, the clock, state machines); its WASM build is
+committed in `wasm/motion/` (`scripts/build-motion-wasm.sh`, ≤ 200 KB gz,
+`SOURCE_HASH` gates drift). `@exponential_app/eui/motion` = `loadMotionWasm`
+(browsers, lazy); `@exponential_app/eui/motion/server` = `motionWasmSync` +
+`motionPropsProblems` (servers: validate a Motion node's source). The shared
+Canvas2D painter + player is `src/web/primitives/motion*.ts`. The model guide
+is the catalog's `Motion.layers` description (`eval/motion/guide.md`, scored by
+`eval/motion/`); the format is `docs/spec/motion.md`.
+
 ## The web layer (`@exponential_app/eui/web`)
 
 FEED-128: the FRAMEWORK-FREE half of a web renderer, so React and Solid compile byte-identical stylesheets and share one bind pass. `src/web/`: `theme-css.ts` (`compileTheme`: a resolved theme → one scoped sheet; `globalsCss(theme, {light?, dark?})`: the theme as UNSCOPED shadcn globals with literal values, `:root` + `.dark`, for an app that is not Exponential UI), `box-css.ts` (the per-node sheet), `base-css.ts` (`BASE_CSS`, layer `xui-base`), `data.ts` (JSON pointers, bindings, client functions, `bindTree`), `urls.ts` + `media.ts` (URL/media policy, the bounded blob cache, `fetchLimited`), `host-types.ts` (`HostPlugin<Icon, Markdown>`, the events), and the natives' pure helpers (`coerce`, `table`, `dates`, `inputs` = `HostOwnedController`, `markdown` = the parser to a tree, `form` = the field registry, `list`, `listbox`). Nothing in it imports a UI framework.
@@ -317,6 +329,10 @@ against React.
 | `kitchen-sink.json` / `.expanded.json` | every visible component once, the VAPP-4 layout cases kept, round 1's responsive section (1→2→3 column grid, collapsing sidebar, hidden-on-narrow nodes, state blocks) and bound macros; view id `exponential-ui-kitchen-sink` |
 | `specimens.json` | generated (VAPP-93): one surface per component (its example, up to two enum props and two booleans, captioned; an overlay once, open) + `exponential-ui-demo` from the hand-written `demo-surface.json`; id = the view id ui.exponential.at shows four shots of |
 | `prompt-budget.json` | the prompt's size on record (full / lite / terse) and the budget |
+| `motion-frames.json` | EXP-1602: eUI Motion display lists (JSON + packed) per Lottie case and frame; every painter's pixel reference is `conformance/motion/parity/` |
+| `motion-validate.json` | EXP-1602: the engine's refusals and warnings (expressions, the `limits.json › motion` limits) |
+| `motion-playback.json` | EXP-1604: the shared playback clock (props × elapsed ms → frame) |
+| `motion-state.json` | EXP-1605: dotLottie state machines (steps → state, entered, inputs) |
 | `theme-resolved.json` | every built-in theme resolved: what a native loader must produce from the same files |
 | `theme-recipes.json` | theme × component part × recipe props → visuals per mode and state (one case per distinct look) |
 | `theme-extends.json` | `extends` cases (the acceptance case: neutral + primary + button radius) → chain + probe styles |

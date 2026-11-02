@@ -12,6 +12,14 @@ import { useScheme } from "../lib/scheme"
 import { LINKS } from "../lib/site"
 import type { Nested } from "../sdk/a2ui"
 import { MiniSurface } from "../sdk/MiniSurface"
+import pulseDot from "@exponential_app/eui/eval/motion/fixtures/dialect/pulse-dot.json"
+import progressRing from "@exponential_app/eui/eval/motion/fixtures/dialect/progress-ring.json"
+import typingDots from "@exponential_app/eui/eval/motion/fixtures/dialect/typing-dots.json"
+import heartbeat from "@exponential_app/eui/eval/motion/fixtures/dialect/heartbeat.json"
+import equalizer from "@exponential_app/eui/eval/motion/fixtures/dialect/equalizer.json"
+import errorX from "@exponential_app/eui/eval/motion/fixtures/dialect/error-x.json"
+import sun from "@exponential_app/eui/eval/motion/fixtures/dialect/sun.json"
+import wifi from "@exponential_app/eui/eval/motion/fixtures/dialect/wifi.json"
 
 type Section = { id: string; label: string; body: ReactNode }
 
@@ -168,6 +176,45 @@ function InteractiveExample() {
   return <MiniSurface domId="motion-interactive" tree={INTERACTIVE} data={INTERACTIVE_DATA} mode={mode} className="sdk-mini-wide" />
 }
 
+/** The eval's recorded model replies (eval/motion/fixtures/dialect): the
+ *  JSON a model wrote from the guide alone, on its first try. */
+const GALLERY: { id: string; title: string; text: string; prompt: string }[] = [
+  { ...pulseDot, title: `Live dot` },
+  { ...progressRing, title: `Progress ring` },
+  { ...typingDots, title: `Typing` },
+  { ...heartbeat, title: `Heartbeat` },
+  { ...equalizer, title: `Equalizer` },
+  { ...errorX, title: `Error` },
+  { ...sun, title: `Sun` },
+  { ...wifi, title: `Wi-Fi` },
+].map((f) => ({ id: f.id, title: f.title, text: f.text, prompt: f.prompt }))
+
+/** The ```json block of a reply. */
+function replyJson(text: string): Record<string, unknown> {
+  const m = /```json([\s\S]*?)```/.exec(text)
+  return JSON.parse(m ? m[1]! : text) as Record<string, unknown>
+}
+
+const GALLERY_TREE: Nested = {
+  id: `gallery`,
+  component: `Grid`,
+  props: { columns: 4, gap: `md` },
+  children: GALLERY.map((g) => ({
+    id: `g-${g.id}`,
+    component: `Stack`,
+    props: { gap: `xs`, align: `center` },
+    children: [
+      { id: `m-${g.id}`, component: `Motion`, props: { ...replyJson(g.text), label: g.title }, style: { width: `72px`, height: `72px` } },
+      { id: `t-${g.id}`, component: `Text`, props: { text: g.title, variant: `muted` } },
+    ],
+  })),
+} as Nested
+
+function Gallery() {
+  const mode = useScheme()
+  return <MiniSurface domId="motion-gallery" tree={GALLERY_TREE} mode={mode} className="sdk-mini-wide" />
+}
+
 function LiveExample() {
   const mode = useScheme()
   return <MiniSurface domId="motion-guide" tree={TREE} mode={mode} className="sdk-mini-wide" />
@@ -204,6 +251,79 @@ export const MOTION_SECTIONS: Section[] = [
           Lottie takes (<a href={LINKS.source(`packages/exponential-ui/eval/motion`)}>the eval</a>).
         </p>
         <DocsCode language="markdown">{guideSource(`eui:eval/motion/guide.md`)}</DocsCode>
+      </>
+    ),
+  },
+  {
+    id: `reference`,
+    label: `Dialect reference`,
+    body: (
+      <>
+        <p>
+          Everything the dialect names; anything else Lottie can do rides along as raw keys under <code>lottie</code>{` `}
+          on the root, a layer, a transform or a shape. The full format is{` `}
+          <a href={LINKS.source(`docs/spec/motion.md`)}>docs/spec/motion.md</a>.
+        </p>
+        <DocsTable
+          head={[`Where`, `Fields`]}
+          rows={[
+            [`Root`, `size [w, h] · duration · fps (60) · start · time ("ms" | "frames") · layers · assets {id: {layers} | {image, size}} · markers [{name, time, duration}]`],
+            [`Every layer`, `type · id · name · parent · in / out / start · stretch · hidden · autoOrient · blend · transform · matte {source, mode} · masks [{path, mode, inverted, opacity, expansion, feather}]`],
+            [`Layer types`, `shape {shapes} · solid {color, size} · image {asset} · precomp {asset, size, timeRemap} · null · text {text: {text, font, size, color, strokeColor, strokeWidth, align, tracking, lineHeight, box, animators}}`],
+            [`transform`, `anchor · position (or positionX / positionY) · scale % · rotation ° clockwise · opacity 0–100 · skew · skewAxis`],
+            [`Geometry`, `rect {position, size, radius} · ellipse {position, size} · star {points, outerRadius, innerRadius, outerRoundness, innerRoundness, rotation} · polygon · path {d}`],
+            [`Styles`, `fill {color, opacity, rule} · stroke {color, width, cap, join, miterLimit, dash, dashOffset} · gradient-fill / gradient-stroke {kind, start, end, stops, highlight, highlightAngle}`],
+            [`Modifiers`, `trim {start, end, offset, mode} · repeater {copies, offset, composite, transform} · round-corners · pucker-bloat · zig-zag · offset-path · twist · merge {mode}`],
+            [`Groups`, `group {shapes, transform}: styles paint every shape before them in their group`],
+            [`Values`, `a number, an array, a colour, path data, or {keys: [{t, v, ease, end, to, ti}]}`],
+            [`ease`, `linear (default) · ease · ease-in · ease-out · ease-in-out · hold · [x1, y1, x2, y2]`],
+            [`Colours`, `#rgb · #rrggbb · #rrggbbaa · [r, g, b, a] 0–1 · $color.<token> · {light, dark}`],
+          ]}
+        />
+        <p>
+          It is lossless both ways: <code>exponential motion decompile</code> turns any Lottie into the dialect and{` `}
+          <code>compile</code> turns it back, the same pixels.
+        </p>
+      </>
+    ),
+  },
+  {
+    id: `examples`,
+    label: `Examples`,
+    body: (
+      <>
+        <p>
+          Each of these was written by a model from the guide above, on its first try, from one sentence (the prompts
+          and every reply are in <a href={LINKS.source(`packages/exponential-ui/eval/motion`)}>the eval</a>).
+        </p>
+        <Gallery />
+        <DocsCode language="json">{JSON.stringify(replyJson(GALLERY[1]!.text), null, 2)}</DocsCode>
+      </>
+    ),
+  },
+  {
+    id: `models`,
+    label: `Author with a model`,
+    body: (
+      <>
+        <p>
+          The guide is part of <code>catalogPrompt()</code>: the <code>Motion</code> entry carries it (about 600
+          tokens), so an agent that can build surfaces can animate them with no extra setup. What it sends is checked
+          before anyone sees it:
+        </p>
+        <DocsTable
+          head={[`Where`, `How`]}
+          rows={[
+            [`Your server`, `motionPropsProblems(props) from @exponential_app/eui/motion/server: every problem with its code and JSON pointer, to send back to the model.`],
+            [`Exponential`, `exponential_show refuses a card whose Motion does not compile, carries an expression or breaks a limit, naming the path.`],
+            [`Your terminal`, `exponential motion check | compile | decompile | render --gif <file>.`],
+          ]}
+        />
+        <p>
+          Tips the eval taught: ask for one idea per animation, keep it under two seconds, prefer{` `}
+          <code>$color</code> tokens so it follows the theme, and give a <code>label</code> unless it is decoration.
+          Limits: 2 MB, 5,000 shapes, 100,000 vertices per frame, 120 s.
+        </p>
       </>
     ),
   },
