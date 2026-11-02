@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-191: `Expression` is now `Expressions` (`Expressions.evaluate` / `.check`): Foundation (macOS 15 / iOS 18) ships its own `Expression`, so a bare `Expression` was ambiguous in any file importing both (0.5.0's `ExpressionsTests` among them). Compose keeps `Expression`.
+
 ## 0.5.0 (2026-11-02)
 
 - VAPP-191: `Expression.evaluate(_:vars:now:timeZone:maxSteps:)` / `.check(_:types:)` over the core's expression evaluator, `TimeZoneOffset` (a `TimeZone` as `HostZone`); `ExpressionsTests` replays `fixtures/expressions.json`. Bind-time `{call: "mul" …}` / `{call: "expr" …}` resolve through the core.

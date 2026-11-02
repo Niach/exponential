@@ -8,7 +8,10 @@ import ExponentialUICore
 /// macros `map/filter/all/exists` one level) over one number type; dates
 /// run in the team zone. A surface evaluates the same functions at bind
 /// time (`{"call": "expr", …}`); this is the direct entry for a host.
-public enum Expression {
+/// Plural on purpose: Foundation (macOS 15 / iOS 18) has its own
+/// `Expression`, which would make a bare `Expression` ambiguous wherever
+/// both modules are imported.
+public enum Expressions {
     public enum Outcome: Equatable {
         /// The value (`evaluate`) or the type (`check`, spelled as JSON).
         case value(JSONValue)
