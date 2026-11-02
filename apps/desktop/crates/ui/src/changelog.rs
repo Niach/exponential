@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-record-on-behalf",
+    date: "2026-11-02",
+    title: "Owners can enter records for others",
+    summary: "A team owner can add or reassign an app record for another member, and the row says who entered it.",
+    body: r#"- **On behalf**: in an app's Data tab a team owner picks the record's author; it counts as that member's record.
+- **Audit**: a row someone entered for another member reads “Ana for Ben”, the same on the web, desktop, iOS and Android.
+- **Agents and imports**: an agent can write for a member (owners only), and an app file's records keep their authors when they belong to the team.
+- **Members** still write only as themselves and get a clear refusal otherwise."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_166: ChangelogEntry = ChangelogEntry {
     id: "2026-11-02-record-ownership",
     date: "2026-11-02",
     title: "Records belong to their author",

@@ -154,6 +154,54 @@ final class AppRecordsTests: XCTestCase {
         }
     }
 
+    // VAPP-188: `onBehalf` — the refusals, `writeAsCases` and `importCases`
+    // (`author` / `role` / `viewer` / `expected` null = nil).
+    func testOnBehalfConstantsMatchTheFixture() throws {
+        let onBehalf = try XCTUnwrap(try fixture()["onBehalf"] as? [String: Any])
+        XCTAssertEqual(onBehalf["refusal"] as? String, AppRecords.OnBehalf.refusal)
+        XCTAssertEqual(onBehalf["notMember"] as? String, AppRecords.OnBehalf.notMember)
+    }
+
+    private func onBehalfCases(_ key: String) throws -> [[String: Any]] {
+        let onBehalf = try XCTUnwrap(try fixture()["onBehalf"] as? [String: Any])
+        let list = try XCTUnwrap(onBehalf[key] as? [[String: Any]], key)
+        XCTAssertFalse(list.isEmpty, key)
+        return list
+    }
+
+    func testWriteAsCases() throws {
+        for item in try onBehalfCases("writeAsCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let expected = try XCTUnwrap(AppRecords.WriteAsVerdict(rawValue: try XCTUnwrap(item["expected"] as? String)), name)
+            XCTAssertEqual(
+                AppRecords.writeAsVerdict(
+                    viewer: item["viewer"] as? String,
+                    role: item["role"] as? String,
+                    author: item["author"] as? String,
+                    members: try XCTUnwrap(item["members"] as? [String], name)
+                ),
+                expected,
+                name
+            )
+        }
+    }
+
+    func testImportCases() throws {
+        for item in try onBehalfCases("importCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            XCTAssertEqual(
+                AppRecords.importAuthor(
+                    importer: try XCTUnwrap(item["importer"] as? String, name),
+                    role: item["role"] as? String,
+                    author: item["author"] as? String,
+                    members: try XCTUnwrap(item["members"] as? [String], name)
+                ),
+                item["expected"] as? String,
+                name
+            )
+        }
+    }
+
     func testCountLabelCases() throws {
         for item in try cases("countLabelCases") {
             let count = try XCTUnwrap(item["count"] as? Int)
@@ -213,6 +261,7 @@ final class AppRecordsTests: XCTestCase {
             "empty": C.empty, "noKinds": C.noKinds, "emptyTitle": C.emptyTitle, "newTitle": C.newTitle,
             "editTitle": C.editTitle, "save": C.save, "cancel": C.cancel, "yes": C.yes, "no": C.no,
             "none": C.none, "optional": C.optional, "listHint": C.listHint,
+            "author": C.author, "byFor": C.byFor,
         ])
         let columns = try XCTUnwrap(tab["columns"] as? [String: Any])
         XCTAssertEqual(columns["byWidth"] as? Double, AppRecords.DataTab.Columns.byWidth)
@@ -320,6 +369,56 @@ final class AppRecordsTests: XCTestCase {
                 json(item["schema"]), inputs: inputs, editing: try XCTUnwrap(item["editing"] as? Bool)
             )
             XCTAssertEqual(CardJSON.object(data), json(item["data"]), item["$why"] as? String ?? "")
+        }
+    }
+
+    // VAPP-188: the `by` cell, the owner's Author picker and what Save sends.
+    func testDataBylineCases() throws {
+        for item in try dataCases("bylineCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let row = AppRecords.Row(
+                id: "r1", kind: "entry", data: [:],
+                createdBy: item["createdBy"] as? String,
+                authorId: item["authorId"] as? String,
+                createdAt: "", updatedAt: ""
+            )
+            XCTAssertEqual(
+                AppRecords.recordByline(
+                    row,
+                    names: try XCTUnwrap(item["names"] as? [String: String], name),
+                    fallback: try XCTUnwrap(item["fallback"] as? String, name)
+                ),
+                item["text"] as? String,
+                name
+            )
+        }
+    }
+
+    func testDataAuthorOptionCases() throws {
+        for item in try dataCases("authorOptionCases") {
+            let users = try XCTUnwrap(item["users"] as? [[String: Any]]).map {
+                AppRecords.AuthorOption(id: $0["id"] as? String ?? "", name: $0["name"] as? String ?? "")
+            }
+            XCTAssertEqual(AppRecords.authorOptions(users).map(\.id), item["order"] as? [String])
+        }
+    }
+
+    func testDataFormAuthorCases() throws {
+        for item in try dataCases("formAuthorCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let record = (item["record"] as? [String: Any]).map {
+                AppRecords.Row(
+                    id: "r1", kind: "entry", data: [:],
+                    createdBy: $0["createdBy"] as? String,
+                    authorId: $0["authorId"] as? String,
+                    createdAt: "", updatedAt: ""
+                )
+            }
+            let result = AppRecords.formAuthor(
+                viewer: item["viewer"] as? String, record: record, picked: item["picked"] as? String
+            )
+            XCTAssertEqual(result.defaultAuthor, item["default"] as? String, name)
+            XCTAssertEqual(result.send, item["send"] as? String, name)
         }
     }
 }

@@ -4,6 +4,7 @@ import { APPS_COPY } from "@exp/domain-contract/apps"
 import {
   APP_DATA_COPY,
   APP_DATA_TAB,
+  authorOptions,
   canChangeRecord,
   cellText,
   columnWidth,
@@ -12,8 +13,9 @@ import {
   dataRows,
   formData,
   formFields,
+  formAuthor,
   formInput,
-  recordAuthor,
+  recordByline,
   type DataFormField,
   type DataSchema,
 } from "@exp/domain-contract/app-records"
@@ -120,7 +122,6 @@ export function AppDataTab({
   const schema = kind ? (manifest?.records?.[kind]?.schema ?? null) : null
   const columns = useMemo(() => (schema ? dataColumns(schema) : []), [schema])
   const rows = useMemo(() => (kind ? dataRows(records, kind) : []), [records, kind])
-  const usersById = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
 
   const [form, setForm] = useState<FormState | null>(null)
   const [deleting, setDeleting] = useState<DataRecord | null>(null)
@@ -173,10 +174,9 @@ export function AppDataTab({
     />
   )
 
-  const author = (record: DataRecord) => {
-    const id = recordAuthor(record)
-    return (id ? usersById.get(id)?.name : undefined) ?? APPS_COPY.byAgent
-  }
+  // VAPP-188: the author, `{writer} for {author}` on an on-behalf row.
+  const names = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u.name])), [users])
+  const author = (record: DataRecord) => recordByline(record, names, APPS_COPY.byAgent)
 
   const grid = {
     gridTemplateColumns: [
@@ -272,7 +272,14 @@ export function AppDataTab({
       ) : (
         table
       )}
-      <RecordForm appId={appId} state={form} schema={form ? (manifest?.records?.[form.kind]?.schema ?? null) : null} onClose={() => setForm(null)} />
+      <RecordForm
+        appId={appId}
+        state={form}
+        schema={form ? (manifest?.records?.[form.kind]?.schema ?? null) : null}
+        me={me}
+        authors={role === `owner` ? users : null}
+        onClose={() => setForm(null)}
+      />
       <Prompt
         open={deleting !== null}
         onOpenChange={(next) => !next && !deleteBusy && setDeleting(null)}
@@ -294,11 +301,16 @@ function RecordForm({
   appId,
   state,
   schema,
+  me,
+  authors,
   onClose,
 }: {
   appId: string
   state: FormState | null
   schema: DataSchema | null
+  me: string | null
+  /** VAPP-188: the team's members for an OWNER's Author picker (null = no picker). */
+  authors: readonly User[] | null
   onClose: () => void
 }) {
   const open = state !== null && schema !== null
@@ -306,7 +318,9 @@ function RecordForm({
   const [inputs, setInputs] = useState<Inputs>({})
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [author, setAuthor] = useState<string | null>(null)
   const editing = state?.record != null
+  const authorChoices = useMemo(() => (authors ? authorOptions(authors) : null), [authors])
 
   // Seed on OPEN only.
   useEffect(() => {
@@ -314,6 +328,7 @@ function RecordForm({
     const seeded: Inputs = {}
     for (const field of fields) seeded[field.name] = formInput(field.control, state?.record?.data[field.name])
     setInputs(seeded)
+    setAuthor(formAuthor(me, state?.record ?? null, null).default)
     setError(null)
     setSaving(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -331,8 +346,9 @@ function RecordForm({
     setError(null)
     try {
       const data = formData(schema, inputs, editing)
+      const send = authorChoices ? formAuthor(me, state.record, author).send : null
       const result = await trpc.apps.records.upsert.mutate(
-        { id: appId, kind: state.kind, data, ...(state.record ? { recordId: state.record.id } : {}) },
+        { id: appId, kind: state.kind, data, ...(state.record ? { recordId: state.record.id } : {}), ...(send ? { author: send } : {}) },
         SKIP_ERROR_TOAST
       )
       await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
@@ -355,6 +371,14 @@ function RecordForm({
         </DialogHeader>
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col gap-3">
           <DialogBody className="min-h-0 space-y-3 overflow-y-auto">
+            {authorChoices && (
+              <FieldRow
+                field={{ name: APP_DATA_COPY.author, control: `select`, required: true, options: authorChoices.map((u) => u.id) }}
+                optionLabel={(id) => authorChoices.find((u) => u.id === id)?.name ?? id}
+                value={author ?? ``}
+                onChange={(value) => typeof value === `string` && setAuthor(value)}
+              />
+            )}
             {fields.map((field) => (
               <FieldRow key={field.name} field={field} value={inputs[field.name]} onChange={(value) => set(field.name, value)} />
             ))}
@@ -380,10 +404,13 @@ function FieldRow({
   field,
   value,
   onChange,
+  optionLabel = (option) => option,
 }: {
   field: DataFormField
   value: string | boolean | undefined
   onChange: (value: string | boolean) => void
+  /** VAPP-188: the Author picker's options are user ids shown by name. */
+  optionLabel?: (option: string) => string
 }) {
   const id = `app-data-field-${field.name}`
   const label = (
@@ -412,7 +439,7 @@ function FieldRow({
           {!field.required && <SelectItem value={NONE}>{APP_DATA_COPY.none}</SelectItem>}
           {(field.options ?? []).map((option) => (
             <SelectItem key={option} value={option}>
-              {option}
+              {optionLabel(option)}
             </SelectItem>
           ))}
         </SelectContent>
