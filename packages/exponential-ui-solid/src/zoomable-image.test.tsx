@@ -53,6 +53,8 @@ function mount(props: Record<string, unknown> = {}) {
   const r = render(() => <ExponentialSurface root={root()} theme="neutral" id="zs" host={{ onAction: (e) => void actions.push(e) }} />)
   const rootEl = r.container.querySelector<HTMLElement>(`[data-xui-id="z"]`)!
   const img = r.container.querySelector<HTMLImageElement>(`[data-xui-part="ZoomableImage/image"]`)!
+  // The picture loads (jsdom never fetches): the placeholder gives way to the pill.
+  fireEvent.load(img)
   const button = (part: string) => r.container.querySelector<HTMLButtonElement>(`[data-xui-part="ZoomableImage/${part}"]`)!
   return { ...r, actions, root: rootEl, img, button, setRoot }
 }
@@ -87,6 +89,22 @@ describe(`ZoomableImage native`, () => {
     const { root, container } = mount({ naturalWidth: 390, naturalHeight: 3000, controls: `none` })
     expect(root.style.aspectRatio).toBe(`1`)
     expect(container.querySelector(`[data-xui-part="ZoomableImage/pill"]`)).toBeNull()
+  })
+
+  it(`until the picture loads: the placeholder (glyph + alt), the picture hidden, NO pill`, () => {
+    const r = render(() => <ExponentialSurface root={tree()} theme="neutral" id="zp" />)
+    const img = r.container.querySelector<HTMLImageElement>(`[data-xui-part="ZoomableImage/image"]`)!
+    const placeholder = () => r.container.querySelector<HTMLElement>(`.xui-zoom-placeholder`)
+    expect(img.style.opacity).toBe(`0`)
+    expect(placeholder()!.getAttribute(`aria-hidden`)).toBe(`true`)
+    expect(placeholder()!.querySelector(`svg`)).not.toBeNull()
+    expect(placeholder()!.textContent).toBe(`Shot`)
+    expect(placeholder()!.style.borderRadius).toBe(`8px`)
+    expect(r.container.querySelector(`[data-xui-part="ZoomableImage/pill"]`)).toBeNull()
+    fireEvent.load(img)
+    expect(img.style.opacity).toBe(``)
+    expect(placeholder()).toBeNull()
+    expect(r.container.querySelector(`[data-xui-part="ZoomableImage/pill"]`)).not.toBeNull()
   })
 
   it(`⌘/ctrl-wheel zooms about the cursor (never the page) and settles into one zoom event`, () => {
@@ -220,6 +238,7 @@ describe(`ZoomableImage native`, () => {
       />
     ))
     const img = r.container.querySelector<HTMLImageElement>(`[data-xui-part="ZoomableImage/image"]`)!
+    fireEvent.load(img)
     expect(img.style.transform).toBe(transformOf(zoomTo(zoomRestView(frame()), 2, { x: 300, y: 200 }, frame())))
     fireEvent.keyDown(r.container.querySelector(`[data-xui-id="z"]`)!, { key: `0` })
     expect(img.style.transform).toBe(transformOf(zoomRestView(frame())))

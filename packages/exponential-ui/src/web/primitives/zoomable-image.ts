@@ -610,6 +610,8 @@ export function zoomableImageLayout(pill: { inset: number; percentMinWidth: numb
   return {
     root: { overflow: `clip`, userSelect: `none` },
     image: { position: `absolute`, left: 0, top: 0, display: `block`, maxWidth: `none`, maxHeight: `none`, transformOrigin: `0 0`, pointerEvents: `none`, userSelect: `none` },
+    /** Not loaded yet (pending or failed): no broken-image glyph, no alt text (the placeholder draws them); the controller owns `visibility`. */
+    imagePending: { opacity: 0 },
     pill: { position: `absolute`, left: `50%`, bottom: pill.inset, transform: `translateX(-50%)`, zIndex: 1, display: `flex`, flexDirection: `row`, alignItems: `center`, whiteSpace: `nowrap`, cursor: `default`, transition: `opacity var(--xui-motion-standard) var(--xui-ease-standard,ease)` },
     pillHidden: { opacity: 0, pointerEvents: `none` },
     button: { display: `inline-flex`, alignItems: `center`, justifyContent: `center`, cursor: `pointer`, flexShrink: 0 },

@@ -106,7 +106,7 @@ impl Glyph {
             "ui-error" => Glyph::Error,
             "ui-back" => Glyph::Back,
             "ui-star" | "star" => Glyph::Star,
-            "ui-image" => Glyph::Image,
+            "ui-image" | "image" => Glyph::Image,
             "ui-fullscreen" => Glyph::Fullscreen,
             "ui-icon-placeholder" => Glyph::Placeholder,
             _ => return None,

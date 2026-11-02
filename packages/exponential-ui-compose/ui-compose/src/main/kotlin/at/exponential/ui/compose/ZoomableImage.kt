@@ -284,7 +284,8 @@ internal fun zoomLooks(model: SurfaceModel, controls: String, ink: Color): ZoomL
  * surface's strings; `zoom {scale, atFit}` after each settled zoom change,
  * `tap` on a single tap; a `scale` the author (or a binding) sets zooms
  * there about the centre. While the picture loads (or fails) the picture's
- * area is tinted with the image glyph and the alt text over it.
+ * area is tinted with the image glyph and the alt text over it, and the
+ * pill is not drawn (nothing to zoom yet).
  */
 @Composable
 internal fun ZoomableImageLeaf(cx: LeafContext) {
@@ -352,7 +353,9 @@ internal fun ZoomableImageLeaf(cx: LeafContext) {
         modifier = Modifier.fillMaxSize(),
         initial = initial,
         maxScale = maxScale,
-        controls = controls,
+        // style.json zoomableImage: while the picture has not loaded (pending
+        // or failed) there is nothing to zoom, so the pill is not drawn.
+        controls = if (picture == null) ZoomControls.None else controls,
         contentKey = src,
         contentDescription = alt.ifEmpty { null },
         onZoom = { s, rest ->

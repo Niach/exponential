@@ -1073,7 +1073,8 @@ impl Render for ZoomableImage {
         }
         // The decoded picture (its size when the author gave none).
         let data = self.image.as_ref().map(|s| render_image(s, window, cx));
-        let broken = matches!(data, None | Some(Some(Err(_))));
+        // Drawn only once decoded (pending = `Some(None)`, failed = `Err`).
+        let loaded = matches!(data, Some(Some(Ok(_))));
         if self.given.is_none() {
             if let Some(Some(Ok(d))) = &data {
                 let size = d.size(0);
@@ -1142,8 +1143,22 @@ impl Render for ZoomableImage {
                 }
             }))
             .child(picture);
-        if broken {
-            root = root.child(div().absolute().size_full().flex().items_center().justify_center().child(self.icon("ui-image", ink.opacity(0.5))));
+        // Pending or failed (style.json zoomableImage): the box keeps its
+        // size; the picture area is filled (mutedForeground 8%) and centres
+        // the image glyph (20, mutedForeground 60%) over the alt text
+        // (12/16, 400, one line, ellipsis), gap 4. No pill: nothing to zoom.
+        if !loaded {
+            let muted = crate::paint::parts::theme_color(self.options.theme.as_deref(), self.options.mode, "mutedForeground").unwrap_or(ink.opacity(0.6));
+            let faint = muted.opacity(0.6);
+            let mut placeholder = div().absolute().size_full().flex().flex_col().items_center().justify_center().gap(px(4.0)).bg(muted.opacity(0.08)).rounded_tl(px(radii[0])).rounded_tr(px(radii[1])).rounded_br(px(radii[2])).rounded_bl(px(radii[3])).child(icons::concept(self.options.host.as_ref(), "image", 20.0, faint));
+            if !self.options.alt.is_empty() {
+                let mut text = div().max_w_full().min_w_0().overflow_hidden().text_ellipsis().whitespace_nowrap().text_size(px(12.0)).line_height(px(16.0)).font_weight(FontWeight(400.0)).text_color(faint);
+                if let Some(family) = self.options.font_family.clone() {
+                    text = text.font_family(family);
+                }
+                placeholder = placeholder.child(text.child(self.options.alt.clone()));
+            }
+            root = root.child(placeholder);
         }
         // A press in flight follows the pointer anywhere in the window.
         if self.press.is_some() {
@@ -1169,7 +1184,7 @@ impl Render for ZoomableImage {
                 .size_0(),
             );
         }
-        if self.pill_visible() && self.has_frame() {
+        if loaded && self.pill_visible() && self.has_frame() {
             let inset = ZOOM.pill.inset as f32;
             root = root.child(div().absolute().left_0().right_0().bottom(px(inset)).flex().justify_center().child(self.pill(cx)));
         }

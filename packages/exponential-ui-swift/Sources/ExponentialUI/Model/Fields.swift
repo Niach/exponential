@@ -22,12 +22,15 @@ final class FieldState {
     var pendingChange = false
     /// Bumped when the model writes the text (the view reloads it).
     var writeGeneration = 0
+    /// Was the text non-blank at the last `noteComposerText`?
+    var filled: Bool
 
     init(id: String, kind: FieldKind, text: String, external: JSONValue) {
         self.id = id
         self.kind = kind
         self.text = text
         self.external = external
+        filled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 }
 
@@ -98,6 +101,7 @@ extension SurfaceModel {
     public func fieldEdited(_ index: Int, text: String) {
         guard let f = field(index) else { return }
         f.text = text
+        noteComposerText(f)
         f.revision += 1
         f.pendingChange = true
         f.debounce?.cancel()
@@ -189,10 +193,27 @@ extension SurfaceModel {
     /// Empty a field without an echo (a ChipInput after a chip was added).
     private func clearField(_ f: FieldState) {
         f.text = ""
+        noteComposerText(f)
         f.revision += 1
         f.pendingChange = false
         f.external = .string("")
         f.writeGeneration += 1
+    }
+
+    /// Is the composer's draft non-blank (its send button enabled)? Reads
+    /// the observed `composerFillTick` so the button redraws on the flip.
+    public func composerHasText(_ index: Int) -> Bool {
+        _ = composerFillTick
+        return field(index)?.filled ?? false
+    }
+
+    /// A composer draft flipped blank / non-blank: redraw its send button.
+    func noteComposerText(_ f: FieldState) {
+        guard f.kind == .composer else { return }
+        let filled = !f.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        guard filled != f.filled else { return }
+        f.filled = filled
+        composerFillTick &+= 1
     }
 
     /// Composer Enter / send: `submit`, then the field empties (a busy
@@ -210,6 +231,7 @@ extension SurfaceModel {
         f.debounce = nil
         f.pendingChange = false
         f.text = ""
+        noteComposerText(f)
         f.writeGeneration += 1
         f.external = .string("")
         guard let events = try? surface.event(index: UInt32(index), name: "submit", payloadJson: JSONValue.object(["value": .string(text)]).json) else { return }
@@ -227,6 +249,7 @@ extension SurfaceModel {
             let text = ext.displayText
             if text != f.text {
                 f.text = text
+                noteComposerText(f)
                 f.writeGeneration += 1
             }
         }

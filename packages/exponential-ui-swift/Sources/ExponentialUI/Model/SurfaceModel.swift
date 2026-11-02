@@ -140,6 +140,9 @@ public final class SurfaceModel {
     /// per node when its props change or it leaves the surface).
     @ObservationIgnored var paintFailures: [String: PaintFailure] = [:]
     @ObservationIgnored var fields: [String: FieldState] = [:]
+    /// Bumped when a Composer draft flips blank / non-blank (observed: the
+    /// send button draws disabled while its composer is empty, web's `:disabled`).
+    var composerFillTick = 0
     @ObservationIgnored var layerReturn: [String: String] = [:]
     @ObservationIgnored var openLayerKeys: [String] = []
     @ObservationIgnored var justDismissed: String?

@@ -80,6 +80,30 @@ fn rounded<E: Styled>(e: E, r: [f32; 4]) -> E {
     e.rounded_tl(px(r[0])).rounded_tr(px(r[1])).rounded_br(px(r[2])).rounded_bl(px(r[3]))
 }
 
+/// A box with an ink glyph dimmed to `dim` the way the web dims a layer
+/// (group opacity): the fill and border keep `dim` as alpha, the ink is
+/// pre-blended over `under` (the opaque background the box sits on) so no
+/// fill shows through it. Without an opaque `under` it falls back to the
+/// element opacity.
+pub(crate) fn group_dim(mut style: PaintStyle, ink: Hsla, under: Option<Hsla>, dim: f32) -> (PaintStyle, Hsla) {
+    if dim >= 1.0 {
+        style.opacity = None;
+        return (style, ink);
+    }
+    let Some(under) = under.filter(|c| c.a >= 0.999) else {
+        style.opacity = Some(dim);
+        return (style, ink);
+    };
+    // The ink as the web composites it: over the box's fill, then the
+    // layer at `dim` over `under`.
+    let face = style.bg.map_or(under, |fill| under.blend(fill));
+    let inked = face.blend(ink);
+    style.opacity = None;
+    style.bg = style.bg.map(|c| c.opacity(dim));
+    style.border_color = style.border_color.map(|c| c.opacity(dim));
+    (style, under.blend(inked.opacity(dim)))
+}
+
 /// The scrollbar thumb `(offset, length)` along a track `len` long.
 pub fn thumb_geometry(viewport: f32, content: f32, offset: f32, len: f32) -> Option<(f32, f32)> {
     if content <= viewport + 0.5 || viewport <= 0.0 {
@@ -122,6 +146,35 @@ impl SurfaceView {
         // The Mosaic macro names the scrim `<tile id>.more` beside `<tile id>.image`.
         let covered = n.id.rsplit_once('.').and_then(|(tile, _)| self.cache.index_of(&format!("{tile}.more"))).and_then(|m| self.cache.node(m)).is_some_and(|m| !m.hidden);
         natives::ImageSurround { backdrop, covered }
+    }
+
+    /// The opaque background a node sits on: the nearest ancestor that
+    /// paints a fill (`None` = a translucent or gradient one, or none).
+    /// The opaque colour a node composites over: its ancestors' fills, a
+    /// translucent one flattened over the next one out, down to the theme
+    /// `background` (the surface's page). None under a gradient.
+    fn backdrop_of(&self, n: &PlacedNode) -> Option<Hsla> {
+        let mut fills = Vec::new();
+        let mut at = n.parent;
+        while let Some(p) = at {
+            if let Some(s) = self.styles.get(p as usize) {
+                if s.gradient.is_some() {
+                    return None;
+                }
+                if let Some(bg) = s.bg.filter(|c| c.a > 0.0) {
+                    fills.push(bg);
+                    if bg.a >= 0.999 {
+                        break;
+                    }
+                }
+            }
+            at = self.cache.node(p).and_then(|x| x.parent);
+        }
+        let base = match fills.last() {
+            Some(bg) if bg.a >= 0.999 => fills.pop()?,
+            _ => theme_color(self.surface.theme().map(|t| t.as_ref()), self.surface.mode(), "background")?,
+        };
+        Some(fills.into_iter().rev().fold(base, |under, fill| under.blend(fill)))
     }
 
     fn owner_props(&self, index: u32) -> serde_json::Map<String, Value> {
@@ -226,7 +279,19 @@ impl SurfaceView {
         let mut el = div().id(id.clone()).absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h));
         // `native: true`: the platform control paints the part itself.
         let native = style.native && leaf && matches!((n.component.as_str(), n.part.as_deref()), ("Switch", Some("track")) | ("Checkbox", Some("box" | "checkbox")));
-        let style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, ..style } } else { style };
+        let mut style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, ..style } } else { style };
+        // A dimmed (disabled) Button / Toggle fades as ONE layer on the web:
+        // its label never shows its own fill through it. On an opaque
+        // backdrop the dim is flattened (`group_dim`); elsewhere it stays the
+        // element opacity.
+        let mut ink_override = None;
+        if leaf && !native && style.gradient.is_none() && matches!(n.component.as_str(), "Button" | "Toggle") {
+            if let (Some(o), Some(under)) = (style.opacity.filter(|o| *o < 1.0), self.backdrop_of(n)) {
+                let (flat, ink) = group_dim(style.clone(), self.inks.get(i).copied().unwrap_or(gpui::white()), Some(under), o);
+                style = flat;
+                ink_override = Some(ink);
+            }
+        }
         // A Skeleton leaf's fill is its pulse (`natives::skeleton`), not the box's.
         let pulses = leaf && n.component == "Skeleton";
         el = el.when_some(style.bg.filter(|_| !pulses), |d, bg| d.bg(bg));
@@ -280,7 +345,7 @@ impl SurfaceView {
                 map.borrow_mut().insert(key.clone(), b);
             }, |_, _, _, _| {}).absolute().size_full());
         }
-        let ink = self.inks.get(i).copied().unwrap_or(gpui::white());
+        let ink = ink_override.unwrap_or_else(|| self.inks.get(i).copied().unwrap_or(gpui::white()));
         if n.component == "Extension" {
             if self.paint_blocked(n, cx) {
                 return Some(el.into_any_element());
@@ -1238,13 +1303,23 @@ impl SurfaceView {
                     .child(icons::concept(lcx.host, "ui-attach", 16.0, att.color.unwrap_or(lcx.ink))),
             );
         }
-        let send_ink = send_style.color.unwrap_or(lcx.ink);
         let label = self.composer_labels(n).0;
         let fid = n.id.clone();
         let disabled = !busy && empty;
+        // The web dims the send button as ONE layer (`:disabled` 0.5, the
+        // `busy` recipe's opacity): fill and glyph fade together over the
+        // composer. gpui fades each primitive on its own (the glyph would
+        // show the fill through it), so the dim is flattened here: the fill
+        // at the dim alpha, the glyph pre-blended over the composer's own
+        // background, flattened over what it sits on (`group_dim`).
+        let dim = if disabled { 0.5 } else { 1.0 } * send_style.opacity.unwrap_or(1.0);
+        let under = match lcx.style.bg.filter(|c| c.a > 0.0) {
+            Some(bg) if bg.a >= 0.999 => Some(bg),
+            bg => self.backdrop_of(n).map(|b| bg.map_or(b, |bg| b.blend(bg))),
+        };
+        let (send_style, send_ink) = group_dim(send_style.clone(), send_style.color.unwrap_or(lcx.ink), under, dim);
         bar = bar.child(
             styled_box(div().id(SharedString::from(format!("{}.send", n.id))).size(px(send)).flex().items_center().justify_center(), &send_style, send, send)
-                .when(disabled, |d| d.opacity(0.5))
                 .when(!disabled, |d| d.cursor_pointer())
                 .role(gpui::Role::Button)
                 .aria_label(SharedString::from(label))

@@ -109,6 +109,8 @@ fn main() {
     // already-running bundle via on_open_urls below.
     #[cfg(target_os = "macos")]
     macos_integration::ensure_scheme_registered();
+    #[cfg(target_os = "macos")]
+    macos_integration::match_web_font_smoothing();
 
     let app = gpui_platform::application().with_assets(assets::Assets);
 

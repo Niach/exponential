@@ -392,6 +392,9 @@ describe(`ZoomableImage`, () => {
     const el = mount(fixture(zoomable))
     el.addEventListener(`xui-action`, (e) => void seen.push(e.detail))
     await tick()
+    // The picture loads (jsdom never fetches): the pill is drawn from then on.
+    el.querySelector(`[data-xui-part="ZoomableImage/image"]`)!.dispatchEvent(new Event(`load`))
+    await tick()
     const percent = () => el.querySelector(`[data-xui-part="ZoomableImage/percent"]`)?.textContent
     expect(percent()).toBe(`50%`)
     el.querySelector<HTMLButtonElement>(`[data-xui-part="ZoomableImage/zoomIn"]`)!.click()

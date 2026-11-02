@@ -314,9 +314,6 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
     // A `search` part leads with its glyph (the measurer's 16 + 8).
     val glyph = cx.node.part == "search" && cx.props["icon"] != null
     val disabled = cx.model.isDisabled(cx.index)
-    // A disabled field dims its value with the frame (web: the whole
-    // `<Component>/field` at the disabled opacity, the value included).
-    val dim = if (disabled) cx.part(cx.node.recipeComponent, "field", listOf("disabled")).style.opacity ?: 0.5f else 1f
     InnerBox(cx, contentAlignment = Alignment.CenterStart) {
         if (glyph) GlyphView(Glyph.Search, 16f, placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f))
         OwnedTextField(
@@ -324,7 +321,7 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
             model = cx.model,
             multiline = false,
             placeholder = cx.props.str("placeholder").ifEmpty { owner.str("placeholder") },
-            textStyle = cx.composeTextStyle(color = cx.ink.copy(alpha = cx.ink.alpha * dim)),
+            textStyle = cx.composeTextStyle(),
             placeholderColor = placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.5f),
             disabled = disabled,
             submitsOnReturn = false,

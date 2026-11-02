@@ -1133,3 +1133,15 @@ fn choice_tiles_lay_out_equal_columns_with_pictures_and_states() {
     let (a, b) = (frame(&plain, &out, "c.tile.0"), frame(&plain, &out, "c.tile.1"));
     assert!((b.x - a.x - a.w - 8.0).abs() < 0.01 && a.y == b.y, "columns clamp to 4: both on one row");
 }
+
+#[test]
+fn a_disabled_file_upload_dims_its_dropzone_once_not_the_browse_button_again() {
+    // EXP-1563: web dims the dropzone (Browse inside it included) once; the
+    // Browse button carries no opacity of its own on top.
+    let mut s = field_surface(json!({"id": "f", "component": "FileUpload", "props": {"label": "Files", "name": "files", "disabled": true}}));
+    let mut m = fixed();
+    s.layout(&mut m);
+    let opacity = |id: &str| s.index_of(id).and_then(|i| s.visual(i)).and_then(|v| v.opacity);
+    assert_eq!(opacity("f.dropzone"), Some(0.5));
+    assert_eq!(opacity("f.browse"), None);
+}

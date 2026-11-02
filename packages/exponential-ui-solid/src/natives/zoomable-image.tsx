@@ -3,12 +3,15 @@
 // controller (`createZoomController`, every number from the core's
 // src/zoom.ts), and THE zoom pill: − / the percent (THE Menu of `zoomMenu`
 // through `PressMenu`, on the Menu's own parts) / + / a hairline / fit.
+// Until the picture loads (pending or failed) the box keeps its size and
+// draws the placeholder (the image glyph + the alt) and NO pill.
 
 import { createSignal, createEffect, on, type Component, type JSX } from "solid-js"
-import { MEDIA_INTRINSIC_WIDTH, ZOOM } from "@exponential_app/eui"
+import { MEDIA_INTRINSIC_WIDTH, ZOOM, nativeRecipeProps, resolveRecipe } from "@exponential_app/eui"
 import type { UiNode, ZoomInitial } from "@exponential_app/eui"
 import { ZOOMABLE_IMAGE_NATIVE_TRANSITION, zoomBoxAspect, zoomableImageLayout, type ZoomControls } from "@exponential_app/eui/web/primitives"
 import { useSurfaceContext } from "../context"
+import { CHROME, PaintIcon } from "../icons"
 import { createMediaSource } from "../media"
 import { mergeStyle, type NativeProps } from "../node-view"
 import { ZOOM_MATH, createZoomableImage } from "../primitives/zoomable-image"
@@ -80,13 +83,24 @@ export function ZoomableImageNative(props: NativeProps): JSX.Element {
   }
   const imageStyle = () => {
     const n = zoom.natural()
-    return css({ ...LAYOUT.image, ...(n ? { width: n.width, height: n.height } : {}) })
+    return css({ ...LAYOUT.image, ...(n ? { width: n.width, height: n.height } : {}), ...(zoom.ready() ? {} : LAYOUT.imagePending) })
+  }
+  // The placeholder takes the picture's radius (the `image` recipe).
+  const placeholderStyle = () => {
+    const radius = resolveRecipe(ctx.theme, { component: `ZoomableImage`, part: `image`, props: nativeRecipeProps(`ZoomableImage`, props.props, ctx.extensionDefs) }, ctx.mode).borderRadius
+    return radius !== undefined ? css({ borderRadius: radius as number }) : undefined
   }
   return (
     <div {...over(props.rootProps, { style: rootStyle(), role: `group`, "aria-label": alt() || undefined, tabindex: 0 })} ref={zoom.rootRef}>
       <img {...part(`image`)} ref={zoom.imageRef} src={media().url || undefined} alt={alt()} draggable={false} loading="lazy" decoding="async" style={imageStyle()} onLoad={zoom.onImageLoad} />
       <svg class="xui-media-sizer" aria-hidden="true" width={MEDIA_INTRINSIC_WIDTH} height={1} />
-      {controls() !== `none` ? (
+      {zoom.ready() ? null : (
+        <div class="xui-zoom-placeholder" aria-hidden="true" style={placeholderStyle()}>
+          <PaintIcon icon={CHROME.image} aria-hidden="true" />
+          {alt() ? <span>{alt()}</span> : null}
+        </div>
+      )}
+      {controls() !== `none` && zoom.ready() ? (
         <div {...part(`pill`)} ref={zoom.pillRef} role="toolbar" data-state={zoom.pillVisible() ? `open` : `closed`} style={zoom.pillVisible() ? PILL_STYLE : PILL_HIDDEN_STYLE}>
           <button type="button" {...part(`zoomOut`, zoom.pill().atMin && `disabled`)} style={BUTTON_STYLE} aria-label={ctx.t(`zoomOut`)} disabled={zoom.pill().atMin} onClick={() => zoom.controller()?.step(-1)}>
             <BuiltinIcon slot="ZoomableImage.zoomOut" size={16} />

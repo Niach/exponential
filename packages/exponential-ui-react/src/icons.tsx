@@ -30,6 +30,7 @@ import {
   Ellipsis,
   File,
   Hand,
+  Image as ImageGlyph,
   Info,
   LoaderCircle,
   Maximize2,
@@ -77,6 +78,8 @@ export const CHROME = {
   attach: Paperclip,
   spinner: LoaderCircle,
   placeholder: CircleDashed,
+  /** A ZoomableImage whose picture has not loaded (pending or failed). */
+  image: ImageGlyph,
 } as const
 
 /** icons.json concept / registry names → the Lucide glyph icons.json gives

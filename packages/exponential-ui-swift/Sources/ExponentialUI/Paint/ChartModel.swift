@@ -56,6 +56,16 @@ struct ChartModel {
 
     var isSlices: Bool { kind == "pie" || kind == "donut" }
 
+    /// EXP-1563: the value axis of a cartesian chart spans its ticks (web's
+    /// `ticks.min..ticks.max`), so the top tick label sits at the plot's top
+    /// edge, never above it over the title; the data extent on a sparkline /
+    /// pie / donut.
+    var lo: Double { kind == "sparkline" || isSlices ? min : ticks.min() ?? min }
+    var hi: Double {
+        let h = kind == "sparkline" || isSlices ? max : ticks.max() ?? max
+        return h == lo ? lo + 1 : h
+    }
+
     /// The slices of a pie / donut: the first series' values (negatives = 0).
     var sliceValues: [Double] { (series.first?.values ?? []).map { Swift.max($0, 0) } }
 

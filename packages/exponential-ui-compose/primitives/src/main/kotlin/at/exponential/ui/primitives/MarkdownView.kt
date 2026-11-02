@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -300,6 +302,8 @@ private fun MarkdownBlockView(
                 val task = kind.task
                 if (task != null) {
                     TaskBox(task, minOf(TASK_BOX, spec.lineHeight).dp, colors)
+                } else if (kind.marker == BULLET) {
+                    BulletDisc(spec.size, styles.listIndent, colors.ink)
                 } else {
                     BasicText(kind.marker, style = shaper.style(spec, colors.muted))
                 }
@@ -404,5 +408,27 @@ private fun TaskBox(checked: Boolean, size: Dp, colors: MarkdownColors) {
                 style = Stroke(width = hair),
             )
         }
+    }
+}
+
+/** The unordered list marker [Markdown.parse] writes. */
+private const val BULLET = "\u2022"
+
+/**
+ * A bullet list's marker as the web draws `list-style: disc` (an outside
+ * marker in the text colour): a filled disc 0.34 em across, its centre
+ * 1 em before the item's text, on the first line's middle.
+ */
+@Composable
+private fun BulletDisc(fontSize: Float, indent: Float, color: Color) {
+    val d = fontSize * 0.34f
+    Box(Modifier.fillMaxSize()) {
+        Box(
+            Modifier
+                .offset(x = maxOf(0f, indent - fontSize - d / 2f).dp)
+                .size(d.dp)
+                .align(Alignment.CenterStart)
+                .background(color, CircleShape),
+        )
     }
 }

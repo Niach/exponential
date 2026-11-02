@@ -536,7 +536,10 @@ pub fn icon(cx: &LeafCx) -> AnyElement {
     // `$control.iconSm` in the built-in themes; a remove button's box is 36,
     // its glyph 16), never larger than the box.
     let recipe = part_props(cx.theme, cx.mode, "Icon", "root", &cx.node.props, cx.states);
-    let size = (px_prop(&recipe, "width").or_else(|| px_prop(&recipe, "height")).unwrap_or(f32::INFINITY) * cx.scale).min(w.min(h)).max(1.0);
+    // The parts whose glyph FILLS the part's box on the web (`>svg {width:
+    // 100%}`): the FileUpload dropzone icon is `$control.iconLg`.
+    let fills = matches!((cx.node.owner_component.as_deref(), cx.node.part.as_deref()), (Some("FileUpload"), Some("icon")));
+    let size = if fills { w.min(h).max(1.0) } else { (px_prop(&recipe, "width").or_else(|| px_prop(&recipe, "height")).unwrap_or(f32::INFINITY) * cx.scale).min(w.min(h)).max(1.0) };
     let rotate = cx.style.transform.rotate;
     let glyph = if rotate.abs() > 0.01 { icons::concept_rotated(cx.host, name, size, cx.ink, rotate.to_radians()) } else { icons::concept_mirrored(cx.host, name, size, cx.ink, cx.rtl) };
     cx.content().flex().items_center().justify_center().child(glyph).into_any_element()

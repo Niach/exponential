@@ -41,6 +41,27 @@ extern "C" {
 extern "C" {
     fn CFBundleGetMainBundle() -> *mut c_void;
     fn CFBundleGetIdentifier(bundle: *mut c_void) -> CFStringRef;
+    static kCFPreferencesCurrentApplication: CFStringRef;
+    fn CFPreferencesSetAppValue(key: CFStringRef, value: *const c_void, app: CFStringRef);
+}
+
+/// EXP-1589: text draws like web's. The web app and every eUI surface set
+/// `-webkit-font-smoothing: antialiased` (no stem darkening); gpui's macOS
+/// text system dilates every glyph unless this app's `AppleFontSmoothing`
+/// preference is 0, which made desktop labels and titles read heavier than
+/// web at the same weight. Set in THIS app's preference domain only (the
+/// user's global setting stays untouched), BEFORE gpui reads it: its text
+/// system caches the value once.
+pub fn match_web_font_smoothing() {
+    let key = CFString::new("AppleFontSmoothing");
+    let zero = core_foundation::number::CFNumber::from(0i32);
+    unsafe {
+        CFPreferencesSetAppValue(
+            key.as_concrete_TypeRef(),
+            zero.as_concrete_TypeRef() as *const c_void,
+            kCFPreferencesCurrentApplication,
+        );
+    }
 }
 
 /// Assert this running bundle as the default `exponential://` handler. Safe

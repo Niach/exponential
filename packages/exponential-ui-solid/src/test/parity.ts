@@ -63,6 +63,9 @@ export interface ParityCase {
   id?: string
   reactHost?: ReactHostPlugin
   solidHost?: SolidHostPlugin
+  /** Run on each side's container after the render (React's inside `act`):
+   *  an event a jsdom never fires by itself, e.g. an `<img>` `load`. */
+  settle?: (container: Element) => void
 }
 
 
@@ -122,6 +125,7 @@ export async function renderReact(c: ParityCase): Promise<{ root: Element; clean
   await act(async () => {
     r.render(createElement(ReactSurface, { id: c.id ?? `parity`, root, templates, data: c.data, theme: c.theme ?? `neutral`, mode: c.mode ?? `light`, width: c.width, direction: c.direction, locale: c.locale, states: c.states, host: c.reactHost }))
   })
+  if (c.settle) await act(async () => c.settle!(container))
   return {
     root: container.querySelector(`.xui-surface`)!,
     cleanup: () => {
@@ -138,6 +142,10 @@ export async function renderSolidSurface(c: ParityCase): Promise<{ root: Element
   document.body.appendChild(container)
   const dispose = renderSolid(() => createComponent(SolidSurface, { id: c.id ?? `parity`, root, templates, data: c.data, theme: c.theme ?? `neutral`, mode: c.mode ?? `light`, width: c.width, direction: c.direction, locale: c.locale, states: c.states, host: c.solidHost }), container)
   await Promise.resolve()
+  if (c.settle) {
+    c.settle(container)
+    await Promise.resolve()
+  }
   return {
     root: container.querySelector(`.xui-surface`)!,
     cleanup: () => {

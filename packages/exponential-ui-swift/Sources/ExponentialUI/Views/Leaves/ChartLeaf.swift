@@ -166,7 +166,7 @@ struct ChartGeometry {
 
     var innerW: CGFloat { max(width - left - right, 1) }
     var innerH: CGFloat { max(height - top - bottom, 1) }
-    var span: Double { max(chart.max - chart.min, .ulpOfOne) }
+    var span: Double { max(chart.hi - chart.lo, .ulpOfOne) }
     var n: Int { chart.categoryCount }
     var slot: CGFloat { innerW / CGFloat(n) }
     /// VAPP-126: a sparkline runs edge to edge (the web's `i / (n - 1)`); every
@@ -175,7 +175,7 @@ struct ChartGeometry {
         if chart.kind == "sparkline" { return n <= 1 ? left + innerW / 2 : left + innerW * CGFloat(i) / CGFloat(n - 1) }
         return left + innerW * (CGFloat(i) + 0.5) / CGFloat(n)
     }
-    func y(_ v: Double) -> CGFloat { top + innerH - innerH * CGFloat((v - chart.min) / span) }
+    func y(_ v: Double) -> CGFloat { top + innerH - innerH * CGFloat((min(max(v, chart.lo), chart.hi) - chart.lo) / span) }
     var barWidth: CGFloat { slot * 0.7 / CGFloat(max(chart.series.count, 1)) }
     func barX(_ si: Int, _ i: Int) -> CGFloat { left + slot * CGFloat(i) + slot * 0.15 + barWidth * CGFloat(si) }
     var radius: CGFloat { min(innerW, innerH) / 2 }
@@ -235,7 +235,7 @@ private struct ChartCanvas: View {
                 for (si, s) in chart.series.enumerated() where !s.values.isEmpty {
                     let pts = s.values.enumerated().map { CGPoint(x: g.x($0.offset), y: g.y($0.element)) }
                     if chart.kind == "area", let first = pts.first, let last = pts.last {
-                        let base = g.y(min(max(chart.min, 0), chart.max))
+                        let base = g.y(min(max(chart.lo, 0), chart.hi))
                         var area = Path()
                         area.move(to: CGPoint(x: first.x, y: base))
                         for p in pts { area.addLine(to: p) }
@@ -266,7 +266,7 @@ private struct ChartCanvas: View {
                     }
                 }
             default:
-                let zero = g.y(min(max(0, chart.min), chart.max))
+                let zero = g.y(min(max(0, chart.lo), chart.hi))
                 for (si, s) in chart.series.enumerated() {
                     for (i, v) in s.values.enumerated() {
                         let y = g.y(v)

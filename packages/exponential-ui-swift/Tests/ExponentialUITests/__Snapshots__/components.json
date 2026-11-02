@@ -5869,8 +5869,12 @@
           36
         ],
         "id" : "chip-input.field",
+        "opacity" : 0.5,
         "part" : "field",
-        "radius" : 10
+        "radius" : 10,
+        "states" : [
+          "disabled"
+        ]
       },
       {
         "bg" : "#ffffff1c",
@@ -11601,7 +11605,6 @@
           24
         ],
         "id" : "file-upload.browse",
-        "opacity" : 0.5,
         "part" : "browse",
         "radius" : 10
       }
@@ -14809,8 +14812,12 @@
           36
         ],
         "id" : "number-field.field",
+        "opacity" : 0.5,
         "part" : "field",
-        "radius" : 10
+        "radius" : 10,
+        "states" : [
+          "disabled"
+        ]
       },
       {
         "bg" : "#00000000",

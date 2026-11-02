@@ -98,6 +98,9 @@ export function useZoomableImage(o: ZoomableImageOptions) {
   const pillRef = useRef<HTMLDivElement | null>(null)
   const controller = useRef<ZoomController | null>(null)
   const [loaded, setLoaded] = useState<ZoomSize | null>(null)
+  // The picture has painted (its `load` fired): until then (pending or
+  // failed) the native draws its placeholder and no pill.
+  const [ready, setReady] = useState(false)
   const [pill, setPill] = useState<ZoomPillState>(REST_PILL)
   const [pillVisible, setPillVisible] = useState(true)
   const declared = zoomDeclaredSize(o.naturalWidth, o.naturalHeight)
@@ -131,12 +134,16 @@ export function useZoomableImage(o: ZoomableImageOptions) {
     }
   }, [])
   // A new picture forgets the loaded size.
-  useLayoutEffect(() => setLoaded(null), [o.src])
+  useLayoutEffect(() => {
+    setLoaded(null)
+    setReady(false)
+  }, [o.src])
   // A new picture, size, opening or limit: the rest view, at once.
   useLayoutEffect(() => controller.current?.reset(), [o.src, natural?.width, natural?.height, o.initial, o.maxScale])
   useLayoutEffect(() => controller.current?.syncScale(), [o.scale])
   const onImageLoad = (e: SyntheticEvent<HTMLImageElement>) => {
     const img = e.currentTarget
+    setReady(true)
     if (!declared && img.naturalWidth > 0 && img.naturalHeight > 0) setLoaded({ width: img.naturalWidth, height: img.naturalHeight })
   }
   const menuItems = (fitLabel: string): ZoomMenuItem[] => {
@@ -144,7 +151,7 @@ export function useZoomableImage(o: ZoomableImageOptions) {
     const f = c?.frame()
     return c && f ? zoomMenu(c.view(), f, fitLabel) : []
   }
-  return { rootRef, imageRef, pillRef, controller, natural, pill, pillVisible, onImageLoad, menuItems }
+  return { rootRef, imageRef, pillRef, controller, natural, ready, pill, pillVisible, onImageLoad, menuItems }
 }
 
 /** The pill's labels (catalog/strings.json; override per host). */

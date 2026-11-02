@@ -102,6 +102,30 @@ struct MarkdownView: View {
         #endif
     }
 
+    /// Web's `list-style-position: outside` markers in the text colour: a
+    /// disc 0.34em wide whose centre sits 0.46em into the indent, on the
+    /// x-height's middle (Chromium's `disc`); an ordered `3.` ends one
+    /// space before the item text.
+    @ViewBuilder
+    private func listMarker(_ marker: String, spec: MarkdownTextSpec) -> some View {
+        let font = ExponentialUIFonts.font(family: spec.family, weight: spec.weight, size: spec.size)
+        let baseline = (spec.lineHeight - (font.ascender - font.descender)) / 2 + font.ascender
+        if marker == "•" {
+            let d = spec.size * 0.34
+            Circle().fill(ink)
+                .frame(width: d, height: d)
+                .padding(.leading, spec.size * 0.46 - d / 2)
+                .padding(.top, baseline - font.xHeight / 2 - d / 2)
+                .frame(width: styles.listIndent, height: spec.lineHeight, alignment: .topLeading)
+        } else {
+            let space = (" " as NSString).size(withAttributes: [.font: font]).width
+            MeasuredLabel(text: marker, ts: TextStyle(fontSize: spec.size, fontWeight: spec.weight, lineHeight: spec.lineHeight, fontFamily: spec.family), color: ink)
+                .fixedSize()
+                .padding(.trailing, space)
+                .frame(width: styles.listIndent, height: spec.lineHeight, alignment: .topTrailing)
+        }
+    }
+
     @ViewBuilder
     private func blockView(_ block: MarkdownBlock, box: MarkdownBlockBox, link: Color, codeBg: Color?, codeBlockBg: Color?, quoteBorder: Color, muted: Color, border: Color) -> some View {
         let spec = styles.spec(of: block.kind)
@@ -124,10 +148,10 @@ struct MarkdownView: View {
                         MarkdownTaskBox(checked: task, model: model, props: props, ink: ink, border: border)
                             .frame(height: spec.lineHeight)
                     } else {
-                        Text(marker).font(.system(size: spec.size)).foregroundStyle(muted)
+                        listMarker(marker, spec: spec)
                     }
                 }
-                .frame(width: styles.listIndent, height: spec.lineHeight, alignment: .leading)
+                .frame(width: styles.listIndent, height: spec.lineHeight, alignment: .topLeading)
                 linked(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: codeBg.map(platform)), spec: spec, width: max(width - styles.listInset(block), 1))
             }
             .padding(.leading, styles.listIndent * CGFloat(block.depth))
