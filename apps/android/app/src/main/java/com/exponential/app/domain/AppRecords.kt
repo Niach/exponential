@@ -26,7 +26,7 @@ object AppRecords {
     const val LIMIT_DEFAULT = 100
     const val LIMIT_MAX = 500
     val OPERATORS: List<String> = listOf("eq", "gt", "gte", "lt", "lte")
-    val ROW_KEYS: List<String> = listOf("id", "createdAt", "updatedAt", "createdBy", "author")
+    val ROW_KEYS: List<String> = listOf("id", "createdAt", "updatedAt", "createdBy", "authorId", "author")
     val WEEKDAYS: List<String> = listOf("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
     val MONTHS: List<String> = listOf(
         "January", "February", "March", "April", "May", "June",
@@ -60,7 +60,29 @@ object AppRecords {
         val createdBy: String?,
         val createdAt: String,
         val updatedAt: String,
+        /** VAPP-187: whose record it is (null on a legacy row = [createdBy]). */
+        val authorId: String? = null,
     )
+
+    /** VAPP-187: a record's AUTHOR (`authorId ?? createdBy`): whose record it
+     *  is, what `mine`/`user=` and the per-member views read. */
+    fun recordAuthor(row: Row): String? = row.authorId ?: row.createdBy
+
+    // VAPP-187 OWNERSHIP (fixture `ownership`, locked by AppRecordsTest): the
+    // default per-kind policy (`author` | `member`) and the server's refusal.
+    val OWNERSHIP_POLICY: Map<String, String> = mapOf("update" to "author", "delete" to "author")
+    const val OWNERSHIP_REFUSAL = "Only the record's author or a team owner can change it"
+
+    /** May [viewer] (with team [role]; null = not a member) [op] (`update` |
+     *  `delete`) the record? Policy `author` = the author or a team owner
+     *  (`canChangeCases`). */
+    fun canChangeRecord(row: Row, viewer: String?, role: String?, op: String = "update"): Boolean {
+        if (viewer == null || role == null) return false
+        if (role == "owner") return true
+        if (OWNERSHIP_POLICY[op] == "member") return true
+        val author = recordAuthor(row)
+        return author != null && author == viewer
+    }
 
     data class Day(val date: String, val day: Int, val weekday: String, var count: Int = 0, var sum: Double = 0.0)
 
@@ -199,6 +221,7 @@ object AppRecords {
         "updatedAt" -> JsonValue.Str(row.updatedAt)
         "id" -> JsonValue.Str(row.id)
         "createdBy" -> row.createdBy?.let { JsonValue.Str(it) } ?: JsonValue.Null
+        "authorId" -> recordAuthor(row)?.let { JsonValue.Str(it) } ?: JsonValue.Null
         else -> row.data[name]
     }
 
@@ -214,8 +237,8 @@ object AppRecords {
         val monthKey = if (by != null) (query.month ?: now.take(7)) else null
         val matched = rows.filter { row ->
             if (row.kind != kind) return@filter false
-            if (query.mine && (me == null || row.createdBy != me)) return@filter false
-            if (query.user != null && row.createdBy != query.user) return@filter false
+            if (query.mine && (me == null || recordAuthor(row) != me)) return@filter false
+            if (query.user != null && recordAuthor(row) != query.user) return@filter false
             if (monthKey != null && by != null && !text(row.data[by]).startsWith(monthKey)) return@filter false
             query.filters.all { matches(it, field(row, it.field)) }
         }.sortedWith { a, b ->
@@ -230,7 +253,9 @@ object AppRecords {
                 o["createdAt"] = JsonValue.Str(row.createdAt)
                 o["updatedAt"] = JsonValue.Str(row.updatedAt)
                 o["createdBy"] = row.createdBy?.let { JsonValue.Str(it) } ?: JsonValue.Null
-                o["author"] = JsonValue.Str(row.createdBy?.let { names[it] }?.takeIf { it.isNotEmpty() } ?: "")
+                val author = recordAuthor(row)
+                o["authorId"] = author?.let { JsonValue.Str(it) } ?: JsonValue.Null
+                o["author"] = JsonValue.Str(author?.let { names[it] }?.takeIf { it.isNotEmpty() } ?: "")
                 JsonValue.Obj(o)
             },
         )
@@ -293,6 +318,7 @@ object AppRecords {
         createdBy = entity.createdBy?.takeIf { it.isNotEmpty() },
         createdAt = isoTimestamp(entity.createdAt),
         updatedAt = isoTimestamp(entity.updatedAt),
+        authorId = entity.authorId?.takeIf { it.isNotEmpty() },
     )
 
     // VAPP-178 THE DATA TAB (fixture `dataTab`): the editor's records browser

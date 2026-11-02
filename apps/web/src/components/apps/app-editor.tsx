@@ -242,7 +242,9 @@ export function AppEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile])
 
-  const { users } = useTeamUsers(teamId)
+  const { users, members } = useTeamUsers(teamId)
+  // VAPP-187: the viewer's team role (the Data tab's ownership rule).
+  const myRole = members.find((m) => m.userId === me)?.role ?? null
   const { root, teamSessions } = useEditorSession(teamId, app.id, me)
   const messages = useTreeMessages(root?.id)
   const follow = useFollowScroll([messages, root?.id])
@@ -540,7 +542,7 @@ export function AppEditor({
   // VAPP-178: the Data tab's body (the wide tab and the phone segment).
   const dataBody = (
     <div className="w-full" data-testid={APPS_TEST_IDS.data}>
-      <AppDataTab appId={app.id} pkg={headPackage} users={users as User[]} isMobile={isMobile} />
+      <AppDataTab appId={app.id} pkg={headPackage} users={users as User[]} me={me} role={myRole} isMobile={isMobile} />
     </div>
   )
 

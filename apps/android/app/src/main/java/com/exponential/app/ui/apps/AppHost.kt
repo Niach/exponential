@@ -404,7 +404,8 @@ fun rememberAppHost(
             val rows = target.flatMapLatest { recordsOf(it) }
             return combine(rows, users) { records, people ->
                 val mapped = records.map(AppRecords::row)
-                val wanted = mapped.mapNotNullTo(HashSet()) { it.createdBy }
+                // VAPP-187: `author` = the AUTHOR's name (`authorId ?? createdBy`).
+                val wanted = mapped.mapNotNullTo(HashSet()) { AppRecords.recordAuthor(it) }
                 val names = people.filter { it.id in wanted }.associate { it.id to it.name.orEmpty() }
                 AppRecords.recordsValue(mapped, query, me, AppRecords.isoNow(), names)
             }

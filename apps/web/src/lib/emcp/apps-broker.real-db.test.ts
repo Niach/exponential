@@ -228,6 +228,53 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
     })
   })
 
+  // VAPP-187: the broker's records patch runs the records router's ownership
+  // rule: another member's row is refused (FORBIDDEN → toolError), the
+  // caller's own row patches.
+  it(`a records patch on another member's row is refused`, async () => {
+    const w = await world()
+    const mate = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: mate, role: `member` })
+    const [fixer] = await db
+      .insert(apps)
+      .values({
+        teamId: w.teamId,
+        slug: `fixer`,
+        name: `Fixer`,
+        headVersion: 1,
+        createdBy: w.owner,
+        package: {
+          records: PACKAGE.records,
+          exposes: [
+            {
+              name: `fix_entry`,
+              title: `Fix an entry`,
+              description: `Correct the hours of an entry.`,
+              input: { type: `object`, properties: { id: { type: `string` }, hours: { type: `number` } }, required: [`id`, `hours`] },
+              access: `write`,
+              run: { records: { op: `upsert`, kind: `entry`, id: `\${input.id}`, data: { hours: `\${input.hours}` } } },
+            },
+          ],
+        } as never,
+      })
+      .returning({ id: apps.id })
+    const [theirs] = await db.insert(appRecords).values({ appId: fixer!.id, teamId: w.teamId, kind: `entry`, data: { day: `2026-10-31`, hours: 3 }, createdBy: w.owner }).returning({ id: appRecords.id })
+    const [own] = await db.insert(appRecords).values({ appId: fixer!.id, teamId: w.teamId, kind: `entry`, data: { day: `2026-10-31`, hours: 1 }, createdBy: mate }).returning({ id: appRecords.id })
+    const { clientId, token } = await client(mate)
+    await grant(mate, clientId, w.teamId, `full`)
+
+    const refused = await rpc(token, `tools/call`, { name: `fixer__fix_entry`, arguments: { id: theirs!.id, hours: 9 } })
+    expect(refused.body.result?.isError).toBe(true)
+    expect(text(refused.body)).toBe(`toolError: Only the record's author or a team owner can change it`)
+    const [untouched] = await db.select({ data: appRecords.data }).from(appRecords).where(eq(appRecords.id, theirs!.id))
+    expect(untouched!.data).toEqual({ day: `2026-10-31`, hours: 3 })
+
+    const fixed = await rpc(token, `tools/call`, { name: `fixer__fix_entry`, arguments: { id: own!.id, hours: 2 } })
+    expect(fixed.body.result?.isError, text(fixed.body)).toBeFalsy()
+    const [after] = await db.select({ data: appRecords.data, updatedBy: appRecords.updatedBy }).from(appRecords).where(eq(appRecords.id, own!.id))
+    expect(after).toEqual({ data: { day: `2026-10-31`, hours: 2 }, updatedBy: mate })
+  })
+
   it(`a read grant never sees or calls a write tool`, async () => {
     const w = await world()
     const { clientId, token } = await client(w.owner)

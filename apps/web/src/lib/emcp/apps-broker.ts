@@ -288,7 +288,7 @@ async function runRecords(ctx: BrokerContext, tool: BrokerTool, input: Record<st
     data?: unknown
     limit?: unknown
   }
-  const columns = { id: appRecords.id, data: appRecords.data, createdBy: appRecords.createdBy, createdAt: appRecords.createdAt, updatedAt: appRecords.updatedAt }
+  const columns = { id: appRecords.id, data: appRecords.data, createdBy: appRecords.createdBy, authorId: appRecords.authorId, createdAt: appRecords.createdAt, updatedAt: appRecords.updatedAt }
   const own = and(eq(appRecords.appId, tool.app.id), eq(appRecords.kind, run.kind), isNull(appRecords.deletedAt))
   if (run.op === `get`) {
     if (typeof resolved.id !== `string` || !UUID.test(resolved.id)) return brokerError(tool, `invalidArguments`, `a record id is a uuid`)

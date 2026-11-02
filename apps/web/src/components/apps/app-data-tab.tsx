@@ -4,6 +4,7 @@ import { APPS_COPY } from "@exp/domain-contract/apps"
 import {
   APP_DATA_COPY,
   APP_DATA_TAB,
+  canChangeRecord,
   cellText,
   columnWidth,
   dataColumns,
@@ -12,6 +13,7 @@ import {
   formData,
   formFields,
   formInput,
+  recordAuthor,
   type DataFormField,
   type DataSchema,
 } from "@exp/domain-contract/app-records"
@@ -69,6 +71,7 @@ interface DataRecord {
   kind: string
   data: Record<string, unknown>
   createdBy: string | null
+  authorId: string | null
   updatedAt: string
 }
 
@@ -81,12 +84,17 @@ export function AppDataTab({
   appId,
   pkg,
   users,
+  me,
+  role,
   isMobile,
 }: {
   appId: string
   /** The HEAD package (null = a draft: no kinds). */
   pkg: Record<string, unknown> | null
   users: readonly User[]
+  /** VAPP-187: the viewer and their team role (null = not a member). */
+  me: string | null
+  role: string | null
   isMobile: boolean
 }) {
   const { data: synced } = useLiveQuery(
@@ -100,6 +108,7 @@ export function AppDataTab({
         kind: row.kind,
         data: (row.data ?? {}) as Record<string, unknown>,
         createdBy: row.createdBy ?? null,
+        authorId: row.authorId ?? null,
         updatedAt: iso(row.updatedAt),
       })),
     [synced]
@@ -151,14 +160,23 @@ export function AppDataTab({
         },
       ]}
       trigger={
-        <Button variant="ghost" size="icon-sm" aria-label={`${APP_DATA_COPY.edit} / ${APP_DATA_COPY.delete}`} data-testid={T.menu}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={`${APP_DATA_COPY.edit} / ${APP_DATA_COPY.delete}`}
+          data-testid={T.menu}
+          disabled={!canChangeRecord(record, me, role, `update`) && !canChangeRecord(record, me, role, `delete`)}
+        >
           <UiMoreIcon />
         </Button>
       }
     />
   )
 
-  const author = (record: DataRecord) => (record.createdBy ? usersById.get(record.createdBy)?.name : undefined) ?? APPS_COPY.byAgent
+  const author = (record: DataRecord) => {
+    const id = recordAuthor(record)
+    return (id ? usersById.get(id)?.name : undefined) ?? APPS_COPY.byAgent
+  }
 
   const grid = {
     gridTemplateColumns: [

@@ -669,7 +669,8 @@ enum AppHostStore {
             guard let appId else { return RecordsSnapshot() }
             let rows = try AppRecordEntity.filter(Column("app_id") == appId).fetchAll(db)
             var names: [String: String] = [:]
-            let authors = Array(Set(rows.compactMap(\.createdBy)))
+            // VAPP-187: `author` = the AUTHOR's name (`authorId ?? createdBy`).
+            let authors = Array(Set(rows.compactMap { $0.authorId ?? $0.createdBy }))
             if !authors.isEmpty {
                 for user in try UserEntity.filter(keys: authors).fetchAll(db) {
                     names[user.id] = user.name ?? ""

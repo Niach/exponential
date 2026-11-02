@@ -1625,6 +1625,13 @@
       "when": 1793573765547,
       "tag": "0231_seal_rotate_epoch",
       "breakpoints": true
+    },
+    {
+      "idx": 232,
+      "version": "7",
+      "when": 1793590723292,
+      "tag": "0232_vapp187_app_records_author",
+      "breakpoints": true
     }
   ]
 }

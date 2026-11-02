@@ -3941,7 +3941,7 @@ export function registerExponentialTools(
     `exponential_apps_records_list`,
     {
       annotations: READ_ONLY,
-      description: `List an app's records (its own data) newest first: id, kind, data, createdBy, createdAt. kind narrows.`,
+      description: `List an app's records (its own data) newest first: id, kind, data, createdBy, authorId, createdAt. kind narrows.`,
       inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), kind: z.string().max(32).optional(), ...pageInput }),
     },
     async ({ slug, teamId, kind, limit, offset }) => {
@@ -3957,7 +3957,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_apps_records_upsert`,
     {
-      description: `Create one record of an app (data validated against the kind's schema in its package), or with id patch that record's data. The app's bindings repaint live.`,
+      description: `Create one record of an app (data validated against the kind's schema in its package), or with id patch that record's data (only its author or a team owner). The app's bindings repaint live.`,
       inputSchema: strictInput({
         slug: appSlug,
         teamId: uuidString.optional(),
@@ -3979,7 +3979,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_apps_records_delete`,
     {
-      description: `Delete one record of an app by id.`,
+      description: `Delete one record of an app by id (only its author or a team owner).`,
       inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), id: uuidString }),
     },
     async ({ slug, teamId, id }) => {

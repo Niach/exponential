@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/app-records.json" with { type: "json" }
-import { appRecordPurgeDue, cellText, dataColumns, dataKinds, dataRows, formData, formFields, formInput, monthDays, parseRecordsQuery, recordsSourceParams, recordsCountLabel, recordsValue, shiftMonth } from "./app-records"
+import { appRecordPurgeDue, canChangeRecord, cellText, dataColumns, dataKinds, dataRows, formData, formFields, formInput, monthDays, parseRecordsQuery, recordsSourceParams, recordsCountLabel, recordsValue, shiftMonth } from "./app-records"
 import type { AppRecordRow } from "./app-records"
 
 // The SDK's parseSource, inlined (domain-contract does not depend on the SDK).
@@ -25,6 +25,10 @@ describe(`app records (VAPP-122)`, () => {
   test.each(fixture.valueCases)(`recordsValue: $name`, (c) => {
     const value = recordsValue(c.rows as AppRecordRow[], parseRecordsQuery(c.params), { me: c.me, now: c.now, names: c.names })
     expect(value).toEqual(c.expected as never)
+  })
+  test.each(fixture.ownership.canChangeCases)(`canChangeRecord: $name`, (c) => {
+    const row = { authorId: c.author, createdBy: c.createdBy }
+    expect({ update: canChangeRecord(row, c.viewer, c.role, `update`), delete: canChangeRecord(row, c.viewer, c.role, `delete`) }).toEqual(c.expected)
   })
   test.each(fixture.countLabelCases)(`recordsCountLabel %j`, (c) => {
     expect(recordsCountLabel(c.count, c.max)).toBe(c.label)

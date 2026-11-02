@@ -211,6 +211,8 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     const [row] = await db.select().from(appRecords).where(eq(appRecords.id, first.id))
     expect(row!.data).toEqual({ date: `2026-10-05`, hours: 3.5, note: `meet` })
     expect(row!.createdBy).toBe(w.mate)
+    expect(row!.authorId).toBe(w.mate)
+    expect(row!.updatedBy).toBe(w.mate)
     expect(row!.appDeletedAt).toBeNull()
     const listed = await api.list({ id: appId, kind: `entry` })
     expect(listed.records.map((r) => r.id)).toEqual([first.id])
@@ -227,13 +229,59 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     const w = await world()
     const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
     const appId = created.app.id
-    const first = await caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 3 } })
+    // VAPP-187: the mate's own row, so both the author and an owner may patch it.
+    const first = await caller(w.mate).records.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 3 } })
     await Promise.all([
       caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: { hours: 4 }, recordId: first.id }),
       caller(w.mate).records.upsert({ id: appId, kind: `entry`, data: { note: `meet` }, recordId: first.id }),
     ])
     const [row] = await db.select().from(appRecords).where(eq(appRecords.id, first.id))
     expect(row!.data).toEqual({ date: `2026-10-05`, hours: 4, note: `meet` })
+  })
+
+  // VAPP-187 (app-records.json `ownership`): only the record's author or a
+  // team owner patches or deletes it; anyone else = FORBIDDEN, row untouched.
+  it(`records: only the author or a team owner may patch or delete a record`, async () => {
+    const w = await world()
+    const third = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: third, role: `member` })
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
+    const appId = created.app.id
+    const mine = await caller(w.mate).records.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 3 } })
+    const other = caller(third).records
+    await expect(other.upsert({ id: appId, kind: `entry`, data: { hours: 9 }, recordId: mine.id })).rejects.toMatchObject({
+      code: `FORBIDDEN`,
+      message: `Only the record's author or a team owner can change it`,
+    })
+    await expect(other.delete({ id: appId, recordId: mine.id })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    let [row] = await db.select().from(appRecords).where(eq(appRecords.id, mine.id))
+    expect(row!.data).toEqual({ date: `2026-10-05`, hours: 3 })
+    expect(row!.deletedAt).toBeNull()
+    // Any member still creates (their own row).
+    expect((await other.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-06`, hours: 1 } })).created).toBe(true)
+    // A team owner always may; the last writer is recorded, the author stays.
+    await caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: { hours: 4 }, recordId: mine.id })
+    ;[row] = await db.select().from(appRecords).where(eq(appRecords.id, mine.id))
+    expect(row).toMatchObject({ createdBy: w.mate, authorId: w.mate, updatedBy: w.owner })
+    // A legacy row (no author_id) reads its creator.
+    await db.update(appRecords).set({ authorId: null }).where(eq(appRecords.id, mine.id))
+    await expect(other.delete({ id: appId, recordId: mine.id })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await caller(w.mate).records.delete({ id: appId, recordId: mine.id })
+    ;[row] = await db.select().from(appRecords).where(eq(appRecords.id, mine.id))
+    expect(row!.deletedAt).not.toBeNull()
+    expect(row!.updatedBy).toBe(w.mate)
+  })
+
+  // VAPP-187: the insert trigger defaults author_id/updated_by to created_by
+  // for a writer that names only the creator.
+  it(`records: a raw insert's author defaults to its creator`, async () => {
+    const w = await world()
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
+    const [row] = await db
+      .insert(appRecords)
+      .values({ appId: created.app.id, teamId: w.teamId, kind: `entry`, data: { date: `2026-10-05`, hours: 1 }, createdBy: w.mate })
+      .returning()
+    expect(row).toMatchObject({ authorId: w.mate, updatedBy: w.mate })
   })
 
   it(`records: delete trashes one row and a second delete is NOT_FOUND`, async () => {

@@ -16,6 +16,8 @@ import SwiftUI
 /// the `…` menu (Edit / Delete). None = `copy.empty` under the toolbar.
 /// Add / Edit = `AppRecordFormSheet`; Delete asks first (THE glass alert).
 /// Writes = `apps.records.upsert` / `apps.records.delete` as the viewer.
+/// VAPP-187: a row the viewer may change neither way (`canChangeRecord`:
+/// only its author or a team owner) keeps its `…`, DISABLED.
 struct AppDataTab: View {
     let app: AppListEntry
 
@@ -55,10 +57,10 @@ struct AppDataTab: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Apps.TestIds.data)
-        .onAppear { model.bind(accountId: accountId, appId: app.id, db: deps.db) }
+        .onAppear { model.bind(accountId: accountId, appId: app.id, userId: deps.auth.userId, db: deps.db) }
         .onChange(of: app.id) { _, next in
             picked = nil
-            model.bind(accountId: accountId, appId: next, db: deps.db)
+            model.bind(accountId: accountId, appId: next, userId: deps.auth.userId, db: deps.db)
         }
         .onDisappear { model.stop() }
         // Each presentation on its OWN node (EXP-240).
@@ -164,6 +166,7 @@ struct AppDataTab: View {
             .filter { !$0.isEmpty }
             .joined(separator: UserMessageCaption.separator)
         let target = AppDataRowTarget(row: row, kind: kind, schema: schema, title: title)
+        let locked = !model.canChange(row)
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -192,6 +195,8 @@ struct AppDataTab: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .disabled(locked)
+            .opacity(locked ? 0.45 : 1)
             .accessibilityLabel("Menu for \(title)")
             .accessibilityIdentifier(AppRecords.DataTab.TestIds.menu)
         }
@@ -480,22 +485,46 @@ struct AppRecordFormSheet: View {
 final class AppDataModel {
     private(set) var rows: [AppRecords.Row] = []
     private(set) var loaded = false
+    /// VAPP-187: the viewer and their role in the app's team (nil = not a
+    /// member), for `canChange`.
+    private(set) var viewer: String?
+    private(set) var role: String?
 
     @ObservationIgnored private var task: Task<Void, Never>?
 
     nonisolated init() {}
 
-    func bind(accountId: String, appId: String, db: DatabaseManager) {
+    /// May the viewer change the row at all (update or delete)? Neither =
+    /// the row's `…` is disabled (fixture `ownership`).
+    func canChange(_ row: AppRecords.Row) -> Bool {
+        AppRecords.canChangeRecord(row, viewer: viewer, role: role, op: "update")
+            || AppRecords.canChangeRecord(row, viewer: viewer, role: role, op: "delete")
+    }
+
+    func bind(accountId: String, appId: String, userId: String?, db: DatabaseManager) {
         stop()
+        viewer = userId
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
-        let observation = ValueObservation.tracking { db -> [AppRecordEntity] in
-            try AppRecordEntity.filter(Column("app_id") == appId).fetchAll(db)
+        let me = userId ?? ""
+        let observation = ValueObservation.tracking { db -> ([AppRecordEntity], String?) in
+            let entities = try AppRecordEntity.filter(Column("app_id") == appId).fetchAll(db)
+            let role = try String.fetchOne(
+                db,
+                sql: #"""
+                    SELECT "role" FROM "team_members"
+                    WHERE "team_id" = (SELECT "team_id" FROM "apps" WHERE "id" = ?) AND "user_id" = ?
+                    LIMIT 1
+                    """#,
+                arguments: [appId, me]
+            )
+            return (entities, role)
         }
         task = Task { [weak self] in
             do {
-                for try await entities in observation.values(in: pool) {
+                for try await (entities, role) in observation.values(in: pool) {
                     guard let self else { return }
                     self.rows = entities.map(AppRecords.Row.init)
+                    self.role = role
                     self.loaded = true
                 }
             } catch {}

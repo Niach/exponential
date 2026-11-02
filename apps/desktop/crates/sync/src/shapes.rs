@@ -866,8 +866,9 @@ pub const SHAPES: [ShapeSpec; 33] = [
         path: "/api/shapes/app-records",
         // VAPP-122: an app's records (its own data). Byte-matches the
         // proxy; `deleted_at` + the `app_deleted_at` mirror stay server-side
-        // (a trashed record simply leaves the shape).
-        columns: &["id", "app_id", "team_id", "kind", "data", "created_by", "created_at", "updated_at"],
+        // (a trashed record simply leaves the shape). VAPP-187: `author_id`
+        // (whose record it is) + `updated_by` (the last writer).
+        columns: &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
 ];
@@ -1072,7 +1073,7 @@ mod tests {
         assert_eq!(records.path, "/api/shapes/app-records");
         assert_eq!(
             records.columns,
-            &["id", "app_id", "team_id", "kind", "data", "created_by", "created_at", "updated_at"]
+            &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "created_at", "updated_at"]
         );
         assert!(!records.columns.contains(&"deleted_at"));
         assert!(!records.columns.contains(&"app_deleted_at"));

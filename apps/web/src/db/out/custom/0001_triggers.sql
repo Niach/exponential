@@ -760,7 +760,8 @@ CREATE OR REPLACE TRIGGER propagate_board_deleted_at
 -- VAPP-122: app records mirror their app's trash (`app_deleted_at`), the
 -- app-records shape's static predicate: a trashed app's records leave every
 -- client; a restore brings them back. A new record copies the mirror on
--- insert (a write into a trashed app stays invisible).
+-- insert (a write into a trashed app stays invisible). VAPP-187: a new
+-- record's author (and last writer) default to its creator.
 CREATE OR REPLACE FUNCTION propagate_app_deleted_at()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -780,6 +781,8 @@ CREATE OR REPLACE FUNCTION populate_app_record_mirror()
 RETURNS TRIGGER AS $$
 BEGIN
   SELECT deleted_at INTO NEW.app_deleted_at FROM apps WHERE id = NEW.app_id;
+  NEW.author_id := COALESCE(NEW.author_id, NEW.created_by);
+  NEW.updated_by := COALESCE(NEW.updated_by, NEW.created_by);
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;

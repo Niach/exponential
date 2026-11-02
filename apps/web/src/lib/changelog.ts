@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-02-record-ownership`,
+    date: `2026-11-02`,
+    title: `Records belong to their author`,
+    summary: `Only a record's author or a team owner can edit or delete it, on every device.`,
+    body: `- **Yours**: every app record remembers who it belongs to; only you or a team owner can edit or delete it.
+- **Data tab**: rows you can't change show their menu greyed out, the same on the web, desktop, iOS and Android.
+- **Mine**: an app's “mine” and per-member views count a record for its author, also when an owner entered it for them.
+- **Agents too**: an agent or another app editing someone else's record gets the same clear refusal.`,
+  },
+  {
     id: `2026-11-02-motion`,
     date: `2026-11-02`,
     title: `Animations in agent cards`,

@@ -140,7 +140,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks"]
+             "v90_pull_request_checks", "v91_app_record_ownership"]
         )
     }
 
@@ -202,7 +202,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks"]
+             "v90_pull_request_checks", "v91_app_record_ownership"]
         )
     }
 
@@ -736,7 +736,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks"]
+             "v90_pull_request_checks", "v91_app_record_ownership"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -846,7 +846,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks"]
+             "v90_pull_request_checks", "v91_app_record_ownership"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -3294,7 +3294,8 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try migrator.migrate(pool))
         XCTAssertEqual(
             try columnNames(pool, "app_records"),
-            ["id", "app_id", "team_id", "kind", "data", "created_by", "created_at", "updated_at"]
+            ["id", "app_id", "team_id", "kind", "data", "created_by", "created_at", "updated_at",
+             "author_id", "updated_by"]
         )
         try pool.read { db in
             let indexes = try db.indexes(on: "app_records").map(\.columns)
@@ -3789,6 +3790,47 @@ final class DatabaseMigrationTests: XCTestCase {
         let row = try JSONDecoder().decode(PullRequestCheckEntity.self, from: wire)
         try pool.write { db in try row.save(db) }
         let read = try pool.read { db in try PullRequestCheckEntity.fetchOne(db, key: "c1") }
+        XCTAssertEqual(read, row)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #VAPP-187: v91 adds `app_records.author_id` + `updated_by`, resetting
+    // ONLY the app-records cursor so synced rows re-arrive carrying them.
+    func testAppRecordOwnershipColumnsAdded() throws {
+        let pool = try makePool("vapp187-app-record-ownership")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v90_pull_request_checks")
+        try pool.write { db in
+            for shape in ["app-records", "apps"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "app_records").contains("author_id"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v91_app_record_ownership"))
+        XCTAssertTrue(try columnNames(pool, "app_records").isSuperset(of: ["author_id", "updated_by"]))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["app-records"])
+        }
+        let wire = Data(#"""
+            {"id":"r1","app_id":"a1","team_id":"t1","kind":"entry","data":{"hours":3},
+             "created_by":"u1","author_id":"u2","updated_by":"u1",
+             "created_at":"2026-10-05T18:00:00Z","updated_at":"2026-10-05T18:00:00Z"}
+            """#.utf8)
+        let row = try JSONDecoder().decode(AppRecordEntity.self, from: wire)
+        XCTAssertEqual(row.authorId, "u2")
+        XCTAssertEqual(row.updatedBy, "u1")
+        try pool.write { db in try row.save(db) }
+        let read = try pool.read { db in try AppRecordEntity.fetchOne(db, key: "r1") }
         XCTAssertEqual(read, row)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }

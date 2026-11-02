@@ -161,7 +161,7 @@ export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
   { source: `exp:attachments?issue=<identifier>&limit=<n>`, value: `{rows: [{id, name, type, size, url, width, height, uploader, uploaderName, createdAt}], count}: an issue's files; url loads through the media policy (Image src)` },
   {
     source: `exp:records?kind=<kind>&mine=1&sort=<field>&order=asc|desc&limit=<n>&sum=<field>&by=<dateField>&month=YYYY-MM&<field>=<v>&<field>.gte=<v>`,
-    value: `{rows: [{…data, id, createdAt, updatedAt, createdBy, author}], count, sum?, month?: {key, label, prev, next, days: [{date, day, weekday, count, sum}]}}: the app's OWN records of a kind, live (kind required; mine = the viewer's rows; any other key filters a data field: equals, or .gt .gte .lt .lte; sum = Σ of a number field; by + month = one month's rows and every day of it; app=<slug> reads another app's records)`,
+    value: `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?: {key, label, prev, next, days: [{date, day, weekday, count, sum}]}}: the app's OWN records of a kind, live (kind required; mine = the viewer's rows (by author); any other key filters a data field: equals, or .gt .gte .lt .lte; sum = Σ of a number field; by + month = one month's rows and every day of it; app=<slug> reads another app's records)`,
   },
 ]
 /** VAPP-161: the format's neutral spelling of `exp:records` (the catalog text). */

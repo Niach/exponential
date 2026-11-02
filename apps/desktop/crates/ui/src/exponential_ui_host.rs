@@ -179,6 +179,8 @@ pub(crate) struct RecordLite {
     pub(crate) kind: String,
     pub(crate) data: Value,
     pub(crate) created_by: Option<String>,
+    /// VAPP-187: whose record it is (`None` = `created_by`).
+    pub(crate) author_id: Option<String>,
     pub(crate) created_at: String,
     pub(crate) updated_at: String,
 }
@@ -243,6 +245,7 @@ pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &domain::app_records
             kind: &r.kind,
             data: &r.data,
             created_by: r.created_by.as_deref(),
+            author_id: r.author_id.as_deref(),
             created_at: &r.created_at,
             updated_at: &r.updated_at,
         })
@@ -556,6 +559,7 @@ fn refresh_records(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
             kind: r.kind.clone(),
             data: r.data.clone(),
             created_by: r.created_by.clone(),
+            author_id: r.author_id.clone(),
             created_at: iso_millis(r.created_at.as_deref().unwrap_or("")),
             updated_at: iso_millis(r.updated_at.as_deref().unwrap_or("")),
         })
@@ -1287,6 +1291,7 @@ mod tests {
             kind: "entry".into(),
             data: json!({"date": "2026-10-05", "hours": hours}),
             created_by: Some(by.into()),
+            author_id: None,
             created_at: iso_millis("2026-10-05 18:00:00+00"),
             updated_at: iso_millis("2026-10-05T18:00:00Z"),
         }

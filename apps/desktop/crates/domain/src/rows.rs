@@ -1346,6 +1346,12 @@ pub struct AppRecordRow {
     pub data: serde_json::Value,
     #[serde(default)]
     pub created_by: Option<String>,
+    /// VAPP-187: whose record it is (`None` on a legacy row = `created_by`).
+    #[serde(default)]
+    pub author_id: Option<String>,
+    /// VAPP-187: the last writer.
+    #[serde(default)]
+    pub updated_by: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

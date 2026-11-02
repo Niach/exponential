@@ -36,6 +36,66 @@ pub struct RecordsSpec {
     pub row_keys: Vec<String>,
     pub weekdays: Vec<String>,
     pub months: Vec<String>,
+    pub ownership: RecordsOwnership,
+}
+
+/// VAPP-187: who may patch / delete a record (`policy` per op).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OwnershipPolicy {
+    Author,
+    Member,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+pub struct OwnershipPolicies {
+    pub update: OwnershipPolicy,
+    pub delete: OwnershipPolicy,
+}
+
+/// The fixture's `ownership` block (VAPP-187) minus its cases.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct RecordsOwnership {
+    pub policy: OwnershipPolicies,
+    pub refusal: String,
+}
+
+/// The write a viewer wants to make to an existing record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordOp {
+    Update,
+    Delete,
+}
+
+/// VAPP-187: a record's AUTHOR (`authorId ?? createdBy`): whose record it
+/// is, what `mine`/`user=` and the per-member views read.
+pub fn record_author<'a>(author_id: Option<&'a str>, created_by: Option<&'a str>) -> Option<&'a str> {
+    author_id.or(created_by)
+}
+
+/// May `viewer` (with team `role`; `None` = not a member) `op` the record
+/// (`ownership.canChangeCases`)? Policy `author` = the author or a team owner.
+pub fn can_change_record(
+    author_id: Option<&str>,
+    created_by: Option<&str>,
+    viewer: Option<&str>,
+    role: Option<&str>,
+    op: RecordOp,
+) -> bool {
+    let (Some(viewer), Some(role)) = (viewer, role) else {
+        return false;
+    };
+    if role == "owner" {
+        return true;
+    }
+    let policy = match op {
+        RecordOp::Update => APP_RECORDS.ownership.policy.update,
+        RecordOp::Delete => APP_RECORDS.ownership.policy.delete,
+    };
+    if policy == OwnershipPolicy::Member {
+        return true;
+    }
+    record_author(author_id, created_by) == Some(viewer)
 }
 
 /// `fixtures/app-records.json` minus its cases.
@@ -210,8 +270,17 @@ pub struct RecordRowInput<'a> {
     pub kind: &'a str,
     pub data: &'a Value,
     pub created_by: Option<&'a str>,
+    /// VAPP-187: whose record it is (`None` on a legacy row = `created_by`).
+    pub author_id: Option<&'a str>,
     pub created_at: &'a str,
     pub updated_at: &'a str,
+}
+
+impl<'a> RecordRowInput<'a> {
+    /// VAPP-187: `authorId ?? createdBy`.
+    pub fn author(&self) -> Option<&'a str> {
+        record_author(self.author_id, self.created_by)
+    }
 }
 
 /// What [`records_value`] needs besides the rows.
@@ -305,6 +374,10 @@ fn field<'a>(row: &RecordRowInput<'a>, name: &str) -> Field<'a> {
         "updatedAt" => Field::Text(row.updated_at),
         "id" => Field::Text(row.id),
         "createdBy" => match row.created_by {
+            Some(by) => Field::Text(by),
+            None => Field::Json(&NULL),
+        },
+        "authorId" => match row.author() {
             Some(by) => Field::Text(by),
             None => Field::Json(&NULL),
         },
@@ -408,11 +481,11 @@ pub fn records_value(rows: &[RecordRowInput], query: &RecordsQuery, ctx: Records
             if row.kind != kind {
                 return false;
             }
-            if query.mine && (ctx.me.is_none() || row.created_by != ctx.me) {
+            if query.mine && (ctx.me.is_none() || row.author() != ctx.me) {
                 return false;
             }
             if let Some(user) = &query.user {
-                if row.created_by != Some(user.as_str()) {
+                if row.author() != Some(user.as_str()) {
                     return false;
                 }
             }
@@ -440,8 +513,9 @@ pub fn records_value(rows: &[RecordRowInput], query: &RecordsQuery, ctx: Records
             obj.insert("createdAt".into(), json!(row.created_at));
             obj.insert("updatedAt".into(), json!(row.updated_at));
             obj.insert("createdBy".into(), json!(row.created_by));
+            obj.insert("authorId".into(), json!(row.author()));
             let author = row
-                .created_by
+                .author()
                 .and_then(|by| ctx.names.get(by))
                 .filter(|n| !n.is_empty())
                 .cloned()
@@ -951,6 +1025,8 @@ mod tests {
         kind: String,
         data: Value,
         created_by: Option<String>,
+        #[serde(default)]
+        author_id: Option<String>,
         created_at: String,
         updated_at: String,
     }
@@ -967,6 +1043,7 @@ mod tests {
                     kind: &r.kind,
                     data: &r.data,
                     created_by: r.created_by.as_deref(),
+                    author_id: r.author_id.as_deref(),
                     created_at: &r.created_at,
                     updated_at: &r.updated_at,
                 })
@@ -980,6 +1057,29 @@ mod tests {
             };
             let got = records_value(&inputs, &query, ctx).unwrap_or(Value::Null);
             assert_eq!(got, case["expected"], "{name}");
+        }
+    }
+
+    /// VAPP-187: `ownership.canChangeCases`.
+    #[test]
+    fn can_change_cases_replay_the_fixture() {
+        let fixture: Value = serde_json::from_str(RECORDS_JSON).unwrap();
+        let ownership = &fixture["ownership"];
+        assert_eq!(ownership["refusal"], APP_RECORDS.ownership.refusal.as_str());
+        let all = ownership["canChangeCases"].as_array().unwrap();
+        assert!(!all.is_empty());
+        for case in all {
+            let name = case["name"].as_str().unwrap();
+            for (op, key) in [(RecordOp::Update, "update"), (RecordOp::Delete, "delete")] {
+                let got = can_change_record(
+                    case["author"].as_str(),
+                    case["createdBy"].as_str(),
+                    case["viewer"].as_str(),
+                    case["role"].as_str(),
+                    op,
+                );
+                assert_eq!(got, case["expected"][key].as_bool().unwrap(), "{name} {key}");
+            }
         }
     }
 
@@ -1075,6 +1175,7 @@ mod tests {
                     kind: r["kind"].as_str().unwrap(),
                     data: &null,
                     created_by: None,
+                    author_id: None,
                     created_at: "",
                     updated_at: r["updatedAt"].as_str().unwrap(),
                 })
