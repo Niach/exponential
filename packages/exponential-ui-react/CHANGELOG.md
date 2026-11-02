@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.6.0 (2026-11-02)
+
+- EXP-1624: a ZoomableImage whose picture has not loaded (pending or failed) keeps its size and draws a placeholder (the new `image` chrome glyph over the alt, at the picture's radius) and no zoom pill, instead of the browser's broken-image glyph.
+
 ## 0.5.0 (2026-11-02)
 
 - No changes of its own; released with the SDK (the records query and expressions landed in the core).

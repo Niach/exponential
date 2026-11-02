@@ -5,7 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.6.0 (2026-11-02)
+
 - VAPP-194: `ExponentialHost::call_function` runs `actions.<name>` as the surface's package action (`run_package_action`): the plan over one snapshot, every host call's gate and consent first, the writes as ONE `records.batch`, then the sets, then the calls; a failure sends `ACTION_FAILED` and calls `HostOptions::on_action_failed` (`ActionFailure`). New `HostOptions` fields `me`, `now`, `zone` (`ZoneFn`), `on_action_failed`.
+- EXP-1589 / EXP-1624: parity with the web renderer. A cartesian Chart maps its nice-tick range (the top tick label no longer rides into the title); a disabled Button, Toggle or Composer send button dims as one layer (its label never shows its fill through); a disabled text field dims once and is inert; the FileUpload dropzone glyph fills its part; a ZoomableImage that has not loaded draws a placeholder (the image glyph over the alt, on a muted tint) and no pill instead of a broken-image glyph.
 
 ## 0.5.0 (2026-11-02)
 
