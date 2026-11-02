@@ -782,6 +782,7 @@ async function seedSessionTree(ctx: {
       )
     }
     return {
+      formatVersion: 2,
       id: `acme.team-dashboard`,
       name: `Team dashboard`,
       version,
@@ -875,8 +876,8 @@ async function seedSessionTree(ctx: {
       ...full,
       version,
       functions,
-      sources: [`exp:records`],
-      templates: { month: { ...full.templates.month, data, bindings: full.templates.month.bindings.filter((b) => b.source.startsWith(`exp:records`)), components } },
+      sources: [`records:*`],
+      templates: { month: { ...full.templates.month, data, bindings: full.templates.month.bindings.filter((b) => b.source.startsWith(`records:`)), components } },
     }
   }
   await db.insert(apps).values([
@@ -987,6 +988,8 @@ async function seedSessionTree(ctx: {
     kind: `entry`,
     data: { date, hours, note, issues },
     createdBy: by,
+    authorId: by,
+    updatedBy: by,
     createdAt: new Date(`${date}T18:00:00Z`),
     updatedAt: new Date(`${date}T18:00:00Z`),
   })
@@ -1011,6 +1014,8 @@ async function seedSessionTree(ctx: {
       kind: `settings`,
       data: { hours_per_month: 40 },
       createdBy: demoId,
+      authorId: demoId,
+      updatedBy: demoId,
       createdAt: DEMO_APP_CHAT_TIMES.second,
       updatedAt: DEMO_APP_CHAT_TIMES.second,
     },

@@ -15,14 +15,13 @@ import ExponentialUI
 //     (`exp:devices`, derived by `AppHostSources` exactly like the web
 //     host; VAPP-119 `exp:issues` / `boards` / `members` / `sessions` /
 //     `comments` / `attachments` over the team's rows (`AppSources`, the
-//     fixture's derivation); VAPP-122 `exp:records?kind=…` over the app's
-//     own rows (`AppRecords`), VAPP-161 also the format's neutral
-//     `records:<kind>?…` (VAPP-189: the SDK's `RecordsQuery`, eUI's one evaluator);
+//     fixture's derivation); VAPP-122 the format's `records:<kind>?…` over
+//     the app's own rows (`AppRecords`; VAPP-189: the SDK's `RecordsQuery`,
+//     eUI's one evaluator);
 //   - functions: `harness.toast`, `harness.openIssue`, `harness.openDevice`,
 //     `harness.mcp` (a tools/call on the instance's /api/mcp as the viewer),
-//     `harness.records.upsert` / `.delete` (tRPC `apps.records.*`, no
-//     consent card: the app's own rows; a refusal = the failed-action toast;
-//     VAPP-161 the neutral `records.upsert` / `.delete` = the same closures;
+//     `records.upsert` / `.delete` (tRPC `apps.records.*`, no consent card:
+//     the app's own rows; a refusal = the failed-action toast;
 //     VAPP-194 `records.batch` = a package action's writes as ONE
 //     `apps.records.batch`, its failure = `onActionFailed`'s toast);
 //   - extensions: the app extension (`packages/ui/exponential-ui/extension.json`,
@@ -224,8 +223,7 @@ final class ExpAppHost {
         let actions = Self.actionFunctions(accountId: accountId, base: base, httpClient: deps.httpClient)
         // VAPP-122: the app's own rows (no consent card); a refusal (the
         // kind's schema, the caps, the plan quota) = the failed-action toast,
-        // and the call fails. VAPP-161: the format's neutral `records.upsert`
-        // / `.delete` are the same closures.
+        // and the call fails (`records.upsert` / `.delete`).
         let recordsUpsert: HostFunction = { args, _ in
             do {
                 guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
@@ -319,8 +317,6 @@ final class ExpAppHost {
                         httpClient: deps.httpClient
                     )
                 },
-                "harness.records.upsert": recordsUpsert,
-                "harness.records.delete": recordsDelete,
                 "records.upsert": recordsUpsert,
                 "records.delete": recordsDelete,
                 "records.batch": recordsBatch,
@@ -331,15 +327,12 @@ final class ExpAppHost {
                     case "devices": return AppHostStore.devices(pool: pool, emit: emit)
                     case let name where AppSources.kinds.contains(name):
                         return AppHostStore.source(pool: pool, scope: scope, name: name, params: source.params, emit: emit)
-                    case "records":
-                        return AppHostStore.records(pool: pool, scope: scope, query: RecordsQuery.parse(params: source.params), emit: emit)
                     default:
                         emit(.null)
                         return nil
                     }
                 },
-                // VAPP-161: the format's neutral `records:<kind>?…` =
-                // `exp:records?kind=<kind>&…` (the name wins).
+                // VAPP-161: `records:<kind>?…` (the source's name = the kind).
                 "records": { source, emit in
                     guard let query = RecordsQuery.parse(source: source) else {
                         emit(.null)
@@ -651,7 +644,7 @@ enum AppHostStore {
         return { observe.cancel() }
     }
 
-    /// VAPP-122: the app whose records `exp:records` reads (the hosting app,
+    /// VAPP-122: the app whose records `records:<kind>` reads (the hosting app,
     /// or `app=<slug>`: another app of the same team) and the viewer.
     struct RecordsScope: Sendable {
         let appId: String?
@@ -665,7 +658,7 @@ enum AppHostStore {
         var names: [String: String] = [:]
     }
 
-    /// `exp:records?kind=…`: eUI's one evaluator (VAPP-189, the SDK's
+    /// `records:<kind>?…`: eUI's one evaluator (VAPP-189, the SDK's
     /// `RecordsQuery` over the core; fixtures/records-query.json) over the
     /// synced `app_records` rows of the app, names off `users`, on every
     /// change of the records, the users or the apps (an `app=` slug may sync

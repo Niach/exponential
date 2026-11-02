@@ -1030,11 +1030,11 @@
       }
     },
     {
-      "uri": "exp:records?vapp=v1&kind=recipe&empty=&flag",
+      "uri": "exp:issues?vapp=v1&kind=recipe&empty=&flag",
       "expected": {
-        "uri": "exp:records?vapp=v1&kind=recipe&empty=&flag",
+        "uri": "exp:issues?vapp=v1&kind=recipe&empty=&flag",
         "scheme": "exp",
-        "name": "records",
+        "name": "issues",
         "params": {
           "empty": "",
           "flag": "",
@@ -1149,20 +1149,20 @@
   ],
   "sourceParams": [
     {
-      "source": "exp:records?kind=entry",
+      "source": "records:entry",
       "params": {
         "month": "2026-10"
       },
-      "expected": "exp:records?kind=entry&month=2026-10"
+      "expected": "records:entry?month=2026-10"
     },
     {
-      "source": "exp:records",
+      "source": "exp:issues",
       "params": {
         "mine": true,
         "kind": "entry",
         "limit": 50
       },
-      "expected": "exp:records?kind=entry&limit=50&mine=true"
+      "expected": "exp:issues?kind=entry&limit=50&mine=true"
     },
     {
       "source": "exp:issues?board=b1",

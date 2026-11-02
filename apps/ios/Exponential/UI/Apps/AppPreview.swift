@@ -14,8 +14,8 @@ import ExponentialUI
 struct AppPreview: View {
     /// The package's JSON text; nil = no version yet.
     let packageJSON: String?
-    /// VAPP-122: the hosting app and its team (`exp:records` reads and
-    /// `harness.records.*` writes the app's own rows).
+    /// VAPP-122: the hosting app and its team (`records:<kind>` reads and
+    /// `records.*` writes the app's own rows).
     var appId: String?
     var teamId: String?
     /// Release train 2026-10-25: the row's grants are about the HEAD

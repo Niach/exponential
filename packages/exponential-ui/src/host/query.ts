@@ -1,6 +1,5 @@
 // VAPP-189 (S1, docs/package-format.md "Records"): THE records query, one
-// evaluator for every host. A binding's URL sugar (`records:<kind>?q`, a
-// host's own spelling like Exponential's `exp:records?kind=<kind>&q`)
+// evaluator for every host. A binding's URL sugar (`records:<kind>?q`)
 // parses INTO the structured `RecordsQuery`; `recordsValue` evaluates it
 // over the rows of any `RecordStore` (record-store.ts). Pure, so the Rust
 // core mirrors it line by line (`eui-core` `host/query.rs`, reached by the
@@ -23,7 +22,7 @@ export const RECORDS_SCHEME = `records`
 /** The URL sugar's defaults and caps (catalog/host.json `package.records.query`). */
 export const RECORDS_QUERY = { sortDefault: `createdAt`, orderDefault: `desc`, limitDefault: 100, limitMax: 500 } as const
 /** Query keys with a meaning of their own; never a field filter. */
-export const RECORDS_RESERVED_PARAMS: readonly string[] = [`app`, `before`, `by`, `kind`, `limit`, `mine`, `month`, `order`, `q`, `query`, `sort`, `sum`, `user`]
+export const RECORDS_RESERVED_PARAMS: readonly string[] = [`app`, `before`, `by`, `limit`, `mine`, `month`, `order`, `q`, `query`, `sort`, `sum`, `user`]
 /** The keys every value row carries next to its data (a data key never shadows one). */
 export const RECORDS_ROW_KEYS: readonly string[] = [`id`, `createdAt`, `updatedAt`, `createdBy`, `authorId`, `author`]
 /** The filter operators: `eq` is the bare key, the others a `.<op>` suffix
@@ -194,11 +193,10 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 const byCodeUnits = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 /** Query params (as `parseSource` gives them) → the query. `kind` = the
- *  source's own name (the neutral `records:<kind>`), which wins over a
- *  `kind` param. Unknown keys are field filters. VAPP-190: `q=<json>` = the
+ *  source's own name (`records:<kind>`). Unknown keys are field filters. VAPP-190: `q=<json>` = the
  *  JSON form (`parseRecordsJson`; the other params are ignored). */
 export function parseRecordsQuery(params: Record<string, string>, kind?: string | null): RecordsQuery {
-  const from = trimmed(kind ?? params.kind)
+  const from = trimmed(kind)
   if (params.q !== undefined && params.q.trim()) {
     let json: unknown = null
     try {
@@ -435,19 +433,18 @@ export function fillQueryTemplates(value: unknown, params: Record<string, string
 
 /** VAPP-190: a package binding `<scheme>:<name>?query=<id>&<params>` naming
  *  one of the package's `queries` → the same source with that query, its
- *  `${param}` templates filled from the other params, as `q=<canonical JSON>`
- *  (a `kind` param stays: Exponential's `exp:records?kind=`). Anything else
- *  is returned as written. */
+ *  `${param}` templates filled from the other params, as `q=<canonical JSON>`.
+ *  Anything else is returned as written. */
 export function expandQuerySource(source: string, queries: Record<string, unknown> | undefined): string {
   const parsed = parseSource(source)
   const id = parsed?.params.query
   if (!parsed || id === undefined || !isObject(queries) || !Object.prototype.hasOwnProperty.call(queries, id)) return source
-  const { query: _, kind, ...params } = parsed.params
+  const { query: _, ...params } = parsed.params
   const q = queries[id]
   const filled = fillQueryTemplates(q, params)
   const base = source.trim()
   const head = base.includes(`?`) ? base.slice(0, base.indexOf(`?`)) : base
-  return sourceWithParams(head, { ...(kind !== undefined ? { kind } : {}), q: canonicalJson(filled) })
+  return sourceWithParams(head, { q: canonicalJson(filled) })
 }
 
 const num = (v: unknown): number | null => {

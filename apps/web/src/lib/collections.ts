@@ -200,7 +200,7 @@ export const appVersionCollection = createCollection(
     getKey: (item) => item.id,
   })
 )
-// VAPP-122: the apps' records (their own data; `exp:records` resolves over
+// VAPP-122: the apps' records (their own data; `records:<kind>` resolves over
 // it, the app settings page counts it). VAPP-159: ON DEMAND like
 // `messages` (#EXP-1380): a browser loads the records of the apps it opens
 // as Electric subsets, never the team's whole shape. Every query on this

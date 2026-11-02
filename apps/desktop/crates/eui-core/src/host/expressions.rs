@@ -146,15 +146,7 @@ fn path_type(path: &str, template: &Map<String, Value>, records: Option<&Value>)
             continue;
         }
         let parsed = parse_source(source);
-        let kind = parsed.as_ref().and_then(|p| {
-            if p.scheme == RECORDS_SCHEME {
-                Some(p.name.clone())
-            } else if p.scheme == "exp" && p.name == "records" {
-                p.params.get("kind").cloned()
-            } else {
-                None
-            }
-        });
+        let kind = parsed.as_ref().filter(|p| p.scheme == RECORDS_SCHEME).map(|p| p.name.clone());
         let Some(kind) = kind.filter(|k| records.and_then(Value::as_object).is_some_and(|r| r.contains_key(k))) else { return ty("dyn") };
         let rest: Vec<String> = path[bp.len()..].split('/').enumerate().filter(|(i, s)| *i > 0 || !s.is_empty()).map(|(_, s)| unescape(s)).collect();
         return walk(records_value_type(records.and_then(|r| r.get(&kind))), &rest);

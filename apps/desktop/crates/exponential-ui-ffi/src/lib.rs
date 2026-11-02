@@ -2719,8 +2719,8 @@ pub fn validate_record_json(schema_json: String, data_json: String) -> Result<St
 
 /// VAPP-189: query params (a JSON object of strings, as `parseSourceJson`
 /// gives them) → the structured records query JSON
-/// (`fixtures/records-query.json` `parseCases`). `kind` = the neutral
-/// source's own name (`records:<kind>`), which wins over a `kind` param.
+/// (`fixtures/records-query.json` `parseCases`). `kind` = the source's
+/// own name (`records:<kind>`), the only place the kind comes from.
 #[uniffi::export]
 pub fn parse_records_query_json(params_json: String, kind: Option<String>) -> Result<String, UiError> {
     guarded("parse_records_query_json", || {

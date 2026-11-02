@@ -142,7 +142,6 @@ import { Route as TTeamSlugSettingsPromptsPromptIdRouteImport } from './routes/t
 import { Route as TTeamSlugSettingsMcpActivityRouteImport } from './routes/t/$teamSlug/settings/mcp_.activity'
 import { Route as TTeamSlugSettingsBoardsArchivedRouteImport } from './routes/t/$teamSlug/settings/boards/archived'
 import { Route as TTeamSlugSettingsBoardsBoardIdRouteImport } from './routes/t/$teamSlug/settings/boards/$boardId'
-import { Route as TTeamSlugSettingsAppsAppIdRouteImport } from './routes/t/$teamSlug/settings/apps/$appId'
 import { Route as TTeamSlugSettingsAgentsNewRouteImport } from './routes/t/$teamSlug/settings/agents/new'
 import { Route as TTeamSlugSettingsAgentsAgentIdRouteImport } from './routes/t/$teamSlug/settings/agents/$agentId'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRouteImport } from './routes/[.well-known]/oauth-protected-resource_/api/mcp/apps'
@@ -857,12 +856,6 @@ const TTeamSlugSettingsBoardsBoardIdRoute =
     path: '/boards/$boardId',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
-const TTeamSlugSettingsAppsAppIdRoute =
-  TTeamSlugSettingsAppsAppIdRouteImport.update({
-    id: '/apps/$appId',
-    path: '/apps/$appId',
-    getParentRoute: () => TTeamSlugSettingsRouteRoute,
-  } as any)
 const TTeamSlugSettingsAgentsNewRoute =
   TTeamSlugSettingsAgentsNewRouteImport.update({
     id: '/agents/new',
@@ -1020,7 +1013,6 @@ export interface FileRoutesByFullPath {
   '/.well-known/oauth-protected-resource/api/mcp/apps': typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
   '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
   '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
-  '/t/$teamSlug/settings/apps/$appId': typeof TTeamSlugSettingsAppsAppIdRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/settings/mcp/activity': typeof TTeamSlugSettingsMcpActivityRoute
@@ -1157,7 +1149,6 @@ export interface FileRoutesByTo {
   '/.well-known/oauth-protected-resource/api/mcp/apps': typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
   '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
   '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
-  '/t/$teamSlug/settings/apps/$appId': typeof TTeamSlugSettingsAppsAppIdRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/settings/mcp/activity': typeof TTeamSlugSettingsMcpActivityRoute
@@ -1299,7 +1290,6 @@ export interface FileRoutesById {
   '/.well-known/oauth-protected-resource_/api/mcp/apps': typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
   '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
   '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
-  '/t/$teamSlug/settings/apps/$appId': typeof TTeamSlugSettingsAppsAppIdRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
   '/t/$teamSlug/settings/boards/archived': typeof TTeamSlugSettingsBoardsArchivedRoute
   '/t/$teamSlug/settings/mcp_/activity': typeof TTeamSlugSettingsMcpActivityRoute
@@ -1441,7 +1431,6 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource/api/mcp/apps'
     | '/t/$teamSlug/settings/agents/$agentId'
     | '/t/$teamSlug/settings/agents/new'
-    | '/t/$teamSlug/settings/apps/$appId'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/settings/mcp/activity'
@@ -1578,7 +1567,6 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource/api/mcp/apps'
     | '/t/$teamSlug/settings/agents/$agentId'
     | '/t/$teamSlug/settings/agents/new'
-    | '/t/$teamSlug/settings/apps/$appId'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/settings/mcp/activity'
@@ -1719,7 +1707,6 @@ export interface FileRouteTypes {
     | '/.well-known/oauth-protected-resource_/api/mcp/apps'
     | '/t/$teamSlug/settings/agents/$agentId'
     | '/t/$teamSlug/settings/agents/new'
-    | '/t/$teamSlug/settings/apps/$appId'
     | '/t/$teamSlug/settings/boards/$boardId'
     | '/t/$teamSlug/settings/boards/archived'
     | '/t/$teamSlug/settings/mcp_/activity'
@@ -2750,13 +2737,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsBoardsBoardIdRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
-    '/t/$teamSlug/settings/apps/$appId': {
-      id: '/t/$teamSlug/settings/apps/$appId'
-      path: '/apps/$appId'
-      fullPath: '/t/$teamSlug/settings/apps/$appId'
-      preLoaderRoute: typeof TTeamSlugSettingsAppsAppIdRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
     '/t/$teamSlug/settings/agents/new': {
       id: '/t/$teamSlug/settings/agents/new'
       path: '/agents/new'
@@ -2863,7 +2843,6 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsIndexRoute: typeof TTeamSlugSettingsIndexRoute
   TTeamSlugSettingsAgentsAgentIdRoute: typeof TTeamSlugSettingsAgentsAgentIdRoute
   TTeamSlugSettingsAgentsNewRoute: typeof TTeamSlugSettingsAgentsNewRoute
-  TTeamSlugSettingsAppsAppIdRoute: typeof TTeamSlugSettingsAppsAppIdRoute
   TTeamSlugSettingsBoardsBoardIdRoute: typeof TTeamSlugSettingsBoardsBoardIdRoute
   TTeamSlugSettingsBoardsArchivedRoute: typeof TTeamSlugSettingsBoardsArchivedRoute
   TTeamSlugSettingsMcpActivityRoute: typeof TTeamSlugSettingsMcpActivityRoute
@@ -2897,7 +2876,6 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsIndexRoute: TTeamSlugSettingsIndexRoute,
     TTeamSlugSettingsAgentsAgentIdRoute: TTeamSlugSettingsAgentsAgentIdRoute,
     TTeamSlugSettingsAgentsNewRoute: TTeamSlugSettingsAgentsNewRoute,
-    TTeamSlugSettingsAppsAppIdRoute: TTeamSlugSettingsAppsAppIdRoute,
     TTeamSlugSettingsBoardsBoardIdRoute: TTeamSlugSettingsBoardsBoardIdRoute,
     TTeamSlugSettingsBoardsArchivedRoute: TTeamSlugSettingsBoardsArchivedRoute,
     TTeamSlugSettingsMcpActivityRoute: TTeamSlugSettingsMcpActivityRoute,

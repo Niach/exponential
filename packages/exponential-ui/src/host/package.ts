@@ -20,8 +20,8 @@ import { packageTestIssues, validatePackageTests } from "./tests"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
- *  A package without `formatVersion` is version 1; every version-1
- *  package is a valid version-2 package. */
+ *  A package names it, and it is exactly this one: no older format is
+ *  read (eApps keeps no backwards compatibility). */
 export const PACKAGE_FORMAT_VERSION = 2
 
 /** The core, the core lite, the A2UI basic catalog, then every registered
@@ -69,8 +69,9 @@ export interface AppPackage {
    *  (`host/records.ts`); a record is validated against its kind before
    *  it is stored. A kind's name follows `RECORD_KIND_PATTERN`. */
   records?: Record<string, RecordKind>
-  /** VAPP-161: the format version the package was written for (default 1). */
-  formatVersion?: number
+  /** VAPP-161: the format version the package was written for
+   *  (`PACKAGE_FORMAT_VERSION`, required). */
+  formatVersion: number
   /** VAPP-161: MCP servers and scripts its functions call (`tools.<id>…`),
    *  each behind the host's consent card (`host/tools.ts`). */
   tools?: Record<string, PackageTool>
@@ -145,10 +146,10 @@ const POINTER = /^(\/([^/~]|~[01])*)*$/
 export function validatePackage(pkg: unknown, catalogIds: readonly string[] = supportedCatalogIds(), extensions?: readonly AvailableExtension[]): PackageIssue[] {
   const issues: PackageIssue[] = []
   if (!isObject(pkg)) return [{ path: ``, message: `a package is an object` }]
-  if (pkg.formatVersion !== undefined) {
-    if (typeof pkg.formatVersion !== `number` || !Number.isInteger(pkg.formatVersion) || pkg.formatVersion < 1) issues.push({ path: `/formatVersion`, message: `formatVersion is a positive integer` })
-    else if (pkg.formatVersion > PACKAGE_FORMAT_VERSION) issues.push({ path: `/formatVersion`, message: `format version ${pkg.formatVersion} is newer than this host (${PACKAGE_FORMAT_VERSION})` })
-  }
+  if (pkg.formatVersion === undefined) issues.push({ path: `/formatVersion`, message: `formatVersion is required (${PACKAGE_FORMAT_VERSION})` })
+  else if (typeof pkg.formatVersion !== `number` || !Number.isInteger(pkg.formatVersion) || pkg.formatVersion < 1) issues.push({ path: `/formatVersion`, message: `formatVersion is a positive integer` })
+  else if (pkg.formatVersion > PACKAGE_FORMAT_VERSION) issues.push({ path: `/formatVersion`, message: `format version ${pkg.formatVersion} is newer than this host (${PACKAGE_FORMAT_VERSION})` })
+  else if (pkg.formatVersion < PACKAGE_FORMAT_VERSION) issues.push({ path: `/formatVersion`, message: `format version ${pkg.formatVersion} is no longer read: write ${PACKAGE_FORMAT_VERSION}` })
   for (const key of [`id`, `name`, `version`, `catalogId`])
     if (typeof pkg[key] !== `string` || !(pkg[key] as string)) issues.push({ path: `/${key}`, message: `${key} is a required string` })
   if (typeof pkg.catalogId === `string` && pkg.catalogId && !catalogIds.includes(pkg.catalogId))
@@ -237,7 +238,7 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
       template.bindings.forEach((b, i) => {
         const parsed = isObject(b) && typeof b.source === `string` ? parseSource(b.source) : null
         const name = parsed?.params.query
-        if (!parsed || name === undefined || (parsed.scheme !== RECORDS_SCHEME && !(parsed.scheme === `exp` && parsed.name === `records`))) return
+        if (!parsed || name === undefined || parsed.scheme !== RECORDS_SCHEME) return
         if (!isObject(pkg.queries) || !Object.prototype.hasOwnProperty.call(pkg.queries, name))
           issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `query ${name} names no package query` })
       })

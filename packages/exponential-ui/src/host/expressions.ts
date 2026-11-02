@@ -98,7 +98,7 @@ function pathType(path: string, template: Record<string, unknown>, records: unkn
     if (!isObject(b) || typeof b.path !== `string` || typeof b.source !== `string`) continue
     if (path !== b.path && !path.startsWith(`${b.path}/`)) continue
     const parsed = parseSource(b.source)
-    const kind = parsed?.scheme === RECORDS_SCHEME ? parsed.name : parsed?.scheme === `exp` && parsed.name === `records` ? parsed.params.kind : undefined
+    const kind = parsed?.scheme === RECORDS_SCHEME ? parsed.name : undefined
     if (!kind || !isObject(records) || !own(records, kind)) return `dyn`
     const rest = path.slice(b.path.length).split(`/`).filter((s, i) => i > 0 || s !== ``)
     return walk(recordsValueType(records[kind]), rest.map(unescape))

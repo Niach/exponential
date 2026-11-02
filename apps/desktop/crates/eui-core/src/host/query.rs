@@ -2,8 +2,7 @@
 //! `packages/exponential-ui/src/host/query.ts`, locked by
 //! `fixtures/records-query.json` (`parseCases`, `sourceCases`, `jsonCases`,
 //! `valueCases`, `expandCases`; `bucketCases` lock [`crate::dates`]). A
-//! binding's URL sugar (`records:<kind>?q`, a host's own spelling like
-//! Exponential's `exp:records?kind=<kind>&q`) parses INTO the structured
+//! binding's URL sugar (`records:<kind>?q`) parses INTO the structured
 //! [`RecordsQuery`]; [`records_value`] evaluates it over the rows of any
 //! store. The desktop host calls it directly; the Swift and Compose SDKs
 //! reach it through `exponential-ui-ffi` (`parse_records_query_json`,
@@ -33,7 +32,7 @@ pub const RECORDS_ORDER_DEFAULT: &str = "desc";
 pub const RECORDS_LIMIT_DEFAULT: u32 = 100;
 pub const RECORDS_LIMIT_MAX: u32 = 500;
 /// Query keys with a meaning of their own; never a field filter.
-pub const RECORDS_RESERVED_PARAMS: &[&str] = &["app", "before", "by", "kind", "limit", "mine", "month", "order", "q", "query", "sort", "sum", "user"];
+pub const RECORDS_RESERVED_PARAMS: &[&str] = &["app", "before", "by", "limit", "mine", "month", "order", "q", "query", "sort", "sum", "user"];
 /// The keys every value row carries next to its data (a data key never shadows one).
 pub const RECORDS_ROW_KEYS: &[&str] = &["id", "createdAt", "updatedAt", "createdBy", "authorId", "author"];
 /// The filter operators: `eq` is the bare key, the others a `.<op>` suffix
@@ -361,11 +360,11 @@ fn trimmed(v: Option<&str>) -> Option<String> {
 }
 
 /// Query params (as [`super::parse_source`] gives them) → the query. `kind`
-/// = the source's own name (the neutral `records:<kind>`), which wins over a
-/// `kind` param. Unknown keys are field filters. VAPP-190: `q=<json>` = the
+/// = the source's own name (`records:<kind>`). Unknown keys are field
+/// filters. VAPP-190: `q=<json>` = the
 /// JSON form ([`parse_records_json`]; the other params are ignored).
 pub fn parse_records_query(params: &BTreeMap<String, String>, kind: Option<&str>) -> RecordsQuery {
-    let from = trimmed(kind.or(params.get("kind").map(String::as_str)));
+    let from = trimmed(kind);
     if let Some(q) = params.get("q").filter(|q| !js_trim(q).is_empty()) {
         let json = serde_json::from_str::<Value>(q).ok().filter(Value::is_object).unwrap_or_else(|| json!({}));
         return parse_records_json(&json, from.as_deref()).0;
@@ -713,16 +712,10 @@ pub fn expand_query_source(source: &str, queries: Option<&Value>) -> String {
     let Some(query) = queries.and_then(Value::as_object).and_then(|q| q.get(id)) else { return source.to_string() };
     let mut params = parsed.params.clone();
     params.remove("query");
-    let kind = params.remove("kind");
     let filled = fill_query_templates(query, &params);
     let base = js_trim(source);
     let head = base.split_once('?').map_or(base, |(h, _)| h);
-    let mut extra = Map::new();
-    if let Some(kind) = kind {
-        extra.insert("kind".into(), Value::String(kind));
-    }
-    extra.insert("q".into(), Value::String(canonical_json(&filled)));
-    source_with_params(head, Some(&Value::Object(extra)))
+    source_with_params(head, Some(&json!({ "q": canonical_json(&filled) })))
 }
 
 /// One stored record as a host hands it to the evaluator (borrowed).

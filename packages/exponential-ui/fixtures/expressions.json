@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-191 (eApps Q2, spec docs/spec/apps.md §4.2-4.4): the expression language, ONE fixture for the TS reference (src/cel.ts) and the Rust core (eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. The string form is a SUBSET of CEL: number/string/bool/null/list literals, names, field paths a.b, indexes a[0] / m['k'], + - * / %, unary - and !, == != < <= > >=, && || (short-circuit), c ? a : b, the function table, and the macros map/filter/all/exists, single level. ONE number type (a double, like JSON: 7 / 2 = 3.5; CEL splits int/uint/double); no implicit conversion; a missing field (or a field of null) reads null; == is deep JSON equality; strings compare by UTF-16 code unit. Errors are exact texts; a parse error starts `at <code point>: `. Functions (also the A2UI form {call, args}): mul{a,b} div{a,b} mod{a,b} round{value,digits?} (half away from zero, digits 0..10) floor ceil abs{value} min max{values} today{} now{} dateAdd{date,n,unit} dateDiff{a,b,unit} (b - a, truncated) startOf endOf{date,unit} weekday{date} (ISO, Monday 1) isoWeek{date} hours{minutes} formatDuration{hours,format} (h:mm, hh:mm), size (CEL only), and expr{expr, vars} = the string form at bind time; a failed call has NO value (`none`). A date is `YYYY-MM-DD` (a calendar day), a timestamp an ISO instant (no offset = UTC; written back as toISOString). Everything date-like runs in the TEAM zone `zones[env.zone]` = a UTC offset per instant (minutes east, `offset` until the first transition, then each `[at, offset]`): a day unit keeps the wall clock (a time in a DST gap moves forward by the gap, a repeated time takes its later instant), second/minute/hour are real time. Units: second minute hour day week month quarter year (startOf/endOf: day..year; a date takes no sub-day unit in dateAdd). Cost: `limits` (maxLength code points, maxDepth = nested expressions and unary operators, maxSteps = evaluated nodes + comprehension iterations; a case's `maxSteps` overrides). `eval`: expr over `vars` in `env` (a case may override now / zone) → value | error. `check`: the type checker at package validation over `checkTypes` (types spelled as JSON: number string bool null date timestamp map dyn, [T] = a list, an object = a row with exactly those fields) → type | error. `calls`: the A2UI form resolved over `callData` (bind time) → value | none, and its `cel` twin over the same data as vars agrees. `packages`: validatePackage's expression issues: every {call: expr} anywhere in a template is parsed and checked; a var's type comes from a literal, a records binding (`records:<kind>` / `exp:records?kind=`: {rows: [row], count, sum, groups, totals, before, month}; a row = the kind's schema fields + id createdAt updatedAt createdBy authorId author) or the template data; anything else is dyn. VAPP-195 (E2, spec §4.2): MISSING VALUES ARE EXPLICIT. A type that may be missing is `T?`, spelled {\"?\": T}; it prints `T?`. A kind's field that is not in its schema's `required` reads `T?` (the row keys never do), and so does a var the checker cannot type (`dyn?`: an open binding path, a call). A field or index of a `T?` is optional too. Arithmetic, comparisons (< <= > >=), && || !, a condition, a macro's list or a function argument on a `T?` is an error `<path> may be missing: guard it with has(), a null check or orElse()` (<path> as written: a.b[0].c, else `the value at <code point>`); == and != take one (the null check). Guards: `has(a.b)` (CEL's presence test: true when the field is there and not null; has() of a null value is false; a non-field argument is the parse error `has needs a field: has(a.b)`), `p != null` / `p == null`, through `&&`, `||` and `!`, narrow p in the branch (or the right operand) they prove; `orElse(x, default)` (A2UI {value, default}) is x, or default when x is null, typed T (a default of another type is `orElse needs a <T> default, got <U>`). A ternary with a null branch is T?. Every `{call: expr}` in a package template needs `default` (`an expression binding needs a default, shown when it fails`); at bind time a failing call (expr, any expression function, any bind-time function: an error, the step limit, a throw) resolves to its `default` (absent = no value), so a binding never throws.",
+  "$comment": "VAPP-191 (eApps Q2, spec docs/spec/apps.md §4.2-4.4): the expression language, ONE fixture for the TS reference (src/cel.ts) and the Rust core (eui_core::cel), replayed by the FFI facade and the Swift and Compose SDKs. The string form is a SUBSET of CEL: number/string/bool/null/list literals, names, field paths a.b, indexes a[0] / m['k'], + - * / %, unary - and !, == != < <= > >=, && || (short-circuit), c ? a : b, the function table, and the macros map/filter/all/exists, single level. ONE number type (a double, like JSON: 7 / 2 = 3.5; CEL splits int/uint/double); no implicit conversion; a missing field (or a field of null) reads null; == is deep JSON equality; strings compare by UTF-16 code unit. Errors are exact texts; a parse error starts `at <code point>: `. Functions (also the A2UI form {call, args}): mul{a,b} div{a,b} mod{a,b} round{value,digits?} (half away from zero, digits 0..10) floor ceil abs{value} min max{values} today{} now{} dateAdd{date,n,unit} dateDiff{a,b,unit} (b - a, truncated) startOf endOf{date,unit} weekday{date} (ISO, Monday 1) isoWeek{date} hours{minutes} formatDuration{hours,format} (h:mm, hh:mm), size (CEL only), and expr{expr, vars} = the string form at bind time; a failed call has NO value (`none`). A date is `YYYY-MM-DD` (a calendar day), a timestamp an ISO instant (no offset = UTC; written back as toISOString). Everything date-like runs in the TEAM zone `zones[env.zone]` = a UTC offset per instant (minutes east, `offset` until the first transition, then each `[at, offset]`): a day unit keeps the wall clock (a time in a DST gap moves forward by the gap, a repeated time takes its later instant), second/minute/hour are real time. Units: second minute hour day week month quarter year (startOf/endOf: day..year; a date takes no sub-day unit in dateAdd). Cost: `limits` (maxLength code points, maxDepth = nested expressions and unary operators, maxSteps = evaluated nodes + comprehension iterations; a case's `maxSteps` overrides). `eval`: expr over `vars` in `env` (a case may override now / zone) → value | error. `check`: the type checker at package validation over `checkTypes` (types spelled as JSON: number string bool null date timestamp map dyn, [T] = a list, an object = a row with exactly those fields) → type | error. `calls`: the A2UI form resolved over `callData` (bind time) → value | none, and its `cel` twin over the same data as vars agrees. `packages`: validatePackage's expression issues: every {call: expr} anywhere in a template is parsed and checked; a var's type comes from a literal, a records binding (`records:<kind>`: {rows: [row], count, sum, groups, totals, before, month}; a row = the kind's schema fields + id createdAt updatedAt createdBy authorId author) or the template data; anything else is dyn. VAPP-195 (E2, spec §4.2): MISSING VALUES ARE EXPLICIT. A type that may be missing is `T?`, spelled {\"?\": T}; it prints `T?`. A kind's field that is not in its schema's `required` reads `T?` (the row keys never do), and so does a var the checker cannot type (`dyn?`: an open binding path, a call). A field or index of a `T?` is optional too. Arithmetic, comparisons (< <= > >=), && || !, a condition, a macro's list or a function argument on a `T?` is an error `<path> may be missing: guard it with has(), a null check or orElse()` (<path> as written: a.b[0].c, else `the value at <code point>`); == and != take one (the null check). Guards: `has(a.b)` (CEL's presence test: true when the field is there and not null; has() of a null value is false; a non-field argument is the parse error `has needs a field: has(a.b)`), `p != null` / `p == null`, through `&&`, `||` and `!`, narrow p in the branch (or the right operand) they prove; `orElse(x, default)` (A2UI {value, default}) is x, or default when x is null, typed T (a default of another type is `orElse needs a <T> default, got <U>`). A ternary with a null branch is T?. Every `{call: expr}` in a package template needs `default` (`an expression binding needs a default, shown when it fails`); at bind time a failing call (expr, any expression function, any bind-time function: an error, the step limit, a throw) resolves to its `default` (absent = no value), so a binding never throws.",
   "limits": {
     "maxLength": 1000,
     "maxDepth": 32,
@@ -1911,6 +1911,7 @@
     {
       "name": "hours left: a records value and template data",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -1990,6 +1991,7 @@
     {
       "name": "rows of a kind",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2066,6 +2068,7 @@
     {
       "name": "a typo in a field",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2147,6 +2150,7 @@
     {
       "name": "a typo in the records value",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2228,6 +2232,7 @@
     {
       "name": "a unit a date has not",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2309,6 +2314,7 @@
     {
       "name": "a timestamp field",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2385,6 +2391,7 @@
     {
       "name": "the Exponential spelling of a records binding",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2450,7 +2457,7 @@
             "bindings": [
               {
                 "path": "/entries",
-                "source": "exp:records?kind=entry"
+                "source": "records:entry"
               }
             ]
           }
@@ -2466,6 +2473,7 @@
     {
       "name": "a syntax error",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2542,6 +2550,7 @@
     {
       "name": "a name with no var",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2618,6 +2627,7 @@
     {
       "name": "a literal var",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2697,6 +2707,7 @@
     {
       "name": "a literal object var",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2774,6 +2785,7 @@
     {
       "name": "a relative path is open",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2850,6 +2862,7 @@
     {
       "name": "an unbound path is open",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2926,6 +2939,7 @@
     {
       "name": "a call var is open",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3006,6 +3020,7 @@
     {
       "name": "template data types",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3091,6 +3106,7 @@
     {
       "name": "expr is a string",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3167,6 +3183,7 @@
     {
       "name": "vars is an object",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3246,6 +3263,7 @@
     {
       "name": "too long",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3322,6 +3340,7 @@
     {
       "name": "an expression anywhere in a component",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3415,6 +3434,7 @@
     {
       "name": "E2: an unguarded optional field names its path",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3496,6 +3516,7 @@
     {
       "name": "E2: an optional field in arithmetic",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3577,6 +3598,7 @@
     {
       "name": "E2: has() guards a ternary",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3653,6 +3675,7 @@
     {
       "name": "E2: a null check guards",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3729,6 +3752,7 @@
     {
       "name": "E2: orElse narrows",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3805,6 +3829,7 @@
     {
       "name": "E2: a required field needs no guard",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3881,6 +3906,7 @@
     {
       "name": "E2: an expression binding needs a default",
       "package": {
+        "formatVersion": 2,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",

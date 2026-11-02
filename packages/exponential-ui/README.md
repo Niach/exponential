@@ -297,8 +297,8 @@ painters through the facade); `catalog/host.json` is the contract and
   reference); `tools` (MCP servers and scripts, `toolConsent` = the consent
   card the host must show); `extensions` (declared, versioned); the package
   FILE's `author` + Ed25519 `signature` over RFC 8785 canonical JSON
-  (`signPackageFile` / `verifyPackageFile`). Every version-1 package stays
-  valid. The host contract is version 3 (`catalog/host.json` `version`).
+  (`signPackageFile` / `verifyPackageFile`). `formatVersion: 2` is
+  required; no older format is read. The host contract is version 3 (`catalog/host.json` `version`).
 
 The Exponential app is a host like any other: web `apps/web/src/lib/exponential-ui-host.tsx`
 (`harness.*` functions, `exp:` over the Electric collections, the consent

@@ -82,9 +82,12 @@ final class RecordsQueryTests: XCTestCase {
     }
 
     func testTheQueryReadsItsKindAndApp() {
-        let query = RecordsQuery.parse(params: ["kind": "entry", "app": "working-hours"])
+        let query = RecordsQuery.parse(params: ["app": "working-hours"], kind: "entry")
         XCTAssertEqual(query.from, "entry")
         XCTAssertEqual(query.app, "working-hours")
+        XCTAssertEqual(RecordsQuery.parse(source: "records:entry?app=working-hours"), query)
+        // `kind` is no reserved param: only the source's name is the kind.
+        XCTAssertNil(RecordsQuery.parse(params: ["kind": "entry"]).from)
         XCTAssertNil(RecordsQuery.parse(params: [:]).from)
         XCTAssertEqual(RecordsQuery.parse(params: [:]).value(rows: [], me: nil, now: "2026-10-24T09:00:00Z", names: [:]), .null)
     }

@@ -137,19 +137,18 @@ final class HostTests: XCTestCase {
     func testBindActionRefollowsAPath() async throws {
         var bound: [String] = []
         var cancelled: [String] = []
-        let host = ExponentialHost(HostOptions(sources: [
-            "exp": { source, emit in
-                bound.append(source.uri)
-                emit(.string(source.params["month"] ?? ""))
-                return { cancelled.append(source.uri) }
-            },
-        ]))
+        let resolver: SourceResolver = { source, emit in
+            bound.append(source.uri)
+            emit(.string(source.params["month"] ?? ""))
+            return { cancelled.append(source.uri) }
+        }
+        let host = ExponentialHost(HostOptions(sources: ["exp": resolver, "records": resolver]))
         host.receive(create("s1"))
         host.receive(msg("bindDataModel", .object(["surfaceId": .string("s1"), "path": .string("/other"), "source": .string("exp:devices")])))
         func bind(_ month: String, on surface: String = "s1") async -> FunctionOutcome {
             await host.callFunction(SurfaceFunctionCall(surfaceId: surface, componentId: "c", name: "bind", args: [
                 "path": .string("/records"),
-                "source": .string("exp:records?kind=entry"),
+                "source": .string("records:entry"),
                 "params": .object(["month": .string(month), "skip": .null]),
             ]))
         }
@@ -158,8 +157,8 @@ final class HostTests: XCTestCase {
         XCTAssertEqual(host.surface("s1")?.data["records"], .string("2026-10"))
         out = await bind("2026-11")
         XCTAssertEqual(out.decision, .allow)
-        XCTAssertEqual(bound, ["exp:devices", "exp:records?kind=entry&month=2026-10", "exp:records?kind=entry&month=2026-11"])
-        XCTAssertEqual(cancelled, ["exp:records?kind=entry&month=2026-10"])
+        XCTAssertEqual(bound, ["exp:devices", "records:entry?month=2026-10", "records:entry?month=2026-11"])
+        XCTAssertEqual(cancelled, ["records:entry?month=2026-10"])
         XCTAssertEqual(host.surface("s1")?.data["records"], .string("2026-11"))
         // No such surface, or no source: nothing ran.
         out = await bind("2026-12", on: "nope")
@@ -167,14 +166,14 @@ final class HostTests: XCTestCase {
         out = await host.callFunction(SurfaceFunctionCall(surfaceId: "s1", componentId: "c", name: "bind", args: ["path": .string("/x")]))
         XCTAssertEqual(out.decision, .deny)
         host.receive(msg("deleteSurface", .object(["surfaceId": .string("s1")])))
-        XCTAssertEqual(Set(cancelled), ["exp:records?kind=entry&month=2026-10", "exp:records?kind=entry&month=2026-11", "exp:devices"])
+        XCTAssertEqual(Set(cancelled), ["records:entry?month=2026-10", "records:entry?month=2026-11", "exp:devices"])
     }
 
     /// `sourceWithParams` replays host-policy.json `sourceParams`.
     func testSourceWithParamsReplaysTheFixture() throws {
         let cases = try XCTUnwrap(try Fixtures.json("host-policy.json")["sourceParams"]?.array)
         XCTAssertFalse(cases.isEmpty)
-        XCTAssertEqual(BindingSource.sourceWithParams("exp:records?kind=entry", params: .object(["month": .string("2026-10")])), "exp:records?kind=entry&month=2026-10")
+        XCTAssertEqual(BindingSource.sourceWithParams("records:entry", params: .object(["month": .string("2026-10")])), "records:entry?month=2026-10")
         XCTAssertEqual(BindingSource.sourceWithParams("exp:x", params: nil), "exp:x")
         for item in cases {
             let source = try XCTUnwrap(item["source"]?.string)

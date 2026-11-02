@@ -15,7 +15,7 @@ pub fn is_record_kind(name: &str) -> bool {
 }
 
 /// The keys every record row carries; a schema may not declare them.
-pub const RECORD_RESERVED_KEYS: &[&str] = &["id", "createdAt", "updatedAt", "createdBy", "author"];
+pub const RECORD_RESERVED_KEYS: &[&str] = &["id", "createdAt", "updatedAt", "createdBy", "authorId", "author"];
 pub const RECORD_FIELD_TYPES: &[&str] = &["string", "number", "integer", "boolean", "array"];
 pub const RECORD_ITEM_TYPES: &[&str] = &["string", "number", "integer", "boolean"];
 pub const RECORD_FORMATS: &[&str] = &["date", "date-time", "time"];

@@ -2,7 +2,7 @@
 //! `packages/domain-contract/src/app-records.ts` (iOS `AppRecords.swift`,
 //! Android `AppRecords.kt`), byte-locked by `fixtures/app-records.json`
 //! (`countLabelCases`, VAPP-187 `canChangeCases`, VAPP-188 `onBehalf` + the
-//! Data tab's byline / author picker cases). VAPP-189: the `exp:records?…`
+//! Data tab's byline / author picker cases). VAPP-189: the `records:<kind>?…`
 //! query and its value are eUI's ONE evaluator (`eui_core::host::query`,
 //! packages/exponential-ui fixtures/records-query.json); the desktop host
 //! calls it directly.

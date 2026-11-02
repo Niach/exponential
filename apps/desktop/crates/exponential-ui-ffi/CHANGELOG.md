@@ -5,6 +5,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- BREAKING (through `eui-core`): `parse_records_query_json(params_json, kind)` takes the kind only from `kind` (a `kind` param is a field filter); `validate_package_json` requires `formatVersion: 2`; `function_effect("harness.records.upsert")` is `host`, no longer `write`.
 - VAPP-194: `run_package_action_json(package_json, name, params_json, data_json, me?, now_ms?, zone: HostZone?, max_steps?)` → `{plan}|{error}` (named so because `run_action_json` is the bind-time press), `apply_record_batch_json(rows_json, writes_json, records_json, me?, now, new_ids_json)` → `{rows, ids}|{error}` (ids past `new_ids_json` = `r<n>`), `function_effect(name)` → `pure|write|host`; `validate_package_json` reports effect and action issues. Bindings regenerated.
 - VAPP-196: `run_package_tests_json(package_json)` → `[{name, pass, got}]` (`[]` without tests or with a malformed list); `validate_package_json` reports failing package tests as `/tests/<i>` issues. Bindings regenerated.
 

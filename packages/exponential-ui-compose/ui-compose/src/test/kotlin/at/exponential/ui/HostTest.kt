@@ -179,31 +179,29 @@ class HostTest {
         val h = host(
             HostOptions(
                 transport = t,
-                sources = mapOf(
-                    "exp" to SourceResolver { source, e ->
-                        val uri = source.uri
-                        subscribed.add(uri)
-                        e(JsonValue.Str(uri))
-                        ({ cancelled.add(uri) })
-                    },
-                ),
+                sources = SourceResolver { source, e ->
+                    val uri = source.uri
+                    subscribed.add(uri)
+                    e(JsonValue.Str(uri))
+                    ({ cancelled.add(uri) })
+                }.let { resolver -> mapOf("exp" to resolver, "records" to resolver) },
             ),
         )
         h.connect()
         t.feed(create())
-        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/records","source":"exp:records?kind=entry"}}"""))
+        t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/records","source":"records:entry"}}"""))
         t.feed(msg("""{"version":"v0.9","bindDataModel":{"surfaceId":"s1","path":"/other","source":"exp:devices"}}"""))
         val args = mapOf(
             "path" to JsonValue.Str("/records"),
-            "source" to JsonValue.Str("exp:records?kind=entry"),
+            "source" to JsonValue.Str("records:entry"),
             "params" to JsonValue.Obj(mapOf("month" to JsonValue.Str("2026-10"))),
         )
         val outcome = h.callFunction(FunctionCallInfo("s1", "c", "bind", args))
         assertEquals(FunctionDecision.Allow, outcome.decision)
-        assertEquals(listOf("exp:records?kind=entry", "exp:devices", "exp:records?kind=entry&month=2026-10"), subscribed)
+        assertEquals(listOf("records:entry", "exp:devices", "records:entry?month=2026-10"), subscribed)
         // Only the re-bound path's earlier subscription was cancelled.
-        assertEquals(listOf("exp:records?kind=entry"), cancelled)
-        assertEquals("exp:records?kind=entry&month=2026-10", h.surface("s1")!!.data["records"]?.string)
+        assertEquals(listOf("records:entry"), cancelled)
+        assertEquals("records:entry?month=2026-10", h.surface("s1")!!.data["records"]?.string)
         // No source, or no such surface = Deny.
         assertEquals(FunctionDecision.Deny, h.callFunction(FunctionCallInfo("s1", "c", "bind", mapOf("path" to JsonValue.Str("/x")))).decision)
         assertEquals(FunctionDecision.Deny, h.callFunction(FunctionCallInfo("nope", "c", "bind", args)).decision)
@@ -220,8 +218,8 @@ class HostTest {
             sourceWithParams("exp:x", JsonValue.Obj(mapOf("q" to JsonValue.Str("a b&c=d/ü"), "skip" to JsonValue.Null, "gone" to JsonValue.Null))),
         )
         assertEquals(
-            "exp:records?kind=entry&limit=50&mine=true",
-            sourceWithParams("exp:records", JsonValue.Obj(mapOf("mine" to JsonValue.Bool(true), "kind" to JsonValue.Str("entry"), "limit" to JsonValue.Num(50.0)))),
+            "records:entry?limit=50&mine=true",
+            sourceWithParams("records:entry", JsonValue.Obj(mapOf("mine" to JsonValue.Bool(true), "limit" to JsonValue.Num(50.0)))),
         )
         assertEquals("exp:x", sourceWithParams("exp:x", null))
     }
@@ -232,7 +230,7 @@ class HostTest {
         val ran = ArrayList<String>()
         var consent = true
         val asked = ArrayList<String>()
-        val pkg = """{"id":"acme.devices","name":"Devices","version":"1.0.0","catalogId":"$core","templates":{"list":{"components":[{"id":"root","component":"Text","text":"hi"}]}},"functions":["harness.toast"]}"""
+        val pkg = """{"formatVersion":2,"id":"acme.devices","name":"Devices","version":"1.0.0","catalogId":"$core","templates":{"list":{"components":[{"id":"root","component":"Text","text":"hi"}]}},"functions":["harness.toast"]}"""
         val h = host(
             HostOptions(
                 transport = t,
