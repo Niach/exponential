@@ -1,0 +1,3 @@
+- Live sessions pause cleanly when you leave the app and reconnect when you return
+- App records belong to their author; team owners can enter records for others
+- Agents can show small animations in their cards

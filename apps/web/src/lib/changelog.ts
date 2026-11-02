@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-02-live-chats-smooth`,
+    date: `2026-11-02`,
+    title: `Live chats stay smooth`,
+    summary: `Chats stay smooth while an agent works, and live sessions reconnect cleanly after the app was in the background.`,
+    body: `- **Smooth on iOS**: live updates no longer re-render the whole chat or the composer, and long transcripts load without freezing.
+- **Back in seconds**: the connection to your machines recovers within seconds instead of waiting.
+- **Android in the background**: live sessions pause cleanly when you leave the app and reconnect when you return, instead of failing while Android freezes it.
+- **Desktop**: a thread's child sessions running on the same machine stream straight from it.`,
+  },
+  {
     id: `2026-11-02-record-on-behalf`,
     date: `2026-11-02`,
     title: `Owners can enter records for others`,
