@@ -31,7 +31,7 @@ use crate::bar::{
 };
 use crate::host::{icon as host_icon, TalkIcon};
 
-/// The wave's edge (`VoiceWave` size `md`).
+/// The wave's edge (`VoiceWave` size `md`; gated against the core's size table in the tests).
 const WAVE: f32 = 56.;
 /// The pill's sides (`PillSize::Sm` and the primary twin's `web_xs`: 8 px;
 /// only the glass pill wears the 1 px stroke).
@@ -511,6 +511,22 @@ mod tests {
     use gpui::{Context, IntoElement, Render, Window};
 
     use super::*;
+
+    /// VAPP-160: the capsule's wave edges are copies of the `VoiceWave/root`
+    /// recipe's size table (md for the capsule, sm for the call pill): they
+    /// stay equal to what the core resolves in every built-in theme.
+    #[test]
+    fn the_wave_edges_match_the_voice_wave_size_table() {
+        use eui_core::theme::{resolve_recipe, Mode, RecipeQuery};
+        for theme in eui_core::themes::builtin_themes() {
+            for (size, edge) in [("md", WAVE), ("sm", PILL_WAVE)] {
+                let props = serde_json::json!({"size": size, "activity": "listening"}).as_object().unwrap().clone();
+                let root = resolve_recipe(&theme, &RecipeQuery::new("VoiceWave", "root", props, vec![]), Mode::Light);
+                let w = root.get("width").and_then(serde_json::Value::as_f64);
+                assert_eq!(w, Some(edge as f64), "{} VoiceWave/root {size}", theme.id);
+            }
+        }
+    }
 
     /// A line longer than any display (the cap ellipsizes it).
     const LONG: &str = "“move NEW-54 to in review, assign it to me, label it voice and add a comment that the overlay is the bar now”";

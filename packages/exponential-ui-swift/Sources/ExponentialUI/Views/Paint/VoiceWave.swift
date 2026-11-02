@@ -138,12 +138,15 @@ public struct VoiceWaveBars: Equatable, Sendable {
 
 /// `VoiceWave` `variant: bars`: the core's rounded bars in the `bar` part
 /// colour, the meter box at the node's top-left (the root recipe sizes the
-/// node to it); animates like the rings; never paints a child.
+/// node to it); animates like the rings (paused off screen and in the
+/// background); never paints a child.
 struct VoiceWaveBarsLeaf: View {
     let cx: LeafContext
     @Environment(\.xuiReducedMotion) private var surfaceReduced
     @Environment(\.accessibilityReduceMotion) private var platformReduced
+    @Environment(\.scenePhase) private var scenePhase
     @State private var start = Date()
+    @State private var visible = false
 
     var body: some View {
         let activity = VoiceWaveFrame.activity(cx.props.str("activity"))
@@ -153,25 +156,33 @@ struct VoiceWaveBarsLeaf: View {
         let reduced = surfaceReduced || platformReduced
         let color = cx.part("VoiceWave", "bar").color ?? cx.ink
         let animates = VoiceWaveFrame.animated.contains(activity) && !reduced
-        TimelineView(.animation(paused: !animates)) { tl in
+        TimelineView(.animation(paused: !animates || !visible || scenePhase == .background)) { tl in
             let elapsed = animates ? tl.date.timeIntervalSince(start) : 0
             let meter = VoiceWaveBars.compute(size: size, activity: activity, level: level, bands: bands, elapsed: elapsed, reducedMotion: reduced)
             VoiceWaveBarsView(bars: (meter?.bars ?? []).map { VoiceWaveBarsView.Bar(rect: $0.rect, radius: $0.radius) }, color: color)
                 .frame(width: meter?.width ?? cx.size.width, height: meter?.height ?? cx.size.height)
         }
         .frame(width: cx.size.width, height: cx.size.height, alignment: .topLeading)
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
     }
 }
 
 /// `VoiceWave`: the rings behind the one child, coloured by the recipe
 /// parts (`outer` / `mid` / `inner`); the root recipe's opacity applies to
 /// the node. Animates while listening, thinking or speaking (the seconds
-/// since it appeared); reduced motion draws the rest phase.
+/// since it appeared); reduced motion draws the rest phase. VAPP-160: each
+/// frame's rings come from `VoiceWaveGeometry` (pure Swift; the per-edge
+/// trig tables cached in `geometry`), not a JSON round trip through the
+/// core; the clock pauses off screen and in the background.
 struct VoiceWaveLeaf: View {
     let cx: LeafContext
     @Environment(\.xuiReducedMotion) private var surfaceReduced
     @Environment(\.accessibilityReduceMotion) private var platformReduced
+    @Environment(\.scenePhase) private var scenePhase
     @State private var start = Date()
+    @State private var visible = false
+    @State private var geometry = VoiceWaveGeometryCache()
 
     var body: some View {
         if cx.props.str("variant") == "bars" {
@@ -189,14 +200,17 @@ struct VoiceWaveLeaf: View {
         let edge = min(cx.size.width, cx.size.height)
         let colors = ["outer", "mid", "inner"].reduce(into: [String: Color]()) { $0[$1] = cx.part("VoiceWave", $1).color ?? cx.ink }
         let animates = VoiceWaveFrame.animated.contains(activity) && !reduced
-        TimelineView(.animation(paused: !animates)) { tl in
+        let wave = geometry.geometry(size: edge)
+        TimelineView(.animation(paused: !animates || !visible || scenePhase == .background)) { tl in
             let elapsed = animates ? tl.date.timeIntervalSince(start) : 0
-            let frame = VoiceWaveFrame.compute(size: edge, activity: activity, level: level, bands: bands, elapsed: elapsed, reducedMotion: reduced)
-            VoiceWaveView(rings: (frame?.rings ?? []).map { r in
+            let frame = wave.frame(activity: activity, level: level, bands: bands, elapsed: elapsed, reducedMotion: reduced)
+            VoiceWaveView(rings: frame.rings.map { r in
                 VoiceWaveView.Ring(points: r.points, color: colors[r.part] ?? cx.ink, fillAlpha: r.fillAlpha, strokeAlpha: r.strokeAlpha, strokeWidth: r.strokeWidth)
             })
             .frame(width: edge, height: edge)
         }
         .frame(width: cx.size.width, height: cx.size.height)
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
     }
 }

@@ -6,7 +6,7 @@
 // (§9, fixtures/interactions-round1.json `buttonHold`).
 
 import { luminance, parseColor, qrMatrix, QR_CODE, type QrMatrix } from "@exponential_app/eui"
-import styleJson from "../../catalog/style.json" with { type: "json" }
+import styleJson from "../../generated/style.runtime.json" with { type: "json" }
 
 /** style.json `qrScanner` (the viewfinder geometry). */
 export const QR_SCANNER = styleJson.qrScanner

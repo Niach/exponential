@@ -46,6 +46,7 @@ export function VoiceWave({ activity = `idle`, level = 0, bands, size = `md`, la
   latest.current = input
   const elapsed = useRef(0)
   const paths = useRef<(SVGPathElement | null)[]>([])
+  const svg = useRef<SVGSVGElement | null>(null)
   const animates = voiceWaveAnimates(activity) && !reducedMotion
   useEffect(() => {
     if (!animates) {
@@ -55,7 +56,7 @@ export function VoiceWave({ activity = `idle`, level = 0, bands, size = `md`, la
     return voiceWaveClock((t) => {
       elapsed.current = t
       voiceWave({ ...latest.current, elapsed: t }).rings.forEach((ring, k) => paths.current[k]?.setAttribute(`d`, voiceWavePath(ring)))
-    })
+    }, svg.current)
   }, [animates])
   const childEl = useRef<HTMLSpanElement | null>(null)
   const present = hasChild(children)
@@ -73,7 +74,7 @@ export function VoiceWave({ activity = `idle`, level = 0, bands, size = `md`, la
       aria-hidden={name ? undefined : true}
       className={cn(VOICE_WAVE_CLASSES.root, VOICE_WAVE_CLASSES.size[size], quiet && VOICE_WAVE_CLASSES.quiet, className)}
     >
-      <svg viewBox={`0 0 ${px} ${px}`} width={px} height={px} aria-hidden className={VOICE_WAVE_CLASSES.svg}>
+      <svg ref={svg} viewBox={`0 0 ${px} ${px}`} width={px} height={px} aria-hidden className={VOICE_WAVE_CLASSES.svg}>
         {wave.rings.map((ring, k) => (
           <path
             key={ring.part}

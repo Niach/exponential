@@ -861,6 +861,13 @@ impl SurfaceView {
         self.debug_bounds = on.then(|| Rc::new(RefCell::new(HashMap::new())));
     }
 
+    /// How many nodes hold an animation clock (keyframe animations, shimmer,
+    /// a moving VoiceWave, a scanning QrScanner): a test aid (VAPP-160: a
+    /// removed node's clock is pruned).
+    pub fn animation_clocks(&self) -> usize {
+        self.anim_start.borrow().len()
+    }
+
     /// A painted node's window bounds (with [`Self::record_bounds`] on).
     pub fn painted_bounds(&self, id: &str) -> Option<Bounds<Pixels>> {
         self.debug_bounds.as_ref().and_then(|b| b.borrow().get(id).copied())
@@ -1106,10 +1113,15 @@ impl SurfaceView {
         self.lists = out.lists.iter().map(|l| (l.node, l.clone())).collect();
         self.scrolls = out.scrolls.iter().map(|s| (s.index, *s)).collect();
         self.sticky = out.sticky.iter().map(|s| (s.index, (s.dx, s.dy))).collect();
-        // An animation restarts when its node re-enters the tree.
-        if all || !out.delta.removed.is_empty() {
-            let ids = &self.cache.by_id;
-            self.anim_start.borrow_mut().retain(|id, _| ids.contains_key(id.as_ref()));
+        // An animation restarts when its node re-enters the tree. VAPP-160:
+        // pruned on EVERY pass (the map holds a handful of entries): a node
+        // dropped by a cache rebuild, a renumbering or a hide (a VoiceWave
+        // removed mid-animation) no longer keeps its clock.
+        {
+            let cache = &self.cache;
+            self.anim_start
+                .borrow_mut()
+                .retain(|id, _| cache.by_id.get(id.as_ref()).and_then(|&i| cache.nodes.get(i as usize)).is_some_and(|n| !n.removed && !n.hidden));
         }
         self.rtl = out.direction == "rtl";
         self.surface_height = out.surface_height;

@@ -170,6 +170,7 @@ function VoiceWaveBarsNative({ node, props, rootProps, children }: NativeProps) 
   latest.current = input
   const elapsed = useRef(0)
   const rects = useRef<(SVGRectElement | null)[]>([])
+  const svg = useRef<SVGSVGElement | null>(null)
   const animates = voiceWaveAnimates(activity) && !ctx.reducedMotion
   useEffect(() => {
     if (!animates) {
@@ -184,14 +185,14 @@ function VoiceWaveBarsNative({ node, props, rootProps, children }: NativeProps) 
         el.setAttribute(`y`, String(bar.y))
         el.setAttribute(`height`, String(bar.height))
       })
-    })
+    }, svg.current)
   }, [animates])
   const meter = voiceWaveBars({ ...input, elapsed: elapsed.current })
   const colour = String(resolveRecipe(ctx.theme, { component: `VoiceWave`, part: `bar`, props: nativeRecipeProps(`VoiceWave`, props) }, ctx.mode).color ?? `currentColor`)
   const name = voiceWaveName(str(props.label) || undefined, activity)
   return (
     <span {...(rootProps as Record<string, unknown>)} role={name ? `img` : undefined} aria-label={name} aria-hidden={name ? undefined : `true`} data-variant="bars" style={mergeStyle(rootProps, { width: meter.width, height: meter.height })}>
-      <svg viewBox={`0 0 ${meter.width} ${meter.height}`} width={meter.width} height={meter.height} aria-hidden="true" style={{ color: colour }}>
+      <svg ref={svg} viewBox={`0 0 ${meter.width} ${meter.height}`} width={meter.width} height={meter.height} aria-hidden="true" style={{ color: colour }}>
         {meter.bars.map((bar, i) => (
           <rect
             key={i}
@@ -227,6 +228,7 @@ function VoiceWaveRingNative({ node, props, rootProps, children }: NativeProps) 
   latest.current = input
   const elapsed = useRef(0)
   const paths = useRef<(SVGPathElement | null)[]>([])
+  const svg = useRef<SVGSVGElement | null>(null)
   const animates = voiceWaveAnimates(activity) && !ctx.reducedMotion
   useEffect(() => {
     if (!animates) {
@@ -236,7 +238,7 @@ function VoiceWaveRingNative({ node, props, rootProps, children }: NativeProps) 
     return voiceWaveClock((t) => {
       elapsed.current = t
       voiceWave({ ...latest.current, elapsed: t }).rings.forEach((ring, k) => paths.current[k]?.setAttribute(`d`, voiceWavePath(ring)))
-    })
+    }, svg.current)
   }, [animates])
   const childEl = useRef<HTMLSpanElement | null>(null)
   const hasChild = node.children.length > 0
@@ -247,7 +249,7 @@ function VoiceWaveRingNative({ node, props, rootProps, children }: NativeProps) 
   const name = voiceWaveName(str(props.label) || undefined, activity)
   return (
     <span {...(rootProps as Record<string, unknown>)} role={name ? `img` : undefined} aria-label={name} aria-hidden={name ? undefined : `true`} style={mergeStyle(rootProps, { width: size, height: size })}>
-      <svg viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
+      <svg ref={svg} viewBox={`0 0 ${size} ${size}`} width={size} height={size} aria-hidden="true">
         {wave.rings.map((ring, k) => (
           <path
             key={ring.part}

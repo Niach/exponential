@@ -3,7 +3,7 @@
 // speaker level. Pure; the Rust core's `voice_wave` ports it and
 // fixtures/voice-wave.json locks the points every painter draws.
 
-import styleJson from "../catalog/style.json" with { type: "json" }
+import styleJson from "../generated/style.runtime.json" with { type: "json" }
 
 export const VOICE_WAVE = styleJson.voiceWave
 

@@ -134,7 +134,7 @@ height = round2(H·f), centred vertically, x = i·(barWidth + gap), radius
 barWidth/2, filled with the `bar` part colour (primary; muted foreground when
 idle or muted) at the root's opacity. Phase = `voiceWavePhase` (0 when idle,
 muted, reduced motion). `voiceWaveBars(input)` is the reference,
-`voice-wave.json` `bars` (8 cases) locks every rect.
+`voice-wave.json` `bars` (10 cases, VAPP-160 adds the negative clamps) locks every rect.
 
 ## 6. QrCode
 

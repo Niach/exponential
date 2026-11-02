@@ -2,7 +2,7 @@
 // colours a painter fills the glyphs with while a TraceItem runs. Pure; the
 // Rust core's `text_shimmer` ports it and fixtures/text-shimmer.json locks it.
 
-import styleJson from "../catalog/style.json" with { type: "json" }
+import styleJson from "../generated/style.runtime.json" with { type: "json" }
 import { parseColor, toHex } from "./color"
 
 export const TEXT_SHIMMER = styleJson.textShimmer

@@ -123,7 +123,7 @@ class Round5Test {
     @Test
     fun theBarsFixtureReplaysThroughTheFacade() {
         val cases = Fixtures.json("voice-wave.json")["bars"]!!.array!!
-        assertEquals(8, cases.size)
+        assertEquals(10, cases.size)
         val failed = cases.mapNotNull { c ->
             val name = c["name"]!!.string!!
             val i = c["input"]!!

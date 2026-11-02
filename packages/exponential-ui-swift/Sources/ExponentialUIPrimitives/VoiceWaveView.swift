@@ -3,8 +3,8 @@ import SwiftUI
 /// NEW-77: three closed polar waves (the catalog `VoiceWave`; the app's
 /// voice overlay). Draws the rings it is given, outer first: each filled
 /// with its colour at `fillAlpha`, stroked at `strokeAlpha`, `strokeWidth`
-/// wide. The points come from the core (`voiceWaveJson`), so this view
-/// computes nothing.
+/// wide. The points come from `VoiceWaveGeometry` (the core's math in pure
+/// Swift, fixture-locked), so this view computes nothing.
 public struct VoiceWaveView: View {
     public struct Ring: Equatable, Sendable {
         public var points: [CGPoint]

@@ -1021,6 +1021,25 @@ pub fn voice_wave_paths(wave: &eui_core::voice_wave::VoiceWave, color: impl Fn(&
         .collect()
 }
 
+/// VAPP-160: an invisible canvas laid over a moving native's box that asks
+/// for the next frame from its PAINT, and only while that box is painted
+/// inside the visible content (the window and every clipping ancestor): a
+/// wave a scroller moved away, or one in a clipped-away container, stops
+/// the surface's frame loop instead of redrawing it at the display's rate.
+/// gpui notifies the whole surface view per frame request (its ancestors
+/// are marked dirty either way), so the scope is the request itself: none
+/// unless the wave is on screen.
+pub fn frame_ticker() -> gpui::Canvas<()> {
+    canvas(
+        |_, _, _| {},
+        |bounds, _, window, _| {
+            if bounds.size.width > px(0.0) && bounds.size.height > px(0.0) && bounds.intersects(&window.content_mask().bounds) {
+                window.request_animation_frame();
+            }
+        },
+    )
+}
+
 /// The rings as a canvas (each filled, then stroked, outermost first),
 /// drawn from the canvas's top-left; the caller sizes and places it.
 pub fn voice_wave_canvas(rings: Vec<RingPath>) -> gpui::Canvas<()> {

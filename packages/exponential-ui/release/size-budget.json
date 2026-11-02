@@ -1,8 +1,8 @@
 {
-  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built, <package>/standalone.js = the element's self-contained file), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>. Doubled per Danny 2026-10-26: budgets were tripping CI on every small change; every budget = 2× its measured size (CI where measured, else sizes.json; the per-machine overrides 2× their measure = budget / 1.025), so the check still fails a real blow-up past 2×.",
+  "$comment": "VAPP-106: the size budgets release/size.ts --check gates (bytes; gzip where a browser downloads it). Every entry of sizes.json has one, a little above the number on record, so a pull request that grows the SDK past it fails exponential-ui.yml; a change that shrinks something lowers its budget in the same commit (the ratchet). Keys: npm = <package>/<entry> (minified, the entry plus the chunks it imports; <package>/styles.css = a web renderer's stylesheet as built, <package>/standalone.js = the element's self-contained file), xcframework/<slice>, android/<abi>, crate/<host>/<artifact>. Doubled per Danny 2026-10-26: budgets were tripping CI on every small change; every budget = 2× its measured size (CI where measured, else sizes.json; the per-machine overrides 2× their measure = budget / 1.025), so the check still fails a real blow-up past 2×. VAPP-160: the entries that import catalog/style.json (eui index, schema, conformance, host, web; the element standalone) lowered by exactly the bytes + gzip that importing generated/style.runtime.json (no `$comment`s) saved, measured before/after on one machine.",
   "@exponential_app/eui/index": {
-    "bytes": 818892,
-    "gzip": 232178
+    "bytes": 803123,
+    "gzip": 225481
   },
   "@exponential_app/eui-react/index": {
     "bytes": 283892,
@@ -21,20 +21,20 @@
     "gzip": 68064
   },
   "@exponential_app/eui/schema": {
-    "bytes": 347568,
-    "gzip": 85570
+    "bytes": 331799,
+    "gzip": 78763
   },
   "@exponential_app/eui/conformance": {
-    "bytes": 4113102,
-    "gzip": 365402
+    "bytes": 4097333,
+    "gzip": 358939
   },
   "@exponential_app/eui/host": {
-    "bytes": 666474,
-    "gzip": 176738
+    "bytes": 650705,
+    "gzip": 169977
   },
   "@exponential_app/eui/web": {
-    "bytes": 166584,
-    "gzip": 53800
+    "bytes": 150815,
+    "gzip": 47045
   },
   "@exponential_app/eui/web/primitives": {
     "bytes": 111440,
@@ -61,8 +61,8 @@
     "gzip": 11576
   },
   "@exponential_app/eui-element/standalone.js": {
-    "bytes": 1346010,
-    "gzip": 374384
+    "bytes": 1341472,
+    "gzip": 372133
   },
   "android/arm64-v8a": {
     "bytes": 9263696

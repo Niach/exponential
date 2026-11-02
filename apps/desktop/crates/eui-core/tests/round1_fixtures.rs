@@ -237,7 +237,7 @@ fn voice_wave_bars_every_case_matches_the_reference() {
     use eui_core::voice_wave::{voice_wave_bars, VoiceWaveBars, VoiceWaveBarsInput};
     let file = fixture("voice-wave.json");
     let cases = file["bars"].as_array().unwrap();
-    assert_eq!(cases.len(), 8);
+    assert_eq!(cases.len(), 10);
     for c in cases {
         let input: VoiceWaveBarsInput = serde_json::from_value(c["input"].clone()).unwrap();
         let got = voice_wave_bars(&input);

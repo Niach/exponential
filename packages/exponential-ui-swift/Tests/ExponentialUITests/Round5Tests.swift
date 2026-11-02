@@ -151,7 +151,7 @@ final class Round5Tests: XCTestCase {
     func testVoiceWaveBarsReplayTheFixture() throws {
         try XCTSkipUnless(Fixtures.available(), "fixtures not in this checkout")
         let cases = try Fixtures.json("voice-wave.json")["bars"]?.array ?? []
-        XCTAssertEqual(cases.count, 8)
+        XCTAssertEqual(cases.count, 10)
         for c in cases {
             let name = c["name"]?.string ?? "?"
             let i = c["input"]!

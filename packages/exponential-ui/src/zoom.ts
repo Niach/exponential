@@ -4,7 +4,7 @@
 // pan or a double tap lands on the same view everywhere. The Rust core's
 // `zoom` ports it; fixtures/zoom.json locks it.
 
-import styleJson from "../catalog/style.json" with { type: "json" }
+import styleJson from "../generated/style.runtime.json" with { type: "json" }
 
 export const ZOOM = styleJson.zoomableImage
 

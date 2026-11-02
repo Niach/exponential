@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-160: a moving `VoiceWave` asks for the next frame from a paint-time ticker over its box, only while that box is inside the visible content (offscreen or clipped away: no frame requests); the view prunes animation clocks of removed, rebuilt or hidden nodes on every pass (`SurfaceView::animation_clocks`, a test aid). No visual change.
+
 ## 0.6.0 (2026-11-02)
 
 - VAPP-194: `ExponentialHost::call_function` runs `actions.<name>` as the surface's package action (`run_package_action`): the plan over one snapshot, every host call's gate and consent first, the writes as ONE `records.batch`, then the sets, then the calls; a failure sends `ACTION_FAILED` and calls `HostOptions::on_action_failed` (`ActionFailure`). New `HostOptions` fields `me`, `now`, `zone` (`ZoneFn`), `on_action_failed`.

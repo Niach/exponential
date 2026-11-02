@@ -42,13 +42,14 @@ export function VoiceWave(props: VoiceWaveProps) {
   const size = () => props.size ?? `md`
   const px = () => VOICE_WAVE_SIZE_PX[size()] ?? VOICE_WAVE_SIZE_PX.md
   const [elapsed, setElapsed] = createSignal(0)
+  let svg: SVGSVGElement | undefined
   const animates = createMemo(() => voiceWaveAnimates(activity()) && !reducedMotion())
   createEffect(() => {
     if (!animates()) {
       setElapsed(0)
       return
     }
-    onCleanup(voiceWaveClock(setElapsed))
+    onCleanup(voiceWaveClock(setElapsed, svg))
   })
   const wave = createMemo(() => voiceWave({ size: px(), activity: activity(), level: props.level ?? 0, bands: props.bands, reducedMotion: reducedMotion(), elapsed: elapsed() }))
   const quiet = () => voiceWaveQuiet(activity())
@@ -68,7 +69,7 @@ export function VoiceWave(props: VoiceWaveProps) {
       aria-hidden={name() ? undefined : `true`}
       class={cn(VOICE_WAVE_CLASSES.root, VOICE_WAVE_CLASSES.size[size()], quiet() && VOICE_WAVE_CLASSES.quiet, props.class)}
     >
-      <svg viewBox={`0 0 ${px()} ${px()}`} width={px()} height={px()} aria-hidden="true" class={VOICE_WAVE_CLASSES.svg}>
+      <svg ref={svg} viewBox={`0 0 ${px()} ${px()}`} width={px()} height={px()} aria-hidden="true" class={VOICE_WAVE_CLASSES.svg}>
         <Index each={wave().rings}>
           {(ring) => (
             <path
