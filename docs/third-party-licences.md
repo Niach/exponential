@@ -306,6 +306,18 @@ Apache-2.0), `data-encoding` (MIT), `thiserror` (MIT OR Apache-2.0) and
 through JNA (already inventoried above). Native NOTICES inventories pick these
 up at the next release regeneration.
 
+### eNet: the patched iroh (EXP-1484, 2026-11-02)
+
+`apps/desktop/vendor/iroh` is the `iroh` 1.4.1 crate from crates.io (n0, inc.
+and the iroh contributors, MIT OR Apache-2.0; its `LICENSE-BSD3` for the
+Tailscale-derived code kept as shipped), carried through `[patch.crates-io]`
+with ONE modified function (`handle_connection_close`, path reselection) until
+an iroh release has the fix. `vendor/iroh/PATCHES.md` is the statement of
+changes (Apache-2.0 4(b)); the modified block is marked in the source. It is
+excluded from the workspace, so the Rust collector still inventories it as the
+third-party `iroh@1.4.1` (same licence election and texts). Every client that
+links the eNet node (desktop, CLI, the browser's wasm) ships it.
+
 ### Exponential UI: the conformance fonts (round 2, 2026-10-08)
 
 `packages/exponential-ui/conformance/fonts/` holds the fonts the conformance

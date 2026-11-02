@@ -1,5 +1,8 @@
 [workspace]
 members = ["crates/*"]
+# #EXP-1484: the vendored, patched iroh (see [patch.crates-io] below) is a
+# third-party crate, not one of ours.
+exclude = ["vendor/iroh"]
 resolver = "2"
 
 [workspace.package]
@@ -145,6 +148,14 @@ agent-client-protocol = { version = "=2.1.0", features = ["unstable_session_comp
 [patch."https://github.com/zed-industries/zed"]
 ztracing = { path = "crates/ztracing" }
 ztracing_macro = { path = "crates/ztracing_macro" }
+
+# #EXP-1484: iroh 1.4.1 keeps a closed connection's direct path selected while
+# another connection to the same peer stays open (a restarted peer redialing),
+# so new handshakes go to the dead address. vendor/iroh = 1.4.1 from crates.io
+# plus the one-function fix in src/socket/remote_map/remote_state.rs
+# (vendor/iroh/PATCHES.md). Drop it once an iroh release carries the fix.
+[patch.crates-io]
+iroh = { path = "vendor/iroh" }
 
 # #EXP-1460: etalk-gpui takes eUI and ePilot through their release tags (one
 # copy for a git consumer); inside this workspace they ARE the local crates.
