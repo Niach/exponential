@@ -338,9 +338,9 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str, pu
             "could not count the unpushed commits".to_string(),
         ));
     };
-    // #EXP-1618: the session's OWN branch first (a plain push, never
-    // forced): the leftover branch is the last resort for a branch origin
-    // refuses (rewritten history, another device's push, a protected name).
+    // #EXP-1622: an ending session's own branch is the agent's to push
+    // (it may carry an open PR, whose CI a device push would restart):
+    // unpushed work is parked on the leftover branch, never on it.
     let own = crate::auto_push::PushTarget {
         worktree: cleanup.worktree.clone(),
         branch: cleanup.branch.clone(),
@@ -356,8 +356,6 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str, pu
             Err(detail) => return FinishOutcome::Skipped(SkipReason::GitFailed(detail)),
         }
     } else if unpushed == 0 || head_landed(cleanup) {
-        None
-    } else if crate::auto_push::push_branch(&own).on_origin() {
         None
     } else {
         match push_leftover(&cleanup.worktree, "HEAD", &leftover) {
@@ -1046,20 +1044,21 @@ mod tests {
         git(&cleanup.clone, &["checkout", "-q", "main"]);
     }
 
-    /// #EXP-1618: a finish pushes unpushed commits and the tracked WIP
-    /// commit to the session's OWN branch; no leftover branch, no line.
+    /// #EXP-1622: a finish never pushes the session's OWN branch (it may
+    /// carry an open PR): unpushed commits and the tracked WIP commit are
+    /// parked on the leftover branch.
     #[test]
-    fn finish_pushes_dirty_work_to_the_sessions_own_branch() {
+    fn finish_parks_dirty_work_and_never_pushes_the_sessions_own_branch() {
         let (root, cleanup) = fixture("finish-own");
         commit_in(&cleanup.worktree, "local.txt", "unpushed\n");
         std::fs::write(cleanup.worktree.join("README.md"), "edited\n").unwrap();
         assert_eq!(
             finish_worktree(&cleanup, &LiveHolders::default(), "1a2b3c4d"),
-            FinishOutcome::Removed { leftover: None }
+            FinishOutcome::Removed { leftover: Some("exp/leftover-1a2b3c4d".to_string()) }
         );
         assert!(!cleanup.worktree.exists());
-        assert_eq!(origin_log(&cleanup, &cleanup.branch), crate::wip_save::WIP_FINISH_COMMIT_MESSAGE);
-        assert!(!origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+        assert!(!origin_has(&cleanup, &cleanup.branch));
+        assert_eq!(origin_log(&cleanup, "exp/leftover-1a2b3c4d"), crate::wip_save::WIP_FINISH_COMMIT_MESSAGE);
         let _ = std::fs::remove_dir_all(&root);
     }
 
