@@ -28,3 +28,6 @@
 - Chatovi uživo manje se ponovno iscrtavaju dok agent radi, pa pomicanje ostaje glatko
 - Zapisi aplikacija pripadaju svom autoru; vlasnici tima mogu unositi zapise za druge
 - Agenti mogu prikazivati male animacije u svojim karticama
+- Ostani prijavljen s telefona ponovno prikazuje poveznicu i kôd, a odbijeni kôd to javlja
+- Imenuj račun Ostani prijavljen kad ga dodaješ
+- Zatvaranje prijave zaustavlja je na računalu

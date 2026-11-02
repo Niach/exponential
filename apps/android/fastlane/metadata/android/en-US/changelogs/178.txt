@@ -1,0 +1,4 @@
+- Keep signed in from your phone shows its link and code again, and a rejected code says so
+- Name a Keep signed in account when you add it; Switch adds a new one
+- Closing a sign-in stops it on the machine
+- App records keep their authors when an owner enters them for someone else

@@ -28,3 +28,6 @@
 - Live-chats tegnes mindre om, mens en agent arbejder, så rulning forbliver jævn
 - App-poster tilhører deres forfatter; teamejere kan oprette poster for andre
 - Agenter kan vise små animationer i deres kort
+- Forbliv logget ind fra din telefon viser igen link og kode, og en afvist kode siger det
+- Giv en Forbliv logget ind-konto et navn, når du tilføjer den
+- Lukker du et login, stopper det på maskinen

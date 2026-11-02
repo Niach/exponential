@@ -28,3 +28,6 @@
 - Live chats redraw less while an agent works, so scrolling stays smooth
 - App records belong to their author; team owners can enter records for others
 - Agents can show small animations in their cards
+- Keep signed in from your phone shows its link and code again, and a rejected code says so
+- Name a Keep signed in account when you add it
+- Closing a sign-in stops it on the machine

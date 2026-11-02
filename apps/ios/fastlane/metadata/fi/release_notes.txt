@@ -28,3 +28,6 @@
 - Live-keskustelut piirtyvät uudelleen harvemmin agentin työskennellessä, joten vieritys pysyy sujuvana
 - Sovellusten tietueet kuuluvat tekijälleen; tiimin omistajat voivat kirjata tietueita muiden puolesta
 - Agentit voivat näyttää pieniä animaatioita korteissaan
+- Pysy kirjautuneena puhelimesta näyttää taas linkin ja koodin, ja hylätty koodi kerrotaan
+- Nimeä Pysy kirjautuneena -tili, kun lisäät sen
+- Kirjautumisen sulkeminen pysäyttää sen koneella

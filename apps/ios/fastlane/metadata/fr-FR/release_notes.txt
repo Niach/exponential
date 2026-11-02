@@ -28,3 +28,6 @@
 - Les chats en direct se redessinent moins pendant qu'un agent travaille, le défilement reste fluide
 - Les enregistrements des apps appartiennent à leur auteur ; les propriétaires de l'équipe peuvent en saisir pour d'autres
 - Les agents peuvent afficher de petites animations dans leurs cartes
+- Rester connecté depuis le téléphone affiche à nouveau le lien et le code, et un code refusé est signalé
+- Nommez un compte Rester connecté quand vous l'ajoutez
+- Fermer une connexion l'arrête sur la machine

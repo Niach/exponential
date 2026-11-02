@@ -28,3 +28,6 @@
 - Live chats tekenen minder vaak opnieuw terwijl een agent werkt, zodat scrollen soepel blijft
 - App-records zijn van hun auteur; teameigenaren kunnen records voor anderen invoeren
 - Agents kunnen kleine animaties in hun kaarten tonen
+- Ingelogd blijven vanaf je telefoon toont weer link en code, en een geweigerde code wordt gemeld
+- Geef een Ingelogd blijven-account een naam als je het toevoegt
+- Een aanmelding sluiten stopt die op de machine

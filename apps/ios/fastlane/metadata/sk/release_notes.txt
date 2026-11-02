@@ -28,3 +28,6 @@
 - Živé chaty sa počas práce agenta prekresľujú menej, takže posúvanie zostáva plynulé
 - Záznamy aplikácií patria svojmu autorovi; vlastníci tímu môžu zadávať záznamy za ostatných
 - Agenti môžu vo svojich kartách zobrazovať malé animácie
+- Zostať prihlásený z telefónu opäť zobrazuje odkaz a kód a odmietnutý kód to oznámi
+- Pomenujte účet Zostať prihlásený pri jeho pridaní
+- Zatvorenie prihlásenia ho na počítači ukončí

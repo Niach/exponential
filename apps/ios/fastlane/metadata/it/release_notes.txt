@@ -28,3 +28,6 @@
 - Le chat dal vivo si ridisegnano meno mentre un agente lavora, così lo scorrimento resta fluido
 - I record delle app appartengono al loro autore; i proprietari del team possono inserire record per altri
 - Gli agenti possono mostrare piccole animazioni nelle loro schede
+- Resta connesso dal telefono mostra di nuovo link e codice, e un codice rifiutato viene segnalato
+- Dai un nome a un account Resta connesso quando lo aggiungi
+- Chiudere un accesso lo interrompe sulla macchina

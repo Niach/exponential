@@ -28,3 +28,6 @@
 - Chaturile live se redesenează mai rar cât timp lucrează un agent, așa că derularea rămâne fluidă
 - Înregistrările aplicațiilor aparțin autorului lor; proprietarii echipei pot introduce înregistrări pentru alții
 - Agenții pot afișa mici animații în cardurile lor
+- Rămâi conectat de pe telefon afișează din nou linkul și codul, iar un cod respins este semnalat
+- Denumește un cont Rămâi conectat când îl adaugi
+- Închiderea unei autentificări o oprește pe mașină

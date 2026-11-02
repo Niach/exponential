@@ -28,3 +28,6 @@
 - Os chats em direto redesenham-se menos enquanto um agente trabalha, por isso o deslocamento continua fluido
 - Os registos das apps pertencem ao seu autor; os proprietários da equipa podem introduzir registos por outros
 - Os agentes podem mostrar pequenas animações nos seus cartões
+- Manter sessão a partir do telemóvel volta a mostrar a ligação e o código, e um código rejeitado é indicado
+- Dê um nome a uma conta Manter sessão ao adicioná-la
+- Fechar um início de sessão termina-o na máquina

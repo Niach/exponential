@@ -28,3 +28,6 @@
 - Czaty na żywo rzadziej się przerysowują, gdy agent pracuje, więc przewijanie pozostaje płynne
 - Rekordy aplikacji należą do ich autora; właściciele zespołu mogą wprowadzać rekordy za innych
 - Agenci mogą pokazywać małe animacje na swoich kartach
+- Pozostań zalogowany z telefonu znów pokazuje link i kod, a odrzucony kod jest zgłaszany
+- Nadaj nazwę kontu Pozostań zalogowany przy dodawaniu
+- Zamknięcie logowania zatrzymuje je na komputerze

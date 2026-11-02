@@ -28,3 +28,6 @@
 - Live-chatter tegnes mindre på nytt mens en agent jobber, så rullingen holder seg jevn
 - App-poster tilhører forfatteren sin; teameiere kan legge inn poster for andre
 - Agenter kan vise små animasjoner i kortene sine
+- Forbli pålogget fra telefonen viser lenke og kode igjen, og en avvist kode sier fra
+- Gi en Forbli pålogget-konto et navn når du legger den til
+- Lukker du en pålogging, stopper den på maskinen
