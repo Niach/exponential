@@ -63,7 +63,6 @@ import com.exponential.app.domain.DevicesList
 import com.exponential.app.data.api.AGENT_PROFILE_NAME_MAX
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.foundation.text.KeyboardOptions
-import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.Prompts
 import com.exponential.app.domain.SessionTree
@@ -78,6 +77,8 @@ import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.OptionGroup
+import com.exponential.app.ui.components.TextFieldRow
+import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.PromptAlert
@@ -516,28 +517,19 @@ private fun AddAccountSheet(
                         optionLabel = ::agentLabel,
                         onSelect = { pickedAgent = it },
                     )
-                }
-                if (namesProfile) {
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        DevicesList.Copy.ACCOUNT_NAME,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        modifier = Modifier.padding(horizontal = 20.dp),
-                    )
-                    Spacer(Modifier.height(6.dp))
-                    GlassTextField(
-                        value = name,
-                        onValueChange = { name = it.take(AGENT_PROFILE_NAME_MAX) },
-                        placeholder = DevicesList.Copy.KEPT_SIGNED_IN_NAME,
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
-                        textStyle = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 20.dp)
-                            .testTag("add-account-name"),
-                    )
+                    // EXP-1626: the long-lived Add's name, a row of the same
+                    // group (web GlassInputRow, desktop and iOS alike).
+                    if (namesProfile) {
+                        GroupDivider()
+                        TextFieldRow(
+                            label = DevicesList.Copy.ACCOUNT_NAME,
+                            value = name,
+                            onValueChange = { name = it.take(AGENT_PROFILE_NAME_MAX) },
+                            placeholder = DevicesList.Copy.KEPT_SIGNED_IN_NAME,
+                            keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Words),
+                            modifier = Modifier.testTag("add-account-name"),
+                        )
+                    }
                 }
                 Spacer(Modifier.height(12.dp))
                 Row(

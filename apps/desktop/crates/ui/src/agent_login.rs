@@ -1968,7 +1968,7 @@ impl Render for LoginDialogView {
 /// device picker went with the cross-device Accounts section that used to be
 /// the other way in.
 pub(crate) fn open_add_account_dialog_for(device_id: String, window: &mut Window, cx: &mut App) {
-    let spec = native_dialog::DialogSpec::new("Add account", size(px(460.), px(324.)));
+    let spec = native_dialog::DialogSpec::new("Add account", size(px(460.), px(256.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let device_id = device_id.clone();
         let view = cx.new(|cx| AddAccountDialogView::new(device_id, window, cx));
