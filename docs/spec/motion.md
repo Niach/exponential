@@ -1,6 +1,6 @@
 # eUI Motion: spec
 
-> Status: **shipped** (EXP-1584: M0 #1622, M1 #1623, M2 #1624, M3 #1638, M4 EXP-1605). Design approved 2026-11-01 (Danny; the comment on #EXP-1584).
+> Status: **shipped** (EXP-1584: M0 #1622, M1 #1623, M2 #1624, M3 #1638, M4 #1648; eUI 0.4.0). Design approved 2026-11-01 (Danny; the comment on #EXP-1584).
 > Code: `apps/desktop/crates/eui-motion` (the engine), `eui-motion-wasm`, `exponential-ui-ffi` (`MotionPlayer`), the `Motion` painters in every eUI renderer.
 > Fixtures (`packages/exponential-ui/fixtures/`): `motion-frames.json`, `motion-validate.json`, `motion-playback.json`, `motion-state.json`; corpus `conformance/motion/`.
 

@@ -84,6 +84,7 @@ const SHOTS: Shot[] = [
   { name: `theme-builder`, path: `/ui/themes/builder/` },
   { name: `guides`, path: `/ui/guides/` },
   { name: `guide-react`, path: `/ui/guides/react/` },
+  { name: `guide-motion`, path: `/ui/guides/motion/`, full: true },
   { name: `playground`, path: `/ui/playground/` },
   { name: `conformance`, path: `/ui/conformance/` },
 ]

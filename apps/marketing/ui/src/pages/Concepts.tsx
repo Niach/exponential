@@ -21,6 +21,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `host-plugins`, num: `09`, label: `Host plugins` },
   { id: `apps`, num: `10`, label: `Apps` },
   { id: `renderers`, num: `11`, label: `How renderers agree` },
+  { id: `motion`, num: `12`, label: `Motion` },
 ]
 
 /** `Button` → a link to its component page (catalog-facts.test.ts checks every name used here). */
@@ -362,6 +363,19 @@ export default function ConceptsPage({ path }: PageProps) {
             with CSS, held within a pixel of the core's frames. Painters never read a theme; they get resolved
             visuals per part and state. The <a href="/ui/conformance/">conformance suite</a> checks all of it, case by
             case, on every renderer.
+          </p>
+        </DocsSection>
+
+        <DocsSection id="motion" num="12" label="Motion">
+          <h2>Motion</h2>
+          <p>
+            <C name="Motion" /> is vector animation with the same rule taken one step further: one engine,{` `}
+            <code>eui-motion</code>, turns an animation (the readable dialect, Lottie or a .lottie file) into a flat{` `}
+            <strong>display list</strong> for each frame, and every renderer paints that list and nothing else. The
+            clock and dotLottie state machines live in the same engine, so a press, an input or a finished play moves
+            every platform to the same state on the same frame. Theme colours enter as Lottie slots; the engine runs
+            natively on the desktop, through UniFFI on iOS and Android and as WebAssembly on the web. See{` `}
+            <a href={guidePath(`motion`)}>Animate with Motion</a>.
           </p>
         </DocsSection>
       </DocsLayout>

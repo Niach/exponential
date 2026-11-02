@@ -858,6 +858,12 @@ ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.4
             <code>coreSchema()</code> is the whole catalog as JSON Schema, with the core catalog id{` `}
             <code>{CATALOG_ID}</code>.
           </p>
+          <p>
+            A <code>Motion</code> carries a whole animation: <code>motionPropsProblems(props)</code> from{` `}
+            <code>@exponential_app/eui/motion/server</code> checks it with the animation engine itself (the dialect
+            compiles, Lottie has no expressions, the limits hold) and names every problem with its JSON pointer. See{` `}
+            <a href={guidePath(`motion`)}>Animate with Motion</a>.
+          </p>
         </>
       ),
     },
