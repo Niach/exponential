@@ -167,8 +167,7 @@ class SteerLaunchDelegate @Inject constructor(
                 }
                 if (configuredAccountId != accountId) {
                     _enabled.value = null
-                    _enabled.value = runCatching { steerApi.config(accountId).enabled }
-                        .getOrDefault(false)
+                    steerApi.enabled(accountId).collect { _enabled.value = it }
                     configuredAccountId = accountId
                 }
             }
