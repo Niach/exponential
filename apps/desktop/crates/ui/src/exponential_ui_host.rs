@@ -914,7 +914,7 @@ fn consent_hook(scope: Option<HostScope>) -> ConsentHook {
                     let _ = closed.try_send(false);
                 });
             if let Some(args) = args {
-                spec = spec.height(gpui::px(300.)).content(move |_, cx| {
+                spec = spec.content(move |_, cx| {
                     crate::code_block::code_block(
                         crate::code_block::CodeBlockProps {
                             id: "exponential-ui-consent-arguments".into(),

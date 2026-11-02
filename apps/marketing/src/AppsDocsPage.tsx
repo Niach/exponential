@@ -18,6 +18,21 @@ import { IcArrow } from "./components/icons"
 import { DocShot } from "./components/DocShot"
 import { LINKS } from "./lib/links"
 
+const QUERY = `"queries": {
+  "month": {
+    "from": "entry",
+    "where": [["date", "between", "\${start}", "\${end}"]],
+    "group": ["author", { "bucket": "date", "by": "week" }],
+    "aggregate": { "hours": ["sum", "hours"], "days": ["countDistinct", "date"] },
+    "running": { "hours": "sum" },
+    "before": "\${start}"
+  }
+}`
+
+const EXPR = `{ "call": "expr", "args": {
+  "expr": "formatDuration(round(total, 2), 'h:mm')",
+  "vars": { "total": { "path": "/month/totals/hours" } } } }`
+
 const SECTIONS: DocsSectionType[] = [
   { id: `team-apps`, num: `01`, label: `Team apps` },
   { id: `build`, num: `02`, label: `Build one with an agent` },
@@ -340,7 +355,68 @@ export function AppsDocsPage() {
               <li><code>sum=&lt;field&gt;</code>: the total over every match.</li>
               <li><code>by=&lt;dateField&gt;&amp;month=YYYY-MM</code>: a month view, every day with its count and sum, ready for a chart.</li>
               <li><code>app=&lt;slug&gt;</code>: another app&apos;s records.</li>
+              <li><code>query=&lt;name&gt;</code>: one of the package&apos;s named queries (below).</li>
             </ul>
+
+            <h3>Who owns a record</h3>
+            <p>
+              Every record has an <strong>author</strong>: whoever created it.
+              Only the author or a team owner can change or delete it; the
+              server refuses anyone else, whether the write comes from the app,
+              the Data tab, an agent or an exposed tool. A team owner can also
+              write <strong>on behalf of</strong> a member (an Author picker in
+              the Data tab, <code>author</code> on{` `}
+              <code>records_upsert</code>, or in an imported file): the record
+              then counts as that member&apos;s, and the Data tab reads
+              &ldquo;Ana for Ben&rdquo;. <code>mine</code>,{` `}
+              <code>user</code> and grouping by <code>author</code> follow the
+              author, not the writer.
+            </p>
+
+            <h3>Queries</h3>
+            <p>
+              For reports, a package names <strong>queries</strong> in JSON.
+              They filter (<code>in</code>, <code>between</code>,{` `}
+              <code>or</code> as well as the ranges), group by any field, by
+              author or by day, week, month, quarter or year, aggregate (<code>sum avg min max count countDistinct first last</code>),
+              keep <strong>running totals</strong>, and carry over everything{` `}
+              <strong>before</strong> a date as an opening balance. A binding
+              uses one with <code>?query=month&amp;start=…&amp;end=…</code>.
+            </p>
+            <DocsCode language="json">{QUERY}</DocsCode>
+
+            <h3>Expressions</h3>
+            <p>
+              A computed value is a small formula in a subset of{` `}
+              <strong>CEL</strong>: arithmetic and comparisons, conditions, and
+              functions such as <code>round</code>, <code>min</code>,{` `}
+              <code>dateAdd</code>, <code>dateDiff</code>,{` `}
+              <code>startOf</code>, <code>weekday</code>,{` `}
+              <code>isoWeek</code> and <code>formatDuration</code>. There are no
+              loops and no user functions, every formula ends within fixed
+              limits, and each one is type-checked against the kind&apos;s
+              fields when the app is saved, so a typo is an error in the editor,
+              not on someone&apos;s screen. Working days, holidays or targets
+              are an app&apos;s own records, never a platform rule.
+            </p>
+            <DocsCode language="json">{EXPR}</DocsCode>
+            <p>
+              The query and the formulas run the same way on the web, the
+              desktop app, iOS and Android, over the records already on the
+              device, so a dashboard stays fast.
+            </p>
+
+            <h3>Safe by design</h3>
+            <p>
+              An app is data, never code: nothing in it runs on the server, and
+              there is no sandbox to escape. When the server reads or writes
+              records for an app, it does so under a database role that can
+              only see that team&apos;s and that app&apos;s records, with a
+              time limit, so an app can&apos;t reach other teams&apos; data or
+              any other table. Real code lives behind an upstream MCP server
+              your team runs.
+            </p>
+
             <p>
               The editor&apos;s <strong>Data</strong> tab lists and edits them.
               Agents fill them too, with the{` `}
@@ -352,11 +428,9 @@ export function AppsDocsPage() {
               the count. A deleted record is purged after 30 days.
             </p>
             <DocsCallout kind="note" title="Coming">
-              Records that know their author (only the author or an owner
-              edits them, owners can write on behalf of a member), private and
-              owners-only kinds, relations between kinds, history with undo,
-              grouping and maths over any field, date maths in the team&apos;s
-              time zone, and writes that queue while offline.
+              Private and owners-only kinds, relations between kinds, computed
+              fields, history with undo, a team time zone setting, and writes
+              that queue while offline.
             </DocsCallout>
           </DocsSection>
 

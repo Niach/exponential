@@ -33,6 +33,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Menu values**: on the desktop app a menu row shows its current value muted on the right before the arrow (Device, Account, Model, Effort, Checks), like on web and phones.`,
   },
   {
+    id: `2026-11-02-desktop-confirms-fit`,
+    date: `2026-11-02`,
+    title: `Desktop confirms fit their content`,
+    summary: `Desktop confirm dialogs and Add device are now as tall as what they show, like the web app.`,
+    body: `- **No empty band**: every desktop confirm, from Delete issue to Merge stack, sizes to its question and buttons instead of a fixed height.
+- **Add device**: the dialog fits both device cards and scrolls only when the window is too short.`,
+  },
+  {
     id: `2026-11-02-persist-login`,
     date: `2026-11-02`,
     title: `Persist login`,

@@ -136,10 +136,6 @@ pub(crate) fn open_existing(window: &mut Window, cx: &mut App, draft: &IssueDraf
 // the view
 // ---------------------------------------------------------------------------
 
-/// EXP-1212: the draft alerts' window height (titlebar strip included): the
-/// one-line question over the button row, no empty band between them.
-const DRAFT_ALERT_HEIGHT: f32 = 136.;
-
 /// EXP-1212: the leave question — Discard (set apart, leading) · Save
 /// draft (plain) · Create issue (the primary, Enter), no Cancel (Esc / the
 /// ✕ stay).
@@ -157,7 +153,6 @@ pub(crate) fn leave_alert_for(
 ) -> AlertSpec {
     AlertSpec::new(copy::HEADER, copy::LEAVE_TITLE, copy::LEAVE_CREATE)
         .without_cancel()
-        .height(px(DRAFT_ALERT_HEIGHT))
         .on_ok(on_create)
         .ok_disabled(!create_enabled)
         .enter(if create_enabled {

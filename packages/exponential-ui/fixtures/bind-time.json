@@ -56197,6 +56197,168 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Text/expressions:bound",
+      "input": {
+        "id": "text",
+        "component": "Text",
+        "props": {
+          "text": {
+            "call": "formatDuration",
+            "args": {
+              "hours": {
+                "call": "expr",
+                "args": {
+                  "expr": "round(minutes / 60, 2)",
+                  "vars": {
+                    "minutes": {
+                      "path": "/minutes"
+                    }
+                  }
+                }
+              },
+              "format": "h:mm"
+            }
+          }
+        },
+        "accessibility": {
+          "label": {
+            "call": "dateAdd",
+            "args": {
+              "date": {
+                "path": "/day"
+              },
+              "n": 1,
+              "unit": "month"
+            }
+          }
+        },
+        "visible": {
+          "call": "expr",
+          "args": {
+            "expr": "weekday(d) >= 6 || mul(minutes, 2) > 1000",
+            "vars": {
+              "d": {
+                "path": "/day"
+              },
+              "minutes": {
+                "path": "/minutes"
+              }
+            }
+          }
+        }
+      },
+      "expanded": {
+        "id": "text",
+        "component": "Text",
+        "props": {
+          "text": {
+            "call": "formatDuration",
+            "args": {
+              "hours": {
+                "call": "expr",
+                "args": {
+                  "expr": "round(minutes / 60, 2)",
+                  "vars": {
+                    "minutes": {
+                      "path": "/minutes"
+                    }
+                  }
+                }
+              },
+              "format": "h:mm"
+            }
+          }
+        },
+        "children": [],
+        "visible": {
+          "call": "expr",
+          "args": {
+            "expr": "weekday(d) >= 6 || mul(minutes, 2) > 1000",
+            "vars": {
+              "d": {
+                "path": "/day"
+              },
+              "minutes": {
+                "path": "/minutes"
+              }
+            }
+          }
+        },
+        "accessibility": {
+          "label": {
+            "call": "dateAdd",
+            "args": {
+              "date": {
+                "path": "/day"
+              },
+              "n": 1,
+              "unit": "month"
+            }
+          }
+        }
+      },
+      "issues": [],
+      "datasets": [
+        {
+          "data": {
+            "minutes": 450,
+            "day": "2026-01-31"
+          },
+          "bound": {
+            "id": "text",
+            "component": "Text",
+            "props": {
+              "text": "7:30"
+            },
+            "children": [],
+            "accessibility": {
+              "label": "2026-02-28"
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "minutes": 600,
+            "day": "2026-02-02"
+          },
+          "bound": {
+            "id": "text",
+            "component": "Text",
+            "props": {
+              "text": "10:00"
+            },
+            "children": [],
+            "accessibility": {
+              "label": "2026-03-02"
+            }
+          },
+          "presses": []
+        },
+        {
+          "data": {
+            "minutes": 450,
+            "day": "2026-02-02"
+          },
+          "bound": null,
+          "presses": []
+        },
+        {
+          "data": {
+            "minutes": "x",
+            "day": "nope"
+          },
+          "bound": null,
+          "presses": []
+        },
+        {
+          "data": {},
+          "bound": null,
+          "presses": []
+        }
+      ]
     }
   ]
 }

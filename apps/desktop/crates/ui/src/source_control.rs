@@ -994,7 +994,6 @@ fn prompt_hard_reset_confirm(
         description,
         "Discard changes & reset",
     )
-    .height(px(280.))
     .on_ok(move |_, cx| {
         trunk_sync.update(cx, |engine, cx| engine.hard_reset(cx));
         rail.update(cx, |rail, cx| rail.clear_sc_selection(cx));
@@ -1501,7 +1500,6 @@ impl HistoryList {
                 ),
                 "Commit & push",
             )
-            .height(px(if behind_note.is_empty() { 260. } else { 300. }))
             .content(move |window, cx| {
                 div()
                     .mt_2()
@@ -1519,13 +1517,11 @@ impl HistoryList {
             crate::native_dialog::open_alert(window, cx, spec);
         } else {
             let noun = if trunk.ahead == 1 { "commit" } else { "commits" };
-            let height = px(if behind_note.is_empty() { 220. } else { 260. });
             let spec = crate::native_dialog::AlertSpec::new(
                 "Push local commits?",
                 format!("Pushes {} local {noun} to origin/{branch}.{behind_note}", trunk.ahead),
                 "Push",
             )
-            .height(height)
             .on_ok(move |_, cx| {
                 trunk_sync.update(cx, |engine, cx| engine.commit_push(None, cx));
                 true

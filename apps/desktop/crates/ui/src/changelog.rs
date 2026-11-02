@@ -56,6 +56,17 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_172: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-desktop-confirms-fit",
+    date: "2026-11-02",
+    title: "Desktop confirms fit their content",
+    summary: "Desktop confirm dialogs and Add device are now as tall as what they show, like the web app.",
+    body: r#"- **No empty band**: every desktop confirm, from Delete issue to Merge stack, sizes to its question and buttons instead of a fixed height.
+- **Add device**: the dialog fits both device cards and scrolls only when the window is too short."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_171: ChangelogEntry = ChangelogEntry {
     id: "2026-11-02-persist-login",
     date: "2026-11-02",

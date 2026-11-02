@@ -157,13 +157,13 @@ Needs: C2, C13.
 
 | ID | Capability | Status | Issue |
 |---|---|---|---|
-| C1 | Record ownership: only the author or an owner edits or deletes | ❌ | 🆕 R1 (approved 30.10, unfiled) |
+| C1 | Record ownership: only the author or an owner edits or deletes | ✅ | #VAPP-187 |
 | C2 | Writes on behalf of a member (owners), with audit | ✅ | #VAPP-188 |
 | C3 | Relations between kinds and refs to issues and members | ❌ | 🆕 R5 |
 | C4 | Per-kind read/write policy (private, panel-only) | ❌ | 🆕 R3 |
-| C5 | Group-by on any field, avg/min/max/count, text search | 🟡 sum + month view only | 🆕 Q1 (approved 30.10 as "grouping and maths") |
-| C6 | Running sums and totals before a date | ❌ | 🆕 Q1 |
-| C7 | mul/div/round, date maths (add, diff, startOf, weekday) | ❌ | 🆕 Q2 |
+| C5 | Group-by on any field, avg/min/max/count, text search | ✅ group-by + aggregates; 🟡 text `search` open | #VAPP-190 |
+| C6 | Running sums and totals before a date | ✅ | #VAPP-190 |
+| C7 | mul/div/round, date maths (add, diff, startOf, weekday) | ✅ CEL subset, type-checked | #VAPP-191 |
 | C8 | Several screens per app with navigation and deep links | ❌ (the preview paints only the first template) | 🆕 U1 |
 | C9 | Forms and tables generated from a kind's schema | 🟡 the Data tab does it in Exponential's own UI (#VAPP-178); nothing in eUI | 🆕 U2 |
 | C10 | Field state machine (allowed transitions) | ❌ | 🆕 R6 |
@@ -182,7 +182,7 @@ Needs: C2, C13.
 | C22 | Inbound webhooks | ❌ | 🆕 A3 |
 | C23 | Run-as identity for unattended runs | ❌ | 🆕 A1 |
 | C24 | Offline outbox for record writes | 🟡 natives read offline, writes need the network | 🆕 O1 |
-| C25 | `eapps` crate (host, query, store, broker executor) | ❌ (#EXP-1420 open item) | 🆕 S1, S2 |
+| C25 | `eapps` crate (host, query, store, broker executor) | 🟡 the query + `RecordStore` live in eUI (S1 ✅ #VAPP-189); the crate itself is open (#EXP-1420) | S2 |
 | C26 | Widget templates + slots (eDE, home screen) | ❌ | #VAPP-64, NEW-107 |
 | C27 | Form-factor / responsive templates | 🟡 `@media` conditions, `Sidebar.collapseBelow` | 🆕 U1 |
 | C28 | Template gallery | 🟡 four editor starters | 🆕 P2 |
@@ -222,7 +222,7 @@ Caps (✅ `contract.json` `apps`): package ≤ 128 KB, ≤ 500 components per te
 | `records.<kind>.refs` | Relations: `{field: {kind}}`, `{field: "issue"}`, `{field: "member"}` | 3.3 |
 | `records.<kind>.computed` | Expressions evaluated on read | 4.4 |
 | `records.<kind>.transitions` | A state machine on one enum field | 3.3 |
-| `queries` | Named structured queries, reusable by bindings and `exposes` | 4.1 |
+| `queries` | Named structured queries, reusable by bindings and `exposes` (✅ Q1 for bindings, already in format 2) | 4.1 |
 | `automations` | Schedule, record event, Exponential event and webhook → one run | 7 |
 | `migrations` | Declarative record migrations between versions | 3.6 |
 | `share` | Public link definitions | 9.4 |
@@ -342,7 +342,7 @@ Records carry `schema_version` (the package `number` that wrote them). A new ver
 
 ## 4. Query and expression language
 
-### 4.1 The structured query (🆕 Q1)
+### 4.1 The structured query (✅ Q1, #VAPP-190)
 
 Today a binding is a URL (`exp:records?kind=entry&mine=1&by=date&sum=hours`). URLs stay as sugar. The canonical form is JSON, named in `queries` and referenced by bindings, `exposes` and automations:
 
@@ -367,22 +367,23 @@ Today a binding is a URL (`exp:records?kind=entry&mine=1&by=date&sum=hours`). UR
 
 | Feature | Today | Spec |
 |---|---|---|
-| Filters | ✅ equality, `.gt/.gte/.lt/.lte`, `mine`, `user`, `app=` | + `in`, `between`, `contains`, `startsWith`, `isNull`, `or: […]`, text `search` |
-| Sort / limit | ✅ (limit ≤ 500) | + several sort keys, a cursor |
-| Group-by | 🟡 only `by=<date>&month=` (per day of one month) | Any field, `author`, time buckets `day/week/month/quarter/year` in the team timezone |
-| Aggregates | 🟡 `sum` | `sum avg min max count countDistinct first last` |
-| Running values | ❌ | `running: {field: "sum"}` and `before: <date>` (totals up to a date), streaks |
+| Filters | ✅ equality, `.gt/.gte/.lt/.lte`, `mine`, `user`, `app=`; ✅ Q1 `in`, `between`, one `{or: [[…]…]}` (also `<`, `>=`… in JSON) | + `contains`, `startsWith`, `isNull`, text `search` |
+| Sort / limit | ✅ (limit ≤ 500); ✅ Q1 several sort keys (JSON) | + a cursor |
+| Group-by | ✅ Q1 any field, `author`, time buckets `day/week/month/quarter/year` (ISO weeks), plus `by=<date>&month=` | Buckets in the team timezone (today: the stored calendar day; a timestamp's UTC day) |
+| Aggregates | ✅ Q1 `sum avg min max count countDistinct first last` (per group + `totals`) | |
+| Running values | ✅ Q1 `running: {field: "sum"}` (sum count avg min max, over groups, rows or month days) and `before: <date>` (totals up to a date, seeding the running values) | streaks |
 | Joins | ❌ | `expand: ["customer"]` follows refs (one level). There are no free joins. |
 | Sources | `exp:records`, `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments`, `exp:attachments`, `exp:devices` | The same query shape over every `exp:` source (group issues by status or week), + `exp:pullRequests`, `upstream:<server>/<tool>` (§6.3) |
 
 **One evaluator:**
 
+- ✅ (Q1, #VAPP-190) The JSON form: `parseRecordsJson(json, kind?)` → `{query, issues}` (Rust `parse_records_json`, FFI `parse_records_json`, SDKs `RecordsQuery.parse(json:)` / `parseJson`), the `q=<json>` param, and the package's `queries` followed by `?query=<name>&<params>` (the router expands it, `${param}` templates filled from the binding's params). The value gains `groups`, `totals`, `before` and `running`. The date helpers (`dateBucket`, `parseDay`, `isoWeek`, `daysInMonth`, `weekdayOf`) live in `src/dates.ts` / `eui_core::dates` for Q2. Format version stays 2 (`queries` is optional, like `exposes`). The spec's `"${month.start}"` is spelled `"${start}"` (flat binding params).
 - ✅ (S1, #VAPP-189) A pure TS reference (`@exponential_app/eui/host/query`) and its Rust twin in `eui-core` (`host::query`), fixture-locked (`fixtures/records-query.json`, replayed in TS, Rust, Swift and Kotlin). The URL params parse INTO a structured `RecordsQuery` (`from, app, mine, user, where, sort[], limit, sum, month`); the JSON form (Q1) adds keys next to these.
 - Web and the server broker use TS. Desktop, iOS, Android, Spezl and eDE use eui-core (iOS and Android already link it through UniFFI for painting).
 - ✅ The four hand-written derivations (`AppRecords.swift`, `AppRecords.kt`, `app_records.rs`, `app-records.ts`) are gone; their Data tab, ownership and on-behalf helpers stay.
 - Queries run **locally** over the synced store. A query over more rows than the device holds (web on-demand) asks the server, which uses the same evaluator over SQL.
 
-### 4.2 Expressions (🆕 Q2)
+### 4.2 Expressions (✅ Q2, #VAPP-191)
 
 The bind-time functions exist ✅: add, sub, percent, eq, lt, clamp, cond, fallback, concat, coalesce, text, map, len, fill, filter, and/or/not, plus the format functions.
 
@@ -397,6 +398,8 @@ To add, both as functions (`{"call": "mul", …}`) and as the compact string for
 | Text | `lower upper trim split join matches` |
 
 The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <= == && || !`, calls). It is parsed once at package validation, has no loops and no user functions, and must terminate. The function form stays the A2UI wire form, and the string form compiles to it.
+
+- ✅ (Q2, #VAPP-191) The string form is a **CEL subset**, hand-written as TS (`src/cel.ts`) + Rust (`eui_core::cel`) twins replaying ONE fixture (`fixtures/expressions.json`; FFI `evaluate_expression_json` / `check_expression_json`, SDKs `Expression.evaluate/check`). cel-js / the `cel` crates were not used: CEL splits int/uint/double (JSON has one number), their error texts and date handling would differ between the twins, and they would bloat the eUI bundle. One number type (`7 / 2` = 3.5); a missing field reads null. It is used as `{"call": "expr", "args": {"expr": "…", "vars": {…}}}` anywhere a value may be bound, and the arithmetic, date and duration rows above are also plain A2UI functions (`{"call": "mul", …}`) running the same table. Every `expr` is type-checked by `validatePackage` against its vars (a literal, a records binding's kind schema, the template data), issues at the JSON pointer. Caps: 1000 characters, nesting 32, no nested comprehensions, 10 000 steps. The team zone is the surface zone the host passes (`Formatter.offsetMinutes`, `HostZone`); there is no team timezone setting yet, so hosts pass the platform zone today. The Arrays and Text rows stay open.
 
 ### 4.3 Time
 
@@ -729,22 +732,23 @@ The web stays online-only. Issue and comment writes have their own NEW-13.
 
 ---
 
-## 17. Gap list and roadmap (proposed issues, not filed)
+## 17. Gap list and roadmap
 
-They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android) with a fixture change first, per the repo rules. ★ = approved on 30.10 in thread 2db0b7d0 but never filed.
+They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android) with a fixture change first, per the repo rules. ★ = approved on 30.10 in thread 2db0b7d0. The first milestone is filed and done (✅, issues under #VAPP-175); the rest are proposals, not filed yet.
 
 **Phase 1: Records you can trust**
 
-- **R1 ★** Record ownership: `author_id`, the default policy `update/delete: author`, owners override. Server, shape, fixture `app-records.json`. (C1)
+- **R1 ★** ✅ #VAPP-187 Record ownership: `author_id`, the default policy `update/delete: author`, owners override. Server, shape, fixture `app-records.json`. (C1)
 - **R2 ★** ✅ #VAPP-188 On-behalf writes: `author` on `records_upsert`, `.app.json` import and the Data tab, owners only. Audit `created_by ≠ author`. (C2)
 - **R3** Per-kind policy (`read/create/update/delete`), with a shape row filter for `read: author`. `app_access` enforced in the UI, tRPC and shape. (C4)
 - **R4** Record history (`app_record_events`), a 10 s undo, the History drawer. (§3.5)
+- **RLS** ✅ #VAPP-193 One records service on the server + the Postgres scope (role `eapps`, team + app) under every server read and write of a record. (§3.4, §12.2)
 
 **Phase 2: The query** (unblocks reports and dashboards)
 
-- **S1 ★** Move the records query out of `domain-contract` into eUI host records (TS + eui-core), with a pluggable `RecordStore`. The ×4 hand derivations become one. (C25)
-- **Q1 ★** The structured query: group-by on any field + time buckets, all aggregates, `before`/running sums, `in/between/or/search`, a cursor. Fixture `records-query.json` ×6. (C5, C6)
-- **Q2 ★** Expressions: mul/div/round/min/max, array aggregates, date maths in the team timezone, the string form. (C7)
+- **S1 ★** ✅ #VAPP-189 Move the records query out of `domain-contract` into eUI host records (TS + eui-core), with a pluggable `RecordStore`. The ×4 hand derivations become one. (C25)
+- **Q1 ★** ✅ #VAPP-190 The structured query: group-by on any field + time buckets, all aggregates, `before`/running sums, `in/between/or`. Fixture `records-query.json` ×4 (TS, Rust, Swift, Kotlin). `search` and a cursor stay open. (C5, C6)
+- **Q2 ★** ✅ #VAPP-191 Expressions: mul/div/round/min/max, array aggregates, date maths in the team timezone, the string form. (C7)
 - **Q3** Computed fields. (C11)
 - **Q4** The broker's `records` run uses the Q1 evaluator: tools get the same query as the UI. (C15)
 
@@ -794,7 +798,7 @@ R3 ─ O1 · S1 ─ S2 ─ S3 / S4 · U3
 R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 ```
 
-**First milestone: R1, R2, S1, Q1 and Q2.** Records with owners, on-behalf writes and one query evaluator on every platform: enough for real team tools such as the time-tracker example.
+**First milestone: R1, R2, S1, Q1 and Q2** ✅ (2026-11-02, plus the RLS scope #VAPP-193). Records with owners, on-behalf writes and one query evaluator on every platform: enough for real team tools such as the time-tracker example. Open from it: a team time-zone setting (hosts pass the device zone today), text `search` and a cursor in the query.
 
 ## 18. Decisions (Danny, 2026-11-01)
 
@@ -806,3 +810,9 @@ R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 6. **Cross-app reads stay**, with an opt-in `readableBy` on the target kind (§12.1).
 7. **Code lives behind an upstream MCP server;** #VAPP-101 stays cancelled for good (§13).
 8. **No app-specific platform features.** The platform provides generic date/time maths and aggregates. Rules of one app (an hours target, working days, holidays) are that app's own records and expressions; there is no team holiday setting.
+
+## 19. Decisions (Danny, 2026-11-02)
+
+1. **No sandbox, no server-side app code.** An app stays data; nothing in a package runs on the server. Code still lives behind an upstream MCP server (§18.7).
+2. **Expressions are a CEL subset** (§4.2), as TS + Rust twins replaying one fixture, instead of a grammar of our own. Expressions are type-checked against the kind schemas at package validation and run under fixed cost caps. There is no solver or SMT verification: the per-kind policies (R3) stay a fixed enum. If policies ever become free expressions, use Cedar rather than CEL.
+3. **A Postgres RLS backstop scoped to team + app** under one records service (§3.4 layer 5, §12.2). Ownership and policy stay in the service, not in RLS. The structured query becomes a parameterised query, so app text never becomes SQL.

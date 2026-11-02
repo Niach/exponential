@@ -9,7 +9,7 @@ its synced store, spezl from a p2p store over eNet). `catalog/host.json`
 docs link to (spezl `docs/spec/blocks.md`). The TS reference is `src/host/`
 (`package.ts`, `records.ts`, `record-store.ts`, `query.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
 the Rust core (`apps/desktop/crates/eui-core/src/host/`) mirrors every
-pure rule. Fixtures: `fixtures/host-router.json` (package validation, replayed
+pure rule. Fixtures: `fixtures/expressions.json` (the expression language, below), `fixtures/host-router.json` (package validation, replayed
 by every renderer through the core), `fixtures/records-query.json` (the
 records query and its value) and `fixtures/host-package.json` (tool consent,
 extension compatibility, canonical JSON, signatures).
@@ -38,6 +38,7 @@ renders against keeps its own version in its id (`catalogId`,
   "records": { "entry": { "title": "Entry", "schema": { "type": "object", "properties": { "date": { "type": "string", "format": "date" } } } } },
   "tools": { "weather": { "kind": "mcp", "title": "Weather", "url": "https://mcp.example.com/weather" } },
   "upstreams": ["m5"], "exposes": [/* MCP tools a host's broker runs: "Exposes" below */],
+  "queries": { "month": { "group": ["author"], "aggregate": { "hours": ["sum", "hours"] } } },
   "extensions": [{ "id": "https://acme.example/catalogs/charts/v1", "version": "1.4.0", "components": ["Gantt"] }],
   "theme": "exponential", "icon": { "glyph": "clock" }, "description": "…"
 }
@@ -55,7 +56,7 @@ the reserved row keys are in `catalog/host.json` `package.records`). The
 host provides the store; the format fixes what a surface sees and calls.
 
 **Read** = the binding source `records:<kind>[?query]`. The value is
-`{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?}`
+`{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?, groups?, totals?, before?}`
 (`authorId` = the row's author, `authorId ?? createdBy`):
 `count` = the matching rows before `limit`. The query (URL sugar of the
 structured query, below):
@@ -72,6 +73,11 @@ structured query, below):
 | `app=<slug>` | another app's rows (the HOST decides which rows that is) |
 | `<field>=v` | a data field equals `v` (as text) |
 | `<field>.gt\|gte\|lt\|lte=v` | numbers when both parse, else text (code units) |
+| `<field>.in=a,b` | the field (as text) is one of the comma-separated values |
+| `<field>.between=lo,hi` | inclusive, numbers when both parse, else text |
+| `before=<date>` | the rows whose date (`by`'s field, else `createdAt`) is before it leave the rows and are totalled into `before` |
+| `q=<json>` | the JSON form below (the other params are ignored) |
+| `query=<name>` | one of the package's `queries` (below) |
 
 Ties sort by `id`. The reserved keys (`catalog/host.json`
 `package.records.query.reserved`) never filter a field. VAPP-189: ONE
@@ -83,8 +89,59 @@ names})` evaluates it over the rows of any store
 (`@exponential_app/eui/host/query`, the Rust core's `host::query`, the FFI's
 `parse_records_query_json` / `parse_records_source_json` /
 `records_value_json` for the Swift and Compose SDKs);
-`fixtures/records-query.json` locks all of it. A JSON query form (group-by,
-aggregates, more operators) will add keys next to these.
+`fixtures/records-query.json` locks all of it.
+
+**The JSON form** (VAPP-190, `parseRecordsJson(json, kind?)` → `{query,
+issues}`; the FFI's `parse_records_json`): the same query written as JSON,
+plus groups, aggregates and running values. A problem (an issue with a JSON
+pointer) drops that part; the rest still runs.
+
+```jsonc
+{
+  "from": "entry",                                  // a source's own kind wins
+  "where": [
+    ["date", "between", "2026-10-01", "2026-10-31"], // eq gt gte lt lte in between, or = == > >= < <=
+    ["status", "in", ["open", "doing"]],
+    { "or": [[["owner", "eq", "u1"]], [["owner", "eq", "u2"], ["hours", ">", 1]]] }  // one per query
+  ],
+  "group": ["author", { "bucket": "date", "by": "day" }],   // any field; author; day week month quarter year
+  "aggregate": { "hours": ["sum", "hours"], "n": ["count"] }, // sum avg min max count countDistinct first last
+  "running": { "hours": "sum" },                    // sum count avg min max, cumulative
+  "before": "2026-10-01",                           // or {field, date}
+  "sort": [["date", "desc"]], "limit": 500,         // also mine, user, app, sum, month: {field, key?}
+}
+```
+
+- `groups`: one object per group: its columns (`author` = the author's name
+  plus `authorId`; a bucket = `2026-10-05`, `2026-W41` (ISO), `2026-10`,
+  `2026-Q4`, `2026`, null without a date that precise; any other field its
+  value), `count`, `sum` (with `sum`) and every aggregate. Ordered by the
+  `sort` keys that name a group column or an aggregate, then by the group
+  columns ascending.
+- `totals`: count, sum? and the aggregates over every match (with
+  `aggregate`).
+- `before`: the matches whose date field (a string `before` = the first
+  bucket's field, else the month view's, else `createdAt`) is before the
+  date leave the rows and the groups; `before` = their count, sum? and
+  aggregates, and they seed every running value (a balance carried over).
+- `running`: `{field: value}` on every group (in order), else on every row
+  (in the sort order), and on every day of the month view.
+- Aggregates: `count` without a field counts rows (with one, rows where it is
+  non-empty); `sum` / `avg` over the numbers (rounded to 1e-6; `avg` of none
+  = null); `min` / `max` compare like the ranges; `first` / `last` in the
+  sort order. The names `count`, `sum`, `running`, `rows` and a group
+  column's are taken.
+
+**Named queries:** `queries: {<name>: <JSON query>}` (names
+`^[a-z][A-Za-z0-9_]{0,31}$`, each must parse clean, `from` a declared kind).
+A template binding `records:<kind>?query=<name>&<params>` (or Exponential's
+`exp:records?kind=<kind>&query=<name>`) follows it: the router replaces it
+with `?q=<canonical JSON>` (`expandQuerySource`), every `${param}` in the
+query's strings filled from the binding's other params (unset = empty), so a
+`bind` action's params drive it (`{"where": [["date", "between",
+"${start}", "${end}"]]}`). A binding naming no package query is an install
+issue. The date maths (`src/dates.ts`, the Rust core's `dates`) is shared
+with the bind-time expressions.
 A template binding to `records:<kind>` names a declared kind (else an install
 issue). A package with a `sources` allowlist lists `records:<kind>` or
 `records:*`.
@@ -107,6 +164,80 @@ of whatever store the host has.
 Exponential: `records:<kind>?q` = its `exp:records?kind=<kind>&q` (the name
 wins over a `kind` param) and `records.*` = `harness.records.*`; both spellings
 stay valid on all four clients.
+
+## Expressions
+
+VAPP-191 (Q2, spec `docs/spec/apps.md` §4.2–4.3). A computed value is an
+A2UI function call: either one of the expression functions, or `expr`, the
+compact string form, with its inputs as `vars` (each a literal or any
+dynamic value: a binding, another call):
+
+```jsonc
+{ "call": "expr", "args": {
+    "expr": "formatDuration(target - entries.sum, 'h:mm')",
+    "vars": { "target": { "path": "/target" }, "entries": { "path": "/entries" } } } }
+{ "call": "dateAdd", "args": { "date": { "path": "/day" }, "n": 1, "unit": "month" } }
+```
+
+The string form is a **subset of CEL** (the Common Expression Language),
+the same in the TS reference (`src/cel.ts`) and the Rust core (`cel`):
+
+- literals: numbers, `'…'` / `"…"` strings (`\\ \' \" \n \t \r`), `true`,
+  `false`, `null`, lists `[a, b]`; names (the vars); `a.b`, `a[0]`, `m['k']`
+  (a missing field, or a field of null, is null);
+- `+ - * / %` (numbers; `+` also joins two strings or two lists), unary `-`
+  and `!`, `== !=` (deep JSON equality), `< <= > >=` (two numbers or two
+  strings, by UTF-16 code unit), `&& ||` (short-circuit, bools only),
+  `c ? a : b`;
+- calls of the functions below, and the macros `list.map(x, e)`,
+  `.filter(x, p)`, `.all(x, p)`, `.exists(x, p)`, one level (a macro inside a
+  macro's body is refused; chaining is fine).
+
+Unlike full CEL there is ONE number type (a double, like JSON: `7 / 2` is
+`3.5`), no implicit conversion (`'a' + 1` is an error), no `in`, no map
+literals, no user functions and no loops. An error (`1 / 0`, a missing name,
+a wrong type) gives the call no value.
+
+| Function | A2UI args | |
+| --- | --- | --- |
+| `mul(a, b)` `div(a, b)` `mod(a, b)` | `a, b` | `div` / `mod` by 0 = an error; `mod` takes the sign of `a` |
+| `round(x, digits?)` | `value, digits` | half away from zero, digits 0..10 |
+| `floor(x)` `ceil(x)` `abs(x)` | `value` | |
+| `min(x, …)` `max(x, …)` | `values: [...]` | at least one |
+| `today()` | | the calendar day in the team zone |
+| `now()` | | the instant, `YYYY-MM-DDTHH:MM:SS.sssZ` |
+| `dateAdd(d, n, unit)` | `date, n, unit` | a whole `n`; a day unit keeps the wall clock, a month end clamps (Jan 31 + 1 month = Feb 28) |
+| `dateDiff(a, b, unit)` | `a, b, unit` | whole units from `a` to `b` (`b - a`, truncated) |
+| `startOf(d, unit)` `endOf(d, unit)` | `date, unit` | day, week (Monday), month, quarter, year |
+| `weekday(d)` | `date` | 1 = Monday … 7 = Sunday |
+| `isoWeek(d)` | `date` | the ISO week number |
+| `hours(minutes)` | `minutes` | `minutes / 60` |
+| `formatDuration(h, format)` | `hours, format` | `h:mm` or `hh:mm` (`7.5` → `7:30`) |
+| `size(x)` | (CEL only; `len` in A2UI) | a list, string (code points) or map |
+
+Units: `second minute hour day week month quarter year` (a date takes no
+sub-day unit in `dateAdd`). A date is `YYYY-MM-DD` (a calendar day), a
+timestamp an ISO instant (no offset = UTC). Everything date-like runs in the
+**team zone**: the surface's zone (`Formatter.offsetMinutes` / the Rust
+`Formatter::offset_minutes`, `ResolveOptions.zone`, the FFI's `HostZone`). A
+wall-clock time in a DST gap moves forward by the gap; a repeated one takes
+its later instant. There are no working days or holidays (spec §18.8): an
+app keeps those as its own records.
+
+**Cost caps:** at most 1000 characters (code points), nesting 32 deep, and
+10 000 evaluation steps (nodes + macro iterations) per run.
+
+**Type checking at validation:** `validatePackage` parses and type-checks
+every `{"call": "expr"}` anywhere in a template. A var's type comes from a
+literal, from a records binding the path lies under (`records:<kind>` or
+`exp:records?kind=`: `{rows: [row], count, sum, groups, totals, before,
+month}`, a row = the kind's schema fields + `id createdAt updatedAt
+createdBy authorId author`; `format: date` = a date, `date-time` = a
+timestamp), or from the template `data`; anything else is open. An issue
+names the expression's JSON pointer and the reason, e.g.
+`/templates/month/components/3/props/text/args/expr: unknown field hourz`.
+`fixtures/expressions.json` locks the language, the checker, the A2UI form
+and these issues.
 
 ## Tools
 
