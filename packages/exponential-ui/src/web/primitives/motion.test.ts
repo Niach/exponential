@@ -3,7 +3,9 @@
 import { describe, expect, it } from "bun:test"
 import { deflateRawSync } from "node:zlib"
 import { builtinTheme } from "../../themes"
-import { motionA11y, motionBoxStyle, motionDeclaredSize, motionFit, motionFitMatrix, motionFromDotLottie, motionThemeSlots } from "./motion"
+import stateFixture from "../../../fixtures/motion-state.json"
+import { motionWasmSync } from "../../motion/server"
+import { MotionStateDriver, motionA11y, motionBoxStyle, motionDeclaredSize, motionDotLottie, motionFit, motionFitMatrix, motionFromDotLottie, motionThemeSlots, type MotionEvent } from "./motion"
 
 describe(`motion box (contract §4)`, () => {
   it(`unstyled: the composition's px width, shrinking to the width, aspect kept`, () =>
@@ -47,6 +49,84 @@ describe(`a11y (contract §6)`, () => {
   it(`img named by the label; hidden without one`, () => {
     expect(motionA11y(`Loading`)).toEqual({ role: `img`, "aria-label": `Loading` })
     expect(motionA11y(``)).toEqual({ "aria-hidden": `true` })
+  })
+  it(`with on.press: a focusable button named by the label (M4 §4)`, () => {
+    expect(motionA11y(`Like`, true)).toEqual({ role: `button`, tabIndex: 0, "aria-label": `Like` })
+    expect(motionA11y(undefined, true)).toEqual({ role: `button`, tabIndex: 0 })
+  })
+})
+
+// EXP-1605: the driver replays fixtures/motion-state.json over the real
+// engine: every step's `entered` reaches `on.state`, a state change restarts
+// the clock, a final state fires `on.complete` once.
+describe(`state machines (fixtures/motion-state.json, M4 §1–4)`, () => {
+  const wasm = motionWasmSync()
+  type Snap = { state: string; entered: string[]; final: boolean; range: [number, number] }
+  type Step = Snap & { step: { post?: string; layer?: string; set?: Record<string, unknown>; complete?: boolean } }
+  type C = { id: string; machine: unknown; initial: Snap; steps: Step[] }
+  const rig = () => {
+    const player = new wasm.MotionPlayer(JSON.stringify(stateFixture.lottie), ``)
+    const events: [MotionEvent, Record<string, unknown> | undefined][] = []
+    let restarts = 0
+    const driver = new MotionStateDriver(player, (e, p) => events.push([e, p]), () => restarts++)
+    return { player, events, driver, restarts: () => restarts }
+  }
+  for (const c of (stateFixture as unknown as { cases: C[] }).cases) {
+    it(c.id, () => {
+      const { player, events, driver, restarts } = rig()
+      const expectStep = (want: Snap, wasFinal: boolean) => {
+        const wantEvents: [MotionEvent, Record<string, unknown> | undefined][] = want.entered.map((state) => [`state`, { state }])
+        if (want.final && !wasFinal) wantEvents.push([`complete`, undefined])
+        expect(events.splice(0)).toEqual(wantEvents)
+        // The state's playback reached the clock.
+        expect(player.posterFrame()).toBeCloseTo(want.range[0], 6)
+      }
+      expect(driver.setMachine(c.machine)).toBe(true)
+      expect(restarts()).toBe(1)
+      expectStep(c.initial, false)
+      let final = c.initial.final
+      for (const s of c.steps) {
+        const before = restarts()
+        if (s.step.post) driver.post(s.step.post, s.step.layer ?? ``)
+        if (s.step.set) driver.setInputs(s.step.set)
+        if (s.step.complete) {
+          driver.done()
+          // The finished play itself fires `complete` (then the machine moves on).
+          expect(events.shift()).toEqual([`complete`, undefined])
+        }
+        expect(restarts() - before).toBe(s.entered.length > 0 ? 1 : 0)
+        expectStep(s, final)
+        final = s.final
+      }
+      player.free()
+    })
+  }
+  it(`the same inputs again post nothing; a new machine restarts`, () => {
+    const { player, events, driver, restarts } = rig()
+    const c = (stateFixture.cases as { id: string; machine: unknown }[]).find((k) => k.id === `progress-thresholds`)!
+    driver.setMachine(c.machine)
+    driver.setInputs({ level: 60 })
+    events.length = 0
+    const n = restarts()
+    driver.setInputs({ level: 60 })
+    expect(restarts()).toBe(n)
+    expect(driver.setMachine(c.machine)).toBe(true)
+    expect(restarts()).toBe(n)
+    expect(driver.setMachine(null)).toBe(false)
+    expect(events).toEqual([])
+    player.free()
+  })
+  it(`without a machine a finished play fires complete once per play`, () => {
+    const { player, events, driver } = rig()
+    driver.done()
+    driver.done()
+    driver.replay()
+    driver.done()
+    expect(events).toEqual([
+      [`complete`, undefined],
+      [`complete`, undefined],
+    ])
+    player.free()
   })
 })
 
@@ -101,5 +181,19 @@ describe(`dotLottie`, () => {
     const lottie = JSON.parse(await motionFromDotLottie(bytes)) as { assets: { p: string; e: number }[] }
     expect(lottie.assets[0]!.p).toBe(`data:image/png;base64,AQID`)
     expect(lottie.assets[0]!.e).toBe(1)
+  })
+  it(`reads the manifest's first state machine (s/, M4 §1)`, async () => {
+    const enc = new TextEncoder()
+    const anim = { v: `5.7.0`, w: 10, h: 10, layers: [] }
+    const machine = { initial: `a`, states: [{ name: `a`, type: `PlaybackState` }] }
+    const bytes = zip({
+      "manifest.json": enc.encode(JSON.stringify({ animations: [{ id: `wave` }], stateMachines: [{ id: `main` }] })),
+      "a/wave.json": enc.encode(JSON.stringify(anim)),
+      "s/other.json": enc.encode(`{}`),
+      "s/main.json": enc.encode(JSON.stringify(machine)),
+    })
+    expect((await motionDotLottie(bytes)).stateMachine).toEqual(machine)
+    const plain = zip({ "manifest.json": enc.encode(`{}`), "a/wave.json": enc.encode(JSON.stringify(anim)) })
+    expect((await motionDotLottie(plain)).stateMachine).toBeNull()
   })
 })

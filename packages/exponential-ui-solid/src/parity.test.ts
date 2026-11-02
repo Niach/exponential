@@ -74,4 +74,22 @@ describe(`DOM parity with React`, () => {
       },
     })
   })
+  // EXP-1605 (M4 §4): with on.press a Motion is a focusable button named by
+  // its label; with only other events (hover, state) it stays an image.
+  it(`Motion: a pressable state-machine button, an evented image, a decorative one`, async () => {
+    const lottie = { v: `5.12.0`, fr: 30, ip: 0, op: 30, w: 10, h: 10, layers: [] }
+    const machine = { initial: `off`, states: [{ name: `off`, type: `PlaybackState`, segment: [0, 10] }] }
+    await expectDomParity({
+      tree: {
+        id: `root`,
+        component: `Stack`,
+        children: [
+          { id: `like`, component: `Motion`, props: { lottie, stateMachine: machine, label: `Like` }, on: { press: { event: { name: `liked` } }, state: { event: { name: `state` } } } },
+          { id: `bar`, component: `Motion`, props: { lottie, stateMachine: machine, inputs: { path: `/sm` }, label: `Level` }, on: { hover: { event: { name: `h` } } } },
+          { id: `deco`, component: `Motion`, props: { lottie, style: { width: 24 } } },
+        ],
+      } as unknown as NestedNode,
+      data: { sm: { level: 30 } },
+    })
+  })
 })

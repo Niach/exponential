@@ -4,6 +4,8 @@
 // painted: its props come from the same specimens the island rendered
 // (bindings resolved against their data), its theme and mode from the
 // surface. The WASM rides inline (gzip + base64): the page works over file://.
+// EXP-1605: a Motion with `on.press` is pressable (Enter / Space); clicks and
+// hovers reach its state machine through the painter.
 
 import { DEFAULT_THEME_ID, builtinTheme, type NestedNode } from "@exponential_app/eui"
 import { initMotionWasm } from "@exponential_app/eui/motion"
@@ -11,7 +13,7 @@ import { MotionView } from "@exponential_app/eui/web"
 import { MOTION_WASM_GZ_BASE64 } from "@exponential_app/eui/wasm/motion/bytes.ts"
 import specimens from "./entries/motion.specimens.json"
 
-type Tree = { data: Record<string, unknown>; cases: NestedNode; illustration: NestedNode }
+type Tree = { data: Record<string, unknown>; cases: NestedNode; illustration: NestedNode; interactive?: NestedNode }
 
 const pointer = (data: Record<string, unknown>, path: string): unknown =>
   path
@@ -22,15 +24,16 @@ const pointer = (data: Record<string, unknown>, path: string): unknown =>
 const resolve = (value: unknown, data: Record<string, unknown>): unknown =>
   value && typeof value === `object` && !Array.isArray(value) && typeof (value as { path?: unknown }).path === `string` && Object.keys(value).length === 1 ? pointer(data, (value as { path: string }).path) : value
 
-/** Motion id → its props, bindings resolved. */
-function motionProps(tree: Tree): Map<string, Record<string, unknown>> {
-  const out = new Map<string, Record<string, unknown>>()
+/** Motion id → its props (bindings resolved) and whether `on.press` makes it a button. */
+function motionProps(tree: Tree): Map<string, { props: Record<string, unknown>; pressable: boolean }> {
+  const out = new Map<string, { props: Record<string, unknown>; pressable: boolean }>()
   const walk = (node: NestedNode) => {
-    if (node.component === `Motion`) out.set(node.id, Object.fromEntries(Object.entries(node.props ?? {}).map(([k, v]) => [k, resolve(v, tree.data)])))
+    if (node.component === `Motion`) out.set(node.id, { props: Object.fromEntries(Object.entries(node.props ?? {}).map(([k, v]) => [k, resolve(v, tree.data)])), pressable: Boolean(node.on?.press) })
     for (const child of node.children ?? []) walk(child as NestedNode)
   }
   walk(tree.cases)
   walk(tree.illustration)
+  if (tree.interactive) walk(tree.interactive)
   return out
 }
 
@@ -47,13 +50,13 @@ async function mount(): Promise<void> {
   const props = motionProps(specimens as unknown as Tree)
   const reduced = matchMedia(`(prefers-reduced-motion: reduce)`).matches
   for (const el of motions) {
-    const p = props.get(el.dataset.xuiId ?? ``)
+    const spec = props.get(el.dataset.xuiId ?? ``)
     const canvas = el.querySelector(`canvas`)
-    if (!p || !canvas) continue
+    if (!spec || !canvas) continue
     const surface = el.closest<HTMLElement>(`[data-xui-surface]`)
     const mode = surface?.dataset.xuiMode === `light` ? `light` : `dark`
     const theme = builtinTheme(surface?.dataset.xuiTheme ?? DEFAULT_THEME_ID)
-    new MotionView(el, canvas).update(p, { theme, mode, reducedMotion: reduced, host: {} }, undefined)
+    new MotionView(el, canvas).update(spec.props, { theme, mode, reducedMotion: reduced, host: {}, pressable: spec.pressable }, undefined)
   }
 }
 

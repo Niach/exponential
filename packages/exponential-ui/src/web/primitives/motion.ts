@@ -16,6 +16,12 @@
 //    loop stops.
 // 4. Box: the wrapper sizes it (`motionBoxStyle`); the canvas fills it at
 //    devicePixelRatio, the composition fitted (contain | cover | fill).
+// 5. Interactivity (M4, EXP-1605, README › Interactivity): the state machine
+//    (`stateMachine`, else a `.lottie` src's first) runs IN THE ENGINE; this
+//    file only posts interactions / inputs to it (`MotionStateDriver`) and
+//    turns its status into the node's `on` events (press, hover, visible,
+//    complete, state). The wrappers hand an `emit` (their A2UI action
+//    plumbing) and whether `on.press` makes the Motion a button.
 //
 // The WASM (and its JS glue) is imported lazily on the first Motion that
 // paints: never in a host's initial bundle; bundlers emit the .wasm as a
@@ -47,7 +53,15 @@ export interface MotionEnv {
   host: HostPlugin
   /** A load failure (the box stays empty): the wrapper reports it as a paint error. */
   onError?: (message: string) => void
+  /** The node's `on` events (the wrapper's A2UI action plumbing). */
+  emit?: MotionEmit
+  /** `on.press` is set: the Motion is a button (Enter / Space press it). */
+  pressable?: boolean
 }
+
+/** The events a Motion fires (its `on`); `state` carries `{state}`. */
+export type MotionEvent = `press` | `hover` | `visible` | `complete` | `state`
+export type MotionEmit = (event: MotionEvent, payload?: Record<string, unknown>) => void
 
 type Props = Record<string, unknown>
 type Player = import("../../motion/wasm").MotionBindings[`MotionPlayer`][`prototype`]
@@ -94,9 +108,12 @@ export function motionFit(value: unknown): MotionFit {
   return value === `cover` || value === `fill` ? value : `contain`
 }
 
-/** Contract §6: role img named by `label`; hidden (decorative) without one. */
-export function motionA11y(label: unknown): { role?: `img`; "aria-label"?: string; "aria-hidden"?: `true` } {
-  return typeof label === `string` && label ? { role: `img`, "aria-label": label } : { "aria-hidden": `true` }
+/** Contract §6: role img named by `label`; hidden (decorative) without one.
+ *  M4 §4: with `on.press` (`pressable`) a focusable button named by `label`. */
+export function motionA11y(label: unknown, pressable = false): { role?: `img` | `button`; tabIndex?: number; "aria-label"?: string; "aria-hidden"?: `true` } {
+  const named = typeof label === `string` && label
+  if (pressable) return named ? { role: `button`, tabIndex: 0, "aria-label": label } : { role: `button`, tabIndex: 0 }
+  return named ? { role: `img`, "aria-label": label } : { "aria-hidden": `true` }
 }
 
 /** The theme's slot overrides for `slotIds` (contract §2). */
@@ -185,9 +202,15 @@ function base64(bytes: Uint8Array): string {
 
 /** A .lottie archive's first animation as Lottie JSON, its images inlined. */
 export async function motionFromDotLottie(bytes: Uint8Array): Promise<string> {
+  return (await motionDotLottie(bytes)).lottie
+}
+
+/** A .lottie archive's first animation (Lottie JSON, images inlined) and its
+ *  first state machine (dotLottie 2 `s/<id>.json`, v1 `states/`), or null. */
+export async function motionDotLottie(bytes: Uint8Array): Promise<{ lottie: string; stateMachine: Record<string, unknown> | null }> {
   const files = await unzip(bytes)
   const dec = new TextDecoder()
-  const manifest = files.get(`manifest.json`) ? (JSON.parse(dec.decode(files.get(`manifest.json`))) as { animations?: { id?: string }[] }) : {}
+  const manifest = files.get(`manifest.json`) ? (JSON.parse(dec.decode(files.get(`manifest.json`))) as { animations?: { id?: string }[]; stateMachines?: { id?: string }[]; states?: (string | { id?: string })[] }) : {}
   const id = manifest.animations?.[0]?.id
   const anims = [...files.keys()].filter((n) => /^(animations|a)\/[^/]+\.json$/.test(n))
   const name = (id && anims.find((n) => n.endsWith(`/${id}.json`))) || anims[0]
@@ -204,7 +227,109 @@ export async function motionFromDotLottie(bytes: Uint8Array): Promise<string> {
     a.u = ``
     a.e = 1
   }
-  return JSON.stringify(lottie)
+  const first = manifest.stateMachines?.[0]?.id ?? manifest.states?.map((s) => (typeof s === `string` ? s : s.id))[0]
+  const machines = [...files.keys()].filter((n) => /^(s|states)\/[^/]+\.json$/.test(n))
+  const smName = (first && machines.find((n) => n.endsWith(`/${first}.json`))) || machines[0]
+  let stateMachine: Record<string, unknown> | null = null
+  if (smName) {
+    try {
+      const v = JSON.parse(dec.decode(files.get(smName))) as unknown
+      if (isObj(v)) stateMachine = v
+    } catch {
+      // A broken machine: the animation still plays on its props.
+    }
+  }
+  return { lottie: JSON.stringify(lottie), stateMachine }
+}
+
+// --- State machines (M4) -----------------------------------------------------
+
+/** The engine's state-machine API (the WASM `MotionPlayer`). */
+export interface MotionMachinePlayer {
+  setStateMachine(json: string): boolean
+  smPost(kind: string, layer: string): boolean
+  smSetInputs(json: string): boolean
+  smStatus(): string
+}
+
+/** A Motion's state machine half (README › Interactivity §1–4). The engine
+ *  interprets the machine; this posts interactions and inputs to it, restarts
+ *  the clock when the state changes and turns its status into events:
+ *  `state` for every entered state (`{state}`), `complete` once per state
+ *  when its play finished or it is final. Without a machine it still reports
+ *  `complete` for a finished finite play. */
+export class MotionStateDriver {
+  private machineKey = ``
+  private inputsKey = ``
+  private completeSent = false
+  running = false
+
+  constructor(
+    private readonly player: MotionMachinePlayer,
+    private readonly emit: MotionEmit,
+    /** The state changed: restart the clock at 0. */
+    private readonly restart: () => void
+  ) {}
+
+  /** Start (or restart, when its JSON changed) the machine; null = none.
+   *  Returns whether one runs (its state's playback replaces the props'). */
+  setMachine(machine: unknown): boolean {
+    const key = isObj(machine) ? JSON.stringify(machine) : ``
+    if (key === this.machineKey) return this.running
+    this.machineKey = key
+    this.inputsKey = ``
+    // `{}` parses to no machine: the engine drops the old one.
+    this.running = this.player.setStateMachine(key || `{}`)
+    if (this.running) this.changed()
+    this.drain()
+    return this.running
+  }
+
+  /** The node's `inputs` (literal or bound): written on every change. */
+  setInputs(inputs: unknown): void {
+    if (!this.running || !isObj(inputs)) return
+    const key = JSON.stringify(inputs)
+    if (key === this.inputsKey) return
+    this.inputsKey = key
+    if (this.player.smSetInputs(key)) this.changed()
+    this.drain()
+  }
+
+  /** An interaction (`click`, `pointerDown`, `pointerUp`, `pointerEnter`, `pointerExit`). */
+  post(kind: string, layer = ``): void {
+    if (!this.running) return
+    if (this.player.smPost(kind, layer)) this.changed()
+    this.drain()
+  }
+
+  /** The clock reported `done` for the current play. */
+  done(): void {
+    if (!this.completeSent) {
+      this.completeSent = true
+      this.emit(`complete`)
+    }
+    this.post(`complete`)
+  }
+
+  /** A new play without a machine (the playback props changed). */
+  replay(): void {
+    if (!this.running) this.completeSent = false
+  }
+
+  private changed(): void {
+    this.completeSent = false
+    this.restart()
+  }
+
+  private drain(): void {
+    if (!this.running) return
+    const status = JSON.parse(this.player.smStatus()) as { entered?: string[]; final?: boolean } | null
+    for (const state of status?.entered ?? []) this.emit(`state`, { state })
+    if (status?.final && !this.completeSent) {
+      this.completeSent = true
+      this.emit(`complete`)
+    }
+  }
 }
 
 // --- The view ----------------------------------------------------------------
@@ -228,6 +353,11 @@ export class MotionView {
   private playbackKey = ``
   private generation = 0
   private lottie: string | null = null
+  /** A `.lottie` src's first state machine. */
+  private fileMachine: Record<string, unknown> | null = null
+  private driver: MotionStateDriver | null = null
+  private halfSeen = false
+  private visibleSent = false
   private slotIds: string[] = []
   private player: Player | null = null
   private images: (MotionImageSource | null)[] = []
@@ -241,6 +371,8 @@ export class MotionView {
   private lastPaint = -Infinity
   private elapsed = 0
   private finished = false
+  private restarts = 0
+  private inTick = false
   private painted = ``
   private destroyed = false
 
@@ -248,12 +380,26 @@ export class MotionView {
     readonly root: HTMLElement,
     readonly canvas: HTMLCanvasElement
   ) {
+    // M4 §3–4: interactions reach the machine and the node's `on` even
+    // where nothing paints (the events need no player).
+    root.addEventListener(`click`, this.onClick)
+    root.addEventListener(`keydown`, this.onKey)
+    root.addEventListener(`pointerdown`, this.onPointer)
+    root.addEventListener(`pointerup`, this.onPointer)
+    root.addEventListener(`pointerenter`, this.onPointer)
+    root.addEventListener(`pointerleave`, this.onPointer)
     if (!motionCanPaint()) return
-    this.io = new IntersectionObserver((entries) => {
-      const e = entries[entries.length - 1]
-      this.visible = Boolean(e?.isIntersecting)
-      this.schedule()
-    })
+    this.io = new IntersectionObserver(
+      (entries) => {
+        const e = entries[entries.length - 1]
+        this.visible = Boolean(e?.isIntersecting)
+        // `visible`: the first time half of it is on screen.
+        if (e && e.isIntersecting && e.intersectionRatio >= 0.5) this.halfSeen = true
+        this.flushVisible()
+        this.schedule()
+      },
+      { threshold: [0, 0.5] }
+    )
     this.io.observe(root)
     if (typeof ResizeObserver === `function`) {
       this.ro = new ResizeObserver(() => this.repaint())
@@ -265,10 +411,12 @@ export class MotionView {
 
   /** `nodeStyle` = the node's own `style` (a style width/height wins over the composition size). */
   update(props: Props, env: MotionEnv, nodeStyle?: unknown): void {
-    if (this.destroyed || !this.io) return
+    if (this.destroyed) return
     this.props = props
     this.nodeStyle = nodeStyle
     this.env = env
+    if (!this.io) return
+    this.flushVisible()
     const sourceKey = Array.isArray(props.layers)
       ? `d:${JSON.stringify(Object.fromEntries(DIALECT_KEYS.map((k) => [k, props[k]])))}`
       : isObj(props.lottie)
@@ -288,12 +436,61 @@ export class MotionView {
       this.instantiate()
       return
     }
+    this.applyMachine()
     this.applyPlayback()
     this.schedule()
   }
 
+  private emit(event: MotionEvent, payload?: Record<string, unknown>): void {
+    if (!this.destroyed) this.env?.emit?.(event, payload)
+  }
+
+  /** `on.visible` once, as soon as there is an env to emit through. */
+  private flushVisible(): void {
+    if (!this.halfSeen || this.visibleSent || !this.env) return
+    this.visibleSent = true
+    this.emit(`visible`)
+  }
+
+  private onClick = (): void => {
+    this.driver?.post(`click`)
+    this.emit(`press`)
+  }
+
+  private onKey = (e: KeyboardEvent): void => {
+    if (!this.env?.pressable || (e.key !== `Enter` && e.key !== ` `) || e.target !== this.root) return
+    e.preventDefault()
+    this.onClick()
+  }
+
+  private onPointer = (e: PointerEvent): void => {
+    const kind = e.type === `pointerdown` ? `pointerDown` : e.type === `pointerup` ? `pointerUp` : e.type === `pointerenter` ? `pointerEnter` : `pointerExit`
+    this.driver?.post(kind)
+    if (kind === `pointerEnter`) this.emit(`hover`)
+  }
+
+  /** The machine (the prop, else the file's) and its inputs → the engine. */
+  private applyMachine(): void {
+    const d = this.driver
+    if (!d) return
+    const was = d.running
+    const running = d.setMachine(isObj(this.props.stateMachine) ? this.props.stateMachine : this.fileMachine)
+    if (was && !running) this.playbackKey = `` // back on the playback props
+    d.setInputs(this.props.inputs)
+  }
+
+  /** The state changed: the clock restarts at 0. */
+  private restartClock = (): void => {
+    this.elapsed = 0
+    this.finished = false
+    this.restarts++
+    this.painted = ``
+    if (!this.inTick) this.schedule()
+  }
+
   destroy(): void {
     this.destroyed = true
+    for (const t of [`click`, `keydown`, `pointerdown`, `pointerup`, `pointerenter`, `pointerleave`] as const) this.root.removeEventListener(t, (t === `click` ? this.onClick : t === `keydown` ? this.onKey : this.onPointer) as EventListener)
     this.generation++
     this.stop()
     this.leaveSurface()
@@ -316,6 +513,7 @@ export class MotionView {
     const gen = ++this.generation
     this.free()
     this.lottie = null
+    this.fileMachine = null
     this.root.dataset.state = `loading`
     const props = this.props
     const env = this.env!
@@ -333,7 +531,11 @@ export class MotionView {
         if (!req) throw new Error(`Motion: src denied by the media policy`)
         const blob = await fetchLimited(req.url, req.headers ?? {}, MEDIA_LIMITS, false, (u) => mediaUrlAllowed(env.host, u))
         const bytes = new Uint8Array(await blob.arrayBuffer())
-        lottie = bytes[0] === 0x50 && bytes[1] === 0x4b ? await motionFromDotLottie(bytes) : new TextDecoder().decode(bytes)
+        if (bytes[0] === 0x50 && bytes[1] === 0x4b) {
+          const dot = await motionDotLottie(bytes)
+          lottie = dot.lottie
+          this.fileMachine = dot.stateMachine
+        } else lottie = new TextDecoder().decode(bytes)
       } else throw new Error(`Motion: no source (layers, lottie or src)`)
       if (gen !== this.generation) return
       this.lottie = lottie
@@ -348,6 +550,7 @@ export class MotionView {
 
   private free(): void {
     this.stop()
+    this.driver = null
     this.player?.free()
     this.player = null
     this.images = []
@@ -377,6 +580,8 @@ export class MotionView {
       this.loadImages()
       this.playbackKey = ``
       this.applyPlayback()
+      this.driver = new MotionStateDriver(this.player, (event, payload) => this.emit(event, payload), this.restartClock)
+      this.applyMachine()
       this.schedule()
     })
   }
@@ -402,18 +607,22 @@ export class MotionView {
   }
 
   private applyPlayback(): void {
-    if (!this.player) return
+    // A running machine's state owns the playback (M4 §1).
+    if (!this.player || this.driver?.running) return
     const key = JSON.stringify(Object.fromEntries(PLAYBACK_KEYS.map((k) => [k, this.props[k]])))
     if (key === this.playbackKey) return
     this.playbackKey = key
     this.player.setPlayback(key)
     this.elapsed = 0
     this.finished = false
+    this.driver?.replay()
   }
 
   private wantsToAnimate(): boolean {
     const p = this.props
-    return Boolean(this.player) && typeof p.progress !== `number` && p.autoplay !== false && p.play !== false && !this.env?.reducedMotion && !this.finished && this.visible && !document.hidden
+    // With a machine its state's `autoplay` decides (the engine's clock holds the poster).
+    const autoplay = this.driver?.running || p.autoplay !== false
+    return Boolean(this.player) && typeof p.progress !== `number` && autoplay && p.play !== false && !this.env?.reducedMotion && !this.finished && this.visible && !document.hidden
   }
 
   private leaveSurface(): void {
@@ -459,15 +668,23 @@ export class MotionView {
     if (this.last >= 0) this.elapsed += now - this.last
     this.last = now
     if (this.player.done(this.elapsed)) {
-      this.finished = true
-      this.schedule()
-      return
+      // `complete` once; a machine may move on (its clock restarts at 0).
+      const before = this.restarts
+      this.inTick = true
+      this.driver?.done()
+      if (!this.driver) this.emit(`complete`)
+      this.inTick = false
+      if (this.restarts === before || !this.player) {
+        this.finished = true
+        this.schedule()
+        return
+      }
     }
     if (now - this.lastPaint >= 1000 / MOTION_MAX_FPS - 1) {
       this.lastPaint = now
       this.paint(this.player.tick(this.elapsed))
     }
-    this.raf = requestAnimationFrame(this.tick)
+    if (!this.raf) this.raf = requestAnimationFrame(this.tick)
   }
 
   /** The frame shown while the clock is stopped. */
@@ -475,7 +692,7 @@ export class MotionView {
     const p = this.player!
     const progress = this.props.progress
     if (typeof progress === `number`) return p.progressFrame(Math.max(0, Math.min(1, progress)))
-    if (this.finished || (this.elapsed > 0 && !this.env?.reducedMotion && this.props.autoplay !== false)) return p.tick(this.elapsed)
+    if (this.finished || (this.elapsed > 0 && !this.env?.reducedMotion && (this.driver?.running || this.props.autoplay !== false))) return p.tick(this.elapsed)
     return p.posterFrame()
   }
 

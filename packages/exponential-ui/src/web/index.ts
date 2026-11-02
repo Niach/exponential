@@ -44,8 +44,8 @@ export { PLACED, placedPartId } from "./parts"
 export { share } from "./share"
 // NEW-77: the VoiceWave natives' runtime helpers (the published web entry; the primitives barrel would pull every recipe into the standalone bundle).
 export { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "./primitives/voice-wave"
-export { MotionView, motionA11y, motionBoxStyle, motionCanPaint, motionDeclaredSize, motionFit, motionFromDotLottie, motionThemeSlots, paintMotionFrame, motionFitMatrix, motionConcat, motionFrameSize, MotionCanvasPool, MOTION_MAX_PLAYING, MOTION_MAX_FPS } from "./primitives/motion"
-export type { MotionEnv, MotionFit, MotionMatrix } from "./primitives/motion"
+export { MotionView, MotionStateDriver, motionA11y, motionBoxStyle, motionCanPaint, motionDeclaredSize, motionDotLottie, motionFit, motionFromDotLottie, motionThemeSlots, paintMotionFrame, motionFitMatrix, motionConcat, motionFrameSize, MotionCanvasPool, MOTION_MAX_PLAYING, MOTION_MAX_FPS } from "./primitives/motion"
+export type { MotionEnv, MotionEmit, MotionEvent, MotionMachinePlayer, MotionFit, MotionMatrix } from "./primitives/motion"
 // VAPP-162: the round-5 natives' shared halves (QrCode paint, the QrScanner host hook, the count badge, the Button hold machine).
 export { qrPaint, qrScanReporter, qrScanFormats, qrCornerPath, qrFeedColour, QR_CORNERS, QR_SCANNER, segmentedBadge, ButtonHold, HOLD_SLOP, withinSlop } from "./round5"
 export type { QrPaint, QrScannerHost, QrCorner, HoldEvent, HoldRect } from "./round5"
