@@ -92,7 +92,7 @@ final class AppDependencies: @unchecked Sendable {
     init() {
         let keychain = KeychainStore()
         let accountStore = AccountStore(keychain: keychain)
-        #if DEBUG
+        #if DEBUG || REPRO
         // EXP-1267: screenshot runs start from a fresh-install state without
         // erasing the simulator (capture-only, `-uiTesting` + DEBUG).
         UITestingSession.resetIfRequested(accountStore: accountStore)
@@ -109,7 +109,7 @@ final class AppDependencies: @unchecked Sendable {
             DatabaseManager.deleteFiles(forAccountId: accountId)
             SharedBoardMirror.remove(accountId: accountId)
         }
-        #if DEBUG
+        #if DEBUG || REPRO
         // EXP-1267: the session the UI test minted, persisted like a login.
         UITestingSession.injectIfProvided(into: auth)
         #endif

@@ -1,4 +1,4 @@
-#if DEBUG
+#if DEBUG || REPRO
 import ExpCore
 import Foundation
 
