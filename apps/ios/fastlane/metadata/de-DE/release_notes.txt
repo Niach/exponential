@@ -31,3 +31,7 @@
 - Vom Handy gestartete Anmeldungen zeigen wieder Link und Code, und ein abgelehnter Code wird gemeldet
 - Die Karte eines Kontos zeigt, welche Anmeldung aktiv ist
 - Das Schließen einer Anmeldung beendet sie auf dem Gerät
+- Passkey hinzufügen unter Einstellungen › Konto › Passkeys
+- Eine App-Aktion speichert alle ihre Einträge gemeinsam oder keinen davon
+- Apps zeigen ihren eigenen Ersatzwert, wo ein Wert fehlt
+- Diagramme, Listen, deaktivierte Felder und Bilder in Apps sehen aus wie in den anderen Apps

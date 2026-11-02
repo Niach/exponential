@@ -31,3 +31,7 @@
 - Logowania rozpoczęte z telefonu znów pokazują link i kod, a odrzucony kod jest zgłaszany
 - Karta konta pokazuje, które logowanie jest aktywne
 - Zamknięcie logowania zatrzymuje je na komputerze
+- Dodaj klucz dostępu w Ustawienia › Konto › Klucze dostępu
+- Akcja aplikacji zapisuje wszystkie swoje rekordy razem albo żadnego
+- Aplikacje pokazują własną wartość zastępczą tam, gdzie brakuje wartości
+- Wykresy, listy, wyłączone pola i obrazy w aplikacjach wyglądają tak samo jak w pozostałych aplikacjach

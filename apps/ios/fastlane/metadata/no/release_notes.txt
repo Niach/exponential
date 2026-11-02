@@ -31,3 +31,7 @@
 - Pålogginger startet fra telefonen viser lenke og kode igjen, og en avvist kode sier fra
 - Kortet til en konto viser hvilken pålogging som er aktiv
 - Lukker du en pålogging, stopper den på maskinen
+- Legg til en tilgangsnøkkel under Innstillinger › Konto › Tilgangsnøkler
+- En apphandling lagrer alle postene sine samlet, eller ingen av dem
+- Apper viser sin egen reserveverdi der en verdi mangler
+- Diagrammer, lister, deaktiverte felt og bilder i apper ser ut som i de andre appene

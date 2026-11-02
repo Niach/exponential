@@ -31,3 +31,7 @@
 - Puhelimesta aloitetut kirjautumiset näyttävät taas linkin ja koodin, ja hylätty koodi kerrotaan
 - Tilin kortti kertoo, mikä kirjautuminen on käytössä
 - Kirjautumisen sulkeminen pysäyttää sen koneella
+- Lisää pääsyavain kohdasta Asetukset › Tili › Pääsyavaimet
+- Sovelluksen toiminto tallentaa kaikki tietueensa yhdessä tai ei yhtäkään
+- Sovellukset näyttävät oman varavaihtoehtonsa, kun arvo puuttuu
+- Kaaviot, luettelot, poistetut kentät ja kuvat näyttävät sovelluksissa samalta kuin muissa sovelluksissa

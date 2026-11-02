@@ -31,3 +31,7 @@
 - Os inícios de sessão a partir do telemóvel voltam a mostrar a ligação e o código, e um código rejeitado é indicado
 - O cartão de uma conta indica qual o início de sessão ativo
 - Fechar um início de sessão termina-o na máquina
+- Adicione uma chave de acesso em Definições › Conta › Chaves de acesso
+- A ação de uma app guarda todos os seus registos juntos, ou nenhum
+- As apps mostram o seu próprio valor alternativo onde falta um valor
+- Gráficos, listas, campos desativados e imagens nas apps têm o mesmo aspeto que nas outras apps

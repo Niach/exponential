@@ -1,0 +1,6 @@
+- The Agent composer comes back on its own when the app started before the network was up
+- An app's action saves all its records together, or none of them
+- Apps show their own fallback where a value is missing
+- The Assistant's chat shows the Exponential mark
+- The suggested-tasks card sits above the composer again
+- Charts, lists, disabled fields and pictures in apps look the same as on the other apps

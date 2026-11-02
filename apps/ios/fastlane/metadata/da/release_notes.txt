@@ -31,3 +31,7 @@
 - Logins startet fra din telefon viser igen link og kode, og en afvist kode siger det
 - En kontos kort viser, hvilket login der er aktivt
 - Lukker du et login, stopper det på maskinen
+- Tilføj en adgangsnøgle under Indstillinger › Konto › Adgangsnøgler
+- En apps handling gemmer alle sine poster samlet eller ingen af dem
+- Apps viser deres egen reserveværdi, hvor en værdi mangler
+- Diagrammer, lister, deaktiverede felter og billeder i apps ser ud som i de andre apps

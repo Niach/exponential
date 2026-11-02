@@ -31,3 +31,7 @@
 - A telefonról indított bejelentkezések újra mutatják a linket és a kódot, az elutasított kódot pedig jelzik
 - A fiók kártyája mutatja, melyik bejelentkezés aktív
 - A bejelentkezés bezárása leállítja azt a gépen
+- Jelkulcs hozzáadása: Beállítások › Fiók › Jelkulcsok
+- Egy app művelete az összes rekordját együtt menti, vagy egyiket sem
+- Az appok saját tartalékértéket mutatnak, ahol egy érték hiányzik
+- Az appok diagramjai, listái, letiltott mezői és képei ugyanúgy néznek ki, mint a többi alkalmazásban
