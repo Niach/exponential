@@ -3813,6 +3813,13 @@
         "bytes": 26626,
         "sha256": "1e40b804c21f70e78a7fc232a3ba1f86db7d471acd6a5fa6b2a27cadfa365dee"
       },
+      "ios": {
+        "file": "shots/exponential-ui-zoomable-image/ios.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 5536,
+        "sha256": "24d13a95da6373b9f7705e99f40bf514d7020cd5e7ffa6e8ba7ae38a4496833e"
+      },
       "web": {
         "file": "shots/exponential-ui-zoomable-image/web.webp",
         "width": 1800,
