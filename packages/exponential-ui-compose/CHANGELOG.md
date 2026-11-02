@@ -6,6 +6,7 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 ## Unreleased
 
 - EXP-1589: parity with the web renderer. A cartesian Chart maps its nice-tick range, so the top tick label no longer rides into the title. A node's opacity dims it as one group like CSS, so a disabled Button inside a disabled Form keeps a legible label; nodes with shadows still modulate. A disabled NumberField or ChipInput dims its whole `field` (the core's `disabled` state) instead of only the value. Markdown bullets are a filled disc in the text colour, 0.34 em across, centred 1 em before the text (`MarkdownView` in the primitives too). The CodeBlock copy glyph is 12. A ZoomableImage whose picture has not loaded draws no pill.
+- VAPP-194: typed effects (eApps E1). `Actions.run(pkg, name, params, data, me, nowMs, zone, maxSteps)` (the plan `{writes, sets, calls}` or the one error), `Actions.applyBatch(rows, writes, records, me, now, newIds)` (all or nothing) and `Actions.effect(name)` over the core. `ExponentialHost.callFunction` runs `actions.<name>` as the surface's package action: every planned host call's gate and consent first, then the writes as ONE `records.batch {writes}`, then the data sets, then the calls; a failure lands nothing (ACTION_FAILED + `HostOptions.onActionFailed`). New `HostOptions.me` / `now` / `zone` / `onActionFailed`; `ActionsTest` replays `fixtures/actions.json`.
 
 ## 0.5.0 (2026-11-02)
 

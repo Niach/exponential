@@ -10,6 +10,7 @@
 //! (transports, the runtime host) stays on each platform; the Swift and
 //! Kotlin painters reach this module through `exponential-ui-ffi`.
 
+pub mod actions;
 pub mod contract;
 pub mod decoders;
 pub mod exposes;
@@ -24,6 +25,10 @@ pub mod signature;
 pub mod sources;
 pub mod tools;
 
+pub use actions::{
+    action_call_name, action_var_types, apply_record_batch, function_effect, is_action_name, run_action, validate_package_actions, validate_package_effects, ActionContext, ACTION_CALL_PREFIX, ACTION_LIMIT_ACTIONS, ACTION_LIMIT_MAX_STEPS, ACTION_LIMIT_STEPS, ACTION_NAME_PATTERN,
+    ACTION_STEP_KINDS, RECORDS_BATCH_FUNCTION,
+};
 pub use contract::*;
 pub use expressions::{literal_type, record_row_type, records_value_type, schema_type, validate_package_expressions};
 pub use exposes::{expose_action_access, expose_issues, expose_name_destructive, expose_template_paths, validate_package_exposes, validate_upstreams, ExposeIssue};

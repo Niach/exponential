@@ -178,6 +178,109 @@ final class PasskeyWireTests: XCTestCase {
     }
 }
 
+// EXP-1596: the pure halves of Add passkey — the creation options the server
+// serves and the RegistrationResponseJSON it verifies.
+final class PasskeyRegistrationWireTests: XCTestCase {
+    // MARK: - Creation options
+
+    func testParsesServedCreationOptions() {
+        let challenge = Data([1, 2, 3, 4])
+        let userId = Data("user-1".utf8)
+        let existing = Data([9, 9, 9])
+        let json = """
+        {"challenge":"\(Base64URL.encode(challenge))",
+         "rp":{"name":"Exponential","id":"app.exponential.at"},
+         "user":{"id":"\(Base64URL.encode(userId))","name":"dev@example.com","displayName":"Dev"},
+         "pubKeyCredParams":[{"alg":-8,"type":"public-key"},{"alg":-7,"type":"public-key"}],
+         "timeout":60000,"attestation":"none",
+         "excludeCredentials":[{"id":"\(Base64URL.encode(existing))","type":"public-key","transports":["internal"]}],
+         "authenticatorSelection":{"residentKey":"preferred","userVerification":"preferred"}}
+        """
+        let options = PasskeyWire.parseRegistrationOptions(Data(json.utf8), cookieHeader: "a=b")
+        XCTAssertEqual(options?.challenge, challenge)
+        XCTAssertEqual(options?.rpId, "app.exponential.at")
+        XCTAssertEqual(options?.userId, userId)
+        XCTAssertEqual(options?.userName, "dev@example.com")
+        XCTAssertEqual(options?.excludedCredentialIds, [existing])
+        XCTAssertEqual(options?.cookieHeader, "a=b")
+    }
+
+    // The account's first passkey: no excludeCredentials is not a failure.
+    func testParsesCreationOptionsWithoutExcludeCredentials() {
+        let json = #"{"challenge":"AQID","rp":{"id":"localhost"},"user":{"id":"dXNlcg","name":"u@x.at"}}"#
+        let options = PasskeyWire.parseRegistrationOptions(Data(json.utf8))
+        XCTAssertEqual(options?.excludedCredentialIds, [])
+        XCTAssertEqual(options?.rpId, "localhost")
+        XCTAssertEqual(options?.userId, Data("user".utf8))
+    }
+
+    func testCreationOptionsMissingAPieceAreUnusable() {
+        let cases = [
+            #"{"rp":{"id":"x"},"user":{"id":"dXNlcg","name":"u"}}"#,
+            #"{"challenge":"AQID","user":{"id":"dXNlcg","name":"u"}}"#,
+            #"{"challenge":"AQID","rp":{"name":"no id"},"user":{"id":"dXNlcg","name":"u"}}"#,
+            #"{"challenge":"AQID","rp":{"id":"x"}}"#,
+            #"{"challenge":"AQID","rp":{"id":"x"},"user":{"name":"u"}}"#,
+            #"{"challenge":"AQID","rp":{"id":"x"},"user":{"id":"dXNlcg"}}"#,
+            #"{"challenge":"a","rp":{"id":"x"},"user":{"id":"dXNlcg","name":"u"}}"#,
+            "not json",
+        ]
+        for json in cases {
+            XCTAssertNil(PasskeyWire.parseRegistrationOptions(Data(json.utf8)), "parsed \(json)")
+        }
+    }
+
+    // MARK: - RegistrationResponseJSON
+
+    func testAttestationEncodesTheWebAuthnRegistrationShape() throws {
+        let attestation = PasskeyAttestation(
+            credentialId: Data([1, 2]),
+            clientDataJSON: Data("{}".utf8),
+            attestationObject: Data([0xa3, 0x63])
+        )
+        let body = try PasskeyWire.registerRequestBody(attestation, name: "iPhone")
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        XCTAssertEqual(root["name"] as? String, "iPhone")
+        let response = try XCTUnwrap(root["response"] as? [String: Any])
+
+        XCTAssertEqual(response["id"] as? String, Base64URL.encode(Data([1, 2])))
+        XCTAssertEqual(response["rawId"] as? String, Base64URL.encode(Data([1, 2])))
+        XCTAssertEqual(response["type"] as? String, "public-key")
+        XCTAssertEqual(response["authenticatorAttachment"] as? String, "platform")
+        XCTAssertEqual(response["clientExtensionResults"] as? [String: String], [:])
+
+        let inner = try XCTUnwrap(response["response"] as? [String: Any])
+        XCTAssertEqual(inner["clientDataJSON"] as? String, Base64URL.encode(Data("{}".utf8)))
+        XCTAssertEqual(inner["attestationObject"] as? String, Base64URL.encode(Data([0xa3, 0x63])))
+        XCTAssertEqual(inner.count, 2, "only the two members the attestation carries")
+    }
+
+    func testNilAttachmentIsOmitted() throws {
+        let attestation = PasskeyAttestation(
+            credentialId: Data([1]), clientDataJSON: Data([2]), attestationObject: Data([3]), attachment: nil
+        )
+        let body = try PasskeyWire.registerRequestBody(attestation, name: "iPhone")
+        let root = try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let response = try XCTUnwrap(root["response"] as? [String: Any])
+        XCTAssertNil(response["authenticatorAttachment"])
+    }
+
+    // MARK: - Error copy
+
+    // Web `PasskeysSection`: a session older than a day gets the sentence that
+    // says what to do; anything else is the server's own message.
+    func testStaleSessionGetsTheWebSentence() {
+        let stale = Data(#"{"code":"SESSION_NOT_FRESH","message":"Session is not fresh"}"#.utf8)
+        XCTAssertEqual(
+            AuthApi.passkeyRegistrationErrorMessage(from: stale),
+            "Sign in again to add a passkey (your current session is older than a day)."
+        )
+        let other = Data(#"{"code":"FAILED_TO_VERIFY_REGISTRATION","message":"Failed to verify registration"}"#.utf8)
+        XCTAssertEqual(AuthApi.passkeyRegistrationErrorMessage(from: other), "Failed to verify registration")
+        XCTAssertNil(AuthApi.passkeyRegistrationErrorMessage(from: Data("oops".utf8)))
+    }
+}
+
 // EXP-857: the code + passkey flags gate their two buttons.
 final class AuthConfigDecodeTests: XCTestCase {
     private func decode(_ json: String) throws -> AuthConfig {

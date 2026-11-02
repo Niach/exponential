@@ -29,6 +29,15 @@ public struct HostOptions {
     public var onSend: ((String) -> Void)?
     /// Every op the host performs (tests, logging).
     public var onOp: ((JSONValue) -> Void)?
+    /// VAPP-194: the member a package action runs as (its `me`).
+    public var me: String?
+    /// VAPP-194: the clock and the team zone a package action reads (nil =
+    /// the wall clock, UTC).
+    public var now: (() -> Date)?
+    public var zone: HostZone?
+    /// VAPP-194: a package action that landed nothing (a false `require`'s
+    /// message, a refused write or host call): the host's failed-action toast.
+    public var onActionFailed: ((ActionFailure) -> Void)?
 
     public init(
         transport: Transport? = nil,
@@ -42,7 +51,11 @@ public struct HostOptions {
         settings: SurfaceSettings? = nil,
         plugin: HostPlugin? = nil,
         onSend: ((String) -> Void)? = nil,
-        onOp: ((JSONValue) -> Void)? = nil
+        onOp: ((JSONValue) -> Void)? = nil,
+        me: String? = nil,
+        now: (() -> Date)? = nil,
+        zone: HostZone? = nil,
+        onActionFailed: ((ActionFailure) -> Void)? = nil
     ) {
         self.transport = transport
         self.functions = functions
@@ -56,6 +69,10 @@ public struct HostOptions {
         self.plugin = plugin
         self.onSend = onSend
         self.onOp = onOp
+        self.me = me
+        self.now = now
+        self.zone = zone
+        self.onActionFailed = onActionFailed
     }
 }
 
@@ -302,7 +319,8 @@ public final class ExponentialHost {
     }
 
     /// An action `functionCall`: `openUrl` through the URL policy, `bind`
-    /// through the router (VAPP-122), anything else through the gate, the
+    /// through the router (VAPP-122), `actions.<name>` = the surface's
+    /// package action (VAPP-194), anything else through the gate, the
     /// consent hook and the registry.
     @discardableResult
     public func callFunction(_ call: FunctionCallInfo) async -> FunctionOutcome {
@@ -312,6 +330,15 @@ public final class ExponentialHost {
         if call.name == "bind" {
             return FunctionOutcome(decision: bind(surfaceId: call.surfaceId, args: call.args) ? .allow : .deny)
         }
+        if let action = Actions.actionName(call: call.name) { return await runPackageAction(call, action: action) }
+        let verdict = await gate(call)
+        if verdict.decision != .allow { return verdict }
+        return await run(call)
+    }
+
+    /// The policy gate and the consent hook: `.allow`, or the refusal (sent
+    /// as FUNCTION_NOT_FOUND / FUNCTION_DENIED).
+    private func gate(_ call: FunctionCallInfo) async -> FunctionOutcome {
         var decision = decide(surfaceId: call.surfaceId, name: call.name)
         if decision == .notFound {
             send(errorMessageJson(code: "FUNCTION_NOT_FOUND", surfaceId: call.surfaceId, message: "no function \(call.name)", path: nil))
@@ -325,12 +352,63 @@ public final class ExponentialHost {
             send(errorMessageJson(code: "FUNCTION_DENIED", surfaceId: call.surfaceId, message: "\(call.name) was not allowed", path: nil))
             return FunctionOutcome(decision: .deny)
         }
+        return FunctionOutcome(decision: .allow)
+    }
+
+    private func run(_ call: FunctionCallInfo) async -> FunctionOutcome {
         guard let fn = functions[call.name] else { return FunctionOutcome(decision: .allow) }
         do {
             return FunctionOutcome(decision: .allow, result: try await fn(call.args, call))
         } catch {
             return FunctionOutcome(decision: .allow, error: error.localizedDescription)
         }
+    }
+
+    /// VAPP-194: `actions.<name>` = the surface's package action, all or
+    /// nothing: the plan over one snapshot (the args = params, the surface
+    /// data, `me`, the clock), every host call's gate and consent, then the
+    /// record writes as ONE `records.batch`, then the sets, then the calls.
+    /// A failure before the commit lands nothing: ACTION_FAILED +
+    /// `onActionFailed` (the toast), the outcome's `error`.
+    private func runPackageAction(_ call: FunctionCallInfo, action: String) async -> FunctionOutcome {
+        func failed(_ message: String) -> FunctionOutcome {
+            send(errorMessageJson(code: "ACTION_FAILED", surfaceId: call.surfaceId, message: message, path: nil))
+            options.onActionFailed?(ActionFailure(surfaceId: call.surfaceId, action: action, message: message))
+            return FunctionOutcome(decision: .allow, error: message)
+        }
+        guard let model = surfaces[call.surfaceId], let pkgId = router.packageIdOf(surfaceId: call.surfaceId), let pkg = packages[pkgId] else {
+            return failed("no action \(action)")
+        }
+        let plan: Actions.Plan
+        switch Actions.run(
+            pkg, action: action, params: .object(call.args), data: model.data, me: options.me,
+            nowMs: options.now.map { $0().timeIntervalSince1970 * 1000 }, zone: options.zone
+        ) {
+        case let .error(message): return failed(message)
+        case let .plan(p): plan = p
+        }
+        let calls = plan.calls.map { SurfaceFunctionCall(surfaceId: call.surfaceId, componentId: call.componentId, name: $0.name, args: $0.args) }
+        for c in calls {
+            let verdict = await gate(c)
+            if verdict.decision != .allow { return failed(verdict.error ?? "\(c.name) was not allowed") }
+        }
+        var committed: Any? = ["ids": [String]()]
+        let writes = plan.writes
+        if !writes.isEmpty {
+            guard let fn = functions[Actions.batchFunction] else { return failed("this host keeps no records") }
+            let args: Props = ["writes": .array(writes)]
+            do {
+                committed = try await fn(args, SurfaceFunctionCall(surfaceId: call.surfaceId, componentId: call.componentId, name: Actions.batchFunction, args: args))
+            } catch {
+                return failed(error.localizedDescription)
+            }
+        }
+        for s in plan.sets { model.setData(path: s.path, value: s.value) }
+        for c in calls {
+            let outcome = await run(c)
+            if let error = outcome.error { return FunctionOutcome(decision: .allow, result: committed, error: error) }
+        }
+        return FunctionOutcome(decision: .allow, result: committed)
     }
 
     /// VAPP-122: the `bind` action: re-follow `path` from `source` with

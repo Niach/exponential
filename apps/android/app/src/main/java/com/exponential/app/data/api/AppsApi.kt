@@ -3,6 +3,7 @@ package com.exponential.app.data.api
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -81,6 +82,15 @@ data class AppRecordUpsertResult(val id: String, val created: Boolean = false, v
 
 @Serializable
 private data class AppRecordDeleteInput(val id: String, val recordId: String)
+
+// VAPP-194: `apps.records.batch`: a package action's record writes
+// (`{op: "upsert", kind, data, id?}` | `{op: "delete", id}`, the plan's
+// `writes` passed through unchanged) as ONE transaction.
+@Serializable
+private data class AppRecordBatchInput(val id: String, val writes: JsonArray)
+
+@Serializable
+data class AppRecordBatchResult(val txid: Long? = null, val ids: List<String> = emptyList())
 
 // VAPP-121: `apps.validateImport` / `apps.import` (fixtures/app-export.json):
 // the SERVER is the one authority on a pasted app file or bare package.
@@ -183,6 +193,18 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
             input = AppRecordUpsertInput(appId, kind, data, recordId, author),
             inputSerializer = AppRecordUpsertInput.serializer(),
             outputSerializer = AppRecordUpsertResult.serializer(),
+        )
+
+    /** VAPP-194: a package action's [writes] in app [appId], all or none
+     *  (the server checks each against its kind's schema, the caps and the
+     *  quota again). */
+    suspend fun recordsBatch(accountId: String, appId: String, writes: JsonArray): AppRecordBatchResult =
+        trpc.mutation(
+            accountId,
+            path = "apps.records.batch",
+            input = AppRecordBatchInput(appId, writes),
+            inputSerializer = AppRecordBatchInput.serializer(),
+            outputSerializer = AppRecordBatchResult.serializer(),
         )
 
     /** VAPP-122: trash record [recordId] of app [appId]. */

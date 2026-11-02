@@ -461,3 +461,90 @@ fn the_host_reports_a_constructor_package_that_fails_validation_and_skips_it(cx:
     let issues = host.read_with(cx, |h, _| h.issues().to_vec());
     assert!(!issues.is_empty() && issues.iter().all(|i| i.code == PACKAGE_INVALID && i.package_id.as_deref() == Some("acme.bad")), "{issues:?}");
 }
+
+/// VAPP-194: `actions.<name>` runs the surface's package action all or
+/// nothing (the TS `a package action on a host`, fixtures/actions.json).
+#[gpui::test]
+fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAppContext) {
+    use eui_core::host::apply_record_batch;
+    use eui_gpui::runtime::ActionFailure;
+    init(cx);
+    let f = fixture("actions.json");
+    let pkg = f["package"].clone();
+    let b = f["batch"].clone();
+    let rows = Rc::new(RefCell::new(b["rows"].as_array().unwrap().clone()));
+    let batches = Rc::new(RefCell::new(0));
+    let (r, n, records) = (rows.clone(), batches.clone(), pkg["records"].clone());
+    let batch = sync_function(move |args, _, _| {
+        *n.borrow_mut() += 1;
+        let writes = args["writes"].as_array().cloned().unwrap_or_default();
+        let current = r.borrow().clone();
+        let (next, ids) = apply_record_batch(&current, &writes, Some(&records), Some("u1"), "2026-11-02T10:00:00.000Z", |i| format!("n{}", i + 1))?;
+        *r.borrow_mut() = next;
+        Ok(json!({"ids": ids}))
+    });
+    let toasts = Rc::new(RefCell::new(Vec::<String>::new()));
+    let tt = toasts.clone();
+    let toast = sync_function(move |args, _, _| {
+        tt.borrow_mut().push(args["message"].as_str().unwrap_or("").to_string());
+        Ok(Value::Null)
+    });
+    let failed = Rc::new(RefCell::new(Vec::<String>::new()));
+    let ff = failed.clone();
+    let consent = Rc::new(RefCell::new(true));
+    let cc = consent.clone();
+    let t = MemoryTransport::new();
+    let host = host_with(
+        cx,
+        HostOptions {
+            transport: Some(Box::new(t.clone())),
+            packages: vec![pkg.clone()],
+            functions: HashMap::from([("records.batch".to_string(), batch), ("harness.toast".to_string(), toast)]),
+            policy: HostPolicy { functions: Some(FunctionPolicy { ask: Some(vec!["harness.toast".into()]), ..Default::default() }), on_function_call: Some(Rc::new(move |_: &FunctionCallEvent, _: &mut App| Task::ready(*cc.borrow()))), ..Default::default() },
+            me: Some("u1".into()),
+            now: Some(Rc::new(|| 1_793_611_800_000.0)),
+            zone: Some(Arc::new(|_| 60)),
+            on_action_failed: Some(Rc::new(move |f: &ActionFailure, _: &mut App| ff.borrow_mut().push(f.message.clone()))),
+            ..Default::default()
+        },
+    );
+    host.update(cx, |h, cx| h.connect(cx));
+    t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": "acme.hours", "templateId": "month"}})]);
+    cx.run_until_parked();
+    let press = |name: &str, args: Value, cx: &mut TestAppContext| {
+        let call = FunctionCallEvent { surface_id: "s".into(), component_id: "log".into(), name: name.into(), args };
+        let task = host.update(cx, |h, cx| h.call_function(call, cx));
+        outcome(task, cx)
+    };
+
+    // The plan lands: one batch, the sets, then the calls.
+    let out = press("actions.log", json!({"date": "2026-11-03", "hours": 2}), cx);
+    assert_eq!(out.error, None);
+    assert_eq!(out.result, Some(json!({"ids": ["n1"]})));
+    assert!(rows.borrow().iter().any(|r| r["data"] == json!({"date": "2026-11-03", "hours": 2, "note": null})));
+    assert_eq!(data(&host, "s", cx)["form"]["hours"], json!(0));
+    assert_eq!(*toasts.borrow(), vec!["Logged 2:00".to_string()]);
+
+    // A false require lands nothing and is the failure's message.
+    let before = rows.borrow().clone();
+    let out = press("actions.log", json!({"date": "2026-11-03", "hours": 0}), cx);
+    assert_eq!(out.error.as_deref(), Some("Log more than 0 hours"));
+    assert_eq!(*rows.borrow(), before);
+
+    // A refused write lands nothing: the batch is one unit.
+    let out = press("actions.swap", json!({"a": "e1", "b": "missing"}), cx);
+    assert_eq!(out.error.as_deref(), Some("write 1: record missing not found"));
+    assert_eq!(*rows.borrow(), before);
+
+    // A host call the person refuses lands nothing (asked before the commit).
+    *consent.borrow_mut() = false;
+    let commits = *batches.borrow();
+    let out = press("actions.log", json!({"date": "2026-11-04", "hours": 1}), cx);
+    assert_eq!(out.error.as_deref(), Some("harness.toast was not allowed"));
+    assert_eq!(*batches.borrow(), commits);
+    assert_eq!(*rows.borrow(), before);
+
+    assert_eq!(*failed.borrow(), vec!["Log more than 0 hours".to_string(), "write 1: record missing not found".to_string(), "harness.toast was not allowed".to_string()]);
+    let codes: Vec<String> = sent_errors(&t).into_iter().map(|(c, _)| c).collect();
+    assert_eq!(codes.iter().filter(|c| *c == "ACTION_FAILED").count(), 3);
+}

@@ -37,6 +37,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Desktop text**: labels and titles no longer look heavier than on web.`,
   },
   {
+    id: `2026-11-02-passkeys-on-iphone`,
+    date: `2026-11-02`,
+    title: `Passkeys on your iPhone`,
+    summary: `Add a passkey from the iOS app, and the Assistant wears its own mark in its chat on every phone.`,
+    body: `- **Add passkey on iPhone**: Settings, Account, Passkeys now has Add passkey on iOS too, like the web and Android.
+- **Assistant mark**: the Assistant's chat header and call show the Exponential mark on iOS and Android, not a robot.`,
+  },
+  {
     id: `2026-11-02-subagents-menu-values`,
     date: `2026-11-02`,
     title: `Subagents and menu values`,

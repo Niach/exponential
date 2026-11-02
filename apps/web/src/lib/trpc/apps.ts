@@ -18,8 +18,8 @@ import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
-import { validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
-import { deleteRecord, importRecords, listRecords, loadApp, teamMemberIds, upsertRecord } from "@/lib/apps/records-service"
+import { ACTION_LIMITS, validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
+import { commitRecordBatch, deleteRecord, importRecords, listRecords, loadApp, teamMemberIds, upsertRecord } from "@/lib/apps/records-service"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_ON_BEHALF, importAuthor } from "@exp/domain-contract/app-records"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
@@ -518,6 +518,27 @@ export const appsRouter = router({
     delete: authedProcedure
       .input(appRefSchema.and(z.object({ recordId: uuid })))
       .mutation(({ ctx, input }) => deleteRecord(ctx.session.user.id, input, input.recordId, ctx.db)),
+
+    /** VAPP-194 (eApps E1): a package action's record writes (its plan's
+     *  `writes`, passed through by every client host's `records.batch`) as
+     *  ONE transaction: all land or none. */
+    batch: authedProcedure
+      .input(
+        appRefSchema.and(
+          z.object({
+            writes: z
+              .array(
+                z.discriminatedUnion(`op`, [
+                  z.object({ op: z.literal(`upsert`), kind: kindSchema, data: recordDataSchema, id: uuid.optional() }),
+                  z.object({ op: z.literal(`delete`), id: uuid }),
+                ])
+              )
+              .min(1)
+              .max(ACTION_LIMITS.steps),
+          })
+        )
+      )
+      .mutation(({ ctx, input }) => commitRecordBatch(ctx.session.user.id, input, input.writes, ctx.db)),
   }),
 
   /** VAPP-176: leaving the editor of an EMPTY draft (no version, no editor

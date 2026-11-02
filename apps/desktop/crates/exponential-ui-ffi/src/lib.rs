@@ -2775,6 +2775,68 @@ pub fn check_expression_json(expr: String, types_json: String) -> Result<String,
     })
 }
 
+/// VAPP-194: run package action `name` (`eui_core::host::run_action`) of
+/// `package_json` with `params_json` against one snapshot: `data_json` (the
+/// surface data), `me` (the member; `None` = null), `now_ms` (`None` = the
+/// wall clock), `zone` (`None` = UTC), `max_steps` (the run's budget; `None`
+/// = 100 000) → `{"plan": {writes, sets, calls}}` or `{"error": "…"}`
+/// (`fixtures/actions.json` `run`). Named `run_package_action_json`
+/// because `run_action_json` is the bind-time press.
+#[uniffi::export(default(max_steps = None))]
+#[allow(clippy::too_many_arguments)]
+pub fn run_package_action_json(
+    package_json: String,
+    name: String,
+    params_json: String,
+    data_json: String,
+    me: Option<String>,
+    now_ms: Option<f64>,
+    zone: Option<Arc<dyn HostZone>>,
+    max_steps: Option<u32>,
+) -> Result<String, UiError> {
+    guarded("run_package_action_json", || {
+        let pkg: Value = parse(&package_json)?;
+        let params: Value = if params_json.trim().is_empty() { Value::Null } else { parse(&params_json)? };
+        let data: Value = if data_json.trim().is_empty() { Value::Null } else { parse(&data_json)? };
+        let offset = move |ms: f64| zone.as_ref().map_or(0, |z| z.offset_minutes(ms));
+        let ctx = eui_core::host::ActionContext { data: Some(&data), me: me.as_deref(), now: now_ms, offset: Some(&offset), max_steps: max_steps.map(|s| s as usize) };
+        Ok(match eui_core::host::run_action(&pkg, &name, &params, &ctx) {
+            Ok(plan) => serde_json::json!({ "plan": plan }),
+            Err(error) => serde_json::json!({ "error": error }),
+        }
+        .to_string())
+    })
+}
+
+/// VAPP-194: apply a `records.batch` (`eui_core::host::apply_record_batch`)
+/// to `rows_json` (record rows) all or nothing, checked against
+/// `records_json` (the package's kinds): `{"rows": [...], "ids": [...]}` or
+/// `{"error": "write <i>: …"}` (`fixtures/actions.json` `batch`). A create
+/// takes the next id of `new_ids_json` (a list of strings), then `r<n>`
+/// (n = the create's 1-based index in the batch) when it runs out.
+#[uniffi::export]
+pub fn apply_record_batch_json(rows_json: String, writes_json: String, records_json: String, me: Option<String>, now: String, new_ids_json: String) -> Result<String, UiError> {
+    guarded("apply_record_batch_json", || {
+        let rows: Vec<Value> = parse(&rows_json)?;
+        let writes: Vec<Value> = parse(&writes_json)?;
+        let records: Value = parse(&records_json)?;
+        let new_ids: Vec<String> = if new_ids_json.trim().is_empty() { Vec::new() } else { parse(&new_ids_json)? };
+        let new_id = |i: usize| new_ids.get(i).cloned().unwrap_or_else(|| format!("r{}", i + 1));
+        Ok(match eui_core::host::apply_record_batch(&rows, &writes, Some(&records), me.as_deref(), &now, new_id) {
+            Ok((rows, ids)) => serde_json::json!({ "rows": rows, "ids": ids }),
+            Err(error) => serde_json::json!({ "error": error }),
+        }
+        .to_string())
+    })
+}
+
+/// VAPP-194: what calling function `name` does: `pure`, `write` or `host`
+/// (`fixtures/actions.json` `effects`).
+#[uniffi::export]
+pub fn function_effect(name: String) -> String {
+    eui_core::cel::function_effect(&name).as_str().to_string()
+}
+
 /// VAPP-190: a date's bucket key (`bucket` = day | week | month | quarter |
 /// year: `2026-10-05`, `2026-W41`, `2026-10`, `2026-Q4`, `2026`); null when
 /// the text holds no date that precise or the bucket is unknown

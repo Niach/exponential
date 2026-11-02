@@ -19,6 +19,8 @@ import type { FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, UrlP
 import { HostRouter } from "./router"
 import { parseSource, sourceWithParams } from "./sources"
 import { A2UI_VERSION } from "../catalog"
+import { RECORDS_BATCH_FUNCTION, actionCallName, runAction } from "./actions"
+import type { ActionPlan } from "./actions"
 import type { SourceResolvers } from "./sources"
 
 export type TransportStatus = `connecting` | `open` | `closed` | `error`
@@ -62,6 +64,15 @@ export interface HostOptions {
   onSend?: (message: ClientMessage) => void
   /** Ops the host performs (tests, logging). */
   onOp?: (op: HostOp) => void
+  /** VAPP-194: the member a package action runs as (its `me`). */
+  me?: string | null
+  /** VAPP-194: the clock (epoch ms) and the team zone (minutes east of UTC
+   *  at an instant) a package action reads; default the wall clock in UTC. */
+  now?: () => number
+  zone?: (utcMs: number) => number
+  /** VAPP-194: a package action that landed nothing (a false require's
+   *  message, a refused write): a failed action, so the host's toast. */
+  onActionFailed?: (failure: { surfaceId: string; action: string; message: string }) => void
   /** Every problem the host meets (a package that failed validation, an
    *  error it answered a message with, an invalid surface theme). A
    *  transport-less host has no server to tell: this is where they land. */
@@ -457,6 +468,16 @@ export class ExponentialHost {
       return { decision: this.openUrl(url) ? `allow` : `deny` }
     }
     if (call.name === `bind`) return { decision: this.bind(call.surfaceId, call.args) ? `allow` : `deny` }
+    const action = actionCallName(call.name)
+    if (action !== null) return this.runPackageAction(call, action)
+    const gate = await this.gate(call)
+    if (gate.decision !== `allow`) return gate
+    return this.run(call)
+  }
+
+  /** The policy gate and the consent hook: `allow`, or the refusal (sent
+   *  as FUNCTION_NOT_FOUND / FUNCTION_DENIED). */
+  private async gate(call: FunctionCallInfo): Promise<FunctionOutcome> {
     let decision = this.decide(call.surfaceId, call.name)
     if (decision === `not_found`) {
       this.send(errorMessage(`FUNCTION_NOT_FOUND`, call.surfaceId, `no function ${call.name}`))
@@ -478,6 +499,10 @@ export class ExponentialHost {
       this.send(errorMessage(`FUNCTION_DENIED`, call.surfaceId, consentError === undefined ? `${call.name} was not allowed` : `${call.name} was not allowed: the consent hook failed: ${consentError}`))
       return consentError === undefined ? { decision } : { decision, error: consentError }
     }
+    return { decision: `allow` }
+  }
+
+  private async run(call: FunctionCallInfo): Promise<FunctionOutcome> {
     const fn = Object.prototype.hasOwnProperty.call(this.functions, call.name) ? this.functions[call.name] : undefined
     if (!fn) return { decision: `allow` }
     try {
@@ -485,6 +510,55 @@ export class ExponentialHost {
     } catch (e) {
       return { decision: `allow`, error: e instanceof Error ? e.message : String(e) }
     }
+  }
+
+  /** VAPP-194: `actions.<name>` = the surface's package action, all or
+   *  nothing: the plan over one snapshot (the args = params, the surface
+   *  data, `me`, the clock), every host call's gate and consent, then the
+   *  record writes as ONE `records.batch`, then the sets, then the calls.
+   *  A failure before the commit lands nothing: ACTION_FAILED +
+   *  `onActionFailed` (the toast), the outcome's `error`. */
+  private async runPackageAction(call: FunctionCallInfo, action: string): Promise<FunctionOutcome> {
+    const store = this.stores.get(call.surfaceId)
+    const pkg = store?.packageId ? this.router.package(store.packageId) : undefined
+    const failed = (message: string): FunctionOutcome => {
+      this.send(errorMessage(`ACTION_FAILED`, call.surfaceId, message))
+      this.options.onActionFailed?.({ surfaceId: call.surfaceId, action, message })
+      return { decision: `allow`, error: message }
+    }
+    if (!store || !pkg) return failed(`no action ${action}`)
+    const result = runAction(pkg as unknown as Record<string, unknown>, action, call.args, {
+      data: store.data,
+      me: this.options.me ?? null,
+      now: this.options.now?.(),
+      offset: this.options.zone,
+    })
+    if (`error` in result) return failed(result.error)
+    const plan: ActionPlan = result.plan
+    const calls = plan.calls.map((c) => ({ surfaceId: call.surfaceId, componentId: call.componentId, name: c.name, args: c.args }))
+    for (const c of calls) {
+      const gate = await this.gate(c)
+      if (gate.decision !== `allow`) return failed(gate.error ?? `${c.name} was not allowed`)
+    }
+    let committed: unknown = { ids: [] }
+    if (plan.writes.length) {
+      const fn = Object.prototype.hasOwnProperty.call(this.functions, RECORDS_BATCH_FUNCTION) ? this.functions[RECORDS_BATCH_FUNCTION] : undefined
+      if (!fn) return failed(`this host keeps no records`)
+      try {
+        committed = await fn({ writes: plan.writes }, { ...call, name: RECORDS_BATCH_FUNCTION, args: { writes: plan.writes } })
+      } catch (e) {
+        return failed(e instanceof Error ? e.message : String(e))
+      }
+    }
+    for (const s of plan.sets) {
+      const error = store.setData(s.path, s.value)
+      if (error) this.send(errorMessage(`VALIDATION_FAILED`, call.surfaceId, error, s.path || `/`))
+    }
+    for (const c of calls) {
+      const outcome = await this.run(c)
+      if (outcome.error !== undefined) return { decision: `allow`, result: committed, error: outcome.error }
+    }
+    return { decision: `allow`, result: committed }
   }
 
   /** VAPP-122: the `bind` action: re-follow `path` from `source` with
