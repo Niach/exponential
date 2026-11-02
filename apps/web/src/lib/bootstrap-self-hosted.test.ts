@@ -32,6 +32,9 @@ vi.mock(`@/lib/integrations/github-client`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/integrations/github-client")>()),
   githubBudgetLowForToken: () => budgetLow,
 }))
+vi.mock(`@/lib/integrations/pr-checks`, () => ({
+  repairPullRequestChecksIfStale: vi.fn(async () => true),
+}))
 vi.mock(`@/lib/integrations/github-identity`, () => ({
   resolveAppUserForGithubActor: vi.fn(async () => null),
 }))
@@ -43,6 +46,7 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
 }))
 
 import { fetchPullState } from "@/lib/integrations/github-pr"
+import { repairPullRequestChecksIfStale } from "@/lib/integrations/pr-checks"
 import {
   applyPullRequestBase,
   applyPullRequestClosed,
@@ -62,8 +66,11 @@ function row(overrides: Partial<(typeof mockRows)[number]> = {}) {
   return { id: `pr1`, url: PR_URL, number: 7, state: `open`, base: `master`, teamId: `t1`, ...overrides }
 }
 
-function onGitHub(over: { state?: `open` | `closed`; merged?: boolean; baseRef?: string | null } = {}) {
+function onGitHub(
+  over: { state?: `open` | `closed`; merged?: boolean; baseRef?: string | null; headSha?: string | null } = {}
+) {
   return {
+    headSha: over.headSha ?? null,
     state: over.state ?? (`open` as const),
     merged: over.merged ?? false,
     mergedBy: null,
@@ -230,5 +237,23 @@ describe(`runPrPollPass`, () => {
     await runPrPollPass()
     error.mockRestore()
     expect(applyPullRequestMerged).toHaveBeenCalledWith(expect.objectContaining({ pullRequestId: `pr1` }))
+  })
+
+  // EXP-1608: no webhooks on a polling instance, so the poller is what
+  // repairs CI checks (and wakes the session) for a still-open PR.
+  it(`repairs a still-open PR's checks at the head GitHub reports`, async () => {
+    mockRows = [row()]
+    vi.mocked(fetchPullState).mockResolvedValue(onGitHub({ headSha: `abc123` }))
+    await runPrPollPass()
+    expect(repairPullRequestChecksIfStale).toHaveBeenCalledWith(`pr1`, `abc123`)
+  })
+
+  it(`never repairs checks of a PR that merged or closed`, async () => {
+    mockRows = [row(), row({ id: `pr2`, state: `closed` })]
+    vi.mocked(fetchPullState)
+      .mockResolvedValueOnce(onGitHub({ state: `closed`, merged: true }))
+      .mockResolvedValueOnce(onGitHub({ state: `closed` }))
+    await runPrPollPass()
+    expect(repairPullRequestChecksIfStale).not.toHaveBeenCalled()
   })
 })
