@@ -46,6 +46,21 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-02-apps-look-the-same",
+    date: "2026-11-02",
+    title: "Apps look the same everywhere",
+    summary: "App surfaces now draw their composer, charts, disabled fields, lists and pictures the same on web, desktop, iPhone and Android.",
+    body: r#"- **Composer**: the send button looks the same on every app, dimmed while the draft is empty.
+- **Charts**: the top axis label no longer runs into the chart's title on desktop, iPhone and Android.
+- **Disabled fields**: number, chip and upload fields dim as a whole, like on web.
+- **Lists and bullets**: side-by-side lists get their dividers, and Markdown bullets match on phones.
+- **Pictures**: a zoomable picture that hasn't loaded shows a placeholder card instead of a broken image.
+- **Desktop text**: labels and titles no longer look heavier than on web."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_173: ChangelogEntry = ChangelogEntry {
     id: "2026-11-02-subagents-menu-values",
     date: "2026-11-02",
     title: "Subagents and menu values",
