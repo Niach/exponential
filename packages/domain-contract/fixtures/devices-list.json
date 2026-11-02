@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1560 (was A-16): THE Devices page, one spec ×4 (web my-machines.tsx + device-logins.tsx, desktop machines.rs, iOS AgentsView + DeviceLogins, Android AgentsScreen). LAYOUT: each section (`mine` with its `+ Add device` pill, `team`) is a GRID of device CARDS: columns = max(1, floor((width + card.gap) / (card.minWidth + card.gap))) over the section's content width, gap `card.gap` both ways (a phone in portrait gets 1 column, a phone in landscape or a tablet 2 or more). Groups: online cards first in the list's own order, then the muted `offline` label spanning the grid, then every offline card in its own grid, dimmed (opacity 0.6). CARD = THE GlassCard surface (fill + hairline + radius), padding `card.padding`, two rows. TOP row: left a column of [name (truncates) + `v{version}` beside it (warning tone when the caller's own device is outdated, else muted) + the default star] over [the status line (Online dot / Last seen …) + the `This device` / `Shared` tags]; right the `⋯` overflow (a ghost icon button, `copy.deviceActions`) opening THE Menu. Menu items, in order: the update line (when the device has an `update` / `update_queued` attention item: its `text` as a disabled muted row), `Update` (only when that item's action is `update`; busy while requested), `copy.settings` (own REGISTERED devices; opens the Device settings dialog). A team device's menu holds only a team owner's `copy.removeFromTeam`; a card with no item draws no `⋯` (its slot stays empty). BOTTOM row: the logins as ICONS ONLY, in `sortDeviceLogins` order: each a ghost icon button (`card.iconSize` square) holding the agent's brand mark (`card.markSize`), THE run-mark badge (AgentRunMark `needs_input`: amber dot top-right, ringed in the card's ground) ON every login that has a `login` attention item. With more than `card.maxAccountIcons` logins only the first maxAccountIcons-1 show, then a ghost `⋯` (`copy.moreAccounts`) that reveals the rest in place (`accountIcons`). Own, online cards with an agent to add end the row with a ghost `+` (`copy.addAccount`). A device that reported accounts but holds NO login says `noAccount` muted in the row; one that never reported says `checking`. EXP-1600 KEEP SIGNED IN: a claude sign-in is the long-lived `claude setup-token` login BY DEFAULT on every client (Add account, Sign in, the menu, the MCP `account_login`): the same link + code-paste dialog, the machine keeps the one-year token (`tokenExpiresAt`). The dialog says the trade-off in ONE muted line under its status line (`copy.keepSignedInNote`) and offers the refresh-grant browser login only as a ghost text button (`copy.useBrowserLogin`, re-queues the SAME target with longLived false; from there `copy.useKeepSignedIn` goes back). Codex has no setup-token: its dialog has neither line nor button. EXP-1626 NAMES + SWITCH + CANCEL: a setup-token cannot name its account, so a long-lived ADD carries a `name` (the Add account sheet's `copy.accountName` text field, claude only, under the agent pick; blank = `copy.keptSignedInName`); the machine keeps it on the NEW profile and reports it as the profile's `name`. A login's label everywhere (chip, hover card, menu header, attention text) is its `name`, else its email, else the no-email fallback. `copy.switchToKeepSignedIn` ADDS a new long-lived profile (no `profileId`, `name` = `copy.switchedName` with the switched login's label) and leaves the browser login it came from untouched; `copy.renewKeepSignedIn` renews the token profile IN PLACE (its `profileId`). Closing the sign-in dialog before the login lands queues `agent_login_cancel {agent, loginCommandId}`: the machine stops that run (its `claude setup-token` child is killed and its staging dropped) unless a code was already handed to it; a run nobody finishes is stopped by the machine itself 10 minutes after it started. A device that refuses an Add with `copy.longLivedRefused` is an older build: the dialog re-queues ONCE as the browser login. ACCOUNT PREVIEW: hovering an icon (pointer) opens THE hover card; a click (pointer) or a tap (touch) opens THE account menu (AccountChipMenu, in order: `Sign in` when signed out or needs_relogin (claude = Keep signed in); claude only and only when it does NOT sign in: `copy.switchToKeepSignedIn` without a token, `copy.renewKeepSignedIn` with one; `Sign out` when signed in; `Remove account` always; a team device's icon only previews, a tap opens the preview card). Both lead with the SAME header: the email (else the label) on top, the plan muted under it, the login's `status` line in warning tone when it has an attention item, then the usage windows (UsageWindows `full` density: title + reset, then meter + percent: the 5h session, the weeks, the per-model windows, each with its reset; only the windows the login REPORTS: a Keep signed in login reports the weekly window alone, and no empty 5h row is drawn for it). The hover card ends with a pill for the item's action: `sign_in` = `copy.signIn`, `keep_signed_in` = `copy.switchToKeepSignedIn` (status `switch`) or `copy.renewKeepSignedIn` (status `renew`); both keep_signed_in pills open the long-lived sign-in for that profile. ATTENTION (pure, `deviceListRow`): items in order: every login whose health is needs_relogin, then every signed_out login, then every OTHER login with `limitHit` (a fresh usage window at ≥ 100%; text `limitReached`, never an action), then (own devices only, EXP-1600) every OTHER claude login whose `tokenExpiresAt` is within `keepSignedIn.renewWithinDays` days of `now` or past it (text `renewSoon`, status `renew`, the yearly reminder), then every OTHER claude login with NO `tokenExpiresAt` (text `switchPrompt`, status `switch`: the one-tap prompt for logins made before the default changed), both with action `keep_signed_in` only on the caller's own online device, then the update line. A login yields at most one item. An AGENT with no login at all (a CLI installed, never signed in: `profiles` empty or absent) is NOT an item and badges nothing: the old IDE bug where mint read `Signed out` because Codex was installed. The update line exists only on the caller's own device: `updateQueued` when an update is parked behind live sessions (no action), else `updateAvailable` (with `latest`) when the client's own version compare says `outdated` (action `update` only for a SERVER — the CLI daemon is the one device that acts on an update request; a desktop app updates itself — and only while it is online and registered). Login actions (`sign_in`, never on a limit item) only on the caller's own online device. Team devices: read-only (no `+`, no actions), a team owner's Remove in the `⋯`.",
+  "$comment": "EXP-1560 (was A-16): THE Devices page, one spec ×4 (web my-machines.tsx + device-logins.tsx, desktop machines.rs, iOS AgentsView + DeviceLogins, Android AgentsScreen). LAYOUT: each section (`mine` with its `+ Add device` pill, `team`) is a GRID of device CARDS: columns = max(1, floor((width + card.gap) / (card.minWidth + card.gap))) over the section's content width, gap `card.gap` both ways (a phone in portrait gets 1 column, a phone in landscape or a tablet 2 or more). Groups: online cards first in the list's own order, then the muted `offline` label spanning the grid, then every offline card in its own grid, dimmed (opacity 0.6). CARD = THE GlassCard surface (fill + hairline + radius), padding `card.padding`, two rows. TOP row: left a column of [name (truncates) + `v{version}` beside it (warning tone when the caller's own device is outdated, else muted) + the default star] over [the status line (Online dot / Last seen …) + the `This device` / `Shared` tags]; right the `⋯` overflow (a ghost icon button, `copy.deviceActions`) opening THE Menu. Menu items, in order: the update line (when the device has an `update` / `update_queued` attention item: its `text` as a disabled muted row), `Update` (only when that item's action is `update`; busy while requested), `copy.settings` (own REGISTERED devices; opens the Device settings dialog). A team device's menu holds only a team owner's `copy.removeFromTeam`; a card with no item draws no `⋯` (its slot stays empty). BOTTOM row: the logins as ICONS ONLY, in `sortDeviceLogins` order: each a ghost icon button (`card.iconSize` square) holding the agent's brand mark (`card.markSize`), THE run-mark badge (AgentRunMark `needs_input`: amber dot top-right, ringed in the card's ground) ON every login that has a `login` attention item. With more than `card.maxAccountIcons` logins only the first maxAccountIcons-1 show, then a ghost `⋯` (`copy.moreAccounts`) that reveals the rest in place (`accountIcons`). Own, online cards with an agent to add end the row with a ghost `+` (`copy.addAccount`). A device that reported accounts but holds NO login says `noAccount` muted in the row; one that never reported says `checking`. EXP-1626 PERSIST LOGIN (replaces the EXP-1600 long-lived default and the long-lived Add): every sign-in (Add account, Sign in, the MCP `account_login`) is the agent CLI's normal BROWSER login, which names the account (email), reads every usage window (5h, weekly, per-model) and makes the profile; the sign-in dialog carries no mode line and no mode button. `copy.persistLogin` is an OPTION on an EXISTING signed-in claude login only (the account menu; the hover card pill only for the yearly reminder): it queues `agent_login {agent: claude, profileId, longLived}` for THAT profile, the same link + code-paste dialog with `copy.persistNote` as its one muted line; the machine runs `claude setup-token` in a fresh staging dir (never inside the profile, so the browser login it holds is never touched) and attaches the one-year token to the profile (`tokenExpiresAt`); nothing is typed or named. Once persisted, the profile's RUNS spend the token, and the browser login's refresh only feeds usage, so the two never rotate each other out. The usage keeps coming from the browser login while it is valid; when its refresh grant dies, the token keeps runs working and the usage falls back to the token's weekly window (the device reports the profile's `usageSource: \"token\"`). WHICH ONE IS ACTIVE: the preview header of a profile with `tokenExpiresAt` shows one muted line under the plan: `copy.persistedToken` when `usageSource` is `token`, else `copy.persistedBrowser`. With a token, the menu offers `copy.renewPersistedLogin` (same queue) instead of `copy.persistLogin`. Codex has no setup-token: neither option. Closing the sign-in dialog before the login lands queues `agent_login_cancel {agent, loginCommandId}`: the machine stops that run (its child is killed and its staging dropped) unless a code was already handed to it; a run nobody finishes is stopped by the machine itself 10 minutes after it started. ACCOUNT PREVIEW: hovering an icon (pointer) opens THE hover card; a click (pointer) or a tap (touch) opens THE account menu (AccountChipMenu, in order: `Sign in` when signed out or needs_relogin (the browser login); claude only and only when it does NOT sign in: `copy.persistLogin` without a token, `copy.renewPersistedLogin` with one; `Sign out` when signed in; `Remove account` always; a team device's icon only previews, a tap opens the preview card). Both lead with the SAME header: the email (else the label) on top, the plan muted under it, the persisted line (see PERSIST LOGIN) under that, the login's `status` line in warning tone when it has an attention item, then the usage windows (UsageWindows `full` density: title + reset, then meter + percent: the 5h session, the weeks, the per-model windows, each with its reset; only the windows the login REPORTS: a login whose usage comes from its persisted token reports the weekly window alone, and no empty 5h row is drawn for it). The hover card ends with a pill for the item's action: `sign_in` = `copy.signIn`, `keep_signed_in` (status `renew`) = `copy.renewPersistedLogin`, which opens the persist sign-in for that profile. ATTENTION (pure, `deviceListRow`): items in order: every login whose health is needs_relogin, then every signed_out login, then every OTHER login with `limitHit` (a fresh usage window at ≥ 100%; text `limitReached`, never an action), then (own devices only) every OTHER claude login whose `tokenExpiresAt` is within `keepSignedIn.renewWithinDays` days of `now` or past it (text `renewSoon`, status `renew`, the yearly reminder; action `keep_signed_in` only on the caller's own online device; a login WITHOUT a token is never an item: persisting is an option, not a prompt), then the update line. A login yields at most one item. An AGENT with no login at all (a CLI installed, never signed in: `profiles` empty or absent) is NOT an item and badges nothing: the old IDE bug where mint read `Signed out` because Codex was installed. The update line exists only on the caller's own device: `updateQueued` when an update is parked behind live sessions (no action), else `updateAvailable` (with `latest`) when the client's own version compare says `outdated` (action `update` only for a SERVER — the CLI daemon is the one device that acts on an update request; a desktop app updates itself — and only while it is online and registered). Login actions (`sign_in`, never on a limit item) only on the caller's own online device. Team devices: read-only (no `+`, no actions), a team owner's Remove in the `⋯`.",
   "copy": {
     "mine": "My devices",
     "team": "Team devices",
@@ -18,25 +18,19 @@
       "needs_relogin": "Needs re-login",
       "signed_out": "Signed out",
       "limit": "Limit reached",
-      "renew": "Keep signed in ends soon",
-      "switch": "Not kept signed in"
+      "renew": "Persisted login ends soon"
     },
     "deviceActions": "Device actions",
     "settings": "Device settings",
     "removeFromTeam": "Remove from this team",
     "moreAccounts": "More accounts",
-    "renewSoon": "{label} · Keep signed in ends soon",
-    "switchPrompt": "{label} · Switch to Keep signed in",
-    "switchToKeepSignedIn": "Switch to Keep signed in",
-    "renewKeepSignedIn": "Renew Keep signed in",
-    "keepSignedInNote": "Keep signed in: lasts 1 year, shows weekly usage only. We remind you to renew.",
-    "browserLoginNote": "Browser login: shows every usage window, but can sign out when its refresh rotates.",
-    "useBrowserLogin": "Use browser login (Advanced)",
-    "useKeepSignedIn": "Use Keep signed in",
+    "renewSoon": "{label} · Persisted login ends soon",
     "longLivedRefused": "A long-lived login needs a Claude account on this machine.",
-    "accountName": "Name",
-    "keptSignedInName": "Claude (kept signed in)",
-    "switchedName": "{label} (kept signed in)"
+    "persistLogin": "Persist login",
+    "renewPersistedLogin": "Renew persisted login",
+    "persistNote": "Persist login keeps this account's runs signed in for 1 year, even if its browser login expires. We remind you to renew.",
+    "persistedBrowser": "Persisted · usage from the browser login",
+    "persistedToken": "Persisted · browser login expired, weekly usage only"
   },
   "cases": [
     {
@@ -448,7 +442,7 @@
       }
     },
     {
-      "name": "EXP-1600: a claude login without a token prompts the switch; codex never does",
+      "name": "EXP-1626: a login without a token is never prompted to persist; codex neither",
       "input": {
         "online": true,
         "mine": true,
@@ -477,20 +471,11 @@
       "expect": {
         "group": "online",
         "noAccount": false,
-        "attention": [
-          {
-            "kind": "login",
-            "profileId": "a",
-            "agent": "claude",
-            "text": "dennis@straehhuber.com · Switch to Keep signed in",
-            "action": "keep_signed_in",
-            "status": "switch"
-          }
-        ]
+        "attention": []
       }
     },
     {
-      "name": "EXP-1600: a token within 30 days (or past) is the renewal reminder, before any switch prompt",
+      "name": "EXP-1626: a persisted token within 30 days (or past) is the renewal reminder; an unpersisted login is no item",
       "input": {
         "online": true,
         "mine": true,
@@ -539,7 +524,7 @@
             "kind": "login",
             "profileId": "b",
             "agent": "claude",
-            "text": "b@x.at · Keep signed in ends soon",
+            "text": "b@x.at · Persisted login ends soon",
             "action": "keep_signed_in",
             "status": "renew"
           },
@@ -547,23 +532,15 @@
             "kind": "login",
             "profileId": "c",
             "agent": "claude",
-            "text": "c@x.at · Keep signed in ends soon",
+            "text": "c@x.at · Persisted login ends soon",
             "action": "keep_signed_in",
             "status": "renew"
-          },
-          {
-            "kind": "login",
-            "profileId": "a",
-            "agent": "claude",
-            "text": "a@x.at · Switch to Keep signed in",
-            "action": "keep_signed_in",
-            "status": "switch"
           }
         ]
       }
     },
     {
-      "name": "EXP-1600: a dead or limited login yields its own item, never a second one",
+      "name": "EXP-1626: a dead or limited login yields its own item, never a second one",
       "input": {
         "online": true,
         "mine": true,
@@ -614,7 +591,7 @@
       }
     },
     {
-      "name": "EXP-1600: offline own device keeps the prompt without its action",
+      "name": "EXP-1626: an offline own device keeps the renewal reminder without its action",
       "input": {
         "online": false,
         "mine": true,
@@ -630,7 +607,8 @@
             "agent": "claude",
             "profileId": "a",
             "label": "a@x.at",
-            "health": "ok"
+            "health": "ok",
+            "tokenExpiresAt": "2026-11-10T00:00:00.000Z"
           }
         ]
       },
@@ -642,15 +620,15 @@
             "kind": "login",
             "profileId": "a",
             "agent": "claude",
-            "text": "a@x.at · Switch to Keep signed in",
+            "text": "a@x.at · Persisted login ends soon",
             "action": null,
-            "status": "switch"
+            "status": "renew"
           }
         ]
       }
     },
     {
-      "name": "EXP-1600: a teammate's device never prompts",
+      "name": "EXP-1626: a teammate's device never prompts",
       "input": {
         "online": true,
         "mine": false,

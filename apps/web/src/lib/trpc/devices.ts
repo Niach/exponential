@@ -110,8 +110,6 @@ export const AGENT_LONG_LIVED_NEEDS_PROFILE = `A long-lived login needs a Claude
  *  the device's `agent_login::LONG_LIVED_CLAUDE_ONLY`). */
 export const AGENT_LONG_LIVED_CLAUDE_ONLY = `A long-lived login is Claude only.`
 const deviceIdInput = z.string().min(1).max(128)
-/** EXP-1626: the longest name a long-lived Add may give its new profile. */
-export const AGENT_PROFILE_NAME_MAX = 64
 /** EXP-1626: a cancelled sign-in's row result (byte-identical to the
  *  device's `agent_login::LOGIN_CANCELLED`). */
 export const AGENT_LOGIN_CANCELLED = `The sign-in was cancelled.`
@@ -381,9 +379,9 @@ export function clampAgentAccounts(
       // EXP-1533: the long-lived claude login's expiry (ISO or dropped).
       const tokenExpiresAt = isoStampOrNull(profile.tokenExpiresAt)
       if (tokenExpiresAt) item.tokenExpiresAt = tokenExpiresAt
-      // EXP-1626: a long-lived Add's profile name, trimmed and capped.
-      const name = typeof profile.name === `string` ? profile.name.trim() : ``
-      if (name) item.name = name.slice(0, AGENT_PROFILE_NAME_MAX)
+      // EXP-1626: the usage came from the persisted token (the browser
+      // login's refresh grant is dead); anything else is the browser login.
+      if (profile.usageSource === `token`) item.usageSource = `token`
       if (profile.usage) {
         item.usage = clampUsageEntry(profile.usage, new Date())
       }
@@ -1440,12 +1438,11 @@ export const devicesRouter = router({
         // instead of silently turning into an Add account sign-in.
         import: z.boolean().optional(),
         // EXP-1533 `agent_login`: mint a one-year `claude setup-token` login
-        // instead of a browser login (claude only). EXP-1600: with no
-        // `profileId` too (an Add account): the default claude sign-in.
+        // instead of a browser login (claude only). EXP-1626: current
+        // clients send it only WITH a `profileId` (Persist login on an
+        // existing login); an older client's long-lived Add still queues.
+        // (An older client's `name` is stripped by the parse.)
         longLived: z.boolean().optional(),
-        // EXP-1626 `agent_login`: the NAME a long-lived Add's new profile
-        // gets (a setup token cannot name its account). Ignored elsewhere.
-        name: z.string().trim().min(1).max(AGENT_PROFILE_NAME_MAX).optional(),
         // EXP-1626 `agent_login_cancel`: the `agent_login` row to stop.
         loginCommandId: z.string().uuid().optional(),
       })
@@ -1495,10 +1492,6 @@ export const devicesRouter = router({
           switch: input.switch === true ? `true` : `false`,
           ...(input.profileId ? { profileId: input.profileId } : {}),
           ...(input.longLived === true ? { longLived: `true` } : {}),
-          // EXP-1626: only a long-lived ADD names the profile it makes.
-          ...(input.longLived === true && !input.profileId && input.name
-            ? { name: input.name }
-            : {}),
         }
       }
 

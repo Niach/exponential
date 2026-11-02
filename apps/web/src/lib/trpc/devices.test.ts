@@ -2558,33 +2558,21 @@ describe(`devices.createCommand — agent_login`, () => {
 describe(`devices.createCommand — EXP-1626 names and cancel`, () => {
   const capableProbe = () => [[{ id: `row-1`, caps: [`agent-login`] }]]
 
-  it(`carries the name of a long-lived Add, and only of one`, async () => {
+  it(`drops an older client's name: profiles are named by their login`, async () => {
     h.state.selectQueue = [...capableProbe(), []]
     h.state.insertReturning = [[{ id: `cmd-named` }]]
     await caller.createCommand({
       deviceId: `dev-1`,
       kind: `agent_login`,
       agent: `claude`,
+      profileId: `p-work`,
       longLived: true,
-      name: `  Work (kept signed in) `,
-    })
+      name: `Work`,
+    } as never)
     expect(h.state.inserted[0]).toMatchObject({
-      payload: { agent: `claude`, switch: `false`, longLived: `true`, name: `Work (kept signed in)` },
+      payload: { agent: `claude`, switch: `false`, profileId: `p-work`, longLived: `true` },
     })
-    // A renew in place (a profile) and a browser login never carry it.
-    for (const extra of [{ longLived: true, profileId: `p-work` }, {}]) {
-      h.state.inserted.length = 0
-      h.state.selectQueue = [...capableProbe(), []]
-      h.state.insertReturning = [[{ id: `cmd-unnamed` }]]
-      await caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_login`,
-        agent: `claude`,
-        name: `Ignored`,
-        ...extra,
-      })
-      expect((h.state.inserted[0] as { payload: object }).payload).not.toHaveProperty(`name`)
-    }
+    expect((h.state.inserted[0] as { payload: object }).payload).not.toHaveProperty(`name`)
   })
 
   it(`fails a still-pending login row and queues the cancel for the machine`, async () => {
@@ -3216,20 +3204,19 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
     ])
   })
 
-  // EXP-1626: a long-lived Add's profile name survives trimmed and capped.
-  it(`keeps a profile's name`, () => {
+  // EXP-1626: a persisted login's usage source survives as `token` only.
+  it(`keeps a profile's usageSource`, () => {
     const out = clampAgentAccounts({
       claude: {
         signedIn: true,
         profiles: [
-          { id: `home`, signedIn: true, name: `  Work (kept signed in) ` },
-          { id: `work`, signedIn: true, name: `x`.repeat(200) },
-          { id: `spare`, signedIn: true, name: `   ` },
+          { id: `home`, signedIn: true, usageSource: `token` },
+          { id: `work`, signedIn: true, usageSource: `browser` },
+          { id: `spare`, signedIn: true },
         ],
       },
     })
-    expect(out.claude!.profiles!.map((p) => p.name?.length ?? p.name)).toEqual([21, 64, undefined])
-    expect(out.claude!.profiles![0]!.name).toBe(`Work (kept signed in)`)
+    expect(out.claude!.profiles!.map((p) => p.usageSource)).toEqual([`token`, undefined, undefined])
   })
 })
 

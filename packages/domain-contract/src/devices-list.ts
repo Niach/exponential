@@ -84,7 +84,7 @@ export type DeviceAttentionItem =
       text: string
       action: `sign_in` | `keep_signed_in` | null
       /** EXP-1560: the preview's status line (`copy.status`). */
-      status: `needs_relogin` | `signed_out` | `limit` | `renew` | `switch`
+      status: `needs_relogin` | `signed_out` | `limit` | `renew`
     }
   | { kind: `update`; text: string; action: `update` | null }
   | { kind: `update_queued`; text: string; action: null }
@@ -127,31 +127,20 @@ export function deviceListRow(input: DeviceListInput): DeviceListRow {
       status: `limit`,
     })
   }
-  // EXP-1600: the yearly renewal reminder, then the switch prompt for a
-  // claude login made before Keep signed in became the default.
+  // EXP-1626: the yearly reminder of a PERSISTED login. A login without a
+  // token is never an item: persisting is an option, not a prompt.
   if (input.mine) {
-    const quiet = (login: DeviceListLogin) =>
-      login.agent !== `claude` || dead(login) || login.limitHit === true
-    for (const [status, template] of [
-      [`renew`, DEVICES_LIST_COPY.renewSoon],
-      [`switch`, DEVICES_LIST_COPY.switchPrompt],
-    ] as const) {
-      for (const login of input.logins) {
-        if (quiet(login)) continue
-        const due =
-          status === `renew`
-            ? Boolean(login.tokenExpiresAt) && keepSignedInDue(login.tokenExpiresAt!, input.now)
-            : !login.tokenExpiresAt
-        if (!due) continue
-        attention.push({
-          kind: `login`,
-          agent: login.agent,
-          profileId: login.profileId,
-          text: template.replace(`{label}`, login.label),
-          action: canSignIn ? `keep_signed_in` : null,
-          status,
-        })
-      }
+    for (const login of input.logins) {
+      if (login.agent !== `claude` || dead(login) || login.limitHit === true) continue
+      if (!login.tokenExpiresAt || !keepSignedInDue(login.tokenExpiresAt, input.now)) continue
+      attention.push({
+        kind: `login`,
+        agent: login.agent,
+        profileId: login.profileId,
+        text: DEVICES_LIST_COPY.renewSoon.replace(`{label}`, login.label),
+        action: canSignIn ? `keep_signed_in` : null,
+        status: `renew`,
+      })
     }
   }
   if (input.mine) {
