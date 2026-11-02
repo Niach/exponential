@@ -50,8 +50,8 @@ export const DOCS_NAV: DocsNavEntry[] = [
   },
   {
     path: `/docs/apps/`,
-    label: `Mobile & desktop apps`,
-    blurb: `The desktop IDE and the iOS / Android companions (install, push, steer), and your team's Apps.`,
+    label: `Apps`,
+    blurb: `Team apps an agent builds for you, and the desktop IDE and iOS / Android apps (install, push, steer).`,
   },
   {
     path: `/docs/self-host/`,

@@ -207,3 +207,89 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* EXP-1606: the genUI section (an A2UI message over its native shots) and
+   the apps section's package parts. */
+.hx-stage .hx-shot-desktop {
+  margin-left: auto;
+}
+
+.hx-code {
+  position: absolute;
+  left: 0;
+  bottom: 24px;
+  width: 46%;
+  margin: 0;
+  padding: 12px 14px 14px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--fg-muted);
+  background: var(--glass-panel-bg);
+  box-shadow: 0 24px 60px rgb(0 0 0 / 0.55);
+}
+
+.hx-code code {
+  font-family: inherit;
+  white-space: pre;
+}
+
+.hx-file {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--fg-dim);
+}
+
+.hx-stage .aw-shot-phone {
+  z-index: 1;
+}
+
+.aw-shot-phone.hx-phone-wide {
+  width: 36%;
+  border-radius: 16px;
+}
+
+.hx-parts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 18px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hx-parts code {
+  display: inline-block;
+  padding: 3px 9px;
+  border: 1px solid var(--glass-stroke-card);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-muted);
+}
+
+.hx-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 980px) {
+  .hx-parts,
+  .hx-links {
+    justify-content: center;
+  }
+}
+
+@media (max-width: 520px) {
+  .hx-code {
+    font-size: 8.5px;
+    width: 58%;
+    bottom: 12px;
+    padding: 8px 10px;
+  }
+}

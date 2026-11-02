@@ -31,9 +31,9 @@ export const LIB_ROUTES: readonly Route[] = [
   lib(
     `/apps/`,
     () => import("./Apps"),
-    `eApps · the app package format`,
-    `eApps is one package format for apps an agent builds: a manifest, eUI templates, bindings, a function allowlist and records, data never code, with tools, extensions and signed package files (format v2).`,
-    [`ui/src/libs/Apps.tsx`, `../../packages/exponential-ui/src/host/package.ts`]
+    `eApps · apps are data, never code`,
+    `Ask an agent for an app: it writes one package (templates, bindings, records, MCP tools), and eUI paints it on web, desktop, iOS and Android. No app code runs anywhere.`,
+    [`ui/src/libs/Apps.tsx`, `../../packages/exponential-ui/src/host/package.ts`, `../../docs/spec/apps.md`]
   ),
   lib(
     `/mcp/`,
