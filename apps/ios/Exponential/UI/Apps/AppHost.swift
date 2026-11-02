@@ -17,7 +17,7 @@ import ExponentialUI
 //     `comments` / `attachments` over the team's rows (`AppSources`, the
 //     fixture's derivation); VAPP-122 `exp:records?kind=…` over the app's
 //     own rows (`AppRecords`), VAPP-161 also the format's neutral
-//     `records:<kind>?…` (`AppRecords.recordsSourceParams`);
+//     `records:<kind>?…` (VAPP-189: the SDK's `RecordsQuery`, eUI's one evaluator);
 //   - functions: `harness.toast`, `harness.openIssue`, `harness.openDevice`,
 //     `harness.mcp` (a tools/call on the instance's /api/mcp as the viewer),
 //     `harness.records.upsert` / `.delete` (tRPC `apps.records.*`, no
@@ -311,7 +311,7 @@ final class ExpAppHost {
                     case let name where AppSources.kinds.contains(name):
                         return AppHostStore.source(pool: pool, scope: scope, name: name, params: source.params, emit: emit)
                     case "records":
-                        return AppHostStore.records(pool: pool, scope: scope, params: source.params, emit: emit)
+                        return AppHostStore.records(pool: pool, scope: scope, query: RecordsQuery.parse(params: source.params), emit: emit)
                     default:
                         emit(.null)
                         return nil
@@ -320,13 +320,11 @@ final class ExpAppHost {
                 // VAPP-161: the format's neutral `records:<kind>?…` =
                 // `exp:records?kind=<kind>&…` (the name wins).
                 "records": { source, emit in
-                    guard let params = AppRecords.recordsSourceParams(
-                        scheme: source.scheme, name: source.name, params: source.params
-                    ) else {
+                    guard let query = RecordsQuery.parse(source: source) else {
                         emit(.null)
                         return nil
                     }
-                    return AppHostStore.records(pool: pool, scope: scope, params: params, emit: emit)
+                    return AppHostStore.records(pool: pool, scope: scope, query: query, emit: emit)
                 },
             ],
             extensions: extensions,
@@ -635,23 +633,32 @@ enum AppHostStore {
         var names: [String: String] = [:]
     }
 
-    /// `exp:records?kind=…`: the fixture's value (`AppRecords.recordsValue`)
-    /// over the synced `app_records` rows of the app, names off `users`, on
-    /// every change of the records, the users or the apps (an `app=` slug
-    /// may sync later); a value equal to the last one is not re-emitted.
+    /// `exp:records?kind=…`: eUI's one evaluator (VAPP-189, the SDK's
+    /// `RecordsQuery` over the core; fixtures/records-query.json) over the
+    /// synced `app_records` rows of the app, names off `users`, on every
+    /// change of the records, the users or the apps (an `app=` slug may sync
+    /// later); a value equal to the last one is not re-emitted.
     static func records(
-        pool: DatabasePool?, scope: RecordsScope, params: [String: String], emit: @escaping (JSONValue?) -> Void
+        pool: DatabasePool?, scope: RecordsScope, query: RecordsQuery, emit: @escaping (JSONValue?) -> Void
     ) -> (() -> Void)? {
-        let query = AppRecords.parseRecordsQuery(params)
         var last: String?
         let push = { (snapshot: RecordsSnapshot) in
-            let value = AppRecords.recordsValue(
-                rows: snapshot.rows.map(AppRecords.Row.init), query: query, me: scope.me, now: Date(), names: snapshot.names
-            )
-            let json = value?.compactString ?? "null"
+            let rows = snapshot.rows.map { entity in
+                RecordRow(
+                    id: entity.id,
+                    kind: entity.kind,
+                    data: JSONValue.parse(entity.data),
+                    createdBy: entity.createdBy,
+                    authorId: entity.authorId,
+                    createdAt: AppRecords.isoTimestamp(entity.createdAt),
+                    updatedAt: AppRecords.isoTimestamp(entity.updatedAt)
+                )
+            }
+            let value = query.value(rows: rows, me: scope.me, now: Date(), names: snapshot.names)
+            let json = value.json
             guard json != last else { return }
             last = json
-            emit(JSONValue.parse(json))
+            emit(value)
         }
         guard let pool else {
             push(RecordsSnapshot())

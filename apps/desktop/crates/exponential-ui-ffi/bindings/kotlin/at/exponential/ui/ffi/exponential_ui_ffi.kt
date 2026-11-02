@@ -831,11 +831,17 @@ external fun uniffi_exponential_ui_ffi_checksum_func_package_policy_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_query_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_parse_records_source_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_parse_source_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_place_overlay(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_records_value_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json(
 ): Short
@@ -1516,11 +1522,17 @@ external fun uniffi_exponential_ui_ffi_fn_func_package_policy_json(`functionsJso
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(`valueJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_parse_records_query_json(`paramsJson`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_parse_records_source_json(`source`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_parse_source_json(`uri`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_place_overlay(`anchorX`: Double,`anchorY`: Double,`anchorW`: Double,`anchorH`: Double,`sizeW`: Double,`sizeH`: Double,`viewportW`: Double,`viewportH`: Double,`side`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(`value`: RustBuffer.ByValue,`level`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_records_value_json(`rowsJson`: RustBuffer.ByValue,`queryJson`: RustBuffer.ByValue,`contextJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_reduce_nested_json(`nestedJson`: RustBuffer.ByValue,`catalogId`: RustBuffer.ByValue,`extensionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -10523,6 +10535,37 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * VAPP-189: query params (a JSON object of strings, as `parseSourceJson`
+         * gives them) → the structured records query JSON
+         * (`fixtures/records-query.json` `parseCases`). `kind` = the neutral
+         * source's own name (`records:<kind>`), which wins over a `kind` param.
+         */
+    @Throws(UiException::class) fun `parseRecordsQueryJson`(`paramsJson`: kotlin.String, `kind`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_records_query_json(
+    
+        FfiConverterString.lower(`paramsJson`),FfiConverterOptionalString.lower(`kind`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-189: `records:<kind>?…` → the records query JSON; null = not a
+         * records source (`sourceCases`).
+         */ fun `parseRecordsSourceJson`(`source`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_parse_records_source_json(
+    
+        FfiConverterString.lower(`source`),_status)
+}
+    )
+    }
+    
+
+        /**
          * A binding source URI → `{uri, scheme, name, params}` JSON, null when it
          * does not parse.
          */ fun `parseSourceJson`(`uri`: kotlin.String): kotlin.String? {
@@ -10562,6 +10605,23 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_qr_matrix_json(
     
         FfiConverterString.lower(`value`),FfiConverterString.lower(`level`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
+         * the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
+         * `query_json` = a parsed query, `context_json` = `{me, now, names}`;
+         * the value JSON, `null` without a kind.
+         */
+    @Throws(UiException::class) fun `recordsValueJson`(`rowsJson`: kotlin.String, `queryJson`: kotlin.String, `contextJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_records_value_json(
+    
+        FfiConverterString.lower(`rowsJson`),FfiConverterString.lower(`queryJson`),FfiConverterString.lower(`contextJson`),_status)
 }
     )
     }

@@ -23,7 +23,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm"
 import { actionGrantable, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
-import { APP_RECORDS_QUERY } from "@exp/domain-contract/app-records"
+import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
 import {
   effectiveAccess,
   grantErrors,
@@ -297,8 +297,8 @@ async function runRecords(ctx: BrokerContext, tool: BrokerTool, input: Record<st
   }
   if (run.op === `list`) {
     const where = resolved.where && typeof resolved.where === `object` && !Array.isArray(resolved.where) ? resolved.where : {}
-    const asked = typeof resolved.limit === `number` && Number.isFinite(resolved.limit) ? Math.floor(resolved.limit) : APP_RECORDS_QUERY.limitDefault
-    const limit = Math.min(Math.max(asked, 1), APP_RECORDS_QUERY.limitMax)
+    const asked = typeof resolved.limit === `number` && Number.isFinite(resolved.limit) ? Math.floor(resolved.limit) : RECORDS_QUERY.limitDefault
+    const limit = Math.min(Math.max(asked, 1), RECORDS_QUERY.limitMax)
     const rows = await db
       .select(columns)
       .from(appRecords)

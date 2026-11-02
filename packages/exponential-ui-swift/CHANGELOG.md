@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-189: `RecordsQuery` (`parse(params:kind:)`, `parse(source:)`, `value(rows:me:now:names:)`) and `RecordRow`: the core's one records evaluator over the FFI; the tests replay `fixtures/records-query.json`.
+
 ## 0.4.0 (2026-11-02)
 
 - EXP-1605: `Motion` interactivity (eui-motion README › Interactivity): a `MotionDriver` runs the core's dotLottie state machine (`stateMachine`, else a `.lottie`'s first via `motionReadDotlottieMachine`); `inputs` (literal or bound) write on change; a press (tap, Enter / Space, VoiceOver) posts `click` then fires `on.press`, the button's pointer down / up post `pointerDown` / `pointerUp`, a machine without `on.press` takes the pointer itself; the pointer (iPad, macOS) posts `pointerEnter` / `pointerExit` + `on.hover`; `on.visible` once; `on.state {state}` per entered state; `complete` posted once per finished play + `on.complete` (also on a final state); every state change restarts the clock. With `on.press` a Motion is a button named by `label`. The tests replay `fixtures/motion-state.json` over the FFI and drive a press through the model.

@@ -38,8 +38,32 @@ fn host_router_every_validation_and_flow_equals_the_reference() {
 }
 
 #[test]
-fn host_package_every_records_query_consent_tool_call_extension_canonical_and_signed_text_case_equals_the_reference() {
-    assert_all(support::package_cases(), count("host-package.json", &["recordsQuery", "consent", "toolCalls", "extensions", "canonical", "signatures"]));
+fn host_package_every_consent_tool_call_extension_canonical_and_signed_text_case_equals_the_reference() {
+    assert_all(support::package_cases(), count("host-package.json", &["consent", "toolCalls", "extensions", "canonical", "signatures"]));
+}
+
+#[test]
+fn records_query_every_parse_source_and_value_case_equals_the_reference() {
+    assert_all(support::records_query_cases(), count("records-query.json", &["parseCases", "sourceCases", "valueCases"]));
+}
+
+#[test]
+fn records_query_constants_are_the_fixture_s() {
+    use eui_core::host::{RECORDS_FILTER_OPS, RECORDS_MONTHS, RECORDS_RESERVED_PARAMS, RECORDS_ROW_KEYS, RECORDS_WEEKDAYS, RECORD_RESERVED_KEYS};
+    let f = fixture("records-query.json");
+    let strings = |v: &Value| -> Vec<String> { v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect() };
+    let mut reserved = strings(&f["query"]["reserved"]);
+    reserved.sort();
+    assert_eq!(reserved, RECORDS_RESERVED_PARAMS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(strings(&f["query"]["operators"]), RECORDS_FILTER_OPS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(strings(&f["weekdays"]), RECORDS_WEEKDAYS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(strings(&f["months"]), RECORDS_MONTHS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    assert_eq!(strings(&f["rowKeys"]), RECORDS_ROW_KEYS.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+    for key in RECORD_RESERVED_KEYS {
+        assert!(strings(&f["rowKeys"]).iter().any(|k| k == key), "{key}");
+    }
+    assert_eq!(f["query"]["limitDefault"], 100);
+    assert_eq!(f["query"]["limitMax"], 500);
 }
 
 fn strip_comments(v: &Value) -> Value {

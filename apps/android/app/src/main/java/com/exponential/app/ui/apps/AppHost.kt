@@ -40,6 +40,8 @@ import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.host.HostPolicy
 import at.exponential.ui.host.MediaOptions
 import at.exponential.ui.host.MediaRule
+import at.exponential.ui.host.RecordRow
+import at.exponential.ui.host.RecordsQuery
 import at.exponential.ui.host.SourceResolver
 import at.exponential.ui.host.UrlPolicy
 import at.exponential.ui.json.JsonValue
@@ -390,9 +392,9 @@ fun rememberAppHost(
         val token = origin?.let { resolveAccountForUrl(auth.accounts.value, auth.activeAccountId.value, it)?.token }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
-        // VAPP-122: the `exp:records` value over the parsed query params.
-        fun recordsValues(params: Map<String, String>): Flow<JsonValue?> {
-            val query = AppRecords.parseRecordsQuery(params)
+        // VAPP-122: the `exp:records` value over the parsed query (VAPP-189:
+        // eUI's one evaluator, the SDK's `RecordsQuery` over the core).
+        fun recordsValues(query: RecordsQuery): Flow<JsonValue?> {
             // The app whose records are read: the hosting app, or
             // (`app=`) another app of the same team by slug (it may
             // sync later, so the lookup follows the apps).
@@ -403,11 +405,21 @@ fun rememberAppHost(
             }
             val rows = target.flatMapLatest { recordsOf(it) }
             return combine(rows, users) { records, people ->
-                val mapped = records.map(AppRecords::row)
+                val mapped = records.map { entity ->
+                    RecordRow(
+                        id = entity.id,
+                        kind = entity.kind,
+                        data = entity.data?.let { JsonValue.parse(it) } ?: JsonValue.Obj(emptyMap()),
+                        createdBy = entity.createdBy?.takeIf { it.isNotEmpty() },
+                        authorId = entity.authorId?.takeIf { it.isNotEmpty() },
+                        createdAt = AppRecords.isoTimestamp(entity.createdAt),
+                        updatedAt = AppRecords.isoTimestamp(entity.updatedAt),
+                    )
+                }
                 // VAPP-187: `author` = the AUTHOR's name (`authorId ?? createdBy`).
-                val wanted = mapped.mapNotNullTo(HashSet()) { AppRecords.recordAuthor(it) }
+                val wanted = mapped.mapNotNullTo(HashSet()) { it.authorId ?: it.createdBy }
                 val names = people.filter { it.id in wanted }.associate { it.id to it.name.orEmpty() }
-                AppRecords.recordsValue(mapped, query, me, AppRecords.isoNow(), names)
+                query.value(mapped, me, AppRecords.isoNow(), names)
             }
         }
 
@@ -419,7 +431,7 @@ fun rememberAppHost(
                 in AppSources.SOURCES -> sourceStore(source.name).map { store ->
                     AppSources.sourceValue(source.name, source.params, store, me)
                 }
-                "records" -> recordsValues(AppRecords.recordsSourceParams(source) ?: source.params)
+                "records" -> recordsValues(RecordsQuery.parse(source.params))
                 else -> flowOf(null)
             }
             val job = scope.launch { values.distinctUntilChanged().collect { emit(it) } }
@@ -427,8 +439,8 @@ fun rememberAppHost(
         }
         // VAPP-161: the format's neutral spelling, `records:<kind>?…` = `exp:records?kind=<kind>&…`.
         val records = SourceResolver { source, emit ->
-            val params = AppRecords.recordsSourceParams(source)
-            val values = if (params == null) flowOf(null) else recordsValues(params)
+            val query = RecordsQuery.parse(source)
+            val values = if (query == null) flowOf(null) else recordsValues(query)
             val job = scope.launch { values.distinctUntilChanged().collect { emit(it) } }
             return@SourceResolver { job.cancel() }
         }

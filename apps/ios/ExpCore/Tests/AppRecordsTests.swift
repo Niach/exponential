@@ -4,8 +4,9 @@ import XCTest
 
 // VAPP-122: app records, replayed ×4 against
 // packages/domain-contract/fixtures/app-records.json (TS `app-records.test.ts`,
-// desktop `domain::app_records`, Android `AppRecordsTest`): `queryCases`,
-// `sourceCases`, `valueCases` and `countLabelCases`, plus the query constants;
+// desktop `domain::app_records`, Android `AppRecordsTest`): `countLabelCases`
+// and the row keys (VAPP-189: the query is eUI's, the SDK's
+// `RecordsQueryTests` replays fixtures/records-query.json);
 // VAPP-178 the Data tab's `dataTab.*Cases` and its copy / columns /
 // placeholders / testIds.
 final class AppRecordsTests: XCTestCase {
@@ -27,100 +28,8 @@ final class AppRecordsTests: XCTestCase {
         return list
     }
 
-    private func optional(_ value: String?) -> Any { value ?? NSNull() }
-
     func testConstantsMatchTheFixture() throws {
-        let fixture = try fixture()
-        let query = try XCTUnwrap(fixture["query"] as? [String: Any])
-        XCTAssertEqual(Set(try XCTUnwrap(query["reserved"] as? [String])), AppRecords.reserved)
-        XCTAssertEqual(query["sortDefault"] as? String, AppRecords.sortDefault)
-        XCTAssertEqual(query["orderDefault"] as? String, AppRecords.orderDefault)
-        XCTAssertEqual(query["limitDefault"] as? Int, AppRecords.limitDefault)
-        XCTAssertEqual(query["limitMax"] as? Int, AppRecords.limitMax)
-        XCTAssertEqual(query["operators"] as? [String], AppRecords.operators)
-        XCTAssertEqual(fixture["rowKeys"] as? [String], AppRecords.rowKeys)
-        XCTAssertEqual(fixture["weekdays"] as? [String], AppRecords.weekdays)
-        XCTAssertEqual(fixture["months"] as? [String], AppRecords.months)
-    }
-
-    private func queryObject(_ q: AppRecords.Query) -> [String: Any] {
-        [
-            "kind": optional(q.kind), "app": optional(q.app), "mine": q.mine, "user": optional(q.user),
-            "sort": q.sort, "order": q.order, "limit": q.limit,
-            "filters": q.filters.map { ["field": $0.field, "op": $0.op, "value": $0.value] },
-            "sum": optional(q.sum), "by": optional(q.by), "month": optional(q.month),
-        ]
-    }
-
-    func testQueryCases() throws {
-        for item in try cases("queryCases") {
-            let name = try XCTUnwrap(item["name"] as? String)
-            let params = try XCTUnwrap(item["params"] as? [String: String])
-            let actual = queryObject(AppRecords.parseRecordsQuery(params))
-            XCTAssertEqual(actual as NSDictionary, try XCTUnwrap(item["expected"] as? NSDictionary), name)
-        }
-    }
-
-    /// The SDK's parseSource, inlined (ExpCore does not depend on the SDK).
-    private func parseSource(_ uri: String) throws -> (scheme: String, name: String, params: [String: String]) {
-        let colon = try XCTUnwrap(uri.firstIndex(of: ":"))
-        let rest = uri[uri.index(after: colon)...]
-        let name = rest.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
-        var params: [String: String] = [:]
-        for item in URLComponents(string: "x:?" + (rest.split(separator: "?", maxSplits: 1).dropFirst().first ?? ""))?.queryItems ?? [] {
-            params[item.name] = item.value ?? ""
-        }
-        return (uri[..<colon].lowercased(), name, params)
-    }
-
-    func testSourceCases() throws {
-        for item in try cases("sourceCases") {
-            let name = try XCTUnwrap(item["name"] as? String)
-            let source = try parseSource(try XCTUnwrap(item["source"] as? String))
-            let params = AppRecords.recordsSourceParams(scheme: source.scheme, name: source.name, params: source.params)
-            if let expected = item["expected"] as? NSDictionary {
-                let q = try XCTUnwrap(params.map(AppRecords.parseRecordsQuery), name)
-                XCTAssertEqual(queryObject(q) as NSDictionary, expected, name)
-            } else {
-                XCTAssertTrue(item["expected"] is NSNull, name)
-                XCTAssertNil(params, name)
-            }
-        }
-    }
-
-    func testValueCases() throws {
-        let iso = ISO8601DateFormatter()
-        for item in try cases("valueCases") {
-            let name = try XCTUnwrap(item["name"] as? String)
-            let params = try XCTUnwrap(item["params"] as? [String: String])
-            let rows = try XCTUnwrap(item["rows"] as? [[String: Any]]).map { row in
-                AppRecords.Row(
-                    id: row["id"] as? String ?? "",
-                    kind: row["kind"] as? String ?? "",
-                    data: CardJSON(any: row["data"])?.objectValue ?? [:],
-                    createdBy: row["createdBy"] as? String,
-                    // VAPP-187: missing or null = a legacy row (nil).
-                    authorId: row["authorId"] as? String,
-                    createdAt: row["createdAt"] as? String ?? "",
-                    updatedAt: row["updatedAt"] as? String ?? ""
-                )
-            }
-            let now = try XCTUnwrap(iso.date(from: try XCTUnwrap(item["now"] as? String)))
-            let value = AppRecords.recordsValue(
-                rows: rows,
-                query: AppRecords.parseRecordsQuery(params),
-                me: item["me"] as? String,
-                now: now,
-                names: item["names"] as? [String: String] ?? [:]
-            )
-            let expected = CardJSON(any: item["expected"]) ?? .null
-            XCTAssertEqual(value ?? .null, expected, name)
-            // The text the host dedupes on parses back to the same value.
-            if let value {
-                let reparsed = try JSONSerialization.jsonObject(with: Data(value.compactString.utf8))
-                XCTAssertEqual(CardJSON(any: reparsed), expected, name)
-            }
-        }
+        XCTAssertEqual(try fixture()["rowKeys"] as? [String], AppRecords.rowKeys)
     }
 
     // VAPP-187: `ownership` — the policy, the refusal and `canChangeCases`
@@ -210,14 +119,6 @@ final class AppRecordsTests: XCTestCase {
                 item["label"] as? String
             )
         }
-    }
-
-    func testMonthHelpers() {
-        XCTAssertEqual(AppRecords.shiftMonth("2026-01", by: -1), "2025-12")
-        XCTAssertEqual(AppRecords.shiftMonth("2026-12", by: 1), "2027-01")
-        XCTAssertEqual(AppRecords.monthLabel("2026-10"), "October 2026")
-        XCTAssertEqual(AppRecords.monthDays("2028-02").count, 29)
-        XCTAssertEqual(AppRecords.monthDays("2026-10").first?.weekday, "Thu")
     }
 
     /// A synced row's timestamps reach the binding as the web host's

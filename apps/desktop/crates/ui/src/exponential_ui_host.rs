@@ -13,8 +13,9 @@
 //!   VAPP-119 `exp:issues` / `exp:boards` / `exp:members` / `exp:sessions`
 //!   / `exp:comments` / `exp:attachments` →
 //!   `domain::app_sources::source_value` over the scope team's synced rows;
-//!   VAPP-122 `exp:records?kind=…` → `domain::app_records::records_value`
-//!   over the hosting app's synced `app_records` rows, [`HostScope`];
+//!   VAPP-122 `exp:records?kind=…` → eUI's one evaluator (VAPP-189:
+//!   `eui_core::host::records_value`, fixtures/records-query.json) over the
+//!   hosting app's synced `app_records` rows, [`HostScope`];
 //!   VAPP-161 the format's neutral `records:<kind>?…` = the same binding);
 //! - VAPP-122 `harness.records.upsert {kind, data, id?}` and
 //!   `harness.records.delete {id}` (VAPP-161: also `records.upsert` /
@@ -155,7 +156,7 @@ enum Query {
     /// VAPP-119 `exp:<name>?…` for a `domain::app_sources` name.
     Source { name: String, params: BTreeMap<String, String> },
     /// VAPP-122 `exp:records?kind=…` (VAPP-161: or `records:<kind>?…`).
-    Records(domain::app_records::RecordsQuery),
+    Records(eui_core::host::RecordsQuery),
 }
 
 /// VAPP-122: the app a host keeps records for (`exp:records`, the
@@ -226,7 +227,7 @@ pub(crate) fn iso_millis(timestamp: &str) -> String {
 
 /// `exp:records` over the cache: the scope's app (or the `app=` slug of the
 /// same team), names of the rows' authors, the clock = `now`.
-pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &domain::app_records::RecordsQuery, now: &str) -> Value {
+pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &eui_core::host::RecordsQuery, now: &str) -> Value {
     let scope = feed.scope.as_ref();
     let app_id: Option<&str> = match &query.app {
         Some(slug) => feed
@@ -236,11 +237,11 @@ pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &domain::app_records
             .map(|a| a.id.as_str()),
         None => scope.map(|s| s.app_id.as_str()),
     };
-    let rows: Vec<domain::app_records::RecordRowInput> = feed
+    let rows: Vec<eui_core::host::RecordRowRef> = feed
         .records
         .iter()
         .filter(|r| app_id.is_some_and(|id| r.app_id == id))
-        .map(|r| domain::app_records::RecordRowInput {
+        .map(|r| eui_core::host::RecordRowRef {
             id: &r.id,
             kind: &r.kind,
             data: &r.data,
@@ -250,8 +251,8 @@ pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &domain::app_records
             updated_at: &r.updated_at,
         })
         .collect();
-    let ctx = domain::app_records::RecordsContext { me: feed.me.as_deref(), now, names: &feed.names };
-    domain::app_records::records_value(&rows, query, ctx).unwrap_or(Value::Null)
+    let ctx = eui_core::host::RecordsContext { me: feed.me.as_deref(), now, names: &feed.names };
+    eui_core::host::records_value(&rows, query, ctx).unwrap_or(Value::Null)
 }
 
 struct Sub {
@@ -313,14 +314,16 @@ fn now_iso() -> String {
 
 /// What a source of the `exp` or the `records` scheme reads.
 fn query_of(source: &ParsedSource) -> Option<Query> {
-    if let Some(params) = domain::app_records::records_source_params(&source.scheme, &source.name, &source.params) {
-        return Some(Query::Records(domain::app_records::parse_records_query(&params)));
+    // VAPP-189: the neutral `records:<kind>?q` (the name wins) or `exp:records?kind=<kind>&q`.
+    if let Some(query) = eui_core::host::parse_records_source(source) {
+        return Some(Query::Records(query));
     }
     if source.scheme != "exp" {
         return None;
     }
     match source.name.as_str() {
         "devices" => Some(Query::Devices),
+        "records" => Some(Query::Records(eui_core::host::parse_records_query(&source.params, None))),
         name if domain::app_sources::is_source(name) => {
             Some(Query::Source { name: name.to_string(), params: source.params.clone() })
         }

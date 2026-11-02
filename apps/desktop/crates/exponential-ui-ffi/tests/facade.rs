@@ -1211,3 +1211,28 @@ fn dotlottie_machine_reads_the_first() {
     assert_eq!(got, a);
     assert_eq!(motion_read_dotlottie_machine(eui_motion::dotlottie::write("x", &anim, &[], &[])).unwrap(), "");
 }
+
+/// VAPP-189: `fixtures/records-query.json` through the three free functions,
+/// exactly as the Swift (`RecordsQueryTests`) and Compose (`RecordsQueryTest`)
+/// suites replay it.
+#[test]
+fn the_records_query_fixture_replays_through_the_free_functions() {
+    let f = fixture("records-query.json");
+    let cases = |key: &str| f[key].as_array().unwrap().clone();
+    let canon = |s: &str| serde_json::from_str::<Value>(s).unwrap();
+    for c in cases("parseCases") {
+        let got = parse_records_query_json(c["params"].to_string(), c["kind"].as_str().map(str::to_string)).unwrap();
+        assert_eq!(canon(&got), c["expected"], "parse: {}", c["name"]);
+    }
+    for c in cases("sourceCases") {
+        let got = parse_records_source_json(c["source"].as_str().unwrap().to_string()).map(|s| canon(&s)).unwrap_or(Value::Null);
+        assert_eq!(got, c["expected"], "source: {}", c["name"]);
+    }
+    for c in cases("valueCases") {
+        let query = parse_records_query_json(c["params"].to_string(), c["kind"].as_str().map(str::to_string)).unwrap();
+        let ctx = json!({"me": c["me"], "now": c["now"], "names": c["names"]});
+        let got = records_value_json(c["rows"].to_string(), query, ctx.to_string()).unwrap();
+        assert!(eui_core::json::equal(&canon(&got), &c["expected"]), "value: {}\n got {got}", c["name"]);
+    }
+    assert!(records_value_json("[]".into(), "{}".into(), "{}".into()).is_err());
+}

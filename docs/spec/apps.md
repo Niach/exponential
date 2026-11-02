@@ -376,9 +376,9 @@ Today a binding is a URL (`exp:records?kind=entry&mine=1&by=date&sum=hours`). UR
 
 **One evaluator:**
 
-- A pure TS reference (`@exponential_app/eui/host/query`) and its Rust twin in `eui-core`, fixture-locked (`fixtures/records-query.json`, ×6 renderers).
+- ✅ (S1, #VAPP-189) A pure TS reference (`@exponential_app/eui/host/query`) and its Rust twin in `eui-core` (`host::query`), fixture-locked (`fixtures/records-query.json`, replayed in TS, Rust, Swift and Kotlin). The URL params parse INTO a structured `RecordsQuery` (`from, app, mine, user, where, sort[], limit, sum, month`); the JSON form (Q1) adds keys next to these.
 - Web and the server broker use TS. Desktop, iOS, Android, Spezl and eDE use eui-core (iOS and Android already link it through UniFFI for painting).
-- This removes the four hand-written derivations (`AppRecords.swift`, `AppRecords.kt`, `app_records.rs`, the TS host) that exist today.
+- ✅ The four hand-written derivations (`AppRecords.swift`, `AppRecords.kt`, `app_records.rs`, `app-records.ts`) are gone; their Data tab, ownership and on-behalf helpers stay.
 - Queries run **locally** over the synced store. A query over more rows than the device holds (web on-demand) asks the server, which uses the same evaluator over SQL.
 
 ### 4.2 Expressions (🆕 Q2)

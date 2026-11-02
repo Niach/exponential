@@ -6,7 +6,8 @@
 //   fixtures/host-transport.json   JSONL / SSE / MCP decoding, the MCP action call
 //   fixtures/host-policy.json      function gate, combine, urls, media, sources, negotiation
 //   fixtures/host-router.json      package validation + message flows → ops
-//   fixtures/host-package.json     VAPP-161 records queries/values, tool consent, extensions, canonical JSON, signatures
+//   fixtures/host-package.json     VAPP-161 tool consent, extensions, canonical JSON, signatures
+//   fixtures/records-query.json    VAPP-189 the records query: parse, sources, values (src/host/query.ts)
 
 import { createPrivateKey, sign as edSign } from "node:crypto"
 import { readFileSync } from "node:fs"
@@ -28,6 +29,7 @@ import {
   supportedCatalogIds,
   validatePackage,
   validateRecord,
+  parseRecordsQuery,
   parseRecordsSource,
   recordsValue,
   toolConsent,
@@ -106,6 +108,7 @@ export function renderHost(): Record<string, string> {
     "fixtures/host-policy.json": json(policy),
     "fixtures/host-router.json": json(router),
     "fixtures/host-package.json": json(pkgFixture),
+    "fixtures/records-query.json": json(renderRecordsQuery(read(`fixtures/records-query.json`))),
   }
 }
 
@@ -119,16 +122,27 @@ function setPointer(root: Record<string, unknown>, pointer: string, value: unkno
 
 const PKCS8_ED25519_PREFIX = `302e020100300506032b657004220420`
 
-function renderPackageFixture(f: Record<string, any>): Record<string, unknown> {
-  const parsed = (source: string) => {
-    const p = parseSource(source)
-    return p ? parseRecordsSource(p) : null
-  }
-  f.recordsQuery = f.recordsQuery.map((c: Case) => ({ source: c.source, expected: parsed(c.source as string) }))
-  f.recordsValue = f.recordsValue.map((c: Case) => ({
+/** VAPP-189: `parseCases` = parseRecordsQuery(params, kind), `sourceCases` =
+ *  parseRecordsSource(parseSource(source)), `valueCases` = recordsValue(rows,
+ *  parseRecordsQuery(params, kind), {me, now, names}). */
+function renderRecordsQuery(f: Record<string, any>): Record<string, unknown> {
+  f.parseCases = f.parseCases.map((c: Case) => ({ ...c, expected: parseRecordsQuery(c.params as Record<string, string>, c.kind as string | undefined) }))
+  f.sourceCases = f.sourceCases.map((c: Case) => {
+    const p = parseSource(c.source as string)
+    return { ...c, expected: p ? parseRecordsSource(p) : null }
+  })
+  f.valueCases = f.valueCases.map((c: Case) => ({
     ...c,
-    expected: recordsValue(c.rows as RecordRow[], parsed(c.source as string)!, { me: c.me as string | null, names: c.names as Record<string, string> }),
+    expected: recordsValue(c.rows as RecordRow[], parseRecordsQuery(c.params as Record<string, string>, c.kind as string | undefined), {
+      me: c.me as string | null,
+      now: c.now as string,
+      names: c.names as Record<string, string>,
+    }),
   }))
+  return f
+}
+
+function renderPackageFixture(f: Record<string, any>): Record<string, unknown> {
   f.consent = f.consent.map((c: Case) => {
     const tools = ((c.package as { tools?: Record<string, PackageTool> }).tools ?? {}) as Record<string, PackageTool>
     return {
