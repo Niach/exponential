@@ -25,6 +25,32 @@ import { dayFromNumber, dayNumber, daysInMonth, formatDay, isoWeek, parseDay, we
 /** The cost caps (spec §4.2): characters (code points), nesting, steps. */
 export const EXPRESSION_LIMITS = { maxLength: 1000, maxDepth: 32, maxSteps: 10_000 } as const
 
+/** VAPP-194 (E1): what calling a function does. Expressions are PURE: a
+ *  binding, `visible`, a computed field or a query param never writes. A
+ *  `write` changes records or the surface data, a `host` function reaches
+ *  outside the surface (a toast, an MCP call, a link, another action); both
+ *  run only as steps of a package action (host/actions.ts). */
+export type FunctionEffect = `pure` | `write` | `host`
+
+/** The functions that write (records, the surface data model). */
+export const WRITE_FUNCTIONS: readonly string[] = [`set`, `records.upsert`, `records.delete`, `records.batch`, `harness.records.upsert`, `harness.records.delete`]
+/** The built-in host functions; every name under a host prefix is one too. */
+export const HOST_FUNCTIONS: readonly string[] = [`openUrl`, `bind`]
+export const HOST_FUNCTION_PREFIXES: readonly string[] = [`actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`]
+
+/** The effect of a function by name: the signature table's (every
+ *  expression function, every bind-time function) is `pure`. */
+export function functionEffect(name: string): FunctionEffect {
+  if (WRITE_FUNCTIONS.includes(name)) return `write`
+  if (HOST_FUNCTIONS.includes(name) || HOST_FUNCTION_PREFIXES.some((p) => name.startsWith(p))) return `host`
+  return `pure`
+}
+
+/** Why an effectful function is refused in a pure place. */
+export function effectWords(name: string, effect: FunctionEffect): string {
+  return `${name} ${effect === `write` ? `writes` : `is a host function`}`
+}
+
 /** A type in the checker, spelled as JSON: `"number" | "string" | "bool" |
  *  "null" | "date" | "timestamp" | "map" | "dyn"`, `[T]` = a list of T, an
  *  object = a map with exactly those fields (a record row). */
@@ -243,6 +269,8 @@ interface FunctionDef {
   run: (args: unknown[], env: Required<Pick<ExpressionEnv, `now`>> & Zone) => unknown
   /** The result type, from the argument types. */
   returns: (types: ExprType[]) => ExprType
+  /** Every expression function is pure (`functionEffect`). */
+  effect?: `pure`
 }
 
 const always =
@@ -539,6 +567,16 @@ function tokenize(cs: string[]): Token[] {
   return out
 }
 
+/** `a.b.c` as a name (a chain of plain names), else null. */
+function dottedName(node: ExprNode): string | null {
+  if (node.k === `id`) return node.name
+  if (node.k !== `field`) return null
+  const of = dottedName(node.of)
+  return of === null ? null : `${of}.${node.name}`
+}
+
+const rootAt = (node: ExprNode): number => (node.k === `field` ? rootAt(node.of) : node.at)
+
 class Parser {
   private i = 0
   private depth = 0
@@ -636,7 +674,12 @@ class Parser {
         if (name.t !== `id`) this.unexpected()
         this.next()
         if (this.isOp(`(`)) {
-          if (!MACROS.has(name.v as string)) fail(`at ${name.at}: unknown method ${name.v}`)
+          if (!MACROS.has(name.v as string)) {
+            const dotted = dottedName(node)
+            const effect = dotted === null ? `pure` : functionEffect(`${dotted}.${name.v}`)
+            if (effect !== `pure`) fail(`at ${rootAt(node)}: ${effectWords(`${dotted}.${name.v}`, effect)}: an expression is pure, use an action step`)
+            fail(`at ${name.at}: unknown method ${name.v}`)
+          }
           if (this.inBody > 0) fail(`at ${name.at}: nested comprehensions are not allowed`)
           this.next()
           const v = this.peek()
@@ -700,7 +743,11 @@ class Parser {
       if (name === `true` || name === `false`) return { k: `lit`, v: name === `true`, at: t.at }
       if (name === `null`) return { k: `lit`, v: null, at: t.at }
       if (this.isOp(`(`)) {
-        if (!Object.prototype.hasOwnProperty.call(EXPRESSION_FUNCTIONS, name)) fail(`at ${t.at}: unknown function ${name}`)
+        if (!Object.prototype.hasOwnProperty.call(EXPRESSION_FUNCTIONS, name)) {
+          const effect = functionEffect(name)
+          if (effect !== `pure`) fail(`at ${t.at}: ${effectWords(name, effect)}: an expression is pure, use an action step`)
+          fail(`at ${t.at}: unknown function ${name}`)
+        }
         this.next()
         return { k: `call`, fn: name, args: this.list(`)`), at: t.at }
       }
@@ -744,7 +791,7 @@ interface Scope {
 }
 
 class Evaluator {
-  private steps = 0
+  steps = 0
   constructor(
     private readonly vars: Record<string, unknown>,
     private readonly env: Required<Pick<ExpressionEnv, `now`>> & Zone,
@@ -873,6 +920,18 @@ class Evaluator {
         return num(node.op === `/` ? a / b : a % b)
       }
     }
+  }
+}
+
+/** VAPP-194: evaluate a parsed tree and count its steps (an action spends
+ *  one budget over all of its expressions). */
+export function evaluateCounted(ast: ExprNode, vars: Record<string, unknown>, env: ExpressionEnv = {}): { result: ExpressionResult; steps: number } {
+  const ev = new Evaluator(vars, fullEnv(env), env.maxSteps ?? EXPRESSION_LIMITS.maxSteps)
+  try {
+    return { result: { value: ev.ev(ast, null) ?? null }, steps: ev.steps }
+  } catch (e) {
+    if (e instanceof ExprError) return { result: { error: e.message }, steps: ev.steps }
+    throw e
   }
 }
 

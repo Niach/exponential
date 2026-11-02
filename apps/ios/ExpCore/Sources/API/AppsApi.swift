@@ -173,6 +173,20 @@ private struct AppRecordDeleteInput: Encodable {
     let recordId: String
 }
 
+/// VAPP-194 `apps.records.batch`: a package action's record writes
+/// (`{op: "upsert", kind, data, id?}` | `{op: "delete", id}`, the plan's
+/// `writes` passed through unchanged) as ONE transaction.
+private struct AppRecordBatchInput: Encodable {
+    let id: String
+    let writes: EncodableJSON
+}
+
+/// `apps.records.batch`'s answer: each write's record id, in order.
+public struct AppRecordBatched: Decodable, Sendable, Equatable {
+    public let txid: Double?
+    public let ids: [String]
+}
+
 /// `apps.records.upsert`'s answer: the row's id and whether it is new.
 public struct AppRecordUpserted: Decodable, Sendable, Equatable {
     public let id: String
@@ -250,6 +264,17 @@ public final class AppsApi: Sendable {
             input: AppRecordUpsertInput(
                 id: appId, kind: kind, data: EncodableJSON(value: .object(data)), recordId: recordId, author: author
             )
+        )
+    }
+
+    /// VAPP-194 `apps.records.batch` as the viewer: a package action's
+    /// writes, all or none (the server checks each against its kind's
+    /// schema, the caps and the quota again).
+    public func recordsBatch(accountId: String, appId: String, writes: [CardJSON]) async throws -> AppRecordBatched {
+        try await trpc.mutation(
+            accountId: accountId,
+            path: "apps.records.batch",
+            input: AppRecordBatchInput(id: appId, writes: EncodableJSON(value: .array(writes)))
         )
     }
 

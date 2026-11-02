@@ -22,7 +22,9 @@ import ExponentialUI
 //     `harness.mcp` (a tools/call on the instance's /api/mcp as the viewer),
 //     `harness.records.upsert` / `.delete` (tRPC `apps.records.*`, no
 //     consent card: the app's own rows; a refusal = the failed-action toast;
-//     VAPP-161 the neutral `records.upsert` / `.delete` = the same closures);
+//     VAPP-161 the neutral `records.upsert` / `.delete` = the same closures;
+//     VAPP-194 `records.batch` = a package action's writes as ONE
+//     `apps.records.batch`, its failure = `onActionFailed`'s toast);
 //   - extensions: the app extension (`packages/ui/exponential-ui/extension.json`,
 //     bundled) with the `IconDisc` + `LiveDot` painters (Exponential ships
 //     no built-in apps: only the team's packages install);
@@ -261,6 +263,24 @@ final class ExpAppHost {
                 throw error
             }
         }
+        // VAPP-194: a package action's writes as ONE transaction (the server
+        // checks them again); a refusal lands nothing and is the action's
+        // failure: `onActionFailed` shows the failed-action toast (not here,
+        // so it shows once).
+        let recordsBatch: HostFunction = { args, _ in
+            do {
+                guard let appId = scope.appId else { throw AppHostMcp.CallError(message: "No app to keep records for") }
+                let writes = (args["writes"]?.array ?? []).compactMap { write in
+                    CardJSON(any: try? JSONSerialization.jsonObject(with: Data(write.json.utf8)))
+                }
+                let result = try await appsApi.recordsBatch(accountId: accountId, appId: appId, writes: writes)
+                return ["ids": result.ids]
+            } catch let error as AppHostMcp.CallError {
+                throw error
+            } catch {
+                throw AppHostMcp.CallError(message: error.trpcUserMessage)
+            }
+        }
         host = ExponentialHost(HostOptions(
             functions: actions.merging([
                 "harness.toast": { args, _ in
@@ -303,6 +323,7 @@ final class ExpAppHost {
                 "harness.records.delete": recordsDelete,
                 "records.upsert": recordsUpsert,
                 "records.delete": recordsDelete,
+                "records.batch": recordsBatch,
             ]) { _, own in own },
             sources: [
                 "exp": { source, emit in
@@ -359,7 +380,18 @@ final class ExpAppHost {
             ),
             theme: ThemeHandle.builtin(appHostThemeId),
             mode: .dark,
-            plugin: AppHostPlugin(origin: origin ?? "")
+            plugin: AppHostPlugin(origin: origin ?? ""),
+            // VAPP-194: a package action runs as the viewer, in the device's
+            // zone (the surfaces' formatter's); one that landed nothing = the
+            // failed-action toast.
+            me: me,
+            zone: TimeZoneOffset(.current),
+            onActionFailed: { failure in
+                Toaster.shared.error(
+                    FeedbackStates.Errors.title(verb: "save", thing: "the record"),
+                    description: failure.message
+                )
+            }
         ))
     }
 

@@ -16,7 +16,7 @@ pub const MESSAGE_KINDS: &[&str] = &["createSurface", "updateComponents", "updat
 /// What the router turns a message into.
 pub const OP_KINDS: &[&str] = &["create", "components", "data", "bind", "delete", "send"];
 pub const HOST_ERROR_CODES: &[&str] =
-    &["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED", "SOURCE_DENIED", "RENDER_FAILED"];
+    &["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED", "SOURCE_DENIED", "RENDER_FAILED", "ACTION_FAILED"];
 pub const VALIDATION_FAILED: &str = "VALIDATION_FAILED";
 pub const INVALID_MESSAGE: &str = "INVALID_MESSAGE";
 pub const UNSUPPORTED_CATALOG: &str = "UNSUPPORTED_CATALOG";
@@ -28,6 +28,9 @@ pub const FUNCTION_DENIED: &str = "FUNCTION_DENIED";
 pub const SOURCE_DENIED: &str = "SOURCE_DENIED";
 /// A component's painter failed (`paint.errorCode`).
 pub const RENDER_FAILED: &str = "RENDER_FAILED";
+/// VAPP-194: a package action that landed nothing (a false require, a
+/// refused write or call).
+pub const ACTION_FAILED: &str = "ACTION_FAILED";
 pub const FUNCTION_DECISIONS: &[&str] = &["allow", "ask", "deny", "not_found"];
 /// The default function policy's `default`.
 pub const DEFAULT_FUNCTION_DECISION: &str = "allow";
@@ -65,7 +68,7 @@ pub const RECORD_KIND_PATTERN: &str = "^[a-z][a-z0-9_]{0,31}$";
 
 /// `catalog/host.json` without its `$comment`s, rebuilt from the constants.
 pub fn host_contract() -> Value {
-    use super::{exposes as ex, record_store as rs, signature as sig, tools};
+    use super::{actions as act, exposes as ex, record_store as rs, signature as sig, tools};
     json!({
         "version": HOST_CONTRACT_VERSION,
         "a2uiVersion": A2UI_VERSION,
@@ -94,6 +97,13 @@ pub fn host_contract() -> Value {
                 "scheme": rs::RECORDS_SCHEME,
                 "functions": rs::RECORDS_FUNCTIONS,
                 "query": {"sortDefault": rs::RECORDS_SORT_DEFAULT, "orderDefault": rs::RECORDS_ORDER_DEFAULT, "limitDefault": rs::RECORDS_LIMIT_DEFAULT, "limitMax": rs::RECORDS_LIMIT_MAX, "queryNamePattern": super::package::QUERY_NAME_PATTERN, "reserved": rs::RECORDS_RESERVED_PARAMS},
+            },
+            "actions": {
+                "limits": {"actions": act::ACTION_LIMIT_ACTIONS, "steps": act::ACTION_LIMIT_STEPS, "maxSteps": act::ACTION_LIMIT_MAX_STEPS},
+                "namePattern": act::ACTION_NAME_PATTERN,
+                "stepKinds": act::ACTION_STEP_KINDS,
+                "callPrefix": act::ACTION_CALL_PREFIX,
+                "batchFunction": act::RECORDS_BATCH_FUNCTION,
             },
             "tools": {"idPattern": tools::TOOL_ID_PATTERN, "kinds": tools::TOOL_KINDS, "transports": tools::TOOL_TRANSPORTS, "functionPrefix": tools::TOOL_FUNCTION_PREFIX},
             "exposes": {

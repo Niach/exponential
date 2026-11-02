@@ -295,6 +295,9 @@ pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], exte
     }
     // VAPP-191: every expression in a template parses and type-checks.
     issues.extend(super::expressions::validate_package_expressions(p));
+    // VAPP-194: bindings are pure; actions are checked step by step.
+    issues.extend(super::actions::validate_package_effects(p));
+    issues.extend(super::actions::validate_package_actions(p));
     if let Some(tools) = p.get("tools") {
         issues.extend(validate_tools(tools));
     }

@@ -38,7 +38,7 @@ describe(`one records service`, () => {
 
   it(`every entry point calls the service`, () => {
     const router = read(`lib/trpc/apps.ts`)
-    for (const fn of [`listRecords(`, `upsertRecord(`, `deleteRecord(`, `importRecords(`]) expect(router).toContain(fn)
+    for (const fn of [`listRecords(`, `upsertRecord(`, `deleteRecord(`, `importRecords(`, `commitRecordBatch(`]) expect(router).toContain(fn)
     const broker = read(`lib/emcp/apps-broker.ts`)
     for (const fn of [`getAppRecord(`, `queryAppRecords(`, `upsertRecord(`]) expect(broker).toContain(fn)
     // The MCP apps noun's records ops run the tRPC router (and so the service).
@@ -50,7 +50,7 @@ describe(`one records service`, () => {
     const service = read(`lib/apps/records-service.ts`)
     // Each query over appRecords sits inside an asEapps/inRecordsScope callback.
     const scoped = (service.match(/(asEapps|inRecordsScope)\(/g) ?? []).length
-    expect(scoped).toBeGreaterThanOrEqual(7)
+    expect(scoped).toBeGreaterThanOrEqual(8)
     expect(service).toContain(`SET LOCAL ROLE`)
     expect(service).toMatch(/statement_timeout/)
   })
