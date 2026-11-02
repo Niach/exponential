@@ -15,11 +15,11 @@
 - La page Appareils affiche chaque appareil sous forme de carte
 - Les discussions, l'écran de nouvelle discussion et les Réglages ressemblent aux autres apps
 - Zoomez sur les images : chaque visionneuse zoome et se déplace
-- Claude reste connecté par défaut : une nouvelle connexion dure un an
+- Les connexions Claude utilisent à nouveau la connexion par navigateur
 - Les tableaux larges défilent horizontalement au lieu de comprimer leurs colonnes
 - Le bouton Merge affiche les vérifications CI de ta pull request
 - Le travail d'une session est enregistré au fil de l'eau et continue sur n'importe quel appareil
-- Les connexions permanentes affichent leur usage sur 5 heures et sur la semaine
+- Conserver la connexion garde les exécutions d'un compte Claude connectées pendant un an, sans rien saisir
 - Les heures indiquent « à l'instant » au lieu de « dans 0 seconde »
 - Une session en attente sur un appareil hors ligne passe sur ton autre machine
 - Un démarrage qui n'a jamais commencé affiche « Démarrage impossible » au lieu de rester inactif
@@ -28,6 +28,6 @@
 - Les chats en direct se redessinent moins pendant qu'un agent travaille, le défilement reste fluide
 - Les enregistrements des apps appartiennent à leur auteur ; les propriétaires de l'équipe peuvent en saisir pour d'autres
 - Les agents peuvent afficher de petites animations dans leurs cartes
-- Rester connecté depuis le téléphone affiche à nouveau le lien et le code, et un code refusé est signalé
-- Nommez un compte Rester connecté quand vous l'ajoutez
+- Les connexions lancées depuis le téléphone affichent à nouveau le lien et le code, et un code refusé est signalé
+- La carte d'un compte indique quelle connexion est active
 - Fermer une connexion l'arrête sur la machine

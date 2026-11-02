@@ -15,11 +15,11 @@
 - Stranica Uređaji prikazuje svaki uređaj kao karticu
 - Razgovori, zaslon novog razgovora i Postavke izgledaju kao u ostalim aplikacijama
 - Zumiranje slika: svaki preglednik slika zumira i pomiče
-- Claude prema zadanim postavkama ostaje prijavljen: nova prijava traje godinu dana
+- Prijave u Claude ponovno koriste prijavu putem preglednika
 - Široke tablice pomiču se vodoravno umjesto da sabijaju stupce
 - Gumb Merge prikazuje CI provjere tvog pull requesta
 - Rad sesije sprema se usput, pa se nastavlja na bilo kojem uređaju
-- Trajne prijave prikazuju svoju 5-satnu i tjednu potrošnju
+- Zadrži prijavu drži pokretanja Claude računa prijavljenima godinu dana, bez upisivanja
 - Vremena pišu „upravo sada” umjesto „za 0 sekundi”
 - Sesija na čekanju na izvanmrežnom uređaju prelazi na tvoje drugo računalo
 - Pokretanje koje nikad nije počelo piše „Nije moguće pokrenuti” umjesto da miruje
@@ -28,6 +28,6 @@
 - Chatovi uživo manje se ponovno iscrtavaju dok agent radi, pa pomicanje ostaje glatko
 - Zapisi aplikacija pripadaju svom autoru; vlasnici tima mogu unositi zapise za druge
 - Agenti mogu prikazivati male animacije u svojim karticama
-- Ostani prijavljen s telefona ponovno prikazuje poveznicu i kôd, a odbijeni kôd to javlja
-- Imenuj račun Ostani prijavljen kad ga dodaješ
+- Prijave pokrenute s telefona ponovno prikazuju poveznicu i kôd, a odbijeni kôd to javlja
+- Kartica računa pokazuje koja je prijava aktivna
 - Zatvaranje prijave zaustavlja je na računalu

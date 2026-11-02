@@ -15,11 +15,11 @@
 - The Devices page shows each device as a card
 - Chats, the new-chat screen and Settings look the same as on the other apps
 - Zoom into pictures: every picture viewer zooms and pans
-- Claude stays signed in by default: a new login lasts a year
+- Claude sign-ins use the browser login again
 - Wide tables scroll sideways instead of squeezing their columns
 - The Merge button shows your pull request's CI checks
 - A session's work is saved as it goes, so it continues on any device
-- Keep signed in logins show their 5-hour and weekly usage
+- Persist login keeps a Claude account's runs signed in for a year, with nothing to type
 - Times read "just now" instead of "in 0 seconds"
 - A queued session on an offline device moves to your other machine
 - A start that never began says "Couldn't start" instead of sitting idle
@@ -28,6 +28,6 @@
 - Live chats redraw less while an agent works, so scrolling stays smooth
 - App records belong to their author; team owners can enter records for others
 - Agents can show small animations in their cards
-- Keep signed in from your phone shows its link and code again, and a rejected code says so
-- Name a Keep signed in account when you add it
+- Sign-ins started from your phone show their link and code again, and a rejected code says so
+- An account's card says which login is active
 - Closing a sign-in stops it on the machine

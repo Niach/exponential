@@ -15,11 +15,11 @@
 - Pagina Dispozitive afișează fiecare dispozitiv ca un card
 - Conversațiile, ecranul de conversație nouă și Setările arată la fel ca în celelalte aplicații
 - Mărește imaginile: fiecare vizualizator de imagini face zoom și deplasare
-- Claude rămâne conectat implicit: o nouă autentificare durează un an
+- Autentificările Claude folosesc din nou autentificarea din browser
 - Tabelele late se derulează lateral în loc să-și înghesuie coloanele
 - Butonul Merge arată verificările CI ale pull request-ului tău
 - Munca unei sesiuni se salvează pe parcurs, așa că continuă pe orice dispozitiv
-- Autentificările permanente își arată utilizarea pe 5 ore și pe săptămână
+- Păstrează autentificarea menține rulările unui cont Claude conectate timp de un an, fără să tastezi nimic
 - Orele arată „chiar acum” în loc de „peste 0 secunde”
 - O sesiune în așteptare pe un dispozitiv offline trece pe celălalt calculator al tău
 - O pornire care n-a început niciodată arată „Nu a putut porni” în loc să stea inactivă
@@ -28,6 +28,6 @@
 - Chaturile live se redesenează mai rar cât timp lucrează un agent, așa că derularea rămâne fluidă
 - Înregistrările aplicațiilor aparțin autorului lor; proprietarii echipei pot introduce înregistrări pentru alții
 - Agenții pot afișa mici animații în cardurile lor
-- Rămâi conectat de pe telefon afișează din nou linkul și codul, iar un cod respins este semnalat
-- Denumește un cont Rămâi conectat când îl adaugi
+- Autentificările pornite de pe telefon afișează din nou linkul și codul, iar un cod respins este semnalat
+- Cardul unui cont arată ce autentificare este activă
 - Închiderea unei autentificări o oprește pe mașină

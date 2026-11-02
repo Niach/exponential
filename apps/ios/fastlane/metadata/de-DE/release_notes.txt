@@ -15,11 +15,11 @@
 - Die Geräteseite zeigt jedes Gerät als Karte
 - Chats, der Bildschirm für neue Chats und die Einstellungen sehen aus wie in den anderen Apps
 - In Bilder zoomen: jede Bildansicht zoomt und verschiebt
-- Claude bleibt standardmäßig angemeldet: eine neue Anmeldung hält ein Jahr
+- Claude-Anmeldungen nutzen wieder die Browser-Anmeldung
 - Breite Tabellen scrollen seitlich, statt ihre Spalten zu quetschen
 - Die Merge-Schaltfläche zeigt die CI-Checks deines Pull Requests
 - Die Arbeit einer Sitzung wird laufend gesichert, so geht sie auf jedem Gerät weiter
-- Dauerhaft angemeldete Logins zeigen ihre 5-Stunden- und Wochennutzung
+- „Anmeldung behalten“ hält die Läufe eines Claude-Kontos ein Jahr lang angemeldet, ohne dass du etwas eingibst
 - Zeiten lauten „gerade eben“ statt „in 0 Sekunden“
 - Eine wartende Sitzung auf einem Offline-Gerät wechselt auf dein anderes Gerät
 - Ein Start, der nie begonnen hat, zeigt „Konnte nicht starten“ statt untätig zu warten
@@ -28,6 +28,6 @@
 - Live-Chats zeichnen weniger neu, während ein Agent arbeitet, damit das Scrollen flüssig bleibt
 - App-Einträge gehören ihrem Autor; Team-Owner können Einträge für andere anlegen
 - Agenten können kleine Animationen in ihren Karten zeigen
-- „Angemeldet bleiben“ vom Handy zeigt wieder Link und Code, und ein abgelehnter Code wird gemeldet
-- Gib einem „Angemeldet bleiben“-Konto beim Hinzufügen einen Namen
+- Vom Handy gestartete Anmeldungen zeigen wieder Link und Code, und ein abgelehnter Code wird gemeldet
+- Die Karte eines Kontos zeigt, welche Anmeldung aktiv ist
 - Das Schließen einer Anmeldung beendet sie auf dem Gerät

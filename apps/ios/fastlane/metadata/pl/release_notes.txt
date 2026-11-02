@@ -15,11 +15,11 @@
 - Strona Urządzenia pokazuje każde urządzenie jako kartę
 - Czaty, ekran nowego czatu i Ustawienia wyglądają tak samo jak w innych aplikacjach
 - Powiększanie obrazów: każda przeglądarka obrazów powiększa i przesuwa
-- Claude domyślnie pozostaje zalogowany: nowe logowanie trwa rok
+- Logowanie do Claude znów odbywa się przez przeglądarkę
 - Szerokie tabele przewijają się w bok zamiast ściskać kolumny
 - Przycisk Merge pokazuje testy CI twojego pull requesta
 - Praca sesji zapisuje się na bieżąco, więc trwa dalej na każdym urządzeniu
-- Stałe logowania pokazują zużycie 5-godzinne i tygodniowe
+- Zachowaj logowanie utrzymuje przebiegi konta Claude zalogowane przez rok, bez wpisywania czegokolwiek
 - Czas pokazuje „przed chwilą” zamiast „za 0 sekund”
 - Sesja w kolejce na urządzeniu offline przenosi się na twój drugi komputer
 - Start, który nigdy się nie zaczął, pokazuje „Nie udało się uruchomić” zamiast czekać
@@ -28,6 +28,6 @@
 - Czaty na żywo rzadziej się przerysowują, gdy agent pracuje, więc przewijanie pozostaje płynne
 - Rekordy aplikacji należą do ich autora; właściciele zespołu mogą wprowadzać rekordy za innych
 - Agenci mogą pokazywać małe animacje na swoich kartach
-- Pozostań zalogowany z telefonu znów pokazuje link i kod, a odrzucony kod jest zgłaszany
-- Nadaj nazwę kontu Pozostań zalogowany przy dodawaniu
+- Logowania rozpoczęte z telefonu znów pokazują link i kod, a odrzucony kod jest zgłaszany
+- Karta konta pokazuje, które logowanie jest aktywne
 - Zamknięcie logowania zatrzymuje je na komputerze

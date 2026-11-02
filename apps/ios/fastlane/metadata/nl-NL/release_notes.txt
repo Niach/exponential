@@ -15,11 +15,11 @@
 - De pagina Apparaten toont elk apparaat als kaart
 - Chats, het scherm voor een nieuwe chat en Instellingen zien eruit als in de andere apps
 - Inzoomen op afbeeldingen: elke afbeeldingsviewer zoomt en schuift
-- Claude blijft standaard ingelogd: een nieuwe login houdt een jaar
+- Claude-aanmeldingen gebruiken weer de browseraanmelding
 - Brede tabellen scrollen zijwaarts in plaats van hun kolommen samen te persen
 - De Merge-knop toont de CI-checks van je pull request
 - Het werk van een sessie wordt onderweg bewaard, zodat het op elk apparaat verdergaat
-- Blijf ingelogd-logins tonen hun gebruik per 5 uur en per week
+- Aanmelding bewaren houdt de runs van een Claude-account een jaar aangemeld, zonder iets te typen
 - Tijden tonen "zojuist" in plaats van "over 0 seconden"
 - Een wachtende sessie op een offline apparaat verhuist naar je andere machine
 - Een start die nooit begon toont "Kon niet starten" in plaats van stil te staan
@@ -28,6 +28,6 @@
 - Live chats tekenen minder vaak opnieuw terwijl een agent werkt, zodat scrollen soepel blijft
 - App-records zijn van hun auteur; teameigenaren kunnen records voor anderen invoeren
 - Agents kunnen kleine animaties in hun kaarten tonen
-- Ingelogd blijven vanaf je telefoon toont weer link en code, en een geweigerde code wordt gemeld
-- Geef een Ingelogd blijven-account een naam als je het toevoegt
+- Aanmeldingen vanaf je telefoon tonen weer link en code, en een geweigerde code wordt gemeld
+- De kaart van een account toont welke aanmelding actief is
 - Een aanmelding sluiten stopt die op de machine

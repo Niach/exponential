@@ -15,11 +15,11 @@
 - A página Dispositivos mostra cada dispositivo como um cartão
 - As conversas, o ecrã de nova conversa e as Definições têm o mesmo aspeto das outras apps
 - Ampliar imagens: todos os visualizadores de imagens fazem zoom e deslocam
-- O Claude mantém a sessão iniciada por predefinição: um novo início de sessão dura um ano
+- Os inícios de sessão no Claude voltam a usar o navegador
 - As tabelas largas deslocam-se na horizontal em vez de comprimir as colunas
 - O botão Merge mostra as verificações de CI do teu pull request
 - O trabalho de uma sessão é guardado à medida que avança, por isso continua em qualquer dispositivo
-- Os inícios de sessão permanentes mostram a utilização de 5 horas e semanal
+- Manter sessão mantém as execuções de uma conta Claude com sessão iniciada durante um ano, sem escrever nada
 - As horas dizem «agora mesmo» em vez de «dentro de 0 segundos»
 - Uma sessão em fila num dispositivo offline passa para a tua outra máquina
 - Um arranque que nunca começou mostra «Não foi possível iniciar» em vez de ficar parado
@@ -28,6 +28,6 @@
 - Os chats em direto redesenham-se menos enquanto um agente trabalha, por isso o deslocamento continua fluido
 - Os registos das apps pertencem ao seu autor; os proprietários da equipa podem introduzir registos por outros
 - Os agentes podem mostrar pequenas animações nos seus cartões
-- Manter sessão a partir do telemóvel volta a mostrar a ligação e o código, e um código rejeitado é indicado
-- Dê um nome a uma conta Manter sessão ao adicioná-la
+- Os inícios de sessão a partir do telemóvel voltam a mostrar a ligação e o código, e um código rejeitado é indicado
+- O cartão de uma conta indica qual o início de sessão ativo
 - Fechar um início de sessão termina-o na máquina
