@@ -14,7 +14,8 @@
 // the bind-time expressions).
 
 import { evaluateExpression, expressionNames, parseExpression, parseTimestamp, type ExprNode } from "../cel"
-import { DATE_BUCKETS, dateBucket, daysInMonth, weekdayOf, type DateBucket } from "../dates"
+import { DATE_BUCKETS, dateBucket, daysInMonth, parseDay, weekdayOf, type DateBucket } from "../dates"
+import { CALENDAR_LANES_DEFAULT, CALENDAR_LANES_MAX, TIMELINE_COLUMNS_DEFAULT, TIMELINE_COLUMNS_MAX, TIMELINE_SCALES, calendarMonth, calendarTimeline, calendarWeekView, dayOf, periodStart, shiftPeriod, spanOf, tonesOf, type CalendarSpan, type TimelineScale } from "./calendar"
 import { RECORD_TRANSITIONS_ROW_KEY, transitionsFrom, type RecordTransitions } from "./record-transitions"
 import { canonicalJson } from "./signature"
 import { parseSource, sourceWithParams, type ParsedSource } from "./sources"
@@ -24,7 +25,7 @@ export const RECORDS_SCHEME = `records`
 /** The URL sugar's defaults and caps (catalog/host.json `package.records.query`). */
 export const RECORDS_QUERY = { sortDefault: `createdAt`, orderDefault: `desc`, limitDefault: 100, limitMax: 500 } as const
 /** Query keys with a meaning of their own; never a field filter. */
-export const RECORDS_RESERVED_PARAMS: readonly string[] = [`app`, `before`, `by`, `expand`, `limit`, `mine`, `month`, `order`, `q`, `query`, `sort`, `sum`, `user`]
+export const RECORDS_RESERVED_PARAMS: readonly string[] = [`app`, `before`, `by`, `columns`, `day`, `expand`, `lanes`, `limit`, `mine`, `month`, `order`, `q`, `query`, `row`, `scale`, `sort`, `start`, `sum`, `tone`, `until`, `user`, `view`]
 /** The keys every value row carries next to its data (a data key never shadows one). */
 export const RECORDS_ROW_KEYS: readonly string[] = [`id`, `createdAt`, `updatedAt`, `createdBy`, `authorId`, `author`]
 /** The filter operators: `eq` is the bare key, the others a `.<op>` suffix
@@ -65,6 +66,38 @@ export interface RecordsMonthView {
   field: string
   /** `YYYY-MM`; null = the month of `now`. */
   key: string | null
+  /** eApps U3: the end-date field (a row spans `field`..`until`); null = one day. */
+  until: string | null
+  /** eApps U3: the selected day (`YYYY-MM-DD`); null = today or the 1st. */
+  day: string | null
+  /** eApps U3: the lanes a week shows before "+N more" (1–8). */
+  lanes: number
+  /** eApps U3: the field a placed row's tone (chart1..8) reads; null = chart1. */
+  tone: string | null
+}
+
+/** eApps U3: `view=week`: the Monday-first week holding `key`. */
+export interface RecordsWeekView {
+  field: string
+  /** A day of the week (`YYYY-MM-DD`); null = today's week. */
+  key: string | null
+  until: string | null
+  lanes: number
+  tone: string | null
+}
+
+/** eApps U3: `view=timeline`: `columns` periods of `scale` from the one
+ *  holding `start`, the rows grouped by `row`. */
+export interface RecordsTimelineView {
+  field: string
+  until: string | null
+  /** The field rows group by; null = one row per record. */
+  row: string | null
+  scale: TimelineScale
+  /** A day (`YYYY-MM-DD`); null = today. */
+  start: string | null
+  columns: number
+  tone: string | null
 }
 
 /** One group-by key: a field (`author` = the author, by name), or a date
@@ -114,6 +147,9 @@ export interface RecordsQuery {
   /** Σ of this field over the matches (before the limit). */
   sum: string | null
   month: RecordsMonthView | null
+  /** eApps U3: the week view and the timeline (at most one calendar view per query). */
+  week: RecordsWeekView | null
+  timeline: RecordsTimelineView | null
   /** VAPP-190: the group-by keys ([] = no groups). */
   group: RecordsGroupKey[]
   /** VAPP-190: the aggregates, by name. */
@@ -164,6 +200,11 @@ export interface RecordsMonth {
   labels: string[]
   counts: number[]
   sums: number[]
+  /** eApps U3 (calendar.ts): the Monday-first weeks with their segments,
+   *  the selected day and its agenda. */
+  weeks?: Record<string, unknown>[]
+  day?: string
+  agenda?: Record<string, unknown>
 }
 
 export interface RecordsValue {
@@ -177,6 +218,9 @@ export interface RecordsValue {
   totals?: Record<string, unknown>
   /** VAPP-190: the same over the rows before `before.date`. */
   before?: Record<string, unknown>
+  /** eApps U3: the week view and the timeline (calendar.ts). */
+  week?: Record<string, unknown>
+  timeline?: Record<string, unknown>
 }
 
 export interface RecordsContext {
@@ -216,6 +260,13 @@ const SUFFIX_OPS: readonly string[] = [`gt`, `gte`, `lt`, `lte`, `in`, `between`
 const LIST_OPS: readonly string[] = [`in`, `between`]
 
 const trimmed = (v: string | null | undefined): string | null => v?.trim() || null
+/** A real day's `YYYY-MM-DD` text; null = anything else. */
+const dayKey = (v: unknown): string | null => (typeof v === `string` && v.length === 10 && parseDay(v) ? v : null)
+/** An integer in `1..max` (a number or its text); null = anything else. */
+const boundedInt = (v: unknown, max: number): number | null => {
+  const n = typeof v === `number` ? v : typeof v === `string` && v.trim() ? Number(v) : NaN
+  return Number.isInteger(n) && n >= 1 && n <= max ? n : null
+}
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
 const byCodeUnits = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
@@ -246,6 +297,11 @@ export function parseRecordsQuery(params: Record<string, string>, kind?: string 
   where.sort((a, b) => byCodeUnits(a.field, b.field) || byCodeUnits(a.op, b.op))
   const by = trimmed(params.by)
   const before = trimmed(params.before)
+  // eApps U3: `view=week|timeline` (else the month view) over `by`.
+  const view = params.view === `week` || params.view === `timeline` ? params.view : `month`
+  const until = trimmed(params.until)
+  const tone = trimmed(params.tone)
+  const lanes = boundedInt(params.lanes, CALENDAR_LANES_MAX) ?? CALENDAR_LANES_DEFAULT
   return {
     from,
     app: trimmed(params.app),
@@ -256,7 +312,12 @@ export function parseRecordsQuery(params: Record<string, string>, kind?: string 
     sort: [{ field: trimmed(params.sort) ?? RECORDS_QUERY.sortDefault, order: params.order === `asc` ? `asc` : params.order === `desc` ? `desc` : RECORDS_QUERY.orderDefault }],
     limit: Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, RECORDS_QUERY.limitMax) : RECORDS_QUERY.limitDefault,
     sum: trimmed(params.sum),
-    month: by ? { field: by, key: params.month && MONTH_KEY.test(params.month) ? params.month : null } : null,
+    month: by && view === `month` ? { field: by, key: params.month && MONTH_KEY.test(params.month) ? params.month : null, until, day: dayKey(params.day), lanes, tone } : null,
+    week: by && view === `week` ? { field: by, key: dayKey(params.day), until, lanes, tone } : null,
+    timeline:
+      by && view === `timeline`
+        ? { field: by, until, row: trimmed(params.row), scale: TIMELINE_SCALES.includes(params.scale as TimelineScale) ? (params.scale as TimelineScale) : `week`, start: dayKey(params.start), columns: boundedInt(params.columns, TIMELINE_COLUMNS_MAX) ?? TIMELINE_COLUMNS_DEFAULT, tone }
+        : null,
     group: [],
     aggregate: [],
     running: [],
@@ -313,7 +374,42 @@ function parseCondition(entry: unknown, at: string, issues: RecordsQueryIssue[])
   return { field, op, value: op === `between` ? (values as string[]) : values[0]! }
 }
 
-const QUERY_KEYS: readonly string[] = [`from`, `app`, `mine`, `user`, `where`, `sort`, `limit`, `sum`, `month`, `group`, `aggregate`, `running`, `before`, `expand`]
+const QUERY_KEYS: readonly string[] = [`from`, `app`, `mine`, `user`, `where`, `sort`, `limit`, `sum`, `month`, `week`, `timeline`, `group`, `aggregate`, `running`, `before`, `expand`]
+
+/** eApps U3: the keys of each JSON calendar view (`field` required). */
+const VIEW_KEYS: Record<`month` | `week` | `timeline`, readonly string[]> = {
+  month: [`field`, `key`, `until`, `day`, `lanes`, `tone`],
+  week: [`field`, `key`, `until`, `lanes`, `tone`],
+  timeline: [`field`, `until`, `row`, `scale`, `start`, `columns`, `tone`],
+}
+
+/** eApps U3: one JSON calendar view's keys, every problem an issue at
+ *  `/<view>/<key>`; null = not `{field, …}`. */
+function parseViewJson(name: `month` | `week` | `timeline`, v: unknown, issues: RecordsQueryIssue[]): Record<string, unknown> | null {
+  if (!isObject(v) || typeof v.field !== `string` || !v.field.trim()) {
+    issues.push({ path: `/${name}`, message: `${name} is {${VIEW_KEYS[name].map((k) => (k === `field` ? k : `${k}?`)).join(`, `)}}` })
+    return null
+  }
+  const out: Record<string, unknown> = { field: v.field.trim() }
+  for (const key of Object.keys(v).sort()) {
+    if (key === `field`) continue
+    const value = v[key]
+    const at = `/${name}/${key}`
+    if (!VIEW_KEYS[name].includes(key)) issues.push({ path: at, message: `unknown key ${key}` })
+    else if (value === null || value === undefined) continue
+    else if (key === `lanes` || key === `columns`) {
+      const max = key === `lanes` ? CALENDAR_LANES_MAX : TIMELINE_COLUMNS_MAX
+      const n = boundedInt(value, max)
+      if (n === null) issues.push({ path: at, message: `${key} is an integer 1–${max}` })
+      else out[key] = n
+    } else if (key === `scale`) {
+      if (!TIMELINE_SCALES.includes(value as TimelineScale)) issues.push({ path: at, message: `scale is ${TIMELINE_SCALES.join(`|`)}` })
+      else out[key] = value
+    } else if (typeof value !== `string`) issues.push({ path: at, message: `${key} is a string` })
+    else out[key] = value.trim() || null
+  }
+  return out
+}
 
 /** VAPP-190: the JSON form (a package's `queries`, the `q` param) → the
  *  query and every problem with it (a problem drops the part, the rest
@@ -391,10 +487,29 @@ export function parseRecordsJson(json: unknown, kind?: string | null): { query: 
     if (!Number.isInteger(n) || n < 1) issues.push({ path: `/limit`, message: `limit is a positive integer` })
     else query.limit = Math.min(n, RECORDS_QUERY.limitMax)
   }
-  if (json.month !== undefined && json.month !== null) {
-    const m = json.month
-    if (!isObject(m) || typeof m.field !== `string` || !m.field.trim() || (m.key !== undefined && m.key !== null && typeof m.key !== `string`)) issues.push({ path: `/month`, message: `month is {field, key?}` })
-    else query.month = { field: m.field.trim(), key: typeof m.key === `string` && MONTH_KEY.test(m.key) ? m.key : null }
+  // eApps U3: at most one calendar view (month, then week, then timeline).
+  for (const name of [`month`, `week`, `timeline`] as const) {
+    if (json[name] === undefined || json[name] === null) continue
+    if (query.month || query.week || query.timeline) {
+      issues.push({ path: `/${name}`, message: `one calendar view per query` })
+      continue
+    }
+    const v = parseViewJson(name, json[name], issues)
+    if (!v) continue
+    const str = (k: string) => (typeof v[k] === `string` ? (v[k] as string) : null)
+    const lanes = typeof v.lanes === `number` ? v.lanes : CALENDAR_LANES_DEFAULT
+    if (name === `month`) query.month = { field: v.field as string, key: str(`key`) && MONTH_KEY.test(str(`key`)!) ? str(`key`) : null, until: str(`until`), day: dayKey(str(`day`)), lanes, tone: str(`tone`) }
+    else if (name === `week`) query.week = { field: v.field as string, key: dayKey(str(`key`)), until: str(`until`), lanes, tone: str(`tone`) }
+    else
+      query.timeline = {
+        field: v.field as string,
+        until: str(`until`),
+        row: str(`row`),
+        scale: (str(`scale`) as TimelineScale | null) ?? `week`,
+        start: dayKey(str(`start`)),
+        columns: typeof v.columns === `number` ? v.columns : TIMELINE_COLUMNS_DEFAULT,
+        tone: str(`tone`),
+      }
   }
   if (json.group !== undefined) {
     if (!Array.isArray(json.group)) issues.push({ path: `/group`, message: `group is a list of keys` })
@@ -443,7 +558,7 @@ export function parseRecordsJson(json: unknown, kind?: string | null): { query: 
   }
   if (json.before !== undefined && json.before !== null) {
     const b = json.before
-    const implied = query.group.find((g) => g.bucket !== null)?.field ?? query.month?.field ?? RECORDS_QUERY.sortDefault
+    const implied = query.group.find((g) => g.bucket !== null)?.field ?? query.month?.field ?? query.week?.field ?? query.timeline?.field ?? RECORDS_QUERY.sortDefault
     if (typeof b === `string`) query.before = trimmed(b) ? { field: implied, date: b.trim() } : null
     else if (isObject(b) && typeof b.field === `string` && b.field.trim() && typeof b.date === `string`) query.before = b.date.trim() ? { field: b.field.trim(), date: b.date.trim() } : null
     else issues.push({ path: `/before`, message: `before is a date or {field, date}` })
@@ -791,6 +906,24 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
   const view = query.month
   const today = ctx.today && /^\d{4}-\d{2}-\d{2}$/.test(ctx.today) ? ctx.today : now.slice(0, 10)
   const monthKey = view ? (view.key ?? today.slice(0, 7)) : null
+  // eApps U3: a calendar view's window (day numbers): a row SPANS its
+  // `field`..`until` days and is matched when the span crosses the window
+  // (a month view without `until` keeps its month prefix rule).
+  const todayN = dayOf(today) ?? 0
+  const cal = query.month ?? query.week ?? query.timeline
+  let window: [number, number] | null = null
+  if (view && view.until !== null && monthKey !== null) {
+    const [y, m] = monthKey.split(`-`).map(Number) as [number, number]
+    window = [dayOf(`${monthKey}-01`)!, dayOf(`${monthKey}-${String(daysInMonth(y, m)).padStart(2, `0`)}`)!]
+  } else if (query.week) {
+    const monday = periodStart((query.week.key ? dayOf(query.week.key) : null) ?? todayN, `week`)
+    window = [monday, monday + 6]
+  } else if (query.timeline) {
+    const t = query.timeline
+    const p0 = periodStart((t.start ? dayOf(t.start) : null) ?? todayN, t.scale)
+    window = [p0, shiftPeriod(p0, t.scale, t.columns) - 1]
+  }
+  const spanOfRow = (row: RecordRow) => (cal ? spanOf(text(row.data[cal.field]), cal.until !== null ? text(row.data[cal.until]) : null) : null)
   const where = query.where.map(cond)
   const or = query.or.map((alt) => alt.map(cond))
   const beforeDate = query.before ? keyOf(query.before.date) : null
@@ -810,7 +943,10 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
           return false
         }
       }
-      if (view && monthKey !== null && !text(row.data[view.field]).startsWith(monthKey)) return false
+      if (window) {
+        const span = spanOfRow(row)
+        if (!span || span.end < window[0] || span.start > window[1]) return false
+      } else if (view && monthKey !== null && !text(row.data[view.field]).startsWith(monthKey)) return false
       return true
     }),
     query.sort,
@@ -823,11 +959,16 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
     return r
   }
   const rowRunning = query.running.length && !query.group.length ? seeded() : null
+  // A row as the output carries it: its value row, the expanded refs, the transitions.
+  const present = (row: RecordRow): Record<string, unknown> => {
+    const value = valueRow(row, ctx.names)
+    for (const e of expand) value[e.name] = expandedRef(e.target, row.data[e.name], byId, ctx)
+    if (ctx.transitions) value[RECORD_TRANSITIONS_ROW_KEY] = transitionsFrom(ctx.transitions, row.data, { id: ctx.me, role: ctx.role ?? null }, row)
+    return value
+  }
   const out: RecordsValue = {
     rows: matched.slice(0, query.limit).map((row) => {
-      const value = valueRow(row, ctx.names)
-      for (const e of expand) value[e.name] = expandedRef(e.target, row.data[e.name], byId, ctx)
-      if (ctx.transitions) value[RECORD_TRANSITIONS_ROW_KEY] = transitionsFrom(ctx.transitions, row.data, { id: ctx.me, role: ctx.role ?? null }, row)
+      const value = present(row)
       if (rowRunning) {
         rowRunning.add(row)
         value.running = rowRunning.read()
@@ -869,6 +1010,29 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
       counts: days.map((d) => d.count),
       sums: days.map((d) => d.sum),
     }
+  }
+  // eApps U3: every matched row with a real start day is placed (all
+  // matches, before the limit), its tone from the `tone` field.
+  if (cal) {
+    const placed = matched.flatMap((row, order) => {
+      const span = spanOfRow(row)
+      return span ? [{ row, order, ...span }] : []
+    })
+    const tones = tonesOf(placed.map((p) => (cal.tone !== null ? text(field(p.row, cal.tone)) : ``)))
+    const spans: (CalendarSpan & { rowKey: string | null })[] = placed.map((p, i) => ({
+      id: p.row.id,
+      start: p.start,
+      end: p.end,
+      tone: tones[i]!,
+      value: present(p.row),
+      order: p.order,
+      rowKey: query.timeline?.row ? text(field(p.row, query.timeline.row)) : null,
+    }))
+    if (view && out.month) {
+      const [y, m] = out.month.key.split(`-`).map(Number) as [number, number]
+      Object.assign(out.month, calendarMonth(y, m, daysInMonth(y, m), spans, { lanes: view.lanes, today: todayN, day: view.day }))
+    } else if (query.week) out.week = calendarWeekView(window![0], spans, { lanes: query.week.lanes, today: todayN })
+    else if (query.timeline) out.timeline = calendarTimeline(window![0], spans, { scale: query.timeline.scale, columns: query.timeline.columns, today: todayN })
   }
   if (query.group.length) {
     const groups = new Map<string, { parts: string[]; rows: RecordRow[]; out: Record<string, unknown> }>()
