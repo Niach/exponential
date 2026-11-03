@@ -202,6 +202,9 @@ fn main() {
             client: std::sync::Arc::new(api::AuthClient::new()),
             data_dir,
         });
+        // VAPP-235: the app record outbox (loads + flushes at sign-in and
+        // when the sync connection comes back): before the bootstrap.
+        ui::install_record_outbox(cx);
 
         // Remote-steer subsystem (§08): the single steer tokio runtime, the
         // own-row Electric kill-switch, and the remote-`start_session` inbox.

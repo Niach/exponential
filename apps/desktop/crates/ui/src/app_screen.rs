@@ -246,6 +246,10 @@ impl AppScreenView {
             }));
             subscriptions.push(cx.observe(&collections.users, |_, _, cx| cx.notify()));
         }
+        // VAPP-235: the header's pending glyph follows the record outbox.
+        if let Some(outbox) = crate::exponential_ui_host::record_outbox(cx) {
+            subscriptions.push(cx.observe(&outbox, |_, _, cx| cx.notify()));
+        }
         // VAPP-177: the settings nav asking this editor for a tab.
         subscriptions.push(cx.observe_global::<AppTabRequest>(|this, cx| {
             let shows = |app: &str| this.shows(app);
@@ -711,6 +715,18 @@ impl AppScreenView {
                     .child(SharedString::from(app.name.clone())),
             )
             .child(version_pill("app-editor-version", app, cx))
+            // VAPP-235 (app-records.json `outbox`): while the running app has
+            // record writes waiting to sync, the muted `ui-offline` glyph.
+            .when_some(crate::exponential_ui_host::outbox_pending_label_for(&app.id, cx), |row, label| {
+                let tip = SharedString::from(label);
+                row.child(
+                    div()
+                        .id("app-outbox-pending")
+                        .flex_shrink_0()
+                        .child(Icon::new(registry::UI_OFFLINE).size_4().text_color(theme.muted_foreground))
+                        .tooltip(move |window, cx| gpui_component::tooltip::Tooltip::new(tip.clone()).build(window, cx)),
+                )
+            })
             .child(div().flex_1())
             .when(show_publish, |row| {
                 row.child(
