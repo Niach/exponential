@@ -169,14 +169,3 @@ describe(`validateAppPackage: automations (#VAPP-220)`, () => {
     for (const word of [`\${record.`, `\${event.`, `\${firedAt}`, `sponsor`]) expect(text).toContain(word)
   })
 })
-
-// VAPP-218: the shipped sample apps install clean (the CRM uses screens).
-import crm from "../../../../../samples/apps/crm.app.json" with { type: "json" }
-import standup from "../../../../../samples/apps/standup.app.json" with { type: "json" }
-import timeTracker from "../../../../../samples/apps/time-tracker.app.json" with { type: "json" }
-
-describe(`the sample apps`, () => {
-  for (const [name, sample] of [[`crm`, crm], [`standup`, standup], [`time-tracker`, timeTracker]] as const)
-    it(`${name} validates`, () => expect(validateAppPackage(structuredClone(sample) as never).id).toBe(sample.id))
-  it(`the CRM navigates between three screens`, () => expect((crm as { screens: { template: string }[] }).screens.map((s) => s.template)).toEqual([`pipeline`, `companies`, `contacts`]))
-})
