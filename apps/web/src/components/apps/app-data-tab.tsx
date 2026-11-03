@@ -5,7 +5,6 @@ import {
   APP_DATA_COPY,
   APP_DATA_TAB,
   authorOptions,
-  canChangeRecord,
   cellText,
   columnWidth,
   dataColumns,
@@ -19,6 +18,7 @@ import {
   type DataFormField,
   type DataSchema,
 } from "@exp/domain-contract/app-records"
+import { recordPolicy, recordRefusal, type AppAccessLevel, type RecordOp } from "@exponential_app/eui/host"
 import {
   Button,
   conceptIcon,
@@ -88,6 +88,7 @@ export function AppDataTab({
   users,
   me,
   role,
+  access = `write`,
   isMobile,
 }: {
   appId: string
@@ -97,6 +98,8 @@ export function AppDataTab({
   /** VAPP-187: the viewer and their team role (null = not a member). */
   me: string | null
   role: string | null
+  /** eApps R3: the viewer's app access (no row = write). */
+  access?: AppAccessLevel
   isMobile: boolean
 }) {
   const { data: synced } = useLiveQuery(
@@ -120,6 +123,10 @@ export function AppDataTab({
   const [picked, setPicked] = useState<string | null>(null)
   const kind = picked && kinds.some((k) => k.kind === picked) ? picked : (kinds[0]?.kind ?? null)
   const schema = kind ? (manifest?.records?.[kind]?.schema ?? null) : null
+  // eApps R3: the kind's policy under the viewer's app access
+  // (record-policy.json): what the server would refuse stays disabled.
+  const refusal = (op: RecordOp, record?: DataRecord) => (kind ? recordRefusal(recordPolicy(manifest?.records?.[kind]), op, { id: me, role, access }, record) : null)
+  const addRefusal = refusal(`create`)
   const columns = useMemo(() => (schema ? dataColumns(schema) : []), [schema])
   const rows = useMemo(() => (kind ? dataRows(records, kind) : []), [records, kind])
 
@@ -150,15 +157,19 @@ export function AppDataTab({
       align="end"
       aria-label={APP_DATA_COPY.edit}
       entries={[
-        { kind: `item`, id: `edit`, label: APP_DATA_COPY.edit, icon: UiEditIcon, onSelect: () => kind && setForm({ kind, record }) },
-        {
-          kind: `item`,
-          id: `delete`,
-          label: APP_DATA_COPY.delete,
-          icon: UiDeleteIcon,
-          destructive: true,
-          onSelect: () => setDeleting(record),
-        },
+        ...(refusal(`update`, record) === null ? [{ kind: `item` as const, id: `edit`, label: APP_DATA_COPY.edit, icon: UiEditIcon, onSelect: () => kind && setForm({ kind, record }) }] : []),
+        ...(refusal(`delete`, record) === null
+          ? [
+              {
+                kind: `item` as const,
+                id: `delete`,
+                label: APP_DATA_COPY.delete,
+                icon: UiDeleteIcon,
+                destructive: true,
+                onSelect: () => setDeleting(record),
+              },
+            ]
+          : []),
       ]}
       trigger={
         <Button
@@ -166,7 +177,7 @@ export function AppDataTab({
           size="icon-sm"
           aria-label={`${APP_DATA_COPY.edit} / ${APP_DATA_COPY.delete}`}
           data-testid={T.menu}
-          disabled={!canChangeRecord(record, me, role, `update`) && !canChangeRecord(record, me, role, `delete`)}
+          disabled={refusal(`update`, record) !== null && refusal(`delete`, record) !== null}
         >
           <UiMoreIcon />
         </Button>
@@ -260,7 +271,14 @@ export function AppDataTab({
           </SelectContent>
         </Select>
         <div className="flex-1" />
-        <Button variant="outline" size={isMobile ? `sm` : `default`} onClick={() => kind && setForm({ kind, record: null })} data-testid={T.add}>
+        <Button
+          variant="outline"
+          size={isMobile ? `sm` : `default`}
+          onClick={() => kind && setForm({ kind, record: null })}
+          disabled={addRefusal !== null}
+          title={addRefusal ?? undefined}
+          data-testid={T.add}
+        >
           <UiAddIcon />
           {APP_DATA_COPY.addRecord}
         </Button>

@@ -215,9 +215,17 @@ class AppEditorViewModel @Inject constructor(
     private val api: AppsApi,
     private val sessionsApi: SessionsApi,
     private val sender: SessionSender,
+    private val accessApi: com.exponential.app.data.api.McpSettingsApi,
 ) : ViewModel() {
 
     val appId: String = savedStateHandle["appId"] ?: ""
+
+    /** eApps R3: my app access (`appAccess.mine`; null = write until known):
+     *  the Data tab disables what the server would refuse. */
+    val myAccess: StateFlow<String?> = kotlinx.coroutines.flow.flow<String?> {
+        val accountId = auth.activeAccountId.value ?: return@flow
+        emit(runCatching { accessApi.appAccessMine(accountId, appId).level }.getOrNull())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /** VAPP-177: a requested tab (`editorTabs.search`; none today on
      *  Android's route) → the phone's tab and the `…` menu's sheet over it. */

@@ -46,6 +46,7 @@ import type { SyncedAppVersion, User } from "@/db/schema"
 import { AppPreview } from "@/components/apps/app-preview"
 import { AppSettingsTab } from "@/components/apps/app-settings-tab"
 import { AppDataTab } from "@/components/apps/app-data-tab"
+import type { AppAccessLevel } from "@exponential_app/eui/host"
 import { SessionComposer } from "@/components/session-composer"
 import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
@@ -245,6 +246,20 @@ export function AppEditor({
   const { users, members } = useTeamUsers(teamId)
   // VAPP-187: the viewer's team role (the Data tab's ownership rule).
   const myRole = members.find((m) => m.userId === me)?.role ?? null
+  // eApps R3: the viewer's app access (record-policy.json): the Data tab
+  // disables what the server would refuse at `read`.
+  const [access, setAccess] = useState<AppAccessLevel>(`write`)
+  useEffect(() => {
+    if (!app?.id) return
+    let live = true
+    trpc.appAccess.mine
+      .query({ appId: app.id }, SKIP_ERROR_TOAST)
+      .then((r) => live && setAccess(r.level))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [app?.id])
   const { root, teamSessions } = useEditorSession(teamId, app.id, me)
   const messages = useTreeMessages(root?.id)
   const follow = useFollowScroll([messages, root?.id])
@@ -542,7 +557,7 @@ export function AppEditor({
   // VAPP-178: the Data tab's body (the wide tab and the phone segment).
   const dataBody = (
     <div className="w-full" data-testid={APPS_TEST_IDS.data}>
-      <AppDataTab appId={app.id} pkg={headPackage} users={users as User[]} me={me} role={myRole} isMobile={isMobile} />
+      <AppDataTab appId={app.id} pkg={headPackage} users={users as User[]} me={me} role={myRole} access={access} isMobile={isMobile} />
     </div>
   )
 

@@ -103,6 +103,10 @@ fun AppDataTab(
     // VAPP-187: a row I may not change keeps its `…`, disabled.
     val me by viewModel.me.collectAsStateWithLifecycle()
     val role by viewModel.myRole.collectAsStateWithLifecycle()
+    // eApps R3: the kind's policy under my app access (eUI record-policy.json).
+    val access by viewModel.myAccess.collectAsStateWithLifecycle()
+    fun may(op: String, k: String, row: AppRecords.Row? = null) =
+        AppRecords.Policy.allowed(AppRecords.Policy.of(manifest, k), op, me, role, access, row)
 
     Column(modifier = modifier.fillMaxSize().testTag(Apps.TestIds.DATA)) {
         if (kind == null) {
@@ -143,6 +147,7 @@ fun AppDataTab(
                     viewModel.clearRecordError()
                     form = DataFormTarget(kind, null)
                 },
+                enabled = may("create", kind),
                 modifier = Modifier.testTag(DataTestIds.ADD),
             )
         }
@@ -167,8 +172,8 @@ fun AppDataTab(
                     DataRow(
                         row = row,
                         columns = columns,
-                        canChange = AppRecords.canChangeRecord(row, me, role, "update") ||
-                            AppRecords.canChangeRecord(row, me, role, "delete"),
+                        canEdit = may("update", kind, row),
+                        canDelete = may("delete", kind, row),
                         onEdit = {
                             viewModel.clearRecordError()
                             form = DataFormTarget(kind, row)
@@ -216,7 +221,8 @@ private fun kindOption(kind: AppRecords.DataKind): String =
 
 /** One phone row: title + muted subtitle, the relative `updated`, the `…` menu. */
 @Composable
-private fun DataRow(row: AppRecords.Row, columns: List<String>, canChange: Boolean, onEdit: () -> Unit, onDelete: () -> Unit) {
+private fun DataRow(row: AppRecords.Row, columns: List<String>, canEdit: Boolean, canDelete: Boolean, onEdit: () -> Unit, onDelete: () -> Unit) {
+    val canChange = canEdit || canDelete
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val subtitle = AppRecords.rowSubtitle(columns, row)
     var menu by remember { mutableStateOf(false) }
@@ -257,7 +263,7 @@ private fun DataRow(row: AppRecords.Row, columns: List<String>, canChange: Boole
                 modifier = Modifier.testTag(DataTestIds.MENU),
             )
             GlassDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                GlassMenuItem(
+                if (canEdit) GlassMenuItem(
                     leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
                     text = { Text(DataCopy.EDIT) },
                     onClick = {
@@ -266,7 +272,7 @@ private fun DataRow(row: AppRecords.Row, columns: List<String>, canChange: Boole
                     },
                     modifier = Modifier.testTag("app-data-row-edit"),
                 )
-                GlassMenuItem(
+                if (canDelete) GlassMenuItem(
                     leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
                     text = { Text(DataCopy.DELETE) },
                     destructive = true,

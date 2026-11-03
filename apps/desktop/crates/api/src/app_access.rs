@@ -72,6 +72,22 @@ pub fn app_tools(trpc: &TrpcClient, app_id: &str) -> Result<AppToolsOut, ApiErro
     trpc.query_with_input("appAccess.appTools", &Input { app_id })
 }
 
+/// eApps R3: the caller's own level for an app (`appAccess.mine`).
+#[derive(Debug, Clone, Deserialize)]
+pub struct MineOut {
+    pub level: String,
+}
+
+/// `appAccess.mine` — query.
+pub fn mine(trpc: &TrpcClient, app_id: &str) -> Result<MineOut, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        app_id: &'a str,
+    }
+    trpc.query_with_input("appAccess.mine", &Input { app_id })
+}
+
 /// `appAccess.setToolEnabled` — mutation (owners; the server checks).
 pub fn set_tool_enabled(trpc: &TrpcClient, app_id: &str, tool: &str, enabled: bool) -> Result<(), ApiError> {
     #[derive(Serialize)]

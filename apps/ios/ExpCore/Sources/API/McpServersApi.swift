@@ -273,6 +273,15 @@ struct McpClientRevokeInput: Encodable {
     }
 }
 
+private struct AppAccessMineInput: Encodable {
+    let appId: String
+}
+
+/// eApps R3: the caller's own level for an app (`appAccess.mine`).
+public struct AppAccessMine: Decodable, Sendable {
+    public let level: String
+}
+
 private struct AppAccessSetInput: Encodable {
     let appId: String
     let userId: String
@@ -328,6 +337,11 @@ public final class McpServersApi: Sendable {
             path: "appAccess.list",
             input: McpServersListInput(teamId: teamId)
         )
+    }
+
+    /// eApps R3: the caller's own level for one app (`none | read | write`).
+    public func appAccessMine(accountId: String, appId: String) async throws -> AppAccessMine {
+        try await trpc.query(accountId: accountId, path: "appAccess.mine", input: AppAccessMineInput(appId: appId))
     }
 
     public func setAppAccess(accountId: String, appId: String, userId: String, level: McpSettings.Level) async throws {

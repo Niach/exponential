@@ -59,11 +59,17 @@ struct AppDataTab: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Apps.TestIds.data)
-        .onAppear { model.bind(accountId: accountId, appId: app.id, userId: deps.auth.userId, db: deps.db) }
+        .onAppear {
+            model.manifest = manifest
+            model.bind(accountId: accountId, appId: app.id, userId: deps.auth.userId, db: deps.db)
+            model.loadAccess(accountId: accountId, appId: app.id, trpc: deps.trpc)
+        }
         .onChange(of: app.id) { _, next in
             picked = nil
             model.bind(accountId: accountId, appId: next, userId: deps.auth.userId, db: deps.db)
+            model.loadAccess(accountId: accountId, appId: next, trpc: deps.trpc)
         }
+        .onChange(of: app.package) { _, _ in model.manifest = manifest }
         .onDisappear { model.stop() }
         // Each presentation on its OWN node (EXP-240).
         .background {
@@ -75,7 +81,11 @@ struct AppDataTab: View {
         .background {
             Color.clear
                 .sheet(item: $menuTarget, onDismiss: runPendingMenu) { target in
-                    AppDataRowMenuSheet(title: target.title) { action in
+                    AppDataRowMenuSheet(
+                        title: target.title,
+                        canEdit: model.may("update", kind: target.kind, row: target.row),
+                        canDelete: model.may("delete", kind: target.kind, row: target.row)
+                    ) { action in
                         pendingMenu = (target, action)
                         menuTarget = nil
                     }
@@ -154,6 +164,9 @@ struct AppDataTab: View {
                 UIApplication.endEditing()
                 form = AppDataFormTarget(kind: kind.kind, schema: schema, row: nil)
             })
+            // eApps R3: what the server would refuse stays disabled.
+            .disabled(!model.may("create", kind: kind.kind))
+            .opacity(model.may("create", kind: kind.kind) ? 1 : 0.45)
             .accessibilityIdentifier(AppRecords.DataTab.TestIds.add)
         }
     }
@@ -270,21 +283,28 @@ struct AppDataRowMenuSheet: View {
     enum Action { case edit, delete }
 
     let title: String
+    /// eApps R3: only the ops the kind's policy allows the viewer.
+    var canEdit = true
+    var canDelete = true
     let onPick: (Action) -> Void
 
     var body: some View {
         GlassSheetChrome(title: title) {
             VStack(spacing: 0) {
-                Button { onPick(.edit) } label: {
-                    GlassMenuItemLabel(AppRecords.DataTab.Copy.edit, icon: AppIcons.uiEdit)
+                if canEdit {
+                    Button { onPick(.edit) } label: {
+                        GlassMenuItemLabel(AppRecords.DataTab.Copy.edit, icon: AppIcons.uiEdit)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("app-data-menu-edit")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("app-data-menu-edit")
-                Button { onPick(.delete) } label: {
-                    GlassMenuItemLabel(AppRecords.DataTab.Copy.delete, icon: AppIcons.uiDelete, destructive: true)
+                if canDelete {
+                    Button { onPick(.delete) } label: {
+                        GlassMenuItemLabel(AppRecords.DataTab.Copy.delete, icon: AppIcons.uiDelete, destructive: true)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("app-data-menu-delete")
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("app-data-menu-delete")
             }
             .padding(.horizontal, GlassSheetTokens.headerHPadding - GlassMenuTokens.itemHPadding)
             .padding(.bottom, 16)
@@ -565,16 +585,33 @@ final class AppDataModel {
     private(set) var role: String?
     /// VAPP-188: the app's team members by name (`authorOptions`).
     private(set) var members: [AppRecords.AuthorOption] = []
+    /// eApps R3: the viewer's app access (`appAccess.mine`; nil = write until known).
+    private(set) var access: String?
+    /// eApps R3: the head package (each kind's `policy`).
+    var manifest: CardJSON?
 
     @ObservationIgnored private var task: Task<Void, Never>?
 
     nonisolated init() {}
 
+    /// eApps R3: may the viewer `op` (a row of) `kind` under its policy and
+    /// their app access (eUI record-policy.json)?
+    func may(_ op: String, kind: String, row: AppRecords.Row? = nil) -> Bool {
+        AppRecords.Policy.allowed(AppRecords.Policy.of(package: manifest, kind: kind), op: op, viewer: viewer, role: role, access: access, row: row)
+    }
+
     /// May the viewer change the row at all (update or delete)? Neither =
-    /// the row's `…` is disabled (fixture `ownership`).
+    /// the row's `…` is disabled.
     func canChange(_ row: AppRecords.Row) -> Bool {
-        AppRecords.canChangeRecord(row, viewer: viewer, role: role, op: "update")
-            || AppRecords.canChangeRecord(row, viewer: viewer, role: role, op: "delete")
+        may("update", kind: row.kind, row: row) || may("delete", kind: row.kind, row: row)
+    }
+
+    /// eApps R3: the viewer's own level for the app (`appAccess.mine`).
+    func loadAccess(accountId: String, appId: String, trpc: TrpcClient) {
+        Task { [weak self] in
+            let level = try? await McpServersApi(trpc: trpc).appAccessMine(accountId: accountId, appId: appId).level
+            await MainActor.run { self?.access = level }
+        }
     }
 
     /// VAPP-188: a team OWNER's Author picker; nil = no picker (and no

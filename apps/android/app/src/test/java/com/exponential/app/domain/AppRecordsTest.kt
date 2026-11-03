@@ -29,6 +29,33 @@ class AppRecordsTest {
         assertEquals(strings(fixture["rowKeys"]), AppRecords.ROW_KEYS)
     }
 
+    // eApps R3: packages/exponential-ui fixtures/record-policy.json (eUI's
+    // rule, hand-ported in AppRecords.Policy).
+    @Test
+    fun `record policy replays record-policy json`() {
+        val f = read("packages/exponential-ui/fixtures/record-policy.json")
+        assertEquals(strings(f["ops"]), AppRecords.Policy.OPS)
+        assertEquals(strings(f["levels"]), AppRecords.Policy.LEVELS)
+        assertEquals(strings(f["access"]), AppRecords.Policy.ACCESS)
+        assertEquals(params(f["defaults"]), AppRecords.Policy.DEFAULTS)
+        val copy = f["copy"]!!
+        assertEquals(copy["none"]!!.string, AppRecords.Policy.COPY_NONE)
+        assertEquals(copy["readOnly"]!!.string, AppRecords.Policy.COPY_READ_ONLY)
+        assertEquals(params(copy["author"]), AppRecords.Policy.COPY_AUTHOR)
+        assertEquals(params(copy["owners"]), AppRecords.Policy.COPY_OWNERS)
+        for (c in f["validateCases"]!!.array!!) {
+            val kind = JsonValue.Obj(mapOf("policy" to c["policy"]!!))
+            assertEquals(c["name"]!!.string, params(c["effective"]), AppRecords.Policy.effective(kind))
+        }
+        for (c in f["allowCases"]!!.array!!) {
+            val op = c["op"]!!.string!!
+            val policy = AppRecords.Policy.effective(c["policy"]?.let { JsonValue.Obj(mapOf("policy" to it)) })
+            val row = if (op == "create") null else AppRecords.Row("r", "k", emptyMap(), c["createdBy"]?.string, "", "", c["author"]?.string)
+            val got = AppRecords.Policy.refusal(policy, op, c["viewer"]?.string, c["role"]?.string, c["access"]?.string, row)
+            assertEquals(c["name"]!!.string, c["refusal"]?.string, got)
+        }
+    }
+
     // VAPP-187: record ownership (`ownership`).
     @Test
     fun `the ownership constants match the fixture`() {
