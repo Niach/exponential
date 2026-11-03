@@ -309,8 +309,15 @@ class AppEditorViewModel @Inject constructor(
 
     /** #VAPP-220 / #VAPP-238: the PUBLISHED package's `appAccess.appTools`,
      *  refetched when the published version moves; null = none (no groups). */
+    private val toolsRefresh = MutableStateFlow(0)
+
+    /** #VAPP-243: re-read `appTools` (back from the browser's Connect). */
+    fun refreshTools() {
+        toolsRefresh.value += 1
+    }
+
     private val appTools: StateFlow<AppToolsDto?> =
-        app.map { it?.publishedVersion }.distinctUntilChanged().flatMapLatest { published ->
+        combine(app.map { it?.publishedVersion }.distinctUntilChanged(), toolsRefresh) { published, _ -> published }.flatMapLatest { published ->
             kotlinx.coroutines.flow.flow {
                 val accountId = auth.activeAccountId.value
                 if (published == null || accountId == null) {
@@ -338,6 +345,57 @@ class AppEditorViewModel @Inject constructor(
     val canManageHooks: StateFlow<Boolean> =
         appTools.map { it?.canToggle == true }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    /** #VAPP-243: the upstreams the app declares with my OWN state; empty = no group. */
+    val accounts: StateFlow<List<com.exponential.app.data.api.AppUpstreamDto>> =
+        appTools.map { it?.upstreams.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** The optimistic MCP tool switches (name → enabled) over `appTools.tools`. */
+    private val toolOverrides = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+
+    /** #VAPP-243: the exposed tools with their switch; empty = no group. */
+    val mcpTools: StateFlow<List<com.exponential.app.data.api.AppMcpToolDto>> =
+        combine(appTools, toolOverrides) { tools, overrides ->
+            tools?.tools.orEmpty().map { t -> overrides[t.name]?.let { t.copy(enabled = it) } ?: t }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _mcpToolBusy = MutableStateFlow<String?>(null)
+    val mcpToolBusy: StateFlow<String?> = _mcpToolBusy
+
+    /** `appAccess.setToolEnabled` (owners): optimistic; a failure flips back
+     *  with the failed-action toast. */
+    fun setToolEnabled(tool: String, enabled: Boolean) {
+        if (_mcpToolBusy.value != null) return
+        val accountId = auth.activeAccountId.value ?: return
+        _mcpToolBusy.value = tool
+        toolOverrides.value = toolOverrides.value + (tool to enabled)
+        viewModelScope.launch {
+            try {
+                accessApi.setToolEnabled(accountId, appId, tool, enabled)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                toolOverrides.value = toolOverrides.value - tool
+                _failure.value = FailedAction("save", "the tool", trpcErrorMessage(t, ""))
+            } finally {
+                _mcpToolBusy.value = null
+            }
+        }
+    }
+
+    /** The app's team slug (the web connect URL's path). */
+    private val teamSlug: StateFlow<String?> =
+        combine(dbFlow, app.map { it?.teamId }.distinctUntilChanged()) { db, team -> db to team }
+            .flatMapLatest { (db, team) -> if (db == null || team == null) flowOf(null) else db.teamDao().observeById(team).map { it?.slug } }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    /** #VAPP-243: my OWN account = Settings › MCP's connect on the web page
+     *  in the browser (`?connect=<serverId>`), as Settings › MCP › Servers. */
+    fun connectUrl(serverId: String): String? {
+        val origin = auth.instanceUrl.value?.trimEnd('/') ?: return null
+        val slug = teamSlug.value ?: return null
+        return "$origin/t/$slug/settings/mcp?connect=$serverId"
+    }
 
     private val _hookBusy = MutableStateFlow<String?>(null)
     /** The hook whose mint / rotate is in flight (its pill waits). */

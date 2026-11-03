@@ -1,5 +1,6 @@
 import ExpCore
 import ExpUI
+import GRDB
 import ExponentialUI
 import SwiftUI
 
@@ -703,6 +704,15 @@ struct AppSettingsSheet: View {
     @State private var color = AppSettingsSheet.defaultColor
     @State private var description = ""
     @State private var toolBusy: String?
+    /// #VAPP-243: the upstreams the app declares with my OWN connection, and
+    /// the exposed tools with their switch (`appAccess.appTools`).
+    @State private var accounts: [AppAccountWire] = []
+    @State private var mcpTools: [AppMcpToolWire] = []
+    @State private var mcpToolBusy: String?
+    /// The app's team slug: Connect opens Settings › MCP on the web.
+    @State private var teamSlug: String?
+    @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
     /// #VAPP-220: the published package's automations (`appAccess.appTools`).
     @State private var automations: [AppAutomationWire] = []
     /// #VAPP-238: the published package's webhooks and `canToggle` (owner).
@@ -738,6 +748,10 @@ struct AppSettingsSheet: View {
         .onAppear { seed() }
         // #VAPP-220: refetched when the app or its published version changes.
         .task(id: automationsKey) { await loadAutomations() }
+        // #VAPP-243: back from the browser's Connect = re-read my accounts.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await loadAutomations() } }
+        }
         .background {
             Color.clear
                 .frame(width: 0, height: 0)
@@ -790,6 +804,8 @@ struct AppSettingsSheet: View {
                 .padding(.horizontal, 4)
                 .accessibilityIdentifier("app-settings-records")
             tools(app)
+            accountsGroup
+            mcpToolsGroup
             automationsGroup
             webhooksGroup
             actions(app)
@@ -898,6 +914,136 @@ struct AppSettingsSheet: View {
         .padding(.vertical, 12)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("app-tool-\(tool)")
+    }
+
+    /// #VAPP-243: `copy.accounts` (shown when the published package declares
+    /// upstreams): one row per upstream, the server name and my OWN state
+    /// (`Apps.accountRow`): the muted text, or Connect / Reconnect.
+    @ViewBuilder
+    private var accountsGroup: some View {
+        if !accounts.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(Apps.Copy.Accounts.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                VStack(spacing: 0) {
+                    ForEach(Array(accounts.enumerated()), id: \.offset) { _, account in
+                        accountRow(account)
+                    }
+                }
+                .glassSection()
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Apps.TestIds.accounts)
+        }
+    }
+
+    private func accountRow(_ account: AppAccountWire) -> some View {
+        let row = Apps.accountRow(account.row)
+        return HStack(spacing: 12) {
+            Text(account.name)
+                .font(.subheadline)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let label = row.actionLabel, let serverId = account.serverId {
+                GlassPill(label, icon: row.action == .reconnect ? AppIcons.uiWarning : AppIcons.uiSignIn,
+                          mode: .action { connect(serverId) })
+                    .fixedSize()
+                    .accessibilityIdentifier("\(Apps.TestIds.accountRow)-\(account.name)-\(row.action?.rawValue ?? "")")
+            } else if let label = row.label {
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .fixedSize()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("\(Apps.TestIds.accountRow)-\(account.name)")
+    }
+
+    /// My OWN account: Settings › MCP's connect on the web page in the
+    /// browser (`?connect=<serverId>`), as Settings › MCP › Servers does.
+    private func connect(_ serverId: String) {
+        guard let slug = teamSlug,
+              let instanceUrl = deps.auth.accounts.first(where: { $0.id == accountId })?.instanceUrl else { return }
+        let base = instanceUrl.hasSuffix("/") ? String(instanceUrl.dropLast()) : instanceUrl
+        guard let url = URL(string: "\(base)/t/\(slug)/settings/mcp?connect=\(serverId)") else { return }
+        openURL(url)
+    }
+
+    /// #VAPP-243: `copy.mcpTools` (shown when the published package exposes
+    /// tools): the title over the binding name, the Read / Write pill and the
+    /// switch (an owner only; everyone else reads it).
+    @ViewBuilder
+    private var mcpToolsGroup: some View {
+        if !mcpTools.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(Apps.Copy.McpTools.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                VStack(spacing: 0) {
+                    ForEach(Array(mcpTools.enumerated()), id: \.offset) { _, tool in
+                        mcpToolRow(tool)
+                    }
+                }
+                .glassSection()
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Apps.TestIds.mcpTools)
+        }
+    }
+
+    private func mcpToolRow(_ tool: AppMcpToolWire) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(tool.title)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(tool.name)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            GlassPill(tool.access == "read" ? Apps.Copy.McpTools.read : Apps.Copy.McpTools.write)
+            GlassToggleRow(nil, isOn: Binding(
+                get: { tool.enabled },
+                set: { toggleMcpTool(tool.name, enabled: $0) }
+            ))
+            .disabled(!canToggle || mcpToolBusy != nil)
+            .accessibilityLabel("\(Apps.Copy.McpTools.title): \(tool.title)")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("\(Apps.TestIds.mcpToolRow)-\(tool.name)")
+    }
+
+    /// `appAccess.setToolEnabled`: optimistic; a failure flips back with the
+    /// failed-action toast.
+    private func toggleMcpTool(_ name: String, enabled: Bool) {
+        guard canToggle, mcpToolBusy == nil, let app = model.app else { return }
+        let before = mcpTools
+        mcpTools = mcpTools.map { $0.name == name ? $0.with(enabled: enabled) : $0 }
+        mcpToolBusy = name
+        let api = deps.appsApi
+        let account = accountId
+        Task {
+            defer { mcpToolBusy = nil }
+            do {
+                try await api.setToolEnabled(accountId: account, appId: app.id, tool: name, enabled: enabled)
+            } catch {
+                mcpTools = before
+                toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the tool"), description: error.trpcUserMessage)
+            }
+        }
     }
 
     /// #VAPP-220: `copy.automations` (shown when the published package
@@ -1086,6 +1232,8 @@ struct AppSettingsSheet: View {
     /// #VAPP-238: the same read carries the webhooks and `canToggle`.
     private func loadAutomations() async {
         guard let app = model.app else {
+            accounts = []
+            mcpTools = []
             automations = []
             hooks = []
             canToggle = false
@@ -1095,6 +1243,11 @@ struct AppSettingsSheet: View {
         let account = accountId
         let summary = try? await api.tools(accountId: account, appId: app.id)
         guard !Task.isCancelled else { return }
+        if teamSlug == nil, let teamId = app.teamId, let pool = try? deps.db.pool(forAccountId: account) {
+            teamSlug = try? await pool.read { db in try TeamEntity.fetchOne(db, key: teamId)?.slug }
+        }
+        accounts = summary?.upstreams ?? []
+        mcpTools = summary?.tools ?? []
         automations = summary?.automations ?? []
         hooks = summary?.hooks ?? []
         canToggle = summary?.canToggle ?? false

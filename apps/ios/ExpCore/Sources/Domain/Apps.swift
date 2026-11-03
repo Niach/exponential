@@ -117,6 +117,22 @@ public enum Apps {
             public static let copySecret = "Copy secret"
         }
 
+        /// #VAPP-243: the Settings tab's Accounts group (`accountRow`).
+        public enum Accounts {
+            public static let title = "Accounts"
+            public static let connect = "Connect"
+            public static let reconnect = "Reconnect"
+            public static let connected = "Connected"
+            public static let notSetUp = "Not set up"
+        }
+
+        /// #VAPP-243: the Settings tab's MCP tools group (the exposes switch).
+        public enum McpTools {
+            public static let title = "MCP tools"
+            public static let read = "Read"
+            public static let write = "Write"
+        }
+
         public static func viewing(_ number: Int) -> String {
             viewing.replacingOccurrences(of: "{n}", with: String(number))
         }
@@ -196,6 +212,11 @@ public enum Apps {
         public static let run = "app-run"
         public static let runMenu = "app-run-menu"
         public static let newMenu = "apps-new-menu"
+        // #VAPP-243: the Settings tab's Accounts and MCP tools groups.
+        public static let accounts = "app-settings-accounts"
+        public static let accountRow = "app-account"
+        public static let mcpTools = "app-settings-mcp-tools"
+        public static let mcpToolRow = "app-mcp-tool"
     }
 
     /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and
@@ -597,6 +618,52 @@ public enum Apps {
             label: status == .ready ? Strings.ready : Strings.unsigned,
             action: action,
             actionLabel: actionLabel
+        )
+    }
+
+    // MARK: - eApps accounts (#VAPP-243, fixture `accountRowCases`)
+
+    /// One row of the Settings tab's Accounts group (TS `AccountRowInput`),
+    /// from tRPC `appAccess.appTools` `upstreams`.
+    public struct AccountRowInput: Equatable, Sendable {
+        public let name: String
+        public let serverId: String?
+        public let state: String?
+
+        public init(name: String, serverId: String?, state: String?) {
+            self.name = name
+            self.serverId = serverId
+            self.state = state
+        }
+    }
+
+    public enum AccountAction: String, Equatable, Sendable {
+        case connect, reconnect
+    }
+
+    public struct AccountRow: Equatable, Sendable {
+        /// `notSetUp` or the upstream.json state.
+        public let status: String
+        /// The muted trailing text (no action).
+        public let label: String?
+        public let action: AccountAction?
+        public let actionLabel: String?
+    }
+
+    /// The trailing text or the viewer's Connect / Reconnect (TS `accountRow`).
+    public static func accountRow(_ row: AccountRowInput) -> AccountRow {
+        typealias Strings = Apps.Copy.Accounts
+        guard row.serverId != nil else {
+            return AccountRow(status: "notSetUp", label: Strings.notSetUp, action: nil, actionLabel: nil)
+        }
+        let status = row.state ?? "disconnected"
+        if status == "connected" || status == "expired" {
+            return AccountRow(status: status, label: Strings.connected, action: nil, actionLabel: nil)
+        }
+        let action: AccountAction = status == "reconnect" ? .reconnect : .connect
+        return AccountRow(
+            status: status, label: nil, action: action,
+            actionLabel: action == .reconnect ? Strings.reconnect : Strings.connect
         )
     }
 

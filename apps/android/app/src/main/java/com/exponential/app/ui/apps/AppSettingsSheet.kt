@@ -1,5 +1,7 @@
 package com.exponential.app.ui.apps
 
+import android.net.Uri
+import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -33,6 +36,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import at.exponential.ui.json.JsonValue
 import com.exponential.app.domain.AppActions
@@ -81,6 +85,17 @@ internal fun AppSettingsBody(
     val granted by viewModel.grantedTools.collectAsStateWithLifecycle()
     val grantBusy by viewModel.grantBusy.collectAsStateWithLifecycle()
     val automations by viewModel.automations.collectAsStateWithLifecycle()
+    val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    val mcpTools by viewModel.mcpTools.collectAsStateWithLifecycle()
+    val mcpToolBusy by viewModel.mcpToolBusy.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    // #VAPP-243: back from the browser's Connect = re-read my accounts.
+    var resumedOnce by remember(app.id) { mutableStateOf(false) }
+    LifecycleResumeEffect(app.id) {
+        if (resumedOnce) viewModel.refreshTools()
+        resumedOnce = true
+        onPauseOrDispose {}
+    }
     val hooks by viewModel.hooks.collectAsStateWithLifecycle()
     val canManageHooks by viewModel.canManageHooks.collectAsStateWithLifecycle()
     val hookBusy by viewModel.hookBusy.collectAsStateWithLifecycle()
@@ -242,6 +257,105 @@ internal fun AppSettingsBody(
             }
         }
         Spacer(Modifier.height(16.dp))
+
+        // ── Accounts (#VAPP-243) ─────────────────────────────────────────
+        // The upstreams the app declares, each with my OWN connection:
+        // the muted state, or Connect / Reconnect (the web page in the browser).
+        if (accounts.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(Apps.TestIds.ACCOUNTS)) {
+            Text(
+                Apps.AccountsCopy.TITLE,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            OptionGroup {
+                accounts.forEachIndexed { index, account ->
+                    if (index > 0) GroupDivider()
+                    val row = Apps.accountRow(account.toRowInput())
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("${Apps.TestIds.ACCOUNT_ROW}-${account.name}")
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            account.name,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        val serverId = account.serverId
+                        if (row.action != null && row.actionLabel != null && serverId != null) {
+                            GlassPill(
+                                row.actionLabel,
+                                size = PillSize.Sm,
+                                icon = if (row.action == Apps.AccountAction.RECONNECT) ExpIcons.uiWarning else ExpIcons.uiSignIn,
+                                onClick = {
+                                    viewModel.connectUrl(serverId)?.let { CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(it)) }
+                                },
+                                modifier = Modifier.testTag("${Apps.TestIds.ACCOUNT_ROW}-${account.name}-${row.action.wire}"),
+                            )
+                        } else if (row.label != null) {
+                            Text(row.label, style = MaterialTheme.typography.bodyMedium, color = muted)
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+
+        // ── MCP tools (#VAPP-243) ────────────────────────────────────────
+        // The exposed tools: title over the name, Read / Write, the switch
+        // (an owner; everyone else reads it).
+        if (mcpTools.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(Apps.TestIds.MCP_TOOLS)) {
+            Text(
+                Apps.McpToolsCopy.TITLE,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            OptionGroup {
+                mcpTools.forEachIndexed { index, tool ->
+                    if (index > 0) GroupDivider()
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("${Apps.TestIds.MCP_TOOL_ROW}-${tool.name}")
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                tool.title,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                tool.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = muted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        GlassPill(if (tool.access == "read") Apps.McpToolsCopy.READ else Apps.McpToolsCopy.WRITE, size = PillSize.Sm)
+                        val editable = canManageHooks && mcpToolBusy == null
+                        GlassSwitch(
+                            checked = tool.enabled,
+                            onCheckedChange = if (editable) ({ on -> viewModel.setToolEnabled(tool.name, on) }) else null,
+                            enabled = editable,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
 
         // ── Automations (#VAPP-220) ──────────────────────────────────────
         // Everyone reads it, nothing to switch: name, trigger, status pill.

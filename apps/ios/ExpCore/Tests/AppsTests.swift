@@ -124,6 +124,8 @@ final class AppsTests: XCTestCase {
             "webhookSecret": Apps.TestIds.webhookSecret,
             "previewScreens": Apps.TestIds.previewScreens,
             "run": Apps.TestIds.run, "runMenu": Apps.TestIds.runMenu, "newMenu": Apps.TestIds.newMenu,
+            "accounts": Apps.TestIds.accounts, "accountRow": Apps.TestIds.accountRow,
+            "mcpTools": Apps.TestIds.mcpTools, "mcpToolRow": Apps.TestIds.mcpToolRow,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])
@@ -261,6 +263,38 @@ final class AppsTests: XCTestCase {
             XCTAssertEqual(result.action?.rawValue, expected["action"] as? String, name)
             XCTAssertEqual(result.actionLabel, expected["actionLabel"] as? String, name)
         }
+    }
+
+    // #VAPP-243: `accountRow` replays `accountRowCases`; the copy and the
+    // test ids pin to the fixture.
+    func testAccountRowCases() throws {
+        let block = try XCTUnwrap(try fixture()["accountRowCases"] as? [String: Any])
+        let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let name = item["name"] as? String ?? ""
+            let raw = try XCTUnwrap(item["row"] as? [String: Any])
+            let row = Apps.AccountRowInput(
+                name: try XCTUnwrap(raw["name"] as? String),
+                serverId: raw["serverId"] as? String,
+                state: raw["state"] as? String
+            )
+            let expected = try XCTUnwrap(item["expected"] as? [String: Any])
+            let result = Apps.accountRow(row)
+            XCTAssertEqual(result.status, expected["status"] as? String, name)
+            XCTAssertEqual(result.label, expected["label"] as? String, name)
+            XCTAssertEqual(result.action?.rawValue, expected["action"] as? String, name)
+            XCTAssertEqual(result.actionLabel, expected["actionLabel"] as? String, name)
+        }
+        let copy = try XCTUnwrap(try fixture()["copy"] as? [String: Any])
+        XCTAssertEqual(copy["accounts"] as? [String: String], [
+            "title": Apps.Copy.Accounts.title, "connect": Apps.Copy.Accounts.connect,
+            "reconnect": Apps.Copy.Accounts.reconnect, "connected": Apps.Copy.Accounts.connected,
+            "notSetUp": Apps.Copy.Accounts.notSetUp,
+        ])
+        XCTAssertEqual(copy["mcpTools"] as? [String: String], [
+            "title": Apps.Copy.McpTools.title, "read": Apps.Copy.McpTools.read, "write": Apps.Copy.McpTools.write,
+        ])
     }
 
     func testEditorTabsMatchTheFixture() throws {

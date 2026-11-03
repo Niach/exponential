@@ -151,6 +151,37 @@ class AppsTest {
         }
     }
 
+    // #VAPP-243: accountRow replays `accountRowCases` and locks `copy.accounts` + `copy.mcpTools`.
+    @Test
+    fun `accountRowCases replay`() {
+        val accounts = fixture["copy"]!!.jsonObject["accounts"]!!.jsonObject
+        val expectedAccounts = mapOf(
+            "title" to Apps.AccountsCopy.TITLE, "connect" to Apps.AccountsCopy.CONNECT,
+            "reconnect" to Apps.AccountsCopy.RECONNECT, "connected" to Apps.AccountsCopy.CONNECTED,
+            "notSetUp" to Apps.AccountsCopy.NOT_SET_UP,
+        )
+        assertEquals(accounts.keys, expectedAccounts.keys)
+        for ((key, value) in expectedAccounts) assertEquals(key, accounts[key]!!.jsonPrimitive.content, value)
+        val tools = fixture["copy"]!!.jsonObject["mcpTools"]!!.jsonObject
+        val expectedTools = mapOf("title" to Apps.McpToolsCopy.TITLE, "read" to Apps.McpToolsCopy.READ, "write" to Apps.McpToolsCopy.WRITE)
+        assertEquals(tools.keys, expectedTools.keys)
+        for ((key, value) in expectedTools) assertEquals(key, tools[key]!!.jsonPrimitive.content, value)
+
+        val cases = fixture["accountRowCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        fun opt(obj: JsonObject, key: String) = obj[key]?.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+        for (case in cases) {
+            val name = case["name"]!!.jsonPrimitive.content
+            val row = case["row"]!!.jsonObject
+            val got = Apps.accountRow(Apps.AccountRowInput(row["name"]!!.jsonPrimitive.content, opt(row, "serverId"), opt(row, "state")))
+            val expected = case["expected"]!!.jsonObject
+            assertEquals(name, expected["status"]!!.jsonPrimitive.content, got.status)
+            assertEquals(name, opt(expected, "label"), got.label)
+            assertEquals(name, opt(expected, "action"), got.action?.wire)
+            assertEquals(name, opt(expected, "actionLabel"), got.actionLabel)
+        }
+    }
+
     @Test
     fun `editorTab replays the fixture`() {
         val tabs = fixture["editorTabs"]!!.jsonObject
@@ -262,6 +293,8 @@ class AppsTest {
             "webhookSecret" to Apps.TestIds.WEBHOOK_SECRET,
             "previewScreens" to Apps.TestIds.PREVIEW_SCREENS,
             "run" to Apps.TestIds.RUN, "runMenu" to Apps.TestIds.RUN_MENU, "newMenu" to Apps.TestIds.NEW_MENU,
+            "accounts" to Apps.TestIds.ACCOUNTS, "accountRow" to Apps.TestIds.ACCOUNT_ROW,
+            "mcpTools" to Apps.TestIds.MCP_TOOLS, "mcpToolRow" to Apps.TestIds.MCP_TOOL_ROW,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)
