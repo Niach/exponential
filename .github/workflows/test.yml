@@ -304,7 +304,6 @@ jobs:
       - name: Paint check
         run: |
           bun run apps/site/scripts/serve.ts 4391 &
-          sleep 1
           bun run apps/site/scripts/paint-check.ts http://localhost:4391
 
   # The eUI rewrite-gap list must classify every view in the catalog exactly
