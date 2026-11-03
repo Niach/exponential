@@ -43,3 +43,4 @@
 - Az app rekordjainak módosítása 10 másodpercig visszavonható; minden rekordnak van visszaállítható előzménye
 - Az appok mezőket számolhatnak és rekordokat kapcsolhatnak össze
 - Az offline módosítások elküldésre kerülnek, amint újra online vagy
+- Az appok több képernyősek lehetnek és táblázatot importálhatnak

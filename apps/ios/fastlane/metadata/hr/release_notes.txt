@@ -43,3 +43,4 @@
 - Poništite izmjene zapisa 10 sekundi; svaki zapis čuva povijest za vraćanje
 - Aplikacije mogu računati polja i povezivati zapise
 - Izmjene napravljene izvan mreže šalju se kad se ponovno povežete
+- Aplikacije mogu imati više zaslona i uvesti proračunsku tablicu

@@ -43,3 +43,4 @@
 - Změny záznamů aplikace lze 10 sekund vrátit; každý záznam má obnovitelnou historii
 - Aplikace umí počítat pole a propojovat záznamy
 - Úpravy aplikace provedené offline se odešlou, jakmile budete zase online
+- Aplikace mohou mít více obrazovek a importovat tabulku jako záznamy

@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.12.0 (2026-11-03)
+
+- VAPP-218 (eApps U1): screens (`screens` in the package, the host paints the navigation), the `app.navigate` action and the `@media (form-factor: phone|wide)` condition (`SurfaceSettings.form_factor`).
 - VAPP-233: `migrate_record_json`, `migration_refusal_json`.
 
 ## 0.11.0 (2026-11-03)

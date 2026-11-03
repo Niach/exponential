@@ -43,3 +43,4 @@
 - Undo app record changes for 10 seconds; every record keeps a history you can restore from
 - Apps can compute fields and link records to each other
 - App edits made offline are sent once you are back online
+- Apps can have several screens, and import a spreadsheet as records

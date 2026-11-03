@@ -1,0 +1,3 @@
+- Apps can have several screens, and import a spreadsheet as records
+- Start an app from a template
+- App settings show its webhooks; records can carry files

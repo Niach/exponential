@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.12.0 (2026-11-03)
+
+- VAPP-218 (eApps U1): screens (`screens` in the package, the host paints the navigation), the `app.navigate` action and the `@media (form-factor: phone|wide)` condition (`SurfaceSettings.form_factor`).
 - VAPP-221: `Surface::components()`, a read-only getter of the flat components (hosts find a FileUpload's bound `files` path).
 
 ## 0.11.0 (2026-11-03)

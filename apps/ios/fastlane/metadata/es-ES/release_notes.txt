@@ -43,3 +43,4 @@
 - Deshaz cambios de registros durante 10 segundos; cada registro guarda un historial restaurable
 - Las apps pueden calcular campos y enlazar registros entre sí
 - Los cambios hechos sin conexión se envían al volver a estar en línea
+- Las apps pueden tener varias pantallas e importar una hoja de cálculo

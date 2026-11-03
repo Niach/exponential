@@ -43,3 +43,4 @@
 - Anulează modificările înregistrărilor timp de 10 secunde; fiecare are un istoric restaurabil
 - Aplicațiile pot calcula câmpuri și lega înregistrări
 - Modificările făcute offline sunt trimise când revii online
+- Aplicațiile pot avea mai multe ecrane și importa o foaie de calcul

@@ -43,3 +43,4 @@
 - Ångra ändringar i appposter i 10 sekunder; varje post har en historik du kan återställa från
 - Appar kan beräkna fält och länka poster till varandra
 - Ändringar gjorda offline skickas när du är online igen
+- Appar kan ha flera skärmar och importera ett kalkylark

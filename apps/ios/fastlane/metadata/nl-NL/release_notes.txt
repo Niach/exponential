@@ -43,3 +43,4 @@
 - Maak wijzigingen aan records 10 seconden ongedaan; elk record bewaart een herstelbare geschiedenis
 - Apps kunnen velden berekenen en records aan elkaar koppelen
 - Offline gemaakte wijzigingen worden verstuurd zodra je weer online bent
+- Apps kunnen meerdere schermen hebben en een spreadsheet importeren
