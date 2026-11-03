@@ -36,6 +36,7 @@ mod imp {
     pub const GPU_BACKEND: &str = "cuda";
     pub const LIBRARY: &str = "libcrispasr.so.1";
     pub const GGML: &str = "libggml.so.0";
+    pub const GGML_BASE: &str = "libggml-base.so.0";
 
     pub const ARTIFACTS: &[Artifact] = &[
         Artifact {
@@ -136,6 +137,7 @@ mod imp {
     pub const GPU_BACKEND: &str = "metal";
     pub const LIBRARY: &str = "libcrispasr.1.dylib";
     pub const GGML: &str = "libggml.0.dylib";
+    pub const GGML_BASE: &str = "libggml-base.0.dylib";
 
     /// Nothing is downloaded: the runtime ships in the bundle.
     pub const ARTIFACTS: &[Artifact] = &[];
@@ -180,6 +182,7 @@ mod imp {
     pub const GPU_BACKEND: &str = "vulkan";
     pub const LIBRARY: &str = "crispasr.dll";
     pub const GGML: &str = "ggml.dll";
+    pub const GGML_BASE: &str = "ggml-base.dll";
 
     pub const ARTIFACTS: &[Artifact] = &[Artifact {
         id: "libcrispasr-windows-x86_64-vulkan",
@@ -253,6 +256,7 @@ mod imp {
     pub const GPU_BACKEND: &str = "cpu";
     pub const LIBRARY: &str = "";
     pub const GGML: &str = "";
+    pub const GGML_BASE: &str = "";
     pub const ARTIFACTS: &[Artifact] = &[];
     pub const CPU_RUNTIME_DIR: &str = "";
     pub const CPU_LIBRARY: &str = "";
@@ -283,6 +287,10 @@ pub use imp::bundled_dir;
 pub use imp::LIBRARY;
 /// ggml's library (already loaded as a dependency; device enumeration).
 pub use imp::GGML;
+/// The ggml base library (both builds): the `ggml_backend_dev_*` getters
+/// live in it. Device pass 2026-11-03: Windows' GetProcAddress, unlike
+/// dlsym, never searches a DLL's dependencies, so they are resolved here.
+pub use imp::GGML_BASE;
 /// NEW-78: the CPU-only runtime: its directory under `{data_dir}/talk/`,
 /// its files (every one pinned) and the libraries opened.
 pub use imp::{CPU_ARTIFACTS, CPU_GGML, CPU_LIBRARY, CPU_RUNTIME_DIR};
