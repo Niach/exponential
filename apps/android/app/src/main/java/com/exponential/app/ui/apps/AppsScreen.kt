@@ -226,7 +226,7 @@ fun AppsListContent(
                 )
                 AppVersionPill(app)
                 val manage = canManage(app)
-                if (manage || app.headVersion > 0) {
+                if (manage || app.publishedVersion > 0) {
                     AppRowMenu(
                         app,
                         canManage = manage,
@@ -269,7 +269,7 @@ private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onEdit: () -> Unit
                     modifier = Modifier.testTag("apps-row-edit"),
                 )
             }
-            if (app.headVersion > 0) {
+            if (app.publishedVersion > 0) {
                 GlassMenuItem(
                     leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
                     text = { Text(AppExport.Copy.EXPORT) },

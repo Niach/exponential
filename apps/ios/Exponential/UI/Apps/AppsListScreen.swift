@@ -95,7 +95,7 @@ struct AppsListScreen: View {
             AppMenuSheet(
                 title: app.name,
                 canEdit: model.canManage(app, userId: deps.auth.userId),
-                canExport: app.headVersion > 0,
+                canExport: app.publishedVersion > 0,
                 canManage: model.canManage(app, userId: deps.auth.userId)
             ) { action in
                 pendingMenu = (app, action)
@@ -146,8 +146,8 @@ struct AppsListScreen: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            // VAPP-121: any member exports an app that has a version.
-            if app.headVersion > 0 || model.canManage(app, userId: deps.auth.userId) {
+            // VAPP-121: any member exports an app that has a published version.
+            if app.publishedVersion > 0 || model.canManage(app, userId: deps.auth.userId) {
                 Button {
                     UIApplication.endEditing()
                     menuTarget = app
