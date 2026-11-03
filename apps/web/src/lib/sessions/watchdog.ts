@@ -6,7 +6,6 @@ import { stampMs } from "@exp/eagent/copy"
 import { db } from "@/db/connection"
 import { devices, messages, sessions, userVoiceSettings } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
-import { fireScheduledAutomations } from "@/lib/apps/automations"
 import { pruneEvents } from "@/lib/events"
 import { purgeOldAppRecordEvents, purgeTrashedAppRecords } from "@/lib/app-records-purge"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
@@ -596,7 +595,8 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     // VAPP-215: record history past its 90 days (app-records.json `history`).
     recordEventsPurged: await purgeOldAppRecordEvents(now),
     // #VAPP-220: the apps' schedule automations (caught up like the agents').
-    automations: await fireScheduledAutomations(now).catch((err) => {
+    // Loaded lazily: the executor pulls in the broker and the MCP server.
+    automations: await import(`@/lib/apps/automations`).then((m) => m.fireScheduledAutomations(now)).catch((err) => {
       console.error(`[watchdog] automations failed`, err)
       return 0
     }),
