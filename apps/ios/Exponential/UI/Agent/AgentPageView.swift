@@ -103,7 +103,7 @@ struct AgentPageView: View {
                                     if !composer.draftEditor.showsAutocompleteMenu, slashMenuVisible(composer) {
                                         slashMenu(composer)
                                             .frame(width: 288)
-                                            .alignmentGuide(.top) { $0[.bottom] + 6 }
+                                            .alignmentGuide(.top) { $0[.bottom] + 4 }
                                     }
                                 }
                             }
