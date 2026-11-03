@@ -1772,6 +1772,13 @@
         "bytes": 32926,
         "sha256": "28d9fec525012b139633f086d78a5aea8e312c0d4c05600c195a4192d1581d7f"
       },
+      "desktop": {
+        "file": "shots/exponential-ui-choice-tiles/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 38400,
+        "sha256": "7ed21d8350a491b6b41a6aa28c60afcf55914244966b2f9e03ef836efbfd495c"
+      },
       "ios": {
         "file": "shots/exponential-ui-choice-tiles/ios.webp",
         "width": 828,
@@ -3272,6 +3279,13 @@
         "height": 1800,
         "bytes": 10672,
         "sha256": "1520294a24cc3a5ea9b7f55847964afc79b2513369e57b5e28d9cef0e23d1b53"
+      },
+      "desktop": {
+        "file": "shots/exponential-ui-search-list/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 28330,
+        "sha256": "3dbf4f95d867406e113e58572bab647546ed263c74a9958767ab5f3571886176"
       },
       "ios": {
         "file": "shots/exponential-ui-search-list/ios.webp",
