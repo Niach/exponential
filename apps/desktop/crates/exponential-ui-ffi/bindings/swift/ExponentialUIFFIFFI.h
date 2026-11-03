@@ -1290,6 +1290,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_migrate_record_json(RustBuffer pack
 RustBuffer uniffi_exponential_ui_ffi_fn_func_migration_refusal_json(RustBuffer before_json, RustBuffer after_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_NAVIGATE_TARGET_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_NAVIGATE_TARGET_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_navigate_target_json(RustBuffer package_json, RustBuffer args_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_NICE_TICKS_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_NICE_TICKS_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(double min, double max, uint32_t target, RustCallStatus *_Nonnull out_status
@@ -1373,6 +1378,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(RustBuffer val
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RESOLVE_RECIPE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RESOLVE_RECIPE_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(RustBuffer theme_json, RustBuffer component, RustBuffer part, RustBuffer props_json, RustBuffer states, RustBuffer mode, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RESOLVE_SCREEN_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RESOLVE_SCREEN_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_resolve_screen_json(RustBuffer package_json, RustBuffer screen, RustBuffer params_json, RustCallStatus *_Nonnull out_status
 );
 #endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_RUN_ACTION_JSON
@@ -2018,6 +2028,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json(void
     
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_NAVIGATE_TARGET_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_NAVIGATE_TARGET_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_navigate_target_json(void
+    
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_NICE_TICKS_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_NICE_TICKS_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json(void
@@ -2117,6 +2133,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RESOLVE_RECIPE_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RESOLVE_RECIPE_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RESOLVE_SCREEN_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_RESOLVE_SCREEN_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_resolve_screen_json(void
     
 );
 #endif

@@ -2989,6 +2989,9 @@ pub fn validate_record_transitions_json(kind_json: String, at: String, kind_name
     guarded("validate_record_transitions_json", || {
         let kind: Value = parse(&kind_json)?;
         Ok(json_string(&h::validate_record_transitions(&kind, &at, &kind_name)))
+    })
+}
+
 /// VAPP-218 (U1): the screen a host opens (`fixtures/host-router.json`
 /// `screens`): the requested one when the package has it, else the first,
 /// its params merged (`params_json` = an object; non-strings dropped). JSON
