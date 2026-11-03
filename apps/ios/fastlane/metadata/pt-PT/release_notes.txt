@@ -37,3 +37,4 @@
 - Gráficos, listas, campos desativados e imagens nas apps têm o mesmo aspeto que nas outras apps
 - Competências da equipa: escolha no menu + as de uma sessão
 - As apps têm um separador Dados que segue a regra de registos de cada tipo
+- Uma app lê um campo em falta como vazio em vez de falhar a vista

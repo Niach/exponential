@@ -37,3 +37,4 @@
 - Grafikoni, popisi, onemogućena polja i slike u aplikacijama izgledaju jednako kao u ostalim aplikacijama
 - Timske vještine: u izborniku + odaberite vještine s kojima sesija radi
 - Aplikacije imaju karticu Podaci koja prati pravilo zapisa svake vrste
+- Aplikacija čita polje koje nedostaje kao prazno umjesto da prikaz ne uspije

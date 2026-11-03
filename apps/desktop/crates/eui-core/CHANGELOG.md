@@ -5,8 +5,12 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.7.0 (2026-11-03)
+
+- **Breaking** (hence the minor): eApps packages are `formatVersion: 3`, and a record kind may carry a per-kind `policy` (`read`/`create`/`update`/`delete`: `member | author | owners`); a version-2 package is migrated to 3 on the server, and hosts refuse newer formats.
 - **Breaking** eApps R3: `PACKAGE_FORMAT_VERSION` 3 and per-kind record policies: `host::record_policy` (`record_policy`, `record_refusal`, `record_allowed`, `readable_rows`, `validate_record_policy`, `RecordOp`, `RecordViewer`), `apply_record_batch_as` (judged writes; created rows carry `authorId`), package tests take `role`. Fixture `record-policy.json`.
 - `cel`: `dateAdd` with a huge `n` and any day outside 0000..9999 is `date out of range` (it overflowed); the CEL differential fuzz corpus `fixtures/cel-fuzz.json` is replayed in `tests/cel_fuzz.rs`.
+- VAPP-209: an `expr` call's var bound to nothing (a row's missing optional field) reads `null` in `data::resolve_value` instead of failing as an unknown name and falling to the `default` (the TS twin agrees). New example `records_query_25k` (local query bench).
 
 ## 0.6.0 (2026-11-02)
 

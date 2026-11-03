@@ -37,3 +37,4 @@
 - Diagram, listor, inaktiverade fält och bilder i appar ser ut som i de andra apparna
 - Teamfärdigheter: välj i +-menyn färdigheterna en session körs med
 - Appar har en Data-flik som följer varje typs postregel
+- En app läser ett saknat fält som tomt i stället för att vyn misslyckas

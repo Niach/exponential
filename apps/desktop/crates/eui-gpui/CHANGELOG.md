@@ -5,7 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.7.0 (2026-11-03)
+
 - VAPP-160: a moving `VoiceWave` asks for the next frame from a paint-time ticker over its box, only while that box is inside the visible content (offscreen or clipped away: no frame requests); the view prunes animation clocks of removed, rebuilt or hidden nodes on every pass (`SurfaceView::animation_clocks`, a test aid). No visual change.
+- VAPP-209: pressing a package action no longer panics (`cannot read SurfaceView while it is already being updated`): the host function call is deferred out of the surface view's update; `SurfaceView::host_plugin` (a regression test drives the press path).
 
 ## 0.6.0 (2026-11-02)
 

@@ -37,3 +37,4 @@
 - Graphiques, listes, champs désactivés et images des apps sont identiques aux autres apps
 - Compétences d'équipe : choisissez dans le menu + celles d'une session
 - Les apps ont un onglet Données qui suit la règle d'enregistrements de chaque type
+- Une app lit un champ manquant comme vide au lieu de faire échouer la vue

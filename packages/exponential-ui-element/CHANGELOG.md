@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.7.0 (2026-11-03)
+
+- No changes of its own; released with the SDK (eApps formatVersion 3 and per-kind record policies landed in the core).
+
 ## 0.6.0 (2026-11-02)
 
 - No changes of its own; released with the SDK (eApps actions, package tests and optional types landed in the core; the ZoomableImage placeholder comes from the React and Solid renderers).

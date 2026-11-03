@@ -1,0 +1,4 @@
+- Team skills: pick the skills a session runs with in the + menu, and give an agent its own
+- Apps have a Data tab that follows each kind's record rules
+- An app reads a record's missing field as empty instead of failing the view
+- Settings › MCP shows Exponential's tools in groups

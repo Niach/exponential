@@ -37,3 +37,4 @@
 - Charts, lists, disabled fields and pictures in apps look the same as on the other apps
 - Team skills: pick the skills a session runs with in the + menu
 - Apps have a Data tab that follows each kind's record policy
+- An app reads a record's missing field as empty instead of failing the view
