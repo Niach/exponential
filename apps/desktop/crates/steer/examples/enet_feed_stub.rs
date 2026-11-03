@@ -186,6 +186,18 @@ fn on_chat(stub: &Arc<Stub>, from: EndpointId, body: &[u8]) {
         match frame.get("t").and_then(Value::as_str) {
             Some("join") => {
                 println!("JOIN {peer} {session_id}");
+                // #EXP-1654: the capture kills each desktop launch without a
+                // `leave`, and its feed task kept dialling the dead node
+                // (`DROP … timed out`) beside the next launch's join. A new
+                // join retires every OTHER viewer with no open connection.
+                stub.viewers.lock().unwrap().retain(|(viewer, _), task| {
+                    let alive = *viewer == from || stub.node.is_connected(viewer);
+                    if !alive {
+                        println!("RETIRED {}", endpoint_hex(viewer));
+                        task.abort();
+                    }
+                    alive && !task.is_finished()
+                });
                 let feed = if session_id == stub.session_id {
                     tokio::spawn(serve(stub.clone(), from))
                 } else {

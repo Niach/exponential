@@ -1716,9 +1716,13 @@ async function seedSessionTree(ctx: {
   ])
   // EXP-1323: the demo user's read marks: every thread read now but FB-9
   // (read before the agent's request landed: a bold row). FB-9 because no
-  // capture opens it; opening a thread marks it read.
+  // capture opens it; opening a thread marks it read. EXP-1654: plus the
+  // Triage conversation, which `agent-channel` opens: without the mark its
+  // unread count hung on whether that capture ran before `threads` (web
+  // photographed "4", the other platforms none). The Assistant's question
+  // stays unread on purpose (#EXP-1456, the inbox row's target).
   await db.insert(sessionReads).values(
-    [...Object.values(ids), DEMO_SESSION_ID, DEMO_REPORT_SESSION_ID].map((sessionId) => ({
+    [...Object.values(ids), DEMO_SESSION_ID, DEMO_REPORT_SESSION_ID, DEMO_AGENT_CONVERSATION_ID].map((sessionId) => ({
       userId: demoId,
       sessionId,
       readAt: sessionId === ids.sortReports ? minutesAgo(10) : new Date(now),

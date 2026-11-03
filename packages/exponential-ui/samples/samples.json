@@ -1,0 +1,27 @@
+{
+  "$comment": "EXP-1654: the committed sample pictures every specimen host paints instead of a placeholder. The core catalog's examples, the kitchen sink and the Exponential app's styleguide specimens (plan-page, story-tab) name pictures nobody serves (`https://example.com/*` in core.catalog.json + kitchen-sink.json, attachment ids like `sg-1` in plan-page.json and stories.json), so a capture lane would photograph a loading ring. A specimen host (web: the kitchen-sink route + the Exponential styleguide specimens; desktop: exponential_ui_screen + the styleguide entries; iOS: the KitchenSink example + ChatSpecimens; Android: the Compose example + the styleguide specimens) resolves a src through `urls` (the exact src) and an attachment id through `attachments` to the file beside this one and paints its bytes (a data: url, a bundled resource), never fetching anything. Only specimen hosts read this file: the SDK renderers, the docs and the product never do. Files: flat PNG mock-ups, a few KB each; a new example picture = one file here + one key.",
+  "urls": {
+    "https://example.com/cover.jpg": "cover.png",
+    "https://example.com/clip.jpg": "cover.png",
+    "https://example.com/screenshot.png": "screenshot.png",
+    "https://example.com/editor.png": "editor.png",
+    "https://example.com/preview.png": "preview.png",
+    "https://example.com/data.png": "data.png",
+    "https://example.com/versions.png": "versions.png",
+    "https://example.com/one.png": "one.png",
+    "https://example.com/two.png": "two.png",
+    "https://example.com/1.jpg": "editor.png",
+    "https://example.com/2.jpg": "preview.png",
+    "https://example.com/3.jpg": "data.png",
+    "https://example.com/4.jpg": "versions.png",
+    "https://example.com/alex.png": "alex.png"
+  },
+  "attachments": {
+    "sg-1": "editor.png",
+    "sg-2": "preview.png",
+    "sg-3": "data.png",
+    "sg-4": "versions.png",
+    "att-w": "web-picker.png",
+    "att-i": "ios-picker.png"
+  }
+}

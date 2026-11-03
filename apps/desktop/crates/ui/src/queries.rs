@@ -419,6 +419,20 @@ pub(crate) fn instance_origin(cx: &App) -> Option<String> {
         .map(|account| account.instance_url)
 }
 
+/// The instance origin a screen PRINTS for the user to copy (the MCP
+/// endpoint, the server install one-liner): `instance_url`, unless the
+/// DEV-ONLY `EXP_DEV_PUBLIC_URL` names another (EXP-1654). The shots lane
+/// talks to the vite dev server, while web prints the browser's Caddy origin;
+/// the lane passes that origin here so both photograph the same URL. Never
+/// used for a request.
+pub(crate) fn display_instance_url(instance_url: &str) -> String {
+    std::env::var("EXP_DEV_PUBLIC_URL")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| instance_url.to_string())
+}
+
 /// Resolve a relative `/api/...` URL (the canonical stored form of
 /// attachment URLs) against the active account's instance base — the same
 /// base `HttpAttachmentTransport` fetches through. Absolute URLs pass

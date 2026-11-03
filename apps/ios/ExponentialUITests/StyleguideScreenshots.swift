@@ -433,8 +433,10 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_issue-create: the new-issue page ─────────────────────────────
         // The compose button is only mounted on board routes (AppNavigator
         // `composeTarget`), so come back to the issues tab first. The title
-        // field takes focus on appear; EXP-1558: the shot lowers the keyboard
-        // after typing, the state the other clients photograph.
+        // field takes focus on appear; EXP-1558: the shot lowers the keyboard,
+        // the state the other clients photograph. EXP-1654: nothing is typed
+        // — every other platform shows the EMPTY form (placeholder title,
+        // Create disabled), and an untyped page autosaves no draft.
         showBoard(app)
         expect(showcaseRowTitle, within: Wait.nav, "Board did not come back for the compose shot")
         let composeButton = app.buttons["compose-button"]
@@ -442,16 +444,11 @@ final class StyleguideScreenshots: XCTestCase {
         composeButton.tap()
         let titleField = app.textFields["issue-title-field"]
         expect(titleField, within: Wait.nav, "Create-issue page did not open")
-        focus(titleField)
-        titleField.typeText("Prefetch avatars before the first board paint")
         dismissKeyboard(app)
         snapshot("sg_issue-create", settle: 2)
-        focus(titleField)
-        // EXP-1170: the page AUTOSAVES its draft while the title is typed, and
-        // the styleguide run must not leave anything in the seed — clear the
-        // title first: Back from an emptied page DELETES the transient row the
-        // autosave wrote (and writes nothing when none was written yet).
-        clearText(of: titleField)
+        // EXP-1170: the run must not leave anything in the seed; Back from
+        // an empty page writes nothing (and deletes a transient row if one
+        // was ever written).
         app.buttons["Back"].firstMatch.tap()
         // A clear that left a character behind (a slow keyboard) keeps
         // content on the page, so Back asks the EXP-1212 leave prompt:
@@ -588,6 +585,33 @@ final class StyleguideScreenshots: XCTestCase {
             "The agent row never preselected the Assistant — does the demo user have a desktop?"
         )
         snapshot("sg_chat", settle: 2)
+        // ── sg_composer-slash-menu: `/` in the home composer (NEW-7; web's
+        // `typeSlashInComposer`): the team's seeded prompts under the card.
+        // EXP-1654: HERE, on the clean composer (the Assistant preselected,
+        // no subject) the other platforms photograph — after sg_chat-issues
+        // it carried the Implement chips and the Temporary pick. EXP-1558:
+        // the field is a block editor whose empty first line sits at the
+        // top, so tap the first line until the keyboard is up. The iOS menu
+        // is up only while the field is editing (`slashMenuVisible`), so the
+        // keyboard stays in frame. Nothing is picked.
+        if ScreenshotShots.isWanted("sg_composer-slash-menu") {
+            let slashField = anyElement(app, identified: "agent-composer-field")
+            expect(slashField, within: Wait.nav, "The home composer has no field")
+            for dy in [0.25, 0.5, 0.15, 0.25, 0.5] where !app.keyboards.firstMatch.exists {
+                slashField.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: dy)).tap()
+                _ = app.keyboards.firstMatch.waitForExistence(timeout: Wait.nav)
+            }
+            expect(app.keyboards.firstMatch, within: Wait.nav, "The home composer never took focus for the / shot")
+            app.typeText("/")
+            expect(
+                anyElement(app, identified: "agent-composer-slash-menu"),
+                within: Wait.sync,
+                "Typing / opened no prompts menu — does the seed insert the team's prompts?"
+            )
+            snapshot("sg_composer-slash-menu", settle: 2)
+            app.typeText(XCUIKeyboardKey.delete.rawValue)
+            dismissKeyboard(app)
+        }
         // The dotted circle = Temporary session: today's launch, whose "+"
         // carries the runner and work rows.
         anyElement(app, identified: "composer-agent-temporary").tap()
@@ -652,20 +676,6 @@ final class StyleguideScreenshots: XCTestCase {
         for dy in [0.25, 0.5, 0.15] where !app.keyboards.firstMatch.exists {
             composerField.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: dy)).tap()
             _ = app.keyboards.firstMatch.waitForExistence(timeout: Wait.nav)
-        }
-        // ── sg_composer-slash-menu: `/` in the home composer (NEW-7; web's
-        // `typeSlashInComposer`): the team's seeded prompts over the card.
-        // EXP-1558: here, where the composer reliably holds the focus (a tap
-        // right after sg_chat raised no keyboard); nothing is picked.
-        if ScreenshotShots.isWanted("sg_composer-slash-menu") {
-            app.typeText("/")
-            expect(
-                anyElement(app, identified: "agent-composer-slash-menu"),
-                within: Wait.sync,
-                "Typing / opened no prompts menu — does the seed insert the team's prompts?"
-            )
-            snapshot("sg_composer-slash-menu", settle: 2)
-            app.typeText(XCUIKeyboardKey.delete.rawValue)
         }
         app.typeText("Explain #")
         let refSheet = anyElement(app, identified: "issue-ref-search-sheet")
@@ -775,7 +785,7 @@ final class StyleguideScreenshots: XCTestCase {
         // for the row words) has synced by now, and an agent text parsed
         // before its issues landed would cache without its pills. A detour:
         // it leaves through the Issues tab it came from.
-        let threadShots = ["sg_threads", "sg_agent-channel", "sg_thread", "sg_session"]
+        let threadShots = ["sg_threads", "sg_agent-channel", "sg_thread", "sg_session", "sg_script-card", "sg_work-card"]
         if threadShots.map(ScreenshotShots.isWanted).contains(true) {
             walkThreads(app)
             showBoard(app)
@@ -1079,10 +1089,8 @@ final class StyleguideScreenshots: XCTestCase {
         // thread's cards (EXP-1240/1279/1241) ─────────────────────────────────
         // Capture-only specimens over the real views, one relaunch each. The
         // names stay literal: views.test.ts reads them off the source.
-        openThreadCards(app, "work-card")
-        snapshot("sg_work-card", settle: 2)
-        openThreadCards(app, "script-card")
-        snapshot("sg_script-card", settle: 2)
+        // EXP-1654: sg_work-card + sg_script-card are the live session
+        // walk's (walkThreads, in the transcript like web and desktop).
         openThreadCards(app, "comment-call-card")
         snapshot("sg_comment-call-card", settle: 2)
         // ── sg_trace · sg_code-block: THE Trace + Queue and THE CodeBlock
@@ -1435,7 +1443,8 @@ final class StyleguideScreenshots: XCTestCase {
         }
         // A subset run that wants neither of the next two stops here: the
         // session step needs the relay stub (`bun run screenshots:desktop`).
-        guard ScreenshotShots.isWanted("sg_thread") || ScreenshotShots.isWanted("sg_session") else { return }
+        let sessionShots = ["sg_session", "sg_script-card", "sg_work-card"]
+        guard ScreenshotShots.isWanted("sg_thread") || sessionShots.contains(where: ScreenshotShots.isWanted) else { return }
 
         // ── sg_thread: the cold-start thread (DEMO_THREAD_ID) ──────────────
         let coldStart = threadRow(app, containing: Self.coldStartThreadTitle)
@@ -1465,7 +1474,7 @@ final class StyleguideScreenshots: XCTestCase {
             "The cold-start thread drew no pending question"
         )
         snapshot("sg_thread", settle: 2)
-        guard ScreenshotShots.isWanted("sg_session") else {
+        guard sessionShots.contains(where: ScreenshotShots.isWanted) else {
             goBack(app)
             settle(1)
             return
@@ -1525,6 +1534,32 @@ final class StyleguideScreenshots: XCTestCase {
         )
         // S-3: no header Stop (the composer's stop-turn is the one).
         snapshot("sg_session", settle: 2)
+        // ── sg_script-card · sg_work-card (EXP-1654): the SAME relay feed
+        // web and desktop photograph, dragged up from its tail to the
+        // code-mode call's Script card, then the `cold-start-review`
+        // workflow's Work card above it: in the session, never isolated.
+        // A card under the floating strip still reads hittable, so it must
+        // sit below the strip's bottom edge.
+        // The names stay literal: views.test.ts reads them off the source.
+        let strip = anyElement(app, identified: "thread-tab-conversation")
+        let revealFeedCard = { (id: String) in
+            let card = anyElement(app, identified: id)
+            var drags = 0
+            while drags < 14, !(card.exists && card.isHittable && card.frame.minY > strip.frame.maxY) {
+                app.swipeDown(velocity: .slow)
+                drags += 1
+            }
+            XCTAssertTrue(
+                card.exists && card.isHittable,
+                "The session feed drew no \(id) — is `bun run screenshots:desktop` publishing its feed?"
+            )
+        }
+        if ScreenshotShots.isWanted("sg_script-card") || ScreenshotShots.isWanted("sg_work-card") {
+            revealFeedCard("script-card")
+            snapshot("sg_script-card", settle: 2)
+            revealFeedCard("work-card")
+            snapshot("sg_work-card", settle: 2)
+        }
         // Back once (the session page → the Threads list) on the system
         // back button (`goBack`: by name, never the bar's `…`).
         goBack(app)

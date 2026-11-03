@@ -503,3 +503,22 @@ review, not of the tooling.
   SDK resolved (see Prerequisites).
 - **`screencapture` permission errors** — grant Screen Recording to the
   terminal app in System Settings → Privacy & Security, then rerun.
+- **iOS "database is locked" with both lanes running** — `SNAPSHOT_DERIVED_DATA`
+  copied from an older stack env made the parallel store and styleguide lanes
+  build into ONE DerivedData. Leave it unset (each lane builds into
+  `apps/ios/build/shots-dd-<tag>`); a set value is now suffixed `-<tag>`
+  (#EXP-1654).
+- **The iPad store pass fails on GRDB "Copy Module Map"** while the iPhone
+  shots land — read-only products left in the lane's DerivedData by an
+  earlier build. The lane `chmod -R u+w`s `Build/Products` before every build;
+  if it still fails, delete `apps/ios/build/shots-dd-store` and rerun.
+- **Desktop `session`/`script-card`/`work-card`/`comment-call-card` read "No
+  live transcript"** — the viewer joins the demo machine over eNet seconds
+  after the shapes go Live. A `session:` drive's ready file now also waits for
+  the steer feed's first painted replay (`dev_ready.rs`), so a run that times
+  out here means the `screenshots:desktop` stub is not serving: check its log
+  for `JOIN`/`SYNCED` lines (#EXP-1654).
+- **A small leftover never leaves the store** (e.g. Android eUI specimens kept
+  a `host:` line after the app stopped drawing it) — the change sits under the
+  view's pixel-diff tolerance, so the writer keeps the old file. Retake those
+  views with `--force`.

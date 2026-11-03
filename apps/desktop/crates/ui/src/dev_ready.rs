@@ -20,7 +20,11 @@
 //! 3. the DEV-ONLY dialog hook has finished
 //!    ([`crate::screens::dev_dialog_settled`]) — `EXP_DEV_DIALOG` opens its
 //!    overlay 1.5s after its precondition resolves, and a capture taken
-//!    before that would show the bare screen.
+//!    before that would show the bare screen,
+//! 4. (#EXP-1654) on a `session:` screen, the steer feed has PAINTED its
+//!    first replay ([`note_feed_painted`]): the viewer joins the device over
+//!    eNet seconds after the shapes are Live, and a capture taken before that
+//!    photographed "No live transcript".
 //!
 //! While it waits it prints the blocking reason (naming the shapes it is
 //! still missing) every [`LOG_INTERVAL`] whenever that reason CHANGES, so a
@@ -40,6 +44,17 @@ const LOG_INTERVAL: Duration = Duration::from_secs(5);
 
 /// One probe per process, however many windows open.
 static INSTALLED: AtomicBool = AtomicBool::new(false);
+
+/// Whether a steer session view has painted a non-empty feed (#EXP-1654).
+static FEED_PAINTED: AtomicBool = AtomicBool::new(false);
+
+/// A steer session view painted transcript rows: the `session:` drives'
+/// last readiness condition. Cheap enough to call every frame.
+pub(crate) fn note_feed_painted() {
+    if !FEED_PAINTED.load(Ordering::Relaxed) {
+        FEED_PAINTED.store(true, Ordering::SeqCst);
+    }
+}
 
 /// What the probe is still waiting for, plus the ready-file payload numbers.
 struct Progress {
@@ -67,12 +82,14 @@ pub fn install_dev_ready_probe(cx: &mut App) {
     // (the login/onboarding views).
     let signed_in_lane = env_set("EXP_DEV_SERVER") && env_set("EXP_DEV_TOKEN");
     let dialog = std::env::var("EXP_DEV_DIALOG").unwrap_or_default();
+    let wants_feed = std::env::var("EXP_DEV_SCREEN")
+        .is_ok_and(|screen| screen.trim().starts_with("session:"));
 
     cx.spawn(async move |cx| {
         let started = Instant::now();
         let mut last_logged: Option<(String, Instant)> = None;
         loop {
-            let progress = cx.update(|cx| evaluate(signed_in_lane, cx));
+            let progress = cx.update(|cx| evaluate(signed_in_lane, wants_feed, cx));
             match progress.blocked_on {
                 None => {
                     let elapsed = started.elapsed().as_millis();
@@ -117,7 +134,7 @@ fn env_set(name: &str) -> bool {
 }
 
 /// One readiness evaluation against the CURRENT app state.
-fn evaluate(signed_in_lane: bool, cx: &App) -> Progress {
+fn evaluate(signed_in_lane: bool, wants_feed: bool, cx: &App) -> Progress {
     let blocked = |reason: String| Progress {
         blocked_on: Some(reason),
         shapes_ready: 0,
@@ -152,6 +169,9 @@ fn evaluate(signed_in_lane: bool, cx: &App) -> Progress {
     };
     if !crate::screens::dev_dialog_settled() {
         return blocked("dialog: EXP_DEV_DIALOG has not opened yet".to_string());
+    }
+    if wants_feed && !FEED_PAINTED.load(Ordering::SeqCst) {
+        return blocked("feed: the steer feed has not replayed yet".to_string());
     }
     Progress {
         blocked_on: None,

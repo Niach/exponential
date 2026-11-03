@@ -26,7 +26,12 @@ struct FeedbackStatesScreen: View {
                         VStack(spacing: 8) {
                             band("Team prompt") { InlineStatus(FeedbackStates.Inline.saving) }
                             band("Team prompt") { InlineStatus(FeedbackStates.Inline.saved, busy: false) }
-                            GlassSectionHeader("MCP servers", loading: true)
+                            // web `count={3} loading` (Android's trailing "3").
+                            GlassSectionHeader("MCP servers", loading: true) {
+                                Text("3")
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            }
                         }
                     }
                     card(2, "Pending action") {
@@ -49,7 +54,8 @@ struct FeedbackStatesScreen: View {
                                 }
                             }
                             ComposerStartingRow(
-                                starting: .init(deviceLabel: "macbook", since: Date().addingTimeInterval(-1.4))
+                                starting: .init(deviceLabel: "macbook", since: Date().addingTimeInterval(-1.4)),
+                                frozenElapsed: 1.4
                             )
                             .padding(12)
                             .glassCard()

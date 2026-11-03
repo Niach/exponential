@@ -4,7 +4,8 @@
 //! the REAL page ([`crate::plan_page::plan_page`]): the header (the chat's
 //! name = `specimen.chatName`, the kind badge, the waiting dot, the counts
 //! line), THE Outline with `specimen.activeSection` active, the document
-//! from its top (pictures = the muted placeholders) and the rail on
+//! from its top (pictures = the committed samples, EXP-1654:
+//! [`crate::specimen_pictures`] seeds the entry's cache) and the rail on
 //! question 1. `EXP_DEV_SCREEN=styleguide:plan-page` draws it full-window.
 
 use domain::plan_page::PLAN_PAGE;
@@ -41,7 +42,13 @@ pub(crate) fn row() -> SessionThreadRow {
 }
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
-    let images = window.use_keyed_state("sg-plan-page-images", cx, |_, _| ImageCache::new(None)).clone();
+    let images = window
+        .use_keyed_state("sg-plan-page-images", cx, |_, _| {
+            let mut cache = ImageCache::new(None);
+            crate::specimen_pictures::seed_attachments(&mut cache);
+            cache
+        })
+        .clone();
     let scroll = window.use_keyed_state("sg-plan-page-scroll", cx, |_, _| ScrollHandle::new()).read(cx).clone();
     let row = row();
     let noop = || -> Option<crate::plan_page::PageAction> { Some(std::rc::Rc::new(|_, _| {})) };
@@ -51,7 +58,6 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
             chat_name: SharedString::from(PLAN_PAGE.specimen.chat_name.clone()),
             text: &ThreadText::default(),
             images: &images,
-            placeholders: true,
             scroll: &scroll,
             active: Some(PLAN_PAGE.specimen.active_section.clone()),
             on_back: noop(),

@@ -625,6 +625,10 @@
         "shot": "sg_board-empty",
         "lane": "styleguide"
       },
+      "notes": {
+        "ios": "EXP-1654: the block lists 6 steps, not web's 8 — `Connect your tools` (mcp) and `Feedback widget` are `phones: false` in getting-started.json, so the count reads `n of 6` (platform scope).",
+        "android": "See ios: the same 6 phone steps (`phones: false` drops mcp + widget)."
+      },
       "desktop": {
         "drive": {
           "kind": "tool",
@@ -876,7 +880,6 @@
           "text": "Alex's MacBook Pro",
           "timeoutMs": 30000
         },
-        "recipe": "previewDeviceLimits",
         "settleMs": 1200
       },
       "webMobile": {
@@ -885,7 +888,6 @@
           "text": "Alex's MacBook Pro",
           "timeoutMs": 30000
         },
-        "recipe": "previewDeviceLimits",
         "settleMs": 1200
       },
       "ios": {
@@ -895,6 +897,11 @@
       "android": {
         "shot": "sg_agents",
         "lane": "styleguide"
+      },
+      "notes": {
+        "web": "EXP-1654: nothing hovered: the login chip's limits preview stays closed, the state the other platforms photograph.",
+        "web-mobile": "See web.",
+        "desktop": "EXP-1654: the seeded fleet only, as on web and the natives: the capture launch sets `EXP_DEV_NO_REGISTER`, so the capture Mac never registers itself as a second My devices card."
       },
       "desktop": {
         "drive": {
@@ -1209,7 +1216,8 @@
       "notes": {
         "web-mobile": "Inherits web (EXP-1169): `openAddServer` opens the same dialog with the shared device-setup block at the phone's width.",
         "ios": "EXP-1169: AddDeviceSheet (Devices tab pill, readiness fix) holds the same block as the wizard step. EXP-1558: the live walk opens it from the Devices band's Add device pill.",
-        "android": "EXP-1169: AddDeviceSheet holds the same block as the wizard step. EXP-1558: the live walk opens it from the Devices band's Add device pill, gated on the install one-liner."
+        "android": "EXP-1169: AddDeviceSheet holds the same block as the wizard step. EXP-1558: the live walk opens it from the Devices band's Add device pill, gated on the install one-liner.",
+        "desktop": "EXP-1654: the Devices page behind the dialog holds the seeded fleet only: the capture launch sets `EXP_DEV_NO_REGISTER`, so the capture Mac is never a second My devices card."
       },
       "desktop": {
         "drive": {
@@ -1786,9 +1794,13 @@
         "drive": {
           "kind": "settings",
           "value": "tools"
+        },
+        "env": {
+          "EXP_DEV_DOCTOR_CASE": "EXP-1375: low disk with two kept worktrees: a warning, never a blocker"
         }
       },
       "notes": {
+        "desktop": "EXP-1654: a fixed specimen, never the capture Mac's own state, the same machine settings-worktrees photographs: the repos root is the lane's repo fixture (`packages/shots/src/repo-fixture.ts`), the shell is pinned to /bin/zsh, and `EXP_DEV_DOCTOR_CASE` draws the readiness block from the device-doctor.json low-disk case (its two kept worktrees are the fixture's) instead of the Mac's own git, agent logins and disk.",
         "web": "Machine-local paths; nothing to configure from a browser.",
         "web-mobile": "See web.",
         "ios": "See web.",
@@ -2212,8 +2224,8 @@
       "notes": {
         "web": "Not a route: the sidebar-footer entry (EXP-88) opens the block in a centred dialog (EXP-1270; the right sheet is gone), and the entry hides once every step is done (EXP-548), so the seed must leave a step open. The same block renders inline on an EMPTY board (`board-empty`) and on the Agent home while the team has no board.",
         "web-mobile": "Not captured (EXP-1558): the phone shell has no sidebar (the tab bar replaced it) and no other entry opens the dialog (the natives open it from Settings' Getting started row), so there is nothing to tap; the inline block is `board-empty`’s web-mobile capture.",
-        "ios": "Settings’ Getting started row opens the block in a bottom sheet (the same rows, full width, Docs as an icon button).",
-        "android": "See ios: the Settings row’s bottom sheet.",
+        "ios": "Settings’ Getting started row opens the block in a bottom sheet (the same rows, full width, Docs as an icon button). EXP-1654: 6 steps, not web's 8 — `Connect your tools` (mcp) and `Feedback widget` are `phones: false` in getting-started.json, so the count reads `n of 6` (platform scope, not a seed gap).",
+        "android": "See ios: the Settings row’s bottom sheet; the same 6 phone steps (`phones: false` drops mcp + widget, EXP-1654).",
         "desktop": "The rail entry opens the block in its own dialog window (`getting_started::open_dialog`); `EXP_DEV_DIALOG=getting-started` opens it on the active team. The old `getting-started` screen and its tabs are gone."
       },
       "ios": {
@@ -5110,9 +5122,9 @@
       "notes": {
         "web": "The styleguide island `session-row` (apps/styleguide/src/entries/session-row.tsx) draws both sizes on the real component; the app views are `agents` and the sidebar.",
         "web-mobile": "See web: the phone's Running list and the Recent sheet draw the big row (`agents` web-mobile).",
-        "desktop": "The desktop styleguide entry `session_row.rs` draws both sizes (EXP-1558: `EXP_DEV_SCREEN=styleguide:session-row`, full-window); the app views are the rail and Recent.",
-        "android": "See ios: the same live walk in StyleguideScreenshotsTest.",
-        "ios": "EXP-1311: the view is THE list row (the session card is `thread`'s). Both phones photograph the live home's Running band over the seeded roots, the row's one phone instance, right after sg_agent-home."
+        "desktop": "EXP-1654: the desktop styleguide entry `session_row.rs` (`EXP_DEV_SCREEN=styleguide:session-row`, full-window) draws the web island's board line for line on the real `run_rows::run_row`: the Running caption over the APP-5 tree (needs you, a working child, an idle grandchild), APP-14 working, an ended root, the first row lit. It used to draw the session CARDS (`thread`'s), not the row; the live instance is the rail's Active band.",
+        "android": "See ios: the same live walk in StyleguideScreenshotsTest. No SessionRow composable exists on Android (the thread tree sheet draws its own ExpandedSessionRow), so a specimen needs one first.",
+        "ios": "OPEN GAP (EXP-1654): the phones have no list of SessionRows since the Running band left the home (EXP-1316) and the Chats rows became ChatRows (EXP-1373); `sg_session-row` still photographs the live Chats tab, which is `threads`' subject, not this row. The fix is a capture-only specimen of the island's rows (iOS ExpUI `SessionRow` exists; its one live use is the thread tree sheet, ThreadMenuSheet.swift). Until then the phone shots are NOT comparable with desktop."
       },
       "desktop": {
         "drive": {
@@ -5285,7 +5297,7 @@
       },
       "notes": {
         "web": "`typeSlashInComposer` types `/` into the home composer.",
-        "ios": "NEW-7: the Home composer's `/` lists the team's prompts under the card (`agent-composer-slash-menu`), a pick = the prompt chip. EXP-1558: the live walk types `/` into the home composer right after sg_chat (the seed's team prompts).",
+        "ios": "NEW-7: the Home composer's `/` lists the team's prompts under the card (`agent-composer-slash-menu`), a pick = the prompt chip. EXP-1558: the live walk types `/` into the home composer right after sg_chat (the seed's team prompts). EXP-1654: on the clean composer (Assistant preselected, no chips); the keyboard stays up because the iOS menu shows only while the field edits (`slashMenuVisible`).",
         "android": "EXP-1558: `/` typed into the Agent home composer: the team's prompts under the card (`agent-composer-slash-menu`, gated on the seed's Release train), keyboard down like web.",
         "desktop": "EXP-1558: the Agent page (`EXP_DEV_SCREEN=chat`) with `EXP_DEV_COMPOSER_TEXT=/` typed into the home composer once its shapes are in: the team's prompts menu, web's `typeSlashInComposer`."
       },
@@ -5808,7 +5820,9 @@
       "notes": {
         "web": "The raw session view (`session`; EXP-1293: its feed always shows the work): `scrollToWorkCards` centres the demo feed's workflow card (`cold-start-review`, apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
-        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1` and `EXP_DEV_SCROLL_TO=work-card`: the transcript parks on the demo feed's workflow card (`cold-start-review`, apps/web/scripts/screenshot-desktop.ts) instead of the tail. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1` and `EXP_DEV_SCROLL_TO=work-card`: the transcript parks on the demo feed's workflow card (`cold-start-review`, apps/web/scripts/screenshot-desktop.ts) instead of the tail. Needs `bun run screenshots:desktop` and the steer relay, like `steering`.",
+        "ios": "EXP-1654: the LIVE walk, in the session like web and desktop (never the isolated capture-only card): after sg_session (\"Profile the launch path\", the relay stub's feed) the walk drags the transcript up from its tail to the `cold-start-review` workflow's Work card, below the floating strip. Needs `bun run screenshots:desktop`, like `session`.",
+        "android": "See ios: the same drag in StyleguideScreenshotsTest step \"thread\" (`agent-feed`), no longer in CAPTURE_SHOTS."
       }
     },
     {
@@ -5849,7 +5863,9 @@
       "notes": {
         "web": "The raw session view (`session`; EXP-1293: its feed always shows the work, no Show work toggle): `scrollToScriptCard` centres the code-mode call's Script card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts). Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
-        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1` and `EXP_DEV_SCROLL_TO=script-card`: the transcript parks with the demo feed's code-mode `exec` call (apps/web/scripts/screenshot-desktop.ts) near the top of the viewport instead of on the tail, its calls grouped by tool off the settle's `script` log. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1` and `EXP_DEV_SCROLL_TO=script-card`: the transcript parks with the demo feed's code-mode `exec` call (apps/web/scripts/screenshot-desktop.ts) near the top of the viewport instead of on the tail, its calls grouped by tool off the settle's `script` log. Needs `bun run screenshots:desktop` and the steer relay, like `steering`.",
+        "ios": "EXP-1654: the LIVE walk, in the session like web and desktop (never the isolated capture-only card): after sg_session (\"Profile the launch path\", the relay stub's feed) the walk drags the transcript up from its tail to the code-mode call's Script card, below the floating strip. Needs `bun run screenshots:desktop`, like `session`.",
+        "android": "See ios: the same drag in StyleguideScreenshotsTest step \"thread\" (`agent-feed`), no longer in CAPTURE_SHOTS."
       }
     },
     {
@@ -6553,23 +6569,14 @@
       "blurb": "The Chats multi-selection ×4 (chats.json SELECTION + ARCHIVE), the issue list's bulk selection on chats (board-bulk-edit beside it): long-press (touch) or the checkbox column / Select / cmd-click / shift-click / cmd-A (pointers), the issue rows' selection control and selected-row look, the Archived entry and THE bulk action bar (the count, Mark read/unread, Archive/Unarchive, Delete).",
       "order": 36,
       "web": {
-        "route": "/t/$teamSlug/threads",
+        "route": "/t/$teamSlug/agent?dev=chat-selection",
         "anchor": {
-          "testId": "bulk-action-bar",
-          "timeoutMs": 30000
+          "testId": "chat-selection-specimen",
+          "timeoutMs": 20000
         },
-        "recipe": "openChatSelection",
-        "settleMs": 600
+        "settleMs": 800
       },
-      "webMobile": {
-        "route": "/t/$teamSlug/threads",
-        "anchor": {
-          "testId": "bulk-action-bar",
-          "timeoutMs": 30000
-        },
-        "recipe": "openChatSelection",
-        "settleMs": 600
-      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_chat-selection",
         "lane": "styleguide"
@@ -6586,11 +6593,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The real Chats page (the board-bulk-edit way): `openChatSelection` clicks two rows' checkbox column (wide) or long-presses a row and taps the next (phone).",
+        "web": "EXP-1654: the DEV-ONLY `?dev=chat-selection` on the Agent route (never parsed in a production build): `@exp/ui` `ChatSelectionSpecimen`, the real ChatList fed chats.json's selection rows (Archived entry, two selected, THE bulk bar), the rows desktop and the phones photograph; the live page's selection (`openChatSelection` over the seed) stays an e2e walk.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_chat-selection.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest (captureOnlyScreens).",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:chat-selection`: the IDE styleguide entry drawn full-window.",
-        "web-mobile": "The real Chats page on the phone frame: the row's long-press enters, a tap adds the second row; the bar takes the tab bar's slot."
+        "web-mobile": "Inherits web: the phone frame draws the same 390px specimen at full width."
       }
     },
     {

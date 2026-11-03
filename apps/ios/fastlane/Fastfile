@@ -55,7 +55,7 @@ end
 #   SNAPSHOT_LANE_TAG       simulator/DerivedData/cache tag, default "store" /
 #                           "styleguide" — set a distinct one per worktree when
 #                           two checkouts run the SAME lane at once.
-#   SNAPSHOT_DERIVED_DATA   override the lane's DerivedData path.
+#   SNAPSHOT_DERIVED_DATA   override the lanes' DerivedData path (suffixed -<tag>).
 #   SNAPSHOT_INSTANCE_URL   the backend (see Snapfile).
 #
 # Concurrent invocation (from apps/ios, each in its own process):
@@ -79,8 +79,12 @@ module ::ExpSnapshotLanes
     raw.gsub(/[^A-Za-z0-9_-]/, "-")
   end
 
+  # #EXP-1654: an override is suffixed with the lane tag too: one exported
+  # path shared by the parallel store and styleguide lanes made both build
+  # into one DerivedData ("database is locked").
   def derived_data(tag)
-    ENV["SNAPSHOT_DERIVED_DATA"].to_s.strip.empty? ? File.join(snapshot_root, "build", "shots-dd-#{tag}") : File.expand_path(ENV["SNAPSHOT_DERIVED_DATA"])
+    override = ENV["SNAPSHOT_DERIVED_DATA"].to_s.strip
+    override.empty? ? File.join(snapshot_root, "build", "shots-dd-#{tag}") : "#{File.expand_path(override)}-#{tag}"
   end
 
   # The GRDB "Copy Module Map" phase dies on read-only products left behind

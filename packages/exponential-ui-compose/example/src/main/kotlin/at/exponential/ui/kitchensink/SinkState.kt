@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import at.exponential.ui.ExponentialUi
 import at.exponential.ui.ffi.benchTreeJson
 import at.exponential.ui.host.ClosureHost
+import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.measure.TextShaper
 import at.exponential.ui.model.OverlayPresentation
@@ -74,7 +75,7 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
                 mode = mode,
                 overlays = if (options.painted) OverlayPresentation.Painted else OverlayPresentation.Native,
             ),
-            host = ClosureHost(
+            host = sampleHost(ClosureHost(
                 icons = ::sinkIcon,
                 actions = { e -> Log.i(LOG_TAG, "action ${e.name} ${e.componentId} ${e.context.json} ${e.payload?.json ?: ""}") },
                 inputs = { e ->
@@ -84,7 +85,7 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
                         echo = e.value.displayText
                     }
                 },
-            ),
+            )),
             shaper = { fallback },
         )
         val specimen = specimenId?.let(::specimenNode)
@@ -101,6 +102,14 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
             // header's team name, the posts, every bound input).
             val data = JsonValue.parse(assets.open("kitchen-sink.data.json").bufferedReader().use { it.readText() })
             model.setData("", JsonValue.Obj((data.obj ?: emptyMap()) - "\$comment"))
+        }
+    }
+
+    /** EXP-1654: [base], with every example src `samples.json` names painted from the bundled sample PNG. */
+    private fun sampleHost(base: HostPlugin): HostPlugin {
+        val samples = Samples(assets)
+        return object : HostPlugin by base {
+            override fun resolveUrl(src: String): String = samples.resolve(base.resolveUrl(src))
         }
     }
 

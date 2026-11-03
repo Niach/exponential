@@ -1,10 +1,12 @@
 //! EXP-1248 — `pr-row`: THE pull-request row, the REAL
 //! [`crate::pr_rows`] (web `@exp/ui` `pr-row.tsx`, fixture `list-item.json`):
 //! a PR TREE nested with tree guides, a STACK on its rail down to the base
-//! branch (the current member washed, the ghost "Merge through here" pinned
-//! on one row the way a hover shows it, `stack` on the top row) and an
-//! unlinked PR with its external-link glyph. One line per PR, no counts, no
-//! inline Merge.
+//! branch (the current member washed, `stack` on the top row) and an unlinked
+//! PR with its external-link glyph, under the Reviews list's glass section
+//! headers. One line per PR, no counts, no inline Merge. EXP-1654: the rows,
+//! the current member and the headers are web `PrRowSpecimen`'s and the
+//! phones' `sg_pr-row` line for line, with no pinned hover (the capture board
+//! leaves the ghost "Merge through here" off, like web and the phones).
 
 use std::rc::Rc;
 
@@ -59,15 +61,14 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         StackRailSpec {
             id_prefix: SharedString::from("styleguide-pr-stack"),
             members: vec![
-                member("v100", "VAPP-100", "SwiftUI parity with the round-1/2 contract", false),
+                member("v100", "VAPP-100", "SwiftUI parity with the round-1/2 contract", true),
                 member("v98", "VAPP-98", "Exponential UI renderer hardening round 1", false),
-                member("v91", "VAPP-91", "Exponential UI host API ×4", true),
-                member("v88", "VAPP-88", "Exponential UI SwiftUI renderer", false),
+                member("v93", "VAPP-93", "ui.exponential.at: the Exponential UI site", false),
+                member("v91", "VAPP-91", "Exponential UI host API ×4", false),
             ],
             base_branch: SharedString::from("master"),
             word: Some(SharedString::from(crate::pr_rows::STACK_WORD)),
-            // The styleguide pins one row's hover, so the ghost shows.
-            hovered: Some("v98".to_string()),
+            hovered: None,
             on_hover: None,
             on_merge_through: Some(Rc::new(|_, _, _| {})),
         },
@@ -95,7 +96,19 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .flex_col()
         .w(px(640.))
         .gap_4()
-        .child(tree)
-        .child(stack)
-        .child(unlinked)
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .child(crate::surface::glass_section_header("Exponential", None, cx))
+                .child(tree)
+                .child(stack),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_col()
+                .child(crate::surface::glass_section_header("Not linked to an issue", None, cx))
+                .child(unlinked),
+        )
 }

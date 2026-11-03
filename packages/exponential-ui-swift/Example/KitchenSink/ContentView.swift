@@ -152,7 +152,7 @@ final class SinkState: ObservableObject {
                 }
             }
         )
-        model.host = host
+        model.host = SampleHost(base: host)
         var json = specimenJSON
             ?? (try! String(contentsOf: Bundle.main.url(forResource: "kitchen-sink", withExtension: "json")!, encoding: .utf8))
         if options.rtl {
@@ -286,4 +286,48 @@ struct ContentView: View {
             }
         }
     }
+}
+
+/// EXP-1654: the committed sample pictures (`packages/exponential-ui/samples`,
+/// bundled as the `samples` folder): a src `samples.json` `urls` names
+/// resolves to a `data:` url of its PNG, so the specimens paint a picture,
+/// never fetching. Everything else forwards to `base`.
+@MainActor
+final class SampleHost: HostPlugin {
+    let base: ClosureHost
+    private let urls: [String: String]
+    private var cache: [String: String] = [:]
+
+    init(base: ClosureHost) {
+        self.base = base
+        let dir = Bundle.main.url(forResource: "samples", withExtension: nil)
+        if let url = dir?.appendingPathComponent("samples.json"),
+           let data = try? Data(contentsOf: url),
+           let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            urls = root["urls"] as? [String: String] ?? [:]
+        } else {
+            urls = [:]
+        }
+    }
+
+    func resolveUrl(_ src: String) -> String {
+        guard let file = urls[src] else { return src }
+        if let hit = cache[file] { return hit }
+        guard let url = Bundle.main.url(forResource: "samples", withExtension: nil)?.appendingPathComponent(file),
+              let bytes = try? Data(contentsOf: url) else { return src }
+        let data = "data:image/png;base64,\(bytes.base64EncodedString())"
+        cache[file] = data
+        return data
+    }
+
+    var urlPolicy: UrlPolicy? { base.urlPolicy }
+    var mediaOptions: MediaOptions? { base.mediaOptions }
+    func icon(_ name: String, size: CGFloat) -> AnyView? { base.icon(name, size: size) }
+    func onAction(_ event: SurfaceActionEvent) { base.onAction(event) }
+    func onInput(_ event: SurfaceInputEvent) { base.onInput(event) }
+    func openUrl(_ url: String) { base.openUrl(url) }
+    func onPaintError(_ error: SurfacePaintError) { base.onPaintError(error) }
+    func onUnknown(component: String, catalogId: String?, id: String) { base.onUnknown(component: component, catalogId: catalogId, id: id) }
+    func onUpload(_ event: SurfaceUploadEvent) { base.onUpload(event) }
+    func announce(text: String, live: String) { base.announce(text: text, live: live) }
 }

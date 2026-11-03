@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
+import com.exponential.app.ui.components.LocalSpecimenPicture
 import com.exponential.app.domain.Dock
 import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.SessionTree
@@ -176,8 +177,9 @@ fun StoryTile(
                                 .background(DesignTokens.Palette.Muted, TILE_SHAPE)
                                 .border(GlassTokens.Hairline, GlassTokens.StrokeCard, TILE_SHAPE),
                         ) {
+                            val src = "/api/attachments/${picture.attachmentId}"
                             AsyncImage(
-                                model = "/api/attachments/${picture.attachmentId}",
+                                model = LocalSpecimenPicture.current?.invoke(src) ?: src,
                                 contentDescription = picture.caption ?: picture.label,
                                 contentScale = ContentScale.Crop,
                                 alignment = Alignment.TopCenter,
