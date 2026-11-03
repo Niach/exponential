@@ -104,6 +104,22 @@ object Apps {
         const val COPY_SECRET = "Copy secret"
     }
 
+    /** #VAPP-243: the Settings tab's Accounts group (`copy.accounts`). */
+    object AccountsCopy {
+        const val TITLE = "Accounts"
+        const val CONNECT = "Connect"
+        const val RECONNECT = "Reconnect"
+        const val CONNECTED = "Connected"
+        const val NOT_SET_UP = "Not set up"
+    }
+
+    /** #VAPP-243: the Settings tab's MCP tools group (`copy.mcpTools`). */
+    object McpToolsCopy {
+        const val TITLE = "MCP tools"
+        const val READ = "Read"
+        const val WRITE = "Write"
+    }
+
     object Preview {
         const val RADIUS = 12
         const val PADDING = 16
@@ -156,6 +172,11 @@ object Apps {
         const val RUN = "app-run"
         const val RUN_MENU = "app-run-menu"
         const val NEW_MENU = "apps-new-menu"
+        // #VAPP-243: the Accounts and MCP tools groups + one of their rows.
+        const val ACCOUNTS = "app-settings-accounts"
+        const val ACCOUNT_ROW = "app-account"
+        const val MCP_TOOLS = "app-settings-mcp-tools"
+        const val MCP_TOOL_ROW = "app-mcp-tool"
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,
@@ -342,6 +363,25 @@ object Apps {
                 null -> null
             },
         )
+    }
+
+    // #VAPP-243 (fixture `accountRowCases`): one row of the Settings tab's
+    // Accounts group, from tRPC `appAccess.appTools` `upstreams`.
+
+    data class AccountRowInput(val name: String, val serverId: String?, val state: String?)
+
+    enum class AccountAction(val wire: String) { CONNECT("connect"), RECONNECT("reconnect") }
+
+    /** [status] = `notSetUp` or the upstream.json state; [label] = the muted
+     *  trailing text when there is no action. */
+    data class AccountRow(val status: String, val label: String?, val action: AccountAction?, val actionLabel: String?)
+
+    fun accountRow(row: AccountRowInput): AccountRow {
+        if (row.serverId == null) return AccountRow("notSetUp", AccountsCopy.NOT_SET_UP, null, null)
+        val status = row.state ?: "disconnected"
+        if (status == "connected" || status == "expired") return AccountRow(status, AccountsCopy.CONNECTED, null, null)
+        val action = if (status == "reconnect") AccountAction.RECONNECT else AccountAction.CONNECT
+        return AccountRow(status, null, action, if (action == AccountAction.RECONNECT) AccountsCopy.RECONNECT else AccountsCopy.CONNECT)
     }
 
     fun restored(restored: Int, version: Int): String =

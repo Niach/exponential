@@ -275,6 +275,27 @@ export function webhookRow(
   return { status, label: copy[status], action, actionLabel: action ? copy[action] : null }
 }
 
+/** #VAPP-243 (`accountRowCases`): one row of the Settings tab's Accounts
+ *  group, from tRPC `appAccess.appTools` `upstreams` (the viewer's own
+ *  connection to each upstream the app declares). */
+export interface AccountRowInput {
+  name: string
+  serverId: string | null
+  state: string | null
+}
+
+export type AccountStatus = `notSetUp` | `connected` | `disconnected` | `connecting` | `failed` | `reconnect` | `expired`
+export type AccountAction = `connect` | `reconnect`
+
+export function accountRow(row: AccountRowInput): { status: AccountStatus; label: string | null; action: AccountAction | null; actionLabel: string | null } {
+  const copy = fixture.copy.accounts
+  if (!row.serverId) return { status: `notSetUp`, label: copy.notSetUp, action: null, actionLabel: null }
+  const status = (row.state ?? `disconnected`) as AccountStatus
+  if (status === `connected` || status === `expired`) return { status, label: copy.connected, action: null, actionLabel: null }
+  const action: AccountAction = status === `reconnect` ? `reconnect` : `connect`
+  return { status, label: null, action, actionLabel: copy[action] }
+}
+
 /** VAPP-221 (eApps R7): the app hosts' FileUpload uploads (fixture
  *  `appFiles`): every picked file POSTs to `uploadPath` as one part
  *  `partName`; the answer's `url` lands in the FileUpload's bound list. */

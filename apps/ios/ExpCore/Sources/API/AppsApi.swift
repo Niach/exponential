@@ -420,27 +420,101 @@ public struct AppHookWire: Decodable, Sendable, Equatable {
     }
 }
 
-/// `appTools`' part the Settings sheet reads: automations, webhooks and
-/// `canToggle` (= a team owner).
+/// #VAPP-243: one `appTools.upstreams` row: an upstream the app declares,
+/// the team's server of that name (nil = none) and the viewer's OWN state.
+public struct AppAccountWire: Decodable, Sendable, Equatable {
+    public let name: String
+    public let serverId: String?
+    public let auth: String?
+    public let state: String?
+
+    private enum CodingKeys: String, CodingKey { case name, serverId, auth, state }
+
+    public init(name: String, serverId: String?, auth: String?, state: String?) {
+        self.name = name
+        self.serverId = serverId
+        self.auth = auth
+        self.state = state
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        serverId = try? c.decodeIfPresent(String.self, forKey: .serverId)
+        auth = try? c.decodeIfPresent(String.self, forKey: .auth)
+        state = try? c.decodeIfPresent(String.self, forKey: .state)
+    }
+
+    /// The pure row's input (`Apps.accountRow`).
+    public var row: Apps.AccountRowInput {
+        Apps.AccountRowInput(name: name, serverId: serverId, state: state)
+    }
+}
+
+/// #VAPP-243: one `appTools.tools` row: an exposed tool, its level and
+/// whether it is switched on.
+public struct AppMcpToolWire: Decodable, Sendable, Equatable {
+    public let name: String
+    public let title: String
+    public let access: String
+    public let enabled: Bool
+
+    private enum CodingKeys: String, CodingKey { case name, title, access, enabled }
+
+    public init(name: String, title: String, access: String, enabled: Bool) {
+        self.name = name
+        self.title = title
+        self.access = access
+        self.enabled = enabled
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? name
+        access = (try? c.decodeIfPresent(String.self, forKey: .access)) ?? "write"
+        enabled = (try? c.decodeIfPresent(Bool.self, forKey: .enabled)) ?? true
+    }
+
+    public func with(enabled: Bool) -> AppMcpToolWire {
+        AppMcpToolWire(name: name, title: title, access: access, enabled: enabled)
+    }
+}
+
+/// `appTools`' part the Settings sheet reads: the accounts, the exposed
+/// tools, automations, webhooks and `canToggle` (= a team owner).
 public struct AppToolsSummary: Sendable, Equatable {
+    public let upstreams: [AppAccountWire]
+    public let tools: [AppMcpToolWire]
     public let automations: [AppAutomationWire]
     public let hooks: [AppHookWire]
     public let canToggle: Bool
 }
 
 private struct AppToolsResult: Decodable {
+    let upstreams: [AppAccountWire]
+    let tools: [AppMcpToolWire]
     let automations: [AppAutomationWire]
     let hooks: [AppHookWire]
     let canToggle: Bool
 
-    private enum CodingKeys: String, CodingKey { case automations, hooks, canToggle }
+    private enum CodingKeys: String, CodingKey { case upstreams, tools, automations, hooks, canToggle }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        upstreams = (try? c.decodeIfPresent([AppAccountWire].self, forKey: .upstreams)) ?? []
+        tools = (try? c.decodeIfPresent([AppMcpToolWire].self, forKey: .tools)) ?? []
         automations = (try? c.decodeIfPresent([AppAutomationWire].self, forKey: .automations)) ?? []
         hooks = (try? c.decodeIfPresent([AppHookWire].self, forKey: .hooks)) ?? []
         canToggle = (try? c.decodeIfPresent(Bool.self, forKey: .canToggle)) ?? false
     }
+}
+
+/// #VAPP-243 `appAccess.setToolEnabled {appId, tool, enabled}`.
+private struct AppToolEnabledInput: Encodable {
+    let appId: String
+    let tool: String
+    let enabled: Bool
 }
 
 /// #VAPP-238 `appAccess.rotateHook {appId, name}`.
@@ -657,7 +731,19 @@ public final class AppsApi: Sendable {
         let result: AppToolsResult = try await trpc.query(
             accountId: accountId, path: "appAccess.appTools", input: AppToolsInput(appId: appId)
         )
-        return AppToolsSummary(automations: result.automations, hooks: result.hooks, canToggle: result.canToggle)
+        return AppToolsSummary(
+            upstreams: result.upstreams, tools: result.tools,
+            automations: result.automations, hooks: result.hooks, canToggle: result.canToggle
+        )
+    }
+
+    /// #VAPP-243 `appAccess.setToolEnabled` (owners): switch one exposed
+    /// tool off (or back on) for every client.
+    public func setToolEnabled(accountId: String, appId: String, tool: String, enabled: Bool) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId, path: "appAccess.setToolEnabled",
+            input: AppToolEnabledInput(appId: appId, tool: tool, enabled: enabled)
+        )
     }
 
     /// #VAPP-238 `appAccess.rotateHook {appId, name}` (owners): mints or

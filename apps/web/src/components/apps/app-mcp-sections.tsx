@@ -1,10 +1,8 @@
 import { Fragment, useEffect, useState } from "react"
-import { UPSTREAM_LABELS } from "@exp/emcp/upstream"
 import { Button, GlassGroup, Pill, Prompt, Switch, toast } from "@exp/ui"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
-import { APP_MCP_COPY } from "@/lib/emcp/copy"
-import { APPS_COPY, APPS_TEST_IDS, automationRow, webhookRow } from "@exp/domain-contract/apps"
+import { accountRow, APPS_COPY, APPS_TEST_IDS, automationRow, webhookRow } from "@exp/domain-contract/apps"
 import { promptActions, rotateWebhookSecretPrompt } from "@/lib/prompts"
 
 // #VAPP-183: an app's MCP side on its settings page (web + desktop, the
@@ -91,45 +89,46 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
   return (
     <>
       {data.upstreams.length > 0 && (
-        <div className="space-y-1" data-testid="app-settings-accounts">
-          <h2 className="px-1 text-sm font-medium">{APP_MCP_COPY.accounts}</h2>
+        <div className="space-y-1" data-testid={APPS_TEST_IDS.accounts}>
+          <h2 className="px-1 text-sm font-medium">{APPS_COPY.accounts.title}</h2>
           <GlassGroup>
-            {data.upstreams.map((u) => (
-              <div key={u.name} className="flex items-center justify-between gap-3 px-4 py-3" data-testid={`app-account-${u.name}`}>
-                <div className="min-w-0 truncate text-sm">{u.name}</div>
-                {!u.serverId ? (
-                  <span className="shrink-0 text-sm text-muted-foreground">{APP_MCP_COPY.noServer}</span>
-                ) : u.state === `connected` ? (
-                  <span className="shrink-0 text-sm text-muted-foreground">{UPSTREAM_LABELS.connected}</span>
-                ) : (
-                  <Button size="sm" variant="outline" pending={busy === u.serverId} disabled={busy !== null} onClick={() => void connect(u.serverId!, u.auth)}>
-                    {u.state === `reconnect` ? APP_MCP_COPY.reconnect : APP_MCP_COPY.connect}
-                  </Button>
-                )}
-              </div>
-            ))}
+            {data.upstreams.map((u) => {
+              const row = accountRow(u)
+              return (
+                <div key={u.name} className="flex items-center justify-between gap-3 px-4 py-3" data-testid={`${APPS_TEST_IDS.accountRow}-${u.name}`}>
+                  <div className="min-w-0 truncate text-sm">{u.name}</div>
+                  {row.action && u.serverId ? (
+                    <Button size="sm" variant="outline" pending={busy === u.serverId} disabled={busy !== null} onClick={() => void connect(u.serverId!, u.auth)}>
+                      {row.actionLabel}
+                    </Button>
+                  ) : (
+                    <span className="shrink-0 text-sm text-muted-foreground">{row.label}</span>
+                  )}
+                </div>
+              )
+            })}
           </GlassGroup>
         </div>
       )}
 
       {data.tools.length > 0 && (
-        <div className="space-y-1" data-testid="app-settings-mcp-tools">
-          <h2 className="px-1 text-sm font-medium">{APP_MCP_COPY.tools}</h2>
+        <div className="space-y-1" data-testid={APPS_TEST_IDS.mcpTools}>
+          <h2 className="px-1 text-sm font-medium">{APPS_COPY.mcpTools.title}</h2>
           <GlassGroup>
             {data.tools.map((t) => (
-              <div key={t.name} className="flex items-center gap-3 px-4 py-3" data-testid={`app-mcp-tool-${t.name}`}>
+              <div key={t.name} className="flex items-center gap-3 px-4 py-3" data-testid={`${APPS_TEST_IDS.mcpToolRow}-${t.name}`}>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-sm">{t.title}</div>
                   <div className="truncate font-mono text-xs text-muted-foreground">{t.name}</div>
                 </div>
                 <Pill size="sm" className="shrink-0">
-                  {t.access === `read` ? APP_MCP_COPY.read : APP_MCP_COPY.write}
+                  {t.access === `read` ? APPS_COPY.mcpTools.read : APPS_COPY.mcpTools.write}
                 </Pill>
                 <Switch
                   checked={t.enabled}
                   disabled={!data.canToggle || busy === t.name}
                   onCheckedChange={(next) => void toggle(t.name, next === true)}
-                  aria-label={`${APP_MCP_COPY.tools}: ${t.title}`}
+                  aria-label={`${APPS_COPY.mcpTools.title}: ${t.title}`}
                 />
               </div>
             ))}

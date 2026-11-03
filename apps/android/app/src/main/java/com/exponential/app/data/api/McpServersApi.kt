@@ -193,10 +193,33 @@ data class AppHookDto(
 @Serializable
 data class AppHookSecretDto(val name: String = "", val url: String = "", val secret: String = "")
 
-/** #VAPP-220: `appAccess.appTools` (only the automations + webhooks are read on phones). */
+/** #VAPP-243: one `appAccess.appTools` upstream: the team's server of that
+ *  name (null = none) and the viewer's OWN connection state. */
+@Serializable
+data class AppUpstreamDto(
+    val name: String = "",
+    val serverId: String? = null,
+    val auth: String? = null,
+    val state: String? = null,
+) {
+    fun toRowInput() = com.exponential.app.domain.Apps.AccountRowInput(name, serverId, state)
+}
+
+/** #VAPP-243: one `appAccess.appTools` exposed tool and its switch. */
+@Serializable
+data class AppMcpToolDto(
+    val name: String = "",
+    val title: String = "",
+    val access: String = "write",
+    val enabled: Boolean = true,
+)
+
+/** #VAPP-220: `appAccess.appTools` (#VAPP-243: the accounts + exposed tools too). */
 @Serializable
 data class AppToolsDto(
     val canToggle: Boolean = false,
+    val upstreams: List<AppUpstreamDto> = emptyList(),
+    val tools: List<AppMcpToolDto> = emptyList(),
     val automations: List<AppAutomationDto> = emptyList(),
     val hooks: List<AppHookDto> = emptyList(),
 )
@@ -206,6 +229,9 @@ private data class AppToolsInput(val appId: String)
 
 @Serializable
 private data class AppHookRotateInput(val appId: String, val name: String)
+
+@Serializable
+private data class AppToolEnabledInput(val appId: String, val tool: String, val enabled: Boolean)
 
 @Serializable
 private data class AppAccessSetInput(val appId: String, val userId: String, val level: String)
@@ -262,6 +288,11 @@ class McpSettingsApi @Inject constructor(private val trpc: TrpcClient) {
             AppHookRotateInput.serializer(),
             AppHookSecretDto.serializer(),
         )
+
+    /** #VAPP-243: switch one exposed tool off (or back on) for every client (owners). */
+    suspend fun setToolEnabled(accountId: String, appId: String, tool: String, enabled: Boolean) {
+        trpc.mutationUnit(accountId, "appAccess.setToolEnabled", AppToolEnabledInput(appId, tool, enabled), AppToolEnabledInput.serializer())
+    }
 
     suspend fun setAppAccess(accountId: String, appId: String, userId: String, level: String) {
         trpc.mutationUnit(accountId, "appAccess.set", AppAccessSetInput(appId, userId, level), AppAccessSetInput.serializer())

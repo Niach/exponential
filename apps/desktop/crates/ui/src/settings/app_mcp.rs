@@ -4,7 +4,7 @@
 //! with the viewer's own connection and Connect; MCP TOOLS = the exposed
 //! tools with their Read/Write level and an owner's switch (a tool switched
 //! off is never listed on /api/mcp/apps). Both hidden when empty. The words
-//! mirror `apps/web/src/lib/emcp/copy.ts` `APP_MCP_COPY`.
+//! mirror apps.json `copy.accounts` / `copy.mcpTools` (#VAPP-243).
 
 use gpui::{div, FontWeight, IntoElement, ParentElement, SharedString, Styled};
 use gpui_component::{
