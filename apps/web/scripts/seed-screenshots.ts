@@ -64,6 +64,7 @@ import {
   boards,
   pullRequestIssues,
   prompts,
+  skills,
   pullRequests,
   repositories,
   sessionIssues,
@@ -109,6 +110,7 @@ import {
   DEMO_AGENT_EVENT_TRIGGER_ID,
   DEMO_AGENT_ID,
   DEMO_AGENT_IDS,
+  DEMO_SKILL_ID,
   DEMO_ASSISTANT_ID,
   DEMO_AGENT_REQUEST,
   DEMO_APP_CHAT_TIMES,
@@ -2749,6 +2751,48 @@ async function main() {
       },
     ])
     .returning()
+
+  // #EXP-1659: the team's skills (Settings › Skills, the + menu › Skills,
+  // the Triage agent's Skills row). Two are on by default, so the launch
+  // composer's pick starts at 2.
+  const skillRows = await db
+    .insert(skills)
+    .values([
+      {
+        teamId: ws.id,
+        name: `release-notes`,
+        description: `Writes the changelog entry for a release PR from its merged commits.`,
+        body: `# Release notes\n\n1. List the PRs merged since the last tag.\n2. Group them by feature, fix and performance.\n3. Prepend the entry to \`lib/changelog.ts\`.`,
+        enabledByDefault: true,
+      },
+      {
+        teamId: ws.id,
+        id: DEMO_SKILL_ID,
+        name: `db-migration`,
+        description: `Use when changing the schema: edit schema.ts, generate, migrate, update the shapes.`,
+        body: `# Database migration\n\n1. Edit \`packages/db-schema/src/schema.ts\` (snake_case columns).\n2. Run \`bun run migrate:generate && bun run migrate\`.\n3. A synced table needs its shape proxy in \`routes/api/shapes/\`\n   with a \`columns\` allowlist.\n4. Custom triggers: \`apps/web/src/db/out/custom/0001_triggers.sql\`.\n\nCheck the result with \`bun run typecheck\`.`,
+        enabledByDefault: true,
+      },
+      {
+        teamId: ws.id,
+        name: `shots`,
+        description: `Capture story pictures for a UI change on web, desktop and Android.`,
+        body: `# Shots\n\nCapture every changed view on each platform and attach the pictures to the PR.`,
+      },
+      {
+        teamId: ws.id,
+        name: `incident-triage`,
+        description: `Read the Sentry issue, find the commit, file a bug with the stack.`,
+        body: `# Incident triage\n\n1. Open the Sentry issue.\n2. Find the commit that introduced it.\n3. File a bug with the stack trace and the commit.`,
+      },
+    ])
+    .returning()
+  const skillId = (name: string) => skillRows.find((row) => row.name === name)!.id
+  await db
+    .update(agents)
+    .set({ skillIds: [skillId(`incident-triage`), skillId(`release-notes`)] })
+    .where(eq(agents.id, DEMO_AGENT_IDS.triage))
+
   // A teammate's headless `exponential` server shared with the team (EXP-432),
   // so the Agents page renders its "Team machines" section and a Shared badge
   // at all — every other seeded machine is the demo user's own. OFFLINE on
