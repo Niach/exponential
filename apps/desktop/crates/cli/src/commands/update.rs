@@ -128,13 +128,7 @@ fn set_auto(data_dir: &std::path::Path, raw: &str) -> CommandResult {
 pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
     prefs::set_last_update_check(&crate::context::data_dir(), prefs::now_epoch());
     let current = crate::cli_version();
-
-    let url = std::env::var("EXP_UPDATE_API")
-        .ok()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| RELEASES_URL.to_string());
-    let body = updater::fetch_text(&url).context("list releases")?;
-    let releases: Vec<Release> = serde_json::from_str(&body).context("decode the release list")?;
+    let releases = list_releases()?;
 
     let asset_name = updater::cli_asset_name();
     let Some((version, release)) = newest_release(&releases, &asset_name) else {
@@ -193,6 +187,57 @@ pub fn check_and_install() -> anyhow::Result<UpdateOutcome> {
     updater::install(&updater::Strategy::AppImage { appimage: exe.clone() }, &staged)
         .context("install the update")?;
     Ok(UpdateOutcome::Updated { version })
+}
+
+/// The published releases, newest-created first (`EXP_UPDATE_API` overrides
+/// the feed).
+fn list_releases() -> anyhow::Result<Vec<Release>> {
+    let url = std::env::var("EXP_UPDATE_API")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| RELEASES_URL.to_string());
+    let body = updater::fetch_text(&url).context("list releases")?;
+    serde_json::from_str(&body).context("decode the release list")
+}
+
+/// #EXP-1628: what an update would do here, without doing it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum UpdateCheck {
+    /// A newer build for this machine is published.
+    Available { version: String },
+    /// The newest published build for this machine is the running one.
+    UpToDate { latest: String },
+    /// No published release carries this machine's binary.
+    NoRelease { asset: String },
+}
+
+/// #EXP-1628: the web Update click's answer: [`check_and_install`]'s
+/// resolution alone (one release list; nothing downloaded, the throttle
+/// untouched), so "nothing installable" reaches the person instead of the
+/// click's flag silently clearing.
+pub fn check_only() -> anyhow::Result<UpdateCheck> {
+    Ok(resolve_check(&list_releases()?, &updater::cli_asset_name(), crate::cli_version()))
+}
+
+fn resolve_check(releases: &[Release], asset_name: &str, current: &str) -> UpdateCheck {
+    match newest_release(releases, asset_name) {
+        None => UpdateCheck::NoRelease { asset: asset_name.to_string() },
+        Some((version, _)) if is_newer(version, current) => UpdateCheck::Available { version: version.to_string() },
+        Some((version, _)) => UpdateCheck::UpToDate { latest: version.to_string() },
+    }
+}
+
+/// #EXP-1628: the `update_check` command's completion: `(ok, message)`;
+/// only an installable build is `ok` (the click's flag then applies it).
+pub fn update_check_answer(check: anyhow::Result<UpdateCheck>) -> (bool, String) {
+    match check {
+        Ok(UpdateCheck::Available { version }) => (true, format!("Updating to {version}.")),
+        Ok(UpdateCheck::UpToDate { latest }) => {
+            (false, format!("Already up to date: {latest} is the newest published build for this machine."))
+        }
+        Ok(UpdateCheck::NoRelease { asset }) => (false, format!("No published build for this machine ({asset}).")),
+        Err(err) => (false, format!("The update check failed: {err:#}")),
+    }
 }
 
 /// EXP-641: the binary on disk just changed under a running daemon, which
@@ -378,7 +423,45 @@ fn is_newer(candidate: &str, current: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{heal_deleted_suffix, is_newer, live_sessions_notice, newest_release, parse_auto, Asset, Release};
+    use super::{
+        heal_deleted_suffix, is_newer, live_sessions_notice, newest_release, parse_auto, resolve_check,
+        update_check_answer, Asset, Release, UpdateCheck,
+    };
+
+    /// #EXP-1628: the Update click's answer. Only an installable build is
+    /// ok; "nothing for this machine" and a failed check say why.
+    #[test]
+    fn the_update_check_answers_what_an_update_would_do() {
+        let bin = "exponential-x86_64-unknown-linux-gnu";
+        let releases = vec![
+            release("cli-v0.14.101", false, &[bin]),
+            release("cli-v0.14.102", false, &["exponential-aarch64-apple-darwin"]),
+            release("cli-v0.14.103", true, &[bin]),
+        ];
+        assert_eq!(
+            resolve_check(&releases, bin, "0.14.100"),
+            UpdateCheck::Available { version: "0.14.101".to_string() }
+        );
+        assert_eq!(
+            resolve_check(&releases, bin, "0.14.101"),
+            UpdateCheck::UpToDate { latest: "0.14.101".to_string() }
+        );
+        assert_eq!(
+            resolve_check(&releases, "exponential-riscv", "0.14.101"),
+            UpdateCheck::NoRelease { asset: "exponential-riscv".to_string() }
+        );
+        assert_eq!(
+            update_check_answer(Ok(UpdateCheck::Available { version: "0.14.101".into() })),
+            (true, "Updating to 0.14.101.".to_string())
+        );
+        assert_eq!(
+            update_check_answer(Ok(UpdateCheck::UpToDate { latest: "0.14.101".into() })),
+            (false, "Already up to date: 0.14.101 is the newest published build for this machine.".to_string())
+        );
+        let (ok, message) = update_check_answer(Err(anyhow::anyhow!("list releases: 503")));
+        assert!(!ok);
+        assert_eq!(message, "The update check failed: list releases: 503");
+    }
 
     fn release(tag: &str, draft: bool, assets: &[&str]) -> Release {
         Release {

@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-reliability-fixes",
+    date: "2026-11-03",
+    title: "Reliability fixes",
+    summary: "The Linux app starts without PipeWire, Update tells you when there is nothing to install, and moving a session leaves its pull request alone.",
+    body: r#"- **Linux**: the AppImage starts on a system without PipeWire; screen sharing and audio stay unavailable there.
+- **Update**: on a machine running the CLI, Update says why when it finds nothing to install (already newest, no build for that machine, a failed check).
+- **Moving a session**: moving a session to another device no longer pushes commits to its open pull request; the work follows it as before.
+- **Merging**: Merge no longer reports a pull request as queued forever when GitHub's merge got stuck.
+- **CI**: sessions hear when their pull request's checks finish, even when no one is looking at the pull request."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_179: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-team-skills",
     date: "2026-11-03",
     title: "Team skills",
