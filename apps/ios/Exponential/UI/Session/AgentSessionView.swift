@@ -187,6 +187,9 @@ struct AgentSessionView: View {
     /// S-3: the view's `origin` link (session-thread.json), its mark and
     /// the route its tap pushes; nil = a person started it.
     @State private var origin: (xref: SessionXref, mark: SessionXrefHeader.AgentMark?, route: AppRoute)?
+    /// #VAPP-229 (via-app.json): the synced, live app this session's
+    /// `viaAppId` resolves to; nil = no "via <app>" line.
+    @State private var viaAppName: String?
     @State private var toolAnsweringId: String?
     /// N-12: THE Dock's open sheet (a card id).
     @State private var dockOpenId: String?
@@ -366,6 +369,7 @@ struct AgentSessionView: View {
         content
             .task(id: session.id) { await observeToolAsks() }
             .task(id: session.id) { await observeOrigin() }
+            .task(id: session.viaAppId) { await observeViaApp() }
             .task(id: session.teamId) {
                 slashPrompts.bind(accountId: accountId, teamId: session.teamId, db: deps.db)
             }
@@ -711,6 +715,18 @@ struct AgentSessionView: View {
                                     pushRoute(origin.route)
                                 }
                                 .padding(.bottom, 8)
+                            }
+                            // #VAPP-229 (via-app.json): an app's tool started
+                            // it = one muted line under the origin.
+                            if let caption = viaAppCaption(viaAppName) {
+                                Text(caption)
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.bottom, 8)
+                                    .accessibilityIdentifier("session-via-app")
                             }
                             if model.canLoadEarlier {
                                 TranscriptLoadEarlierButton { model.loadEarlier() }
@@ -1208,6 +1224,23 @@ struct AgentSessionView: View {
                     rows.view(now: Date(), focus: id == rows.root.id ? nil : id).origin
                 }.value
                 origin = link.map { ($0, rows.xrefMark($0), rows.xrefRoute($0, accountId: accountId)) }
+            }
+        } catch {}
+    }
+
+    /// #VAPP-229: the name of the live app `viaAppId` names (a deleted or
+    /// unknown app = nil, no caption).
+    private func observeViaApp() async {
+        guard let appId = session.viaAppId, let pool = try? deps.db.pool(forAccountId: accountId) else {
+            viaAppName = nil
+            return
+        }
+        let observation = ValueObservation.tracking { db in
+            try AppEntity.filter(Column("id") == appId && Column("deleted_at") == nil).fetchOne(db)?.name
+        }
+        do {
+            for try await name in observation.values(in: pool) {
+                viaAppName = name
             }
         } catch {}
     }

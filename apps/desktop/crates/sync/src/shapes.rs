@@ -198,6 +198,9 @@ pub const SHAPES: [ShapeSpec; 34] = [
             // them onto existing store tables.
             "assignee_agent_id",
             "creator_agent_id",
+            // #VAPP-229: the app that created it ("via <app>", via-app.json).
+            // `heal_missing_columns` ALTERs it onto existing store tables.
+            "via_app_id",
             "created_at",
             "updated_at",
         ],
@@ -454,6 +457,10 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "seal_rotate_epoch",
             "sealed_title",
             "guide",
+            // #VAPP-229: the app that started it ("via <app>", via-app.json;
+            // NOT `app_id`, an editor session's app). `heal_missing_columns`
+            // ALTERs it onto existing store tables.
+            "via_app_id",
             "created_at",
             "updated_at",
         ],
@@ -875,8 +882,10 @@ pub const SHAPES: [ShapeSpec; 34] = [
         // VAPP-122: an app's records (its own data). Byte-matches the
         // proxy; `deleted_at` + the `app_deleted_at` mirror stay server-side
         // (a trashed record simply leaves the shape). VAPP-187: `author_id`
-        // (whose record it is) + `updated_by` (the last writer).
-        columns: &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "created_at", "updated_at"],
+        // (whose record it is) + `updated_by` (the last writer). #VAPP-229:
+        // `via_app_id` (the app whose tool created it; healed onto existing
+        // stores by `heal_missing_columns`).
+        columns: &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "via_app_id", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
     ShapeSpec {
@@ -1097,7 +1106,7 @@ mod tests {
         assert_eq!(records.path, "/api/shapes/app-records");
         assert_eq!(
             records.columns,
-            &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "created_at", "updated_at"]
+            &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "via_app_id", "created_at", "updated_at"]
         );
         assert!(!records.columns.contains(&"deleted_at"));
         assert!(!records.columns.contains(&"app_deleted_at"));
@@ -1275,7 +1284,7 @@ mod tests {
     fn the_session_tree_shapes_match_the_proxies() {
         let sessions = shape_by_name("sessions").unwrap();
         assert_eq!(sessions.path, "/api/shapes/sessions");
-        assert_eq!(sessions.columns.len(), 37);
+        assert_eq!(sessions.columns.len(), 38);
         for column in ["parent_id", "root_id", "agent_id", "status", "busy", "needs_input", "shared", "guide", "seal_public_key", "seal_epoch", "seal_rotate_epoch", "sealed_title"] {
             assert!(sessions.columns.contains(&column), "sessions needs {column}");
         }
@@ -1361,6 +1370,9 @@ mod tests {
             ("issue_events", "actor_agent_id"),
             ("comments", "author_agent_id"),
             ("comments", "via_app_id"),
+            ("issues", "via_app_id"),
+            ("sessions", "via_app_id"),
+            ("app_records", "via_app_id"),
         ] {
             assert!(shape_by_name(shape).unwrap().columns.contains(&column), "{shape} needs {column}");
         }

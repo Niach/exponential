@@ -254,6 +254,26 @@ pub(crate) fn back_link_row(
         .into_any_element()
 }
 
+/// #VAPP-229 (via-app.json SESSION VIEW): one muted text-xs `via <app>`
+/// line under the header's title / origin row when an app's tool started
+/// the session and that app still syncs; `None` otherwise (the thread header
+/// itself stays caption-free).
+pub(crate) fn via_app_line(row: Option<&domain::rows::SessionRow>, cx: &App) -> Option<AnyElement> {
+    let app = crate::comments::synced_app_name(row?.via_app_id.as_deref(), cx);
+    let caption = domain::via_app::via_app_caption(app.as_deref())?;
+    Some(
+        div()
+            .id("session-via-app")
+            .w_full()
+            .min_w_0()
+            .truncate()
+            .text_xs()
+            .text_color(cx.theme().muted_foreground)
+            .child(SharedString::from(caption))
+            .into_any_element(),
+    )
+}
+
 /// One session's center screen.
 pub(crate) struct SessionScreenView {
     session_id: String,
@@ -389,7 +409,8 @@ impl SessionScreenView {
                     .min_h(px(crate::work_header::BAR_H))
                     .children(mark)
                     .child(title),
-            );
+            )
+            .children(via_app_line(row.as_ref(), cx));
         v_flex()
             .w_full()
             .flex_shrink_0()

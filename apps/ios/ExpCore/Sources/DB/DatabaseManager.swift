@@ -3059,6 +3059,27 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v96 (#VAPP-229): `via_app_id` on issues, sessions and app records —
+        // the app whose exposed tool caused the row ("via <app>",
+        // via-app.json). Each table's cursor resets only when its column was
+        // added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v96_via_app_id") { db in
+            for (table, shape) in [("issues", "issues"), ("sessions", "sessions"), ("app_records", "app-records")] {
+                guard try db.tableExists(table) else { continue }
+                guard try db.columns(in: table).contains(where: { $0.name == "via_app_id" }) == false else { continue }
+                try db.alter(table: table) { t in
+                    t.add(column: "via_app_id", .text)
+                }
+                if try db.tableExists("electric_offsets") {
+                    try db.execute(sql: """
+                        UPDATE "electric_offsets"
+                        SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                        WHERE "shape" = ?
+                        """, arguments: [shape])
+                }
+            }
+        }
+
         return migrator
     }
 

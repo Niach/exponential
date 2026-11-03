@@ -238,10 +238,17 @@ fn comment_caption(comment: &Comment, via_app_name: Option<&str>) -> Option<Stri
 /// #VAPP-186: the name of the app whose MCP tool wrote `comment`, from the
 /// synced apps; `None` = no app, or one no longer synced (deleted).
 pub(crate) fn via_app_name(comment: &Comment, cx: &gpui::App) -> Option<String> {
-    let app_id = comment.via_app_id.as_deref().filter(|id| !id.is_empty())?;
+    synced_app_name(comment.via_app_id.as_deref(), cx)
+}
+
+/// #VAPP-186 / #VAPP-229 (via-app.json RESOLVE): a `via_app_id`'s app name
+/// from the synced apps (a deleted app leaves the shape); `None` = no id, an
+/// unknown app, or an empty name. Every "via <app>" caption resolves here.
+pub(crate) fn synced_app_name(app_id: Option<&str>, cx: &gpui::App) -> Option<String> {
+    let app_id = app_id.filter(|id| !id.is_empty())?;
     let store = sync::Store::try_global(cx)?;
     let apps = store.collections().apps.read(cx);
-    apps.get(app_id).map(|app| app.name.clone())
+    apps.get(app_id).map(|app| app.name.clone()).filter(|name| !name.is_empty())
 }
 
 /// The avatar's hue key: the author id, or the reporter's NAME for a

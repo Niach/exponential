@@ -3993,6 +3993,23 @@ impl Render for ThreadScreenView {
             self.take_reveal(&model, cx);
             let inner = view.read(cx).inner().clone();
             let scrolled = inner.read(cx).body_scrolled();
+            // #VAPP-229: the in-place session's `via <app>` line under the
+            // origin (the thread header above stays caption-free).
+            let via_app = crate::session_screen::via_app_line(inner.read(cx).session_row(), cx)
+                .map(|line| {
+                    div()
+                        .w_full()
+                        .child(
+                            div()
+                                .w_full()
+                                .max_w(px(CONVERSATION_W))
+                                .mx_auto()
+                                .px(px(crate::work_header::WORK_GUTTER))
+                                .pt_1()
+                                .child(line),
+                        )
+                        .into_any_element()
+                });
             return v_flex()
                 .track_focus(&self.focus_handle)
                 .size_full()
@@ -4000,6 +4017,7 @@ impl Render for ThreadScreenView {
                 .overflow_hidden()
                 .child(header)
                 .children(origin_line(&model.view, cx))
+                .children(via_app)
                 .child(crate::work_header::work_body(
                     div().flex_1().min_h_0().child(inner).into_any_element(),
                     false,

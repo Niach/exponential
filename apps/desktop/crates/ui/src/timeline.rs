@@ -1496,6 +1496,10 @@ impl IssueTimeline {
             .as_deref()
             .map(|at| comments::relative_time(at, now_epoch))
             .unwrap_or_default();
+        // #VAPP-229 (via-app.json): an app's tool created it → the muted
+        // tail reads `created the issue · {time} · via <app>` while that app
+        // syncs.
+        let via_app = comments::synced_app_name(issue.via_app_id.as_deref(), cx);
 
         // Web parity (EXP-525): the synthesized created row leads with a
         // small plain dot, not an event glyph.
@@ -1533,7 +1537,10 @@ impl IssueTimeline {
                             .whitespace_nowrap()
                             .overflow_hidden()
                             .text_ellipsis()
-                            .child(SharedString::from(created_phrase(&time))),
+                            .child(SharedString::from(domain::via_app::with_via_app(
+                                &created_phrase(&time),
+                                via_app.as_deref(),
+                            ))),
                     ),
             )
             .into_any_element();

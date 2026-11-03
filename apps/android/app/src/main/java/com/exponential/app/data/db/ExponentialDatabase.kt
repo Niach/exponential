@@ -66,7 +66,9 @@ import androidx.room.TypeConverters
     //      skills shape refetches.
     // v113 (#VAPP-201): teams.time_zone (the team time zone), explicit
     //      [MIGRATION_112_113]; only the teams shape refetches.
-    version = 113,
+    // v114 (#VAPP-229): issues/sessions/app_records.via_app_id ("via <app>"),
+    //      explicit [MIGRATION_113_114]; only those three shapes refetch.
+    version = 114,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

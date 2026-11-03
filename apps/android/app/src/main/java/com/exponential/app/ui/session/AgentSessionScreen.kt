@@ -640,6 +640,8 @@ private fun RunFaceContent(
     val session by viewModel.session.collectAsStateWithLifecycle()
     // S-3: who started this session, the feed's first line.
     val origin by viewModel.origin.collectAsStateWithLifecycle()
+    // #VAPP-229: "via <app>" under the origin (null = no line).
+    val viaAppCaption by viewModel.viaAppCaption.collectAsStateWithLifecycle()
     val phase by viewModel.phase.collectAsStateWithLifecycle()
     // Whether the socket is actually up (EXP-621). The banners read the
     // PHASE — a silent redial must not flicker them — but the composer
@@ -1105,12 +1107,30 @@ private fun RunFaceContent(
                     topInset = topInset,
                     header = {
                         val link = origin
-                        if (onOpenOrigin != null && link != null) {
-                            com.exponential.app.ui.components.SessionXref(
-                                link.xref,
-                                onOpen = { id -> onOpenOrigin(id, link.root) },
-                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                            )
+                        val via = viaAppCaption
+                        Column {
+                            if (onOpenOrigin != null && link != null) {
+                                com.exponential.app.ui.components.SessionXref(
+                                    link.xref,
+                                    onOpen = { id -> onOpenOrigin(id, link.root) },
+                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                                )
+                            }
+                            // #VAPP-229 (via-app.json): one muted small line
+                            // under the origin; the thread header stays
+                            // caption-free.
+                            if (via != null) {
+                                Text(
+                                    via,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .padding(horizontal = 4.dp, vertical = 4.dp)
+                                        .testTag("session-via-app"),
+                                )
+                            }
                         }
                     },
                     sessionCards = cardSlots,

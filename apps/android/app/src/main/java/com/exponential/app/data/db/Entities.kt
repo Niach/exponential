@@ -117,6 +117,9 @@ data class IssueEntity(
     // clears one when it sets the other) and the agent whose session filed it.
     @ColumnInfo(name = "assignee_agent_id") @SerialName("assignee_agent_id") @JsonNames("assigneeAgentId") val assigneeAgentId: String? = null,
     @ColumnInfo(name = "creator_agent_id") @SerialName("creator_agent_id") @JsonNames("creatorAgentId") val creatorAgentId: String? = null,
+    // #VAPP-229 (via-app.json): the app whose tool filed it ("via <app>" on
+    // the creation row); SET NULL when the app goes.
+    @ColumnInfo(name = "via_app_id") @SerialName("via_app_id") @JsonNames("viaAppId") val viaAppId: String? = null,
     // EXP-892: the ONE issue-search engine ranks these rows directly (Search
     // tab, the pickers) — the interface is pure projection, nothing is stored.
 ) : IssueSearch.Row
@@ -710,6 +713,9 @@ data class SessionEntity(
     // A body envelope of the title; [title] stays the neutral fallback. Read
     // through the DAO, which opens it into [title] when this install can.
     @ColumnInfo(name = "sealed_title") @SerialName("sealed_title") @JsonNames("sealedTitle") val sealedTitle: String? = null,
+    // #VAPP-229 (via-app.json): the app whose tool started this session
+    // ("via <app>" under the header); NOT [appId] (an editor session's app).
+    @ColumnInfo(name = "via_app_id") @SerialName("via_app_id") @JsonNames("viaAppId") val viaAppId: String? = null,
 ) {
     val isRoot: Boolean get() = parentId == null
     /** NEW-2: an agent's conversation session ([SessionKind.sessionKindOf]). */
@@ -858,6 +864,9 @@ data class AppRecordEntity(
     // the last writer.
     @ColumnInfo(name = "author_id") @SerialName("author_id") @JsonNames("authorId") val authorId: String? = null,
     @ColumnInfo(name = "updated_by") @SerialName("updated_by") @JsonNames("updatedBy") val updatedBy: String? = null,
+    // #VAPP-229 (via-app.json): the app whose tool created it (set on create
+    // only; the Data tab's By cell reads "via <app>").
+    @ColumnInfo(name = "via_app_id") @SerialName("via_app_id") @JsonNames("viaAppId") val viaAppId: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )

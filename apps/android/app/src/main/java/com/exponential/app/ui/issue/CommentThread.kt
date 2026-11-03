@@ -241,6 +241,7 @@ fun CommentThread(
                             item = item,
                             usersById = state.usersById,
                             agents = state.agents,
+                            appNames = state.appNames,
                             lineBelow = lineBelow,
                         )
                     }
@@ -395,6 +396,7 @@ private fun CreatedRow(
     item: TimelineItem.Created,
     usersById: Map<String, com.exponential.app.data.db.UserEntity>,
     agents: List<com.exponential.app.domain.AgentSettings.AgentRowLike>,
+    appNames: Map<String, String>,
     lineBelow: Boolean,
 ) {
     val issue = item.issue
@@ -414,7 +416,11 @@ private fun CreatedRow(
     ) {
         TimelineGutter(lineAbove = false, lineBelow = lineBelow)
         Text(
-            "$who created the issue" + if (time.isNotEmpty()) " · $time" else "",
+            // #VAPP-229 (via-app.json): an app-filed issue's tail reads "· via <app>".
+            com.exponential.app.domain.withViaApp(
+                "$who created the issue" + if (time.isNotEmpty()) " · $time" else "",
+                issue.viaAppId?.let { appNames[it] },
+            ),
             style = MaterialTheme.typography.labelSmall,
             color = CommentMeta,
             modifier = Modifier.padding(vertical = 8.dp),

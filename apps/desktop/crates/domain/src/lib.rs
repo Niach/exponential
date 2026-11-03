@@ -186,6 +186,8 @@ pub mod stack;
 pub mod statuses;
 pub mod stories;
 pub mod tree_guides;
+// #VAPP-229: the "via <app>" caption of every row an app caused, fixture-locked ×4.
+pub mod via_app;
 // #EXP-1561 / #EXP-1562: a question/plan card's state, dismiss, the header's waiting chips, fixture-locked ×4.
 pub mod waiting_cards;
 // NEW-59: the Work screen picker's options + copy, fixture-locked ×4.

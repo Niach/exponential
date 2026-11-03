@@ -253,6 +253,11 @@ pub struct Issue {
     /// synced before the column existed; `heal_missing_columns` ALTERs it in).
     #[serde(default)]
     pub draft_id: Option<String>,
+    /// #VAPP-229 `issues.via_app_id`: the app whose tool created it — the
+    /// creation row reads `via <app>` while that app syncs
+    /// ([`crate::via_app`]).
+    #[serde(default)]
+    pub via_app_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -804,6 +809,10 @@ pub struct SessionRow {
     /// read through [`crate::session_results`].
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub guide: Option<serde_json::Value>,
+    /// #VAPP-229: the app whose tool started it (NOT [`Self::app_id`], an
+    /// editor session's app) — the session view reads `via <app>`.
+    #[serde(default)]
+    pub via_app_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -1396,6 +1405,10 @@ pub struct AppRecordRow {
     /// VAPP-187: the last writer.
     #[serde(default)]
     pub updated_by: Option<String>,
+    /// #VAPP-229: the app whose tool created it (set on create only) — the
+    /// Data tab's By cell reads `… · via <app>`.
+    #[serde(default)]
+    pub via_app_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

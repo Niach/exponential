@@ -34,7 +34,8 @@ public extension FetchedIssue {
             createdAt: createdAt,
             updatedAt: updatedAt,
             assigneeAgentId: assigneeAgentId,
-            creatorAgentId: creatorAgentId
+            creatorAgentId: creatorAgentId,
+            viaAppId: viaAppId
         )
     }
 }
@@ -67,7 +68,8 @@ public extension IssueEntity {
             createdAt: createdAt,
             updatedAt: updatedAt,
             assigneeAgentId: assigneeAgentId,
-            creatorAgentId: creatorAgentId
+            creatorAgentId: creatorAgentId,
+            viaAppId: viaAppId
         )
     }
 }
