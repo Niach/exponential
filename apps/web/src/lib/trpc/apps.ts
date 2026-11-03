@@ -20,7 +20,7 @@ import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, valid
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
 import { ACTION_LIMITS, validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
 import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecordEvents, listRecords, loadApp, queryRecords, restoreRecord, teamMemberIds, undoEvents, upsertRecord, type RecordWriteVia } from "@/lib/apps/records-service"
-import { RECORD_POLICY_COPY, migrationRefusal } from "@exponential_app/eui/host"
+import { RECORD_POLICY_COPY, migrationRefusal, packageMigrations } from "@exponential_app/eui/host"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { importAuthor } from "@exp/domain-contract/app-records"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
@@ -171,7 +171,7 @@ export async function publishVersionInTx(
   args: { number?: number; byOwner: boolean; userId: string | null }
 ): Promise<{ published: number; head: number }> {
   const [locked] = await tx
-    .select({ headVersion: apps.headVersion, grantedTools: apps.grantedTools, package: apps.package, draftPackage: apps.draftPackage })
+    .select({ headVersion: apps.headVersion, publishedVersion: apps.publishedVersion, grantedTools: apps.grantedTools, package: apps.package, draftPackage: apps.draftPackage })
     .from(apps)
     .where(eq(apps.id, app.id))
     .for(`update`)
@@ -200,6 +200,18 @@ export async function publishVersionInTx(
       updatedAt: new Date(),
     })
     .where(eq(apps.id, app.id))
+  // eApps R8 (#VAPP-233): a version with migrations sweeps the app's records
+  // into its shape (lib/apps/record-sweep.ts); a sweep still running for an
+  // earlier publish stops there (superseded).
+  await tx
+    .update(appVersions)
+    .set({ migrationState: `superseded` })
+    .where(and(eq(appVersions.appId, app.id), eq(appVersions.migrationState, `running`)))
+  if (locked.publishedVersion > 0 && number !== locked.publishedVersion && packageMigrations(pkg).length > 0)
+    await tx
+      .update(appVersions)
+      .set({ migrationState: `running`, migrationFrom: locked.publishedVersion, migrationTotal: 0, migrationDone: 0, migrationError: null, migrationBy: args.userId })
+      .where(and(eq(appVersions.appId, app.id), eq(appVersions.number, number)))
   return { published: number, head: locked.headVersion }
 }
 
@@ -614,6 +626,10 @@ export const appsRouter = router({
         const txId = await generateTxId(tx)
         const { published, head } = await publishVersionInTx(tx, app, { number: input.number, byOwner: canGrantActions(member.role), userId })
         return { txid: txId, published, head }
+      }).then((out) => {
+        // eApps R8: start the sweep now (the watchdog resumes it every minute).
+        void import(`@/lib/apps/record-sweep`).then((m) => m.runRecordSweeps({ appId: app.id })).catch((err) => console.error(`[apps] record sweep failed`, err))
+        return out
       })
     }),
 

@@ -20,13 +20,13 @@ import { afterRecordWrite, type RecordTriggerOp } from "@/lib/apps/automation-sc
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
 import { validateRecord, type RecordSchema } from "@exponential_app/eui"
-import { RECORD_POLICY_COPY, kindTransitions, recordPolicy, recordRefusal, transitionRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
+import { RECORD_POLICY_COPY, kindTransitions, migrateRecord, packageMigrations, recordPolicy, recordRefusal, transitionRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
 import { kindComputed, kindRefs, parseRecordsJson, recordsValue, withComputed, type RecordRefTarget, type RecordRow, type RecordsQueryIssue, type RecordsValue } from "@exponential_app/eui/host/query"
 import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { resolveZone, zoneDay, zoneOffset } from "@exp/domain-contract/team-zone"
 import { APP_RECORD_HISTORY, APP_RECORDS_ON_BEHALF, eventState, inverseWrite, recordAuthor, writeAsVerdict, type RecordEventOp, type RecordEventVia } from "@exp/domain-contract/app-records"
 import { db as defaultDb } from "@/db/connection"
-import { appAccess, appRecordEvents, appRecords, apps, issues, teamMembers, teams, users, type App } from "@/db/schema"
+import { appAccess, appRecordEvents, appRecords, appVersions, apps, issues, teamMembers, teams, users, type App } from "@/db/schema"
 import { assertTeamMember } from "@/lib/auth/membership"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { packageBytes, recordKindSchema } from "@/lib/apps/package"
@@ -301,7 +301,7 @@ interface EventInput {
 
 /** VAPP-215: append the writes' events in `tx` (already under the role,
  *  `eapps.write = on`); their ids in order. */
-async function logEvents(tx: Tx, app: Pick<App, `id` | `teamId`>, actor: string, via: RecordWriteVia, events: readonly EventInput[], writeId?: string): Promise<string[]> {
+async function logEvents(tx: Tx, app: Pick<App, `id` | `teamId`>, actor: string | null, via: RecordWriteVia, events: readonly EventInput[], writeId?: string): Promise<string[]> {
   if (events.length === 0) return []
   const rows = await tx
     .insert(appRecordEvents)
@@ -410,7 +410,7 @@ export async function upsertRecord(
         await assertRecordRefs(tx, app, input.kind, input.data)
         await tx
           .update(appRecords)
-          .set({ data, ...(reassign ? { authorId: input.author } : {}), updatedBy: userId, updatedAt: new Date() })
+          .set({ data, ...(reassign ? { authorId: input.author } : {}), schemaVersion: app.publishedVersion, updatedBy: userId, updatedAt: new Date() })
           .where(eq(appRecords.id, existing.id))
         const [eventId] = await logEvents(
           tx,
@@ -439,7 +439,7 @@ export async function upsertRecord(
         .insert(appRecords)
         // VAPP-229: an app's tool (the broker, never a client) = "via <app>".
         // VAPP-235: an outbox create brings its client id (`newId`).
-        .values({ ...(input.newId ? { id: input.newId } : {}), appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId, viaAppId: input.viaAppId ?? null })
+        .values({ ...(input.newId ? { id: input.newId } : {}), appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId, viaAppId: input.viaAppId ?? null, schemaVersion: app.publishedVersion })
         .onConflictDoNothing({ target: appRecords.id })
         .returning({ id: appRecords.id })
       if (!row) throw idTaken()
@@ -586,7 +586,7 @@ export async function commitRecordBatch(
             const data = checkedAgainst(schema, { ...existing.data, ...w.data })
             assertTransition(app, w.kind, viewer, existing.data as Record<string, unknown>, data, existing)
             await assertRecordRefs(tx, app, w.kind, w.data)
-            await tx.update(appRecords).set({ data, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+            await tx.update(appRecords).set({ data, schemaVersion: app.publishedVersion, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             fired.push({ kind: w.kind, op: `update`, record: { ...data, id: existing.id } })
             ids.push(existing.id)
             events.push({ recordId: existing.id, kind: existing.kind, op: `update`, author: recordAuthor(existing), patch: w.data, before: existing.data })
@@ -598,7 +598,7 @@ export async function commitRecordBatch(
           await assertRecordRefs(tx, app, w.kind, data)
           const [row] = await tx
             .insert(appRecords)
-            .values({ ...(w.newId ? { id: w.newId } : {}), appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: userId, updatedBy: userId })
+            .values({ ...(w.newId ? { id: w.newId } : {}), appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: userId, updatedBy: userId, schemaVersion: app.publishedVersion })
             .onConflictDoNothing({ target: appRecords.id })
             .returning({ id: appRecords.id })
           if (!row) throw idTaken()
@@ -705,7 +705,7 @@ async function writeTargets(
         const data = checkedAgainst(schemas, target.state)
         // eApps R6: a restore (an undo) moves the state like any write; a team owner may repair any state.
         if (viewer.role !== `owner`) assertTransition(app, existing.kind, viewer, live ? (existing.data as Record<string, unknown>) : null, data, existing)
-        await tx.update(appRecords).set({ data, deletedAt: null, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+        await tx.update(appRecords).set({ data, deletedAt: null, schemaVersion: app.publishedVersion, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
         events.push({ recordId: existing.id, kind: existing.kind, op: `restore`, author: recordAuthor(existing), patch: data, before: live ? existing.data : null })
       }
       return { txid: txId, eventIds: await logEvents(tx, app, userId, via, events) }
@@ -956,7 +956,7 @@ export async function queryRecords(userId: string, ref: AppRef, input: { kind: s
  *  after this in `tx` may touch another table). */
 export async function importRecords(
   tx: Tx,
-  app: Pick<App, `id` | `teamId` | `package`>,
+  app: Pick<App, `id` | `teamId` | `package`> & Partial<Pick<App, `publishedVersion`>>,
   userId: string,
   role: string,
   records: readonly { kind: string; data: Record<string, unknown>; author?: string }[]
@@ -969,7 +969,7 @@ export async function importRecords(
   await asEapps(tx, { teamId: app.teamId, appIds: [app.id], write: true }, async (tx) => {
     const rows = await tx
       .insert(appRecords)
-      .values(records.map((r) => ({ appId: app.id, teamId: app.teamId, kind: r.kind, data: r.data, createdBy: userId, authorId: r.author ?? userId, updatedBy: userId })))
+      .values(records.map((r) => ({ appId: app.id, teamId: app.teamId, kind: r.kind, data: r.data, createdBy: userId, authorId: r.author ?? userId, updatedBy: userId, schemaVersion: app.publishedVersion ?? 0 })))
       .returning({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, authorId: appRecords.authorId })
     await logEvents(
       tx,
@@ -980,3 +980,72 @@ export async function importRecords(
     )
   })
 }
+
+// ── eApps R8 (#VAPP-233): the publish sweep ──────────────────────────────
+// A publish of a version whose package declares `migrations` marks the
+// version row `running` (lib/apps/record-sweep.ts drives it); each batch
+// here moves up to `limit` records of the app whose `schema_version` is not
+// the published number through `migrateRecord` (record-migrations.json),
+// checks the result against the published kind's schema, writes it with an
+// R4 history event (via `migration`, actor = the publisher) and stamps the
+// number: ONE transaction under the `eapps` role, all or nothing. Rows are
+// taken `FOR UPDATE SKIP LOCKED`, so two replicas never take the same rows
+// and a live write simply waits its turn (it stamps the number itself).
+
+/** Records per sweep batch. */
+export const RECORD_SWEEP_BATCH = 200
+
+export type SweepBatch = { moved: number; pending: number } | { superseded: number } | { error: string }
+
+/** One batch of the sweep to version `number` of the app (see above):
+ *  `moved` rows, `pending` = the rows still to move after it (rows another
+ *  sweep holds included: 0 = done); `superseded` = the app publishes another
+ *  version now; `error` = the first record that cannot move (nothing of the
+ *  batch landed). Records written before R8 (schema_version 0) are read as
+ *  `from`'s shape (the version published before). */
+export async function sweepRecordsBatch(appId: string, number: number, opts: { from: number; actor: string | null; limit?: number; now?: number }, executor: Executor = defaultDb): Promise<SweepBatch> {
+  const app = await loadApp(executor, { id: appId })
+  if (app.publishedVersion !== number) return { superseded: app.publishedVersion }
+  const labels = new Map(
+    (await executor.select({ number: appVersions.number, version: sql<string | null>`${appVersions.package}->>'version'` }).from(appVersions).where(eq(appVersions.appId, appId))).map((v) => [v.number, v.version ?? ``])
+  )
+  const migrations = packageMigrations(app.package)
+  const limit = opts.limit ?? RECORD_SWEEP_BATCH
+  const pending = and(eq(appRecords.appId, appId), sql`${appRecords.schemaVersion} <> ${number}`)
+  return await executor.transaction(async (tx) =>
+    asEapps(tx, { teamId: app.teamId, appIds: [app.id], write: true }, async (tx) => {
+      const rows = await tx
+        .select({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, schemaVersion: appRecords.schemaVersion, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+        .from(appRecords)
+        .where(pending)
+        .orderBy(asc(appRecords.id))
+        .limit(limit)
+        .for(`update`, { skipLocked: true })
+      const events: EventInput[] = []
+      for (const row of rows) {
+        const from = labels.get(row.schemaVersion === 0 ? opts.from : row.schemaVersion) ?? ``
+        const before = (row.data ?? {}) as Record<string, unknown>
+        const out = migrateRecord(migrations, from, row.kind, before, opts.now ?? Date.now())
+        if (`error` in out) throw new SweepError(`record ${row.id}: ${out.error}`)
+        if (out.applied > 0) {
+          const schema = recordKindSchema(app.package, out.kind)
+          const issues = schema ? validateRecord(schema, out.data) : [{ path: ``, message: `the published package declares no kind ${out.kind}` }]
+          if (issues.length) throw new SweepError(`record ${row.id}: ${issues.slice(0, 3).map((i) => `${i.path || `/`}: ${i.message}`).join(`; `)}`)
+          events.push({ recordId: row.id, kind: out.kind, op: `update`, author: recordAuthor(row), patch: out.data, before })
+        }
+        await tx
+          .update(appRecords)
+          .set(out.applied > 0 ? { kind: out.kind, data: out.data, schemaVersion: number, updatedAt: new Date() } : { schemaVersion: number })
+          .where(eq(appRecords.id, row.id))
+      }
+      await logEvents(tx, app, opts.actor, `migration`, events)
+      const left = Number((await tx.select({ n: sql<number>`count(*)` }).from(appRecords).where(pending))[0]?.n ?? 0)
+      return { moved: rows.length, pending: left }
+    })
+  ).catch((e: unknown) => {
+    if (e instanceof SweepError) return { error: e.message }
+    throw e
+  })
+}
+
+class SweepError extends Error {}

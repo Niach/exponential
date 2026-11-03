@@ -55,6 +55,8 @@ export interface WatchdogRun {
   /** VAPP-159: trashed app records hard-deleted this tick. */
   recordsPurged: number
   recordEventsPurged: number
+  /** eApps R8: records the publish sweeps moved. */
+  recordsMigrated: number
   /** #VAPP-220: app automation schedules run this tick. */
   automations: number
   /** EXP-1610: PRs whose CI check sat queued too long, flagged once. */
@@ -594,6 +596,11 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     recordsPurged: await purgeTrashedAppRecords(now),
     // VAPP-215: record history past its 90 days (app-records.json `history`).
     recordEventsPurged: await purgeOldAppRecordEvents(now),
+    // eApps R8 (#VAPP-233): resume every running publish sweep.
+    recordsMigrated: await import(`@/lib/apps/record-sweep`).then((m) => m.runRecordSweeps()).catch((err) => {
+      console.error(`[watchdog] record sweep failed`, err)
+      return 0
+    }),
     // #VAPP-220: the apps' schedule automations (caught up like the agents').
     // Loaded lazily: the executor pulls in the broker and the MCP server.
     automations: await import(`@/lib/apps/automations`).then((m) => m.fireScheduledAutomations(now)).catch((err) => {
@@ -685,7 +692,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.recordEventsPurged} record events purged, ${run.checksQueued} queued CI checks flagged`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.recordEventsPurged} record events purged, ${run.recordsMigrated} records migrated, ${run.checksQueued} queued CI checks flagged`,
         })
       )
       .catch((error: unknown) => {

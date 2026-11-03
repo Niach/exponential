@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it, vi } from "vitest"
-import { eq, sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { appAccess, appRecords, appVersions, apps, boards, devices, issues, sessions, teamMembers, teams } from "@/db/schema"
+import { appAccess, appRecordEvents, appRecords, appVersions, apps, boards, devices, issues, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
 import { grantVersion } from "@exp/domain-contract/apps"
 
@@ -351,6 +351,59 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     await caller(w.owner).upsertPackage({ id, package: { ...v2, version: `1.1.0` } })
     const covered = await caller(w.owner).upsertPackage({ id, package: { ...v2, migrations: [{ from: `^1`, kind: `entry`, ops: [{ drop: { field: `note` } }] }] } })
     expect(covered.version).toBeGreaterThan(1)
+  })
+
+  // eApps R8 (#VAPP-233): a publish of a version with migrations sweeps the
+  // app's records into its shape: batch by batch (resumable: each call picks
+  // up where the last stopped), history events via `migration`, progress on
+  // the version row; a record that cannot move fails the sweep, nothing of
+  // its batch lands.
+  it(`R8: publishing a version with migrations sweeps the records`, async () => {
+    const { runRecordSweeps } = await import(`@/lib/apps/record-sweep`)
+    const w = await world()
+    const v1 = { ...RECORDS_PACKAGE, records: { entry: { schema: { type: `object`, properties: { date: { type: `string`, format: `date` }, minutes: { type: `integer` }, note: { type: `string` } }, required: [`date`, `minutes`] } } } }
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: v1 })
+    const id = created.app.id
+    const ids: string[] = []
+    for (const minutes of [30, 90, 120, 45, 60]) ids.push((await caller(w.mate).records.upsert({ id, kind: `entry`, data: { date: `2026-10-05`, minutes, note: `n` } })).id)
+    const v2 = {
+      ...v1,
+      version: `2.0.0`,
+      records: { entry: { schema: { type: `object`, properties: { date: { type: `string`, format: `date` }, hours: { type: `number` }, note: { type: `string` } }, required: [`date`, `hours`] } } },
+      migrations: [{ from: `^1`, kind: `entry`, ops: [{ map: { field: `hours`, expr: `minutes / 60.0` } }, { drop: { field: `minutes` } }] }],
+    }
+    await caller(w.owner).upsertPackage({ id, package: v2 })
+    const { published } = await caller(w.owner).publish({ id })
+    // Two records per batch, one batch per call: resumable.
+    await new Promise((r) => setTimeout(r, 50))
+    let rounds = 0
+    for (;;) {
+      const [row] = await db.select().from(appVersions).where(and(eq(appVersions.appId, id), eq(appVersions.number, published)))
+      if (row!.migrationState !== `running` || rounds++ > 10) break
+      await runRecordSweeps({ appId: id, limit: 2, budgetMs: 0 })
+    }
+    const [version] = await db.select().from(appVersions).where(and(eq(appVersions.appId, id), eq(appVersions.number, published)))
+    expect(version).toMatchObject({ migrationState: `done`, migrationTotal: 5, migrationDone: 5, migrationBy: w.owner, migrationFrom: 1 })
+    const rows = await db.select().from(appRecords).where(eq(appRecords.appId, id))
+    expect(rows.every((r) => r.schemaVersion === published)).toBe(true)
+    expect(rows.find((r) => r.id === ids[1])!.data).toEqual({ date: `2026-10-05`, hours: 1.5, note: `n` })
+    const events = await db.select().from(appRecordEvents).where(and(eq(appRecordEvents.appId, id), eq(appRecordEvents.via, `migration`)))
+    expect(events).toHaveLength(5)
+    expect(events[0]).toMatchObject({ op: `update`, actor: w.owner })
+    // A new record is written in the published shape and stamped.
+    const fresh = await caller(w.mate).records.upsert({ id, kind: `entry`, data: { date: `2026-10-06`, hours: 2 } })
+    expect((await db.select().from(appRecords).where(eq(appRecords.id, fresh.id)))[0]!.schemaVersion).toBe(published)
+
+    // v3 maps hours to a string the schema refuses: the sweep fails, nothing moves.
+    const v3 = { ...v2, version: `3.0.0`, migrations: [{ from: `^2`, kind: `entry`, ops: [{ map: { field: `hours`, expr: `'many'` } }] }] }
+    await caller(w.owner).upsertPackage({ id, package: v3 })
+    const third = await caller(w.owner).publish({ id })
+    await runRecordSweeps({ appId: id })
+    const [failed] = await db.select().from(appVersions).where(and(eq(appVersions.appId, id), eq(appVersions.number, third.published)))
+    expect(failed!.migrationState).toBe(`failed`)
+    expect(failed!.migrationError).toMatch(/^record .*: \/hours: a number/)
+    const after = await db.select().from(appRecords).where(eq(appRecords.appId, id))
+    expect(after.every((r) => r.schemaVersion === published && typeof (r.data as { hours?: unknown }).hours === `number`)).toBe(true)
   })
 
   // Release train 2026-10-25: a patch merges onto the row locked in its own
