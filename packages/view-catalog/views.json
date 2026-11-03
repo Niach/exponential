@@ -2441,9 +2441,17 @@
       "webMobile": "inherit",
       "notes": {
         "desktop": "VAPP-242: the desktop run view lands in its own PR (the sidebar row's click).",
-        "ios": "VAPP-242: the iOS run view lands in its own PR (the Apps tab's row tap).",
-        "android": "VAPP-242: the Android run view lands in its own PR (the Apps tab's row tap).",
+        "ios": "VAPP-242: the LIVE walk: the Apps tab's Working hours row tap (DEMO_APP_SLUG) = the run view under the detail header, gated on `app-run`.",
+        "android": "VAPP-242: the LIVE walk: the Apps tab's Working hours row tap (DEMO_APP_SLUG) = the run view under the detail header, gated on `app-run`.",
         "web": "`$appSlug` resolves to DEMO_APP_SLUG, the seeded Working hours app (published, records)."
+      },
+      "ios": {
+        "shot": "sg_app-run",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-run",
+        "lane": "styleguide"
       }
     },
     {
