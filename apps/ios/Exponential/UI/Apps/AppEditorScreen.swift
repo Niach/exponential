@@ -803,6 +803,7 @@ struct AppSettingsSheet: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.horizontal, 4)
                 .accessibilityIdentifier("app-settings-records")
+            policiesGroup(app)
             tools(app)
             accountsGroup
             mcpToolsGroup
@@ -843,6 +844,44 @@ struct AppSettingsSheet: View {
                 }
         }
         .disabled(!canManage)
+    }
+
+    /// #VAPP-243: `copy.policies` (shown when the running package declares
+    /// records kinds): one read-only row per kind, the kind (mono) over its
+    /// effective policy (`Apps.policyRows`).
+    @ViewBuilder
+    private func policiesGroup(_ app: AppListEntry) -> some View {
+        let rows = Apps.policyRows(package: app.package ?? app.draftPackage)
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(Apps.Copy.Policies.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                VStack(spacing: 0) {
+                    ForEach(rows, id: \.kind) { row in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(row.kind)
+                                .font(.subheadline.monospaced())
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                            Text(row.caption)
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                .lineLimit(2)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("\(Apps.TestIds.policyRow)-\(row.kind)")
+                    }
+                }
+                .glassSection()
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Apps.TestIds.policies)
+        }
     }
 
     /// VAPP-120: `copy.tools` = the title + hint, then one row per action

@@ -201,6 +201,41 @@ internal fun AppSettingsBody(
         )
         Spacer(Modifier.height(16.dp))
 
+        // ── Record access (#VAPP-243) ────────────────────────────────────
+        // Read-only: each declared kind (mono) over its effective policy.
+        val policies = remember(grantPackage) {
+            Apps.policyRows(grantPackage?.let { runCatching { JsonValue.parse(it) }.getOrNull() })
+        }
+        if (policies.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(Apps.TestIds.POLICIES)) {
+            Text(
+                Apps.PoliciesCopy.TITLE,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            OptionGroup {
+                policies.forEachIndexed { index, policy ->
+                    if (index > 0) GroupDivider()
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .testTag("${Apps.TestIds.POLICY_ROW}-${policy.kind}")
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text(
+                            policy.kind,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontFamily = FontFamily.Monospace,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(policy.caption, style = MaterialTheme.typography.labelSmall, color = muted)
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+
         // ── Tools (VAPP-120) ─────────────────────────────────────────────
         Column(Modifier.padding(horizontal = 20.dp).testTag("app-settings-tools")) {
             Text(AppActions.Copy.TITLE, style = MaterialTheme.typography.titleSmall)
