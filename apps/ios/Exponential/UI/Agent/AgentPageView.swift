@@ -95,6 +95,17 @@ struct AgentPageView: View {
                                 AgentComposerCard(model: composer) { issueId in
                                     deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
                                 }
+                                // EXP-1649: the `/` menu floats ABOVE the
+                                // card as its own surface (web's caret
+                                // typeahead: w-72, placed above), over the
+                                // agent row, never pushing the column.
+                                .overlay(alignment: .topLeading) {
+                                    if !composer.draftEditor.showsAutocompleteMenu, slashMenuVisible(composer) {
+                                        slashMenu(composer)
+                                            .frame(width: 288)
+                                            .alignmentGuide(.top) { $0[.bottom] + 6 }
+                                    }
+                                }
                             }
                         }
                         // EXP-802: the same `@`/`#`/`:` menu the comment
@@ -103,20 +114,6 @@ struct AgentPageView: View {
                         // responder, so the keyboard never drops.
                         if composer.draftEditor.showsAutocompleteMenu {
                             EditorAutocompleteMenu(model: composer.draftEditor)
-                        } else if slashMenuVisible(composer) {
-                            // NEW-2: the `/` menu = the team's prompts (no
-                            // session yet, so no builtins); a pick becomes the
-                            // subject chip and clears the `/name` typed.
-                            SlashCommandMenu(
-                                candidates: composer.slashPrompts.map(SlashCandidate.prompt),
-                                highlighted: 0
-                            ) { candidate in
-                                if case let .prompt(prompt) = candidate {
-                                    composer.pickPrompt(prompt.id)
-                                    composer.draftText = ""
-                                }
-                            }
-                            .accessibilityIdentifier("agent-composer-slash-menu")
                         }
                         captions(composer)
                     }
@@ -313,6 +310,22 @@ struct AgentPageView: View {
 
     /// NEW-2: the `/` menu is up while the field has focus and the draft is a
     /// `/name` token matching a prompt.
+    /// NEW-2: the `/` menu = the team's prompts (no session yet, so no
+    /// builtins); a pick becomes the subject chip and clears the `/name`
+    /// typed.
+    private func slashMenu(_ composer: AgentComposerModel) -> some View {
+        SlashCommandMenu(
+            candidates: composer.slashPrompts.map(SlashCandidate.prompt),
+            highlighted: 0
+        ) { candidate in
+            if case let .prompt(prompt) = candidate {
+                composer.pickPrompt(prompt.id)
+                composer.draftText = ""
+            }
+        }
+        .accessibilityIdentifier("agent-composer-slash-menu")
+    }
+
     private func slashMenuVisible(_ composer: AgentComposerModel) -> Bool {
         composer.draftEditor.isEditing && !composer.slashPrompts.isEmpty
     }
