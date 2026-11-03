@@ -528,6 +528,15 @@ pub fn resolve_value(value: &Value, ctx: &ResolveContext) -> Option<Value> {
                 }
             }
         }
+        // A var bound to nothing (a row's missing optional field) reads null
+        // in the expression, never an unknown name (spec §4.2, expressions.json).
+        if name == "expr" {
+            if let (Some(raw), Some(Value::Object(vars))) = (value.get("args").and_then(|a| a.get("vars")).and_then(Value::as_object), args.get_mut("vars")) {
+                for k in raw.keys() {
+                    vars.entry(k.clone()).or_insert(Value::Null);
+                }
+            }
+        }
         // VAPP-195: a binding never throws: a failing (or unknown) function
         // shows the call's `default` (absent = no value).
         return call_function(name, &args, ctx).or_else(|| args.get("default").cloned());

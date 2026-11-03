@@ -226,11 +226,17 @@ let english: Formatter | undefined
 
 /** A prop or style value with every binding and call resolved, at any
  *  depth. An unknown function resolves to undefined. */
+const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === `object` && v !== null && !Array.isArray(v)
+
 export function resolveDynamic(value: unknown, data: unknown, options: ResolveOptions = {}): unknown {
   if (isBinding(value)) return readPath(data, value.path, options.scope)
   if (isCall(value)) {
     const args: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value.args ?? {})) args[k] = resolveDynamic(v, data, options)
+    // A var bound to nothing (a row's missing optional field) reads null in
+    // the expression, never an unknown name (spec §4.2, expressions.json).
+    if (value.call === `expr` && isPlainObject(value.args?.vars) && isPlainObject(args.vars))
+      for (const k of Object.keys(value.args.vars)) if (!(k in (args.vars as object))) (args.vars as Record<string, unknown>)[k] = null
     // Own entries only: `{call: "constructor"}` is no function (VAPP-107).
     // VAPP-195: a binding never throws: a failing function shows the call's
     // `default` (absent = no value).
