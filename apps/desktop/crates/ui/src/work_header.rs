@@ -745,11 +745,12 @@ mod tests {
                             .gap_1()
                             .child(probe(
                                 self.0.merge.clone(),
-                                merge_pill(
+                                merge_pill_with_checks(
                                     "header-merge-pr",
                                     "pr-1",
                                     true,
                                     header_action_size(true),
+                                    None,
                                     cx,
                                 ),
                             ))
@@ -843,7 +844,7 @@ mod tests {
                     .gap_1()
                     .child(probe(
                         self.0.merge.clone(),
-                        merge_pill("session-merge", "pr-1", true, header_action_size(false), cx),
+                        merge_pill_with_checks("session-merge", "pr-1", true, header_action_size(false), None, cx),
                     ))
                     .child(probe(
                         self.0.stop.clone(),
