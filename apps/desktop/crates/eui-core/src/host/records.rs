@@ -315,4 +315,43 @@ pub fn record_attachment_ids(schema: &Value, data: &Value) -> Vec<String> {
         }
     }
     ids
+
+}
+
+/// eApps R5 (VAPP-219): a kind's `refs` (`{field: {kind} | "issue" | "member"}`),
+/// each issue at `<at>/refs/<field>`: the field is a declared string field
+/// (not an array), a `{kind}` names a declared kind of the package.
+pub fn validate_record_refs(kind: &Value, at: &str, records: Option<&Value>) -> Vec<PackageIssue> {
+    let Some(refs) = kind.get("refs") else { return Vec::new() };
+    let Some(refs) = refs.as_object() else {
+        return vec![issue(format!("{at}/refs"), r#"refs is {field: {kind} | "issue" | "member"}"#)];
+    };
+    let props = kind.get("schema").and_then(|s| s.get("properties")).and_then(Value::as_object);
+    let mut names: Vec<&String> = refs.keys().collect();
+    names.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+    let mut issues = Vec::new();
+    for name in names {
+        let fp = format!("{at}/refs/{name}");
+        let target = &refs[name];
+        match props.and_then(|p| p.get(name)) {
+            Some(Value::Object(field)) => {
+                if field.get("type").and_then(Value::as_str) != Some("string") {
+                    issues.push(issue(&fp, "a ref is a string field"));
+                }
+            }
+            _ => issues.push(issue(&fp, format!("{name} is not a declared field"))),
+        }
+        if matches!(target.as_str(), Some("issue" | "member")) {
+            continue;
+        }
+        let target_kind = target.as_object().filter(|o| o.len() == 1).and_then(|o| o.get("kind")).and_then(Value::as_str).filter(|k| !k.is_empty());
+        let Some(target_kind) = target_kind else {
+            issues.push(issue(&fp, r#"a ref is {kind}, "issue" or "member""#));
+            continue;
+        };
+        if !records.and_then(Value::as_object).is_some_and(|r| r.contains_key(target_kind)) {
+            issues.push(issue(format!("{fp}/kind"), format!("records:{target_kind} names no declared kind")));
+        }
+    }
+    issues
 }

@@ -269,7 +269,7 @@ pub fn records_query_cases() -> Vec<Case> {
         let rows: Vec<RecordRow> = serde_json::from_value(c["rows"].clone()).unwrap();
         let names: HashMap<String, String> = serde_json::from_value(c["names"].clone()).unwrap();
         let computed: Option<BTreeMap<String, String>> = c.get("computed").map(|v| serde_json::from_value(v.clone()).unwrap());
-        let ctx = RecordsContext { me: c["me"].as_str(), now: c["now"].as_str().unwrap(), today: c["today"].as_str(), names: &names, computed: computed.as_ref() };
+        let ctx = RecordsContext { me: c["me"].as_str(), now: c["now"].as_str().unwrap(), today: c["today"].as_str(), names: &names, computed: computed.as_ref(), refs: c.get("refs"), issues: c.get("issues").and_then(Value::as_object) };
         let got = records_value_owned(&rows, &query, ctx).unwrap_or(Value::Null);
         out.push((format!("value: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
     }

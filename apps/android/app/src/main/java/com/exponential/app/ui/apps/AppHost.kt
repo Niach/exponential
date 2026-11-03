@@ -429,7 +429,13 @@ fun rememberAppHost(
                 teamApps.map { rows -> rows.firstOrNull { it.slug == query.app }?.id }.distinctUntilChanged()
             }
             val rows = target.flatMapLatest { recordsOf(it) }
-            return combine(rows, users) { records, people ->
+            // VAPP-219 (R5): the hosting app's refs; an expanded issue ref reads the team's issues.
+            val refs = if (query.app == null) RecordsQuery.refs(packageRecords, query.from) else JsonValue.Null
+            val expanded = (query.structured["expand"]?.array.orEmpty()).mapNotNull { it.string }
+            val issueRefs = expanded.filter { refs[it]?.string == "issue" }
+            val memberRefs = expanded.filter { refs[it]?.string == "member" }
+            val refIssues: Flow<List<IssueEntity>> = if (issueRefs.isEmpty()) flowOf(emptyList()) else teamRows { d, t -> d.issueDao().observeByTeamForApps(t) }
+            return combine(rows, users, refIssues) { records, people, teamIssueRows ->
                 val mapped = records.map { entity ->
                     RecordRow(
                         id = entity.id,
@@ -443,12 +449,17 @@ fun rememberAppHost(
                 }
                 // VAPP-187: `author` = the AUTHOR's name (`authorId ?? createdBy`).
                 val wanted = mapped.mapNotNullTo(HashSet()) { it.authorId ?: it.createdBy }
+                // VAPP-219: a member ref expands to {id, name}.
+                for (row in mapped) for (f in memberRefs) row.data[f]?.string?.let { wanted.add(it) }
                 val names = people.filter { it.id in wanted }.associate { it.id to it.name.orEmpty() }
                 // VAPP-214: the hosting app's computed fields (another app's rows carry none).
                 val computed = if (query.app == null) RecordsQuery.computed(packageRecords, query.from) else emptyMap()
+                val issueSummaries = teamIssueRows.associate {
+                    it.identifier to JsonValue.Obj(mapOf("id" to JsonValue.Str(it.id), "identifier" to JsonValue.Str(it.identifier), "title" to JsonValue.Str(it.title), "status" to JsonValue.Str(it.status)))
+                }
                 // Dogfood G: the month view's today + default month in the TEAM zone (the day today() reads).
                 val nowMs = System.currentTimeMillis()
-                query.value(mapped, me, AppRecords.isoNow(nowMs), names, computed, TeamZone.day(nowMs, zone.offsetMinutes(nowMs.toDouble())))
+                query.value(mapped, me, AppRecords.isoNow(nowMs), names, computed, today = TeamZone.day(nowMs, zone.offsetMinutes(nowMs.toDouble())), refs = refs, issues = issueSummaries)
             }
         }
 

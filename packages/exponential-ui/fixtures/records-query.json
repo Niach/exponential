@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-189 (S1, docs/package-format.md \"Records\"): THE records query, one evaluator on every host. TS reference src/host/query.ts (`@exponential_app/eui/host/query`), Rust twin eui-core `host/query.rs`, reached by the Swift and Compose SDKs over the FFI (`parse_records_query_json`, `parse_records_source_json`, `records_value_json`); every one replays these cases. Inputs hand-written, `expected` filled by scripts/generate-host.ts. PARSE (`parseCases`: parseRecordsQuery(params, kind?)): query params (as parseSource gives them) → the structured query {from, app, mine, user, where: [{field, op, value}], sort: [{field, order}], limit, sum, month: {field, key} | null}. `kind` = the source's own name (`records:<kind>`); `from` = the kind (none = null); `app=<slug>` = another app's rows (the HOST resolves whose); `mine=1|true` = the viewer's rows; `user=<id>`; `sort` (default `query.sortDefault`) + `order=asc|desc` (default `orderDefault`, anything else = the default) = the one sort key of the URL sugar; `limit` a positive integer (default `limitDefault`, capped at `limitMax`); `sum=<field>`; `by=<dateField>` (+ `month=YYYY-MM`, a malformed one = null = the month of now) = the month view, `month` without `by` = none; every OTHER key (the `reserved` keys never; an empty key never) = a condition: `<field>=v` eq, `<field>.gt|gte|lt|lte=v` (a different suffix = an eq on the whole key), sorted by field then operator. The JSON query form (VAPP-190) adds keys next to these. SOURCES (`sourceCases`: parseRecordsSource(parseSource(source))): `records:<kind>?q` = parse(q, kind); any other scheme = null. VALUE (`valueCases`: recordsValue(rows, parse(params, kind), {me, now, names})): null without a kind; else the rows of that kind where: the AUTHOR (`authorId ?? createdBy`, #VAPP-187: an owner's on-behalf write is its author's) is `me` for `mine` (signed out = nothing) and `user` for `user=`; with a month view the `field` text starts with the month key; every condition holds over the field (the row keys `id`, `createdAt`, `updatedAt`, `createdBy` read the row, `authorId` the author, any other name the data): eq compares as text (null/missing = \"\", objects as JSON), the ranges as numbers when both sides parse (finite), else as text by UTF-16 code units. Sorted by each sort key (desc reverses), ties by id; {rows: [{…data, id, createdAt, updatedAt, createdBy, authorId (the author), author}] cut at the limit (a data key never shadows a row key; `author` = names[author] or \"\"), count: the matches before the limit, sum?: Σ of the field's numbers over the matches (non-numbers count 0, rounded to 1e-6), month?: {key, label (`months`), prev, next, today (now's date), days: every day of the month {date, day, weekday (`weekdays`), count, sum}, labels/counts/sums: the same days as chart-ready arrays}}. The `rowKeys` ride on every row and are reserved: a kind's schema may not declare them. VAPP-214 (Q3, spec §4.4): a case's `computed` = the queried kind's computed fields (`records.<kind>.computed`, name → CEL), passed in the context: before the query each row of the kind gets every computed field written into its data (computed wins over a stored key of that name), the expression reading the row's data fields and the row keys id createdAt updatedAt createdBy authorId by name (a name absent from the row reads null); a parse or evaluation error reads null; evaluated in UTC with `now` as the clock. Then filters, sorts, groups, aggregates, running values, sum= and the month view read a computed field like any field, and the rows carry it. Never stored. Dogfood G (2026-11-03): a value case may carry `today` (`YYYY-MM-DD`, the host's calendar day in the TEAM zone, team-zone.json): the month view's `today` and its default month read it; without it, `now`'s UTC day. Every host ×4 and the server broker pass it.",
+  "$comment": "VAPP-189 (S1, docs/package-format.md \"Records\"): THE records query, one evaluator on every host. TS reference src/host/query.ts (`@exponential_app/eui/host/query`), Rust twin eui-core `host/query.rs`, reached by the Swift and Compose SDKs over the FFI (`parse_records_query_json`, `parse_records_source_json`, `records_value_json`); every one replays these cases. Inputs hand-written, `expected` filled by scripts/generate-host.ts. PARSE (`parseCases`: parseRecordsQuery(params, kind?)): query params (as parseSource gives them) → the structured query {from, app, mine, user, where: [{field, op, value}], sort: [{field, order}], limit, sum, month: {field, key} | null}. `kind` = the source's own name (`records:<kind>`); `from` = the kind (none = null); `app=<slug>` = another app's rows (the HOST resolves whose); `mine=1|true` = the viewer's rows; `user=<id>`; `sort` (default `query.sortDefault`) + `order=asc|desc` (default `orderDefault`, anything else = the default) = the one sort key of the URL sugar; `limit` a positive integer (default `limitDefault`, capped at `limitMax`); `sum=<field>`; `by=<dateField>` (+ `month=YYYY-MM`, a malformed one = null = the month of now) = the month view, `month` without `by` = none; every OTHER key (the `reserved` keys never; an empty key never) = a condition: `<field>=v` eq, `<field>.gt|gte|lt|lte=v` (a different suffix = an eq on the whole key), sorted by field then operator. The JSON query form (VAPP-190) adds keys next to these. SOURCES (`sourceCases`: parseRecordsSource(parseSource(source))): `records:<kind>?q` = parse(q, kind); any other scheme = null. VALUE (`valueCases`: recordsValue(rows, parse(params, kind), {me, now, names})): null without a kind; else the rows of that kind where: the AUTHOR (`authorId ?? createdBy`, #VAPP-187: an owner's on-behalf write is its author's) is `me` for `mine` (signed out = nothing) and `user` for `user=`; with a month view the `field` text starts with the month key; every condition holds over the field (the row keys `id`, `createdAt`, `updatedAt`, `createdBy` read the row, `authorId` the author, any other name the data): eq compares as text (null/missing = \"\", objects as JSON), the ranges as numbers when both sides parse (finite), else as text by UTF-16 code units. Sorted by each sort key (desc reverses), ties by id; {rows: [{…data, id, createdAt, updatedAt, createdBy, authorId (the author), author}] cut at the limit (a data key never shadows a row key; `author` = names[author] or \"\"), count: the matches before the limit, sum?: Σ of the field's numbers over the matches (non-numbers count 0, rounded to 1e-6), month?: {key, label (`months`), prev, next, today (now's date), days: every day of the month {date, day, weekday (`weekdays`), count, sum}, labels/counts/sums: the same days as chart-ready arrays}}. The `rowKeys` ride on every row and are reserved: a kind's schema may not declare them. VAPP-214 (Q3, spec §4.4): a case's `computed` = the queried kind's computed fields (`records.<kind>.computed`, name → CEL), passed in the context: before the query each row of the kind gets every computed field written into its data (computed wins over a stored key of that name), the expression reading the row's data fields and the row keys id createdAt updatedAt createdBy authorId by name (a name absent from the row reads null); a parse or evaluation error reads null; evaluated in UTC with `now` as the clock. Then filters, sorts, groups, aggregates, running values, sum= and the month view read a computed field like any field, and the rows carry it. Never stored. Dogfood G (2026-11-03): a value case may carry `today` (`YYYY-MM-DD`, the host's calendar day in the TEAM zone, team-zone.json): the month view's `today` and its default month read it; without it, `now`'s UTC day. Every host ×4 and the server broker pass it. eApps R5 (VAPP-219, spec §3.3): a kind's `refs` ({field: {kind} | \"issue\" | \"member\"}) mark string fields holding an id. `expand` (URL `expand=a,b`, comma-separated, trimmed, duplicates dropped; JSON `expand: [field…]`, a non-string/empty entry or a duplicate = an issue at `/expand/<i>`) inlines each named REF into every output row (not into groups, totals or filters: those read the stored id): a `{kind}` ref = the row of that kind with that id among the case's rows, as a value row {…data, id, createdAt, updatedAt, createdBy, authorId, author} (its stored data, its own refs not followed: one level); `issue` = the context's `issues[identifier]` (the host's summary {id, identifier, title, status}); `member` = {id, name} when the id is in `names`. A dangling ref (the target deleted, of another kind, unknown, or not readable by the viewer and so not in the rows) and an empty or missing one read null (no cascade). An expanded name that is not a ref of the kind (the context's `refs`) stays as stored. A case's `refs` and `issues` ride in the context.",
   "query": {
     "reserved": [
       "app",
@@ -13,7 +13,8 @@
       "month",
       "before",
       "q",
-      "query"
+      "query",
+      "expand"
     ],
     "sortDefault": "createdAt",
     "orderDefault": "desc",
@@ -121,7 +122,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       },
       "kind": "entry"
     },
@@ -160,7 +162,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       },
       "kind": "entry"
     },
@@ -209,7 +212,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       },
       "kind": "todo"
     },
@@ -237,7 +241,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       }
     },
     {
@@ -268,7 +273,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       },
       "kind": "todo"
     },
@@ -310,7 +316,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       },
       "kind": "entry"
     },
@@ -364,7 +371,8 @@
         "before": {
           "field": "date",
           "date": "2026-10-01"
-        }
+        },
+        "expand": []
       },
       "kind": "entry"
     },
@@ -395,7 +403,8 @@
         "before": {
           "field": "createdAt",
           "date": "2026-10-01T00:00:00Z"
-        }
+        },
+        "expand": []
       },
       "kind": "entry"
     },
@@ -437,7 +446,8 @@
           }
         ],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       }
     },
     {
@@ -464,9 +474,49 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       },
       "kind": "entry"
+    },
+    {
+      "name": "VAPP-219 expand: comma-separated, trimmed, duplicates dropped; expand is reserved",
+      "params": {
+        "expand": " customer, owner,customer,",
+        "owner": "u1"
+      },
+      "kind": "deal",
+      "expected": {
+        "from": "deal",
+        "app": null,
+        "mine": false,
+        "user": null,
+        "where": [
+          {
+            "field": "owner",
+            "op": "eq",
+            "value": "u1"
+          }
+        ],
+        "or": [],
+        "sort": [
+          {
+            "field": "createdAt",
+            "order": "desc"
+          }
+        ],
+        "limit": 100,
+        "sum": null,
+        "month": null,
+        "group": [],
+        "aggregate": [],
+        "running": [],
+        "before": null,
+        "expand": [
+          "customer",
+          "owner"
+        ]
+      }
     }
   ],
   "sourceCases": [
@@ -492,7 +542,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       }
     },
     {
@@ -523,7 +574,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       }
     },
     {
@@ -564,7 +616,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       }
     },
     {
@@ -595,7 +648,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       }
     },
     {
@@ -620,7 +674,8 @@
         "group": [],
         "aggregate": [],
         "running": [],
-        "before": null
+        "before": null,
+        "expand": []
       }
     }
   ],
@@ -9614,6 +9669,628 @@
           ]
         }
       }
+    },
+    {
+      "name": "VAPP-219 expand: a record ref inlines the row (its own refs not followed), a member {id, name}, an issue summary; dangling, empty and other-kind refs read null",
+      "kind": "deal",
+      "params": {
+        "expand": "customer,owner,task",
+        "sort": "createdAt",
+        "order": "asc"
+      },
+      "me": "u1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {
+        "u1": "Ann",
+        "u2": "Ben",
+        "u3": "Cid"
+      },
+      "rows": [
+        {
+          "id": "c1",
+          "kind": "company",
+          "data": {
+            "name": "Acme"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "c2",
+          "kind": "company",
+          "data": {
+            "name": "Globex",
+            "parent": "c1"
+          },
+          "createdBy": "u2",
+          "authorId": "u3",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        },
+        {
+          "id": "d1",
+          "kind": "deal",
+          "data": {
+            "title": "Big",
+            "customer": "c2",
+            "owner": "u1",
+            "task": "EXP-12",
+            "amount": 10
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T09:00:00Z",
+          "updatedAt": "2026-10-05T09:00:00Z"
+        },
+        {
+          "id": "d2",
+          "kind": "deal",
+          "data": {
+            "title": "Gone",
+            "customer": "c9",
+            "owner": "u9",
+            "task": "EXP-99",
+            "amount": 5
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-06T09:00:00Z",
+          "updatedAt": "2026-10-06T09:00:00Z"
+        },
+        {
+          "id": "d3",
+          "kind": "deal",
+          "data": {
+            "title": "Empty",
+            "customer": null,
+            "amount": 1
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-07T09:00:00Z",
+          "updatedAt": "2026-10-07T09:00:00Z"
+        },
+        {
+          "id": "d4",
+          "kind": "deal",
+          "data": {
+            "title": "Wrong kind",
+            "customer": "d1",
+            "owner": "",
+            "amount": 2
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-08T09:00:00Z",
+          "updatedAt": "2026-10-08T09:00:00Z"
+        }
+      ],
+      "refs": {
+        "customer": {
+          "kind": "company"
+        },
+        "owner": "member",
+        "task": "issue"
+      },
+      "issues": {
+        "EXP-12": {
+          "id": "i12",
+          "identifier": "EXP-12",
+          "title": "Ship it",
+          "status": "in_progress"
+        }
+      },
+      "expected": {
+        "rows": [
+          {
+            "title": "Big",
+            "customer": {
+              "name": "Globex",
+              "parent": "c1",
+              "id": "c2",
+              "createdAt": "2026-10-02T09:00:00Z",
+              "updatedAt": "2026-10-03T09:00:00Z",
+              "createdBy": "u2",
+              "authorId": "u3",
+              "author": "Cid"
+            },
+            "owner": {
+              "id": "u1",
+              "name": "Ann"
+            },
+            "task": {
+              "id": "i12",
+              "identifier": "EXP-12",
+              "title": "Ship it",
+              "status": "in_progress"
+            },
+            "amount": 10,
+            "id": "d1",
+            "createdAt": "2026-10-05T09:00:00Z",
+            "updatedAt": "2026-10-05T09:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Ann"
+          },
+          {
+            "title": "Gone",
+            "customer": null,
+            "owner": null,
+            "task": null,
+            "amount": 5,
+            "id": "d2",
+            "createdAt": "2026-10-06T09:00:00Z",
+            "updatedAt": "2026-10-06T09:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "Ben"
+          },
+          {
+            "title": "Empty",
+            "customer": null,
+            "amount": 1,
+            "id": "d3",
+            "createdAt": "2026-10-07T09:00:00Z",
+            "updatedAt": "2026-10-07T09:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "Ben",
+            "owner": null,
+            "task": null
+          },
+          {
+            "title": "Wrong kind",
+            "customer": null,
+            "owner": null,
+            "amount": 2,
+            "id": "d4",
+            "createdAt": "2026-10-08T09:00:00Z",
+            "updatedAt": "2026-10-08T09:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Ann",
+            "task": null
+          }
+        ],
+        "count": 4
+      }
+    },
+    {
+      "name": "VAPP-219 filters and sorts read the stored id; groups are not expanded; a non-ref name stays as stored",
+      "kind": "deal",
+      "query": {
+        "from": "deal",
+        "where": [
+          [
+            "customer",
+            "in",
+            [
+              "c2",
+              "c9"
+            ]
+          ]
+        ],
+        "group": [
+          "customer"
+        ],
+        "aggregate": {
+          "n": [
+            "count"
+          ]
+        },
+        "expand": [
+          "customer",
+          "title"
+        ],
+        "sort": [
+          [
+            "amount",
+            "desc"
+          ]
+        ]
+      },
+      "me": "u1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {
+        "u1": "Ann",
+        "u2": "Ben",
+        "u3": "Cid"
+      },
+      "rows": [
+        {
+          "id": "c1",
+          "kind": "company",
+          "data": {
+            "name": "Acme"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "c2",
+          "kind": "company",
+          "data": {
+            "name": "Globex",
+            "parent": "c1"
+          },
+          "createdBy": "u2",
+          "authorId": "u3",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        },
+        {
+          "id": "d1",
+          "kind": "deal",
+          "data": {
+            "title": "Big",
+            "customer": "c2",
+            "owner": "u1",
+            "task": "EXP-12",
+            "amount": 10
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T09:00:00Z",
+          "updatedAt": "2026-10-05T09:00:00Z"
+        },
+        {
+          "id": "d2",
+          "kind": "deal",
+          "data": {
+            "title": "Gone",
+            "customer": "c9",
+            "owner": "u9",
+            "task": "EXP-99",
+            "amount": 5
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-06T09:00:00Z",
+          "updatedAt": "2026-10-06T09:00:00Z"
+        },
+        {
+          "id": "d3",
+          "kind": "deal",
+          "data": {
+            "title": "Empty",
+            "customer": null,
+            "amount": 1
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-07T09:00:00Z",
+          "updatedAt": "2026-10-07T09:00:00Z"
+        },
+        {
+          "id": "d4",
+          "kind": "deal",
+          "data": {
+            "title": "Wrong kind",
+            "customer": "d1",
+            "owner": "",
+            "amount": 2
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-08T09:00:00Z",
+          "updatedAt": "2026-10-08T09:00:00Z"
+        }
+      ],
+      "refs": {
+        "customer": {
+          "kind": "company"
+        },
+        "owner": "member",
+        "task": "issue"
+      },
+      "issues": {
+        "EXP-12": {
+          "id": "i12",
+          "identifier": "EXP-12",
+          "title": "Ship it",
+          "status": "in_progress"
+        }
+      },
+      "expected": {
+        "rows": [
+          {
+            "title": "Big",
+            "customer": {
+              "name": "Globex",
+              "parent": "c1",
+              "id": "c2",
+              "createdAt": "2026-10-02T09:00:00Z",
+              "updatedAt": "2026-10-03T09:00:00Z",
+              "createdBy": "u2",
+              "authorId": "u3",
+              "author": "Cid"
+            },
+            "owner": "u1",
+            "task": "EXP-12",
+            "amount": 10,
+            "id": "d1",
+            "createdAt": "2026-10-05T09:00:00Z",
+            "updatedAt": "2026-10-05T09:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Ann"
+          },
+          {
+            "title": "Gone",
+            "customer": null,
+            "owner": "u9",
+            "task": "EXP-99",
+            "amount": 5,
+            "id": "d2",
+            "createdAt": "2026-10-06T09:00:00Z",
+            "updatedAt": "2026-10-06T09:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "Ben"
+          }
+        ],
+        "count": 2,
+        "groups": [
+          {
+            "customer": "c2",
+            "count": 1,
+            "n": 1
+          },
+          {
+            "customer": "c9",
+            "count": 1,
+            "n": 1
+          }
+        ],
+        "totals": {
+          "count": 2,
+          "n": 2
+        }
+      }
+    },
+    {
+      "name": "VAPP-219 without refs in the context expand changes nothing",
+      "kind": "deal",
+      "params": {
+        "expand": "customer",
+        "limit": "1"
+      },
+      "me": "u1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {
+        "u1": "Ann",
+        "u2": "Ben",
+        "u3": "Cid"
+      },
+      "rows": [
+        {
+          "id": "c1",
+          "kind": "company",
+          "data": {
+            "name": "Acme"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "c2",
+          "kind": "company",
+          "data": {
+            "name": "Globex",
+            "parent": "c1"
+          },
+          "createdBy": "u2",
+          "authorId": "u3",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        },
+        {
+          "id": "d1",
+          "kind": "deal",
+          "data": {
+            "title": "Big",
+            "customer": "c2",
+            "owner": "u1",
+            "task": "EXP-12",
+            "amount": 10
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T09:00:00Z",
+          "updatedAt": "2026-10-05T09:00:00Z"
+        },
+        {
+          "id": "d2",
+          "kind": "deal",
+          "data": {
+            "title": "Gone",
+            "customer": "c9",
+            "owner": "u9",
+            "task": "EXP-99",
+            "amount": 5
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-06T09:00:00Z",
+          "updatedAt": "2026-10-06T09:00:00Z"
+        },
+        {
+          "id": "d3",
+          "kind": "deal",
+          "data": {
+            "title": "Empty",
+            "customer": null,
+            "amount": 1
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-07T09:00:00Z",
+          "updatedAt": "2026-10-07T09:00:00Z"
+        },
+        {
+          "id": "d4",
+          "kind": "deal",
+          "data": {
+            "title": "Wrong kind",
+            "customer": "d1",
+            "owner": "",
+            "amount": 2
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-08T09:00:00Z",
+          "updatedAt": "2026-10-08T09:00:00Z"
+        }
+      ],
+      "expected": {
+        "rows": [
+          {
+            "title": "Wrong kind",
+            "customer": "d1",
+            "owner": "",
+            "amount": 2,
+            "id": "d4",
+            "createdAt": "2026-10-08T09:00:00Z",
+            "updatedAt": "2026-10-08T09:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Ann"
+          }
+        ],
+        "count": 4
+      }
+    },
+    {
+      "name": "VAPP-219 a self-kind ref (company.parent) one level deep",
+      "kind": "company",
+      "query": {
+        "from": "company",
+        "expand": [
+          "parent"
+        ],
+        "sort": "createdAt"
+      },
+      "me": "u1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {
+        "u1": "Ann",
+        "u2": "Ben",
+        "u3": "Cid"
+      },
+      "rows": [
+        {
+          "id": "c1",
+          "kind": "company",
+          "data": {
+            "name": "Acme"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "c2",
+          "kind": "company",
+          "data": {
+            "name": "Globex",
+            "parent": "c1"
+          },
+          "createdBy": "u2",
+          "authorId": "u3",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        },
+        {
+          "id": "d1",
+          "kind": "deal",
+          "data": {
+            "title": "Big",
+            "customer": "c2",
+            "owner": "u1",
+            "task": "EXP-12",
+            "amount": 10
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T09:00:00Z",
+          "updatedAt": "2026-10-05T09:00:00Z"
+        },
+        {
+          "id": "d2",
+          "kind": "deal",
+          "data": {
+            "title": "Gone",
+            "customer": "c9",
+            "owner": "u9",
+            "task": "EXP-99",
+            "amount": 5
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-06T09:00:00Z",
+          "updatedAt": "2026-10-06T09:00:00Z"
+        },
+        {
+          "id": "d3",
+          "kind": "deal",
+          "data": {
+            "title": "Empty",
+            "customer": null,
+            "amount": 1
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-07T09:00:00Z",
+          "updatedAt": "2026-10-07T09:00:00Z"
+        },
+        {
+          "id": "d4",
+          "kind": "deal",
+          "data": {
+            "title": "Wrong kind",
+            "customer": "d1",
+            "owner": "",
+            "amount": 2
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-08T09:00:00Z",
+          "updatedAt": "2026-10-08T09:00:00Z"
+        }
+      ],
+      "refs": {
+        "parent": {
+          "kind": "company"
+        }
+      },
+      "issues": {
+        "EXP-12": {
+          "id": "i12",
+          "identifier": "EXP-12",
+          "title": "Ship it",
+          "status": "in_progress"
+        }
+      },
+      "expected": {
+        "rows": [
+          {
+            "name": "Acme",
+            "id": "c1",
+            "createdAt": "2026-10-01T09:00:00Z",
+            "updatedAt": "2026-10-01T09:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Ann",
+            "parent": null
+          },
+          {
+            "name": "Globex",
+            "parent": {
+              "name": "Acme",
+              "id": "c1",
+              "createdAt": "2026-10-01T09:00:00Z",
+              "updatedAt": "2026-10-01T09:00:00Z",
+              "createdBy": "u1",
+              "authorId": "u1",
+              "author": "Ann"
+            },
+            "id": "c2",
+            "createdAt": "2026-10-02T09:00:00Z",
+            "updatedAt": "2026-10-03T09:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u3",
+            "author": "Cid"
+          }
+        ],
+        "count": 2
+      }
     }
   ],
   "jsonCases": [
@@ -9702,7 +10379,8 @@
             }
           ],
           "running": [],
-          "before": null
+          "before": null,
+          "expand": []
         },
         "issues": []
       }
@@ -9765,7 +10443,8 @@
             }
           ],
           "running": [],
-          "before": null
+          "before": null,
+          "expand": []
         },
         "issues": []
       }
@@ -9887,7 +10566,8 @@
           "group": [],
           "aggregate": [],
           "running": [],
-          "before": null
+          "before": null,
+          "expand": []
         },
         "issues": []
       }
@@ -9930,7 +10610,8 @@
           "group": [],
           "aggregate": [],
           "running": [],
-          "before": null
+          "before": null,
+          "expand": []
         },
         "issues": []
       }
@@ -10009,7 +10690,8 @@
           "before": {
             "field": "date",
             "date": "2026-10-01"
-          }
+          },
+          "expand": []
         },
         "issues": []
       }
@@ -10046,7 +10728,8 @@
           "before": {
             "field": "day",
             "date": "2026-10-01"
-          }
+          },
+          "expand": []
         },
         "issues": []
       }
@@ -10077,7 +10760,8 @@
           "group": [],
           "aggregate": [],
           "running": [],
-          "before": null
+          "before": null,
+          "expand": []
         },
         "issues": []
       }
@@ -10199,7 +10883,8 @@
           ],
           "aggregate": [],
           "running": [],
-          "before": null
+          "before": null,
+          "expand": []
         },
         "issues": [
           {
@@ -10331,7 +11016,8 @@
           "group": [],
           "aggregate": [],
           "running": [],
-          "before": null
+          "before": null,
+          "expand": []
         },
         "issues": [
           {
@@ -10378,7 +11064,8 @@
           "group": [],
           "aggregate": [],
           "running": [],
-          "before": null
+          "before": null,
+          "expand": []
         },
         "issues": []
       }
@@ -10422,7 +11109,8 @@
           ],
           "aggregate": [],
           "running": [],
-          "before": null
+          "before": null,
+          "expand": []
         },
         "issues": [
           {
@@ -10432,6 +11120,97 @@
           {
             "path": "/aggregate/authorId",
             "message": "the name authorId is taken"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VAPP-219 expand: a list of fields; a duplicate, an empty or a non-string entry is an issue",
+      "query": {
+        "from": "deal",
+        "expand": [
+          "customer",
+          "",
+          "customer",
+          3,
+          "owner"
+        ]
+      },
+      "expected": {
+        "query": {
+          "from": "deal",
+          "app": null,
+          "mine": false,
+          "user": null,
+          "where": [],
+          "or": [],
+          "sort": [
+            {
+              "field": "createdAt",
+              "order": "desc"
+            }
+          ],
+          "limit": 100,
+          "sum": null,
+          "month": null,
+          "group": [],
+          "aggregate": [],
+          "running": [],
+          "before": null,
+          "expand": [
+            "customer",
+            "owner"
+          ]
+        },
+        "issues": [
+          {
+            "path": "/expand/1",
+            "message": "an expanded field is a non-empty string"
+          },
+          {
+            "path": "/expand/2",
+            "message": "duplicate expand customer"
+          },
+          {
+            "path": "/expand/3",
+            "message": "an expanded field is a non-empty string"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VAPP-219 expand must be a list",
+      "query": {
+        "from": "deal",
+        "expand": "customer"
+      },
+      "expected": {
+        "query": {
+          "from": "deal",
+          "app": null,
+          "mine": false,
+          "user": null,
+          "where": [],
+          "or": [],
+          "sort": [
+            {
+              "field": "createdAt",
+              "order": "desc"
+            }
+          ],
+          "limit": 100,
+          "sum": null,
+          "month": null,
+          "group": [],
+          "aggregate": [],
+          "running": [],
+          "before": null,
+          "expand": []
+        },
+        "issues": [
+          {
+            "path": "/expand",
+            "message": "expand is a list of ref fields"
           }
         ]
       }

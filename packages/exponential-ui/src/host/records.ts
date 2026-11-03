@@ -58,6 +58,9 @@ export interface RecordKind {
   /** eApps Q3 (VAPP-214): fields evaluated on read (name → CEL over the
    *  record's fields), never stored; queries filter, sort and group on them. */
   computed?: Record<string, string>
+  /** eApps R5 (VAPP-219): string fields that hold an id: a record of a kind
+   *  of the same app (`{kind}`), an issue identifier or a member's user id. */
+  refs?: Record<string, { kind: string } | `issue` | `member`>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
@@ -192,4 +195,30 @@ export function recordAttachmentFields(schema: RecordSchema): string[] {
       const field = schema.properties[name]!
       return field.type === `array` ? field.items?.type === `string` && field.items.format === `attachment` : field.type === `string` && field.format === `attachment`
     })
+
+}
+
+/** eApps R5 (VAPP-219): a kind's `refs` ({field: {kind} | "issue" | "member"}),
+ *  each issue at `<at>/refs/<field>`: the field is a declared string field
+ *  (not an array), a `{kind}` names a declared kind of the package. */
+export function validateRecordRefs(kind: unknown, at: string, records: unknown): PackageIssue[] {
+  if (!isObject(kind) || kind.refs === undefined) return []
+  const refs = kind.refs
+  if (!isObject(refs)) return [{ path: `${at}/refs`, message: `refs is {field: {kind} | "issue" | "member"}` }]
+  const props = isObject(kind.schema) && isObject(kind.schema.properties) ? (kind.schema.properties as Record<string, unknown>) : {}
+  const issues: PackageIssue[] = []
+  for (const name of Object.keys(refs).sort()) {
+    const fp = `${at}/refs/${name}`
+    const target = refs[name]
+    const field = Object.prototype.hasOwnProperty.call(props, name) ? props[name] : undefined
+    if (!isObject(field)) issues.push({ path: fp, message: `${name} is not a declared field` })
+    else if (field.type !== `string`) issues.push({ path: fp, message: `a ref is a string field` })
+    if (target === `issue` || target === `member`) continue
+    if (!isObject(target) || Object.keys(target).length !== 1 || typeof target.kind !== `string` || !target.kind) {
+      issues.push({ path: fp, message: `a ref is {kind}, "issue" or "member"` })
+      continue
+    }
+    if (!isObject(records) || !Object.prototype.hasOwnProperty.call(records, target.kind)) issues.push({ path: `${fp}/kind`, message: `records:${target.kind} names no declared kind` })
+  }
+  return issues
 }

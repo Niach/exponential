@@ -247,6 +247,10 @@ pub(crate) struct RecordsFeed {
     /// Dogfood G: the team's zone (`resolve_zone`; `None` = the machine's):
     /// the month view's `today` and default month (records-query.json `today`).
     pub(crate) zone: Option<String>,
+    /// VAPP-219 (R5): the scope team's issues by identifier (`{id,
+    /// identifier, title, status}`), what an expanded `issue` ref inlines;
+    /// filled only when the hosting package declares an issue ref.
+    pub(crate) issues: serde_json::Map<String, Value>,
 }
 
 /// Dogfood G: the calendar day at `now` in the feed's zone (the team's,
@@ -302,7 +306,9 @@ pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &eui_core::host::Rec
     // VAPP-214: the hosting app's computed fields (another app's rows carry none).
     let computed = if query.app.is_none() { eui_core::host::kind_computed(scope.and_then(|s| s.records.as_ref()), query.from.as_deref()) } else { None };
     let today = feed_today(feed, now);
-    let ctx = eui_core::host::RecordsContext { me: feed.me.as_deref(), now, today: today.as_deref(), names: &feed.names, computed: computed.as_ref() };
+    // VAPP-219 (R5): the hosting app's refs (`expand`); members resolve through `names`.
+    let refs = if query.app.is_none() { eui_core::host::kind_refs(scope.and_then(|s| s.records.as_ref()), query.from.as_deref()) } else { None };
+    let ctx = eui_core::host::RecordsContext { me: feed.me.as_deref(), now, today: today.as_deref(), names: &feed.names, computed: computed.as_ref(), refs: refs.as_ref(), issues: Some(&feed.issues) };
     eui_core::host::records_value(&rows, query, ctx).unwrap_or(Value::Null)
 }
 
@@ -645,8 +651,20 @@ fn refresh_records(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
     // Dogfood G: the team zone the month view's `today` reads (as host_zone).
     let team_id = feeds.borrow().records.scope.as_ref().and_then(|s| s.team_id.clone());
     let zone = team_id.and_then(|id| domain::team_zone::resolve_zone_name(collections.teams.read(cx).get(id.as_str())?.time_zone.as_deref()));
+    // VAPP-219 (R5): the team's issues, only for a package with an issue ref.
+    let scope = feeds.borrow().records.scope.clone();
+    let wants_issues = scope.as_ref().and_then(|s| s.records.as_ref()).and_then(Value::as_object).is_some_and(|kinds| {
+        kinds.values().any(|k| k.get("refs").and_then(Value::as_object).is_some_and(|r| r.values().any(|t| t.as_str() == Some("issue"))))
+    });
+    let mut issues = serde_json::Map::new();
+    if let (true, Some(team)) = (wants_issues, scope.as_ref().and_then(|s| s.team_id.as_deref())) {
+        let boards: HashSet<String> = collections.boards.read(cx).iter().filter(|b| b.team_id == team).map(|b| b.id.clone()).collect();
+        for i in collections.issues.read(cx).iter().filter(|i| boards.contains(&i.board_id)) {
+            issues.insert(i.identifier.clone(), json!({"id": i.id, "identifier": i.identifier, "title": i.title, "status": wire(&i.status).unwrap_or_default()}));
+        }
+    }
     let mut f = feeds.borrow_mut();
-    let next = RecordsFeed { scope: f.records.scope.clone(), me, records, apps, names, zone };
+    let next = RecordsFeed { scope: f.records.scope.clone(), me, records, apps, names, zone, issues };
     if f.records != next {
         f.records = next;
         f.publish();
@@ -1268,6 +1286,9 @@ impl IdeHost {
             subscriptions.push(cx.observe(&apps, move |_, cx| refresh_records(&f, cx)));
             let f = feeds.clone();
             subscriptions.push(cx.observe(&users, move |_, cx| refresh_records(&f, cx)));
+            // VAPP-219: an expanded issue ref follows the issues.
+            let f = feeds.clone();
+            subscriptions.push(cx.observe(&collections.issues, move |_, cx| refresh_records(&f, cx)));
         }
         let weak = Rc::downgrade(&feeds);
         let tick = cx.spawn(async move |cx| loop {
@@ -1474,6 +1495,7 @@ mod tests {
             ],
             names: HashMap::from([("u1".to_string(), "Danny".to_string())]),
             zone: None,
+            issues: serde_json::Map::new(),
         }
     }
 
@@ -1540,6 +1562,25 @@ mod tests {
         assert_eq!(own["rows"][0]["minutes"], 180);
         let other = records_feed_value(&feed, &query("records:entry?app=other"), now);
         assert!(other["rows"][0].get("minutes").is_none());
+    }
+
+    /// VAPP-219 (R5): `expand` follows the hosting package's refs: a member
+    /// through the names, an issue through the feed's summaries.
+    #[test]
+    fn records_expand_the_package_refs() {
+        let mut feed = records_feed();
+        feed.records[0].data = json!({"date": "2026-10-05", "hours": 3, "owner": "u1", "task": "EXP-12"});
+        feed.issues.insert("EXP-12".into(), json!({"id": "i12", "identifier": "EXP-12", "title": "Ship it", "status": "done"}));
+        if let Some(scope) = feed.scope.as_mut() {
+            scope.records = Some(json!({"entry": {"schema": {"type": "object", "properties": {"owner": {"type": "string"}, "task": {"type": "string"}}}, "refs": {"owner": "member", "task": "issue"}}}));
+        }
+        let query = |s: &str| match query_of(&eui_core::host::parse_source(s).unwrap()) {
+            Some(Query::Records(q)) => q,
+            other => panic!("{other:?}"),
+        };
+        let own = records_feed_value(&feed, &query("records:entry?expand=owner,task"), "2026-10-24T09:00:00.000Z");
+        assert_eq!(own["rows"][0]["owner"], json!({"id": "u1", "name": "Danny"}));
+        assert_eq!(own["rows"][0]["task"]["title"], "Ship it");
     }
 
     #[test]

@@ -7,7 +7,7 @@ import type { ExtensionDef, FlatComponent } from "../types"
 import type { ServerMessage } from "./contract"
 import { matchesPattern } from "./policy"
 import { parseSource } from "./sources"
-import { RECORD_KIND_PATTERN, validateRecordSchema } from "./records"
+import { RECORD_KIND_PATTERN, validateRecordRefs, validateRecordSchema } from "./records"
 import { validateRecordPolicy } from "./record-policy"
 import type { RecordKind } from "./records"
 import { RECORDS_SCHEME, parseRecordsJson } from "./query"
@@ -205,6 +205,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
           if (def.policy !== undefined) issues.push(...validateRecordPolicy(def.policy, `${at}/policy`))
           // VAPP-214 (Q3): computed fields, typed against the schema.
           issues.push(...validateRecordComputed(def, at))
+          // eApps R5 (VAPP-219): refs name a string field and a declared kind.
+          issues.push(...validateRecordRefs(def, at, pkg.records))
         }
       }
   }
@@ -243,6 +245,12 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
         if (from && !from.includes(`\${`) && (!isObject(pkg.records) || !Object.prototype.hasOwnProperty.call(pkg.records, from)))
           issues.push({ path: `${at}/from`, message: `records:${from} names no declared kind` })
         else if (from && !from.includes(`\${`) && isObject(q)) issues.push(...queryFieldIssues(q, from, (pkg.records as Record<string, unknown>)[from], at))
+        // eApps R5: an expanded field is a ref of the kind.
+        if (from && isObject(q) && Array.isArray(q.expand) && isObject(pkg.records) && isObject((pkg.records as Record<string, unknown>)[from]))
+          q.expand.forEach((f, i) => {
+            const refs = ((pkg.records as Record<string, Record<string, unknown>>)[from]!.refs ?? {}) as Record<string, unknown>
+            if (typeof f === `string` && f.trim() && !(isObject(refs) && Object.prototype.hasOwnProperty.call(refs, f.trim()))) issues.push({ path: `${at}/expand/${i}`, message: `${f.trim()} is not a ref of ${from}` })
+          })
       }
   }
   // Dogfood G: an exposed records run's `query` names a package query of the run's kind.

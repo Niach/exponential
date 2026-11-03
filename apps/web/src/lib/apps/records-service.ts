@@ -20,12 +20,12 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
 import { validateRecord, type RecordSchema } from "@exponential_app/eui"
 import { RECORD_POLICY_COPY, recordPolicy, recordRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
-import { kindComputed, parseRecordsJson, recordsValue, withComputed, type RecordRow, type RecordsQueryIssue, type RecordsValue } from "@exponential_app/eui/host/query"
+import { kindComputed, kindRefs, parseRecordsJson, recordsValue, withComputed, type RecordRefTarget, type RecordRow, type RecordsQueryIssue, type RecordsValue } from "@exponential_app/eui/host/query"
 import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { resolveZone, zoneDay, zoneOffset } from "@exp/domain-contract/team-zone"
 import { APP_RECORD_HISTORY, APP_RECORDS_ON_BEHALF, eventState, inverseWrite, recordAuthor, writeAsVerdict, type RecordEventOp, type RecordEventVia } from "@exp/domain-contract/app-records"
 import { db as defaultDb } from "@/db/connection"
-import { appAccess, appRecordEvents, appRecords, apps, teamMembers, teams, users, type App } from "@/db/schema"
+import { appAccess, appRecordEvents, appRecords, apps, issues, teamMembers, teams, users, type App } from "@/db/schema"
 import { assertTeamMember } from "@/lib/auth/membership"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { packageBytes, recordKindSchema } from "@/lib/apps/package"
@@ -215,6 +215,54 @@ function checkedRecordData(schema: RecordSchema, data: Record<string, unknown>):
   return data
 }
 
+// ── eApps R5 (#VAPP-219): refs ──────────────────────────────────────────
+// `records.<kind>.refs` = string fields holding an id: a record of a kind of
+// the same app, an issue of the team (identifier), a member (user id). A
+// write's refs must resolve (BAD_REQUEST naming the field); a read follows
+// them with `expand`. Deleting a target never cascades: the ref dangles.
+
+const UUID_TEXT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The refs a write sets (non-empty strings; a wrong type is the schema's issue). */
+function setRefs(app: RecordsApp, kind: string, data: Record<string, unknown>): { field: string; target: RecordRefTarget; id: string }[] {
+  const refs = kindRefs(effectiveRecords(app), kind) ?? {}
+  return Object.keys(refs)
+    .sort()
+    .flatMap((field) => (typeof data[field] === `string` && data[field] ? [{ field, target: refs[field]!, id: data[field] as string }] : []))
+}
+
+const refsRefusal = (problems: string[]) => new TRPCError({ code: `BAD_REQUEST`, message: `record is invalid: ${problems.join(`; `)}` })
+
+/** eApps R5: the issue and member refs of a write resolve in the team. Read
+ *  BEFORE the role switch (issues, team_members). */
+async function assertTeamRefs(executor: Pick<Tx, `select`>, app: Pick<App, `teamId`> & RecordsApp, kind: string, data: Record<string, unknown>) {
+  const problems: string[] = []
+  for (const ref of setRefs(app, kind, data)) {
+    if (ref.target === `member`) {
+      const [row] = await executor.select({ userId: teamMembers.userId }).from(teamMembers).where(and(eq(teamMembers.teamId, app.teamId), eq(teamMembers.userId, ref.id))).limit(1)
+      if (!row) problems.push(`/${ref.field}: no member ${ref.id} in the team`)
+    } else if (ref.target === `issue`) {
+      const [row] = await executor.select({ id: issues.id }).from(issues).where(and(eq(issues.teamId, app.teamId), eq(issues.identifier, ref.id), isNull(issues.boardDeletedAt))).limit(1)
+      if (!row) problems.push(`/${ref.field}: no issue ${ref.id} in the team`)
+    }
+  }
+  if (problems.length) throw refsRefusal(problems)
+}
+
+/** eApps R5: the record refs of a write name a live record of the target
+ *  kind of the same app (under the role: app_records only). */
+async function assertRecordRefs(tx: Tx, app: Pick<App, `id`> & RecordsApp, kind: string, data: Record<string, unknown>) {
+  const problems: string[] = []
+  for (const ref of setRefs(app, kind, data)) {
+    if (typeof ref.target !== `object`) continue
+    const found = UUID_TEXT.test(ref.id)
+      ? await tx.select({ id: appRecords.id }).from(appRecords).where(and(eq(appRecords.appId, app.id), eq(appRecords.kind, ref.target.kind), eq(appRecords.id, ref.id), isNull(appRecords.deletedAt))).limit(1)
+      : []
+    if (!found.length) problems.push(`/${ref.field}: no ${ref.target.kind} record ${ref.id}`)
+  }
+  if (problems.length) throw refsRefusal(problems)
+}
+
 /** The columns a records read returns (the allowlist; nothing else is read). */
 const RECORD_COLUMNS = {
   id: appRecords.id,
@@ -301,6 +349,7 @@ export async function upsertRecord(
   const onBehalf = input.author !== undefined && input.author !== userId && member.role === `owner`
   const members = onBehalf ? await teamMemberIds(executor, app.teamId) : []
   const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
+  await assertTeamRefs(executor, app, input.kind, input.data)
   return await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     // VAPP-221: files only from this app (reads `attachments`: before the role).
@@ -324,6 +373,7 @@ export async function upsertRecord(
         const reassign = input.author !== undefined && input.author !== recordAuthor(existing)
         if (reassign) assertCanWriteAs(userId, member.role, input.author, members)
         const data = checked({ ...existing.data, ...input.data })
+        await assertRecordRefs(tx, app, input.kind, input.data)
         await tx
           .update(appRecords)
           .set({ data, ...(reassign ? { authorId: input.author } : {}), updatedBy: userId, updatedAt: new Date() })
@@ -343,6 +393,7 @@ export async function upsertRecord(
     // first's row (no race past `appRecords`).
     await lockAndCheckQuota(tx, app.teamId)
     return asEapps(tx, scope, async (tx) => {
+      await assertRecordRefs(tx, app, input.kind, data)
       const [row] = await tx
         .insert(appRecords)
         .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId })
@@ -420,6 +471,7 @@ export async function commitRecordBatch(
     if (schemas.length === 0) at(i, new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${w.kind}": add it to the package's records first` }))
     return schemas
   })
+  for (const [i, w] of writes.entries()) if (w.op === `upsert`) await assertTeamRefs(executor, app, w.kind, w.data).catch((e) => at(i, e))
   const creates = writes.filter((w) => w.op === `upsert` && w.id === undefined).length
   const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
   return await executor.transaction(async (tx) => {
@@ -458,6 +510,7 @@ export async function commitRecordBatch(
             assertReadable(app, viewer, existing)
             assertRecordOp(app, w.kind, `update`, viewer, existing)
             const data = checkedAgainst(schema, { ...existing.data, ...w.data })
+            await assertRecordRefs(tx, app, w.kind, w.data)
             await tx.update(appRecords).set({ data, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             ids.push(existing.id)
             events.push({ recordId: existing.id, kind: existing.kind, op: `update`, author: recordAuthor(existing), patch: w.data, before: existing.data })
@@ -465,6 +518,7 @@ export async function commitRecordBatch(
           }
           assertRecordOp(app, w.kind, `create`, viewer)
           const data = checkedAgainst(schema, w.data)
+          await assertRecordRefs(tx, app, w.kind, data)
           const [row] = await tx
             .insert(appRecords)
             .values({ appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: userId, updatedBy: userId })
@@ -736,13 +790,61 @@ export function serverRecordsValue(
   rows: readonly RecordRow[],
   kind: string,
   json: Record<string, unknown>,
-  ctx: { me: string; names: Record<string, string>; now?: string; today?: string }
+  ctx: { me: string; names: Record<string, string>; now?: string; today?: string } & Partial<RefLookups>
 ): { value: RecordsValue; issues: [] } | { value: null; issues: RecordsQueryIssue[] } {
   const fixed = SERVER_QUERY_FIXED.filter((key) => json[key] !== undefined && json[key] !== null && !(key === `from` && json[key] === kind))
-  const { query, issues } = parseRecordsJson(json, kind)
-  const all = [...fixed.map((key) => ({ path: `/${key}`, message: key === `app` ? `a tool reads only its own app's records` : `the kind is the tool's (${kind})` })), ...issues]
+  const { query, issues: problems } = parseRecordsJson(json, kind)
+  // eApps R5: a tool expands only the kind's refs.
+  const notRefs = query.expand.flatMap((field, i) => (ctx.refs && Object.prototype.hasOwnProperty.call(ctx.refs, field) ? [] : [{ path: `/expand/${i}`, message: `${field} is not a ref of ${kind}` }]))
+  const all = [...fixed.map((key) => ({ path: `/${key}`, message: key === `app` ? `a tool reads only its own app's records` : `the kind is the tool's (${kind})` })), ...problems, ...notRefs]
   if (all.length > 0) return { value: null, issues: all }
-  return { value: recordsValue(rows, query, { me: ctx.me, names: ctx.names, now: ctx.now, today: ctx.today })!, issues: [] }
+  const value = recordsValue(ctx.targets?.length ? [...rows, ...ctx.targets] : rows, query, { me: ctx.me, names: ctx.names, now: ctx.now, today: ctx.today, refs: ctx.refs, issues: ctx.issues })!
+  return { value, issues: [] }
+}
+
+/** eApps R5: what a server read's `expand` follows: the kind's refs, the
+ *  target records of OTHER kinds the member may read, the issue summaries. */
+export interface RefLookups {
+  refs: Record<string, RecordRefTarget> | undefined
+  targets: RecordRow[]
+  issues: Record<string, Record<string, unknown>>
+}
+
+/** eApps R5 (#VAPP-219): the lookups of a JSON query's `expand` over `rows`
+ *  (the queried kind's, already read): another kind's targets under the read
+ *  policy and RLS, the team's issues by identifier (members = the names). */
+export async function readRefLookups(app: { id: string; teamId: string }, kind: string, json: Record<string, unknown>, rows: readonly RecordRow[], userId: string, executor: Executor = defaultDb): Promise<RefLookups> {
+  const full = await loadApp(executor, { id: app.id })
+  const refs = kindRefs(effectiveRecords(full), kind)
+  const expand = Array.isArray(json.expand) ? json.expand.filter((f): f is string => typeof f === `string`).map((f) => f.trim()) : []
+  const followed = expand.flatMap((f) => (refs && Object.prototype.hasOwnProperty.call(refs, f) ? [{ field: f, target: refs[f]! }] : []))
+  const out: RefLookups = { refs, targets: [], issues: {} }
+  if (!followed.length) return out
+  const ids = (field: string) => [...new Set(rows.map((r) => r.data[field]).filter((v): v is string => typeof v === `string` && v !== ``))]
+  const identifiers = [...new Set(followed.flatMap((f) => (f.target === `issue` ? ids(f.field) : [])))].slice(0, RECORDS_SERVER_READ_MAX)
+  if (identifiers.length) {
+    const found = await executor
+      .select({ id: issues.id, identifier: issues.identifier, title: issues.title, status: issues.status })
+      .from(issues)
+      .where(and(eq(issues.teamId, app.teamId), inArray(issues.identifier, identifiers), isNull(issues.boardDeletedAt)))
+    for (const i of found) out.issues[i.identifier] = { id: i.id, identifier: i.identifier, title: i.title, status: i.status }
+  }
+  const targetIds = [...new Set(followed.flatMap((f) => (typeof f.target === `object` && f.target.kind !== kind ? ids(f.field) : [])))].filter((id) => UUID_TEXT.test(id)).slice(0, RECORDS_SERVER_READ_MAX)
+  const kinds = [...new Set(followed.flatMap((f) => (typeof f.target === `object` && f.target.kind !== kind ? [f.target.kind] : [])))]
+  if (targetIds.length && kinds.length) {
+    const viewer = await viewerOf(executor, full, userId)
+    const read = await inRecordsScope(
+      { teamId: app.teamId, appIds: [app.id] },
+      (tx) =>
+        tx
+          .select(RECORD_COLUMNS)
+          .from(appRecords)
+          .where(and(eq(appRecords.appId, app.id), inArray(appRecords.kind, kinds), inArray(appRecords.id, targetIds), isNull(appRecords.deletedAt), readPolicyWhere(full, viewer))),
+      executor
+    )
+    out.targets = read.map((r) => ({ id: r.id, kind: r.kind, data: (r.data ?? {}) as Record<string, unknown>, createdBy: r.createdBy, authorId: r.authorId, createdAt: iso(r.createdAt), updatedAt: iso(r.updatedAt) }))
+  }
+  return out
 }
 
 /** The issues as one line (`/where/0: …; /limit: …`). */
@@ -757,7 +859,8 @@ export const queryIssuesText = (issues: readonly RecordsQueryIssue[]) =>
 export async function queryRecords(userId: string, ref: AppRef, input: { kind: string; query: Record<string, unknown> }, executor: Executor = defaultDb) {
   const app = await loadApp(executor, ref)
   const { rows, truncated } = await readAppRecordRows(app, input.kind, {}, userId, executor)
-  const out = serverRecordsValue(rows, input.kind, input.query, { me: userId, names: await teamMemberNames(app.teamId, executor), today: await teamToday(app.teamId, executor) })
+  const lookups = await readRefLookups(app, input.kind, input.query, rows, userId, executor)
+  const out = serverRecordsValue(rows, input.kind, input.query, { me: userId, names: await teamMemberNames(app.teamId, executor), today: await teamToday(app.teamId, executor), ...lookups })
   if (out.value === null) throw new TRPCError({ code: `BAD_REQUEST`, message: `query is invalid: ${queryIssuesText(out.issues)}` })
   return truncated ? { ...out.value, truncated } : out.value
 }

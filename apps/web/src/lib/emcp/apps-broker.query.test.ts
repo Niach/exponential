@@ -9,10 +9,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import fixture from "@exponential_app/eui/fixtures/records-query.json" with { type: "json" }
-import { withComputed, type RecordRow } from "@exponential_app/eui/host/query"
+import { withComputed, type RecordRefTarget, type RecordRow } from "@exponential_app/eui/host/query"
 import type { Expose } from "@exp/emcp/exposes"
 
-const read = vi.hoisted(() => ({ rows: [] as unknown[], computed: undefined as Record<string, string> | undefined, names: {} as Record<string, string>, calls: [] as { kind: string; contains: Record<string, unknown>; userId: string }[], truncated: false, today: undefined as string | undefined }))
+const read = vi.hoisted(() => ({ rows: [] as unknown[], computed: undefined as Record<string, string> | undefined, names: {} as Record<string, string>, refs: undefined as Record<string, unknown> | undefined, calls: [] as { kind: string; contains: Record<string, unknown>; userId: string }[], truncated: false, today: undefined as string | undefined }))
 vi.mock(`@/lib/apps/records-service`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/apps/records-service")>()),
   readAppRecordRows: async (_app: unknown, kind: string, contains: Record<string, unknown>, userId: string) => {
@@ -22,6 +22,8 @@ vi.mock(`@/lib/apps/records-service`, async (importOriginal) => ({
   },
   teamMemberNames: async () => read.names,
   teamToday: async () => read.today,
+  // VAPP-219: the lookups' DB reads are the real-db suite's; here the kind's refs only.
+  readRefLookups: async () => ({ refs: read.refs, targets: [], issues: {} }),
 }))
 
 const { createAppsMcpServer } = await import(`@/lib/emcp/apps-broker`)
@@ -53,6 +55,7 @@ beforeEach(() => {
   read.truncated = false
   read.computed = undefined
   read.today = undefined
+  read.refs = undefined
 })
 afterEach(() => vi.useRealTimers())
 
@@ -130,5 +133,29 @@ describe(`the broker's records list = the Q1 query (VAPP-216)`, () => {
       expect(result.isError).toBe(true)
       expect(result.content[0]!.text).toMatch(words)
     }
+  })
+})
+
+// VAPP-219 (R5): the fixture's expand cases through the server's pure half
+// (the lookups a real read hands over: the kind's refs, the targets of
+// another kind, the issue summaries); a non-ref expand is refused.
+describe(`the server query's expand = the R5 evaluator (VAPP-219)`, () => {
+  type RefCase = ValueCase & { kind: string; refs?: Record<string, RecordRefTarget>; issues?: Record<string, Record<string, unknown>> }
+  const refCases = (fixture.valueCases as unknown as RefCase[]).filter((c) => c.refs && ((c.query as { expand?: string[] } | undefined)?.expand ?? []).length && (c.query as { expand: string[] }).expand.every((f) => f in c.refs!))
+  it(`replays the JSON expand cases`, async () => {
+    expect(refCases.length).toBeGreaterThanOrEqual(1)
+    const { serverRecordsValue } = await import(`@/lib/apps/records-service`)
+    for (const c of refCases) {
+      const own = (c.rows as RecordRow[]).filter((r) => r.kind === c.kind)
+      const targets = (c.rows as RecordRow[]).filter((r) => r.kind !== c.kind)
+      const { from: _from, ...query } = c.query!
+      const out = serverRecordsValue(own, c.kind, query, { me: c.me, names: c.names, now: c.now, refs: c.refs, targets, issues: c.issues ?? {} })
+      expect(out.value, c.name).toEqual(c.expected)
+    }
+  })
+  it(`an expand that is not a ref of the kind is refused`, async () => {
+    const { serverRecordsValue } = await import(`@/lib/apps/records-service`)
+    const out = serverRecordsValue([], `deal`, { expand: [`title`] }, { me: `u1`, names: {}, refs: { customer: { kind: `company` } } })
+    expect(out.issues).toEqual([{ path: `/expand/0`, message: `title is not a ref of deal` }])
   })
 })

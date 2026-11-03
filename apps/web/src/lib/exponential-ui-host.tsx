@@ -43,7 +43,7 @@ import {
   teamMemberCollection,
   userCollection,
 } from "@/lib/collections"
-import { RECORDS_SCHEME, kindComputed, parseRecordsQuery, recordAuthor, recordsValue, type RecordRow } from "@exponential_app/eui/host/query"
+import { RECORDS_SCHEME, kindComputed, kindRefs, parseRecordsQuery, recordAuthor, recordsValue, type RecordRow } from "@exponential_app/eui/host/query"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { APPS_COPY, appMediaAllowed } from "@exp/domain-contract/apps"
@@ -359,13 +359,31 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
     const computed = query.app ? undefined : kindComputed(scope.records, query.from)
     // Dogfood G: the month view's today + default month in the TEAM zone, the day today() reads.
     const ms = Date.now()
-    const value = recordsValue(rows, query, { me: scope.me, now: new Date(ms).toISOString(), today: zoneDay((at) => teamZoneOffset(scope.teamId, at), ms), names, computed })
+    // VAPP-219 (R5): what `expand` follows: member refs by name, issue refs by identifier.
+    const refs = query.app ? undefined : kindRefs(scope.records, query.from)
+    let issues: Record<string, Record<string, unknown>> | undefined
+    for (const field of query.expand) {
+      const target = refs?.[field]
+      if (target !== `member` && target !== `issue`) continue
+      for (const row of rows) {
+        const id = row.kind === query.from ? row.data[field] : undefined
+        if (typeof id !== `string` || !id) continue
+        if (target === `member` && !(id in names) && users.get(id) !== undefined) names[id] = users.get(id) ?? ``
+        if (target === `issue` && !issues?.[id]) {
+          const i = issueCollection.toArray.find((x) => x.identifier === id && x.teamId === scope.teamId)
+          if (i) (issues ??= {})[id] = { id: i.id, identifier: i.identifier, title: i.title, status: i.status }
+        }
+      }
+    }
+    const value = recordsValue(rows, query, { me: scope.me, now: new Date(ms).toISOString(), today: zoneDay((at) => teamZoneOffset(scope.teamId, at), ms), names, computed, refs, issues })
     const key = JSON.stringify(value)
     if (key === last) return
     last = key
     emit(value)
   }
   const users = incrementalTable(changes(userCollection), (u) => u.name, push)
+  // VAPP-219: an expanded issue ref re-emits when the issues change.
+  const issueRefs = !query.app && query.expand.some((f) => kindRefs(scope.records, query.from)?.[f] === `issue`) ? issueCollection.subscribeChanges(() => push()) : null
   /** The app the binding reads (the hosting one, or `app=` by slug); a
    *  move re-subscribes the records to that app's subset. */
   const resolve = () => {
@@ -409,6 +427,7 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
     apps?.unsubscribe()
     records?.unsubscribe()
     users.unsubscribe()
+    issueRefs?.unsubscribe()
   }
 }
 

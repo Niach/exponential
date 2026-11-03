@@ -69,12 +69,16 @@ public struct RecordsQuery: Sendable, Equatable {
     /// CEL, `RecordsQuery.computed(records:kind:)`), evaluated on read.
     /// `today` = the host's calendar day in the team zone (`YYYY-MM-DD`):
     /// the month view's `today` and default month; nil = `now`'s UTC day.
-    public func value(rows: [RecordRow], me: String?, now: Date = Date(), today: String? = nil, names: [String: String] = [:], computed: [String: String] = [:]) -> JSONValue {
-        value(rows: rows, me: me, now: RecordsQuery.iso(now), today: today, names: names, computed: computed)
+    /// VAPP-219 (R5): `refs` = the queried kind's refs
+    /// (`RecordsQuery.refs(records:kind:)`), what `expand` follows; `issues`
+    /// = identifier → the issue summary `{id, identifier, title, status}` an
+    /// `issue` ref inlines (members resolve through `names`).
+    public func value(rows: [RecordRow], me: String?, now: Date = Date(), today: String? = nil, names: [String: String] = [:], computed: [String: String] = [:], refs: JSONValue = .null, issues: [String: JSONValue] = [:]) -> JSONValue {
+        value(rows: rows, me: me, now: RecordsQuery.iso(now), today: today, names: names, computed: computed, refs: refs, issues: issues)
     }
 
     /// `value` with `now` as ISO 8601 text.
-    public func value(rows: [RecordRow], me: String?, now: String, today: String? = nil, names: [String: String], computed: [String: String] = [:]) -> JSONValue {
+    public func value(rows: [RecordRow], me: String?, now: String, today: String? = nil, names: [String: String], computed: [String: String] = [:], refs: JSONValue = .null, issues: [String: JSONValue] = [:]) -> JSONValue {
         let rowsJson = JSONValue.array(rows.map(\.json)).json
         let context = JSONValue.object([
             "me": me.map(JSONValue.string) ?? .null,
@@ -82,6 +86,8 @@ public struct RecordsQuery: Sendable, Equatable {
             "today": today.map(JSONValue.string) ?? .null,
             "names": .object(names.mapValues { .string($0) }),
             "computed": .object(computed.mapValues { .string($0) }),
+            "refs": refs,
+            "issues": .object(issues),
         ]).json
         guard let out = try? recordsValueJson(rowsJson: rowsJson, queryJson: json, contextJson: context) else { return .null }
         return JSONValue.parse(out)
@@ -97,6 +103,13 @@ public struct RecordsQuery: Sendable, Equatable {
     public static func computed(records: JSONValue?, kind: String?) -> [String: String] {
         guard let kind, let fields = records?[kind]?["computed"]?.object else { return [:] }
         return fields.compactMapValues(\.string)
+    }
+
+    /// VAPP-219 (R5): a package's refs of `kind` (`records.<kind>.refs`);
+    /// what a host passes as `refs` (`.null` = none).
+    public static func refs(records: JSONValue?, kind: String?) -> JSONValue {
+        guard let kind, let refs = records?[kind]?["refs"], refs.object != nil else { return .null }
+        return refs
     }
 
     private nonisolated(unsafe) static let isoMillis: ISO8601DateFormatter = {

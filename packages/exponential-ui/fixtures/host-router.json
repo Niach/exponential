@@ -1404,6 +1404,184 @@
           }
         }
       }
+    },
+    "acme.crm": {
+      "formatVersion": 3,
+      "id": "acme.crm",
+      "name": "CRM",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "deals": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Deals"
+            }
+          ],
+          "bindings": []
+        }
+      },
+      "functions": [
+        "records.*"
+      ],
+      "records": {
+        "company": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "parent": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "refs": {
+            "parent": {
+              "kind": "company"
+            }
+          }
+        },
+        "deal": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "customer": {
+                "type": "string"
+              },
+              "owner": {
+                "type": "string"
+              },
+              "task": {
+                "type": "string"
+              }
+            }
+          },
+          "refs": {
+            "customer": {
+              "kind": "company"
+            },
+            "owner": "member",
+            "task": "issue"
+          }
+        }
+      },
+      "queries": {
+        "open": {
+          "from": "deal",
+          "expand": [
+            "customer",
+            "owner"
+          ]
+        }
+      }
+    },
+    "acme.badrefs": {
+      "formatVersion": 3,
+      "id": "acme.badrefs",
+      "name": "CRM",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "deals": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Deals"
+            }
+          ],
+          "bindings": []
+        }
+      },
+      "functions": [
+        "records.*"
+      ],
+      "records": {
+        "company": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "parent": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          },
+          "refs": {
+            "parent": {
+              "kind": "company"
+            }
+          }
+        },
+        "deal": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "customer": {
+                "type": "string"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "amount": {
+                "type": "number"
+              }
+            }
+          },
+          "refs": {
+            "customer": {
+              "kind": "vendor"
+            },
+            "tags": "issue",
+            "amount": "member",
+            "ghost": "member",
+            "odd": "team",
+            "extra": {
+              "kind": "company",
+              "app": "other"
+            }
+          }
+        },
+        "note": {
+          "schema": {
+            "type": "object",
+            "properties": {}
+          },
+          "refs": [
+            "x"
+          ]
+        }
+      },
+      "queries": {
+        "open": {
+          "from": "deal",
+          "expand": [
+            "title",
+            "customer"
+          ]
+        }
+      }
     }
   },
   "flows": [
@@ -3114,6 +3292,55 @@
     {
       "package": "acme.files",
       "expected": []
+    },
+    {
+      "package": "acme.crm",
+      "expected": []
+    },
+    {
+      "package": "acme.badrefs",
+      "expected": [
+        {
+          "path": "/records/deal/refs/amount",
+          "message": "a ref is a string field"
+        },
+        {
+          "path": "/records/deal/refs/customer/kind",
+          "message": "records:vendor names no declared kind"
+        },
+        {
+          "path": "/records/deal/refs/extra",
+          "message": "extra is not a declared field"
+        },
+        {
+          "path": "/records/deal/refs/extra",
+          "message": "a ref is {kind}, \"issue\" or \"member\""
+        },
+        {
+          "path": "/records/deal/refs/ghost",
+          "message": "ghost is not a declared field"
+        },
+        {
+          "path": "/records/deal/refs/odd",
+          "message": "odd is not a declared field"
+        },
+        {
+          "path": "/records/deal/refs/odd",
+          "message": "a ref is {kind}, \"issue\" or \"member\""
+        },
+        {
+          "path": "/records/deal/refs/tags",
+          "message": "a ref is a string field"
+        },
+        {
+          "path": "/records/note/refs",
+          "message": "refs is {field: {kind} | \"issue\" | \"member\"}"
+        },
+        {
+          "path": "/queries/open/expand/0",
+          "message": "title is not a ref of deal"
+        }
+      ]
     }
   ],
   "records": [

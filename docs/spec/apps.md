@@ -159,7 +159,7 @@ Needs: C2, C13.
 |---|---|---|---|
 | C1 | Record ownership: only the author or an owner edits or deletes | ✅ | #VAPP-187 |
 | C2 | Writes on behalf of a member (owners), with audit | ✅ | #VAPP-188 |
-| C3 | Relations between kinds and refs to issues and members | ❌ | 🆕 R5 |
+| C3 | Relations between kinds and refs to issues and members | ✅ R5 (#VAPP-219) | R5 |
 | C4 | Per-kind read/write policy (private, panel-only) | ❌ | 🆕 R3 |
 | C5 | Group-by on any field, avg/min/max/count, text search | ✅ group-by + aggregates; 🟡 text `search` open | #VAPP-190 |
 | C6 | Running sums and totals before a date | ✅ | #VAPP-190 |
@@ -282,11 +282,11 @@ A per-member view groups by `author`, not `created_by`. That way a backfill an o
 
 ### 3.3 Richer schemas (🆕 R5/R6, ✅ R7)
 
-- **refs:**
-  - `{"customer": {"ref": "company"}}` points to a record of the same app.
-  - `{"ref": "issue"}` stores an identifier like `EXP-12`.
-  - `{"ref": "member"}` stores a user id.
-  - Refs are validated on write (the target exists in the same app or team) and resolved by queries (`expand`). Cross-app refs are not allowed.
+- **refs** (✅ R5, #VAPP-219): `records.<kind>.refs: {"customer": {"kind": "company"}, "task": "issue", "owner": "member"}` on string fields.
+  - `{kind}` points to a record of that kind of the same app.
+  - `"issue"` stores an identifier like `EXP-12`.
+  - `"member"` stores a user id.
+  - Refs are validated on write (the target exists in the same app or team; else BAD_REQUEST naming the field) and resolved by queries (`expand`). Cross-app refs are not allowed. Install checks the field is a declared string field and the kind exists. Deleting a target never cascades: the ref dangles and reads null when expanded.
 - **transitions:** `{"field": "status", "from": {"requested": ["approved", "rejected"]}, "who": {"approved": "role:approver"}}`, enforced on the server.
 - **files** ✅ (R7, #VAPP-221): `{"type": "string", "format": "attachment"}` holds one file, a list of strings with `"items": {"type": "string", "format": "attachment"}` several. The value is `/api/attachments/<id>` (relative, lowercase uuid; eUI `validateRecord` ×2 twins, `host-router.json` `acme.files`).
   - **Upload:** a `FileUpload` whose `files` is bound; the app host posts each picked file to `POST /api/apps/{appId}/files` (write access to the app; the attachments pipeline: caps, the team's storage budget) and writes the returned `url` into the entry of the same name at the bound path. An action stores the urls in the record.
@@ -379,7 +379,7 @@ Today a binding is a URL (`records:entry?mine=1&by=date&sum=hours`). URLs stay a
 | Group-by | ✅ Q1 any field, `author`, time buckets `day/week/month/quarter/year` (ISO weeks), plus `by=<date>&month=` | Buckets in the team timezone (today: the stored calendar day; a timestamp's UTC day) |
 | Aggregates | ✅ Q1 `sum avg min max count countDistinct first last` (per group + `totals`) | |
 | Running values | ✅ Q1 `running: {field: "sum"}` (sum count avg min max, over groups, rows or month days) and `before: <date>` (totals up to a date, seeding the running values) | streaks |
-| Joins | ❌ | `expand: ["customer"]` follows refs (one level). There are no free joins. |
+| Joins | ✅ R5 (#VAPP-219) `expand: ["customer"]` / `expand=customer` follows refs (one level): a record row, an issue summary `{id, identifier, title, status}`, a member `{id, name}`; dangling = null (TS + Rust, `records-query.json` ×4; the server's Q4 reads too) | There are no free joins. |
 | Sources | `records:<kind>`, `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments`, `exp:attachments`, `exp:devices` | The same query shape over every `exp:` source (group issues by status or week), + `exp:pullRequests`, `upstream:<server>/<tool>` (§6.3) |
 
 **One evaluator:**
@@ -781,7 +781,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 - **U1** `screens` + `navigate` + deep links + phone bar + the `formFactor` condition. (C8, C27)
 - **U2** `RecordForm` and `RecordTable` macros: styleguide entry ×5 sites, eUI catalog, prompt budget trimmed to fit. (C9)
-- **R5** Refs + `expand`. **R6** Transitions. **R7** ✅ #VAPP-221 Files on records. (C3, C10, C20)
+- **R5** Refs + `expand` (✅ #VAPP-219). **R6** Transitions. **R7** ✅ #VAPP-221 Files on records. (C3, C10, C20)
 - **V1** ✅ #VAPP-210 / #VAPP-211 Draft vs published (`published_version`, Publish, tools and automations on published). (§2.3)
 - **R8** Declarative migrations + the sweep. (§3.6)
 

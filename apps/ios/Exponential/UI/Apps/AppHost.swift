@@ -669,6 +669,8 @@ enum AppHostStore {
     private struct RecordsSnapshot: Sendable {
         var rows: [AppRecordEntity] = []
         var names: [String: String] = [:]
+        /// VAPP-219 (R5): identifier → the summary an expanded issue ref inlines.
+        var issues: [String: JSONValue] = [:]
     }
 
     /// `records:<kind>?…`: eUI's one evaluator (VAPP-189, the SDK's
@@ -682,6 +684,11 @@ enum AppHostStore {
         var last: String?
         // Dogfood G: the month view's today + default month in the TEAM zone (the day today() reads).
         let zone = TeamZone.hostTimeZone(AppHostStore.teamTimeZone(teamId: scope.teamId, pool: pool))
+        // VAPP-219 (R5): the hosting app's refs; members expand by name, issues by identifier.
+        let refs = query.app == nil ? RecordsQuery.refs(records: scope.records, kind: query.from) : .null
+        let expanded = (query.structured["expand"]?.array ?? []).compactMap(\.string)
+        let memberRefs = expanded.filter { refs[$0]?.string == "member" }
+        let issueRefs = expanded.filter { refs[$0]?.string == "issue" }
         let push = { (snapshot: RecordsSnapshot) in
             let rows = snapshot.rows.map { entity in
                 RecordRow(
@@ -697,7 +704,7 @@ enum AppHostStore {
             // VAPP-214: the hosting app's computed fields (another app's rows carry none).
             let computed = query.app == nil ? RecordsQuery.computed(records: scope.records, kind: query.from) : [:]
             let now = Date()
-            let value = query.value(rows: rows, me: scope.me, now: now, today: TeamZone.day(now, in: zone), names: snapshot.names, computed: computed)
+            let value = query.value(rows: rows, me: scope.me, now: now, today: TeamZone.day(now, in: zone), names: snapshot.names, computed: computed, refs: refs, issues: snapshot.issues)
             let json = value.json
             guard json != last else { return }
             last = json
@@ -720,13 +727,30 @@ enum AppHostStore {
             let rows = try AppRecordEntity.filter(Column("app_id") == appId).fetchAll(db)
             var names: [String: String] = [:]
             // VAPP-187: `author` = the AUTHOR's name (`authorId ?? createdBy`).
-            let authors = Array(Set(rows.compactMap { $0.authorId ?? $0.createdBy }))
+            var wanted = Set(rows.compactMap { $0.authorId ?? $0.createdBy })
+            var identifiers: Set<String> = []
+            if !memberRefs.isEmpty || !issueRefs.isEmpty {
+                for row in rows where row.kind == query.from {
+                    let data = JSONValue.parse(row.data)
+                    for f in memberRefs { if let id = data[f]?.string, !id.isEmpty { wanted.insert(id) } }
+                    for f in issueRefs { if let id = data[f]?.string, !id.isEmpty { identifiers.insert(id) } }
+                }
+            }
+            let authors = Array(wanted)
             if !authors.isEmpty {
                 for user in try UserEntity.filter(keys: authors).fetchAll(db) {
                     names[user.id] = user.name ?? ""
                 }
             }
-            return RecordsSnapshot(rows: rows, names: names)
+            var issues: [String: JSONValue] = [:]
+            if !identifiers.isEmpty, let teamId = scope.teamId {
+                let boardIds = try String.fetchAll(db, sql: #"SELECT "id" FROM "boards" WHERE "team_id" = ?"#, arguments: [teamId])
+                for issue in try IssueEntity.filter(boardIds.contains(Column("board_id"))).filter(identifiers.contains(Column("identifier"))).fetchAll(db) {
+                    guard let identifier = issue.identifier else { continue }
+                    issues[identifier] = .object(["id": .string(issue.id), "identifier": .string(identifier), "title": .string(issue.title), "status": .string(issue.status)])
+                }
+            }
+            return RecordsSnapshot(rows: rows, names: names, issues: issues)
         }
         let observe = Task { @MainActor in
             do {

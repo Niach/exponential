@@ -31,8 +31,13 @@ class RecordsQuery private constructor(
      * fields (name → CEL, [computed] in the companion), evaluated on read.
      * [today] = the host's calendar day in the team zone (`YYYY-MM-DD`): the
      * month view's `today` and default month; null = [now]'s UTC day.
+
+     * VAPP-219 (R5): [refs] = the queried kind's refs ([refs] in the
+     * companion), what `expand` follows; [issues] = identifier → the issue
+     * summary `{id, identifier, title, status}` an `issue` ref inlines
+     * (members resolve through [names]).
      */
-    fun value(rows: List<RecordRow>, me: String?, now: String, names: Map<String, String> = emptyMap(), computed: Map<String, String> = emptyMap(), today: String? = null): JsonValue {
+    fun value(rows: List<RecordRow>, me: String?, now: String, names: Map<String, String> = emptyMap(), computed: Map<String, String> = emptyMap(), today: String? = null, refs: JsonValue = JsonValue.Null, issues: Map<String, JsonValue> = emptyMap()): JsonValue {
         val rowsJson = JsonValue.Arr(rows.map { it.toJson() }).json
         val context = JsonValue.Obj(
             mapOf(
@@ -41,6 +46,8 @@ class RecordsQuery private constructor(
                 "today" to (today?.let { JsonValue.Str(it) } ?: JsonValue.Null),
                 "names" to JsonValue.Obj(names.mapValues { JsonValue.Str(it.value) }),
                 "computed" to JsonValue.Obj(computed.mapValues { JsonValue.Str(it.value) }),
+                "refs" to refs,
+                "issues" to JsonValue.Obj(issues),
             ),
         ).json
         val out = runCatching { at.exponential.ui.ffi.recordsValueJson(rowsJson, json, context) }.getOrNull() ?: return JsonValue.Null
@@ -54,6 +61,9 @@ class RecordsQuery private constructor(
     override fun toString(): String = json
 
     companion object {
+        /** VAPP-219 (R5): a package's refs of [kind] (`records.<kind>.refs`); what a host passes as `refs` (Null = none). */
+        fun refs(records: JsonValue?, kind: String?): JsonValue = kind?.let { records?.get(it)?.get("refs") }?.takeIf { it.obj != null } ?: JsonValue.Null
+
         /** VAPP-214: a package's computed fields of [kind] (`records.<kind>.computed`, the string ones); what a host passes as `computed`. */
         fun computed(records: JsonValue?, kind: String?): Map<String, String> {
             val fields = kind?.let { records?.get(it)?.get("computed")?.obj } ?: return emptyMap()

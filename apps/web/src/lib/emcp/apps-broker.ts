@@ -59,7 +59,7 @@ import { callUpstreamTool } from "@/lib/emcp/upstream/mcp-client"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { requestViaApp } from "@/lib/emcp/via-app"
 import { fillQueryTemplates } from "@exponential_app/eui/host/query"
-import { getAppRecord, queryIssuesText, readAppRecordRows, serverRecordsValue, teamMemberNames, teamToday, upsertRecord } from "@/lib/apps/records-service"
+import { getAppRecord, queryIssuesText, readAppRecordRows, readRefLookups, serverRecordsValue, teamMemberNames, teamToday, upsertRecord } from "@/lib/apps/records-service"
 
 /** The endpoint's path (Settings › MCP shows it). */
 export const APPS_MCP_PATH = `/api/mcp/apps`
@@ -336,7 +336,8 @@ async function runRecords(ctx: BrokerContext, tool: BrokerTool, input: Record<st
     const built = listQuery(tool, input)
     if (`error` in built) return brokerError(tool, built.code, built.error)
     const { rows, truncated } = await readAppRecordRows(app, run.kind, built.contains, ctx.user.id)
-    const out = serverRecordsValue(rows, run.kind, built.query, { me: ctx.user.id, names: await teamMemberNames(app.teamId), today: await teamToday(app.teamId) })
+    const lookups = await readRefLookups(app, run.kind, built.query, rows, ctx.user.id)
+    const out = serverRecordsValue(rows, run.kind, built.query, { me: ctx.user.id, names: await teamMemberNames(app.teamId), today: await teamToday(app.teamId), ...lookups })
     if (out.value === null) return brokerError(tool, `invalidArguments`, `the query is invalid: ${queryIssuesText(out.issues)}`)
     return answer(tool, truncated ? { ...out.value, truncated } : out.value)
   }
