@@ -176,3 +176,19 @@ val MIGRATION_113_114: Migration = object : Migration(113, 114) {
         )
     }
 }
+
+/**
+ * v115 (#VAPP-235): the offline outbox, `app_record_outbox` (local only, no
+ * shape: the app host's pending record writes survive a restart). Nothing
+ * refetches.
+ */
+val MIGRATION_114_115: Migration = object : Migration(114, 115) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `app_record_outbox` (`write_id` TEXT NOT NULL, `seq` INTEGER NOT NULL, " +
+                "`app_id` TEXT NOT NULL, `call` TEXT NOT NULL, `writes` TEXT NOT NULL, `at` TEXT NOT NULL, " +
+                "`state` TEXT NOT NULL, `acked_at` TEXT, PRIMARY KEY(`write_id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_app_record_outbox_app_id` ON `app_record_outbox` (`app_id`)")
+    }
+}

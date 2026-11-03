@@ -81,6 +81,10 @@ private data class AppRecordUpsertInput(
     val author: String? = null,
     /** VAPP-215: where the write came from (`editor` = the Data tab; null = omitted, the server says `app`). */
     val via: String? = null,
+    /** VAPP-235: a create's CLIENT id (the outbox's; a taken one = CONFLICT). */
+    val newId: String? = null,
+    /** VAPP-235: the idempotency key (a replayed one answers the first result). */
+    val writeId: String? = null,
 )
 
 @Serializable
@@ -93,7 +97,7 @@ data class AppRecordUpsertResult(
 )
 
 @Serializable
-private data class AppRecordDeleteInput(val id: String, val recordId: String, val via: String? = null)
+private data class AppRecordDeleteInput(val id: String, val recordId: String, val via: String? = null, val writeId: String? = null)
 
 @Serializable
 data class AppRecordDeleteResult(val txid: Long? = null, val eventId: String? = null)
@@ -131,7 +135,7 @@ data class AppRecordEventsResult(val txid: Long? = null, val eventIds: List<Stri
 // (`{op: "upsert", kind, data, id?}` | `{op: "delete", id}`, the plan's
 // `writes` passed through unchanged) as ONE transaction.
 @Serializable
-private data class AppRecordBatchInput(val id: String, val writes: JsonArray)
+private data class AppRecordBatchInput(val id: String, val writes: JsonArray, val writeId: String? = null)
 
 @Serializable
 data class AppRecordBatchResult(
@@ -250,11 +254,15 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
         recordId: String?,
         author: String? = null,
         via: String? = null,
+        /** VAPP-235: a create's client id (the outbox replay). */
+        newId: String? = null,
+        /** VAPP-235: the outbox entry's idempotency key. */
+        writeId: String? = null,
     ): AppRecordUpsertResult =
         trpc.mutation(
             accountId,
             path = "apps.records.upsert",
-            input = AppRecordUpsertInput(appId, kind, data, recordId, author, via),
+            input = AppRecordUpsertInput(appId, kind, data, recordId, author, via, newId, writeId),
             inputSerializer = AppRecordUpsertInput.serializer(),
             outputSerializer = AppRecordUpsertResult.serializer(),
         )
@@ -262,21 +270,21 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
     /** VAPP-194: a package action's [writes] in app [appId], all or none
      *  (the server checks each against its kind's schema, the caps and the
      *  quota again). */
-    suspend fun recordsBatch(accountId: String, appId: String, writes: JsonArray): AppRecordBatchResult =
+    suspend fun recordsBatch(accountId: String, appId: String, writes: JsonArray, writeId: String? = null): AppRecordBatchResult =
         trpc.mutation(
             accountId,
             path = "apps.records.batch",
-            input = AppRecordBatchInput(appId, writes),
+            input = AppRecordBatchInput(appId, writes, writeId),
             inputSerializer = AppRecordBatchInput.serializer(),
             outputSerializer = AppRecordBatchResult.serializer(),
         )
 
     /** VAPP-122: trash record [recordId] of app [appId]. */
-    suspend fun recordsDelete(accountId: String, appId: String, recordId: String, via: String? = null): AppRecordDeleteResult =
+    suspend fun recordsDelete(accountId: String, appId: String, recordId: String, via: String? = null, writeId: String? = null): AppRecordDeleteResult =
         trpc.mutation(
             accountId,
             path = "apps.records.delete",
-            input = AppRecordDeleteInput(appId, recordId, via),
+            input = AppRecordDeleteInput(appId, recordId, via, writeId),
             inputSerializer = AppRecordDeleteInput.serializer(),
             outputSerializer = AppRecordDeleteResult.serializer(),
         )

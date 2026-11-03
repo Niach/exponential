@@ -40,6 +40,7 @@ import androidx.room.TypeConverters
         AppEntity::class,
         AppVersionEntity::class,
         AppRecordEntity::class,
+        AppRecordOutboxEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v105 (EXP-1459): sessions.seal_public_key, seal_epoch, sealed_title
@@ -68,7 +69,9 @@ import androidx.room.TypeConverters
     //      [MIGRATION_112_113]; only the teams shape refetches.
     // v114 (#VAPP-229): issues/sessions/app_records.via_app_id ("via <app>"),
     //      explicit [MIGRATION_113_114]; only those three shapes refetch.
-    version = 114,
+    // v115 (#VAPP-235): the LOCAL `app_record_outbox` table (the offline
+    //      outbox, no shape), explicit [MIGRATION_114_115]; nothing refetches.
+    version = 115,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -107,5 +110,6 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun appDao(): AppDao
     abstract fun appVersionDao(): AppVersionDao
     abstract fun appRecordDao(): AppRecordDao
+    abstract fun appRecordOutboxDao(): AppRecordOutboxDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

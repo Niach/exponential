@@ -207,6 +207,8 @@ fun AppEditorScreen(
                                     modifier = Modifier.weight(1f, fill = false).testTag("app-editor-title"),
                                 )
                                 AppVersionPill(entry)
+                                // VAPP-235: pending offline record writes (the outbox).
+                                AppOutboxPendingGlyph(viewModel.appId)
                             }
                         }
                     },
