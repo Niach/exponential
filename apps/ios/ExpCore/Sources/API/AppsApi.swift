@@ -322,6 +322,8 @@ private struct AppUpstreamReadResult: Decodable {
     let value: AnyJSON?
     let error: String?
     let server: String?
+    /// #VAPP-239: the device's label when a device-routed server is offline.
+    let offline: String?
 }
 
 /// #VAPP-220 `appAccess.appTools {appId}`: only the published package's
@@ -685,6 +687,7 @@ public final class AppsApi: Sendable {
             accountId: accountId, path: "apps.upstreamRead", input: AppUpstreamReadInput(id: appId, source: source)
         )
         if result.ok { return .ok(result.value?.value ?? .null) }
+        if let device = result.offline, !device.isEmpty { return .offline(server: result.server ?? "", device: device) }
         return .refused(error: result.error ?? "", server: result.server ?? "")
     }
 }

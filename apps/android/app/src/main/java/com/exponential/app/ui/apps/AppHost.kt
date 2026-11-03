@@ -309,7 +309,7 @@ class AppUpstreamAnswers {
     fun set(id: Int, answer: AppUpstream.Answer?) {
         val next = synchronized(answers) {
             if (answer != null) answers[id] = answer else answers.remove(id)
-            AppUpstream.banners(answers.values)
+            AppUpstream.hostBanners(answers.values)
         }
         if (next != banners) banners = next
     }
@@ -354,7 +354,7 @@ fun AppHostBanner(
                         color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.weight(1f),
                     )
-                    if (onConnect != null) {
+                    if (onConnect != null && banner.connect) {
                         Spacer(Modifier.width(4.dp))
                         TextButton(onClick = onConnect, contentPadding = PaddingValues(horizontal = 12.dp)) {
                             Text(AppUpstream.CONNECT, style = MaterialTheme.typography.labelMedium)

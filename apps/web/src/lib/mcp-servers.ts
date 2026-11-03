@@ -164,6 +164,9 @@ export interface McpServerDraft {
   scopes: string[]
   auth: McpAuth
   enabledByDefault: boolean
+  /** #VAPP-239: the device it runs on (`devices.id`), null = the server
+   * broker calls it. Saved with `mcpServers.setDevice` after the row. */
+  deviceId: string | null
 }
 
 export const EMPTY_MCP_SERVER_DRAFT: McpServerDraft = {
@@ -177,6 +180,7 @@ export const EMPTY_MCP_SERVER_DRAFT: McpServerDraft = {
   scopes: [],
   auth: `none`,
   enabledByDefault: true,
+  deviceId: null,
 }
 
 export function draftFromServer(server: McpServerRow): McpServerDraft {
@@ -191,6 +195,7 @@ export function draftFromServer(server: McpServerRow): McpServerDraft {
     scopes: [...server.scopes],
     auth: server.auth as McpAuth,
     enabledByDefault: server.enabledByDefault,
+    deviceId: server.device?.id ?? null,
   }
 }
 

@@ -158,8 +158,8 @@ private struct AppPackageSurface: View {
         Group {
             if let appHost {
                 VStack(alignment: .leading, spacing: 12) {
-                    ForEach(appHost.upstreams.servers, id: \.self) { server in
-                        upstreamBanner(server)
+                    ForEach(appHost.upstreams.banners) { banner in
+                        upstreamBanner(banner)
                     }
                     HostSurface(host: appHost.host, surfaceId: Apps.Preview.surfaceId)
                 }
@@ -179,13 +179,14 @@ private struct AppPackageSurface: View {
     /// (`AppUpstream.bannerServers`): "Connect <server>" as the amber notice
     /// of ×4 (upstream.json `binding`: `SyncHealthBanner`'s tone, the
     /// warning icon, the text, one text action opening Settings › MCP).
-    private func upstreamBanner(_ server: String) -> some View {
+    /// #VAPP-239: an offline device's notice is the same row without the action.
+    private func upstreamBanner(_ banner: AppUpstream.HostBanner) -> some View {
         HStack(spacing: 6) {
             AppIcon(AppIcons.uiWarning, size: 11)
-            Text(AppUpstream.bannerText(server))
+            Text(banner.text)
                 .font(.caption2)
             Spacer(minLength: 8)
-            if let teamId {
+            if let teamId, banner.connect {
                 Button(AppUpstream.connect) {
                     pushRoute(.teamSettingsSection(accountId: accountId, teamId: teamId, section: .mcp))
                 }

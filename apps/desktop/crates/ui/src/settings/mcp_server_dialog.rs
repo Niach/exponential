@@ -35,7 +35,7 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
-use api::mcp_servers::{McpServerConfig, McpServerFields};
+use api::mcp_servers::{McpServerConfig, McpServerDevice, McpServerFields};
 
 use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -60,6 +60,7 @@ pub(super) fn open(
     cx: &mut App,
     team_id: String,
     initial: Option<McpServerConfig>,
+    device: Option<McpServerDevice>,
     pane: WeakEntity<McpServersPane>,
 ) {
     let title = if initial.is_some() {
@@ -73,7 +74,7 @@ pub(super) fn open(
     let spec = DialogSpec::new(title, size(px(460.), height))
         .resizable(size(px(400.), px(360.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| McpServerDialogView::new(team_id, initial, pane, window, cx));
+        let view = cx.new(|cx| McpServerDialogView::new(team_id, initial, device, pane, window, cx));
         let busy = view.clone();
         DialogContent::new(view)
             // The view pins its own action bar and scrolls only the form.
@@ -169,10 +170,11 @@ fn check_url(raw: &str) -> Result<(), &'static str> {
     if scheme == "https" {
         return Ok(());
     }
-    if scheme == "http" && (host == "localhost" || host == "127.0.0.1") {
+    // VAPP-239: http on loopback or a LAN host (`device.urlCases`).
+    if scheme == "http" && emcp::contract::upstream::mcp_url_allowed(raw) {
         return Ok(());
     }
-    Err("The URL must be https:// (http:// only for localhost).")
+    Err("The URL must be https:// (http:// only for localhost or a LAN host).")
 }
 
 /// The cross-field rules `mcpServers.create/update` enforce, client-side, so
@@ -270,6 +272,11 @@ pub struct McpServerDialogView {
     transport: String,
     auth: String,
     enabled_by_default: bool,
+    /// VAPP-239: the device it runs on (`devices.id`), `None` = the server
+    /// broker; `initial_device` = the row's, kept as the current value even
+    /// when it is another owner's machine.
+    device_id: Option<String>,
+    initial_device: Option<McpServerDevice>,
     busy: bool,
     error: Option<SharedString>,
     body_scroll: ScrollHandle,
@@ -280,6 +287,7 @@ impl McpServerDialogView {
     fn new(
         team_id: String,
         initial: Option<McpServerConfig>,
+        device: Option<McpServerDevice>,
         pane: WeakEntity<McpServersPane>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -341,6 +349,8 @@ impl McpServerDialogView {
                 "none".to_string()
             },
             enabled_by_default: seed.enabled_by_default,
+            device_id: device.as_ref().map(|d| d.id.clone()),
+            initial_device: device,
             busy: false,
             error: None,
             body_scroll: ScrollHandle::new(),
@@ -386,17 +396,22 @@ impl McpServerDialogView {
         let fields = wire_fields(&draft);
         let team_id = self.team_id.clone();
         let editing = self.editing.clone();
+        // VAPP-239: `mcpServers.setDevice` after the row's own save, only
+        // when the pick changed.
+        let device_change = (self.device_id != self.initial_device.as_ref().map(|d| d.id.clone())).then(|| self.device_id.clone());
         let pane = self.pane.clone();
         cx.spawn_in(window, async move |this, window| {
             let result = window
                 .background_executor()
                 .spawn(async move {
-                    match editing {
-                        Some(id) => api::mcp_servers::update(&trpc, &id, &fields).map(|_| ()),
-                        None => {
-                            api::mcp_servers::create(&trpc, &team_id, &fields).map(|_| ())
-                        }
+                    let row = match editing {
+                        Some(id) => api::mcp_servers::update(&trpc, &id, &fields)?,
+                        None => api::mcp_servers::create(&trpc, &team_id, &fields)?,
+                    };
+                    if let Some(device_id) = device_change {
+                        api::mcp_servers::set_device(&trpc, &row.id, device_id.as_deref())?;
                     }
+                    Ok::<(), api::ApiError>(())
                 })
                 .await;
             let _ = this.update_in(window, |this, window, cx| match result {
@@ -532,6 +547,70 @@ impl McpServerDialogView {
     }
 }
 
+impl McpServerDialogView {
+    /// VAPP-239 (settings-mcp.json `runsOnLabel`): THE device picker over the
+    /// owner's own desktop apps and CLI daemons, first item `runsOnServer` =
+    /// no device (the server broker calls it).
+    fn runs_on_row(&self, cx: &mut gpui::Context<Self>) -> Div {
+        let copy = &super::mcp::SETTINGS_MCP;
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let mut rows = vec![crate::picker::device_picker::DevicePickerDevice {
+            id: String::new(),
+            name: copy.runs_on_server.to_string(),
+            icon: None,
+            server: true,
+            description: None,
+            disabled: false,
+        }];
+        if let Some(store) = sync::Store::try_global(cx) {
+            for row in store.collections().devices.read(cx).iter() {
+                let kind = row.kind.as_deref().unwrap_or("desktop");
+                if me.is_none() || row.user_id != me || (kind != "desktop" && kind != "server") {
+                    continue;
+                }
+                rows.push(crate::picker::device_picker::DevicePickerDevice {
+                    id: row.id.clone(),
+                    name: row.label.clone().filter(|l| !l.is_empty()).or_else(|| row.device_id.clone()).unwrap_or_default(),
+                    icon: row.icon.clone(),
+                    server: kind == "server",
+                    description: None,
+                    disabled: false,
+                });
+            }
+        }
+        if let Some(current) = self.initial_device.as_ref().filter(|d| !rows.iter().any(|r| r.id == d.id)) {
+            rows.push(crate::picker::device_picker::DevicePickerDevice {
+                id: current.id.clone(),
+                name: current.label.clone(),
+                icon: current.icon.clone(),
+                server: current.kind == "server",
+                description: None,
+                disabled: false,
+            });
+        }
+        let picked = self.device_id.clone().unwrap_or_default();
+        let label = rows.iter().find(|r| r.id == picked).map(|r| r.name.clone()).unwrap_or_else(|| copy.runs_on_server.to_string());
+        let trigger = crate::trigger_editor::picker_trigger("mcp-edit-runs-on".into(), label, cx).into_any_element();
+        let view = cx.entity().downgrade();
+        let on_pick: crate::picker::OnPickerChange<String> = std::rc::Rc::new(move |next: Vec<String>, _window: &mut Window, cx: &mut App| {
+            let Some(id) = next.into_iter().next() else { return };
+            if let Some(view) = view.upgrade() {
+                view.update(cx, |view, cx| {
+                    view.device_id = (!id.is_empty()).then_some(id);
+                    cx.notify();
+                });
+            }
+        });
+        let control = crate::picker::deferred(move |window, cx| {
+            crate::picker::device_picker::device_picker(&rows, Some(picked), trigger, on_pick)
+                .id(SharedString::from("mcp-edit-runs-on-picker"))
+                .render(window, cx)
+        })
+        .into_any_element();
+        surface::glass_picker_row(copy.runs_on_label, None, control, cx)
+    }
+}
+
 impl Render for McpServerDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let draft = self.draft(cx);
@@ -584,6 +663,7 @@ impl Render for McpServerDialogView {
         if draft.auth == "oauth" {
             rows.push(self.input_row("Scopes", &self.scopes, window, cx));
         }
+        rows.push(self.runs_on_row(cx));
         rows.push(surface::glass_toggle_row(
             "Enabled by default",
             Some("Preselected in the start-coding dialog.".into()),
@@ -694,13 +774,15 @@ mod tests {
         assert!(check_url("https://mcp.example.com/mcp").is_ok());
         assert!(check_url("http://localhost:8123/mcp").is_ok());
         assert!(check_url("http://127.0.0.1:8123/mcp").is_ok());
+        assert!(check_url("http://homeassistant.local:8123/mcp").is_ok());
+        assert!(check_url("http://192.168.1.20/mcp").is_ok());
         assert_eq!(
             check_url("http://mcp.example.com/mcp"),
-            Err("The URL must be https:// (http:// only for localhost).")
+            Err("The URL must be https:// (http:// only for localhost or a LAN host).")
         );
         assert_eq!(
             check_url("ftp://mcp.example.com"),
-            Err("The URL must be https:// (http:// only for localhost).")
+            Err("The URL must be https:// (http:// only for localhost or a LAN host).")
         );
         assert_eq!(check_url("mcp.example.com"), Err("That URL does not parse."));
         assert_eq!(check_url("https://"), Err("That URL does not parse."));

@@ -1,11 +1,14 @@
 import { describe, expect, it } from "vitest"
 import fixture from "../fixtures/settings-mcp.json" with { type: "json" }
-import { activityCaption, builtinToolBands, clientCaption, levelLabel, toolCountLabel, usedByCaption, type McpScope } from "./settings-mcp"
+import { activityCaption, builtinToolBands, clientCaption, levelLabel, runsOnCaption, toolCountLabel, usedByCaption, type McpScope } from "./settings-mcp"
 import contract from "../contract.json" with { type: "json" }
 
 describe(`settings-mcp.json (VAPP-185)`, () => {
   it.each(fixture.usedByCases)(`usedBy: $name`, ({ apps, expected }) => {
     expect(usedByCaption(apps)).toBe(expected)
+  })
+  it.each(fixture.runsOnCases)(`runsOn: $name`, ({ device, expected }) => {
+    expect(runsOnCaption(device)).toBe(expected)
   })
   it.each(fixture.clientCaptionCases)(`client caption: $name`, ({ scope, client, expected }) => {
     expect(clientCaption(scope as McpScope, client)).toBe(expected)

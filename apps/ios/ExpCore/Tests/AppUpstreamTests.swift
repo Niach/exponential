@@ -47,4 +47,24 @@ final class AppUpstreamTests: XCTestCase {
             XCTAssertEqual(AppUpstream.banners(answers), expected, name)
         }
     }
+
+    /// #VAPP-239: `device.bannerCases` through `AppUpstream.hostBanners`.
+    func testDeviceBannerCasesReplay() throws {
+        let device = try XCTUnwrap(try fixture()["device"] as? [String: Any])
+        let copy = try XCTUnwrap(device["copy"] as? [String: String])
+        XCTAssertEqual(copy["offline"], AppUpstream.offlineBanner)
+        let cases = try XCTUnwrap(device["bannerCases"] as? [[String: Any]])
+        for c in cases {
+            let name = c["name"] as? String ?? ""
+            let answers: [AppUpstream.Answer] = try XCTUnwrap(c["answers"] as? [[String: Any]], name).map { (a: [String: Any]) -> AppUpstream.Answer in
+                if a["ok"] as? Bool == true { return .ok(CardJSON(any: a["value"]) ?? .null) }
+                if let offline = a["offline"] as? String { return .offline(server: a["server"] as? String ?? "", device: offline) }
+                return .refused(error: a["error"] as? String ?? "", server: a["server"] as? String ?? "")
+            }
+            let expected = try XCTUnwrap(c["expected"] as? [[String: Any]], name).map {
+                AppUpstream.HostBanner(server: $0["server"] as? String ?? "", text: $0["text"] as? String ?? "", connect: $0["connect"] as? Bool ?? false)
+            }
+            XCTAssertEqual(AppUpstream.hostBanners(answers), expected, name)
+        }
+    }
 }

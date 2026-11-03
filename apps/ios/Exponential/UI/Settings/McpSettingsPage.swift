@@ -134,7 +134,7 @@ struct McpSettingsPage: View {
     }
 
     private func serverRow(_ server: McpServerRow) -> some View {
-        let caption = [McpServers.location(server), McpSettings.usedByCaption(server.usedBy)]
+        let caption = [McpServers.location(server), McpSettings.runsOnCaption(server.deviceLabel), McpSettings.usedByCaption(server.usedBy)]
             .compactMap { $0 }
             .joined(separator: " · ")
         let connected = server.connection.status == "connected"

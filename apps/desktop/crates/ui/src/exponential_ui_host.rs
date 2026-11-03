@@ -364,7 +364,7 @@ struct Sub {
 #[derive(Default)]
 struct UpstreamFeed {
     answers: BTreeMap<u64, UpstreamReadAnswer>,
-    banners: Vec<String>,
+    banners: Vec<upstream_binding::UpstreamHostBanner>,
     reads: HashMap<u64, Task<()>>,
     /// The host to repaint when the banners move.
     host: Option<WeakEntity<ExponentialHost>>,
@@ -382,7 +382,8 @@ impl UpstreamFeed {
             }
         }
         let all: Vec<UpstreamReadAnswer> = self.answers.values().cloned().collect();
-        let next = upstream_binding::upstream_banners(&all);
+        // VAPP-239: Connect banners + an offline device's (no action).
+        let next = upstream_binding::upstream_host_banners(&all);
         if next == self.banners {
             return false;
         }
@@ -2007,7 +2008,8 @@ impl IdeHost {
 
     /// VAPP-230: the `Connect <server>` banners (upstream.json `bannerCases`):
     /// one per server a live binding's read answered upstreamDisconnected.
-    pub(crate) fn upstream_banners(&self) -> Vec<String> {
+    /// VAPP-239: plus `<server> runs on <device>, offline` (`connect` false).
+    pub(crate) fn upstream_banners(&self) -> Vec<upstream_binding::UpstreamHostBanner> {
         self.feeds.borrow().upstream.banners.clone()
     }
 }
@@ -2112,11 +2114,16 @@ mod tests {
         assert!(feed.set(2, Some(answer(json!({"ok": false, "error": "upstreamDisconnected", "server": "stripe"})))));
         assert!(feed.set(3, Some(answer(json!({"ok": false, "error": "upstreamDisconnected", "server": "crm"})))));
         assert!(!feed.set(4, Some(answer(json!({"ok": false, "error": "upstreamDisconnected", "server": "crm"})))));
-        assert_eq!(feed.banners, vec!["Connect crm".to_string(), "Connect stripe".to_string()]);
+        let texts = |feed: &UpstreamFeed| feed.banners.iter().map(|b| b.text.clone()).collect::<Vec<_>>();
+        assert_eq!(texts(&feed), vec!["Connect crm".to_string(), "Connect stripe".to_string()]);
         // Unbinding one of two crm reads keeps its banner; the last one drops it.
         assert!(!feed.set(3, None));
         assert!(feed.set(4, None));
-        assert_eq!(feed.banners, vec!["Connect stripe".to_string()]);
+        assert_eq!(texts(&feed), vec!["Connect stripe".to_string()]);
+        // VAPP-239: an offline device's banner carries no Connect.
+        assert!(feed.set(5, Some(answer(json!({"ok": false, "error": "upstreamFailed", "server": "ha", "offline": "homelab"})))));
+        assert_eq!(texts(&feed), vec!["ha runs on homelab, offline".to_string(), "Connect stripe".to_string()]);
+        assert_eq!(feed.banners.iter().map(|b| b.connect).collect::<Vec<_>>(), vec![false, true]);
     }
 
     fn record(id: &str, app: &str, hours: i64, by: &str) -> RecordLite {

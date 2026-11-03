@@ -17,11 +17,14 @@
 // Everything technical (auth override, transport, header/env names, scopes)
 // hides behind "Advanced".
 import { useEffect, useMemo, useRef, useState } from "react"
+import { useLiveQuery } from "@tanstack/react-db"
 import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
 import {
   conceptIcon,
   Button,
+  DevicePicker,
+  type DevicePickerDevice,
   BARE_FIELD_CLASS,
   Picker,
   DisclosureHeader,
@@ -87,7 +90,10 @@ import {
   type McpServerDraft,
   type McpServerRow,
 } from "@/lib/mcp-servers"
-import { builtinToolBands, builtinToolMatches, SETTINGS_MCP, usedByCaption } from "@exp/domain-contract/settings-mcp"
+import { builtinToolBands, builtinToolMatches, runsOnCaption, SETTINGS_MCP, usedByCaption } from "@exp/domain-contract/settings-mcp"
+import { deviceCollection } from "@/lib/collections"
+import { useSession } from "@/hooks/use-session"
+import type { Device } from "@/db/schema"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { Empty } from "@/components/empty"
 import { cn } from "@/lib/utils"
@@ -284,6 +290,8 @@ export function TeamMcpServersSection({
     try {
       if (editor.mode === `add`) {
         const row = await trpc.mcpServers.create.mutate({ teamId, ...fields }, SKIP_ERROR_TOAST)
+        // #VAPP-239: the device it runs on, after the row exists.
+        if (draft.deviceId) await trpc.mcpServers.setDevice.mutate({ id: row.id, deviceId: draft.deviceId }, SKIP_ERROR_TOAST)
         setEditor(null)
         setSeed(null)
         await refresh()
@@ -314,6 +322,9 @@ export function TeamMcpServersSection({
         }
       } else {
         await trpc.mcpServers.update.mutate({ id: editor.server.id, ...fields }, SKIP_ERROR_TOAST)
+        if (draft.deviceId !== (editor.server.device?.id ?? null)) {
+          await trpc.mcpServers.setDevice.mutate({ id: editor.server.id, deviceId: draft.deviceId }, SKIP_ERROR_TOAST)
+        }
         setEditor(null)
         await refresh()
       }
@@ -430,6 +441,7 @@ export function TeamMcpServersSection({
           initial={
             editor?.mode === `edit` ? draftFromServer(editor.server) : null
           }
+          currentDevice={editor?.mode === `edit` ? (editor.server.device ?? null) : null}
           seed={editor?.mode === `add` ? seed : null}
           existing={servers ?? []}
           busy={busy}
@@ -694,6 +706,7 @@ function ServerRow({
         <div className="flex min-w-0 text-xs text-muted-foreground">
           <span className="min-w-0 truncate" title={server.url ?? target}>
             {target}
+            {runsOnCaption(server.device?.label) && ` · ${runsOnCaption(server.device?.label)}`}
             {usedByCaption(server.usedBy ?? []) && ` · ${usedByCaption(server.usedBy ?? [])}`}
           </span>
         </div>
@@ -1006,11 +1019,46 @@ const TRANSPORT_OPTIONS: PickerItem[] = [
 
 /** Add = two steps (catalog/URL → confirm); Edit = the confirm form alone,
  * prefilled. Remounted per open (`key`), so its state starts fresh. */
+/** #VAPP-239: the owner's own machines a server may run on (desktop apps
+ *  and CLI daemons), plus the current one when it is another owner's. */
+function useRunsOnDevices(current: McpServerRow[`device`] | null): DevicePickerDevice[] {
+  const { data: session } = useSession()
+  const me = session?.user?.id
+  const { data: rows } = useLiveQuery((query) => (me ? query.from({ d: deviceCollection }) : undefined), [me])
+  return useMemo(() => {
+    const own = ((rows ?? []) as Device[])
+      .filter((device) => device.userId === me && (device.kind === `desktop` || device.kind === `server`))
+      .map((device) => ({ id: device.id, name: device.label || device.deviceId, icon: device.icon, kind: device.kind }))
+    if (current && !own.some((device) => device.id === current.id)) {
+      own.unshift({ id: current.id, name: current.label, icon: current.icon, kind: current.kind })
+    }
+    return own
+  }, [rows, me, current])
+}
+
+function RunsOnRow({ value, current, onChange }: { value: string | null; current: McpServerRow[`device`] | null; onChange: (deviceId: string | null) => void }) {
+  const devices = useRunsOnDevices(current)
+  return (
+    <DevicePicker
+      triggerVariant="row"
+      mobileTitle={SETTINGS_MCP.runsOnLabel}
+      value={value}
+      onChange={(deviceId) => onChange(deviceId)}
+      noneLabel={SETTINGS_MCP.runsOnServer}
+      onNone={() => onChange(null)}
+      devices={devices}
+      emptyText="No devices"
+      data-testid="mcp-runs-on"
+    />
+  )
+}
+
 function McpServerDialog({
   open,
   teamId,
   mode,
   initial,
+  currentDevice,
   seed,
   existing,
   busy,
@@ -1023,6 +1071,8 @@ function McpServerDialog({
   mode: `add` | `edit`
   /** Edit: the server's current config. */
   initial: McpServerDraft | null
+  /** Edit: the device it runs on now (#VAPP-239). */
+  currentDevice: McpServerRow[`device`] | null
   /** Add from the inline catalog: the probe already ran. */
   seed: ProbeSeed | null
   existing: readonly McpServerRow[]
@@ -1114,6 +1164,7 @@ function McpServerDialog({
                   onChange={(event) => patch({ url: event.target.value })}
                 />
               )}
+              <RunsOnRow value={draft.deviceId} current={currentDevice} onChange={(deviceId) => patch({ deviceId })} />
               <GlassToggleRow
                 id="mcp-enabled-by-default"
                 label="Pre-select in new sessions"

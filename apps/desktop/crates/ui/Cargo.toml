@@ -16,6 +16,8 @@ theme = { path = "../theme" }
 domain = { path = "../domain" }
 sync = { path = "../sync" }
 api = { path = "../api" }
+# VAPP-239: the shared MCP URL rule (`emcp::contract::upstream::mcp_url_allowed`); api already depends on it.
+emcp = { path = "../emcp" }
 terminal = { path = "../terminal" }
 coding = { path = "../coding" }
 # NEW-58: the IDE turns on the Linux ScreenCast portal + PipeWire capturer

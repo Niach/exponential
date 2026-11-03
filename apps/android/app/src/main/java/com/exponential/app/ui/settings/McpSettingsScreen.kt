@@ -365,7 +365,11 @@ private fun ServersSection(
 @Composable
 private fun ServerRow(server: McpServerListRow, pending: Boolean, onConnect: () -> Unit, onDisconnect: () -> Unit) {
     val target = mcpServerTarget(server)
-    val caption = listOfNotNull(target.takeIf { it.isNotEmpty() }, McpSettings.usedByCaption(server.usedBy)).joinToString(" · ")
+    val caption = listOfNotNull(
+        target.takeIf { it.isNotEmpty() },
+        McpSettings.runsOnCaption(server.device?.label),
+        McpSettings.usedByCaption(server.usedBy),
+    ).joinToString(" · ")
     McpRow(Modifier.testTag("mcp-server-row")) {
         RowGlyph(if (server.command != null && server.url == null) ExpIcons.sessionShell else ExpIcons.uiMcp)
         RowText(

@@ -386,4 +386,44 @@ describe(`VAPP-157: the app host's media rule`, () => {
     act(() => host.close())
     expect(view.queryByTestId(`exponential-ui-upstream-connect`)).toBeNull()
   })
+
+  it(`#VAPP-239: an offline device keeps the default and shows its banner without Connect`, async () => {
+    const pkg = {
+      formatVersion: 3,
+      id: `acme.console`,
+      name: `Console`,
+      version: `1.0.0`,
+      catalogId: `https://ui.exponential.at/catalogs/core/v1`,
+      sources: [`upstream:*`],
+      upstreams: [`crm`, `stripe`],
+      templates: {
+        main: {
+          data: { mrr: { total: 0 }, charges: { rows: [] } },
+          bindings: [
+            { path: `/mrr`, source: `upstream:crm/mrr?months=3` },
+            { path: `/charges`, source: `upstream:stripe/list_charges` },
+          ],
+          components: [{ id: `root`, component: `Text`, text: { path: `/mrr/total` } }],
+        },
+      },
+    } as unknown as AppPackage
+    mocks.upstreamRead.mockImplementation(async ({ source }) =>
+      source.startsWith(`upstream:crm/`)
+        ? { ok: false, error: `upstreamFailed`, server: `crm`, offline: `homelab` }
+        : { ok: false, error: `upstreamDisconnected`, server: `stripe` }
+    )
+    const host = createAppHost({ consent: createConsentGate(), navigate: () => {}, packages: [pkg], appId: `a1` })
+    await act(async () => {
+      host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `main`, templateId: `main`, packageId: `acme.console` } })
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(mocks.upstreamRead).toHaveBeenCalledWith({ id: `a1`, source: `upstream:crm/mrr?months=3` })
+    expect(host.surface(`main`)!.data.mrr).toEqual({ total: 0 })
+    expect(host.surface(`main`)!.data.charges).toEqual({ rows: [] })
+    const view = render(<HostBanner host={host} />)
+    const banners = view.getAllByTestId(`exponential-ui-upstream-connect`)
+    expect(banners.map((b) => b.textContent)).toEqual([`crm runs on homelab, offline`, `Connect stripe`])
+    expect(banners[0]!.querySelector(`button`)).toBeNull()
+    act(() => host.close())
+  })
 })

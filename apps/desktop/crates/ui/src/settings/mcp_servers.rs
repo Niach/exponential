@@ -73,7 +73,11 @@ fn row_detail(entry: &McpServerListEntry) -> String {
 /// VAPP-185 (web `ServerRow`): [`row_detail`] then ` · Used by <apps>`
 /// when an app's package declares the server in `upstreams`.
 fn row_caption(entry: &McpServerListEntry) -> String {
-    let detail = row_detail(entry);
+    let mut detail = row_detail(entry);
+    // VAPP-239: host · Runs on <device> · Used by …
+    if let Some(runs_on) = super::mcp::runs_on_caption(entry.device.as_ref().map(|d| d.label.as_str())) {
+        detail = if detail.is_empty() { runs_on } else { format!("{detail} · {runs_on}") };
+    }
     match super::mcp::used_by_caption(&entry.used_by) {
         Some(used_by) if detail.is_empty() => used_by,
         Some(used_by) => format!("{detail} · {used_by}"),
@@ -778,6 +782,7 @@ impl McpServersPane {
     fn open_editor(
         &mut self,
         config: Option<McpServerConfig>,
+        device: Option<api::mcp_servers::McpServerDevice>,
         team_id: &str,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -788,7 +793,7 @@ impl McpServersPane {
             _ => team_id.to_string(),
         };
         let pane = cx.entity().downgrade();
-        super::mcp_server_dialog::open(window, cx, team_id, config, pane);
+        super::mcp_server_dialog::open(window, cx, team_id, config, device, pane);
     }
 
     // -- render pieces --------------------------------------------------------
@@ -930,6 +935,8 @@ impl McpServersPane {
             let secret = config.auth == "secret";
             let shared = entry.shared;
             let target = config.clone();
+            // VAPP-239: the device it runs on, for the dialog's Runs on row.
+            let device = entry.device.clone();
             let team = entry.config.team_id.clone();
             let pane = cx.entity();
             crate::controls::ghost_icon_button(
@@ -983,14 +990,14 @@ impl McpServersPane {
                     );
                 }
                 if owner {
-                    let (edit, team, pane) = (target.clone(), team.clone(), pane.clone());
+                    let (edit, team, pane, device) = (target.clone(), team.clone(), pane.clone(), device.clone());
                     menu = menu.item(
                         crate::controls::pointer_label_item("Edit", false)
                             .icon(Icon::new(registry::UI_EDIT))
                             .on_click(move |_, window, cx| {
-                                let (edit, team) = (edit.clone(), team.clone());
+                                let (edit, team, device) = (edit.clone(), team.clone(), device.clone());
                                 pane.update(cx, |this, cx| {
-                                    this.open_editor(Some(edit), &team, window, cx);
+                                    this.open_editor(Some(edit), device, &team, window, cx);
                                 });
                             }),
                     );
@@ -1107,7 +1114,7 @@ impl Render for McpServersPane {
                 .disabled(self.busy)
                 .on_click(cx.listener(move |this, _, window, cx| {
                     let team = add_team.clone();
-                    this.open_editor(None, &team, window, cx);
+                    this.open_editor(None, None, &team, window, cx);
                 }))
                 .into_any_element()
         });

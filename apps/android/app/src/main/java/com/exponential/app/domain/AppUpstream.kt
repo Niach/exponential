@@ -27,18 +27,47 @@ object AppUpstream {
     const val CONNECT = "Connect"
 
     /** One read's answer: `{ok: true, value}` | `{ok: false, error, server}`. */
-    data class Answer(val ok: Boolean, val value: JsonValue? = null, val error: String? = null, val server: String? = null) {
+    data class Answer(
+        val ok: Boolean,
+        val value: JsonValue? = null,
+        val error: String? = null,
+        val server: String? = null,
+        /** #VAPP-239: the device's label when a device-routed server is offline. */
+        val offline: String? = null,
+    ) {
         companion object {
             fun of(json: JsonValue): Answer = if (json["ok"]?.bool == true) {
                 Answer(ok = true, value = json["value"]?.takeIf { !it.isNull } ?: JsonValue.Null)
             } else {
-                Answer(ok = false, error = json["error"]?.string, server = json["server"]?.string)
+                Answer(ok = false, error = json["error"]?.string, server = json["server"]?.string, offline = json["offline"]?.string)
             }
         }
     }
 
-    /** One banner: its server and text. */
-    data class Banner(val server: String, val text: String)
+    /** #VAPP-239 (`device.copy.offline`): an offline device's banner. */
+    const val OFFLINE_BANNER = "{server} runs on {device}, offline"
+
+    /** The error an offline device answers (`device.errors.offline`). */
+    const val FAILED = "upstreamFailed"
+
+    /** One banner: its server, text and (#VAPP-239) whether it carries Connect. */
+    data class Banner(val server: String, val text: String, val connect: Boolean = true)
+
+    /** #VAPP-239 (`device.bannerCases`): Connect banners + an offline device's
+     *  (no action), one per server, sorted by server. */
+    fun hostBanners(answers: Collection<Answer>): List<Banner> {
+        val byServer = sortedMapOf<String, Banner>()
+        for (a in answers) {
+            val server = a.server ?: continue
+            if (a.ok || byServer.containsKey(server)) continue
+            if (a.error == DISCONNECTED) {
+                byServer[server] = Banner(server, BANNER.replace("{server}", server), connect = true)
+            } else if (a.error == FAILED && !a.offline.isNullOrEmpty()) {
+                byServer[server] = Banner(server, OFFLINE_BANNER.replace("{server}", server).replace("{device}", a.offline), connect = false)
+            }
+        }
+        return byServer.values.toList()
+    }
 
     /** One banner per server whose read answered [DISCONNECTED], sorted, each once. */
     fun banners(answers: Collection<Answer>): List<Banner> =

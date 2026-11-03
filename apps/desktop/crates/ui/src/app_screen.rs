@@ -1115,7 +1115,8 @@ impl AppScreenView {
             Some(
                 v_flex()
                     .gap_2()
-                    .children(upstream_banners.into_iter().enumerate().map(|(i, text)| {
+                    .children(upstream_banners.into_iter().enumerate().map(|(i, banner)| {
+                        let connect = banner.connect;
                         h_flex()
                             .id(("exponential-ui-upstream-connect", i))
                             .w_full()
@@ -1126,8 +1127,8 @@ impl AppScreenView {
                             .py_1()
                             .bg(theme.warning.opacity(0.14))
                             .child(Icon::new(registry::UI_WARNING).size_4().text_color(theme.warning))
-                            .child(div().flex_1().text_sm().child(text))
-                            .child(
+                            .child(div().flex_1().text_sm().child(banner.text))
+                            .when(connect, |row| row.child(
                                 Button::new(("app-upstream-connect", i))
                                     .ghost()
                                     .small()
@@ -1141,7 +1142,7 @@ impl AppScreenView {
                                             crate::settings::SettingsSection::Mcp,
                                         );
                                     }),
-                            )
+                            ))
                     }))
                     .into_any_element(),
             )

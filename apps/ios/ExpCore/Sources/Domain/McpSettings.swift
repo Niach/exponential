@@ -81,6 +81,13 @@ public enum McpSettings {
         return "Used by " + sorted.joined(separator: ", ")
     }
 
+    /// #VAPP-239: a device-routed server row's "Runs on …" part
+    /// (`runsOnCases`; nil = the server broker calls it).
+    public static func runsOnCaption(_ device: String?) -> String? {
+        guard let device, !device.isEmpty else { return nil }
+        return "Runs on " + device
+    }
+
     /// A client row's caption: [member ·] kinds (apps access) · last used.
     /// `lastUsed` = the compact relative time, nil = never.
     public static func clientCaption(
