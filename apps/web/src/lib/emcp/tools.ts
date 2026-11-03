@@ -3854,7 +3854,7 @@ export function registerExponentialTools(
     `exponential_skills_list`,
     {
       annotations: READ_ONLY,
-      description: `List skills (name, description, enabledByDefault; no body) of a team, or of every team you reach. search matches name or description. exponential_skills {op: "get"} reads a body.`,
+      description: `List skills (name, description, enabledByDefault, builtin; no body) of a team, or of every team you reach. search matches name or description. exponential_skills {op: "get"} reads a body.`,
       inputSchema: strictInput({ teamId: uuidString.optional(), search: z.string().max(200).optional(), ...pageInput }),
     },
     async ({ teamId, search, limit, offset }) => {
@@ -3875,14 +3875,15 @@ export function registerExponentialTools(
     `exponential_skills_get`,
     {
       annotations: READ_ONLY,
-      description: `Read one skill, its SKILL.md body included: by UUID, or by name (+ teamId when several of your teams have one).`,
+      description: `Read one skill, its SKILL.md body included: by UUID, or by name (+ teamId when several of your teams have one). A built-in (builtin: true, read-only) lists its files; file = one of them returns that file instead.`,
       inputSchema: strictInput({
         id: uuidString.optional(),
         name: z.string().min(1).max(SKILL_NAME_MAX).optional(),
         teamId: uuidString.optional(),
+        file: z.string().min(1).max(200).optional(),
       }),
     },
-    async ({ id, name, teamId }) => {
+    async ({ id, name, teamId, file }) => {
       try {
         let skillId = id
         if (!skillId) {
@@ -3894,6 +3895,7 @@ export function registerExponentialTools(
         } else if (!access.full) {
           assertTeamFullyGranted(access, (await getSkillContext(skillId)).teamId)
         }
+        if (file) return ok(await caller(user, request).skills.file({ id: skillId, path: file }))
         const result = await caller(user, request).skills.get({ id: skillId })
         return ok(result.skill)
       } catch (e) {

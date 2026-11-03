@@ -117,7 +117,7 @@ export const THEME_CARD: NestedNode = {
             { id: `tc-badge`, component: `Badge`, props: { text: `3 open` } },
           ],
         },
-        { id: `tc-progress`, component: `Progress`, props: { value: 60 } },
+        { id: `tc-progress`, component: `Progress`, props: { value: 60, label: `Review progress` } },
         {
           id: `tc-actions`,
           component: `Stack`,

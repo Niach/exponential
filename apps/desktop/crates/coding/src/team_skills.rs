@@ -14,7 +14,9 @@
 //! ```
 //!
 //! where SKILL.md = YAML frontmatter (`name`, `description`) then the body.
-//! No files beside SKILL.md in v1.
+//! A team skill has no files beside SKILL.md; a BUILT-IN (#VAPP-213) brings
+//! its references and examples, written at `<name>/<path>` (a path that is
+//! not `domain::skills::is_skill_file_path` is a warning, never written).
 //!
 //! **Claude** gets the folder through `--add-dir <data_dir>/skills/<session>`.
 //! SPIKE (claude 2.1.317 on mint, 2026-11-03): `--add-dir` loads
@@ -161,7 +163,8 @@ pub fn write(data_dir: &Path, session_id: &str, resolution: &SkillLaunchResoluti
         }
         let skill_dir = root.join(&skill.name);
         let result = std::fs::create_dir_all(&skill_dir)
-            .and_then(|()| std::fs::write(skill_dir.join("SKILL.md"), skill_md(skill)));
+            .and_then(|()| std::fs::write(skill_dir.join("SKILL.md"), skill_md(skill)))
+            .and_then(|()| write_files(&skill_dir, skill, &mut resolved.warnings));
         match result {
             Ok(()) => written += 1,
             Err(err) => resolved
@@ -175,6 +178,23 @@ pub fn write(data_dir: &Path, session_id: &str, resolution: &SkillLaunchResoluti
         purge(data_dir, session_id);
     }
     resolved
+}
+
+/// A built-in's files beside its SKILL.md; an unsafe path is skipped with a
+/// warning (the server only sends generated, relative paths).
+fn write_files(skill_dir: &Path, skill: &LaunchSkill, warnings: &mut Vec<String>) -> std::io::Result<()> {
+    for file in &skill.files {
+        if !domain::skills::is_skill_file_path(&file.path) {
+            warnings.push(format!("skills: skipped the file {:?} of {:?} (not a relative path).", file.path, skill.name));
+            continue;
+        }
+        let target = file.path.split('/').fold(skill_dir.to_path_buf(), |at, segment| at.join(segment));
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(target, &file.content)?;
+    }
+    Ok(())
 }
 
 /// Remove the session's skills folder. Best-effort; returns whether a
@@ -237,7 +257,28 @@ mod tests {
             name: name.into(),
             description: format!("Use for {name}: \"quoted\""),
             body: "# Steps\n\nDo it.".into(),
+            files: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_builtin_writes_its_files_beside_skill_md_and_skips_unsafe_paths() {
+        let data = crate::test_support::temp_dir("skills-files");
+        let mut builtin = skill("k3", "exponential-apps");
+        builtin.files = vec![
+            api::skills::LaunchSkillFile { path: "references/records.md".into(), content: "# Records\n".into() },
+            api::skills::LaunchSkillFile { path: "examples/crm.app.json".into(), content: "{}\n".into() },
+            api::skills::LaunchSkillFile { path: "../escape.md".into(), content: "no".into() },
+        ];
+        let resolution = SkillLaunchResolution { skills: vec![builtin], skipped: vec![] };
+        let resolved = write(data.0.as_path(), "sess-f", &resolution);
+        let root = codex_root(resolved.dir.as_ref().unwrap()).join("exponential-apps");
+        assert!(root.join("SKILL.md").is_file());
+        assert_eq!(std::fs::read_to_string(root.join("references/records.md")).unwrap(), "# Records\n");
+        assert_eq!(std::fs::read_to_string(root.join("examples/crm.app.json")).unwrap(), "{}\n");
+        assert!(!codex_root(resolved.dir.as_ref().unwrap()).join("escape.md").exists());
+        assert!(!data.0.as_path().join("skills").join("escape.md").exists());
+        assert_eq!(resolved.warnings.len(), 1, "{:?}", resolved.warnings);
     }
 
     #[test]

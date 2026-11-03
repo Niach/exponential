@@ -1,5 +1,5 @@
 {
-  "id": "9193eb3e-0330-4a4a-88b4-9bc4961b0198",
+  "id": "240827bb-fa6b-42d2-b954-0438578fc039",
   "prevId": "cc7b3aab-f9a0-4520-b27c-463a2edd22cc",
   "version": "7",
   "dialect": "postgresql",
@@ -9938,6 +9938,13 @@
           "notNull": true,
           "default": false
         },
+        "builtin": {
+          "name": "builtin",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
         "created_by_id": {
           "name": "created_by_id",
           "type": "text",
@@ -10495,12 +10502,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'none'"
-        },
-        "time_zone": {
-          "name": "time_zone",
-          "type": "varchar(64)",
-          "primaryKey": false,
-          "notNull": false
         },
         "agent_prompt": {
           "name": "agent_prompt",

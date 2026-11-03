@@ -1,0 +1,67 @@
+{
+  "size": [
+    80,
+    80
+  ],
+  "duration": 1000,
+  "fps": 60,
+  "layers": [
+    {
+      "type": "shape",
+      "id": "progress",
+      "shapes": [
+        {
+          "type": "path",
+          "d": "M40 10 C56.57 10 70 23.43 70 40 C70 56.57 56.57 70 40 70 C23.43 70 10 56.57 10 40 C10 23.43 23.43 10 40 10 Z"
+        },
+        {
+          "type": "trim",
+          "start": 0,
+          "end": {
+            "keys": [
+              {
+                "t": 0,
+                "v": 0,
+                "ease": "ease-in-out"
+              },
+              {
+                "t": 1000,
+                "v": 75
+              }
+            ]
+          },
+          "offset": 0
+        },
+        {
+          "type": "stroke",
+          "color": "$color.primary",
+          "width": 8,
+          "cap": "round",
+          "join": "round"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "track",
+      "shapes": [
+        {
+          "type": "ellipse",
+          "position": [
+            40,
+            40
+          ],
+          "size": [
+            60,
+            60
+          ]
+        },
+        {
+          "type": "stroke",
+          "color": "$color.muted",
+          "width": 8
+        }
+      ]
+    }
+  ]
+}

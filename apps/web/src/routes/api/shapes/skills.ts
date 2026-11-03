@@ -12,6 +12,8 @@ export const SKILL_COLUMNS = [
   `name`,
   `description`,
   `enabled_by_default`,
+  // #VAPP-213: a built-in (read-only, the Built-in pill).
+  `builtin`,
   `created_by_id`,
   `created_at`,
   `updated_at`,
