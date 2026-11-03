@@ -60,6 +60,12 @@ pub struct AppsCopy {
     /// `Published v{n}`.
     pub published_toast: String,
     pub publish_nothing: String,
+    /// eApps R8 (#VAPP-233, `migrationCases`): a version row's record sweep.
+    pub migrating: String,
+    /// `Migrating records {done} of {total}`.
+    pub migrating_of: String,
+    /// `Records not migrated: {error}`.
+    pub migration_failed: String,
     pub empty: String,
     pub chat_empty: String,
     pub preview_empty: String,
@@ -512,6 +518,17 @@ impl VersionRowKind {
     }
 }
 
+/// eApps R8 (#VAPP-233, fixture `migrationCases`): a version row's sweep
+/// line after its subtitle, or `None` (no sweep, done, superseded).
+pub fn version_migration(state: Option<&str>, total: i64, done: i64, error: Option<&str>) -> Option<String> {
+    match state {
+        Some("running") if total > 0 => Some(APPS.copy.migrating_of.replace("{done}", &done.to_string()).replace("{total}", &total.to_string())),
+        Some("running") => Some(APPS.copy.migrating.clone()),
+        Some("failed") => Some(APPS.copy.migration_failed.replace("{error}", error.unwrap_or(""))),
+        _ => None,
+    }
+}
+
 pub fn version_row(app: AppVersions, number: i64) -> VersionRowKind {
     if number == app.published {
         VersionRowKind::Published
@@ -925,6 +942,16 @@ mod tests {
                 let number = row[0].as_i64().unwrap();
                 assert_eq!(version_row(app, number).as_str(), row[1].as_str().unwrap(), "{name} v{number}");
             }
+        }
+    }
+
+    #[test]
+    fn version_migration_replays_the_fixture() {
+        let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
+        for case in fixture["migrationCases"]["cases"].as_array().unwrap() {
+            let r = &case["row"];
+            let got = version_migration(r["migrationState"].as_str(), r["migrationTotal"].as_i64().unwrap(), r["migrationDone"].as_i64().unwrap(), r["migrationError"].as_str());
+            assert_eq!(got.as_deref(), case["expected"].as_str(), "{}", case["name"]);
         }
     }
 

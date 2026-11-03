@@ -51,7 +51,7 @@ import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-con
 import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { APPS_COPY, appMediaAllowed } from "@exp/domain-contract/apps"
 import { hostZone, zoneDay } from "@exp/domain-contract/team-zone"
-import { kindTransitions, readableRows, type AppAccessLevel } from "@exponential_app/eui/host"
+import { kindTransitions, migrateRecord, packageMigrations, readableRows, type AppAccessLevel, type RecordMigration } from "@exponential_app/eui/host"
 import { grantableTools } from "@/lib/app-grants"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
@@ -338,6 +338,14 @@ export interface RecordsScope {
   records?: Record<string, unknown>
   /** VAPP-222 (R6): the viewer's team role (the rows' `transitions`). */
   role?: () => string | null
+  /** eApps R8: the hosting package's migrations + the version its records are in (a draft preview). */
+  migrate?: { migrations: RecordMigration[]; from: string } | null
+}
+
+/** eApps R8: one stored row as the draft's migrations would leave it (a failing row as stored). */
+function migratedRow(row: RecordRow, migrate: { migrations: RecordMigration[]; from: string }): RecordRow {
+  const out = migrateRecord(migrate.migrations, migrate.from, row.kind, row.data, Date.now())
+  return `error` in out || out.applied === 0 ? row : { ...row, kind: out.kind, data: out.data }
 }
 
 /** VAPP-122: `records:<kind>?…` → the eUI evaluator's value over the synced
@@ -354,7 +362,9 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
   let records: IncrementalTable<RecordRow> | null = null
   const push = () => {
     if (!ready) return
-    const all = records?.rows() ?? []
+    // eApps R8: a draft preview reads migrated copies of the hosting app's rows.
+    const stored = records?.rows() ?? []
+    const all = scope.migrate && !query.app ? stored.map((row) => migratedRow(row, scope.migrate!)) : stored
     const rows = scope.readable ? scope.readable(all) : all
     const names: Record<string, string> = {}
     for (const row of rows) {
@@ -507,6 +517,10 @@ export interface AppHostOptions {
    *  the records are what their role and app access may read, and every
    *  write or host call is refused with `copy.runAs.writesOff`. */
   runAs?: { id: string; name: string; role: string; access?: AppAccessLevel } | null
+  /** eApps R8 (apps.json `migrationCases`): previewing a draft with
+   *  `migrations`: the published package's `version`; the hosting app's
+   *  rows read through `migrateRecord` (copies, nothing written). */
+  migrateFrom?: string | null
 }
 
 /** #VAPP-230: every live upstream binding's last answer, for the banners
@@ -621,6 +635,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
     me: runAs ? runAs.id : (options.me ?? null),
     readable: runAs ? (rows) => readableRows(rows, kinds, { id: runAs.id, role: runAs.role, access: runAs.access }) : undefined,
     records: kinds,
+    migrate: options.migrateFrom && packageMigrations(options.packages?.[0]).length ? { migrations: packageMigrations(options.packages?.[0]), from: options.migrateFrom } : null,
     // VAPP-222 (R6): the viewer's team role (an owner takes every edge).
     role: () => (runAs ? runAs.role : (teamMemberCollection.toArray.find((m) => m.teamId === options.teamId && m.userId === options.me)?.role ?? null)),
   }

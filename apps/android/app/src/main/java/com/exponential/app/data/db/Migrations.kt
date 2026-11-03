@@ -192,3 +192,21 @@ val MIGRATION_114_115: Migration = object : Migration(114, 115) {
         db.execSQL("CREATE INDEX IF NOT EXISTS `index_app_record_outbox_app_id` ON `app_record_outbox` (`app_id`)")
     }
 }
+
+/**
+ * v116 (#VAPP-233, eApps R8): a version's record sweep progress on
+ * `app_versions` (apps.json `migrationCases`). Only the app-versions shape
+ * refetches, so synced rows re-arrive carrying it.
+ */
+val MIGRATION_115_116: Migration = object : Migration(115, 116) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `app_versions` ADD COLUMN `migration_state` TEXT")
+        db.execSQL("ALTER TABLE `app_versions` ADD COLUMN `migration_total` INTEGER DEFAULT 0")
+        db.execSQL("ALTER TABLE `app_versions` ADD COLUMN `migration_done` INTEGER DEFAULT 0")
+        db.execSQL("ALTER TABLE `app_versions` ADD COLUMN `migration_error` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'app_versions'",
+        )
+    }
+}

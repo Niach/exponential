@@ -71,7 +71,9 @@ import androidx.room.TypeConverters
     //      explicit [MIGRATION_113_114]; only those three shapes refetch.
     // v115 (#VAPP-235): the LOCAL `app_record_outbox` table (the offline
     //      outbox, no shape), explicit [MIGRATION_114_115]; nothing refetches.
-    version = 115,
+    // v116 (#VAPP-233): `app_versions.migration_*` (the record sweep's
+    //      progress), explicit [MIGRATION_115_116]; app_versions refetches.
+    version = 116,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

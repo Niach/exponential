@@ -40,6 +40,20 @@ class AppsTest {
         }
     }
 
+    // eApps R8 (#VAPP-233): versionMigration replays `migrationCases`.
+    @Test
+    fun `migrationCases replay`() {
+        val cases = fixture["migrationCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        for (case in cases) {
+            val row = case["row"]!!.jsonObject
+            val str = { k: String -> row[k]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content } }
+            val got = Apps.versionMigration(str("migrationState"), row["migrationTotal"]!!.jsonPrimitive.int, row["migrationDone"]!!.jsonPrimitive.int, str("migrationError"))
+            val want = case["expected"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+            assertEquals(case["name"]!!.jsonPrimitive.content, want, got)
+        }
+    }
+
     // eApps V1 (#VAPP-210): shownVersion, canPublish, grantVersion, listPill
     // and versionRow replay `publishCases`.
     @Test
@@ -155,6 +169,7 @@ class AppsTest {
             c("restored") to Apps.Copy.RESTORED, c("restoredNote") to Apps.Copy.RESTORED_NOTE, c("empty") to Apps.Copy.EMPTY,
             c("publish") to Apps.Copy.PUBLISH, c("published") to Apps.Copy.PUBLISHED,
             c("publishedToast") to Apps.Copy.PUBLISHED_TOAST, c("publishNothing") to Apps.Copy.PUBLISH_NOTHING,
+            c("migrating") to Apps.Copy.MIGRATING, c("migratingOf") to Apps.Copy.MIGRATING_OF, c("migrationFailed") to Apps.Copy.MIGRATION_FAILED,
             c("chatEmpty") to Apps.Copy.CHAT_EMPTY, c("previewEmpty") to Apps.Copy.PREVIEW_EMPTY,
             c("composerPlaceholder") to Apps.Copy.COMPOSER_PLACEHOLDER, c("noDevice") to Apps.Copy.NO_DEVICE,
             c("namePlaceholder") to Apps.Copy.NAME_PLACEHOLDER, c("descriptionPlaceholder") to Apps.Copy.DESCRIPTION_PLACEHOLDER,

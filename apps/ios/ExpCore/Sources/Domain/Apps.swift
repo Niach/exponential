@@ -34,6 +34,10 @@ public enum Apps {
         public static let published = "Published"
         public static let publishedToast = "Published v{n}"
         public static let publishNothing = "Nothing to publish yet"
+        /// eApps R8 (#VAPP-233, `migrationCases`): a version row's record sweep.
+        public static let migrating = "Migrating records"
+        public static let migratingOf = "Migrating records {done} of {total}"
+        public static let migrationFailed = "Records not migrated: {error}"
         public static let empty = "No apps yet"
         public static let chatEmpty = "Describe the app you want. The editor session builds it and the preview follows."
         public static let previewEmpty = "No version yet"
@@ -341,6 +345,19 @@ public enum Apps {
 
     /// A Versions row's trailing: the published badge, the head badge +
     /// Publish, or Preview + Publish.
+    /// eApps R8 (#VAPP-233, fixture `migrationCases`): a version row's sweep
+    /// line after its subtitle, or nil (no sweep, done, superseded).
+    public static func versionMigration(state: String?, total: Int, done: Int, error: String?) -> String? {
+        switch state {
+        case "running":
+            return total > 0 ? Copy.migratingOf.replacingOccurrences(of: "{done}", with: String(done)).replacingOccurrences(of: "{total}", with: String(total)) : Copy.migrating
+        case "failed":
+            return Copy.migrationFailed.replacingOccurrences(of: "{error}", with: error ?? "")
+        default:
+            return nil
+        }
+    }
+
     public static func versionRow(_ app: Versions, number: Int) -> VersionRowKind {
         if number == app.publishedVersion { return .published }
         return number == app.headVersion ? .head : .version

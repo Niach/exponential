@@ -192,6 +192,11 @@ pub(crate) struct HostScope {
     /// VAPP-214: the hosting package's `records` (its kinds' `computed`
     /// fields apply on read); `None` = none.
     pub(crate) records: Option<Value>,
+    /// eApps R8 (apps.json `migrationCases`): a draft preview: the published
+    /// package's `version`; the hosting app's rows read through the
+    /// package's migrations (copies, nothing written). `None` = as stored.
+    /// `(from, {"migrations": [...]})`.
+    pub(crate) migrate_from: Option<(String, Value)>,
 }
 
 /// VAPP-198 (apps.json `runAs`): who the preview runs as: `me` is them,
@@ -305,14 +310,31 @@ pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &eui_core::host::Rec
             .map(|a| a.id.as_str()),
         None => scope.map(|s| s.app_id.as_str()),
     };
+    // eApps R8: a draft preview reads migrated copies of the hosting app's rows.
+    let migrated: Vec<Option<(String, Value)>> = match (scope.and_then(|s| s.migrate_from.as_ref()), &query.app) {
+        (Some((from, pkg)), None) => {
+            let migrations = eui_core::host::package_migrations(pkg);
+            let now = chrono::Utc::now().timestamp_millis() as f64;
+            feed.records
+                .iter()
+                .map(|r| match eui_core::host::migrate_record(&migrations, from, &r.kind, &r.data, now) {
+                    eui_core::host::MigrateResult::Done { kind, data, applied } if applied > 0 => Some((kind, data)),
+                    _ => None,
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    };
     let rows: Vec<eui_core::host::RecordRowRef> = feed
         .records
         .iter()
-        .filter(|r| app_id.is_some_and(|id| r.app_id == id))
-        .map(|r| eui_core::host::RecordRowRef {
+        .enumerate()
+        .filter(|(_, r)| app_id.is_some_and(|id| r.app_id == id))
+        .map(|(i, r)| (r, migrated.get(i).and_then(Option::as_ref)))
+        .map(|(r, m)| eui_core::host::RecordRowRef {
             id: &r.id,
-            kind: &r.kind,
-            data: &r.data,
+            kind: m.map_or(r.kind.as_str(), |(k, _)| k.as_str()),
+            data: m.map_or(&r.data, |(_, d)| d),
             created_by: r.created_by.as_deref(),
             author_id: r.author_id.as_deref(),
             created_at: &r.created_at,
@@ -2039,7 +2061,7 @@ mod tests {
 
     fn records_feed() -> RecordsFeed {
         RecordsFeed {
-            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false, records: None }),
+            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false, records: None, migrate_from: None }),
             me: Some("u1".into()),
             records: vec![record("r1", "a1", 3, "u1"), record("r2", "a2", 4, "u2"), record("r3", "a3", 5, "u2")],
             apps: vec![
@@ -2232,7 +2254,7 @@ mod tests {
             ]), cx);
         });
         let ide = cx.update(|cx| {
-            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false, records: None };
+            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false, records: None, migrate_from: None };
             IdeHost::with_packages(Mode::Dark, &[], None, Some(scope), cx)
         });
         let feeds = ide.feeds.clone();

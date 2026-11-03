@@ -142,7 +142,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox"]
+             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
+             "v98_app_version_migration"]
         )
     }
 
@@ -206,7 +207,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox"]
+             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
+             "v98_app_version_migration"]
         )
     }
 
@@ -742,7 +744,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox"]
+             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
+             "v98_app_version_migration"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -854,7 +857,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox"]
+             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
+             "v98_app_version_migration"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -3224,7 +3228,8 @@ final class DatabaseMigrationTests: XCTestCase {
         )
         XCTAssertEqual(
             try columnNames(pool, "app_versions"),
-            ["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at"]
+            ["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at",
+             "migration_state", "migration_total", "migration_done", "migration_error"]
         )
         try pool.read { db in
             XCTAssertTrue(try db.columns(in: "sessions").contains { $0.name == "app_id" })

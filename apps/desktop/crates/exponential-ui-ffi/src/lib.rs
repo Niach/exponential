@@ -2913,6 +2913,29 @@ pub fn records_value_json(rows_json: String, query_json: String, context_json: S
     })
 }
 
+/// eApps R8 (VAPP-233, `record-migrations.json` `migrateCases`): a record
+/// written under `version` as `kind` through the migrations of `package_json`
+/// (`{kind, data, applied}` or `{error}` JSON; `now` = the clock in ms).
+#[uniffi::export]
+pub fn migrate_record_json(package_json: String, version: String, kind: String, data_json: String, now: f64) -> Result<String, UiError> {
+    guarded("migrate_record_json", || {
+        let pkg: Value = parse(&package_json)?;
+        let data: Value = parse(&data_json)?;
+        Ok(json_string(&h::migrate_record(&h::package_migrations(&pkg), &version, &kind, &data, now)))
+    })
+}
+
+/// eApps R8 (`refusalCases`): why `after_json` may not replace the published
+/// `before_json` (an uncovered incompatible major bump), or none.
+#[uniffi::export]
+pub fn migration_refusal_json(before_json: String, after_json: String) -> Result<Option<String>, UiError> {
+    guarded("migration_refusal_json", || {
+        let before: Value = parse(&before_json)?;
+        let after: Value = parse(&after_json)?;
+        Ok(h::migration_refusal(&before, &after))
+    })
+}
+
 /// eApps R6 (VAPP-222, `record-transitions.json` `refusalCases`): why a
 /// write of a kind (`kind_json` = its definition, `transitions` inside) may
 /// not move its state: `before_json` = the stored data (none = a create),

@@ -91,6 +91,21 @@ export function versionRow(app: AppVersions, number: number): `published` | `hea
   return number === app.headVersion ? `head` : `version`
 }
 
+/** eApps R8 (#VAPP-233, fixture `migrationCases`): a version row's sweep columns. */
+export interface VersionMigration {
+  migrationState: string | null
+  migrationTotal: number
+  migrationDone: number
+  migrationError: string | null
+}
+
+/** A Versions row's sweep line (after its subtitle), or null. */
+export function versionMigration(row: VersionMigration): string | null {
+  if (row.migrationState === `running`) return row.migrationTotal > 0 ? APPS_COPY.migratingOf.replace(`{done}`, String(row.migrationDone)).replace(`{total}`, String(row.migrationTotal)) : APPS_COPY.migrating
+  if (row.migrationState === `failed`) return APPS_COPY.migrationFailed.replace(`{error}`, row.migrationError ?? ``)
+  return null
+}
+
 /** A name → its slug: lowercase ASCII letters, digits and single dashes,
  *  diacritics stripped, cut at the cap, `app` when nothing is left; a taken
  *  slug gets `-2`, `-3`, … */

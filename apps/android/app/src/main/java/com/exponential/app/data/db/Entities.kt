@@ -842,6 +842,12 @@ data class AppVersionEntity(
     @ColumnInfo(name = "session_id") @SerialName("session_id") @JsonNames("sessionId") val sessionId: String? = null,
     @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy") val createdBy: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    // eApps R8 (#VAPP-233): the record sweep a publish of it started
+    // (running | done | failed | superseded; apps.json `migrationCases`).
+    @ColumnInfo(name = "migration_state") @SerialName("migration_state") @JsonNames("migrationState") val migrationState: String? = null,
+    @ColumnInfo(name = "migration_total", defaultValue = "0") @SerialName("migration_total") @JsonNames("migrationTotal") @Serializable(with = PgIntSerializer::class) val migrationTotal: Int? = 0,
+    @ColumnInfo(name = "migration_done", defaultValue = "0") @SerialName("migration_done") @JsonNames("migrationDone") @Serializable(with = PgIntSerializer::class) val migrationDone: Int? = 0,
+    @ColumnInfo(name = "migration_error") @SerialName("migration_error") @JsonNames("migrationError") val migrationError: String? = null,
 )
 
 // VAPP-122: one RECORD of an app (its own data): a JSON object `data` of a

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { appMediaAllowed, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionRow } from "./apps"
+import { appMediaAllowed, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
   test.each(fixture.slugifyCases)(`slugify %j`, (c) => {
@@ -8,6 +8,9 @@ describe(`apps (VAPP-110)`, () => {
   })
   test.each(fixture.versionLabelCases)(`versionLabel %j`, (c) => {
     expect(versionLabel(c.headVersion)).toBe(c.label)
+  })
+  test.each(fixture.migrationCases.cases)(`migration (R8) $name`, (c) => {
+    expect(versionMigration(c.row as VersionMigration)).toBe(c.expected)
   })
   test.each(fixture.publishCases.cases)(`publish (V1) $name`, (c) => {
     expect(shownVersion(c.app, c.editing, c.viewing)).toBe(c.shown)
