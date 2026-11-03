@@ -13,10 +13,14 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
     let color: String?
     let description: String
     let headVersion: Int
+    /// eApps V1 (#VAPP-210): the published version (0 = never published).
+    let publishedVersion: Int
     let createdBy: String?
     let teamId: String?
-    /// The head package's JSON text (nil = no version yet).
+    /// eApps V1: the PUBLISHED package's JSON text (nil = never published).
     let package: String?
+    /// eApps V1: the head's package while it is ahead of the published one.
+    let draftPackage: String?
     /// VAPP-120: the typed actions granted (the synced row, as stored).
     let grantedTools: [String]
 
@@ -28,16 +32,27 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
         color = row.color
         description = row.description
         headVersion = row.headVersion
+        publishedVersion = row.publishedVersion
         createdBy = row.createdBy
         teamId = row.teamId
         package = row.package
+        draftPackage = row.draftPackage
         grantedTools = row.grantedTools
     }
 
-    /// VAPP-120: the typed actions the head package's `functions` declare
-    /// (`AppActions.declaredActions`, the fixture's order).
+    /// eApps V1: the two pointers (`Apps.shownVersion`, `listPill`, …).
+    var versions: Apps.Versions {
+        Apps.Versions(headVersion: headVersion, publishedVersion: publishedVersion)
+    }
+
+    /// eApps V1: the HEAD's package (the draft, else the published one).
+    var headPackage: String? { draftPackage ?? package }
+
+    /// VAPP-120: the typed actions the RUNNING package's `functions` declare
+    /// (eApps V1: the published one, else the head's; `AppActions.declaredActions`,
+    /// the fixture's order).
     var declaredActions: [String] {
-        guard let text = package,
+        guard let text = package ?? draftPackage,
               let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
               let functions = object["functions"] as? [Any]
         else { return [] }
@@ -49,9 +64,10 @@ struct AppListEntry: Identifiable, Equatable, Sendable {
         grantedTools.filter { AppActions.actionGrantable($0) }
     }
 
-    /// The pill: `v{n}`, or the `Draft` badge (muted).
-    var pillLabel: String { Apps.versionLabel(headVersion) }
-    var pillMuted: Bool { headVersion == 0 }
+    /// The pill = `listPill` (eApps V1: the PUBLISHED version `v{n}`, or the
+    /// `Draft` badge, muted, while nothing is published).
+    var pillLabel: String { Apps.listPill(versions) }
+    var pillMuted: Bool { publishedVersion == 0 }
 
     /// The glyph (the board icon set; an unknown name falls back to the
     /// generic puzzle).
@@ -130,9 +146,26 @@ final class AppEditorModel {
     private(set) var isOwner = false
     /// VAPP-122: the app's synced records (the Settings sheet's line).
     private(set) var recordsCount = 0
+    /// eApps R3: my app access (`appAccess.mine`; nil = write until known).
+    private(set) var access: String?
 
     @ObservationIgnored private var task: Task<Void, Never>?
     @ObservationIgnored private var graceTask: Task<Void, Never>?
+
+    /// eApps V1 (#VAPP-210): Publish needs write access to the app.
+    var canWrite: Bool { (access ?? "write") == "write" }
+
+    /// eApps V1: my editor session is live (its root exists, not ended), so
+    /// the preview follows the head (`Apps.shownVersion`).
+    var editing: Bool { rootId != nil && rootLive }
+
+    /// eApps R3: my own level for the app (`appAccess.mine`).
+    func loadAccess(accountId: String, appId: String, trpc: TrpcClient) {
+        Task { [weak self] in
+            let level = try? await McpServersApi(trpc: trpc).appAccessMine(accountId: accountId, appId: appId).level
+            await MainActor.run { self?.access = level }
+        }
+    }
 
     /// The creator or a team owner edits, describes and deletes the app.
     func canManage(userId: String?) -> Bool {

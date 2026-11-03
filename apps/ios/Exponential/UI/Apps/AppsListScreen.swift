@@ -156,7 +156,7 @@ struct AppsListScreen: View {
         case .export: exporting = pick.app
         case .delete: deleting = pick.app
         // The editor's menu only (the row's menu offers neither).
-        case .versions, .settings: break
+        case .publish, .versions, .settings: break
         }
     }
 
@@ -215,11 +215,14 @@ struct AppVersionPill: View {
 /// creator or an owner). No Rename (VAPP-176: the agent names an app). A pick hands the action back; the
 /// host acts once the sheet has dismissed. VAPP-177: the phone editor's `…`
 /// (`versionsCount` set) leads with Versions (the count as trailing meta)
-/// and Settings (`editorTabs.menu`).
+/// and Settings (`editorTabs.menu`); eApps V1 (#VAPP-210): Publish comes
+/// FIRST while `Apps.canPublish` and the viewer may write the app.
 struct AppMenuSheet: View {
-    enum Action { case versions, settings, export, delete }
+    enum Action { case publish, versions, settings, export, delete }
 
     let title: String
+    /// eApps V1: the editor's Publish (the head is ahead of the published one).
+    var canPublish = false
     var canExport = false
     var canManage = true
     /// nil = the row's menu (no Versions / Settings).
@@ -229,6 +232,13 @@ struct AppMenuSheet: View {
     var body: some View {
         GlassSheetChrome(title: title) {
             VStack(spacing: 0) {
+                if canPublish {
+                    Button { onPick(.publish) } label: {
+                        GlassMenuItemLabel(Apps.Copy.publish, icon: AppIcons.uiSubmit)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(Apps.TestIds.publish)
+                }
                 if let versionsCount {
                     Button { onPick(.versions) } label: {
                         GlassMenuItemLabel(Apps.Copy.Menu.versions, icon: AppIcons.uiHistory)

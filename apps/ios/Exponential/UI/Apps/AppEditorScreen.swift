@@ -17,10 +17,15 @@ import SwiftUI
 ///   whose composer's first send is `sessions.send({appId, text, deviceId})`
 ///   on my default (else first online) device; none online = the composer
 ///   disabled with `copy.noDevice`.
-/// * Preview = the app host rendering the head package's first template
-///   (`AppPreview`); a version previewed from the Versions sheet re-renders
-///   with the `Viewing v{n}` banner + Restore (a NEW head, toast
-///   `copy.restored`) + Current.
+/// * Preview = the app host rendering `Apps.shownVersion`'s package's first
+///   template (`AppPreview`; eApps V1 #VAPP-210: the head while my editor
+///   session is live or nothing is published, else the published one); a
+///   version previewed from the Versions sheet re-renders with the
+///   `Viewing v{n}` banner + Publish (not on the published version) +
+///   Restore (not on the head; a NEW head, toast `copy.restored`) + Current.
+///
+/// eApps V1: Publish is the menu's FIRST item while `Apps.canPublish` and I
+/// may write the app: `apps.publish {id, number}`, toast `copy.publishedToast`.
 /// * Data (VAPP-178, app-records.json `dataTab`) = the app's records
 ///   (`AppDataTab`): the kind picker + Add record, one grouped list, the
 ///   form as a sheet.
@@ -52,6 +57,8 @@ struct AppEditorScreen: View {
     @State private var viewing: Int?
     @State private var viewingPackage: String?
     @State private var restoring = false
+    /// eApps V1: the version being published (nil = none).
+    @State private var publishing: Int?
     /// VAPP-177: the header's `…` (THE Menu's sheet).
     @State private var menuOpen = false
     /// The menu's (or a sheet's) pick, run once its sheet has dismissed.
@@ -118,6 +125,7 @@ struct AppEditorScreen: View {
         .accessibilityIdentifier(Apps.TestIds.editor)
         .onAppear {
             model.bind(accountId: accountId, appId: appId, userId: deps.auth.userId, db: deps.db)
+            model.loadAccess(accountId: accountId, appId: appId, trpc: deps.trpc)
         }
         .onDisappear {
             endLiveSession()
@@ -144,6 +152,7 @@ struct AppEditorScreen: View {
                     if let app = model.app {
                         AppMenuSheet(
                             title: app.name,
+                            canPublish: model.canWrite && Apps.canPublish(app.versions),
                             canExport: app.headVersion > 0,
                             canManage: model.canManage(userId: deps.auth.userId),
                             versionsCount: model.versions.count
@@ -161,10 +170,11 @@ struct AppEditorScreen: View {
                     case .versions:
                         AppVersionsSheet(
                             model: model,
-                            restoring: restoring,
+                            publishing: publishing,
+                            canWrite: model.canWrite,
                             onPreview: { number in previewVersion(number) },
-                            onRestore: { number in
-                                if let app = model.app { restore(app, number: number) }
+                            onPublish: { number in
+                                if let app = model.app { publish(app, number: number) }
                             }
                         )
                     case .settings:
@@ -270,6 +280,8 @@ struct AppEditorScreen: View {
         guard let action = pendingMenu else { return }
         pendingMenu = nil
         switch action {
+        case .publish:
+            if let app = model.app, model.canWrite, Apps.canPublish(app.versions) { publish(app, number: app.headVersion) }
         case .versions: editorSheet = .versions
         case .settings: editorSheet = .settings
         case .export: exportOpen = model.app.map { $0.headVersion > 0 } ?? false
@@ -344,8 +356,25 @@ struct AppEditorScreen: View {
 
     // MARK: - Preview
 
+    /// eApps V1: the version the preview shows (`Apps.shownVersion`).
+    private func shown(_ app: AppListEntry) -> Int {
+        Apps.shownVersion(app.versions, editing: model.editing, viewing: viewing)
+    }
+
+    /// The shown version's package: the head's and the published one's ride
+    /// on the synced row, any other loads on demand.
+    private func shownPackage(_ app: AppListEntry) -> String? {
+        let number = shown(app)
+        if number == 0 { return nil }
+        if number == app.headVersion { return app.headPackage }
+        if number == app.publishedVersion { return app.package }
+        return viewingPackage
+    }
+
     private func preview(_ app: AppListEntry) -> some View {
-        ZStack {
+        let canWrite = model.canWrite
+        let number = shown(app)
+        return ZStack {
             AppBackground()
             VStack(spacing: 12) {
                 if let viewing {
@@ -354,8 +383,14 @@ struct AppEditorScreen: View {
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.white)
                         Spacer(minLength: 8)
-                        GlassPill(Apps.Copy.restore, mode: .action { restore(app, number: viewing) }, primary: true, enabled: !restoring)
-                            .accessibilityIdentifier("app-editor-restore")
+                        if canWrite, viewing != app.publishedVersion {
+                            GlassPill(Apps.Copy.publish, mode: .action { publish(app, number: viewing) }, primary: true, enabled: publishing == nil)
+                                .accessibilityIdentifier("app-editor-viewing-publish")
+                        }
+                        if canWrite, viewing != app.headVersion {
+                            GlassPill(Apps.Copy.restore, mode: .action { restore(app, number: viewing) }, enabled: !restoring)
+                                .accessibilityIdentifier("app-editor-restore")
+                        }
                         GlassPill(Apps.Copy.head, mode: .action { self.viewing = nil })
                     }
                     .padding(.horizontal, 12)
@@ -364,27 +399,29 @@ struct AppEditorScreen: View {
                     .accessibilityElement(children: .contain)
                     .accessibilityIdentifier(Apps.TestIds.viewing)
                 }
-                AppPreview(packageJSON: viewing != nil ? viewingPackage : app.package, appId: app.id, teamId: app.teamId, grants: viewing == nil)
+                // A grant is about the version it was made on (`grantVersion`):
+                // any other previews asking for everything.
+                AppPreview(packageJSON: shownPackage(app), appId: app.id, teamId: app.teamId, grants: number == Apps.grantVersion(app.versions))
             }
             .padding(16)
         }
     }
 
     /// VAPP-177: a Versions row's Preview: the sheet closes and the Preview
-    /// tab shows that version (the head = the head, no banner).
+    /// tab shows that version (the preview's default = no banner).
     private func previewVersion(_ number: Int) {
-        let head = model.app?.headVersion
+        let defaultShown = model.app.map { Apps.shownVersion($0.versions, editing: model.editing, viewing: nil) }
         editorSheet = nil
-        viewing = number == head ? nil : number
+        viewing = number == defaultShown ? nil : number
         tab = .preview
     }
 
+    /// A picked version loads its package on demand (the head's and the
+    /// published one's ride on the synced row).
     private func loadViewing(_ number: Int?) {
         viewingPackage = nil
-        guard let number, let app = model.app, number != app.headVersion else {
-            if number != nil { viewing = nil }
-            return
-        }
+        guard let number, let app = model.app else { return }
+        guard number != app.headVersion, number != app.publishedVersion else { return }
         Task {
             do {
                 let package = try await deps.appsApi.package(accountId: accountId, id: app.id, version: number)
@@ -409,6 +446,27 @@ struct AppEditorScreen: View {
             } catch {
                 toaster.error(
                     FeedbackStates.Errors.title(verb: "restore", thing: "the version"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
+    /// eApps V1 `apps.publish` of version `number` (the menu's head, a
+    /// Versions row's or the banner's): toast `copy.publishedToast`, the
+    /// preview back on its default; a failure = the failed-action toast.
+    private func publish(_ app: AppListEntry, number: Int) {
+        guard publishing == nil else { return }
+        publishing = number
+        Task {
+            defer { publishing = nil }
+            do {
+                let result = try await deps.appsApi.publish(accountId: accountId, id: app.id, number: number)
+                toaster.success(Apps.Copy.publishedToast(result.published))
+                viewing = nil
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "publish", thing: "the version"),
                     description: error.trpcUserMessage
                 )
             }
@@ -466,13 +524,16 @@ struct AppEditorScreen: View {
 
 /// The menu's Versions sheet = the wide clients' Versions TAB body: ONE
 /// grouped list newest first, each row the `v{n}` pill + the note (medium;
-/// `copy.noNote` muted) over a muted `who · when`; the head row = the
-/// `Current` badge, every other row a ghost Preview + a Restore pill.
+/// `copy.noNote` muted) over a muted `who · when`; eApps V1 (`versionRow`):
+/// the published row = the `Published` badge, the head row ahead of it =
+/// the `Current` badge + a Publish pill, every other row a ghost Preview + a
+/// Publish pill (Publish needs write access to the app).
 struct AppVersionsSheet: View {
     let model: AppEditorModel
-    let restoring: Bool
+    let publishing: Int?
+    let canWrite: Bool
     let onPreview: (Int) -> Void
-    let onRestore: (Int) -> Void
+    let onPublish: (Int) -> Void
 
     var body: some View {
         GlassSheetChrome(title: Apps.Copy.Menu.versions) {
@@ -483,7 +544,7 @@ struct AppVersionsSheet: View {
                 } else {
                     VStack(spacing: 0) {
                         ForEach(model.versions) { version in
-                            row(version, head: model.app?.headVersion ?? 0)
+                            row(version, pointers: model.app?.versions ?? Apps.Versions(headVersion: 0, publishedVersion: 0))
                         }
                     }
                     .glassSection()
@@ -496,7 +557,8 @@ struct AppVersionsSheet: View {
         }
     }
 
-    private func row(_ version: AppVersionEntity, head: Int) -> some View {
+    private func row(_ version: AppVersionEntity, pointers: Apps.Versions) -> some View {
+        let kind = Apps.versionRow(pointers, number: version.number)
         let author = version.createdBy.flatMap { id in model.users.first { $0.id == id } }
         let note = version.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let who = author?.name ?? Apps.Copy.byAgent
@@ -517,21 +579,27 @@ struct AppVersionsSheet: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            if version.number == head {
-                GlassPill(Apps.Copy.head)
+            if kind == .published {
+                GlassPill(Apps.Copy.published)
             } else {
-                Button { onPreview(version.number) } label: {
-                    Text(Apps.Copy.preview)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
-                        .frame(height: GlassPillTokens.heightSm)
-                        .contentShape(Capsule())
+                if kind == .head {
+                    GlassPill(Apps.Copy.head)
+                } else {
+                    Button { onPreview(version.number) } label: {
+                        Text(Apps.Copy.preview)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .padding(.horizontal, GlassPillTokens.horizontalPaddingSm)
+                            .frame(height: GlassPillTokens.heightSm)
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(Apps.TestIds.versionPreview)
                 }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(Apps.TestIds.versionPreview)
-                GlassPill(Apps.Copy.restore, mode: .action { onRestore(version.number) }, enabled: !restoring)
-                    .accessibilityIdentifier(Apps.TestIds.versionRestore)
+                if canWrite {
+                    GlassPill(Apps.Copy.publish, mode: .action { onPublish(version.number) }, enabled: publishing == nil)
+                        .accessibilityIdentifier(Apps.TestIds.versionPublish)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -547,7 +615,7 @@ struct AppVersionsSheet: View {
 /// from the existing pieces: the board form's identity row (icon + colour +
 /// name, the name saved when editing ends), the description (saved when
 /// editing ends), the records line, the Tools group (a team OWNER flips the
-/// grants: `apps.update {id, headVersion, grantedTools}`), then Export (a
+/// grants: `apps.update {id, headVersion: grantVersion, grantedTools}`), then Export (a
 /// version) and Delete app (the creator or an owner). Read-only for
 /// everyone else. Export / Delete hand back to the editor, which runs them
 /// once this sheet has dismissed.
@@ -802,7 +870,7 @@ struct AppSettingsSheet: View {
         Task {
             defer { toolBusy = nil }
             do {
-                try await api.update(accountId: account, AppUpdateInput(id: app.id, grantedTools: next, headVersion: app.headVersion))
+                try await api.update(accountId: account, AppUpdateInput(id: app.id, grantedTools: next, headVersion: Apps.grantVersion(app.versions)))
             } catch {
                 toaster.error(FeedbackStates.Errors.title(verb: "save", thing: "the app"), description: error.trpcUserMessage)
             }
