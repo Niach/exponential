@@ -46,6 +46,7 @@ import at.exponential.ui.host.SourceResolver
 import at.exponential.ui.host.TimeZoneOffset
 import at.exponential.ui.host.UrlPolicy
 import at.exponential.ui.json.JsonValue
+import at.exponential.ui.model.SurfaceSettings
 import at.exponential.ui.theme.Mode
 import at.exponential.ui.theme.ThemeHandle
 import com.exponential.app.data.auth.AuthRepository
@@ -346,6 +347,8 @@ fun rememberAppHost(
     themeId: String? = null,
     /** Release train 2026-10-25: the row's grants are about the HEAD package; false = an older version's preview, which runs with none. */
     grants: Boolean = true,
+    /** VAPP-200: the viewer's app access is `read`: the app's own writing controls paint disabled. */
+    readOnly: Boolean = false,
 ): ExponentialHost {
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -354,7 +357,7 @@ fun rememberAppHost(
     // instance link opens in-app, anything else in the Custom Tab; no
     // instance known = the SDK's system opener.
     val links = rememberAppLinkHandler()
-    val host = remember(packages, consent, themeId, links, appId, teamId, me, grants) {
+    val host = remember(packages, consent, themeId, links, appId, teamId, me, grants, readOnly) {
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
         val db = accountDatabaseFlow(auth, deps.databaseHolder())
@@ -564,6 +567,8 @@ fun rememberAppHost(
                 ),
                 theme = themeId?.let(ThemeHandle::builtin) ?: ThemeHandle.builtin(APP_THEME_ID),
                 mode = Mode.Dark,
+                // VAPP-200: at app access `read` every surface is read-only.
+                settings = SurfaceSettings(readOnly = readOnly),
                 plugin = AppHostIcons,
                 // VAPP-194: a package action runs as the viewer, in the
                 // device's zone (the surfaces' formatter's); one that landed

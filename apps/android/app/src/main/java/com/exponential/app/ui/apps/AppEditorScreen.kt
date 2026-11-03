@@ -147,6 +147,8 @@ fun AppEditorScreen(
     val app by viewModel.app.collectAsStateWithLifecycle()
     val root by viewModel.root.collectAsStateWithLifecycle()
     val versions by viewModel.versions.collectAsStateWithLifecycle()
+    // VAPP-200: at app access `read` the preview's writing controls are disabled.
+    val access by viewModel.myAccess.collectAsStateWithLifecycle()
     val users by viewModel.users.collectAsStateWithLifecycle()
     val viewing by viewModel.viewing.collectAsStateWithLifecycle()
     val restoring by viewModel.restoring.collectAsStateWithLifecycle()
@@ -282,6 +284,7 @@ fun AppEditorScreen(
                         appId = viewModel.appId,
                         teamId = entry.teamId,
                         me = me,
+                        readOnly = access == "read",
                         modifier = Modifier.padding(padding),
                     )
                 }
@@ -468,6 +471,7 @@ private fun AppPreviewPane(
     appId: String,
     teamId: String?,
     me: String?,
+    readOnly: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -509,7 +513,7 @@ private fun AppPreviewPane(
             if (pkg != null) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Apps.Preview.PADDING.dp)) {
                     // A new package = a new host (the key): every synced upsert repaints.
-                    androidx.compose.runtime.key(pkg, viewing) { AppPackageSurface(pkg, onOpenIssue, appId, teamId, me, grants = grants) }
+                    androidx.compose.runtime.key(pkg, viewing) { AppPackageSurface(pkg, onOpenIssue, appId, teamId, me, grants = grants, readOnly = readOnly) }
                 }
             } else {
                 EmptyState(
@@ -525,7 +529,7 @@ private fun AppPreviewPane(
 
 /** One package's default template (`Apps.previewTemplate`) on the app host (`applyTemplate`). */
 @Composable
-private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, appId: String, teamId: String?, me: String?, grants: Boolean) {
+private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, appId: String, teamId: String?, me: String?, grants: Boolean, readOnly: Boolean) {
     val parsed = remember(packageJson) { runCatching { JsonValue.parse(packageJson) }.getOrNull() }
     val packageId = parsed?.get("id")?.string
     val templateId = parsed?.get("templates")?.obj?.keys?.let { Apps.previewTemplate(it) }
@@ -539,6 +543,7 @@ private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit
         me = me,
         themeId = parsed?.get("theme")?.string,
         grants = grants,
+        readOnly = readOnly,
     )
     LaunchedEffect(host, packageId, templateId) {
         if (packageId != null && templateId != null) {

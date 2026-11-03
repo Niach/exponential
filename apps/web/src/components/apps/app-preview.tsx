@@ -21,7 +21,7 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const EXTENSIONS = [appReactExtension]
 
-function PackageSurface({ pkg, templateId, mode, appId, teamId, me, grantedTools, runAs }: { pkg: AppPackage; templateId: string | null; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null; grantedTools: readonly string[]; runAs: AppRunAs | null }) {
+function PackageSurface({ pkg, templateId, mode, appId, teamId, me, grantedTools, runAs, readOnly }: { pkg: AppPackage; templateId: string | null; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null; grantedTools: readonly string[]; runAs: AppRunAs | null; readOnly: boolean }) {
   const router = useRouter()
   const consent = useMemo(createConsentGate, [])
   // VAPP-120: the grants follow the synced row without remounting the host.
@@ -51,6 +51,7 @@ function PackageSurface({ pkg, templateId, mode, appId, teamId, me, grantedTools
         extensions={EXTENSIONS}
         theme={typeof pkg.theme === `string` ? pkg.theme : DEFAULT_THEME_ID}
         mode={mode}
+        readOnly={readOnly}
       />
       <ConsentCard gate={consent} />
     </>
@@ -68,6 +69,7 @@ export function AppPreview({
   me = null,
   grantedTools = [],
   runAs = null,
+  readOnly = false,
 }: {
   pkg: Record<string, unknown> | null
   /** VAPP-179: the picked template (null or missing = the first by id). */
@@ -84,6 +86,9 @@ export function AppPreview({
   grantedTools?: readonly string[]
   /** VAPP-198: preview as another member (owners; null = me). */
   runAs?: AppRunAs | null
+  /** VAPP-200: the viewer's app access is `read`: the app's own writing
+   *  controls paint disabled (eUI `readOnly`). */
+  readOnly?: boolean
 }) {
   const templateId = previewTemplate(pkg as { templates?: Record<string, unknown> } | null, template)
   // The key = the package's identity + the template: either mounts a fresh host.
@@ -99,7 +104,7 @@ export function AppPreview({
       data-testid={APPS_TEST_IDS.preview}
     >
       {pkg ? (
-        <PackageSurface key={`${templateId ?? ``}:${runAs?.id ?? ``}:${key}`} pkg={pkg as unknown as AppPackage} templateId={templateId} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} runAs={runAs} />
+        <PackageSurface key={`${templateId ?? ``}:${runAs?.id ?? ``}:${key}`} pkg={pkg as unknown as AppPackage} templateId={templateId} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} runAs={runAs} readOnly={readOnly} />
       ) : (
         <div className="flex h-full min-h-48 items-center justify-center">
           <EmptyState icon={NavAppsIcon} title={APPS_COPY.previewEmpty} size="page" />
