@@ -3,8 +3,7 @@
 // `$comment` is the spec).
 
 import fixture from "../fixtures/upstream.json" with { type: "json" }
-import { canonicalJson } from "./audit"
-import { upstreamDestructive } from "./exposes"
+import { canonicalJson, upstreamDestructive } from "./pure"
 
 export const UPSTREAM_STATES = fixture.states as readonly UpstreamState[]
 export const UPSTREAM_LABELS = fixture.labels as Record<UpstreamState, string>

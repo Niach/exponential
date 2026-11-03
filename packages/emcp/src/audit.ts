@@ -10,34 +10,8 @@ export const AUDIT_RETENTION_DAYS: number = fixture.retentionDays
 
 export type CallStatus = `ok` | `denied` | `invalid` | `failed` | `upstream`
 
-function compareCodePoints(a: string, b: string): number {
-  const x = Array.from(a)
-  const y = Array.from(b)
-  for (let i = 0; i < Math.min(x.length, y.length); i++) {
-    const d = x[i]!.codePointAt(0)! - y[i]!.codePointAt(0)!
-    if (d !== 0) return d
-  }
-  return x.length - y.length
-}
-
-/** Canonical JSON: object keys sorted by code point, recursively, no
- *  whitespace; `undefined` object members dropped; -0 prints as 0. */
-export function canonicalJson(value: unknown): string {
-  if (value === null || value === undefined) return `null`
-  if (typeof value === `number`) {
-    if (!Number.isFinite(value)) return `null`
-    return Object.is(value, -0) ? `0` : JSON.stringify(value)
-  }
-  if (typeof value === `string` || typeof value === `boolean`) return JSON.stringify(value)
-  if (Array.isArray(value)) return `[${value.map((v) => canonicalJson(v)).join(`,`)}]`
-  if (typeof value === `object`) {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, v]) => v !== undefined)
-      .sort(([a], [b]) => compareCodePoints(a, b))
-    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(`,`)}}`
-  }
-  return `null`
-}
+export { canonicalJson } from "./pure"
+import { canonicalJson } from "./pure"
 
 /** The row's `args_hash`: `sha256:` + the hex SHA-256 of the canonical
  *  JSON of the call's arguments (none = `{}`). Never the arguments. */

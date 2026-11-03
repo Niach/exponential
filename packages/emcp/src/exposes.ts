@@ -64,7 +64,6 @@ export function runVia(run: ExposeRun): RunVia {
 const READ_RECORD_OPS: readonly string[] = fixture.readRecordOps
 const RECORD_OPS: readonly string[] = fixture.recordOps
 const READ_OP_WORDS: readonly string[] = fixture.readOpWords
-const DESTRUCTIVE_WORDS: readonly string[] = fixture.destructiveWords
 
 /** An `exponential.<noun>.<op>` action is a read when the last word of its
  *  op is a read word (`list`, `get`, …); a verb tool is a write. */
@@ -74,18 +73,8 @@ export function actionAccess(name: string): ToolAccess {
   return last !== undefined && READ_OP_WORDS.includes(last) ? `read` : `write`
 }
 
-/** The MCP annotations of an upstream tool (from its `tools/list`). */
-export interface UpstreamAnnotations {
-  readOnlyHint?: boolean
-  destructiveHint?: boolean
-}
-
-/** An upstream tool is destructive when it says so (`destructiveHint:
- *  true`) or a word of its name is a destructive word. */
-export function upstreamDestructive(tool: string, annotations: UpstreamAnnotations | null | undefined): boolean {
-  if (annotations?.destructiveHint === true) return true
-  return tool.toLowerCase().split(/[^a-z]+/).some((word) => DESTRUCTIVE_WORDS.includes(word))
-}
+export { upstreamDestructive, type UpstreamAnnotations } from "./pure"
+import { upstreamDestructive, type UpstreamAnnotations } from "./pure"
 
 /** An upstream tool reads only when it says so (`readOnlyHint: true`). */
 export function upstreamAccess(annotations: UpstreamAnnotations | null | undefined): ToolAccess {
