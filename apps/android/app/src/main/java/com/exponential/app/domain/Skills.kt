@@ -23,7 +23,7 @@ object Skills {
     const val FIELD_NAME = "Name"
     const val FIELD_DESCRIPTION = "Description"
     const val FIELD_BODY = "Instructions"
-    const val FIELD_DEFAULT = "On by default"
+    const val FIELD_DEFAULT = "Pre-select in new sessions"
 
     const val PAGE_TEST_ID = "settings-skills-page"
     const val LIST_TEST_ID = "settings-skills-list"

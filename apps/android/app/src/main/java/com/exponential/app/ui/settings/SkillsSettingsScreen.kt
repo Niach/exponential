@@ -60,7 +60,7 @@ import com.exponential.app.ui.theme.glassGroup
 // group of rows built like the MCP server rows (the `ui-docs` glyph, the
 // name + the Default pill, the description as a one-line caption); a row
 // opens the skill's page = the prompt page's layout read-only (name, the
-// description, the SKILL.md body in mono, On by default). No New skill, no
+// description, the SKILL.md body in mono, Pre-select in new sessions). No New skill, no
 // row menu, no Save / Delete: web and desktop own the writes.
 
 @OptIn(ExperimentalMaterial3Api::class)
