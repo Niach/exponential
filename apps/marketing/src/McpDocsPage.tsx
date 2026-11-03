@@ -18,7 +18,7 @@ const SECTIONS: DocsSectionType[] = [
   { id: `your-own-servers`, num: `07`, label: `Your own servers` },
 ]
 
-/* Tool reference — the 21 tools in 7 groups (NEW-4, EXP-1657), mirroring
+/* Tool reference — the 22 tools in 7 groups (NEW-4, EXP-1657, EXP-1663), mirroring
    apps/web/src/lib/emcp/nouns.ts (`NOUN_TOOLS`, `NOUN_GROUPS`): every noun
    takes `op` plus that op's fields; its description lists every op with its
    parameters. */
@@ -59,6 +59,7 @@ const TOOL_GROUPS: {
     tools: [
       { name: `exponential_agents`, desc: `op list, get (a team agent with its triggers, device, owner and instructions; message one with exponential_sessions_send agentId).` },
       { name: `exponential_prompts`, desc: `op list, get, create, update, delete (saved prompts; run one with exponential_sessions_send promptId).` },
+      { name: `exponential_skills`, desc: `op list, get, create, update, delete (the team's skills: SKILL.md instructions a session runs with; owners write).` },
       { name: `exponential_mcp_servers`, desc: `op list, create, delete (the team's MCP servers for coding sessions).` },
     ],
   },
@@ -284,7 +285,7 @@ npx mcp-remote ${LINKS.app.mcp}
           <DocsSection id="tools" num="04" label="Tool reference">
             <h2>Tool reference</h2>
             <p>
-              21 tools in 7 groups, one per noun. Every call carries an <code>op</code>
+              22 tools in 7 groups, one per noun. Every call carries an <code>op</code>
               and that op&apos;s fields beside it, for example{` `}
               <code>exponential_issues {`{op: "get", id: "EXP-42"}`}</code>;
               a tool&apos;s description lists every op with its parameters.
@@ -294,7 +295,7 @@ npx mcp-remote ${LINKS.app.mcp}
               identifier (&quot;EXP-42&quot;) wherever they take a UUID.
             </p>
             <DocsCallout kind="note" title="The same tools for every caller">
-              Every client sees all 21. An op that only makes sense inside an
+              Every client sees all 22. An op that only makes sense inside an
               agent session the launcher started (show, the self ops) or
               on the cloud (report_bug) answers with a message saying so
               instead of hiding.

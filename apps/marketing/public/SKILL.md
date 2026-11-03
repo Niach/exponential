@@ -58,13 +58,13 @@ Two ways in:
 
 ## Tools
 
-21 tools in 7 groups, one per noun, all named `exponential_<noun>`. Every call carries an
+22 tools in 7 groups, one per noun, all named `exponential_<noun>`. Every call carries an
 `op` and that op's fields beside it, e.g. `exponential_issues {op: "get", id:
 "ABC-12"}`; each tool's description (from `tools/list`) lists its ops with
 their parameters, so read it instead of a static list. The groups: **Work**
 (issues, comments, pr, sessions_send, show; always loaded), **Tracker**
 (boards, labels, statuses, attachments), **Team** (teams, people,
-repositories, devices), **Agents** (agents, prompts, mcp_servers),
+repositories, devices), **Agents** (agents, prompts, skills, mcp_servers),
 **Sessions** (sessions, session_self), **Apps** (apps), **Activity** (events,
 notifications).
 
@@ -98,7 +98,8 @@ notifications).
   `invites_list`, `invites_create`, `invites_revoke`), **repositories**
   (`list`, `create`).
 - **agents** (`list`, `get`), **prompts** (`list`, `get`;
-  `create`/`update`/`delete` are owner-only), **mcp_servers** (`list`,
+  `create`/`update`/`delete` are owner-only), **skills** (`list`, `get` by
+  id or name; `create`/`update`/`delete` are owner-only), **mcp_servers** (`list`,
   `create`, `delete`; the team's MCP servers for coding sessions).
 - **apps**: a team's Exponential apps (declarative Exponential UI packages
   rendered in every client): `list`, `get` (the head or a `version`'s

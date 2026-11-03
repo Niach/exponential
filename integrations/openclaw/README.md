@@ -5,7 +5,7 @@ with local coding agents. This plugin connects OpenClaw to Exponential's MCP
 server: issues, boards, labels, statuses, comments, pull requests, sessions
 and team agents, plus a skill that tells the agent how to use them.
 
-With OpenClaw's MCP Apps bridge on, three of the server's 21 tools render
+With OpenClaw's MCP Apps bridge on, three of the server's 22 tools render
 Exponential's own views in the dashboard instead of JSON:
 
 - `exponential_issues` op `show`: the issue list, grouped by status like the

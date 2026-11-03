@@ -35,6 +35,10 @@ import {
   replyInputSchema,
   suggestionInputSchema,
   UUID_RE,
+  SKILL_BODY_MAX,
+  SKILL_DESCRIPTION_MAX,
+  SKILL_NAME_MAX,
+  SKILL_NAME_PATTERN,
 } from "@exp/db-schema/domain"
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import {
@@ -56,6 +60,7 @@ import { db } from "@/db/connection"
 import {
   agents,
   prompts,
+  skills,
   attachments,
   comments,
   events,
@@ -349,6 +354,13 @@ async function getPromptContext(id: string) {
     .where(eq(prompts.id, id))
     .limit(1)
   if (!row) throw new Error(`Prompt not found`)
+  return row
+}
+
+// Skill id → its team, for grant checks (#EXP-1663).
+async function getSkillContext(id: string) {
+  const [row] = await db.select({ teamId: skills.teamId }).from(skills).where(eq(skills.id, id)).limit(1)
+  if (!row) throw new Error(`Skill not found`)
   return row
 }
 
@@ -3805,6 +3817,158 @@ export function registerExponentialTools(
         return ok({ ok: true, id })
       } catch (e) {
         return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
+  // Skills (#EXP-1663: the team's SKILL.md library, fixtures/skills.json)
+  // -----------------------------------------------------------------------
+  // Like prompts: a FULL team grant even for reads (a skill body is executed
+  // instructions), every op through the same tRPC router as Settings › Skills
+  // (members read, owners write; its zod re-validates name, description, body).
+
+  /** The router's owner refusal, in the words an agent can act on. */
+  const ownerOnly = (e: unknown) =>
+    e instanceof TRPCError && e.code === `FORBIDDEN` && e.message.startsWith(`Insufficient role`)
+      ? new Error(`Only team owners can create, edit or delete skills`)
+      : e
+
+  /** The teams a skills read covers: the one named, else every team of the
+   *  caller's this grant fully reaches. */
+  async function skillTeams(teamId: string | undefined): Promise<string[]> {
+    if (teamId) {
+      assertTeamFullyGranted(access, teamId)
+      return [teamId]
+    }
+    return (await getUserTeamIds(user.id)).filter((id) => isTeamFullyGranted(access, id))
+  }
+
+  async function listSkills(teamIds: string[]) {
+    const trpc = caller(user, request)
+    const lists = await Promise.all(teamIds.map((teamId) => trpc.skills.list({ teamId })))
+    return lists.flatMap((list) => list.skills)
+  }
+
+  server.registerTool(
+    `exponential_skills_list`,
+    {
+      annotations: READ_ONLY,
+      description: `List skills (name, description, enabledByDefault; no body) of a team, or of every team you reach. search matches name or description. exponential_skills {op: "get"} reads a body.`,
+      inputSchema: strictInput({ teamId: uuidString.optional(), search: z.string().max(200).optional(), ...pageInput }),
+    },
+    async ({ teamId, search, limit, offset }) => {
+      try {
+        const needle = search?.trim().toLowerCase()
+        const rows = (await listSkills(await skillTeams(teamId))).filter(
+          (skill) =>
+            !needle || skill.name.includes(needle) || skill.description.toLowerCase().includes(needle)
+        )
+        return ok(page(rows, limit, offset))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_skills_get`,
+    {
+      annotations: READ_ONLY,
+      description: `Read one skill, its SKILL.md body included: by UUID, or by name (+ teamId when several of your teams have one).`,
+      inputSchema: strictInput({
+        id: uuidString.optional(),
+        name: z.string().min(1).max(SKILL_NAME_MAX).optional(),
+        teamId: uuidString.optional(),
+      }),
+    },
+    async ({ id, name, teamId }) => {
+      try {
+        let skillId = id
+        if (!skillId) {
+          if (!name) throw new Error(`Pass id, or name (+ teamId)`)
+          const matches = (await listSkills(await skillTeams(teamId))).filter((skill) => skill.name === name)
+          if (matches.length === 0) throw new Error(`Skill not found`)
+          if (matches.length > 1) throw new Error(`Several teams have a skill named "${name}": pass teamId`)
+          skillId = matches[0]!.id
+        } else if (!access.full) {
+          assertTeamFullyGranted(access, (await getSkillContext(skillId)).teamId)
+        }
+        const result = await caller(user, request).skills.get({ id: skillId })
+        return ok(result.skill)
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  const skillName = z.string().min(1).max(SKILL_NAME_MAX).regex(SKILL_NAME_PATTERN, `Use lowercase letters, numbers and hyphens`)
+  const skillDescription = z.string().min(1).max(SKILL_DESCRIPTION_MAX)
+  const skillBody = z.string().min(1).max(SKILL_BODY_MAX)
+
+  server.registerTool(
+    `exponential_skills_create`,
+    {
+      description: `Create a skill in a team (owners only): name ([a-z0-9-], unique), description (what makes an agent load it), markdown body (≤ 64 KB), enabledByDefault.`,
+      inputSchema: strictInput({
+        teamId: uuidString,
+        name: skillName,
+        description: skillDescription,
+        body: skillBody,
+        enabledByDefault: z.boolean().optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        assertTeamFullyGranted(access, input.teamId)
+        const result = await caller(user, request).skills.create(input)
+        return ok(result.skill)
+      } catch (e) {
+        return err(ownerOnly(e))
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_skills_update`,
+    {
+      description: `Update a skill's name, description, body or enabledByDefault (by its UUID; owners only). Returns the updated skill.`,
+      inputSchema: strictInput({
+        id: uuidString,
+        name: skillName.optional(),
+        description: skillDescription.optional(),
+        body: skillBody.optional(),
+        enabledByDefault: z.boolean().optional(),
+      }),
+    },
+    async (input) => {
+      try {
+        if (!access.full) {
+          assertTeamFullyGranted(access, (await getSkillContext(input.id)).teamId)
+        }
+        const result = await caller(user, request).skills.update(input)
+        return ok(result.skill)
+      } catch (e) {
+        return err(ownerOnly(e))
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_skills_delete`,
+    {
+      description: `Delete a skill (by its UUID; owners only). Sessions that picked it run without it from their next start.`,
+      inputSchema: strictInput({ id: uuidString }),
+    },
+    async ({ id }) => {
+      try {
+        if (!access.full) {
+          assertTeamFullyGranted(access, (await getSkillContext(id)).teamId)
+        }
+        await caller(user, request).skills.delete({ id })
+        return ok({ ok: true, id })
+      } catch (e) {
+        return err(ownerOnly(e))
       }
     }
   )

@@ -15,7 +15,7 @@ const methodNotAllowed = () =>
   )
 
 // #EXP-1491: the gate (lib/emcp/gate.ts) authenticates, confines, serves
-// and audits; Exponential's 21 tools are its tool provider.
+// and audits; Exponential's 22 tools are its tool provider.
 export const Route = createFileRoute(`/api/mcp`)({
   server: {
     handlers: {

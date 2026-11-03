@@ -7,7 +7,7 @@ import type { McpUser } from "./server"
 import type { McpAccess } from "./scope"
 import { err } from "./helpers"
 
-// NEW-4 (plan 3.11): the MCP surface is 21 tools, the SAME set for every
+// NEW-4 (plan 3.11): the MCP surface is 22 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
 // that op's parameters flat beside it (`{op: "get", id: "EXP-42"}`); two
 // verbs stay whole (`sessions_send`, S-3's `show`). EXP-1657 split the old
@@ -62,11 +62,11 @@ export interface NounSpec {
 const PREFIX = `exponential_`
 
 /** EXP-1657: the groups the tools sit in, in order (`contract.expToolDisplay.groups`:
- *  Settings › MCP lists one band per group ×4). `skills` joins `agents` later. */
+ *  Settings › MCP lists one band per group ×4). */
 export const NOUN_GROUPS = [`work`, `tracker`, `team`, `agents`, `sessions`, `apps`, `activity`] as const
 export type NounGroup = (typeof NOUN_GROUPS)[number]
 
-/** The 21. Order = the order the tools list = the group order. */
+/** The 22. Order = the order the tools list = the group order. */
 export const NOUN_TOOLS: readonly NounSpec[] = [
   // ── Work (always loaded) ──
   {
@@ -196,7 +196,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     blurb: `Devices (machines running sessions): list, account_login (sign a device's agent login in).`,
     ops: { list: `devices_list`, account_login: `devices_account_login` },
   },
-  // ── Agents (EXP-1663: skills joins here) ──
+  // ── Agents (EXP-1663: + skills) ──
   {
     name: `agents`,
     group: `agents`,
@@ -213,6 +213,18 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
       create: `prompts_create`,
       update: `prompts_update`,
       delete: `prompts_delete`,
+    },
+  },
+  {
+    name: `skills`,
+    group: `agents`,
+    blurb: `A team's skills (SKILL.md instructions a session can run with): list, get (by id or name), create, update, delete (owners write).`,
+    ops: {
+      list: `skills_list`,
+      get: `skills_get`,
+      create: `skills_create`,
+      update: `skills_update`,
+      delete: `skills_delete`,
     },
   },
   {
@@ -460,7 +472,7 @@ function unknownOp(spec: NounSpec, op: string, ops: readonly string[]): string {
   return `Unknown op "${op}" for ${spec.name}; one of ${ops.join(`, `)}.`
 }
 
-/** Registers the 21 on the server for this caller. */
+/** Registers the 22 on the server for this caller. */
 export function registerNounTools(
   server: McpServer,
   user: McpUser,
