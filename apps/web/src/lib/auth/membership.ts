@@ -333,6 +333,8 @@ export async function getSessionAttachmentTeamContext(attachmentId: string) {
       messageId: attachments.messageId,
       messageShared: messages.shared,
       messageOwnerId: messages.ownerId,
+      // VAPP-221: an app's record file (its app's access applies).
+      appId: attachments.appId,
     })
     .from(attachments)
     .leftJoin(messages, eq(messages.id, attachments.messageId))

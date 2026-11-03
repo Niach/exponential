@@ -46,6 +46,8 @@ describe(`isOrphanSessionAttachmentPurgeDue`, () => {
     expect(isOrphanSessionAttachmentPurgeDue({ ...orphan, messageId: `m` }, false, now)).toBe(false)
     expect(isOrphanSessionAttachmentPurgeDue({ ...orphan, issueId: `i` }, false, now)).toBe(false)
     expect(isOrphanSessionAttachmentPurgeDue({ ...orphan, draftId: `d` }, false, now)).toBe(false)
+    // VAPP-221: an app's record file is the app-file sweep's.
+    expect(isOrphanSessionAttachmentPurgeDue({ ...orphan, appId: `a` }, false, now)).toBe(false)
   })
 })
 
@@ -68,13 +70,16 @@ describe(`reclaimOrphanSessionAttachmentsInTx`, () => {
 describe(`runSessionAttachmentSweep`, () => {
   // NEW-43: `sessions.handoff` is gone (NEW-1); the sweep is the attachment
   // reclaim alone and never touches the sessions table's dropped columns.
-  it(`runs the attachment reclaim only, with no handoff statement`, async () => {
+  // VAPP-221: plus the app-file reclaim (rows no record of their app names).
+  it(`runs the orphan and app-file reclaims, with no handoff statement`, async () => {
     mocks.statements.length = 0
     const result = await runSessionAttachmentSweep(now)
-    expect(result).toEqual({ attachmentsDeleted: 1, objectsDeleted: 1 })
-    expect(mocks.statements).toHaveLength(1)
+    expect(result).toEqual({ attachmentsDeleted: 2, objectsDeleted: 2 })
+    expect(mocks.statements).toHaveLength(2)
     expect(mocks.statements[0]).toContain(`DELETE FROM attachments`)
-    expect(mocks.statements[0]).not.toMatch(/handoff/)
-    expect(mocks.deleteStorageObjectsViaBun).toHaveBeenCalledWith([`orphan`])
+    expect(mocks.statements[0]).toContain(`a.app_id IS NULL`)
+    expect(mocks.statements[1]).toContain(`regexp_matches(r.data::text`)
+    expect(mocks.statements.join()).not.toMatch(/handoff/)
+    expect(mocks.deleteStorageObjectsViaBun).toHaveBeenCalledWith([`orphan`, `orphan`])
   })
 })

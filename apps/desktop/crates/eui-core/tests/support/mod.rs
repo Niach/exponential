@@ -189,6 +189,11 @@ pub fn router_cases() -> Vec<Case> {
         let got = validate_record(schema, &c["data"]);
         out.push((format!("records: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
     }
+    for c in list(&f, "attachments") {
+        let schema = &packages[c["package"].as_str().unwrap()]["records"][c["kind"].as_str().unwrap()]["schema"];
+        let got = eui_core::host::record_attachment_ids(schema, &c["data"]);
+        out.push((format!("attachments: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
+    }
     for flow in list(&f, "flows") {
         let name = flow["name"].as_str().unwrap();
         let ext: Vec<String> = flow.get("extensionIds").map(|e| serde_json::from_value(e.clone()).unwrap()).unwrap_or_default();

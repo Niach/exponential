@@ -93,6 +93,32 @@ synced rows, so a private kind never reaches another member's device);
 the refusal texts are the fixture's `copy`. Field-level privacy is out: use
 a separate kind with `read: owners`.
 
+**Files** (eApps R7, VAPP-221; `fixtures/host-router.json` `acme.files` and
+`attachments`): `format: "attachment"` on a string field holds one file, on a
+list's string `items` a list of files:
+
+```jsonc
+"properties": {
+  "receipt": { "type": "string", "format": "attachment" },
+  "photos": { "type": "array", "items": { "type": "string", "format": "attachment" }, "maxLength": 5 }
+}
+```
+
+The value is the host's attachment route, relative, nothing else:
+`/api/attachments/<lowercase uuid>`. A `FileUpload` gets it: bind its `files`
+to a path (`{"path": "/draft/files"}`), and the app host uploads the picked
+bytes and writes each file's `url` into the entry of the same `name` there.
+An action step then stores the urls (`data` = the surface data at the
+press): `"receipt": "orElse(data.draft.files[0].url, null)"`, `"photos":
+"orElse(data.draft.files, []).map(f, f.url)"`. Show a
+file with `Image` (`src` = the field), a `Link`, or a `FileUpload`'s list.
+Exponential checks every referenced file belongs to the record's own app
+and team (`attachments must be files uploaded to this app`), serves it to
+the team's members with access to the app, and reclaims a file no record
+of the app references any more (a trashed record still does, until the
+trash purge) after a week. `recordAttachmentIds(schema, data)` lists the
+ids a record references.
+
 **Computed fields** (eApps Q3, VAPP-214; `fixtures/records-query.json`
 VAPP-214 cases, `fixtures/expressions.json` `packages`): fields evaluated on
 read by the expression evaluator (below), never stored, so they never go stale:
@@ -330,7 +356,7 @@ literal, from a records binding the path lies under (`records:<kind>`:
 `{rows: [row], count, sum, groups, totals, before,
 month}`, a row = the kind's schema fields + `id createdAt updatedAt
 createdBy authorId author`; `format: date` = a date, `date-time` = a
-timestamp), or from the template `data`; anything else is open. An issue
+timestamp, `attachment` = a string), or from the template `data`; anything else is open. An issue
 names the expression's JSON pointer and the reason, e.g.
 `/templates/month/components/3/props/text/args/expr: unknown field hourz`.
 `fixtures/expressions.json` locks the language, the checker, the A2UI form

@@ -912,9 +912,22 @@ export const attachments = pgTable(
     // Files even when its type would inline (an image picked as a file); the
     // unreferenced-image sweep exempts it. Image button / paste / drop = false.
     asFile: boolean(`as_file`).notNull().default(false),
+    // VAPP-221 (eApps R7): uploaded for this app's records (`POST
+    // /api/apps/{id}/files`). No other owner: a record references it by
+    // `/api/attachments/{id}` in an `attachment` field, and the records
+    // service accepts only refs to rows of the record's own app and team.
+    // The app-file sweep reclaims a row no record of its app references
+    // (a trashed record still does, until the trash purge). `set null` on
+    // the app's deletion hands it to the orphan sweep. Never synced.
+    appId: uuid(`app_id`).references((): AnyPgColumn => apps.id, {
+      onDelete: `set null`,
+    }),
     ...timestamps,
   },
   (table) => [
+    index(`idx_attachments_app`)
+      .on(table.appId)
+      .where(sql`app_id IS NOT NULL`),
     check(
       `attachments_owner_check`,
       sql`num_nonnulls(issue_id, draft_id, message_id) <= 1`

@@ -177,7 +177,7 @@ Needs: C2, C13.
 | C17b | Device-routed upstreams (stdio, LAN-only) | ❌ | 🆕 M2 |
 | C18 | Schedules and record/event triggers | ❌ (agents only: `agentTrigger`) | 🆕 A1 |
 | C19 | Agent hand-off (`run.agent`) | ❌ | 🆕 A2 |
-| C20 | Files on records | ❌ (attachments live on issues only) | 🆕 R7 |
+| C20 | Files on records | ✅ R7 (#VAPP-221) | `format: "attachment"` fields, `POST /api/apps/{id}/files` |
 | C21 | Public / guest links (submit-only form, read-only view) | ❌ (#VAPP-24 cancelled, #YO-27 parked) | 🆕 P1 |
 | C22 | Inbound webhooks | ❌ | 🆕 A3 |
 | C23 | Run-as identity for unattended runs | ❌ | 🆕 A1 |
@@ -280,7 +280,7 @@ Schemas are flat JSON Schema:
 
 A per-member view groups by `author`, not `created_by`. That way a backfill an owner does for another member still counts as that member's records.
 
-### 3.3 Richer schemas (🆕 R5/R6/R7)
+### 3.3 Richer schemas (🆕 R5/R6, ✅ R7)
 
 - **refs:**
   - `{"customer": {"ref": "company"}}` points to a record of the same app.
@@ -288,7 +288,11 @@ A per-member view groups by `author`, not `created_by`. That way a backfill an o
   - `{"ref": "member"}` stores a user id.
   - Refs are validated on write (the target exists in the same app or team) and resolved by queries (`expand`). Cross-app refs are not allowed.
 - **transitions:** `{"field": "status", "from": {"requested": ["approved", "rejected"]}, "who": {"approved": "role:approver"}}`, enforced on the server.
-- **files:** `{"format": "attachment"}` stores attachment ids. Uploads reuse the attachments pipeline, owned by the app and team, and purged with the record.
+- **files** ✅ (R7, #VAPP-221): `{"type": "string", "format": "attachment"}` holds one file, a list of strings with `"items": {"type": "string", "format": "attachment"}` several. The value is `/api/attachments/<id>` (relative, lowercase uuid; eUI `validateRecord` ×2 twins, `host-router.json` `acme.files`).
+  - **Upload:** a `FileUpload` whose `files` is bound; the app host posts each picked file to `POST /api/apps/{appId}/files` (write access to the app; the attachments pipeline: caps, the team's storage budget) and writes the returned `url` into the entry of the same name at the bound path. An action stores the urls in the record.
+  - **The row** is the app's (`attachments.app_id`, no other owner, never synced). The bytes route serves it to team members whose access to the app is not `none`; the app hosts' media rule (`appMediaAllowed`) loads it in `Image`.
+  - **On write** the records service checks that every referenced file is a row of the record's own app and team (`attachments must be files uploaded to this app`), before the `eapps` role.
+  - **Purge:** the attachment sweep reclaims an app file that no record of its app references, past the week-long orphan grace. A trashed record still references its files, so they live until the trash purge (30 days) drops the record. An app's hard delete hands its files to the orphan sweep.
 - **Nesting stays out.** Nested objects make every client's derivation harder. Use a second kind plus a ref.
 
 ### 3.4 Permissions
@@ -777,7 +781,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 - **U1** `screens` + `navigate` + deep links + phone bar + the `formFactor` condition. (C8, C27)
 - **U2** `RecordForm` and `RecordTable` macros: styleguide entry ×5 sites, eUI catalog, prompt budget trimmed to fit. (C9)
-- **R5** Refs + `expand`. **R6** Transitions. **R7** Files on records. (C3, C10, C20)
+- **R5** Refs + `expand`. **R6** Transitions. **R7** ✅ #VAPP-221 Files on records. (C3, C10, C20)
 - **V1** ✅ #VAPP-210 / #VAPP-211 Draft vs published (`published_version`, Publish, tools and automations on published). (§2.3)
 - **R8** Declarative migrations + the sweep. (§3.6)
 

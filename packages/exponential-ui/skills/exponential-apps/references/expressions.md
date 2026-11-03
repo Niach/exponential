@@ -105,7 +105,7 @@ literal, from a records binding the path lies under (`records:<kind>`:
 `{rows: [row], count, sum, groups, totals, before,
 month}`, a row = the kind's schema fields + `id createdAt updatedAt
 createdBy authorId author`; `format: date` = a date, `date-time` = a
-timestamp), or from the template `data`; anything else is open. An issue
+timestamp, `attachment` = a string), or from the template `data`; anything else is open. An issue
 names the expression's JSON pointer and the reason, e.g.
 `/templates/month/components/3/props/text/args/expr: unknown field hourz`.
 `fixtures/expressions.json` locks the language, the checker, the A2UI form

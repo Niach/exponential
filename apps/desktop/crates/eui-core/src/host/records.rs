@@ -18,7 +18,16 @@ pub fn is_record_kind(name: &str) -> bool {
 pub const RECORD_RESERVED_KEYS: &[&str] = &["id", "createdAt", "updatedAt", "createdBy", "authorId", "author"];
 pub const RECORD_FIELD_TYPES: &[&str] = &["string", "number", "integer", "boolean", "array"];
 pub const RECORD_ITEM_TYPES: &[&str] = &["string", "number", "integer", "boolean"];
-pub const RECORD_FORMATS: &[&str] = &["date", "date-time", "time"];
+pub const RECORD_FORMATS: &[&str] = &["date", "date-time", "time", "attachment"];
+
+/// eApps R7 (VAPP-221): the id of an `attachment` value
+/// (`^/api/attachments/<lowercase uuid>$`), else `None`.
+pub fn record_attachment_id(s: &str) -> Option<&str> {
+    let id = s.strip_prefix("/api/attachments/")?;
+    let b = id.as_bytes();
+    let ok = b.len() == 36 && b.iter().enumerate().all(|(i, c)| if matches!(i, 8 | 13 | 18 | 23) { *c == b'-' } else { c.is_ascii_digit() || (b'a'..=b'f').contains(c) });
+    ok.then_some(id)
+}
 
 fn issue(path: impl Into<String>, message: impl Into<String>) -> PackageIssue {
     PackageIssue { path: path.into(), message: message.into() }
@@ -65,6 +74,11 @@ pub fn validate_record_schema(schema: &Value, at: &str) -> Vec<PackageIssue> {
                     if let Some(e) = items.get("enum") {
                         if !non_empty_string_list(e) || items["type"].as_str() != Some("string") {
                             issues.push(issue(format!("{fp}/items/enum"), "enum is a non-empty list of strings on a string item"));
+                        }
+                    }
+                    if let Some(f) = items.get("format") {
+                        if !f.as_str().is_some_and(|f| RECORD_FORMATS.contains(&f)) || items["type"].as_str() != Some("string") {
+                            issues.push(issue(format!("{fp}/items/format"), format!("format is {} on a string item", RECORD_FORMATS.join("|"))));
                         }
                     }
                 }
@@ -170,6 +184,7 @@ fn check_scalar(ty: &str, value: &Value, at: &str, field: &serde_json::Map<Strin
                 Some("date") if !is_date(s) => issues.push(issue(at, "a date (YYYY-MM-DD)")),
                 Some("date-time") if !is_date_time(s) => issues.push(issue(at, "a date-time (ISO 8601)")),
                 Some("time") if !is_time(s) => issues.push(issue(at, "a time (HH:MM)")),
+                Some("attachment") if record_attachment_id(s).is_none() => issues.push(issue(at, "an attachment (/api/attachments/<id>)")),
                 _ => {}
             }
             issues
@@ -241,6 +256,9 @@ pub fn validate_record(schema: &Value, data: &Value) -> Vec<PackageIssue> {
             if let Some(e) = items.get("enum") {
                 item_field.insert("enum".into(), e.clone());
             }
+            if let Some(f) = items.get("format") {
+                item_field.insert("format".into(), f.clone());
+            }
             for (i, item) in list.iter().enumerate() {
                 issues.extend(check_scalar(item_type, item, &format!("/{name}/{i}"), &item_field));
             }
@@ -258,4 +276,43 @@ pub fn validate_record(schema: &Value, data: &Value) -> Vec<PackageIssue> {
         }
     }
     issues
+}
+
+fn is_attachment_field(field: &Value) -> bool {
+    match field.get("type").and_then(Value::as_str) {
+        Some("array") => field.get("items").is_some_and(|i| i.get("type").and_then(Value::as_str) == Some("string") && i.get("format").and_then(Value::as_str) == Some("attachment")),
+        Some("string") => field.get("format").and_then(Value::as_str) == Some("attachment"),
+        _ => false,
+    }
+}
+
+/// eApps R7 (VAPP-221): the attachment fields of a schema, sorted.
+pub fn record_attachment_fields(schema: &Value) -> Vec<String> {
+    let mut names: Vec<String> = schema.get("properties").and_then(Value::as_object).into_iter().flat_map(|p| p.iter().filter(|(_, f)| is_attachment_field(f)).map(|(n, _)| n.clone())).collect();
+    names.sort();
+    names
+}
+
+/// eApps R7 (VAPP-221): the attachment ids `data` references through the
+/// schema's `attachment` fields, fields sorted, each id once in the order
+/// first met; non-refs are skipped (`validate_record` names them).
+pub fn record_attachment_ids(schema: &Value, data: &Value) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    let Some(data) = data.as_object() else { return ids };
+    let mut take = |v: &Value| {
+        if let Some(id) = v.as_str().and_then(record_attachment_id) {
+            if !ids.iter().any(|x| x == id) {
+                ids.push(id.to_string());
+            }
+        }
+    };
+    for name in record_attachment_fields(schema) {
+        let list_field = schema["properties"][&name]["type"].as_str() == Some("array");
+        match data.get(&name) {
+            Some(Value::Array(list)) if list_field => list.iter().for_each(&mut take),
+            Some(v) if !list_field => take(v),
+            _ => {}
+        }
+    }
+    ids
 }

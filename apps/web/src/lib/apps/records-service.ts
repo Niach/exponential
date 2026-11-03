@@ -29,6 +29,7 @@ import { assertTeamMember } from "@/lib/auth/membership"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { packageBytes, recordKindSchema } from "@/lib/apps/package"
 import { generateTxId } from "@/lib/trpc"
+import { assertRecordAttachments } from "@/lib/apps/app-files"
 import { PLAN_LIMITS } from "@/lib/plan-limits"
 import type { Db, Tx } from "@/lib/sessions/tx"
 
@@ -301,6 +302,8 @@ export async function upsertRecord(
   const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
   return await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
+    // VAPP-221: files only from this app (reads `attachments`: before the role).
+    await assertRecordAttachments(tx, app, schemas.map((schema) => ({ schema, data: input.data })))
     if (input.recordId) {
       const recordId = input.recordId
       return asEapps(tx, scope, async (tx) => {
@@ -420,6 +423,7 @@ export async function commitRecordBatch(
   const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
   return await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
+    await assertRecordAttachments(tx, app, writes.flatMap((w, i) => (w.op === `upsert` ? schemas[i]!.map((schema) => ({ schema, data: w.data })) : [])))
     if (creates > 0) await lockAndCheckQuota(tx, app.teamId, creates)
     return asEapps(tx, scope, async (tx) => {
       const ids: string[] = []
@@ -763,6 +767,7 @@ export async function importRecords(
   if (records.length === 0) return
   // eApps R3: the importer creates every record (a new app: no access row yet).
   for (const kind of new Set(records.map((r) => r.kind))) assertRecordOp(app, kind, `create`, { id: userId, role })
+  await assertRecordAttachments(tx, app, records.flatMap((r) => kindSchemas(app, r.kind).map((schema) => ({ schema, data: r.data }))))
   await lockAndCheckQuota(tx, app.teamId, records.length)
   await asEapps(tx, { teamId: app.teamId, appIds: [app.id], write: true }, async (tx) => {
     const rows = await tx

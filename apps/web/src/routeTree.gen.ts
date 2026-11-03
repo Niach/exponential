@@ -131,6 +131,7 @@ import { Route as ApiSessionsSessionIdFilesRouteImport } from './routes/api/sess
 import { Route as ApiIssuesIssueIdFilesRouteImport } from './routes/api/issues/$issueId/files'
 import { Route as ApiIssueDraftsDraftIdFilesRouteImport } from './routes/api/issue-drafts/$draftId/files'
 import { Route as ApiCliInstallTokenRedeemRouteImport } from './routes/api/cli/install-token/redeem'
+import { Route as ApiAppsAppIdFilesRouteImport } from './routes/api/apps/$appId/files'
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
 import { Route as AuthenticatedAdminTeamsTeamIdRouteImport } from './routes/_authenticated/admin/teams_.$teamId'
 import { Route as TTeamSlugSettingsSkillsIndexRouteImport } from './routes/t/$teamSlug/settings/skills/index'
@@ -793,6 +794,11 @@ const ApiCliInstallTokenRedeemRoute =
     path: '/api/cli/install-token/redeem',
     getParentRoute: () => rootRouteImport,
   } as any)
+const ApiAppsAppIdFilesRoute = ApiAppsAppIdFilesRouteImport.update({
+  id: '/api/apps/$appId/files',
+  path: '/api/apps/$appId/files',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AuthenticatedAdminUsersUserIdRoute =
   AuthenticatedAdminUsersUserIdRouteImport.update({
     id: '/users_/$userId',
@@ -1006,6 +1012,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
@@ -1146,6 +1153,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug': typeof TTeamSlugIndexRoute
   '/admin/teams/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/admin/users/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
@@ -1291,6 +1299,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/': typeof TTeamSlugIndexRoute
   '/_authenticated/admin/teams_/$teamId': typeof AuthenticatedAdminTeamsTeamIdRoute
   '/_authenticated/admin/users_/$userId': typeof AuthenticatedAdminUsersUserIdRoute
+  '/api/apps/$appId/files': typeof ApiAppsAppIdFilesRoute
   '/api/cli/install-token/redeem': typeof ApiCliInstallTokenRedeemRoute
   '/api/issue-drafts/$draftId/files': typeof ApiIssueDraftsDraftIdFilesRoute
   '/api/issues/$issueId/files': typeof ApiIssuesIssueIdFilesRoute
@@ -1436,6 +1445,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
+    | '/api/apps/$appId/files'
     | '/api/cli/install-token/redeem'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
@@ -1576,6 +1586,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug'
     | '/admin/teams/$teamId'
     | '/admin/users/$userId'
+    | '/api/apps/$appId/files'
     | '/api/cli/install-token/redeem'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
@@ -1720,6 +1731,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/'
     | '/_authenticated/admin/teams_/$teamId'
     | '/_authenticated/admin/users_/$userId'
+    | '/api/apps/$appId/files'
     | '/api/cli/install-token/redeem'
     | '/api/issue-drafts/$draftId/files'
     | '/api/issues/$issueId/files'
@@ -1848,6 +1860,7 @@ export interface RootRouteChildren {
   ApiWebhooksSesRoute: typeof ApiWebhooksSesRoute
   ApiWidgetConfigRoute: typeof ApiWidgetConfigRoute
   ApiWidgetSubmitRoute: typeof ApiWidgetSubmitRoute
+  ApiAppsAppIdFilesRoute: typeof ApiAppsAppIdFilesRoute
   ApiCliInstallTokenRedeemRoute: typeof ApiCliInstallTokenRedeemRoute
   ApiIssueDraftsDraftIdFilesRoute: typeof ApiIssueDraftsDraftIdFilesRoute
   ApiIssuesIssueIdFilesRoute: typeof ApiIssuesIssueIdFilesRoute
@@ -2712,6 +2725,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiCliInstallTokenRedeemRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/apps/$appId/files': {
+      id: '/api/apps/$appId/files'
+      path: '/api/apps/$appId/files'
+      fullPath: '/api/apps/$appId/files'
+      preLoaderRoute: typeof ApiAppsAppIdFilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_authenticated/admin/users_/$userId': {
       id: '/_authenticated/admin/users_/$userId'
       path: '/users/$userId'
@@ -3105,6 +3125,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiWebhooksSesRoute: ApiWebhooksSesRoute,
   ApiWidgetConfigRoute: ApiWidgetConfigRoute,
   ApiWidgetSubmitRoute: ApiWidgetSubmitRoute,
+  ApiAppsAppIdFilesRoute: ApiAppsAppIdFilesRoute,
   ApiCliInstallTokenRedeemRoute: ApiCliInstallTokenRedeemRoute,
   ApiIssueDraftsDraftIdFilesRoute: ApiIssueDraftsDraftIdFilesRoute,
   ApiIssuesIssueIdFilesRoute: ApiIssuesIssueIdFilesRoute,
@@ -3116,6 +3137,7 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
 
 import type { getRouter } from './router.tsx'
 import type { startInstance } from './start.tsx'
