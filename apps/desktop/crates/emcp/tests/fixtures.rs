@@ -365,6 +365,7 @@ fn every_case_list_is_replayed() {
         (fixture::audit(), &["canonicalCases", "hashCases", "statusCases", "retentionCases"]),
         (fixture::access(), &["grantCases", "policyCases", "accessCases", "visibleCases"]),
         (fixture::upstream(), &["flowCases", "callableCases", "missingCases"]),
+        (fixture::automations(), &["validateCases", "tooManyCase", "matchCases", "sponsorCases", "rateCases", "resolveCases", "auditCases"]),
         (
             fixture::exposes(),
             &[
@@ -490,5 +491,104 @@ fn hub_created_at_cases() {
         let ms = case["ms"].as_i64().unwrap();
         assert_eq!(hub::format_utc_ms(ms), s(&case["expected"]));
         assert_eq!(audit::parse_utc_ms(s(&case["expected"])), Some(ms));
+    }
+}
+
+// ---------------------------------------------------------------- automations (#VAPP-220)
+
+use emcp::contract::automations::{self, FiredBy, Sponsor, SponsorMember};
+
+fn automation_errors(value: &Value) -> Vec<ExposeError> {
+    let codes = fixture::automations()["errors"].as_array().unwrap();
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|error| {
+            let code = codes.iter().find(|code| **code == error["code"]).unwrap_or_else(|| panic!("unlisted {error}"));
+            ExposeError { index: error["index"].as_u64().map(|i| i as usize), code: leak(s(code)) }
+        })
+        .collect()
+}
+
+#[test]
+fn automations_constants_match() {
+    let f = fixture::automations();
+    let limits = &f["limits"];
+    assert_eq!(limits["nameMax"], automations::NAME_MAX);
+    assert_eq!(limits["maxAutomations"], automations::MAX_AUTOMATIONS);
+    assert_eq!(limits["minScheduleGapMinutes"], automations::MIN_SCHEDULE_GAP_MINUTES);
+    assert_eq!(limits["eventMax"], automations::EVENT_MAX);
+    assert_eq!(limits["runsPerMinute"], automations::RUNS_PER_MINUTE);
+    assert_eq!(limits["clientPrefix"], automations::CLIENT_PREFIX);
+    assert_eq!(strings(&f["triggerKinds"]), automations::TRIGGER_KINDS);
+    assert_eq!(strings(&f["recordTriggerOps"]), automations::RECORD_TRIGGER_OPS);
+}
+
+#[test]
+fn automations_validate_cases() {
+    let f = fixture::automations();
+    for case in f["validateCases"].as_array().unwrap() {
+        let got = automations::validate_automations(&case["automations"], &context(&case["context"]));
+        assert_eq!(got, automation_errors(&case["expected"]), "{}", case["name"]);
+    }
+    let one = &f["validateCases"][0]["automations"][0];
+    let count = f["tooManyCase"]["count"].as_u64().unwrap() as usize;
+    let many: Vec<Value> = (0..count)
+        .map(|i| {
+            let mut item = one.clone();
+            item["name"] = format!("a{i}").into();
+            item
+        })
+        .collect();
+    let ctx = ExposeContext { kinds: vec!["rotation".into()], upstreams: vec![] };
+    assert_eq!(automations::validate_automations(&Value::Array(many), &ctx), automation_errors(&f["tooManyCase"]["expected"]));
+}
+
+#[test]
+fn automations_match_cases() {
+    for case in fixture::automations()["matchCases"].as_array().unwrap() {
+        let trigger = &case["trigger"];
+        let fired = if trigger.get("record").is_some() {
+            FiredBy::Record { kind: s(&trigger["record"]["kind"]), op: s(&trigger["record"]["op"]) }
+        } else {
+            FiredBy::Event(s(&trigger["event"]))
+        };
+        let got = automations::match_automations(&case["automations"], &fired, case["fromAutomation"] == true);
+        assert_eq!(got, strings(&case["expected"]), "{}", case["name"]);
+    }
+}
+
+#[test]
+fn automations_sponsor_cases() {
+    for case in fixture::automations()["sponsorCases"].as_array().unwrap() {
+        let input = &case["input"];
+        let members: Vec<SponsorMember> = input["members"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|m| SponsorMember { id: s(&m["id"]).into(), email: s(&m["email"]).into(), role: s(&m["role"]).into(), level: s(&m["level"]).into() })
+            .collect();
+        let got = automations::resolve_sponsor(opt_str(&input["declared"]), opt_str(&input["publishedBy"]), &members);
+        let expected = match case["expected"]["userId"].as_str() {
+            Some(id) => Sponsor::User(id.into()),
+            None => Sponsor::Paused(leak(s(&case["expected"]["paused"]))),
+        };
+        assert_eq!(got, expected, "{}", case["name"]);
+    }
+}
+
+#[test]
+fn automations_rate_resolve_and_audit_cases() {
+    let f = fixture::automations();
+    for case in f["rateCases"].as_array().unwrap() {
+        assert_eq!(automations::rate_allows(case["runsLastMinute"].as_u64().unwrap() as u32), case["allowed"] == true, "{case}");
+    }
+    for case in f["resolveCases"].as_array().unwrap() {
+        assert_eq!(automations::resolve_automation_run(&case["run"], &case["input"]), case["expected"], "{}", case["name"]);
+    }
+    for case in f["auditCases"].as_array().unwrap() {
+        assert_eq!(automations::automation_client_id(s(&case["name"])), s(&case["clientId"]));
+        assert_eq!(automations::automation_tool(&case["run"]), s(&case["tool"]));
     }
 }
