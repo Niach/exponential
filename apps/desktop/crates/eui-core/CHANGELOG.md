@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.7.1 (2026-11-03)
+
+- No changes of its own; released with the SDK (#1742's specimen look parity and #1744's neutral example names).
+
 ## 0.7.0 (2026-11-03)
 
 - **Breaking** (hence the minor): eApps packages are `formatVersion: 3`, and a record kind may carry a per-kind `policy` (`read`/`create`/`update`/`delete`: `member | author | owners`); a version-2 package is migrated to 3 on the server, and hosts refuse newer formats.

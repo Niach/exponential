@@ -1,0 +1,17 @@
+---
+/* One picture on a product page: a shot from the store or a file under
+   public/ (the eApps mocks), framed like PlatformShots' figures. */
+interface Props {
+  src: string
+  alt: string
+  width: number
+  height: number
+  /** Narrow pictures (phones, dialogs) stay this wide at most. */
+  max?: string
+}
+const { src, alt, width, height, max } = Astro.props
+---
+
+<figure class="exp-figure lib-figure" style={max ? `max-width:${max}` : undefined}>
+  <img src={src} alt={alt} width={width} height={height} loading="lazy" decoding="async" />
+</figure>

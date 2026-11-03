@@ -1,1 +1,24 @@
 /* Styles of the docs area (one file per area; shared tokens live in theme.css). */
+
+/* Reference tables (MCP ops, CLI commands): wrap long parameter lists and
+   keep code from forcing a horizontal scroll. */
+.sl-markdown-content table code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.sl-markdown-content table td:first-child code {
+  white-space: nowrap;
+}
+
+/* Changelog dates sit under their title. */
+.sl-markdown-content h3 + p > small:only-child {
+  color: var(--sl-color-gray-3);
+}
+
+/* A single web or desktop capture gets the column's full width (the
+   shared 18rem-per-column cap suits phones). */
+/* MCP op signatures (`list{a, b?, …}`) wrap inside their bullet. */
+.sl-markdown-content li > code:first-child {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}

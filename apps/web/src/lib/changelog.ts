@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-sessions-start-fast`,
+    date: `2026-11-03`,
+    title: `Sessions start fast again`,
+    summary: `Fresh sessions start in seconds, a login stuck behind a wall no longer holds a launch, and sealed messages open as soon as the key holder starts.`,
+    body: `- **Fast starts**: a fresh session starts in seconds again instead of waiting on a 3-minute git stall.
+- **Stuck logins**: a login that needs you to act no longer holds up a launch, and a start that dies or hangs says so.
+- **Sealed messages**: sealed messages open as soon as the device holding the key starts.`,
+  },
+  {
     id: `2026-11-03-app-buttons-work-on-desktop`,
     date: `2026-11-03`,
     title: `App buttons work on desktop`,

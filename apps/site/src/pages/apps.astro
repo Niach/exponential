@@ -1,0 +1,70 @@
+---
+/* eApps' product page: one package, painted by eUI on every platform.
+   Facts: docs/spec/apps.md (its mocks are public/eapps/*.webp, sources in
+   apps/marketing/scripts/eapps-mocks/). What the spec marks 🆕/❌ (triggers,
+   the agent executor) stays off this page until it ships. The docs:
+   /docs/eapps/. */
+import { Code } from "@astrojs/starlight/components"
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import Diagram from "../components/libraries/Diagram.astro"
+import Figure from "../components/libraries/Figure.astro"
+import { APPS_EXECUTORS, APPS_FLOW, APPS_PARTS } from "../components/libraries/trees.ts"
+import PlatformShots from "../components/PlatformShots.astro"
+import "../styles/libraries-other.css"
+
+/* Hours, trimmed to what reads at a glance. */
+const PACKAGE = `{
+  "formatVersion": 3,
+  "id": "acme.hours",
+  "name": "Hours",
+  "records": {
+    "entry": { "schema": { "date": "date", "hours": "number" } }
+  },
+  "templates": {
+    "month": { "components": [ Chart, Table, … ],
+      "bindings": [{ "path": "/entries", "source": "records:entry?mine=1" }] }
+  },
+  "functions": ["records.*"],
+  "exposes": [{ "name": "log_hours", … }]
+}`
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `eApps`,
+    description: `Ask an agent for an app. It writes one package of data, and eUI paints it on web, desktop, iOS and Android.`,
+    template: `splash`,
+    hero: {
+      tagline: `Ask for an app. It runs on every screen.`,
+      actions: [
+        { text: `Read the docs`, link: `/docs/eapps/`, icon: `right-arrow` },
+        { text: `Build one`, link: `/docs/eapps/build/`, variant: `minimal` },
+      ],
+    },
+  }}
+>
+  <div class="lib-pair">
+    <Figure src="/eapps/time-tracker.webp" alt="Hours on the web: a month of hours as a bar chart and a table" width={2360} height={1232} />
+    <Figure src="/eapps/time-tracker-phone.webp" alt="Hours on a phone: one row per day and a Log hours button" width={780} height={824} />
+  </div>
+
+  <h2>One package of data</h2>
+  <div class="lib-code"><Code code={PACKAGE} lang="js" title="hours.app.json" /></div>
+  <Diagram id="apps-parts" tree={APPS_PARTS} />
+
+  <h2>The same package on every platform</h2>
+  <PlatformShots view="app" platforms={[`web`, `ios`, `android`]} />
+
+  <h2>Run by the host and the server</h2>
+  <Diagram id="apps-executors" tree={APPS_EXECUTORS} />
+
+  <h2>Data in, tools out</h2>
+  <Diagram id="apps-flow" tree={APPS_FLOW} />
+  <Figure src="/eapps/admin-console.webp" alt="An admin console over Stripe, GitHub and Home Assistant, each member connected with their own account" width={2560} height={1080} />
+
+  <h2>Your agents use it too</h2>
+  <Figure src="/eapps/mcp-consent.webp" alt="Claude Code asks to use the team's apps: Off, Read only or Full per app, and the upstreams each needs" width={1240} height={1568} max="28rem" />
+
+  <h2>Describe it, an agent builds it</h2>
+  <Figure src="/shots/app-draft/web.webp" alt="A new app's editor: the chat with the agent beside the live preview" width={1800} height={1200} />
+</StarlightPage>

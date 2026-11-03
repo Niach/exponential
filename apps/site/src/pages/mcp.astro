@@ -1,0 +1,42 @@
+---
+/* eMCP's product page (the library; the instance's MCP endpoint is
+   /docs/build/mcp/). The docs: /docs/libraries/emcp/. */
+import { Code } from "@astrojs/starlight/components"
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import Diagram from "../components/libraries/Diagram.astro"
+import Figure from "../components/libraries/Figure.astro"
+import { MCP_HUB } from "../components/libraries/trees.ts"
+import "../styles/libraries-other.css"
+
+const SERVE = `let server = emcp::Server::serve(info, Arc::new(Clock))?;
+let token = server.grant(&run, "EXP-12");
+// { "clock": { "type": "http", "url": server.url(),
+//              "headers": { "Authorization": token.header() } } }`
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `eMCP`,
+    description: `MCP for devices: a loopback server for your own tools, a client for any server, OAuth with a vault, the local hub and code mode. On rmcp.`,
+    template: `splash`,
+    hero: {
+      tagline: `MCP for devices.`,
+      actions: [
+        { text: `Get started`, link: `/docs/libraries/emcp/guides/`, icon: `right-arrow` },
+        { text: `Docs`, link: `/docs/libraries/emcp/`, variant: `minimal` },
+      ],
+    },
+  }}
+>
+  <h2>Serve your tools in four lines</h2>
+  <div class="lib-code"><Code code={SERVE} lang="rust" /></div>
+
+  <h2>Every server behind one endpoint</h2>
+  <Diagram id="mcp-hub" tree={MCP_HUB} />
+
+  <h2>Connect once, per member</h2>
+  <Figure src="/shots/settings-mcp/web.webp" alt="Settings → MCP: the endpoint, connected servers and tools" width={1800} height={1200} />
+
+  <h2>Consent for every tool</h2>
+  <Figure src="/eapps/mcp-consent.webp" alt="Claude Code asks to use the team's apps: Off, Read only or Full per app, and the upstreams each needs" width={1240} height={1568} max="28rem" />
+</StarlightPage>

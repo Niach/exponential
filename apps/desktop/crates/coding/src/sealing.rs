@@ -371,14 +371,21 @@ static FALLBACK: std::sync::OnceLock<Keyring> = std::sync::OnceLock::new();
 /// launches still route their agents through the MCP gateway.
 static EXPECTED: AtomicBool = AtomicBool::new(false);
 
+/// Moves on every install / uninstall: a swapped keyring is a change even
+/// when its own counter reads the same as the one before (a keyring loaded
+/// from disk starts at 0, like the empty fallback).
+static GENERATION: AtomicU64 = AtomicU64::new(0);
+
 /// Installs the process's seal service (the key holder, once registered).
 pub fn install(service: Arc<dyn SealService>) {
     *write(&SERVICE) = Some(service);
+    GENERATION.fetch_add(1, Ordering::SeqCst);
 }
 
 /// Removes it (sign-out); nothing seals or opens afterwards.
 pub fn uninstall() {
     *write(&SERVICE) = None;
+    GENERATION.fetch_add(1, Ordering::SeqCst);
 }
 
 pub fn service() -> Option<Arc<dyn SealService>> {
@@ -456,9 +463,11 @@ pub fn tree_keyed(root_id: &str) -> bool {
     with_keyring(|keyring| keyring.current(root_id).is_some())
 }
 
-/// [`Keyring::changed`] of the installed keyring.
+/// [`Keyring::changed`] of the installed keyring, moved by every service
+/// swap too: the persisted keys a holder brings at boot re-open the rows
+/// locked before it registered, not its first `sessionKeys.mine` pull.
 pub fn changed() -> u64 {
-    with_keyring(Keyring::changed)
+    (GENERATION.load(Ordering::SeqCst) << 40).wrapping_add(with_keyring(Keyring::changed))
 }
 
 /// Feeds the synced `sessions` rows (session → root, current keys).
@@ -1000,6 +1009,17 @@ mod tests {
         fake.keyring.note_root("s", "r");
         let row = MessageRow { id: "m".into(), session_id: "s".into(), body: Some(body), ..Default::default() };
         assert_eq!(open_message(&row).body.as_deref(), Some(LOCKED_TEXT));
+        uninstall();
+    }
+
+    #[test]
+    fn a_holder_installed_after_boot_reads_as_a_change() {
+        let _serial = serial();
+        uninstall();
+        let before = changed();
+        // A holder whose keyring was loaded from disk: its counter is 0 too.
+        install_fake();
+        assert_ne!(changed(), before);
         uninstall();
     }
 

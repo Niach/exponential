@@ -1,0 +1,44 @@
+---
+/* The blog: every post with its cover, newest first. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import { BLOG_DESCRIPTION, BLOG_TITLE, POSTS, formatDate, postPath } from "../../components/landing/blog.ts"
+import { SITE_ORIGIN, breadcrumb, seoHead } from "../../components/landing/seo.ts"
+
+const jsonLd = [
+  {
+    "@context": `https://schema.org`,
+    "@type": `Blog`,
+    name: `Exponential blog`,
+    url: `${SITE_ORIGIN}/blog/`,
+    publisher: { "@type": `Organization`, name: `Exponential`, url: `${SITE_ORIGIN}/`, logo: `${SITE_ORIGIN}/icon-512.png` },
+    blogPost: POSTS.map((p) => ({ "@type": `BlogPosting`, headline: p.title, url: `${SITE_ORIGIN}${postPath(p.slug)}`, datePublished: p.date })),
+  },
+  breadcrumb([
+    { name: `Home`, path: `/` },
+    { name: `Blog`, path: `/blog/` },
+  ]),
+]
+const head = [
+  ...seoHead({ title: BLOG_TITLE, ogImage: `/og/og-blog.png`, jsonLd }),
+  { tag: `link` as const, attrs: { rel: `alternate`, type: `application/rss+xml`, title: `Exponential blog`, href: `/blog/rss.xml` } },
+]
+---
+
+<StarlightPage frontmatter={{ title: `Blog`, description: BLOG_DESCRIPTION, template: `splash`, head }}>
+  <ul class="exp-posts not-content">
+    {
+      POSTS.map((p) => (
+        <li>
+          <a class="exp-post-card" href={postPath(p.slug)}>
+            <img src={p.cover.src} alt={p.cover.alt} width={p.cover.width} height={p.cover.height} loading="lazy" decoding="async" />
+            <div>
+              <h2>{p.title}</h2>
+              <time class="exp-post-date" datetime={p.date}>{formatDate(p.date)}</time>
+            </div>
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+  <p class="exp-rss"><a href="/blog/rss.xml">RSS</a></p>
+</StarlightPage>

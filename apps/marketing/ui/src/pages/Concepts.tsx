@@ -86,16 +86,16 @@ const PACKAGE = `{
   }
 }`
 
-const EXPOSES = `"upstreams": ["m5"],
+const EXPOSES = `"upstreams": ["crm"],
 "exposes": [
   { "name": "list_entries", "title": "List entries", "description": "The time entries of a day.",
     "input": { "type": "object", "properties": { "day": { "type": "string" } } },
     "access": "read",
     "run": { "records": { "op": "list", "kind": "entry", "where": { "date": "\${input.day}" } } } },
-  { "name": "find_customer", "title": "Find a customer", "description": "Search m5 customers.",
+  { "name": "find_customer", "title": "Find a customer", "description": "Search CRM customers.",
     "input": { "type": "object", "properties": { "q": { "type": "string" } } },
     "access": "read",
-    "run": { "upstream": "m5", "tool": "search_customers", "args": { "query": "\${input.q}" } } }
+    "run": { "upstream": "crm", "tool": "search_customers", "args": { "query": "\${input.q}" } } }
 ]`
 
 export default function ConceptsPage({ path }: PageProps) {

@@ -1980,6 +1980,115 @@ fn a_run_that_dies_in_its_handshake_ends_as_a_failed_phase() {
     );
 }
 
+/// A tRPC stand-in on loopback: answers every call 200 and records
+/// `"<path> <body>"` per request.
+fn recording_trpc() -> (String, Arc<Mutex<Vec<String>>>) {
+    use std::io::{BufRead, BufReader, Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+    let base = format!("http://{}", listener.local_addr().expect("an address"));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let recorded = Arc::clone(&seen);
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { continue };
+            let mut reader = BufReader::new(stream.try_clone().expect("a clone of the stream"));
+            let mut request_line = String::new();
+            if reader.read_line(&mut request_line).is_err() {
+                continue;
+            }
+            let mut length = 0usize;
+            loop {
+                let mut header = String::new();
+                if reader.read_line(&mut header).is_err() || header.trim().is_empty() {
+                    break;
+                }
+                if let Some(value) = header.to_ascii_lowercase().strip_prefix("content-length:") {
+                    length = value.trim().parse().unwrap_or(0);
+                }
+            }
+            let mut body = vec![0u8; length];
+            let _ = reader.read_exact(&mut body);
+            let path = request_line.split_whitespace().nth(1).unwrap_or_default().to_string();
+            recorded.lock().unwrap().push(format!("{path} {}", String::from_utf8_lossy(&body)));
+            let answer = r#"{"result":{"data":{"messageId":"m-1","txid":"1"}}}"#;
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{answer}",
+                answer.len()
+            );
+        }
+    });
+    (base, seen)
+}
+
+/// EXP-1669: a launch whose agent dies on its handshake BEFORE the first
+/// turn it was started for FAILED to start: the reason is replied into the
+/// conversation and the row is flagged `start_failed` (idle), never ended
+/// silently or left `running` with no transcript.
+#[test]
+fn a_launch_that_dies_before_its_first_turn_says_it_could_not_start() {
+    struct DeadAgent;
+
+    impl ConnectTo<Client> for DeadAgent {
+        fn connect_to(
+            self,
+            _client: impl ConnectTo<Agent>,
+        ) -> impl std::future::Future<Output = Result<(), Error>> + Send {
+            async move {
+                Err(Error::internal_error().data(serde_json::Value::String(
+                    "You've hit your weekly limit".to_string(),
+                )))
+            }
+        }
+    }
+
+    let worktree = std::env::temp_dir().join(format!(
+        "exp1669-engine-dead-{}-{}",
+        std::process::id(),
+        Instant::now().elapsed().as_nanos()
+    ));
+    std::fs::create_dir_all(&worktree).expect("the scratch worktree is creatable");
+    let _hold = coding::launch_gate::hold(&worktree);
+    let (base, seen) = recording_trpc();
+    let runtime = steer::SteerRuntime::new().expect("a steer runtime");
+    let host = Arc::new(TestHost::default());
+    let mut launch = prepared("sess-unstarted", worktree.clone());
+    launch.acp.prompt = Some("Work on EXP-1669.".to_string());
+    let session = engine::start_with(
+        EngineStart {
+            prepared: launch,
+            trpc: Arc::new(api::TrpcClient::new(&base, Arc::new(|| None))),
+            runtime: Arc::clone(&runtime),
+            data_dir: worktree.clone(),
+            account_id: "acct-1".to_string(),
+            own_user_id: Some("user-1".to_string()),
+            personal_key: None,
+            persistent: false,
+            foreign_host: false,
+            rotation_host: false,
+            publish: false,
+            kill: KillFeed::inert(),
+            local_sink: None,
+        },
+        host.clone(),
+        EngineParts {
+            adapter: DeadAgent,
+            child_exit: ChildExitLink::new(),
+            sink: None,
+            conversation: None,
+        },
+    )
+    .expect("the engine starts");
+    let exit = session.wait_timeout(BUDGET).expect("the run ends");
+    assert!(exit.error.is_some());
+    let seen = seen.lock().unwrap().clone();
+    let reply = seen.iter().find(|call| call.contains("sessions.reply")).expect("the failure is replied");
+    assert!(reply.contains("Could not start: "), "{reply}");
+    let report = seen.iter().find(|call| call.contains("sessions.report")).expect("the row is reported");
+    assert!(report.contains("start_failed"), "{report}");
+    assert!(!seen.iter().any(|call| call.contains(r#""status":"ended""#)), "never ended: {seen:?}");
+}
+
 #[test]
 fn starting_never_releases_the_hosts_launch_hold() {
     let harness = start_fake("hold");

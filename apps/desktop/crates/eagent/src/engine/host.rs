@@ -1724,6 +1724,12 @@ impl SessionCtx {
             .unwrap_or_else(|poisoned| *poisoned.into_inner())
     }
 
+    /// EXP-1669: this run opens with a turn of its own (a seed prompt, not a
+    /// replay): one that ends before that turn ever started FAILED to start.
+    pub fn expects_first_turn(&self) -> bool {
+        !self.replay && self.prompt.is_some()
+    }
+
     /// FEED-25: record why a watchdog is ending this run. First reason wins.
     pub fn set_failure(&self, reason: String) {
         if let Ok(mut slot) = self.failure.lock() {
@@ -1805,6 +1811,35 @@ impl SessionCtx {
 /// Generic over the transport so the fake adapter in `tests/fake_agent.rs`
 /// drives the REAL host: `super::adapters::Adapter` is just one
 /// `ConnectTo<Client>` among them.
+/// EXP-1669: how long `initialize` + `session/new` may take before the
+/// start is given up. A claude start is a spawn plus its own 90 s control
+/// handshake; codex's calls are bounded tighter. Generous on purpose: a slow
+/// machine must never lose a start that was only slow.
+pub const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(3 * 60);
+
+/// EXP-1669: a resume's `session/load` streams the whole transcript back,
+/// so it gets longer.
+pub const LOAD_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+
+/// The handshake bound for a fresh start or a resume.
+pub fn handshake_deadline(resume: bool) -> Duration {
+    if resume {
+        LOAD_HANDSHAKE_TIMEOUT
+    } else {
+        HANDSHAKE_TIMEOUT
+    }
+}
+
+/// The reason a timed-out handshake ends the run with (the failed-start
+/// reply and the ended banner).
+pub fn handshake_timeout_reason(agent: crate::agent::CodingAgent, deadline: Duration) -> String {
+    format!(
+        "{} did not answer for {} minutes after it was launched",
+        agent.label(),
+        deadline.as_secs().div_ceil(60)
+    )
+}
+
 pub(crate) async fn run_session<A>(
     ctx: Arc<SessionCtx>,
     adapter: A,
@@ -2033,55 +2068,75 @@ where
         .connect_with(adapter, async move |cx| {
             let ctx = main_ctx;
             ctx.phase(EnginePhase::Connecting);
-            cx.send_request(
-                InitializeRequest::new(ProtocolVersion::V1)
-                    .client_capabilities(client_capabilities()),
-            )
-            .block_task()
-            .await?;
+            // EXP-1669: the handshake is BOUNDED. A CLI that never answers
+            // `initialize`/`session/new` (a walled or wedged login) held the
+            // run in Connecting forever, where no Shutdown is read and no
+            // watchdog looks: the row sat `running` with nothing behind it.
+            let handshake = async {
+                cx.send_request(
+                    InitializeRequest::new(ProtocolVersion::V1)
+                        .client_capabilities(client_capabilities()),
+                )
+                .block_task()
+                .await?;
 
-            let cwd = ctx.run.worktree.clone();
-            let (session_id, modes, options, meta) = match &ctx.resume {
-                // A recorded ACP session re-enters through `session/load`;
-                // every other resume shape is the ADAPTER's business (claude
-                // `--resume=`, codex `thread/resume`) and
-                // arrives here as a plain `session/new`.
-                Some(ResumeHandle::Acp(id)) => {
-                    let session_id = SessionId::new(id.clone());
-                    // EXP-784: the ACP id is the host's stable handle, not
-                    // the agent's own (claude's `--session-id` is minted
-                    // separately now). The record the launcher wrote for
-                    // this run carries the native one; it rides the load
-                    // request's `_meta` so the adapter reopens the right
-                    // transcript.
-                    let mut load = LoadSessionRequest::new(session_id.clone(), cwd.clone());
-                    if let Some(native) = recorded_native_session_id(&ctx) {
-                        let mut meta = serde_json::Map::new();
-                        meta.insert(
-                            NATIVE_SESSION_META_KEY.to_string(),
-                            serde_json::Value::String(native),
-                        );
-                        load = load.meta(meta);
+                let cwd = ctx.run.worktree.clone();
+                let opened = match &ctx.resume {
+                    // A recorded ACP session re-enters through `session/load`;
+                    // every other resume shape is the ADAPTER's business (claude
+                    // `--resume=`, codex `thread/resume`) and
+                    // arrives here as a plain `session/new`.
+                    Some(ResumeHandle::Acp(id)) => {
+                        let session_id = SessionId::new(id.clone());
+                        // EXP-784: the ACP id is the host's stable handle, not
+                        // the agent's own (claude's `--session-id` is minted
+                        // separately now). The record the launcher wrote for
+                        // this run carries the native one; it rides the load
+                        // request's `_meta` so the adapter reopens the right
+                        // transcript.
+                        let mut load = LoadSessionRequest::new(session_id.clone(), cwd.clone());
+                        if let Some(native) = recorded_native_session_id(&ctx) {
+                            let mut meta = serde_json::Map::new();
+                            meta.insert(
+                                NATIVE_SESSION_META_KEY.to_string(),
+                                serde_json::Value::String(native),
+                            );
+                            load = load.meta(meta);
+                        }
+                        let response = cx.send_request(load).block_task().await?;
+                        (
+                            session_id,
+                            response.modes.clone(),
+                            response.config_options.clone(),
+                            response.meta.clone(),
+                        )
                     }
-                    let response = cx.send_request(load).block_task().await?;
-                    (
-                        session_id,
-                        response.modes.clone(),
-                        response.config_options.clone(),
-                        response.meta.clone(),
-                    )
-                }
-                _ => {
-                    let response = cx
-                        .send_request(NewSessionRequest::new(cwd.clone()))
-                        .block_task()
-                        .await?;
-                    (
-                        response.session_id.clone(),
-                        response.modes.clone(),
-                        response.config_options.clone(),
-                        response.meta.clone(),
-                    )
+                    _ => {
+                        let response = cx
+                            .send_request(NewSessionRequest::new(cwd.clone()))
+                            .block_task()
+                            .await?;
+                        (
+                            response.session_id.clone(),
+                            response.modes.clone(),
+                            response.config_options.clone(),
+                            response.meta.clone(),
+                        )
+                    }
+                };
+                Ok::<_, Error>(opened)
+            };
+            let deadline = handshake_deadline(ctx.resume.is_some());
+            let (session_id, modes, options, meta) = match tokio::time::timeout(deadline, handshake).await {
+                Ok(opened) => opened?,
+                Err(_) => {
+                    log::warn!(
+                        "engine: session {} got no answer to its handshake in {}s — ending the start",
+                        ctx.session_id,
+                        deadline.as_secs()
+                    );
+                    ctx.set_failure(handshake_timeout_reason(ctx.agent, deadline));
+                    return Ok(());
                 }
             };
             ctx.set_ids(

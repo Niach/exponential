@@ -189,23 +189,35 @@ struct ServerDetailView: View {
     /// (profile image / initials) + "Firstname Lastname" with the email
     /// below, unified with the web account page. Signed out, the server
     /// block stays so the row remains identifiable.
+    @ViewBuilder
     private var identitySection: some View {
+        if account?.token != nil, let identityUser {
+            // Web's account header: the avatar + name + email on the page,
+            // on no card.
+            HStack(spacing: 12) {
+                UserAvatar(user: identityUser, id: account?.userId, size: 44)
+                VStack(alignment: .leading, spacing: 2) {
+                    let name = memberDisplayName(identityUser, id: account?.userId)
+                    Text(name)
+                        .font(.title3.weight(.medium))
+                        .foregroundStyle(.white)
+                    if let email = account?.userEmail, !email.isEmpty, email != name {
+                        Text(email)
+                            .font(.body)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                }
+                Spacer()
+            }
+            .padding(.vertical, 4)
+        } else {
+            signedOutIdentity
+        }
+    }
+
+    private var signedOutIdentity: some View {
         sectionStack(title: nil) {
             HStack(spacing: 12) {
-                if account?.token != nil, let identityUser {
-                    UserAvatar(user: identityUser, id: account?.userId, size: 40)
-                    VStack(alignment: .leading, spacing: 2) {
-                        let name = memberDisplayName(identityUser, id: account?.userId)
-                        Text(name)
-                            .font(.body)
-                            .foregroundStyle(.white)
-                        if let email = account?.userEmail, !email.isEmpty, email != name {
-                            Text(email)
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        }
-                    }
-                } else {
                     AppIcon(AppIcons.settingsServers, size: AppIcon.Size.large)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     VStack(alignment: .leading, spacing: 2) {
@@ -221,7 +233,6 @@ struct ServerDetailView: View {
                             .font(.caption2)
                             .foregroundStyle(.white.opacity(TextOpacity.quaternary))
                     }
-                }
                 Spacer()
             }
             .padding(.horizontal, 14)

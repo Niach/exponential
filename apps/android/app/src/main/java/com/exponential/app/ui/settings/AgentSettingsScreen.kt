@@ -54,6 +54,9 @@ import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassSwitch
+import com.exponential.app.ui.components.GlassSwitchSize
+import com.exponential.app.ui.components.GlassDropdownMenu
+import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IconPicker
@@ -442,6 +445,13 @@ fun AgentSettingsScreen(
                 }
             },
             onEditTrigger = { triggerSheet = it },
+            onDeleteTrigger = { index ->
+                if (isNew) {
+                    draftTriggers = draftTriggers.filterIndexed { i, _ -> i != index }
+                } else {
+                    triggers.getOrNull(index)?.id?.let(viewModel::deleteTrigger)
+                }
+            },
             onAddTrigger = { triggerSheet = -1 },
             instructions = instructions,
             instructionsLoading = !isNew && loadedInstructions == null,
@@ -606,6 +616,8 @@ internal fun AgentSettingsContent(
     triggers: List<AgentTrigger>,
     onToggleTrigger: (index: Int, enabled: Boolean) -> Unit,
     onEditTrigger: (index: Int) -> Unit,
+    /** The trigger row's ⋯ menu Delete (web `TriggerRow`). */
+    onDeleteTrigger: (index: Int) -> Unit,
     onAddTrigger: () -> Unit,
     instructions: String,
     instructionsLoading: Boolean,
@@ -652,7 +664,6 @@ internal fun AgentSettingsContent(
                         // EXP-1554: the value is the machine alone (×4); the
                         // owner suffix only tells picker rows apart.
                         value = device?.name?.substringBefore(" — ") ?: "Select",
-                        valueIcon = device?.let { deviceIcon(it.icon, it.isServer) },
                         onClick = open,
                         enabled = editable,
                         modifier = Modifier.testTag("agent-settings-device"),
@@ -766,6 +777,17 @@ internal fun AgentSettingsContent(
                     GroupDivider()
                     skillsRow()
                 }
+            } else {
+                // Account and Triggers share ONE group (web `agents-section`).
+                GroupDivider()
+                TriggerRows(
+                    triggers = triggers,
+                    editable = editable,
+                    onToggleTrigger = onToggleTrigger,
+                    onEditTrigger = onEditTrigger,
+                    onDeleteTrigger = onDeleteTrigger,
+                    onAddTrigger = onAddTrigger,
+                )
             }
         }
         if (assistant) {
@@ -794,59 +816,6 @@ internal fun AgentSettingsContent(
                 Spacer(Modifier.height(12.dp))
                 SectionHeader(AgentSettings.Assistant.VOICE, modifier = Modifier.padding(horizontal = 16.dp))
                 voice()
-            }
-        }
-        if (!assistant) OptionGroup {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
-            ) {
-                Text(
-                    label(AgentSettings.FIELD_TRIGGERS),
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f),
-                )
-                if (triggers.isEmpty()) {
-                    Text(
-                        AgentSettings.Copy.NO_SCHEDULE,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = muted,
-                        modifier = Modifier.padding(end = 8.dp),
-                    )
-                }
-                if (editable) {
-                    GlassPill(
-                        AgentSettings.Copy.ADD_TRIGGER,
-                        icon = ExpIcons.uiAdd,
-                        size = PillSize.Sm,
-                        onClick = onAddTrigger,
-                        modifier = Modifier.testTag("agent-settings-add-trigger"),
-                    )
-                }
-            }
-            triggers.forEachIndexed { index, trigger ->
-                GroupDivider()
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .testTag("agent-settings-trigger")
-                        .clickable(enabled = editable) { onEditTrigger(index) }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                ) {
-                    Icon(triggerGlyph(trigger.whenPart), contentDescription = null, tint = muted, modifier = Modifier.size(16.dp))
-                    Text(
-                        AgentSettings.triggerSummary(trigger),
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    GlassSwitch(
-                        checked = trigger.enabled,
-                        onCheckedChange = if (editable) ({ onToggleTrigger(index, it) }) else null,
-                        enabled = editable,
-                    )
-                }
             }
         }
         Spacer(Modifier.height(12.dp))
@@ -941,4 +910,108 @@ private fun AssistantVoiceBlock(viewModel: VoiceSettingsViewModel = hiltViewMode
         assistantBlock = true,
     )
     FailedActionToast(viewModel.failure, onShown = { viewModel.failure = null })
+}
+
+/**
+ * The Triggers rows inside the Account group (web `agents-section.tsx`
+ * `TriggerRow`): the header row (label, `No schedule`, the owner's `+ Add`),
+ * then one row per trigger = its sentence (muted while off), the switch and
+ * the ⋯ menu (Edit, Delete); a row tap edits.
+ */
+@Composable
+private fun TriggerRows(
+    triggers: List<AgentTrigger>,
+    editable: Boolean,
+    onToggleTrigger: (index: Int, enabled: Boolean) -> Unit,
+    onEditTrigger: (index: Int) -> Unit,
+    onDeleteTrigger: (index: Int) -> Unit,
+    onAddTrigger: () -> Unit,
+) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
+    ) {
+        Text(
+            AgentSettings.FIELDS.first { it.key == AgentSettings.FIELD_TRIGGERS }.label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f),
+        )
+        if (triggers.isEmpty()) {
+            Text(
+                AgentSettings.Copy.NO_SCHEDULE,
+                style = MaterialTheme.typography.bodyMedium,
+                color = muted,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+        }
+        if (editable) {
+            GlassPill(
+                AgentSettings.Copy.ADD_TRIGGER,
+                icon = ExpIcons.uiAdd,
+                size = PillSize.Sm,
+                onClick = onAddTrigger,
+                modifier = Modifier.testTag("agent-settings-add-trigger"),
+            )
+        }
+    }
+    triggers.forEachIndexed { index, trigger ->
+        GroupDivider()
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag("agent-settings-trigger")
+                .clickable(enabled = editable) { onEditTrigger(index) }
+                .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        ) {
+            Text(
+                AgentSettings.triggerSummary(trigger),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (trigger.enabled) MaterialTheme.colorScheme.onSurface else muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            GlassSwitch(
+                checked = trigger.enabled,
+                onCheckedChange = if (editable) ({ onToggleTrigger(index, it) }) else null,
+                enabled = editable,
+                size = GlassSwitchSize.Menu,
+            )
+            if (editable) {
+                var menu by remember { mutableStateOf(false) }
+                Box {
+                    CircleIconButton(
+                        ExpIcons.uiMore,
+                        contentDescription = "Trigger menu for ${AgentSettings.triggerSummary(trigger)}",
+                        onClick = { menu = true },
+                        glyphSize = 16.dp,
+                        borderless = true,
+                        size = 32.dp,
+                    )
+                    GlassDropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        GlassMenuItem(
+                            leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
+                            text = { Text("Edit") },
+                            onClick = {
+                                menu = false
+                                onEditTrigger(index)
+                            },
+                        )
+                        GlassMenuItem(
+                            leadingIcon = { Icon(ExpIcons.uiDelete, contentDescription = null) },
+                            text = { Text("Delete") },
+                            destructive = true,
+                            onClick = {
+                                menu = false
+                                onDeleteTrigger(index)
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
 }

@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.7.1 (2026-11-03)
+
+- EXP-1644: a transparent container hands its opacity down to its children instead of fading its element, so a dimmed Button inside a dimmed Form flattens to the total dim like web.
+
 ## 0.7.0 (2026-11-03)
 
 - VAPP-160: a moving `VoiceWave` asks for the next frame from a paint-time ticker over its box, only while that box is inside the visible content (offscreen or clipped away: no frame requests); the view prunes animation clocks of removed, rebuilt or hidden nodes on every pass (`SurfaceView::animation_clocks`, a test aid). No visual change.

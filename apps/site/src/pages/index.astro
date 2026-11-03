@@ -1,19 +1,85 @@
 ---
-/* The home page (ported from apps/marketing in the landing-pages step). */
+/* The home page: the product in a headline and a picture per part
+   (shots/ store + the eApps pictures), the open libraries, the price. */
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import { LinkButton, LinkCard } from "@astrojs/starlight/components"
+import Duo from "../components/landing/Duo.astro"
+import Feature from "../components/landing/Feature.astro"
+import { LINKS } from "../components/landing/links.ts"
+import { ORGANIZATION, SOFTWARE_APPLICATION, seoHead } from "../components/landing/seo.ts"
+import { shot } from "../components/landing/shots.ts"
+import { LIBRARIES } from "../lib/libraries.ts"
+
+const libraries = [...LIBRARIES.map((lib) => ({ name: lib.name, href: lib.product })), { name: `eApps`, href: `/apps/` }]
 ---
 
 <StarlightPage
   frontmatter={{
-    title: `Exponential`,
-    description: `The issue tracker where coding agents work in sessions.`,
+    title: `The next generation dev platform for teams and agents`,
+    description: `The next generation dev platform for teams and agents. Agents plan the work, write the code, build your apps and answer when you talk to them (beta). Web, desktop, iOS and Android. Open source, free to self-host.`,
     template: `splash`,
+    head: seoHead({
+      title: `Exponential · The next generation dev platform for teams and agents`,
+      ogImage: `/og/og-home.png`,
+      jsonLd: [ORGANIZATION, SOFTWARE_APPLICATION],
+    }),
     hero: {
-      tagline: `Issues in, pull requests out.`,
+      tagline: `Agents plan the work, write the code and build your apps. On web, desktop, iOS and Android.`,
       actions: [
-        { text: `Get started`, link: `/docs/get-started/`, icon: `right-arrow` },
+        { text: `Get started free`, link: LINKS.app.login, icon: `right-arrow` },
         { text: `Download`, link: `/download/`, variant: `minimal` },
       ],
     },
   }}
-/>
+>
+  <div class="exp-landing">
+    <Duo eager desktop={shot(`thread`, `desktop`, `A session on the desktop: a question and a plan waiting for an answer`)} phone={shot(`thread`, `ios`, `The same session on iPhone`)} />
+
+    <Feature id="talk" title="Talk to it" link={{ href: `/talk/`, label: `eTalk` }}>
+      Hold a key and speak; your agent answers aloud. In beta.
+      <Duo slot="visual" desktop={shot(`voice-call-overlay`, `desktop`, `Push to talk: listening, heard, speaking`)} phone={shot(`voice-call`, `ios`, `A call with the assistant on iPhone`)} />
+    </Feature>
+
+    <Feature id="agents" title="Agents work your boards" link={{ href: `/docs/using/sessions/`, label: `Sessions` }}>
+      Claude Code or Codex, on your own machine and subscription.
+      <Duo slot="visual" desktop={shot(`agent-channel`, `desktop`, `A team agent's channel: its triage report and the thread it started`)} phone={shot(`agent-channel`, `ios`, `The same channel on iPhone`)} />
+    </Feature>
+
+    <Feature id="plans" title="Plans you can read" link={{ href: `/docs/using/sessions/`, label: `Sessions` }}>
+      <Duo slot="visual" desktop={shot(`plan-page`, `desktop`, `A plan as a page: outline, pictures and questions`)} phone={shot(`plan-page`, `ios`, `The same plan on iPhone`)} />
+    </Feature>
+
+    <Feature id="sealed" title="Sealed end to end" link={{ href: `/net/`, label: `eNet` }}>
+      Our server only ever sees ciphertext; your phone steers the machine directly.
+      <Duo slot="visual" desktop={shot(`session`, `desktop`, `A running session on the desktop`)} phone={shot(`steering`, `ios`, `Steering it from iPhone`)} />
+    </Feature>
+
+    <Feature id="genui" title="Generative UI" link={{ href: `/ui/`, label: `eUI` }}>
+      <Duo slot="visual" desktop={shot(`exponential-ui-demo`, `desktop`, `An agent's interface painted natively on the desktop`)} phone={shot(`exponential-ui-demo`, `ios`, `The same interface in SwiftUI`)} />
+    </Feature>
+
+    <Feature id="apps" title="Apps, built by asking" link={{ href: `/apps/`, label: `eApps` }}>
+      <Duo
+        slot="visual"
+        desktop={{ src: `/eapps/time-tracker.webp`, width: 2360, height: 1125, alt: `Stunden, a time tracker app: a month of hours as a chart and a table` }}
+        phone={{ src: `/eapps/time-tracker-phone.webp`, width: 780, height: 736, alt: `The same app on a phone` }}
+      />
+    </Feature>
+
+    <section class="exp-section not-content" id="libraries">
+      <h2>Open libraries</h2>
+      <div class="exp-lib-grid">
+        {libraries.map((lib) => <LinkCard title={lib.name} href={lib.href} />)}
+      </div>
+    </section>
+
+    <section class="exp-section exp-price-line not-content" id="pricing">
+      <h2>Free for teams of three</h2>
+      <p>€12 per seat a month after that. Free to self-host.</p>
+      <div class="exp-actions">
+        <LinkButton href={LINKS.app.login} icon="right-arrow">Get started free</LinkButton>
+        <LinkButton href="/pricing/" variant="minimal">Pricing</LinkButton>
+      </div>
+    </section>
+  </div>
+</StarlightPage>

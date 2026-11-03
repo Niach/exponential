@@ -46,8 +46,8 @@ import {
 // amber dot; a tap SWITCHES = opens that team's Team tab — the only place a
 // phone switches team), then the team's settings rows FROM settings-nav.json
 // (`phoneRows` in fixture order, each group's web-only rows after its phone
-// rows; each opens its OWN page, Devices pushed; no Apps row: Apps is a
-// tab), then the account row (the viewer's avatar) and the rest of the old
+// rows; each opens its OWN page, Devices pushed; #EXP-1632: ONE Apps row
+// after Skills, opening Settings › Apps), then the account row (the viewer's avatar) and the rest of the old
 // avatar menu. md+ has the sidebar for all of it; this route still renders
 // there (a plain column).
 
@@ -115,6 +115,7 @@ type TeamRowPath =
   | SettingsSectionPath
   | `/t/$teamSlug/settings/agents`
   | `/t/$teamSlug/settings/boards`
+  | `/t/$teamSlug/settings/apps`
   | `/t/$teamSlug/devices`
 
 /** Where a settings-nav.json row opens: its own settings page, Devices its

@@ -380,6 +380,31 @@ pub fn seed_empty_remote(
 /// Best-effort `git fetch origin <default_branch>` so `origin/<branch>` is
 /// fresh when a NEW branch is cut on a reused clone. Callers may ignore the
 /// error: a stale-but-present base ref still produces a valid worktree.
+/// Whether origin has `refname` (`refs/heads/x`, `refs/exp-wip/x`, or a
+/// bare branch name, which ls-remote matches by tail); `None` when origin
+/// could not be asked (offline). Ask this BEFORE fetching a ref that may be
+/// missing: a `fetch` of a missing ref dies, and on the desktop host a dying
+/// git waited on its transport helper until the 180 s idle kill, so every
+/// fresh session's launch stalled three minutes. `ls-remote` exits normally
+/// either way.
+pub fn origin_has_ref(clone: &Path, refname: &str, url: Option<&TokenUrl>) -> Option<bool> {
+    run_git(Some(clone), &["ls-remote", "origin", refname], url, &format!("git ls-remote origin {refname}"))
+        .ok()
+        .map(|listed| !listed.trim().is_empty())
+}
+
+/// [`fetch_base`] only when origin has the branch ([`origin_has_ref`]); a
+/// branch origin lacks is the error a failed fetch would have been.
+fn fetch_base_if_on_origin(clone: &Path, branch: &str, url: &TokenUrl) -> Result<(), GitError> {
+    if origin_has_ref(clone, &format!("refs/heads/{branch}"), Some(url)) == Some(false) {
+        return Err(GitError {
+            op: format!("git fetch origin {branch}"),
+            detail: format!("couldn't find remote ref {branch}"),
+        });
+    }
+    fetch_base(clone, branch, url)
+}
+
 pub fn fetch_base(clone: &Path, default_branch: &str, url: &TokenUrl) -> Result<(), GitError> {
     run_git(
         Some(clone),
@@ -404,7 +429,7 @@ pub fn continue_branch(clone: &Path, branch: &str, url: &TokenUrl, wait: std::ti
     }
     let deadline = std::time::Instant::now() + wait;
     loop {
-        if fetch_base(clone, branch, url).is_ok() {
+        if fetch_base_if_on_origin(clone, branch, url).is_ok() {
             let tracking = format!("refs/remotes/origin/{branch}");
             if !branch_exists(clone, branch, url) {
                 return run_git(Some(clone), &["branch", branch, &tracking], Some(url), &format!("git branch {branch}"))
@@ -465,7 +490,7 @@ pub fn fast_forward_worktree(worktree: &Path, branch: &str) -> bool {
 /// failing. All fetches failing (offline) = the first one whose
 /// remote-tracking ref is already here, else the first.
 pub fn first_base_on_origin(clone: &Path, candidates: &[String], url: &TokenUrl) -> String {
-    if let Some(found) = candidates.iter().find(|base| fetch_base(clone, base, url).is_ok()) {
+    if let Some(found) = candidates.iter().find(|base| fetch_base_if_on_origin(clone, base, url).is_ok()) {
         return found.clone();
     }
     candidates
@@ -2467,6 +2492,16 @@ fatal: couldn't find remote ref nope\n";
         assert!(continue_branch(&clone, "exp/session-10272d04", &url, zero, zero));
         // Never pushed: false once the wait runs out.
         assert!(!continue_branch(&clone, "exp/session-ffffffff", &url, zero, zero));
+    }
+
+    /// A ref origin lacks is answered `Some(false)` by ls-remote, never by a
+    /// fetch that dies (the launch stall); one it has, `Some(true)`.
+    #[test]
+    fn origin_has_ref_asks_without_fetching() {
+        let (_dir, clone, url) = leftover_clone("has-ref");
+        assert_eq!(origin_has_ref(&clone, "refs/heads/main", Some(&url)), Some(true));
+        assert_eq!(origin_has_ref(&clone, "refs/exp-wip/exp/session-0000", Some(&url)), Some(false));
+        assert!(fetch_base_if_on_origin(&clone, "exp/session-0000", &url).is_err());
     }
 
     /// EXP-1542 (review): a branch this device already has (it ran the

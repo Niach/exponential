@@ -96,6 +96,25 @@ import com.exponential.app.ui.theme.flatRow
 import com.exponential.app.ui.theme.glassRow
 import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.domain.Prompts
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import com.exponential.app.ui.components.FieldError
+import com.exponential.app.ui.components.GlassOAuthButton
+import com.exponential.app.ui.components.GlassSubmitButton
+import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.InlineStatus
+import com.exponential.app.ui.components.InlineStatusState
+import com.exponential.app.ui.components.SwitchRow
+import com.exponential.app.ui.components.TextFieldRow
+import com.exponential.app.ui.components.BranchPickerSheet
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.theme.glassGroup
 
 // One confirm target per destructive/consequential settings action. Each tab
 // holds a nullable [SettingsConfirm] and renders a single [SettingsConfirmDialog]
@@ -227,16 +246,16 @@ fun TeamSettingsScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             val all = section == null
-            if (all || section == SettingsNav.GENERAL) TeamIdentity(state)
+            if (all || section == SettingsNav.GENERAL) TeamGeneral(state, viewModel)
             if (all || section == SettingsNav.BOARDS) BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             if (all || section == SettingsNav.REPOSITORIES) RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             if (all || section == SettingsNav.MEMBERS) {
                 MembersSection(
                     state,
+                    viewModel,
                     isOwner,
                     onConfirm = { confirm = it },
                     onRevokeInvite = viewModel::revokeInvite,
-                    showHeader = all,
                 )
             }
             if (all || section == SettingsNav.LABELS) LabelsSection(state, viewModel, onConfirm = { confirm = it })
@@ -247,33 +266,113 @@ fun TeamSettingsScreen(
     confirm?.let { SettingsConfirmDialog(it, state, viewModel) { confirm = null } }
 }
 
-/** General: the team's identity (avatar + name). */
+/**
+ * General (web `TeamGeneralSection`): the General band over the Name row
+ * (saves itself on blur and Done, EXP-818), the Yolo mode switch
+ * (EXP-1105), then the Team prompt band (its autosave caption) over the raw
+ * monospace field and its byte / token counter (EXP-1025).
+ */
 @Composable
-private fun TeamIdentity(state: TeamSettingsState) {
+private fun TeamGeneral(state: TeamSettingsState, viewModel: TeamSettingsViewModel) {
     val team = state.team ?: return
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 12.dp),
-    ) {
-        com.exponential.app.ui.components.TeamAvatar(team, size = 40.dp)
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                team.name,
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                team.slug,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+    val nameSaving by viewModel.teamNameSaving.collectAsStateWithLifecycle()
+    val yoloBusy by viewModel.yoloBusy.collectAsStateWithLifecycle()
+    val prompt by viewModel.prompt.collectAsStateWithLifecycle()
+    val focus = LocalFocusManager.current
+    var name by remember(team.id, team.name) { mutableStateOf(team.name) }
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+
+    Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        Column {
+            SectionHeader("General")
+            Column(Modifier.fillMaxWidth().glassGroup()) {
+                TextFieldRow(
+                    label = "Name",
+                    value = name,
+                    onValueChange = { name = it.take(255) },
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+                    onFocusLost = { viewModel.renameTeam(name) },
+                    trailing = if (nameSaving) ({ InlineStatus(InlineStatusState.Saving) }) else null,
+                    modifier = Modifier.testTag("team-name"),
+                )
+            }
+        }
+        Column(Modifier.fillMaxWidth().glassGroup()) {
+            SwitchRow(
+                title = "Yolo mode",
+                checked = team.yoloMode,
+                onCheckedChange = viewModel::setYoloMode,
+                enabled = !yoloBusy,
+                modifier = Modifier.testTag("team-yolo-mode"),
             )
         }
+        Column {
+            val status = when {
+                prompt.saving -> InlineStatusState.Saving
+                prompt.justSaved -> InlineStatusState.Saved
+                else -> InlineStatusState.Idle
+            }
+            SectionHeader(TEAM_PROMPT_TITLE) { InlineStatus(status) }
+            val text = prompt.text
+            val bytes = (text ?: "").toByteArray(Charsets.UTF_8).size
+            val over = bytes > TEAM_PROMPT_MAX_BYTES
+            Column(Modifier.fillMaxWidth().glassGroup()) {
+                when {
+                    text == null && !prompt.loadFailed -> SkeletonRows(rows = 2, dot = false)
+                    text == null -> Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 192.dp),
+                    ) {
+                        Text("Prompt unavailable", style = MaterialTheme.typography.bodyMedium, color = muted)
+                        GlassPill(com.exponential.app.domain.FeedbackStates.RETRY, size = PillSize.Sm, onClick = viewModel::retryPromptLoad)
+                    }
+                    else -> GlassTextField(
+                        value = text,
+                        onValueChange = viewModel::editPrompt,
+                        placeholder = TEAM_PROMPT_PLACEHOLDER,
+                        minLines = 10,
+                        bordered = false,
+                        containerColor = Color.Transparent,
+                        textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("team-agent-prompt")
+                            .onFocusChanged { if (!it.isFocused) viewModel.flushPrompt() },
+                    )
+                }
+                GroupDivider()
+                Text(
+                    "${formatByteCount(bytes)} / ${formatByteCount(TEAM_PROMPT_MAX_BYTES)} bytes · ${approxTokens(bytes)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (over) MaterialTheme.colorScheme.error else muted,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .testTag("team-agent-prompt-counter"),
+                )
+            }
+            if (over) {
+                FieldError("Too long: $bytes of $TEAM_PROMPT_MAX_BYTES bytes", modifier = Modifier.padding(top = 8.dp))
+            }
+        }
     }
+}
+
+/** EXP-1025: the editor's copy, byte-identical with web's `general-section.tsx`. */
+private const val TEAM_PROMPT_TITLE = "Team prompt"
+private const val TEAM_PROMPT_PLACEHOLDER = "Rules every coding session of this team follows, as markdown."
+
+/** `12.3k` / `840` — the counter's short form (web `formatByteCount`). */
+internal fun formatByteCount(bytes: Int): String =
+    if (bytes < 1000) "$bytes" else String.format(java.util.Locale.ROOT, "%.1fk", bytes / 1024.0)
+
+/** The rough chars÷4 token readout (web `approxTokens`). */
+internal fun approxTokens(bytes: Int): String {
+    val tokens = Math.round(bytes / 4.0).toInt()
+    return if (tokens < 1000) "≈$tokens tokens" else String.format(java.util.Locale.ROOT, "≈%.1fk tokens", tokens / 1000.0)
 }
 
 @Composable
@@ -321,7 +420,8 @@ private fun BoardsSection(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                 ) {
-                    Text(board.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // iOS / web-mobile: the row's name in the list body type.
+                    Text(board.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     // Backing repo (one board = one repo): a chip resolving the
                     // synced repositoryId against the tRPC registry — iOS
                     // RepoNameChip parity (EXP-577).
@@ -359,6 +459,7 @@ private fun BoardsSection(
                     glyphSize = 16.dp,
                     // P104: a ghost glyph — only primary actions get circles.
                     borderless = true,
+                    size = 32.dp,
                 )
                 // Deleting a board is owner-only (the server enforces it too);
                 // the tap opens the destructive confirm dialog.
@@ -370,6 +471,7 @@ private fun BoardsSection(
                         tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
                         glyphSize = 16.dp,
                         borderless = true,
+                        size = 32.dp,
                     )
                 }
             }
@@ -558,106 +660,108 @@ private fun RepositoryRow(
     var retargetBoard by remember { mutableStateOf<BoardEntity?>(null) }
     // EXP-721: the row IS the card — self-bordered glass at the board/label
     // row padding, gapped from its siblings by the section.
+    var branchSheet by remember { mutableStateOf(false) }
+    val inUse = repo.boards.isNotEmpty()
+    // Web `RepoRow`: GitHub glyph · the name · the branch chip (a picker for
+    // the sharer-or-owner) · Private · the ghost trash (disabled while a
+    // board uses the repo); then the indented Used by line.
     Column(
-        modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().flatRow().padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            Icon(ExpIcons.uiRepository, contentDescription = null, modifier = Modifier.size(14.dp), tint = secondary)
-            Spacer(Modifier.width(8.dp))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Icon(ExpIcons.uiGithub, contentDescription = null, modifier = Modifier.size(16.dp), tint = secondary)
             Text(
                 repo.fullName,
                 style = MaterialTheme.typography.bodyMedium,
-                fontFamily = FontFamily.Monospace,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f),
             )
-            Spacer(Modifier.width(8.dp))
-            Text(repo.defaultBranch, style = MaterialTheme.typography.labelSmall, color = tertiary)
+            GlassPill(
+                repo.defaultBranch,
+                size = PillSize.Sm,
+                fontFamily = FontFamily.Monospace,
+                maxLines = 1,
+                modifier = Modifier.widthIn(max = 140.dp),
+                trailing = if (canManage) ({
+                    Icon(
+                        ExpIcons.uiChevronDown,
+                        contentDescription = null,
+                        tint = tertiary,
+                        modifier = Modifier.size(GlassPillDefaults.SmGlyphSize),
+                    )
+                }) else null,
+                onClick = if (canManage && state.accountId != null) ({ branchSheet = true }) else null,
+            )
             if (repo.isPrivate) {
-                Spacer(Modifier.width(6.dp))
-                Icon(ExpIcons.uiPrivate, contentDescription = "Private", modifier = Modifier.size(13.dp), tint = tertiary)
+                GlassPill("Private", size = PillSize.Sm, icon = ExpIcons.uiPrivate)
             }
             if (canManage) {
-                Spacer(Modifier.width(8.dp))
                 CircleIconButton(
                     ExpIcons.uiDelete,
                     contentDescription = "Remove repository",
                     onClick = { onConfirm(SettingsConfirm.RemoveRepo(repo)) },
-                    tint = DesignTokens.Semantic.Red.copy(alpha = 0.5f),
+                    enabled = !inUse,
                     glyphSize = 16.dp,
                     borderless = true,
+                    size = 32.dp,
                 )
             }
         }
-        // "Used by" chips: the boards backed by this repo (masterplan §6).
-        // Each chip carries the board's palette dot; no link/unlink/primary
-        // controls — a board is a repository now.
-        if (repo.boards.isNotEmpty()) {
-            Text(
-                "Used by",
-                style = MaterialTheme.typography.labelSmall,
-                color = tertiary,
-            )
-        }
+        // "Used by" chips: the boards backed by this repo (masterplan §6),
+        // each with its board glyph; indented under the name (web `pl-6`).
         FlowRow(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
+            itemVerticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(start = 24.dp),
         ) {
-            if (repo.boards.isEmpty()) {
-                Text(
-                    "Not used by any board",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = tertiary,
-                    modifier = Modifier.padding(vertical = 4.dp),
-                )
-            }
+            Text(
+                if (inUse) "Used by" else "Not used by any board",
+                style = MaterialTheme.typography.labelMedium,
+                color = tertiary,
+            )
             repo.boards.forEach { ref ->
                 val board = boards.firstOrNull { it.id == ref.id }
                 // Any member can retarget a board to a different connected repo
-                // (boards.setRepository is member-level since EXP-557 — the
-                // registry is shared) — tap the chip to pick another repo. The
-                // sheet lists ALL connected repos with this one check-marked.
+                // (boards.setRepository is member-level since EXP-557) — tap
+                // the chip to pick another repo.
                 val chipClickable = board != null && allRepos.size > 1
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .glassRow()
-                        .then(
-                            if (chipClickable) {
-                                Modifier.clickable { retargetBoard = board }
-                            } else {
-                                Modifier
-                            },
-                        )
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                ) {
-                    if (board != null) {
-                        BoardIcon(board, size = 14.dp)
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    Text(
-                        ref.name,
-                        style = MaterialTheme.typography.labelMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.widthIn(max = 160.dp),
-                    )
-                }
+                GlassPill(
+                    ref.name,
+                    size = PillSize.Sm,
+                    maxLines = 1,
+                    modifier = Modifier.widthIn(max = 180.dp),
+                    leading = board?.let { b -> { BoardIcon(b, size = 12.dp) } },
+                    onClick = if (chipClickable) ({ retargetBoard = board }) else null,
+                )
             }
-            // Informational for everyone (EXP-557): who shared this repo with
-            // the team. Web parity: "· Shared by <name or email>" riding the
-            // used-by line.
+            // Informational for everyone (EXP-557): who shared this repo.
             repo.sharedBy?.let { sharer ->
                 Text(
                     "· Shared by ${sharer.name?.takeIf { it.isNotBlank() } ?: sharer.email ?: "a teammate"}",
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = tertiary,
-                    modifier = Modifier.padding(vertical = 4.dp),
                 )
             }
         }
+    }
+    val accountId = state.accountId
+    if (branchSheet && accountId != null) {
+        BranchPickerSheet(
+            accountId = accountId,
+            repositoryId = repo.id,
+            repoDefault = repo.githubDefaultBranch ?: repo.defaultBranch,
+            branch = repo.defaultBranch,
+            onPick = { picked -> viewModel.setRepoDefaultBranch(repo.id, picked) },
+            onDismiss = { branchSheet = false },
+        )
     }
     retargetBoard?.let { board ->
         BoardRepositorySheet(
@@ -672,14 +776,14 @@ private fun RepositoryRow(
 @Composable
 private fun MembersSection(
     state: TeamSettingsState,
+    viewModel: TeamSettingsViewModel,
     isOwner: Boolean,
     onConfirm: (SettingsConfirm) -> Unit,
     onRevokeInvite: (inviteId: String) -> Unit,
-    // #EXP-1381: on its own page the top bar already says "Members".
-    showHeader: Boolean = true,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (showHeader) SectionHeader("Members")
+        // Web `members-section.tsx`: the Members band over the roster.
+        SectionHeader("Members")
         // A team must always keep at least one owner.
         val ownerCount = state.members.count { it.member.role == DomainContract.teamRoleOwner }
         // EXP-721: one self-bordered glass row per member (the Boards and
@@ -839,14 +943,22 @@ private fun MembersSection(
         // card REMOVES itself once the team is at its seat cap — it never
         // degrades into a disabled control or an explanation (store billing
         // policy, EXP-216).
+        // Web `InviteControls`: a hairline, the Invite members band over THE
+        // invite-by-email form (Send invite · Add without inviting), then the
+        // outline Generate invite link.
         val teamId = state.team?.id
         if (isOwner && teamId != null) {
-            InviteLinkCard(teamId = teamId)
+            GroupDivider()
+            Spacer(Modifier.size(8.dp))
+            InviteMemberForm(viewModel)
+            Spacer(Modifier.size(8.dp))
+            InviteLinkCard(teamId = teamId, bare = true)
         }
         // EXP-1267 ×4 (web `InviteControls`): the open links, owner-only like
         // the invite controls they belong to. Row anatomy = mail/link glyph ·
         // email or "Link invite" · role pill · "Expires Mon D" · revoke.
         if (isOwner && state.pendingInvites.isNotEmpty()) {
+            Spacer(Modifier.size(8.dp))
             SectionHeader("Pending invites")
             state.pendingInvites.forEach { invite ->
                 val email = invite.email?.takeIf { it.isNotBlank() }
@@ -914,6 +1026,76 @@ private fun MembersSection(
     }
 }
 
+/**
+ * EXP-630 / FEED-108 (web `InviteMemberForm`, Members settings): Name, the
+ * address, the primary Send invite (the placeholder member + the mail) and
+ * the outline Add without inviting (the placeholder, no mail, no seat). A
+ * refused address stays under its field; a mail that could not go out shows
+ * the link to share. At the seat cap the form is gone (EXP-725).
+ */
+@Composable
+private fun InviteMemberForm(viewModel: TeamSettingsViewModel) {
+    val form by viewModel.inviteForm.collectAsStateWithLifecycle()
+    if (form.capped) return
+    val toaster = LocalToaster.current
+    var name by remember { mutableStateOf("") }
+    var email by remember { mutableStateOf("") }
+    LaunchedEffect(form.sent) {
+        if (form.sent > 0) {
+            name = ""
+            email = ""
+        }
+    }
+    val busy = form.sending || form.adding
+    val canSubmit = email.isNotBlank()
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SectionHeader("Invite members")
+        GlassTextField(
+            value = name,
+            onValueChange = { name = it },
+            placeholder = "Name",
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().testTag("invite-name"),
+        )
+        GlassTextField(
+            value = email,
+            onValueChange = {
+                email = it
+                viewModel.clearInviteError()
+            },
+            placeholder = "teammate@example.com",
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Send),
+            keyboardActions = KeyboardActions(onSend = {
+                if (canSubmit && !busy) viewModel.sendInvite(email, name) { toaster.success(it) }
+            }),
+            modifier = Modifier.fillMaxWidth().testTag("invite-email"),
+        )
+        FieldError(form.emailError)
+        GlassSubmitButton(
+            label = if (form.sending) com.exponential.app.domain.FeedbackStates.PENDING_WORDS.getValue("invite") else "Send invite",
+            onClick = { viewModel.sendInvite(email, name) { toaster.success(it) } },
+            enabled = canSubmit && !busy,
+            icon = { Icon(ExpIcons.uiMail, contentDescription = null, modifier = Modifier.size(16.dp)) },
+            modifier = Modifier.testTag("invite-send"),
+        )
+        GlassOAuthButton(
+            label = "Add without inviting",
+            onClick = { if (canSubmit && !busy) viewModel.addWithoutInviting(email, name) { toaster.success(it) } },
+            icon = { Icon(ExpIcons.uiInvite, contentDescription = null, modifier = Modifier.size(16.dp)) },
+            modifier = Modifier.testTag("invite-add-without-inviting"),
+        )
+        form.inviteUrl?.let { url ->
+            Text(
+                url,
+                style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.testTag("invite-url-input"),
+            )
+        }
+    }
+}
+
 @Composable
 private fun LabelsSection(
     state: TeamSettingsState,
@@ -969,29 +1151,32 @@ private fun LabelRow(
     onDelete: (LabelEntity) -> Unit,
 ) {
     var editing by remember { mutableStateOf(false) }
+    // Web `labels-section.tsx`: the 16dp colour dot, the name, ONE ghost
+    // trash; the row itself (dot + name) opens the editor sheet.
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth().flatRow().padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .flatRow()
+            .clickable { editing = true }
+            .padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
     ) {
-        Box(Modifier.size(12.dp).background(parseColor(label.color), CircleShape))
-        Text(label.name, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
-        // The pencil, not an overflow glyph: the tap opens the editor sheet
-        // directly, there is no menu behind it (iOS twin does the same).
-        CircleIconButton(
-            ExpIcons.uiEdit,
-            contentDescription = "Edit label",
-            onClick = { editing = true },
-            glyphSize = 16.dp,
-            borderless = true,
+        Box(Modifier.size(16.dp).background(parseColor(label.color), CircleShape))
+        Text(
+            label.name,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         CircleIconButton(
             ExpIcons.uiDelete,
-            contentDescription = "Delete label",
+            contentDescription = "Delete label ${label.name}",
             onClick = { onDelete(label) },
-            tint = DesignTokens.Palette.Destructive.copy(alpha = 0.7f),
             glyphSize = 16.dp,
             borderless = true,
+            size = 32.dp,
         )
     }
 
@@ -1246,12 +1431,8 @@ private fun GithubStatusBlock(
     // failed line with Retry, iOS parity; loading = nothing.
     if (status == null) {
         if (!failed) return
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassRow()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
+        // Web `GithubStatusLine`: a plain line under the band, never boxed.
+        Box(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
             StatusLine(
                 ExpIcons.uiGithub,
                 GithubCopy.STATUS_FAILED,
@@ -1265,10 +1446,7 @@ private fun GithubStatusBlock(
     }
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassRow()
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
     ) {
         when {
             !status.configured -> StatusLine(ExpIcons.uiGithub, GithubCopy.NOT_CONFIGURED, secondary)

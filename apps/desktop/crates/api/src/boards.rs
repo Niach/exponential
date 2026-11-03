@@ -280,6 +280,49 @@ pub fn boards_list_archived(
     trpc.query_with_input("boards.listArchived", &Input { team_id })
 }
 
+/// One trashed board, as `boards.listDeleted` returns it (owner-only): the
+/// 48h trash the settings page's Trash section lists until the purge.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashedBoard {
+    pub id: String,
+    pub name: String,
+    #[serde(default)]
+    pub prefix: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
+    #[serde(default)]
+    pub icon: Option<String>,
+    /// ISO-8601: when the purge job removes the board for good.
+    #[serde(default)]
+    pub purge_at: Option<String>,
+}
+
+/// `boards.listDeleted` — query (owner-only). Trashed boards are out of the
+/// boards shape too, so this is the only way to see them.
+pub fn boards_list_deleted(
+    trpc: &TrpcClient,
+    team_id: &str,
+) -> Result<Vec<TrashedBoard>, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        team_id: &'a str,
+    }
+    trpc.query_with_input("boards.listDeleted", &Input { team_id })
+}
+
+/// `boards.restore` — mutation (owner-only): takes a board back out of the
+/// trash before its purge.
+pub fn boards_restore(trpc: &TrpcClient, board_id: &str) -> Result<OkTxOutput, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        board_id: &'a str,
+    }
+    trpc.mutation("boards.restore", &Input { board_id })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

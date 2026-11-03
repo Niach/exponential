@@ -25,7 +25,7 @@ struct AssistantAvatar: View {
             .fill(DesignTokens.Palette.muted)
             .frame(width: size, height: size)
             .overlay {
-                ExpLogoMark(size: size * 0.58, color: DesignTokens.Palette.foreground)
+                ExpLogoMark(size: size * 0.75, color: DesignTokens.Palette.foreground)
             }
             .accessibilityHidden(true)
     }
@@ -325,7 +325,8 @@ struct AssistantSettingsForm: View {
     /// icon + colour pickers: the name only.
     private var identityRow: some View {
         HStack(spacing: 8) {
-            AssistantAvatar(size: 28)
+            // Web's identity lead (`AssistantMark` size-9).
+            AssistantAvatar(size: 36)
             TextField(AgentSettings.AssistantCopy.name, text: $draft.name)
                 .font(.subheadline)
                 .accessibilityIdentifier("agent-name")

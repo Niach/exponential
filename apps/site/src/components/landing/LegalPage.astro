@@ -1,0 +1,20 @@
+---
+/* Privacy, terms and imprint: the legal text in the reading column. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import { seoHead } from "./seo.ts"
+
+interface Props {
+  title: string
+  description: string
+  /** The line under the title (last updated). */
+  meta: string
+}
+const { title, description, meta } = Astro.props
+---
+
+<StarlightPage frontmatter={{ title, description, template: `splash`, head: seoHead({ title: `${title} · Exponential` }) }}>
+  <div class="exp-legal">
+    <p class="exp-legal-meta">{meta}</p>
+    <slot />
+  </div>
+</StarlightPage>

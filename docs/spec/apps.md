@@ -22,7 +22,7 @@ The rest of this spec turns that rule into the missing pieces:
 - an offline outbox;
 - the `eapps` crate for Spezl and eDE.
 
-![Stunden, one illustrative app built on the platform: a simple time tracker (eUI mock, web)](apps/time-tracker.webp)
+![Hours, one illustrative app built on the platform: a simple time tracker (eUI mock, web)](apps/time-tracker.webp)
 
 ---
 
@@ -34,7 +34,7 @@ Each group lists concrete apps, then the capabilities they need. The capability 
 
 | App | What it does | Needs |
 |---|---|---|
-| **Stunden** (time tracker, an example) | Log hours per day with a note and issue refs; totals per day, month and member. Any app-specific rule (a target, a balance) is the app's own records and expressions. | C1 ownership, C2 on-behalf backfill, C5 group-by member, C7 date maths, C13 spreadsheet import |
+| **Hours** (time tracker, an example) | Log hours per day with a note and issue refs; totals per day, month and member. Any app-specific rule (a target, a balance) is the app's own records and expressions. | C1 ownership, C2 on-behalf backfill, C5 group-by member, C7 date maths, C13 spreadsheet import |
 | **CRM** | Contacts, companies, deals in stages, last touch, follow-up dates. Log a call from Claude Code. | C3 relations, C8 multi-screen nav, C9 record forms, C16 exposes, C18 schedules ("follow up due") |
 | **Inventory** | Items, locations, stock moves, a low-stock alert. Scan a QR code on the phone. | C3, C6 sums of moves, C18 event trigger, C24 offline writes (warehouse without wifi), `QrScanner` ✅ |
 | **On-call** | Weekly rotation, overrides, "who is on call now", hand-off note. | C7 date maths (week of year), C18 schedule (Monday rotation), C19 agent hand-off ("summarise the incidents of the week") |
@@ -59,13 +59,13 @@ Personal means private records inside a team app. In Spezl there is no team, so 
 
 ### 1.3 Ops and admin consoles over outside APIs
 
-**m5 admin** (methode5.at) is one screen over several outside APIs:
+**Admin console** (an example: a small software company's back office) is one screen over several outside APIs:
 
-- **m5's own MCP server:** customers, practices and licences. The person signs in with their m5 account through OAuth.
+- **The company's own MCP server:** customers, plans and licences. The person signs in with their company account through OAuth.
 - **Stripe:** MRR, failed payments, retry a charge.
 - **GitHub:** open PRs and releases.
 - **Home Assistant:** the office lights and heating.
-- **Exponential:** file an issue "via m5 admin", ask an agent to follow up.
+- **Exponential:** file an issue "via Admin console", ask an agent to follow up.
 
 Each upstream is a team MCP server row, and **every member connects their own account** (✅ #VAPP-181/#VAPP-183).
 
@@ -77,7 +77,7 @@ Needs:
 - C22 a webhook (Stripe `invoice.payment_failed` → a record + a ping);
 - C19 agent hand-off.
 
-![m5 admin: Stripe, GitHub and Home Assistant upstreams, each member on their own account (eUI mock, web)](apps/m5-admin.webp)
+![Admin console: Stripe, GitHub and Home Assistant upstreams, each member on their own account (eUI mock, web)](apps/admin-console.webp)
 
 ### 1.4 Dashboards over Exponential data
 
@@ -129,7 +129,7 @@ Nothing here may become a workflow engine: "standalone automations" and "workflo
 - **eDE:** an app as a desktop widget (a "today's hours" tile, the on-call badge) and as a window. The desktop itself is eUI on disk (NEW-107).
 - **Phones:** every app at 390 px, with a form factor that changes navigation (bottom bar instead of sidebar). Logging hours from the phone while offline in the train.
 
-![Stunden on a phone: the same package, phone navigation (eUI mock, web-mobile)](apps/time-tracker-phone.webp)
+![Hours on a phone: the same package, phone navigation (eUI mock, web-mobile)](apps/time-tracker-phone.webp)
 
 Needs: C24 offline outbox, C25 the `eapps` crate, C26 widget templates + slots (#VAPP-64), C27 form-factor conditions.
 
@@ -197,7 +197,7 @@ Needs: C2, C13.
 
 ```jsonc
 {
-  "id": "acme.stunden", "name": "Stunden", "version": "2.0.0",
+  "id": "acme.hours", "name": "Hours", "version": "2.0.0",
   "formatVersion": 2,                      // host reads ≤ 2; 3 = this spec
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "icon": { "glyph": "clock", "color": "blue" }, "description": "…",
@@ -461,7 +461,7 @@ One language at two levels, on the Q2 core:
 - ✅ Style `@media` conditions with breakpoint tokens, responsive props (`columns: {base: 2, md: 4}`), `Sidebar.collapseBelow`.
 - 🆕 U1 adds a `formFactor: phone | tablet | desktop | widget` style condition and an optional `screens[].phone` template override. Use it only when a layout truly differs (the time tracker's phone screen is a list of days, not a table).
 
-The two Stunden mocks above are the same package. The phone picks the `month.phone` override: Rows per day and one wide primary button.
+The two Hours mocks above are the same package. The phone picks the `month.phone` override: Rows per day and one wide primary button.
 
 ---
 
@@ -536,7 +536,7 @@ The complete list: records writes, MCP operations, toasts, navigation and links.
 
 The agent's output lands in its own conversation. It can call back into the app only through the app's `exposes`, if the agent's MCP grant includes the app.
 
-The UI form is the `handoff` action: "Ask agent to follow up" in m5 admin.
+The UI form is the `handoff` action: "Ask agent to follow up" in the Admin console.
 
 ---
 
@@ -687,7 +687,7 @@ Added here:
 | Device | stdio/LAN upstreams (M2) | When the device is online | 🆕 |
 | Spezl (no server) | Everything above, in-app; automations only while the app runs (eagent-hub scheduler) | Local | #YO-32, 🆕 S3 |
 
-**Hosted apps (#VAPP-101) stay cancelled.** Code that must always run lives in an **upstream MCP server** the team deploys: m5's MCP, a small Bun service, a Home Assistant add-on. The app calls it by name. That keeps Exponential free of a sandbox, of a per-app process model and of billing for compute (decided 2026-11-01: for good).
+**Hosted apps (#VAPP-101) stay cancelled.** Code that must always run lives in an **upstream MCP server** the team deploys: a company's own MCP, a small Bun service, a Home Assistant add-on. The app calls it by name. That keeps Exponential free of a sandbox, of a per-app process model and of billing for compute (decided 2026-11-01: for good).
 
 Self-hosted gets everything: the broker is the same image (`ghcr.io/niach/exponential-web`).
 

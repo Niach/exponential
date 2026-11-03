@@ -8,7 +8,7 @@ import GRDB
 /// shows and observes only that category. The page of every section stacked
 /// (and the scroll-to inside it) is gone.
 enum TeamSettingsSection: String, Hashable, CaseIterable {
-    case general, members, labels, boards, agents, repositories, prompts, mcp, skills, devices
+    case general, members, labels, boards, agents, repositories, prompts, mcp, skills, apps, devices
 
     init?(_ id: SettingsNav.Id) { self.init(rawValue: id.rawValue) }
 
@@ -34,6 +34,9 @@ struct TeamSettingsPage: View {
         case .mcp: McpSettingsPage(teamId: teamId)
         // #EXP-1661: Settings › Skills (skills.json `list`), read-only.
         case .skills: SkillsSettingsPage(teamId: teamId)
+        // #EXP-1632: Settings › Apps = the Apps list (apps.json) for this
+        // team: rows open the app, the ⋯ menu, Import… + New app.
+        case .apps: AppsListScreen(settingsTeamId: teamId)
         // The devices page moved here from the phone tab bar (chats.json
         // `shell`): the same screen, titled "Devices" by itself.
         case .devices: AgentsView()
@@ -96,8 +99,11 @@ private func observePage<T: Equatable & Sendable>(
 
 // MARK: - General
 
-/// General = the team's identity + the Danger zone (delete team, owner only;
-/// EXP-364: an owner may delete ANY team).
+/// General ×4 (web `general-section.tsx`): the General band over the Name
+/// row (label left, value right, saves on submit and on leaving the field),
+/// Yolo mode, the Team prompt (raw monospace field, byte counter, autosaves),
+/// then the Danger zone (delete team, owner only; EXP-364: an owner may
+/// delete ANY team).
 private struct TeamGeneralPage: View {
     let teamId: String
 
@@ -106,31 +112,55 @@ private struct TeamGeneralPage: View {
         var isOwner = false
     }
 
+    private enum Field: Hashable { case name, prompt }
+
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
     @State private var data = Data()
     @State private var showDeleteTeam = false
     @State private var deletingTeam = false
+    @FocusState private var focused: Field?
+    @State private var name = ""
+    @State private var savingName = false
+    /// The yolo flip while its write is in flight.
+    @State private var yoloPending: Bool?
+    /// nil = still loading (the field stays a skeleton, so a blur can never
+    /// save an empty draft over a prompt that has not arrived).
+    @State private var prompt: String?
+    @State private var savedPrompt = ""
+    @State private var promptLoadFailed = false
+    @State private var promptSaving = false
+    @State private var promptJustSaved = false
+    @State private var promptSaveTask: Task<Void, Never>?
+
+    private var promptOver: Bool { TeamPrompt.bytes(prompt ?? "") > TeamPrompt.maxBytes }
+    private var promptDirty: Bool {
+        guard let prompt else { return false }
+        return prompt.trimmingTrailingWhitespace != savedPrompt
+    }
 
     var body: some View {
         TeamSettingsPageChrome(section: .general) {
             if let team = data.team {
-                VStack(alignment: .leading, spacing: 0) {
-                    GlassSectionBand("Team")
-                    HStack(spacing: 12) {
-                        TeamAvatar(team: team, size: 40)
-                        Text(team.name)
-                            .font(.body.weight(.medium))
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .glassSection()
+                VStack(alignment: .leading, spacing: 4) {
+                    GlassSectionBand("General")
+                    nameRow(team)
+                        .glassSection()
                 }
                 .accessibilityIdentifier("team-settings-identity")
+
+                GlassToggleRow("Yolo mode", isOn: Binding(
+                    get: { yoloPending ?? team.yoloMode },
+                    set: { toggleYolo($0) }
+                ))
+                .disabled(!data.isOwner || yoloPending != nil)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .glassSection()
+                .accessibilityIdentifier("team-yolo-mode")
+
+                promptSection
 
                 if data.isOwner {
                     dangerZone
@@ -145,8 +175,21 @@ private struct TeamGeneralPage: View {
                     team: try TeamEntity.fetchOne(db, key: teamId),
                     isOwner: try TeamPageQueries.isOwner(db, teamId: teamId, userId: userId)
                 )
-            }, apply: { data = $0 })
+            }, apply: { next in
+                if focused != .name, !savingName, next.team?.name != data.team?.name {
+                    name = next.team?.name ?? ""
+                }
+                if let pending = yoloPending, next.team?.yoloMode == pending { yoloPending = nil }
+                data = next
+            })
         }
+        .task(id: "prompt/\(accountId)/\(teamId)") { await loadPrompt(retried: false) }
+        .onChange(of: focused) { old, new in
+            if old == .name, new != .name { saveName() }
+            if old == .prompt, new != .prompt { savePrompt() }
+        }
+        // Leaving the page inside the debounce window never drops the edit.
+        .onDisappear { savePrompt() }
         // EXP-1215: the app's own alert card (`GlassAlert`) on a zero-size
         // node of its own (EXP-240).
         .background {
@@ -160,6 +203,191 @@ private struct TeamGeneralPage: View {
                         handlers: ["delete": { Task { await deleteTeam() } }]
                     )
                 }
+        }
+    }
+
+    /// EXP-818: the Linear settings row, saving itself (no Save button).
+    private func nameRow(_ team: TeamEntity) -> some View {
+        HStack(spacing: 8) {
+            Text("Name")
+                .foregroundStyle(.white.opacity(TextOpacity.primary))
+            Spacer(minLength: 8)
+            GlassTextField("Name", text: Binding(
+                get: { name },
+                set: { name = String($0.prefix(255)) }
+            ), bordered: false, accessibilityIdentifier: "team-name") {
+                EmptyView()
+            } trailing: {
+                if savingName { InlineStatus(FeedbackStates.Inline.saving) }
+            }
+            .multilineTextAlignment(.trailing)
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            .submitLabel(.done)
+            .focused($focused, equals: .name)
+            .onSubmit { saveName() }
+            .disabled(!data.isOwner)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .onAppear { if name.isEmpty { name = team.name } }
+    }
+
+    /// EXP-1025: a RAW monospace field (a model reads it, so the bytes shown
+    /// are the bytes it gets); the counter is the footer.
+    private var promptSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            GlassSectionBand(TeamPrompt.title) {
+                if promptSaving {
+                    InlineStatus(FeedbackStates.Inline.saving)
+                } else if promptJustSaved {
+                    InlineStatus(FeedbackStates.Inline.saved, busy: false)
+                }
+            }
+            VStack(spacing: 0) {
+                if let current = prompt {
+                    GlassTextField(TeamPrompt.placeholder, text: Binding(
+                        get: { current },
+                        set: { prompt = $0; schedulePromptSave() }
+                    ), lines: 10...40, bordered: false, accessibilityIdentifier: "team-agent-prompt")
+                    .font(.footnote.monospaced())
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .focused($focused, equals: .prompt)
+                    .frame(minHeight: 180, alignment: .topLeading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .disabled(!data.isOwner)
+                } else if promptLoadFailed {
+                    VStack(spacing: 12) {
+                        Text("Prompt unavailable")
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
+                            Task { await loadPrompt(retried: true) }
+                        })
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 180)
+                } else {
+                    SkeletonRows(rows: 2, rowHeight: 22, dot: false, dividers: false)
+                        .padding(.vertical, 12)
+                }
+                Rectangle()
+                    .fill(GlassTokens.strokeCard)
+                    .frame(height: GlassTokens.hairline)
+                Text(TeamPrompt.counter(prompt ?? ""))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(promptOver ? DesignTokens.Semantic.red : .white.opacity(TextOpacity.tertiary))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .accessibilityIdentifier("team-agent-prompt-counter")
+            }
+            .glassSection()
+            if promptOver {
+                Text(TeamPrompt.tooLong(prompt ?? ""))
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .foregroundStyle(DesignTokens.Semantic.red)
+                    .padding(.top, 4)
+            }
+        }
+    }
+
+    private func saveName() {
+        guard let team = data.team, data.isOwner, !savingName else { return }
+        let draft = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !draft.isEmpty else {
+            name = team.name
+            return
+        }
+        guard draft != team.name else { return }
+        savingName = true
+        Task {
+            defer { savingName = false }
+            do {
+                try await deps.teamsApi.update(accountId: accountId, UpdateTeamInput(teamId: teamId, name: draft))
+            } catch {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "save", thing: "the team name"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
+    /// EXP-1105: a synced team flag, owner-flipped.
+    private func toggleYolo(_ next: Bool) {
+        guard data.isOwner else { return }
+        yoloPending = next
+        Task {
+            do {
+                try await deps.teamsApi.update(accountId: accountId, UpdateTeamInput(teamId: teamId, yoloMode: next))
+            } catch {
+                yoloPending = nil
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "update", thing: "yolo mode"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
+    /// FEED-79: the load runs on open, so a failure is quiet (the Retry
+    /// state); only a failed Retry tap toasts.
+    private func loadPrompt(retried: Bool) async {
+        promptLoadFailed = false
+        do {
+            let text = try await deps.teamsApi.agentPrompt(accountId: accountId, teamId: teamId)
+            prompt = text
+            savedPrompt = text.trimmingTrailingWhitespace
+        } catch {
+            guard !Task.isCancelled else { return }
+            promptLoadFailed = true
+            if retried {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "load", thing: "the team prompt"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
+    /// EXP-1275 (D9): autosave a beat after the last keystroke.
+    private func schedulePromptSave() {
+        promptSaveTask?.cancel()
+        guard promptDirty, !promptOver else { return }
+        promptSaveTask = Task {
+            // feedback-states.json `autosave.debounceMs`.
+            try? await Task.sleep(for: .milliseconds(800))
+            guard !Task.isCancelled else { return }
+            savePrompt()
+        }
+    }
+
+    private func savePrompt() {
+        promptSaveTask?.cancel()
+        promptSaveTask = nil
+        guard data.isOwner, let text = prompt, promptDirty, !promptOver else { return }
+        let account = accountId
+        let team = teamId
+        promptSaving = true
+        promptJustSaved = false
+        Task {
+            do {
+                try await deps.teamsApi.update(accountId: account, UpdateTeamInput(teamId: team, agentPrompt: text))
+                savedPrompt = text.trimmingTrailingWhitespace
+                promptSaving = false
+                promptJustSaved = true
+                // `autosave.savedHoldMs`.
+                try? await Task.sleep(for: .milliseconds(2000))
+                promptJustSaved = false
+            } catch {
+                promptSaving = false
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "save", thing: "the team prompt"),
+                    description: error.trpcUserMessage
+                )
+            }
         }
     }
 
@@ -205,6 +433,15 @@ private struct TeamGeneralPage: View {
                 description: error.trpcUserMessage
             )
         }
+    }
+}
+
+private extension String {
+    /// The server's normalisation (`trimEnd`).
+    var trimmingTrailingWhitespace: String {
+        var copy = self
+        while let last = copy.last, last.isWhitespace { copy.removeLast() }
+        return copy
     }
 }
 

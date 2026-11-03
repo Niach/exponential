@@ -61,7 +61,7 @@ describe.skipIf(!ready.ok)(`the vault sweep (real DB)`, () => {
     const [team] = await db.insert(teams).values({ name: `Vault`, slug: `vault-${randomUUID().slice(0, 8)}` }).returning({ id: teams.id })
     const [server] = await db
       .insert(mcpServers)
-      .values({ teamId: team!.id, name: `m5`, url: `https://m5.test/mcp`, auth: `oauth` })
+      .values({ teamId: team!.id, name: `crm`, url: `https://crm.test/mcp`, auth: `oauth` })
       .returning({ id: mcpServers.id })
     const credentialId = randomUUID()
     await db.insert(mcpCredentials).values({

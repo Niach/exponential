@@ -69,8 +69,8 @@ const SECTIONS: DocsSectionType[] = [
 
 const PACKAGE = `{
   "formatVersion": 3,
-  "id": "acme.stunden",
-  "name": "Stunden",
+  "id": "acme.hours",
+  "name": "Hours",
   "version": "1.0.0",
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "icon": { "glyph": "clock", "color": "blue" },
@@ -93,7 +93,7 @@ const PACKAGE = `{
   "templates": {
     "month": {
       "components": [ { "id": "root", "component": "Column", "children": ["chart", "table"] }, … ],
-      "data": { "title": "Stunden" },
+      "data": { "title": "Hours" },
       "bindings": [
         { "path": "/month", "source": "records:entry?mine=1&by=date&sum=hours" }
       ]
@@ -542,7 +542,7 @@ export function AppsDocsPage() {
               as you at{` `}
               <a href="/docs/mcp/#app-tools"><code>/api/mcp/apps</code></a>,
               named <code>&lt;app&gt;__&lt;tool&gt;</code> (
-              <code>stunden__log_hours</code>), with no device online. One
+              <code>hours__log_hours</code>), with no device online. One
               consent covers every app: <strong>Off</strong>,{` `}
               <strong>Read only</strong> or <strong>Full</strong> per app,
               upstreams connected inline. The app&apos;s settings list its

@@ -43,6 +43,7 @@ jobs:
       ede: ${{ steps.f.outputs.ede }}
       ios: ${{ steps.f.outputs.ios }}
       android: ${{ steps.f.outputs.android }}
+      site: ${{ steps.f.outputs.site }}
     steps:
       - id: f
         env:
@@ -50,7 +51,7 @@ jobs:
           PR: ${{ github.event.pull_request.number }}
         run: |
           set -euo pipefail
-          if [ -z "$PR" ]; then printf 'desktop=true\neui=true\nede=true\nios=true\nandroid=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
+          if [ -z "$PR" ]; then printf 'desktop=true\neui=true\nede=true\nios=true\nandroid=true\nsite=true\n' >> "$GITHUB_OUTPUT"; exit 0; fi
           files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" -q '.[].filename')"
           desktop='^(apps/desktop/|packages/(domain-contract|ecore|etalk|exponential-ui|icons|design-tokens|emoji|electric-protocol)/|packages/ui/exponential-ui/|\.github/workflows/test\.yml$)'
           echo "desktop=$(grep -qE "$desktop" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
@@ -68,6 +69,10 @@ jobs:
           # the host library the tests load through JNA).
           android='^(apps/android/|packages/(domain-contract|ecore|etalk|exponential-ui-compose|icons|design-tokens|emoji)/|packages/exponential-ui/fixtures/|packages/ui/exponential-ui/extension\.json$|apps/desktop/crates/(exponential-net-ffi|enet-core|exponential-ui-ffi)/|apps/desktop/Cargo\.lock$|\.github/workflows/test\.yml$)'
           echo "android=$(grep -qE "$android" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
+          # exponential.at: the site, what it renders (eUI, Motion's WASM,
+          # the shot store) and the repo markdown its reference pages read.
+          site='^(apps/site/|shots/|docs/|INSTALL\.md$|packages/exponential-ui(-react)?/|apps/web/src/lib/(changelog\.ts|emcp/)|apps/desktop/crates/cli/src/main\.rs$|\.github/workflows/test\.yml$)'
+          echo "site=$(grep -qE "$site" <<<"$files" && echo true || echo false)" | tee -a "$GITHUB_OUTPUT"
 
   web:
     needs: pick
@@ -282,6 +287,33 @@ jobs:
       - run: bun test
         working-directory: apps/styleguide
 
+  # exponential.at (apps/site, ~1 min): the Astro build, then dist served
+  # with its production headers and checked in Chromium: no CSP or console
+  # errors, the build-time eUI HTML, hydrated islands, every Motion tile
+  # painting (a CSP without 'wasm-unsafe-eval' left them blank once).
+  site:
+    needs: changes
+    if: needs.changes.outputs.site == 'true'
+    runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun --filter @exp/site test
+      - run: bun --filter @exp/site build
+      - run: bunx playwright install --with-deps chromium
+      - name: Paint check
+        run: |
+          bun run apps/site/scripts/serve.ts 4391 &
+          bun run apps/site/scripts/paint-check.ts http://localhost:4391 /tmp/site-shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site-shots
+          path: /tmp/site-shots
+          retention-days: 14
+          if-no-files-found: ignore
+
   # The eUI rewrite-gap list must classify every view in the catalog exactly
   # once. views.json lives outside the eui path filter, so this runs on every
   # PR (bun:test over two JSON files, no install, ~1 s): a new view can't land
@@ -320,7 +352,7 @@ jobs:
   # gate" ruleset). Green = every job passed or was path-skipped; a fork PR
   # (pick skipped, nothing ran) stays red.
   gate:
-    needs: [pick, changes, web, migrations, desktop, ede, android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint]
+    needs: [pick, changes, web, migrations, desktop, ede, android, eui, gpui-revs, styleguide, rewrite-gaps, actionlint, site]
     if: always()
     runs-on: ubuntu-latest
     steps:

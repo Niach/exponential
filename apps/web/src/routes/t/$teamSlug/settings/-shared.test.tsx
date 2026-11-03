@@ -204,8 +204,8 @@ describe(`SETTINGS_NAV Repositories visibility (EXP-557)`, () => {
 
 // #EXP-1381: settings-nav.json (the phones' Team-page rows) is DERIVED from
 // SETTINGS_NAV, so the two cannot drift: every row is a SETTINGS_NAV page
-// with the same label, or one of the injected lists (Boards, Agents: their
-// SETTINGS_NAV group) or the Devices page; and every row resolves to a real
+// with the same label, or one of the injected lists (Boards, Agents,
+// Apps: their SETTINGS_NAV group) or the Devices page; and every row resolves to a real
 // route file, so no phone row opens a 404.
 describe(`settings-nav.json rows vs SETTINGS_NAV`, () => {
   const here = dirname(fileURLToPath(import.meta.url))
@@ -218,7 +218,7 @@ describe(`settings-nav.json rows vs SETTINGS_NAV`, () => {
       expect(existsSync(join(here, `..`, `devices.tsx`))).toBe(true)
       return
     }
-    if (id === `boards` || id === `agents`) {
+    if (id === `boards` || id === `agents` || id === `apps`) {
       expect(SETTINGS_NAV.some((group) => group.group === row.label)).toBe(true)
     } else {
       expect(item?.label).toBe(row.label)
@@ -230,7 +230,7 @@ describe(`settings-nav.json rows vs SETTINGS_NAV`, () => {
 
   it(`every row's page is in the web nav (or an injected list's group)`, () => {
     for (const row of SETTINGS_NAV_ROWS) {
-      if (row.id === `devices` || row.id === `boards` || row.id === `agents`) continue
+      if (row.id === `devices` || row.id === `boards` || row.id === `agents` || row.id === `apps`) continue
       expect(items.some((item) => item.id === row.id), row.id).toBe(true)
     }
   })

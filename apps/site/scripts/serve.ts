@@ -3,10 +3,10 @@
    paint check and local previews: `bun run scripts/serve.ts [port]`. */
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { join, resolve } from "node:path"
+import { redirectFor } from "../src/redirects.ts"
 
 const DIST = resolve(import.meta.dir, `../dist`)
 const config = JSON.parse(readFileSync(join(DIST, `serve.json`), `utf8`)) as {
-  redirects: { source: string; destination: string; type: number }[]
   headers: { source: string; headers: { key: string; value: string }[] }[]
 }
 const global = Object.fromEntries(config.headers.find((h) => h.source === `**`)!.headers.map((h) => [h.key, h.value]))
@@ -16,8 +16,8 @@ Bun.serve({
   port,
   fetch(req) {
     const path = decodeURIComponent(new URL(req.url).pathname)
-    const redirect = config.redirects.find((r) => r.source === path || `${r.source}/` === path)
-    if (redirect) return new Response(null, { status: redirect.type, headers: { Location: redirect.destination } })
+    const to = redirectFor(path)
+    if (to) return new Response(null, { status: 301, headers: { Location: to } })
     let file = join(DIST, path)
     if (!file.startsWith(DIST)) return new Response(`forbidden`, { status: 403 })
     if (existsSync(file) && statSync(file).isDirectory()) {

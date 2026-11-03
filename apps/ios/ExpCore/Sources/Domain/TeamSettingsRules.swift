@@ -55,3 +55,38 @@ extension SignInMethods {
         emailOtpEnabled ? email : "\(email) · Off on this server"
     }
 }
+
+/// EXP-1025: Settings › General's team prompt editor ×4 (web
+/// `general-section.tsx`, the IDE's `settings/team_general.rs`): the copy,
+/// the contract's byte cap and the counter's short forms.
+public enum TeamPrompt {
+    public static let title = "Team prompt"
+    public static let placeholder = "Rules every coding session of this team follows, as markdown."
+    /// `contract.team.agentPromptMaxBytes` (the server refuses more).
+    public static let maxBytes = 12_288
+
+    /// UTF-8 bytes — what the server counts.
+    public static func bytes(_ text: String) -> Int { text.utf8.count }
+
+    /// `12.3k` / `840`.
+    public static func formatByteCount(_ bytes: Int) -> String {
+        bytes < 1000 ? "\(bytes)" : String(format: "%.1fk", Double(bytes) / 1024)
+    }
+
+    /// The rough chars÷4 token readout, labelled ≈.
+    public static func approxTokens(_ bytes: Int) -> String {
+        let tokens = Int((Double(bytes) / 4).rounded())
+        return tokens < 1000 ? "≈\(tokens) tokens" : String(format: "≈%.1fk tokens", Double(tokens) / 1000)
+    }
+
+    /// `0 / 12.0k bytes · ≈0 tokens`.
+    public static func counter(_ text: String) -> String {
+        let used = bytes(text)
+        return "\(formatByteCount(used)) / \(formatByteCount(maxBytes)) bytes · \(approxTokens(used))"
+    }
+
+    /// `Too long: 12400 of 12288 bytes`.
+    public static func tooLong(_ text: String) -> String {
+        "Too long: \(bytes(text)) of \(maxBytes) bytes"
+    }
+}

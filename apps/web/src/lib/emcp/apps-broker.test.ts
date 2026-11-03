@@ -20,7 +20,7 @@ import {
 // (the DB-backed runs are covered by the endpoint's callers).
 
 const [listEntries, logComment, findCustomer] = fixture.validateCases[0]!.exposes as unknown as Expose[]
-const app: BrokerApp = { id: `a1`, slug: `timesheet`, name: `Timesheet`, icon: null, color: null, teamId: `t1`, grantedTools: [`exponential.comments.create`], upstreams: [`m5`], level: `write` }
+const app: BrokerApp = { id: `a1`, slug: `timesheet`, name: `Timesheet`, icon: null, color: null, teamId: `t1`, grantedTools: [`exponential.comments.create`], upstreams: [`crm`], level: `write` }
 const tools: BrokerTool[] = [
   { name: `timesheet__list_entries`, app, expose: listEntries! },
   { name: `timesheet__log_comment`, app, expose: logComment! },
@@ -83,7 +83,7 @@ describe(`app tool broker (VAPP-181)`, () => {
     expect(classifyAppToolResponse(as(`destructive`))).toEqual({ outcome: { denied: true }, error: `destructive` })
     expect(classifyAppToolResponse(as(`upstreamDisconnected`))).toEqual({ outcome: { upstreamError: true }, error: `upstreamDisconnected` })
     expect(classifyAppToolResponse(as(`toolError`))).toEqual({ outcome: { error: true }, error: `toolError` })
-    const upstreamOwn = { jsonrpc: `2.0`, id: 1, result: { isError: true, content: [{ type: `text`, text: `m5 said no` }], _meta: { "at.exponential/via": `upstream` } } }
+    const upstreamOwn = { jsonrpc: `2.0`, id: 1, result: { isError: true, content: [{ type: `text`, text: `the CRM said no` }], _meta: { "at.exponential/via": `upstream` } } }
     expect(classifyAppToolResponse(upstreamOwn)).toEqual({ outcome: { upstreamError: true }, error: `upstreamFailed` })
     const unknown = { jsonrpc: `2.0`, id: 1, error: { code: -32602, message: `MCP error -32602: Tool x__y not found` } }
     expect(classifyAppToolResponse(unknown)).toEqual({ outcome: { denied: true }, error: `unknownTool` })
