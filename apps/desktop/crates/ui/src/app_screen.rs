@@ -1494,7 +1494,9 @@ mod tests {
     /// the package lacks falls back to the first screen; icons by eUI name.
     #[test]
     fn the_preview_applies_the_requested_screen() {
-        let pkg: Value = serde_json::from_str(include_str!("../../../../../samples/apps/crm.app.json")).unwrap();
+        // P2: the samples are signed app FILES; the package rides under `package`.
+        let file: Value = serde_json::from_str(include_str!("../../../../../samples/apps/crm.app.json")).unwrap();
+        let pkg = file.get("package").cloned().unwrap_or(file);
         let params = json!({"q": "acme"});
         let screen = resolve_screen(&pkg, Some("companies"), Some(&params)).unwrap();
         let message = apply_screen_message(&pkg, &screen);
