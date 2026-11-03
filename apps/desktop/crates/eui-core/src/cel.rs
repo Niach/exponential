@@ -998,7 +998,11 @@ impl Parser {
                     let arg = self.expr()?;
                     self.expect(")")?;
                     if !matches!(arg, Node::Field(..)) {
-                        return Err(format!("at {}: has needs a field: has(a.b)", t.at));
+                        let hint = match &arg {
+                            Node::Id(name, _) => format!("; for a name write {name} != null"),
+                            _ => String::new(),
+                        };
+                        return Err(format!("at {}: has needs a field: has(a.b){hint}", t.at));
                     }
                     return Ok(Node::Has(Box::new(arg), t.at));
                 }
@@ -1150,8 +1154,9 @@ impl Evaluator<'_> {
                         if n.fract() != 0.0 {
                             return Err(format!("a list index is a whole number, got {}", num_text(n)));
                         }
+                        // VAPP-204: an index past either end is null, like a missing field.
                         if n < 0.0 || n >= list.len() as f64 {
-                            return Err(format!("index {} out of range", num_text(n)));
+                            return Ok(Value::Null);
                         }
                         Ok(list[n as usize].clone())
                     }
@@ -1491,7 +1496,10 @@ impl Checker<'_> {
                 let Node::Field(of, name, _) = field else { return Err("has needs a field: has(a.b)".into()) };
                 let raw = self.tc(of, scope)?;
                 let of = required_type(&raw);
-                let t = if matches!(of.as_str(), Some("dyn" | "map" | "null")) {
+                // VAPP-204: a field of a map may be missing (`dyn?`).
+                let t = if is(&of, "map") {
+                    optional_type(ty("dyn"))
+                } else if matches!(of.as_str(), Some("dyn" | "null")) {
                     ty("dyn")
                 } else if let Value::Object(fields) = &of {
                     fields.get(name).cloned().ok_or_else(|| format!("unknown field {name}"))?
@@ -1512,7 +1520,8 @@ impl Checker<'_> {
                     if !loose(&index_t) && !is(&index_t, "number") {
                         return Err(format!("a list index is a number, got {}", type_display(&index_t)));
                     }
-                    return Ok(wrap(item.first().cloned().unwrap_or_else(|| ty("dyn"))));
+                    // VAPP-204: an index may be past the end (null).
+                    return Ok(optional_type(item.first().cloned().unwrap_or_else(|| ty("dyn"))));
                 }
                 if is_row(&of_t) || is(&of_t, "map") {
                     if !loose(&index_t) && !is_textual(&index_t) {
@@ -1521,7 +1530,7 @@ impl Checker<'_> {
                     if let (Value::Object(fields), Some(Value::String(key))) = (&of_t, literal(index)) {
                         return fields.get(key).cloned().map(wrap).ok_or_else(|| format!("unknown field {key}"));
                     }
-                    return Ok(wrap(ty("dyn")));
+                    return Ok(optional_type(ty("dyn")));
                 }
                 if loose(&of_t) {
                     return Ok(wrap(ty("dyn")));

@@ -7,10 +7,11 @@
 // agent can fix it. The Rust core's `host::expressions` mirrors it
 // (`fixtures/expressions.json` `packages`).
 
-import { checkExpression, optionalType, typeName } from "../cel"
+import { checkExpression, isOptional, optionalType, requiredType, typeName } from "../cel"
 import type { ExprType } from "../cel"
 import { isBinding, isCall } from "../expr"
-import { RECORDS_SCHEME } from "./query"
+import { RECORDS_SCHEME, expandQuerySource, parseRecordsSource } from "./query"
+import type { RecordsQuery } from "./query"
 import { parseSource } from "./sources"
 
 export interface ExpressionIssue {
@@ -52,9 +53,36 @@ export function recordRowType(kind: unknown): ExprType {
   return { ...(rowOf(props, schema.required) as Record<string, ExprType>), id: `string`, createdAt: `timestamp`, updatedAt: `timestamp`, createdBy: `string`, authorId: `string`, author: `string` }
 }
 
-/** The value a records binding lands (docs/package-format.md "Records"). */
-export function recordsValueType(kind: unknown): ExprType {
-  return { rows: [recordRowType(kind)], count: `number`, sum: `number`, groups: [`map`], totals: `map`, before: `map`, month: `map` }
+/** A month view's value (`RecordsMonth`). */
+const MONTH_TYPE: ExprType = {
+  key: `string`,
+  label: `string`,
+  prev: `string`,
+  next: `string`,
+  today: `date`,
+  days: [{ date: `date`, day: `number`, weekday: `string`, count: `number`, sum: `number`, running: optionalType(`map`) }],
+  labels: [`string`],
+  counts: [`number`],
+  sums: [`number`],
+}
+
+/** The value a records binding lands (docs/package-format.md "Records").
+ *  VAPP-204: what the binding's query leaves out may be missing (`T?`):
+ *  `sum` without a sum, `month` without a month view, `groups` without a
+ *  group, `totals` without an aggregate, `before` without a before; with no
+ *  query known, all of them. */
+export function recordsValueType(kind: unknown, query?: RecordsQuery | null): ExprType {
+  const has = (present: boolean | undefined, t: ExprType) => (present ? t : optionalType(t))
+  const row = recordRowType(kind) as Record<string, ExprType>
+  return {
+    rows: [query?.running.length && !query.group.length ? { ...row, running: `map` } : row],
+    count: `number`,
+    sum: has(query ? query.sum !== null : undefined, `number`),
+    groups: has(query ? query.group.length > 0 : undefined, [`map`]),
+    totals: has(query ? query.aggregate.length > 0 : undefined, `map`),
+    before: has(query ? query.before !== null : undefined, `map`),
+    month: has(query ? query.month !== null : undefined, MONTH_TYPE),
+  }
 }
 
 /** A literal's type: scalars, lists (one item type, else dyn), rows. */
@@ -72,61 +100,128 @@ export function literalType(v: unknown): ExprType {
   return typeName(v)
 }
 
-/** The type at the rest of a pointer below a type. */
-function walk(type: ExprType, segments: string[]): ExprType {
+/** A walk's answer: the type, or the first field a closed row has not. */
+type Walked = { type: ExprType } | { unknown: string }
+
+/** The type at the rest of a pointer below a type. VAPP-204: an index may
+ *  be past the end and a map's field missing (`T?`); `strict` = a row's
+ *  unknown field is an error (a records row), else open (`dyn`). */
+function walk(type: ExprType, segments: string[], strict: boolean): Walked {
   let t = type
+  let opt = false
   for (const seg of segments) {
+    if (isOptional(t)) {
+      opt = true
+      t = t[`?`]
+    }
     if (Array.isArray(t)) {
-      if (!/^\d+$/.test(seg)) return `dyn`
+      if (!/^\d+$/.test(seg)) return { type: `dyn` }
       t = t[0]!
+      opt = true
+    } else if (t === `map`) {
+      t = `dyn`
+      opt = true
     } else if (typeof t === `object`) {
-      if (!own(t, seg)) return `dyn`
+      if (!own(t, seg)) return strict ? { unknown: seg } : { type: `dyn` }
       t = t[seg]!
-    } else return `dyn`
+    } else return { type: `dyn` }
   }
-  return t
+  return { type: opt ? optionalType(t) : t }
 }
 
 const unescape = (s: string) => s.replace(/~1/g, `/`).replace(/~0/g, `~`)
 
+/** A type and whether its rows are closed (a records binding's, unless
+ *  the kind allows additional properties). */
+interface Scope {
+  type: ExprType
+  strict: boolean
+}
+
 /** The type of an absolute data path in a template: below a records
  *  binding its value, else the template data's literal, else dyn. */
-function pathType(path: string, template: Record<string, unknown>, records: unknown): ExprType {
-  if (!path.startsWith(`/`)) return `dyn`
+function pathType(path: string, template: Record<string, unknown>, records: unknown, queries: unknown): Walked & { strict?: boolean } {
+  if (!path.startsWith(`/`)) return { type: `dyn` }
   const bindings = Array.isArray(template.bindings) ? template.bindings : []
   for (const b of bindings) {
     if (!isObject(b) || typeof b.path !== `string` || typeof b.source !== `string`) continue
     if (path !== b.path && !path.startsWith(`${b.path}/`)) continue
     const parsed = parseSource(b.source)
     const kind = parsed?.scheme === RECORDS_SCHEME ? parsed.name : undefined
-    if (!kind || !isObject(records) || !own(records, kind)) return `dyn`
+    if (!kind || !isObject(records) || !own(records, kind)) return { type: `dyn` }
     const rest = path.slice(b.path.length).split(`/`).filter((s, i) => i > 0 || s !== ``)
-    return walk(recordsValueType(records[kind]), rest.map(unescape))
+    const strict = closedKind(records[kind])
+    const expanded = parseSource(expandQuerySource(b.source, isObject(queries) ? queries : undefined))
+    const query = expanded ? parseRecordsSource(expanded) : null
+    return { ...walk(recordsValueType(records[kind], query), rest.map(unescape), strict), strict }
   }
   let cur: unknown = template.data
   for (const seg of path === `/` ? [] : path.slice(1).split(`/`).map(unescape)) {
     if (Array.isArray(cur) && /^\d+$/.test(seg)) cur = cur[Number(seg)]
     else if (isObject(cur) && own(cur, seg)) cur = cur[seg]
-    else return `dyn`
+    else return { type: `dyn` }
   }
-  return cur === undefined ? `dyn` : literalType(cur)
+  return { type: cur === undefined ? `dyn` : literalType(cur) }
 }
 
-/** A var's type; one the checker cannot type may be missing (`dyn?`). */
-function varType(v: unknown, template: Record<string, unknown>, records: unknown): ExprType {
+/** A kind whose rows have only their schema's fields and the row keys. */
+function closedKind(kind: unknown): boolean {
+  const schema = isObject(kind) && isObject(kind.schema) ? kind.schema : {}
+  return schema.additionalProperties !== true
+}
+
+/** A data path's type where it is read: absolute against the template,
+ *  relative against the row scope it sits in (VAPP-204), else open. */
+function bindingType(path: string, scope: Scope | null, template: Record<string, unknown>, records: unknown, queries: unknown): Walked & { strict?: boolean } {
+  if (path.startsWith(`/`)) return pathType(path, template, records, queries)
+  if (!scope) return { type: `dyn` }
+  return { ...walk(scope.type, path.split(`/`).filter((s) => s !== ``).map(unescape), scope.strict), strict: scope.strict }
+}
+
+/** VAPP-204: the row each component of a template renders in: a
+ *  `children: {componentId, path}` template gives its row component (and
+ *  everything under it) the list's item type; first place wins, as in the
+ *  reducer. Components outside every row are absent. */
+function rowScopes(template: Record<string, unknown>, records: unknown, queries: unknown): Map<string, Scope | null> {
+  const byId = new Map<string, Record<string, unknown>>()
+  for (const c of Array.isArray(template.components) ? template.components : []) if (isObject(c) && typeof c.id === `string` && !byId.has(c.id)) byId.set(c.id, c)
+  const scopes = new Map<string, Scope | null>()
+  const place = (id: string, scope: Scope | null) => {
+    const c = byId.get(id)
+    if (!c || scopes.has(id)) return
+    scopes.set(id, scope)
+    if (Array.isArray(c.children)) for (const child of c.children) if (typeof child === `string`) place(child, scope)
+    if (isObject(c.children) && typeof c.children.componentId === `string` && typeof c.children.path === `string`) {
+      const list = bindingType(c.children.path, scope, template, records, queries)
+      const t = `type` in list ? requiredType(list.type) : `dyn`
+      place(c.children.componentId, { type: Array.isArray(t) ? t[0]! : `dyn`, strict: Array.isArray(t) && list.strict === true })
+    }
+    if (isObject(c.slots)) for (const child of Object.values(c.slots)) if (typeof child === `string`) place(child, scope)
+  }
+  place(`root`, null)
+  return scopes
+}
+
+/** A var's type; one the checker cannot type may be missing (`dyn?`). A
+ *  binding to a field a closed row has not is an issue at its path. */
+function varType(v: unknown, at: string, scope: Scope | null, template: Record<string, unknown>, records: unknown, queries: unknown, issues: ExpressionIssue[]): ExprType {
   if (isBinding(v)) {
-    const t = pathType(v.path, template, records)
-    return t === `dyn` ? optionalType(t) : t
+    const t = bindingType(v.path, scope, template, records, queries)
+    if (`unknown` in t) {
+      issues.push({ path: `${at}/path`, message: `unknown field ${t.unknown} in ${v.path}` })
+      return optionalType(`dyn`)
+    }
+    return t.type === `dyn` ? optionalType(t.type) : t.type
   }
   if (isCall(v)) return optionalType(`dyn`)
   if (Array.isArray(v)) {
-    const items = v.map((x) => varType(x, template, records))
+    const items = v.map((x, i) => varType(x, `${at}/${i}`, scope, template, records, queries, issues))
     if (items.length === 0) return [`dyn`]
     return [items.every((t) => JSON.stringify(t) === JSON.stringify(items[0])) ? items[0]! : `dyn`]
   }
   if (isObject(v)) {
     const out: Record<string, ExprType> = {}
-    for (const [k, x] of Object.entries(v)) out[k] = varType(x, template, records)
+    for (const [k, x] of Object.entries(v)) out[k] = varType(x, `${at}/${escape(k)}`, scope, template, records, queries, issues)
     return out
   }
   return typeName(v)
@@ -138,6 +233,7 @@ export function validatePackageExpressions(pkg: Record<string, unknown>): Expres
   if (!isObject(pkg.templates)) return issues
   for (const [id, template] of Object.entries(pkg.templates)) {
     if (!isObject(template) || !Array.isArray(template.components)) continue
+    let scope: Scope | null = null
     const visit = (value: unknown, at: string) => {
       if (Array.isArray(value)) return value.forEach((v, i) => visit(v, `${at}/${i}`))
       if (!isObject(value)) return
@@ -150,14 +246,20 @@ export function validatePackageExpressions(pkg: Record<string, unknown>): Expres
         else if (args.vars !== undefined && !isObject(args.vars)) issues.push({ path: `${here}/vars`, message: `vars is an object` })
         else {
           const types: Record<string, ExprType> = {}
-          for (const [name, v] of Object.entries((args.vars as Record<string, unknown> | undefined) ?? {})) types[name] = varType(v, template, pkg.records)
-          const checked = checkExpression(args.expr, types)
-          if (`error` in checked) issues.push({ path: `${here}/expr`, message: checked.error })
+          const unknown: ExpressionIssue[] = []
+          for (const [name, v] of Object.entries((args.vars as Record<string, unknown> | undefined) ?? {})) types[name] = varType(v, `${here}/vars/${escape(name)}`, scope, template, pkg.records, pkg.queries, unknown)
+          issues.push(...unknown)
+          const checked = unknown.length ? null : checkExpression(args.expr, types)
+          if (checked && `error` in checked) issues.push({ path: `${here}/expr`, message: checked.error })
         }
       }
       for (const [k, v] of Object.entries(value)) visit(v, `${at}/${escape(k)}`)
     }
-    template.components.forEach((c, i) => visit(c, `/templates/${escape(id)}/components/${i}`))
+    const scopes = rowScopes(template, pkg.records, pkg.queries)
+    template.components.forEach((c, i) => {
+      scope = isObject(c) && typeof c.id === `string` ? (scopes.get(c.id) ?? null) : null
+      visit(c, `/templates/${escape(id)}/components/${i}`)
+    })
   }
   return issues
 }

@@ -222,7 +222,7 @@ the same in the TS reference (`src/cel.ts`) and the Rust core (`cel`):
 
 - literals: numbers, `'…'` / `"…"` strings (`\\ \' \" \n \t \r`), `true`,
   `false`, `null`, lists `[a, b]`; names (the vars); `a.b`, `a[0]`, `m['k']`
-  (a missing field, or a field of null, is null);
+  (a missing field, a field of null, or an index past either end is null);
 - `+ - * / %` (numbers; `+` also joins two strings or two lists), unary `-`
   and `!`, `== !=` (deep JSON equality), `< <= > >=` (two numbers or two
   strings, by UTF-16 code unit), `&& ||` (short-circuit, bools only),
@@ -267,7 +267,19 @@ app keeps those as its own records.
 **Missing values are explicit** (VAPP-195, E2). A type that may be missing
 is `T?`: a kind's field that is not in its schema's `required` (the row keys
 `id createdAt …` never are), a var the checker cannot type (`dyn?`), and a
-field or index of a `T?`. Arithmetic, `< <= > >=`, `&& || !`, a condition, a
+field or index of a `T?`. VAPP-204 adds: every list index (`rows[0]`: the
+list may be shorter), a field of a `map` (`dyn?`), and what a records
+binding's query leaves out (`sum` without a sum, `month` without a month
+view, `groups` without a group, `totals` without an aggregate, `before`
+without a before; the query is the binding's source with `query=`
+expanded, so `records:entry?sum=hours` makes `sum` a `number`). Inside a row
+template (a component's `children: {componentId, path}`), a relative
+`{"path": "hours"}` var is typed against the list's item: a records row's
+field is its schema type, and a field the row has not is the install issue
+`unknown field hourz in hourz` at the var's `…/path` (also below a records
+binding's absolute path; a kind with `additionalProperties: true` stays
+open). `has(x)` takes a field; for a bare name write `x != null`.
+Arithmetic, `< <= > >=`, `&& || !`, a condition, a
 macro's list and a function argument refuse a `T?` at install
 (`entries.rows[0].hours may be missing: guard it with has(), a null check or
 orElse()`); `==` / `!=` take one. Three guards narrow it to `T`:
@@ -338,7 +350,11 @@ JSON string in a step is CEL over `params`, `data` (the surface data at the
 press) and `me` (the member's id); anything else is a literal. Install
 checks every expression's type (a `require` is a bool, an upsert's fields
 are in the kind's schema with its types, a create names every required
-field).
+field). VAPP-204: a press's `actions.<name>` args are checked against
+`params` at install too (a key that is not a param, a required param left
+out, a literal of another type; a dynamic arg is checked when it runs), and
+a press of `bind` with a literal `source` is checked like a template binding
+(a URI, in `sources`, a declared kind, a package query).
 
 **All or nothing.** `runAction` evaluates the steps in order against ONE
 snapshot (a `set` never changes what a later step reads) and returns the
