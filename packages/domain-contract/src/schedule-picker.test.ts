@@ -24,12 +24,30 @@ describe(`schedule picker fixtures (NEW-2)`, () => {
     expect(cronFromSchedule(defaultSchedule())).toBe(`0 9 * * *`)
   })
 
-  test(`the time-zone list starts with UTC and every zone is one ICU knows`, () => {
-    expect(contract.timeZones.names[0]).toBe(`UTC`)
+  // EXP-1664: independent of the runtime's tz data. The list is generated
+  // from the server's ICU; a runtime with older data (mint's Bun lacks
+  // tzdata 2025b's America/Coyhaique) skips the zones it does not know, so
+  // the test never fails on WHERE it runs. Clients only draw the names.
+  test(`the time-zone list starts with UTC, then unique sorted IANA names`, () => {
+    const [first, ...rest] = contract.timeZones.names
+    expect(first).toBe(`UTC`)
     expect(new Set(contract.timeZones.names).size).toBe(contract.timeZones.names.length)
+    expect(rest).toEqual([...rest].sort())
+    for (const zone of rest) expect(zone).toMatch(/^[A-Za-z][A-Za-z0-9_+-]*(\/[A-Za-z0-9_+-]+)+$/)
+  })
+
+  test(`every zone this runtime's ICU knows formats (the rest are newer tz data)`, () => {
+    let known = 0
     for (const zone of contract.timeZones.names) {
-      expect(() => new Intl.DateTimeFormat(`en-US`, { timeZone: zone })).not.toThrow()
+      try {
+        new Intl.DateTimeFormat(`en-US`, { timeZone: zone })
+        known++
+      } catch (err) {
+        expect(err).toBeInstanceOf(RangeError)
+      }
     }
+    // A handful of new zones per tz release, never the bulk of the list.
+    expect(known).toBeGreaterThan(contract.timeZones.names.length * 0.95)
   })
 
   for (const entry of fixture.cronCases) {
