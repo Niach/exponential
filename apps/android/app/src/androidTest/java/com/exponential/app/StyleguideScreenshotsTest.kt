@@ -78,6 +78,7 @@ import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenScreen
 import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenTestId
 import com.exponential.app.ui.styleguide.PhoneTabBarSpecimenScreen
 import com.exponential.app.domain.SettingsNav
+import com.exponential.app.domain.Skills
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenTestId
 import com.exponential.app.ui.styleguide.PhonePageHeaderSpecimenScreen
 import com.exponential.app.ui.styleguide.PhoneBoardMenuSpecimenTestId
@@ -140,6 +141,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card · sg_session-xref ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
+ *   sg_settings-skills · sg_settings-skill ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
@@ -1377,6 +1379,27 @@ class StyleguideScreenshotsTest {
             Espresso.closeSoftKeyboard()
             Espresso.pressBack()
             flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
+        }
+
+        // --- sg_settings-skills / sg_settings-skill (#EXP-1661): the Team
+        // page's Skills row (the read-only list, skills.json `list`), then the
+        // first skill's read-only page, gated on its fetched body.
+        step("settings-skills") {
+            openTeamRoot()
+            tapClearOfBar(teamSettingsRow(Skills.TITLE))
+            flow.waitFor(hasTestTag(Skills.LIST_TEST_ID), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag(Skills.ROW_TEST_ID), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_settings-skills")
+            composeRule.onAllNodes(hasTestTag(Skills.ROW_TEST_ID)).onFirst().performClick()
+            flow.waitFor(hasTestTag("skill-body"), NETWORK_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_settings-skill")
+            Espresso.pressBack()
+            flow.waitFor(hasTestTag(Skills.LIST_TEST_ID), NAV_TIMEOUT)
+            Espresso.pressBack()
+            flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
+            flow.settle()
         }
 
         // --- Account settings: there is no separate profile screen (EXP-311) —

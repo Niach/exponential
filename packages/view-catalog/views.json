@@ -167,6 +167,10 @@
       "reason": "The same page as `settings-prompt` (captured on /settings/prompts/new) filled from a prompt row; a seeded prompt id is not resolvable by the capture."
     },
     {
+      "route": "/t/$teamSlug/settings/skills/new",
+      "reason": "#EXP-1659: New skill = the skill page in create mode, the same layout settings-skill photographs with the seeded db-migration skill."
+    },
+    {
       "route": "/t/$teamSlug/settings/voice",
       "reason": "S-3: Personal → Voice is gone; the route redirects to the Assistant page, whose Voice section settings-assistant photographs."
     },
@@ -1951,7 +1955,7 @@
       "id": "settings-team-agent",
       "group": "settings",
       "title": "Settings · Agent",
-      "blurb": "One team agent up close (EXP-1293), laid out like a board's settings page: icon, colour and name in one row, then Device, Account and Triggers (a schedule read by the schedule picker's sentence and an event), the instructions card and Delete agent. The settings nav lists the team's agents under Boards with New agent.",
+      "blurb": "One team agent up close (EXP-1293), laid out like a board's settings page: icon, colour and name in one row, then Device, Skills (#EXP-1659: the agent's default skills), Account and Triggers (a schedule read by the schedule picker's sentence and an event), the instructions card and Delete agent. The settings nav lists the team's agents under Boards with New agent.",
       "order": 23,
       "web": {
         "route": "/t/$teamSlug/settings/agents/$agentId",
@@ -2051,6 +2055,76 @@
         "ios": "NEW-7: New prompt (the Prompts section's owner pill, `prompts-new`), the same page an existing prompt opens (`PromptSettingsPage`), in create mode so the capture needs no seeded id; the walk takes it right after `sg_settings-prompts`.",
         "android": "NEW-7: New prompt (the Prompts section's owner pill), the same page an existing prompt opens (`settings/prompt/{id}`), in create mode so the capture needs no seeded id.",
         "desktop": "NEW-6: New prompt (`EXP_DEV_SETTINGS=new-prompt`), the same page an existing prompt opens (`prompt:<id>`), in create mode so the capture needs no seeded id."
+      }
+    },
+    {
+      "id": "settings-skills",
+      "group": "settings",
+      "title": "Settings · Skills",
+      "blurb": "#EXP-1659 (fixtures/skills.json): the team's skill library in the Agents group after MCP: one row per skill (the book glyph, its name, the Default pill while it is on by default, the description as the caption, the owners' … menu), New skill for owners.",
+      "order": 30,
+      "web": {
+        "route": "/t/$teamSlug/settings/skills",
+        "anchor": {
+          "testId": "settings-skills-list",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-skills",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-skills",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "skills"
+        }
+      },
+      "notes": {
+        "web": "The demo team's four skills (release-notes and db-migration on by default, shots, incident-triage; seed-screenshots.ts seeds them). Members see the same list without New skill and the row menus.",
+        "android": "#EXP-1661: read only on phones (skills.json `permissions.phone`): no New skill, no row menu, no Save or Delete. iOS shares the step names (no Xcode on the capture host, so its shots come from a Mac run).",
+        "desktop": "#EXP-1660: `EXP_DEV_SETTINGS=skills`, the seeded demo team's four skills (the owner's view: New skill and the row menus)."
+      }
+    },
+    {
+      "id": "settings-skill",
+      "group": "settings",
+      "title": "Settings · Skill",
+      "blurb": "#EXP-1659: one skill's page, built like the prompt page: the mono name and the description in one group, the SKILL.md body in the mono editor, the Pre-select in new sessions switch, Save and Delete skill for owners; members read it.",
+      "order": 31,
+      "web": {
+        "route": "/t/$teamSlug/settings/skills/$skillId",
+        "anchor": {
+          "testId": "skill-body",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-skill",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-skill",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "skill:3f6b2a1d-8c4e-4d7a-9b2f-5e1c7a9d0b63"
+        }
+      },
+      "notes": {
+        "web": "`$skillId` resolves to DEMO_SKILL_ID, the seeded db-migration skill (on by default). The body is server-only (`skills.get`), so the anchor waits for the editor.",
+        "android": "#EXP-1661: read only on phones (skills.json `permissions.phone`): no New skill, no row menu, no Save or Delete. iOS shares the step names (no Xcode on the capture host, so its shots come from a Mac run).",
+        "desktop": "#EXP-1660: `EXP_DEV_SETTINGS=skill:<DEMO_SKILL_ID>` (the seeded db-migration skill; the id is the constant screenshot-demo.ts pins), its body fetched by `skills.get`."
       }
     },
     {
@@ -5234,6 +5308,39 @@
         "web": "`openComposerMenuTemporary` picks Temporary session in the agent row and opens the Agent composer's \"+\" dropdown at its root, no submenu open (EXP-1551: the phones' state, so all four photograph one menu).",
         "web-mobile": "Inherits web: `openComposerMenuTemporary` on the phone opens the same + menu as its bottom sheet at the root (the natives' `sg_composer-menu` state).",
         "desktop": "The Agent page (`EXP_DEV_SCREEN=chat`) with `EXP_DEV_COMPOSER_MENU=temporary`: the agent row starts on Temporary session and the \"+\" menu opens at its root, no row lit, once the launch cluster and the shapes are in (EXP-1551: the state all four photograph)."
+      }
+    },
+    {
+      "id": "composer-skills-menu",
+      "group": "coding",
+      "title": "Composer + menu › Skills",
+      "blurb": "#EXP-1659: the + menu's Skills submenu (composer-menu.json row `skills`, after MCP servers, temporary sessions only): the team's skills as multi picker rows (name, the description as caption), the enabled-by-default pair preselected, the count as the row's value.",
+      "order": 59,
+      "web": {
+        "route": "/t/$teamSlug/agent",
+        "anchor": {
+          "testId": "agent-composer-menu",
+          "timeoutMs": 20000
+        },
+        "recipe": "openComposerSkillsMenu",
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "chat"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_COMPOSER_MENU": "skills"
+        }
+      },
+      "notes": {
+        "web": "`openComposerSkillsMenu` = `openComposerMenuTemporary`, then the Skills row: the submenu opens to the side at md+, as a pushed page on phones.",
+        "ios": "#EXP-1661: the iOS Skills page lands with the mobile PR; no capture wired yet.",
+        "android": "#EXP-1661: the Android Skills page lands with the mobile PR; no capture wired yet.",
+        "desktop": "#EXP-1660: `EXP_DEV_COMPOSER_MENU=skills` starts Home on Temporary session and opens + › Skills (THE skills multi picker anchored to the +, like MCP servers) once the team's skills synced."
       }
     },
     {

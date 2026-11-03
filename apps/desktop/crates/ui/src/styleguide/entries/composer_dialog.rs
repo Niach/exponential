@@ -252,6 +252,7 @@ pub(super) fn plus_menu_rows(phase: Phase) -> Vec<ComposerMenuRow> {
             subagent_model: true,
             ultracode: true,
             mcp: true,
+            skills: true,
             computer_use: true,
             prompts: true,
         },
@@ -329,6 +330,14 @@ fn plus_menu(
             ComposerMenuRow::McpServers => menu.submenu_with_icon(
                 Some(menu_icon(row)),
                 format!("{MENU_MCP_SERVERS} · 2"),
+                window,
+                cx,
+                |sub, _, _| sub,
+            ),
+            // #EXP-1660: the Skills picker row, its value the count.
+            ComposerMenuRow::Skills => menu.submenu_with_icon(
+                Some(menu_icon(row)),
+                format!("{} · 2", domain::skills::MENU_LABEL),
                 window,
                 cx,
                 |sub, _, _| sub,
@@ -487,6 +496,7 @@ mod tests {
                 Ultracode,
                 Separator,
                 McpServers,
+                Skills,
                 ComputerUse
             ]
         );

@@ -83,6 +83,8 @@ public struct AgentPatch: Sendable, Equatable {
     public var account: String??
     public var model: String??
     public var sortOrder: Double?
+    /// #EXP-1661: the WHOLE skill list (an empty one = none) or nothing.
+    public var skillIds: [String]?
 
     public init(
         name: String? = nil,
@@ -94,7 +96,8 @@ public struct AgentPatch: Sendable, Equatable {
         cli: String? = nil,
         account: String?? = nil,
         model: String?? = nil,
-        sortOrder: Double? = nil
+        sortOrder: Double? = nil,
+        skillIds: [String]? = nil
     ) {
         self.name = name
         self.icon = icon
@@ -106,12 +109,14 @@ public struct AgentPatch: Sendable, Equatable {
         self.account = account
         self.model = model
         self.sortOrder = sortOrder
+        self.skillIds = skillIds
     }
 
     /// Nothing changed — no id-only mutation.
     public var isEmpty: Bool {
         name == nil && icon == nil && color == nil && instructions == nil && triggers == nil
             && deviceId == nil && cli == nil && account == nil && model == nil && sortOrder == nil
+            && skillIds == nil
     }
 }
 
@@ -121,7 +126,7 @@ struct UpdateAgentInput: Encodable {
     let patch: AgentPatch
 
     enum CodingKeys: String, CodingKey {
-        case id, name, icon, color, instructions, triggers, deviceId, cli, account, model, sortOrder
+        case id, name, icon, color, instructions, triggers, deviceId, cli, account, model, sortOrder, skillIds
     }
 
     func encode(to encoder: Encoder) throws {
@@ -144,6 +149,7 @@ struct UpdateAgentInput: Encodable {
             try c.encode(model, forKey: .model)
         }
         try c.encodeIfPresent(patch.sortOrder, forKey: .sortOrder)
+        try c.encodeIfPresent(patch.skillIds, forKey: .skillIds)
     }
 }
 

@@ -120,6 +120,53 @@ fn seed_or_clamp_mcp(seeded: &mut bool, selected: &mut Vec<String>, servers: &[M
     }
 }
 
+/// #EXP-1660: one team skill as the "+" menu's Skills picker offers it
+/// (skills.json `menuRow`: row = name, caption = description).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct SkillOption {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) enabled_by_default: bool,
+}
+
+impl From<&domain::rows::SkillRow> for SkillOption {
+    fn from(row: &domain::rows::SkillRow) -> Self {
+        Self {
+            id: row.id.clone(),
+            name: row.name.clone(),
+            description: row.description.clone(),
+            enabled_by_default: row.enabled_by_default,
+        }
+    }
+}
+
+/// #EXP-1660: one step of [`LaunchOptionsSection::set_skills`] — the MCP
+/// servers' rule (skills.json `preselectCases`): the first non-empty list of
+/// a team seeds from the saved pick (clamped) else the Default skills; after
+/// that the ticks are only clamped to the skills still offered.
+fn seed_or_clamp_skills(
+    seeded: &mut bool,
+    selected: &mut Vec<String>,
+    skills: &[SkillOption],
+    saved: Option<&[String]>,
+) {
+    if !*seeded && !skills.is_empty() {
+        let rows: Vec<domain::skills::PreselectSkill> = skills
+            .iter()
+            .map(|skill| domain::skills::PreselectSkill {
+                id: skill.id.clone(),
+                name: skill.name.clone(),
+                enabled_by_default: skill.enabled_by_default,
+            })
+            .collect();
+        *selected = domain::skills::preselect_skill_ids(&rows, saved);
+        *seeded = true;
+    } else {
+        selected.retain(|id| skills.iter().any(|skill| &skill.id == id));
+    }
+}
+
 /// The greyed row's caption for a server the person has not connected.
 pub(crate) const MCP_CONNECT_FIRST: &str = "Connect first in Settings → MCP servers";
 /// … and for one whose sign-in expired or whose refresh failed.
@@ -676,6 +723,15 @@ pub(crate) struct LaunchOptionsSection {
     /// depend on the device pick, which moves), and re-seeding there would
     /// undo the person's ticks under their cursor.
     mcp_seeded: bool,
+    /// #EXP-1660: the team's skills (sorted by name) the "+" menu's Skills
+    /// picker offers ([`Self::set_skills`]); EMPTY hides the row.
+    skills: Vec<SkillOption>,
+    /// The team the skills belong to (the saved pick's key).
+    skills_team: Option<String>,
+    /// The picked skill ids, in list order.
+    skills_selected: Vec<String>,
+    /// Whether [`Self::skills_selected`] has been seeded for this team.
+    skills_seeded: bool,
     /// EXP-747 B7: the agent account PROFILE the run signs in as on the
     /// target machine; `None` = unnamed, the machine's last used login
     /// (EXP-1158).
@@ -713,6 +769,10 @@ impl LaunchOptionsSection {
             mcp_servers: Vec::new(),
             mcp_selected: Vec::new(),
             mcp_seeded: false,
+            skills: Vec::new(),
+            skills_team: None,
+            skills_selected: Vec::new(),
+            skills_seeded: false,
             // Settled just below against what the machine reports.
             account: None,
             computer_use: None,
@@ -751,6 +811,44 @@ impl LaunchOptionsSection {
             .filter(|server| ids.iter().any(|id| id == &server.id))
             .map(|server| server.id.clone())
             .collect();
+    }
+
+    /// #EXP-1660: offer `team_id`'s skills (sorted). Safe on every render:
+    /// a team switch re-seeds from that team's saved pick (else its Default
+    /// skills) once its list is non-empty; otherwise the pick is clamped.
+    pub(crate) fn set_skills(&mut self, team_id: Option<&str>, skills: Vec<SkillOption>) {
+        if self.skills_team.as_deref() != team_id {
+            self.skills_team = team_id.map(str::to_string);
+            self.skills_seeded = false;
+            self.skills_selected.clear();
+        }
+        let saved = team_id.and_then(crate::ui_prefs::skill_pick);
+        seed_or_clamp_skills(&mut self.skills_seeded, &mut self.skills_selected, &skills, saved.as_deref());
+        self.skills = skills;
+    }
+
+    /// #EXP-1660: the picker's new set, kept in list order and SAVED as the
+    /// team's pick (skills.json: every change saved, per team, per client).
+    pub(crate) fn set_skills_selected(&mut self, ids: Vec<String>) {
+        self.skills_selected = self
+            .skills
+            .iter()
+            .filter(|skill| ids.iter().any(|id| id == &skill.id))
+            .map(|skill| skill.id.clone())
+            .collect();
+        if let Some(team_id) = self.skills_team.as_deref() {
+            crate::ui_prefs::set_skill_pick(team_id, &self.skills_selected);
+        }
+    }
+
+    /// #EXP-1660: what a start sends as `skillIds` (only while non-empty).
+    pub(crate) fn skill_ids(&self) -> Option<Vec<String>> {
+        Some(self.skills_selected.clone()).filter(|ids| !ids.is_empty())
+    }
+
+    /// #EXP-1660: the skills the "+" menu's picker offers and the pick.
+    pub(crate) fn skills_menu(&self) -> (Vec<SkillOption>, Vec<String>) {
+        (self.skills.clone(), self.skills_selected.clone())
     }
 
     /// EXP-872: every signed-in login the TARGET machine reports, ACROSS
@@ -1038,6 +1136,8 @@ impl LaunchOptionsSection {
             ultracode: self.agent.supports_ultracode().then_some(self.ultracode),
             mcp_servers,
             mcp_selected,
+            skills_count: self.skills.len(),
+            skills_picked: self.skills_selected.len(),
             computer_use: self
                 .remote
                 .as_ref()
@@ -1066,6 +1166,10 @@ pub(crate) struct ComposerMenu {
     /// Empty hides the MCP servers row.
     pub(crate) mcp_servers: Vec<McpServerOption>,
     pub(crate) mcp_selected: Vec<String>,
+    /// #EXP-1660: how many skills the team has (zero hides the Skills row)
+    /// and how many are picked (the row's value).
+    pub(crate) skills_count: usize,
+    pub(crate) skills_picked: usize,
     /// The Computer use toggle's state; `None` hides the row.
     pub(crate) computer_use: Option<bool>,
 }
@@ -1100,6 +1204,11 @@ impl ComposerMenu {
     /// whenever the team has a server).
     pub(crate) fn mcp_value(&self) -> Option<String> {
         (!self.mcp_selected.is_empty()).then(|| self.mcp_selected.len().to_string())
+    }
+
+    /// #EXP-1660: the Skills row's value (skills.json `menuValueCases`).
+    pub(crate) fn skills_value(&self) -> Option<String> {
+        domain::skills::skills_menu_value(self.skills_picked)
     }
 }
 
@@ -1154,6 +1263,8 @@ mod tests {
             ultracode: Some(false),
             mcp_servers: vec![server("a", "Linear", true), server("b", "Sentry", false)],
             mcp_selected: vec!["a".into()],
+            skills_count: 2,
+            skills_picked: 1,
             computer_use: Some(true),
         };
         assert_eq!(menu.effort_value(), "High");

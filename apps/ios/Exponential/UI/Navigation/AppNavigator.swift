@@ -12,6 +12,9 @@ enum AppRoute: Hashable {
     /// NEW-2: one prompt's page in Settings → Prompts (`id` nil = New
     /// prompt) — pushed from a Prompts row or a `prompt` entity ref.
     case prompt(accountId: String, teamId: String, id: String?)
+    /// #EXP-1661: one skill's read-only page in Settings › Skills (phones
+    /// never create or edit a skill).
+    case skill(accountId: String, teamId: String, id: String)
     /// NEW-2/NEW-3: a team agent's page = the CALLER's DM with it (the
     /// definition's id; the conversation is resolved — or, none yet, opened
     /// by the first message — on the page).
@@ -1098,6 +1101,9 @@ extension MainNavigator {
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
         case let .prompt(accountId, teamId, id):
             PromptSettingsPage(teamId: teamId, promptId: id)
+                .environment(\.accountId, accountId)
+        case let .skill(accountId, _, id):
+            SkillSettingsPage(skillId: id)
                 .environment(\.accountId, accountId)
         case let .agentChannel(accountId, agentId):
             AgentChannelScreen(agentId: agentId)

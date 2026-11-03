@@ -133,17 +133,20 @@ final class LaunchOptionsStateTests: XCTestCase {
         // contract default until the machine advertises one.
         XCTAssertEqual(claude.subagentModel, DomainContract.deviceAgentDefaultsSubagentModel)
         XCTAssertNil(claude.mcpServerIds)
+        XCTAssertNil(claude.skillIds)
         XCTAssertNil(claude.computerUse)
         XCTAssertNil(claude.account)
 
         state.selectAgent("codex", device: device(id: "mac", agents: ["claude", "codex"]))
         state.mcpServerIds = ["m-1"]
+        state.skillIds = ["s-1"]
         state.computerUse = false
         let codex = state.buildOptions()
         XCTAssertEqual(codex.cli, "codex")
         XCTAssertNil(codex.ultracode)
         XCTAssertNil(codex.subagentModel)
         XCTAssertEqual(codex.mcpServerIds, ["m-1"])
+        XCTAssertEqual(codex.skillIds, ["s-1"])
         XCTAssertEqual(codex.computerUse, false)
     }
 

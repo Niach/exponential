@@ -1182,6 +1182,8 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
     /// S-3: contract `agentRole` (`assistant` | `agent`); a row synced
     /// before the column = `agent`.
     public let role: String
+    /// #EXP-1661: the skills the agent's runs start with (jsonb `skill_ids`).
+    public let skillIds: [String]
 
     /// S-3: the member's own Assistant (`agents.role = assistant`).
     public var isAssistant: Bool { role == DomainContract.agentRoleAssistant }
@@ -1202,10 +1204,12 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         createdAt: String,
         updatedAt: String,
         instructionsUpdatedAt: String? = nil,
-        role: String = DomainContract.agentRoleAgent
+        role: String = DomainContract.agentRoleAgent,
+        skillIds: [String] = []
     ) {
         self.instructionsUpdatedAt = instructionsUpdatedAt
         self.role = role
+        self.skillIds = skillIds
         self.id = id
         self.teamId = teamId
         self.name = name
@@ -1231,6 +1235,7 @@ public struct AgentDefinitionEntity: FetchableRecord, PersistableRecord, Identif
         case createdAt = "created_at"
         case updatedAt = "updated_at"
         case instructionsUpdatedAt = "instructions_updated_at"
+        case skillIds = "skill_ids"
     }
 }
 
@@ -1256,6 +1261,10 @@ extension AgentDefinitionEntity: Codable {
         // S-3: absent (an old snapshot / pre-v85 row) or empty = `agent`.
         let role = try c.decodeIfPresent(String.self, forKey: .role) ?? ""
         self.role = role.isEmpty ? DomainContract.agentRoleAgent : role
+        // #EXP-1661: the jsonb list as its JSON text (wire or store); missing,
+        // null or garbage = none.
+        skillIds = c.decodeWireJsonString(forKey: .skillIds)
+            .flatMap { try? JSONDecoder().decode([String].self, from: Data($0.utf8)) } ?? []
     }
 }
 
@@ -1369,6 +1378,64 @@ extension PromptEntity: Codable {
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
         sortOrder = try c.decodeWireDouble(forKey: .sortOrder) ?? 0
+        createdAt = try c.decode(String.self, forKey: .createdAt)
+        updatedAt = try c.decode(String.self, forKey: .updatedAt)
+    }
+}
+
+// #EXP-1661: a team skill (skills.json): the `skills` shape allowlist; the
+// SKILL.md `body` is server-only (tRPC `skills.get`).
+public struct SkillEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "skills"
+
+    public let id: String
+    public let teamId: String
+    public let name: String
+    public let description: String
+    public let enabledByDefault: Bool
+    public let createdById: String?
+    public let createdAt: String
+    public let updatedAt: String
+
+    public init(
+        id: String,
+        teamId: String,
+        name: String,
+        description: String = "",
+        enabledByDefault: Bool = false,
+        createdById: String? = nil,
+        createdAt: String,
+        updatedAt: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.name = name
+        self.description = description
+        self.enabledByDefault = enabledByDefault
+        self.createdById = createdById
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, description
+        case teamId = "team_id"
+        case enabledByDefault = "enabled_by_default"
+        case createdById = "created_by_id"
+        case createdAt = "created_at"
+        case updatedAt = "updated_at"
+    }
+}
+
+extension SkillEntity: Codable {
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        teamId = try c.decode(String.self, forKey: .teamId)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
+        enabledByDefault = c.decodeWireBool(forKey: .enabledByDefault, default: false)
+        createdById = try c.decodeIfPresent(String.self, forKey: .createdById)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

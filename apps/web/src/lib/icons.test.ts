@@ -497,7 +497,9 @@ describe(`icon call sites`, () => {
     // NEW-2: + Prompts (Agents), web-only for now.
     // NEW-67: + Voice (Personal). S-3: − Voice (the Assistant page's
     // section now).
-    expect(webNav.size).toBe(16)
+    // #EXP-1659: + Skills (Agents); the desktop's twin (#EXP-1660) adds the
+    // shared pair below.
+    expect(webNav.size).toBe(17)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards (EXP-862: on both clients' navs now).
     // EXP-771: + Feedback widget (SLOP-4: labelled Widget; Helpdesk gone).
@@ -510,7 +512,8 @@ describe(`icon call sites`, () => {
     // VAPP-114: + Apps (the per-app rows are injected at render on web, like
     // Agents).
     // NEW-67: + Voice (Personal), on both clients.
-    expect(desktopNav.size).toBe(22)
+    // #EXP-1660: + Skills (Agents), on both clients.
+    expect(desktopNav.size).toBe(23)
 
     // The sections both clients render, web label → desktop variant.
     const shared: [string, string][] = [
@@ -530,6 +533,8 @@ describe(`icon call sites`, () => {
       // EXP-807: member-visible on both clients, so the pair belongs in the
       // SHARED list — without the row here the gate never bites on it.
       [`MCP`, `Mcp`],
+      // #EXP-1659/1660: member-visible on both clients.
+      [`Skills`, `Skills`],
       [`Account`, `Account`],
       [`Notifications`, `Notifications`],
       // EXP-862: the Personal entry is labelled Security on both clients.

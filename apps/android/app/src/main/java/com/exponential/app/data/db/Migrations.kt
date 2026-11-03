@@ -91,3 +91,25 @@ val MIGRATION_108_109: Migration = object : Migration(108, 109) {
         )
     }
 }
+
+/**
+ * v110 (#EXP-1661): the `skills` table (team skills, body server-only) and
+ * `agents.skill_ids` (the agent's default skills). The agents shape
+ * refetches; the new skills shape starts fresh.
+ */
+val MIGRATION_109_110: Migration = object : Migration(109, 110) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `agents` ADD COLUMN `skill_ids` TEXT")
+        db.execSQL(
+            "CREATE TABLE IF NOT EXISTS `skills` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+                "`name` TEXT NOT NULL, `description` TEXT NOT NULL, " +
+                "`enabled_by_default` INTEGER NOT NULL DEFAULT 0, `created_by_id` TEXT, " +
+                "`created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))",
+        )
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_skills_team_id` ON `skills` (`team_id`)")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'agents'",
+        )
+    }
+}

@@ -1,4 +1,4 @@
-//! The 33 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 34 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 33 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 34 shapes, in §5.9 order (#EXP-1656 appended `skills`). Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 33] = [
+pub const SHAPES: [ShapeSpec; 34] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -796,6 +796,8 @@ pub const SHAPES: [ShapeSpec; 33] = [
             "cli",
             "account",
             "model",
+            // #EXP-1656: the skills every run of the agent starts with.
+            "skill_ids",
             "owner_id",
             "sort_order",
             // S-3: assistant | agent (an Assistant lists for its owner only).
@@ -873,6 +875,17 @@ pub const SHAPES: [ShapeSpec; 33] = [
         columns: &["id", "app_id", "team_id", "kind", "data", "created_by", "author_id", "updated_by", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
+    ShapeSpec {
+        name: "skills",
+        path: "/api/shapes/skills",
+        // #EXP-1656: the team's skills (Settings › Skills, the "+" menu
+        // pick, the agent page). Byte-matches the proxy. MUST NOT declare a
+        // `body` column: the SKILL.md body stays server-only (tRPC
+        // `skills.get`; the running device gets it from
+        // `skills.resolveForLaunch`).
+        columns: &["id", "team_id", "name", "description", "enabled_by_default", "created_by_id", "created_at", "updated_at"],
+        pk: PkKind::Id,
+    },
 ];
 
 /// Look a shape up by its table name.
@@ -885,8 +898,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_33_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 33);
+    fn registry_has_34_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 34);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1040,7 +1053,7 @@ mod tests {
     fn the_new2_shapes_match_the_proxies() {
         assert_eq!(
             shape_by_name("agents").unwrap().columns,
-            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "owner_id", "sort_order", "role", "instructions_updated_at", "created_at", "updated_at"]
+            &["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli", "account", "model", "skill_ids", "owner_id", "sort_order", "role", "instructions_updated_at", "created_at", "updated_at"]
         );
         assert_eq!(
             shape_by_name("events").unwrap().columns,
@@ -1049,6 +1062,11 @@ mod tests {
         assert_eq!(
             shape_by_name("prompts").unwrap().columns,
             &["id", "team_id", "name", "icon", "sort_order", "created_at", "updated_at"]
+        );
+        // #EXP-1656: skills sync body-less (apps/web routes/api/shapes/skills.ts).
+        assert_eq!(
+            shape_by_name("skills").unwrap().columns,
+            &["id", "team_id", "name", "description", "enabled_by_default", "created_by_id", "created_at", "updated_at"]
         );
         let sessions = shape_by_name("sessions").unwrap();
         assert!(sessions.columns.contains(&"agent_id"));

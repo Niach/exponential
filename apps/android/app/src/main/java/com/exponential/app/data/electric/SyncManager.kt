@@ -16,6 +16,7 @@ import com.exponential.app.data.db.AppVersionEntity
 import com.exponential.app.data.db.AppRecordEntity
 import com.exponential.app.data.db.EventEntity
 import com.exponential.app.data.db.PromptEntity
+import com.exponential.app.data.db.SkillEntity
 import com.exponential.app.data.db.ConversationEntity
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.CommentEntity
@@ -432,6 +433,7 @@ class SyncManager @Inject constructor(
         val agentDefinitionDao = db.agentDefinitionDao()
         val eventDao = db.eventDao()
         val promptDao = db.promptDao()
+        val skillDao = db.skillDao()
         val conversationDao = db.conversationDao()
         val appDao = db.appDao()
         val appVersionDao = db.appVersionDao()
@@ -714,6 +716,16 @@ class SyncManager @Inject constructor(
                 onInsert = { promptDao.upsert(it) },
                 onDelete = { promptDao.deleteById(it.id) },
                 onRefetch = { promptDao.clear() },
+            ),
+            // #EXP-1661: the team skills (body server-only, `skills.get`).
+            launchShape(
+                shape = "skills", path = "/api/shapes/skills", tableName = "skills",
+                serializer = SkillEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("skills"),
+                onInsert = { skillDao.upsert(it) },
+                onDelete = { skillDao.deleteById(it.id) },
+                onRefetch = { skillDao.clear() },
             ),
             // NEW-3: conversations (step 1: a session's own, the session rule).
             launchShape(

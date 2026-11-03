@@ -6,6 +6,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -76,6 +77,8 @@ data class UpdateAgentPatch(
     val model: String? = null,
     val clearModel: Boolean = false,
     val sortOrder: Double? = null,
+    /** #EXP-1661: the agent's default skills; the WHOLE list is replaced. */
+    val skillIds: List<String>? = null,
 )
 
 internal fun updateAgentInput(agentId: String, patch: UpdateAgentPatch): JsonObject =
@@ -97,6 +100,7 @@ internal fun updateAgentInput(agentId: String, patch: UpdateAgentPatch): JsonObj
             patch.clearModel -> put("model", JsonNull)
         }
         patch.sortOrder?.let { put("sortOrder", it) }
+        patch.skillIds?.let { ids -> put("skillIds", JsonArray(ids.map(::JsonPrimitive))) }
     }
 
 @Singleton

@@ -39,6 +39,7 @@ describe(`composerMenuLayout`, () => {
       subagentModel: true,
       ultracode: true,
       mcp: true,
+      skills: true,
       computerUse: true,
       prompts: true,
     })

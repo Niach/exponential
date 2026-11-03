@@ -68,6 +68,9 @@ import com.exponential.app.ui.components.picker.AccountPicker
 import com.exponential.app.ui.components.picker.AccountPickerOption
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.components.picker.DevicePickerDevice
+import com.exponential.app.ui.components.picker.SkillPicker
+import com.exponential.app.domain.Skills
+import com.exponential.app.domain.agentSkillsValue
 import com.exponential.app.ui.components.PickerValueRow
 import com.exponential.app.ui.components.toPickerAccount
 import com.exponential.app.ui.components.toPickerDevice
@@ -300,6 +303,7 @@ fun AgentSettingsScreen(
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
     val busy by viewModel.busy.collectAsStateWithLifecycle()
     val failure by viewModel.failure.collectAsStateWithLifecycle()
+    val teamSkills by viewModel.skills.collectAsStateWithLifecycle()
     FailedActionToast(failure, onShown = viewModel::clearFailure)
 
     val isNew = viewModel.agentId == null
@@ -491,6 +495,33 @@ fun AgentSettingsScreen(
             } else {
                 null
             },
+            // #EXP-1661: the agent's default skills (an existing agent only:
+            // `New agent` picks them after Create). Owners edit, members read.
+            skillsRow = agent?.takeIf { !isNew }?.let { row ->
+                {
+                    // Clamped to skills that still exist (a deleted one drops out).
+                    val known = teamSkills.mapTo(HashSet()) { it.id }
+                    val picked = row.skillIdList.filter { it in known }
+                    SkillPicker(
+                        skills = teamSkills,
+                        value = picked,
+                        onToggle = { id ->
+                            val next = if (id in picked) picked - id else picked + id
+                            patch(UpdateAgentPatch(skillIds = next))
+                        },
+                        trigger = { open ->
+                            PickerValueRow(
+                                label = Skills.AGENT_ROW_LABEL,
+                                // The picked names, the one multi summary; `None` at zero.
+                                value = agentSkillsValue(teamSkills.filter { it.id in picked }.map { it.name }),
+                                onClick = open,
+                                enabled = editable && teamSkills.isNotEmpty(),
+                                modifier = Modifier.testTag("agent-settings-skills"),
+                            )
+                        },
+                    )
+                }
+            },
             modifier = Modifier
                 .padding(padding)
                 .consumeWindowInsets(padding)
@@ -599,6 +630,9 @@ internal fun AgentSettingsContent(
     modelCli: String? = null,
     onModelChange: (String) -> Unit = {},
     voice: (@Composable () -> Unit)? = null,
+    /** #EXP-1661 (skills.json `agentRow`): the Skills row, right under
+     *  Device (the Assistant: the last row of Runs on). */
+    skillsRow: (@Composable () -> Unit)? = null,
 ) {
     fun errorOf(field: String) = errors.firstOrNull { it.field == field }?.message
     fun label(field: String) = AgentSettings.FIELDS.first { it.key == field }.label
@@ -674,6 +708,10 @@ internal fun AgentSettingsContent(
             if (!assistant) {
                 GroupDivider()
                 devicePicker()
+                if (skillsRow != null) {
+                    GroupDivider()
+                    skillsRow()
+                }
             }
         }
         FieldErrors(listOfNotNull(errorOf(AgentSettings.FIELD_IDENTITY), errorOf(AgentSettings.FIELD_DEVICE)))
@@ -724,6 +762,10 @@ internal fun AgentSettingsContent(
                         )
                     },
                 )
+                if (skillsRow != null) {
+                    GroupDivider()
+                    skillsRow()
+                }
             }
         }
         if (assistant) {

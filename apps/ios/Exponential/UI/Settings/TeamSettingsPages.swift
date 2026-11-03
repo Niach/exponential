@@ -8,7 +8,7 @@ import GRDB
 /// shows and observes only that category. The page of every section stacked
 /// (and the scroll-to inside it) is gone.
 enum TeamSettingsSection: String, Hashable, CaseIterable {
-    case general, members, labels, boards, agents, repositories, prompts, mcp, devices
+    case general, members, labels, boards, agents, repositories, prompts, mcp, skills, devices
 
     init?(_ id: SettingsNav.Id) { self.init(rawValue: id.rawValue) }
 
@@ -32,6 +32,8 @@ struct TeamSettingsPage: View {
         case .prompts: TeamPromptsPage(teamId: teamId)
         // #VAPP-185: Settings › MCP (settings-mcp.json).
         case .mcp: McpSettingsPage(teamId: teamId)
+        // #EXP-1661: Settings › Skills (skills.json `list`), read-only.
+        case .skills: SkillsSettingsPage(teamId: teamId)
         // The devices page moved here from the phone tab bar (chats.json
         // `shell`): the same screen, titled "Devices" by itself.
         case .devices: AgentsView()
@@ -519,5 +521,89 @@ private struct TeamPromptsPage: View {
                 )
             }, apply: { data = $0 })
         }
+    }
+}
+
+// MARK: - Skills
+
+/// #EXP-1661 (skills.json `list`): Settings › Skills on a phone = ONE glass
+/// group of the team's skills sorted by name (`Skills.sortSkills`), each row
+/// the name + the Default pill + the description; a row opens the skill's
+/// read-only page. Phones never create or edit a skill (no New button).
+private struct SkillsSettingsPage: View {
+    let teamId: String
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
+    @State private var skills: [SkillEntity]?
+
+    var body: some View {
+        TeamSettingsPageChrome(section: .skills) {
+            Group {
+                if let skills {
+                    if skills.isEmpty {
+                        EmptyState(.skills)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(skills) { skill in
+                                row(skill)
+                            }
+                        }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier(Skills.TestId.list)
+                    }
+                } else {
+                    SkeletonRows(rows: 2, rowHeight: 52)
+                }
+            }
+            .glassSection()
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Skills.TestId.page)
+        }
+        .task(id: "\(accountId)/\(teamId)") {
+            let teamId = teamId
+            await observePage(deps, accountId: accountId, { db in
+                try Skills.sortSkills(SkillEntity.filter(Column("team_id") == teamId).fetchAll(db))
+            }, apply: { skills = $0 })
+        }
+    }
+
+    /// The MCP server row's look (Settings › MCP): glyph, name + Default
+    /// pill, the description as a one-line caption.
+    private func row(_ skill: SkillEntity) -> some View {
+        Button {
+            pushRoute(.skill(accountId: accountId, teamId: teamId, id: skill.id))
+        } label: {
+            HStack(spacing: 12) {
+                AppIcon(AppIcons.uiDocs, size: AppIcon.Size.small)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text(skill.name)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.white)
+                            .lineLimit(1)
+                        if skill.enabledByDefault {
+                            GlassPill(Skills.defaultPill).fixedSize()
+                        }
+                    }
+                    if !skill.description.isEmpty {
+                        Text(skill.description)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .flatRow()
+        .accessibilityIdentifier(Skills.TestId.row)
     }
 }

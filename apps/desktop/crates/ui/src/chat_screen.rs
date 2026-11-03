@@ -145,6 +145,8 @@ const PLUS_MENU_WANTED_HEIGHT: f32 = 360.;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ComposerPicker {
     McpServers,
+    /// #EXP-1660: "+" › Skills, THE skills multi picker.
+    Skills,
 }
 
 /// EXP-484/747 B7: a machine's `agent_accounts` payload off its SYNCED row —
@@ -1736,7 +1738,7 @@ impl ChatScreenView {
                 }
             }
         };
-        let input = chat_launch::send_input(
+        let mut input = chat_launch::send_input(
             &team_id,
             &device_id,
             &self.options(cx),
@@ -1744,6 +1746,8 @@ impl ChatScreenView {
             text,
             attachment_ids,
         );
+        // #EXP-1660: the "+" › Skills pick, only while non-empty.
+        input.skill_ids = self.launch_ref().skill_ids();
         Ok((input, StartRoute::Root))
     }
 
@@ -2163,8 +2167,57 @@ impl ChatScreenView {
                 );
                 self.mcp_picker_surface(div().w(px(0.)).h(px(0.)).into_any_element(), fit, cx)
             }
+            Some(ComposerPicker::Skills) => {
+                let bounds = self.plus_tool_bounds.get();
+                let fit = issue_picker::popover_fit(
+                    bounds,
+                    gpui::size(px(0.), px(0.)),
+                    issue_picker::POPOVER_WANTED_HEIGHT,
+                );
+                self.skills_picker_surface(div().w(px(0.)).h(px(0.)).into_any_element(), fit, cx)
+            }
             None => None,
         }
+    }
+
+    /// #EXP-1660: "+" › Skills: the team's skills behind THE skills multi
+    /// picker (the MCP servers picker's twin), anchored to the +.
+    fn skills_picker_surface(
+        &self,
+        trigger: AnyElement,
+        fit: (gpui::Anchor, gpui::Pixels),
+        cx: &mut gpui::Context<Self>,
+    ) -> Option<AnyElement> {
+        let (skills, selected) = self.launch.as_ref()?.skills_menu();
+        if skills.is_empty() {
+            return None;
+        }
+        let view = cx.entity().downgrade();
+        let on_close = self.picker_on_close(cx);
+        let inline = self.inline_pickers();
+        Some(
+            crate::picker::deferred(move |window, cx| {
+                crate::picker::skill_picker::skill_picker(
+                    &skills,
+                    selected.clone(),
+                    trigger,
+                    Rc::new(move |ids: Vec<String>, _window: &mut Window, cx: &mut App| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |this, cx| {
+                                Self::launch_access(this).set_skills_selected(ids);
+                                cx.notify();
+                            });
+                        }
+                    }),
+                )
+                .id("chat-skills-picker")
+                .open(on_close)
+                .fit(fit)
+                .inline_if(inline)
+                .render(window, cx)
+            })
+            .into_any_element(),
+        )
     }
 
     fn mcp_picker_surface(
@@ -2288,6 +2341,9 @@ impl ChatScreenView {
         let picker = match self.open_picker {
             Some(ComposerPicker::McpServers) if !self.inline_pickers() => {
                 self.mcp_picker_surface(anchor(), picker_fit, cx)
+            }
+            Some(ComposerPicker::Skills) if !self.inline_pickers() => {
+                self.skills_picker_surface(anchor(), picker_fit, cx)
             }
             _ => None,
         };
@@ -2419,8 +2475,26 @@ impl ChatScreenView {
         self.ensure_mcp_loaded(cx);
         self.ensure_repos_loaded(cx);
         let mcp = self.mcp_options();
+        // #EXP-1660: the team's skills, live off the synced shape.
+        let skills: Vec<launch_options::SkillOption> = self
+            .team_id
+            .as_deref()
+            .map(|team| queries::team_skills(cx, team).0.iter().map(launch_options::SkillOption::from).collect())
+            .unwrap_or_default();
+        let team_id = self.team_id.clone();
         if let Some(launch) = self.launch.as_mut() {
             launch.set_mcp_servers(mcp);
+            launch.set_skills(team_id.as_deref(), skills);
+        }
+        // #EXP-1660 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=skills`): open the
+        // Skills picker once the team's skills and the + are there.
+        if matches!(self.presentation, Presentation::Page)
+            && self.plus_tool_bounds.get().size.width > px(0.)
+            && self.launch.as_ref().is_some_and(|launch| !launch.skills_menu().0.is_empty())
+            && !self.to_agent(cx)
+            && crate::screens::take_dev_skills_picker()
+        {
+            self.open_picker = Some(ComposerPicker::Skills);
         }
 
         let blocker = self.launch_blocker(cx);
@@ -2770,6 +2844,8 @@ pub(crate) enum ComposerMenuRow {
     Subagents,
     Ultracode,
     McpServers,
+    /// #EXP-1660 (skills.json `menuRow`): right after MCP servers.
+    Skills,
     ComputerUse,
 }
 
@@ -2789,6 +2865,7 @@ impl ComposerMenuRow {
             Self::Subagents => registry::CODING_SUBAGENT,
             Self::Ultracode => registry::ACTION_DEFAULT,
             Self::McpServers => registry::UI_MCP,
+            Self::Skills => registry::UI_DOCS,
             Self::ComputerUse => registry::NAV_COMPUTER,
         })
     }
@@ -2813,6 +2890,7 @@ impl ComposerMenuRow {
             Self::Subagents => MENU_SUBAGENTS,
             Self::Ultracode => MENU_ULTRACODE,
             Self::McpServers => MENU_MCP_SERVERS,
+            Self::Skills => domain::skills::MENU_LABEL,
             Self::ComputerUse => MENU_COMPUTER_USE,
         }
     }
@@ -2847,6 +2925,7 @@ impl ComposerMenuRow {
             Self::Subagents => c.temporary && c.subagent_model,
             Self::Ultracode => c.temporary && c.ultracode,
             Self::McpServers => c.temporary && c.mcp,
+            Self::Skills => c.temporary && c.skills,
             Self::ComputerUse => c.temporary && c.computer_use,
         }
     }
@@ -2873,6 +2952,8 @@ pub(crate) struct ComposerMenuConditions {
     pub(crate) subagent_model: bool,
     pub(crate) ultracode: bool,
     pub(crate) mcp: bool,
+    /// #EXP-1660: the team has at least one skill.
+    pub(crate) skills: bool,
     pub(crate) computer_use: bool,
     /// #EXP-1434: the team has at least one prompt.
     pub(crate) prompts: bool,
@@ -2897,6 +2978,7 @@ impl ComposerMenuConditions {
             subagent_model: options.subagent_picked.is_some(),
             ultracode: options.ultracode.is_some(),
             mcp: !options.mcp_servers.is_empty(),
+            skills: options.skills_count > 0,
             computer_use: options.computer_use.is_some(),
             prompts,
         }
@@ -2908,7 +2990,7 @@ impl ComposerMenuConditions {
 /// the separators TIDIED (never leading, trailing or doubled). Pure.
 pub(crate) fn composer_menu_rows(surface: ComposerSurface, conditions: ComposerMenuConditions) -> Vec<ComposerMenuRow> {
     use ComposerMenuRow::*;
-    const ALL: [ComposerMenuRow; 16] = [
+    const ALL: [ComposerMenuRow; 17] = [
         AddFile,
         ImplementIssue,
         Prompts,
@@ -2923,6 +3005,7 @@ pub(crate) fn composer_menu_rows(surface: ComposerSurface, conditions: ComposerM
         Ultracode,
         Separator,
         McpServers,
+        Skills,
         ComputerUse,
         Separator,
     ];
@@ -3324,6 +3407,19 @@ pub(crate) fn plus_menu(
                     .icon(row.menu_icon()),
                 )
             }
+            (ComposerMenuRow::Skills, Some(options)) => {
+                // skills.json `menuValueCases`: the number picked, none at zero.
+                let value = options.skills_value().map(SharedString::from);
+                menu.item(
+                    pointer_menu_item(
+                        None,
+                        domain::skills::MENU_LABEL,
+                        move |cx| Some(menu_row_value(value.clone(), true, cx)),
+                        open(ComposerPicker::Skills),
+                    )
+                    .icon(row.menu_icon()),
+                )
+            }
             (ComposerMenuRow::ComputerUse, Some(options)) => {
                 let Some(on) = options.computer_use else {
                     continue;
@@ -3570,6 +3666,7 @@ mod tests {
             "subagents" => R::Subagents,
             "ultracode" => R::Ultracode,
             "mcp-servers" => R::McpServers,
+            "skills" => R::Skills,
             "computer-use" => R::ComputerUse,
             "-" => R::Separator,
             other => panic!("unknown composer menu row {other}"),
@@ -3618,6 +3715,7 @@ mod tests {
             subagent_model: true,
             ultracode: true,
             mcp: true,
+            skills: true,
             computer_use: true,
             prompts: true,
         };
@@ -3634,6 +3732,7 @@ mod tests {
                 subagent_model: flag("subagentModel"),
                 ultracode: flag("ultracode"),
                 mcp: flag("mcp"),
+                skills: flag("skills"),
                 computer_use: flag("computerUse"),
                 prompts: flag("prompts"),
             };
@@ -3669,6 +3768,8 @@ mod tests {
                     Vec::new()
                 },
                 mcp_selected: Vec::new(),
+                skills_count: usize::from(conditions.skills),
+                skills_picked: 0,
                 computer_use: conditions.computer_use.then_some(false),
             };
             let repos = if conditions.repositories { 2 } else { 1 };

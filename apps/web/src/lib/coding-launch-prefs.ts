@@ -30,6 +30,10 @@ export interface CodingLaunchPrefs {
   /** EXP-792: the team MCP servers the run connects to (row ids). Omitted
    * when nothing is picked; the server refuses ids outside the team. */
   mcpServerIds?: string[]
+  /** #EXP-1659: the team skills the run installs (row ids). Omitted when
+   * nothing is picked (skills.json: a send carries `skillIds` only while
+   * the pick is non-empty). */
+  skillIds?: string[]
   /** EXP-1249: computer use for THIS run (the composer's "+" toggle);
    * omitted = the device's `launch_defaults.computerUse`. Only sent to a
    * device advertising `contract.codingSession.computerUseCap`. */
@@ -47,10 +51,13 @@ export interface CodingLaunchPrefs {
 // anything stored by an older build.
 const MCP_PICK_KEY = `exp:mcp-server-pick:v1`
 
-function readMcpPicks(): Record<string, string[]> {
+// #EXP-1659: the skills pick, the same rule (skills.json `preselectCases`).
+const SKILL_PICK_KEY = `exp:skill-pick:v1`
+
+function readPicks(key: string): Record<string, string[]> {
   if (typeof localStorage === `undefined`) return {}
   try {
-    const raw = localStorage.getItem(MCP_PICK_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return {}
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== `object` || parsed === null || Array.isArray(parsed)) {
@@ -71,15 +78,29 @@ function readMcpPicks(): Record<string, string[]> {
 /** The last MCP server pick for `teamId`, or null when none was ever saved
  * (the caller then seeds from the team's `enabledByDefault` rows). */
 export function loadMcpServerPick(teamId: string): string[] | null {
-  return readMcpPicks()[teamId] ?? null
+  return readPicks(MCP_PICK_KEY)[teamId] ?? null
 }
 
 export function saveMcpServerPick(teamId: string, ids: string[]): void {
+  savePick(MCP_PICK_KEY, teamId, ids)
+}
+
+/** #EXP-1659: the last skills pick for `teamId`, null = never saved (the
+ * caller seeds from the team's `enabledByDefault` skills). */
+export function loadSkillPick(teamId: string): string[] | null {
+  return readPicks(SKILL_PICK_KEY)[teamId] ?? null
+}
+
+export function saveSkillPick(teamId: string, ids: string[]): void {
+  savePick(SKILL_PICK_KEY, teamId, ids)
+}
+
+function savePick(key: string, teamId: string, ids: string[]): void {
   if (typeof localStorage === `undefined`) return
   try {
-    const picks = readMcpPicks()
+    const picks = readPicks(key)
     picks[teamId] = [...ids]
-    localStorage.setItem(MCP_PICK_KEY, JSON.stringify(picks))
+    localStorage.setItem(key, JSON.stringify(picks))
   } catch {
     // Quota or a privacy mode: the pick just does not survive a reload.
   }

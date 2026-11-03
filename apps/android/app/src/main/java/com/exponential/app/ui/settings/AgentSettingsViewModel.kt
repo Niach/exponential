@@ -8,6 +8,7 @@ import com.exponential.app.data.api.AgentCreateInput
 import com.exponential.app.data.api.AgentsApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.UpdateAgentPatch
+import com.exponential.app.data.api.toSkillOption
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -165,6 +166,20 @@ class AgentSettingsViewModel @Inject constructor(
     ) { list, row ->
         list?.filter { it.online || it.deviceId == row?.deviceId }
     }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #EXP-1661: the agent's team's skills (the Skills row's picker), by name. */
+    val skills: StateFlow<List<com.exponential.app.domain.SkillOption>> =
+        combine(dbFlow, combine(agent, teamId) { row, selected -> row?.teamId ?: selected }) { db, team -> db to team }
+            .flatMapLatest { (db, team) ->
+                if (db == null || team == null) {
+                    flowOf(emptyList())
+                } else {
+                    db.skillDao().observeByTeam(team).map { rows ->
+                        com.exponential.app.domain.sortSkills(rows.map { it.toSkillOption() })
+                    }
+                }
+            }
+            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     private val _instructions = MutableStateFlow<String?>(null)
     /** The server-only instructions (`agents.get`); null = not loaded. */

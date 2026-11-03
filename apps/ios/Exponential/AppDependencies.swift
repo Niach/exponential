@@ -65,6 +65,8 @@ final class AppDependencies: @unchecked Sendable {
     // Team actions (EXP-253) = saved prompts — synced for reads; tRPC for
     // the prompt body and the owner-gated writes.
     let promptsApi: PromptsApi
+    /// #EXP-1661: a skill's SKILL.md body (`skills.get`); the rest syncs.
+    let skillsApi: SkillsApi
     /// VAPP-110: the team's apps (create, rename, delete, restore, a version's package).
     let appsApi: AppsApi
     let agentsApi: AgentsApi
@@ -196,6 +198,7 @@ final class AppDependencies: @unchecked Sendable {
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.devicesApi = DevicesApi(trpc: trpc)
         self.promptsApi = PromptsApi(trpc: trpc)
+        self.skillsApi = SkillsApi(trpc: trpc)
         self.appsApi = AppsApi(trpc: trpc)
         self.agentsApi = AgentsApi(trpc: trpc)
         self.widgetsApi = WidgetsApi(trpc: trpc)

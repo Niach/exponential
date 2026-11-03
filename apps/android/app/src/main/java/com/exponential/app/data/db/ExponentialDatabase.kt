@@ -35,6 +35,7 @@ import androidx.room.TypeConverters
         AgentDefinitionEntity::class,
         EventEntity::class,
         PromptEntity::class,
+        SkillEntity::class,
         ConversationEntity::class,
         AppEntity::class,
         AppVersionEntity::class,
@@ -57,7 +58,9 @@ import androidx.room.TypeConverters
     // v109 (#VAPP-187): app_records.author_id + updated_by (record
     //      ownership), explicit [MIGRATION_108_109]; only the app_records
     //      shape refetches.
-    version = 109,
+    // v110 (#EXP-1661): the `skills` table + agents.skill_ids, explicit
+    //      [MIGRATION_109_110]; only the agents shape refetches.
+    version = 110,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -91,6 +94,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun agentDefinitionDao(): AgentDefinitionDao
     abstract fun eventDao(): EventDao
     abstract fun promptDao(): PromptDao
+    abstract fun skillDao(): SkillDao
     abstract fun conversationDao(): ConversationDao
     abstract fun appDao(): AppDao
     abstract fun appVersionDao(): AppVersionDao

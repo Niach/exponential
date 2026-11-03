@@ -107,6 +107,8 @@ import com.exponential.app.ui.settings.McpActivityScreen
 import com.exponential.app.ui.settings.McpSettingsScreen
 import com.exponential.app.ui.settings.PromptSettingsScreen
 import com.exponential.app.ui.settings.PromptsSettingsScreen
+import com.exponential.app.ui.settings.SkillSettingsScreen
+import com.exponential.app.ui.settings.SkillsSettingsScreen
 import com.exponential.app.ui.thread.AgentConversationScreen
 import com.exponential.app.ui.apps.AppEditorScreen
 import com.exponential.app.ui.apps.AppsScreen
@@ -923,6 +925,11 @@ private fun AuthenticatedNav(
                     onBack = back,
                     onOpenActivity = { navController.navigate(Routes.MCP_ACTIVITY) },
                 )
+                // #EXP-1661: Settings › Skills, read only on phones.
+                SettingsNav.SKILLS -> SkillsSettingsScreen(
+                    onBack = back,
+                    onOpenSkill = { id -> navController.navigate(Routes.skillSettings(id)) },
+                )
                 else -> TeamSettingsScreen(onBack = back)
             }
             }
@@ -1128,6 +1135,9 @@ private fun AuthenticatedNav(
                 onCreated = {},
                 onDeleted = { navController.popBackStack() },
             )
+        }
+        composable(Routes.SKILL_SETTINGS_PATTERN) {
+            SkillSettingsScreen(onBack = { navController.popBackStack() })
         }
         composable(Routes.MCP_ACTIVITY) {
             McpActivityScreen(onBack = { navController.popBackStack() })

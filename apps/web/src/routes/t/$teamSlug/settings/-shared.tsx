@@ -43,6 +43,7 @@ export type SettingsSectionPath =
   | `/t/$teamSlug/settings/prompts`
   | `/t/$teamSlug/settings/widget`
   | `/t/$teamSlug/settings/mcp`
+  | `/t/$teamSlug/settings/skills`
   | `/t/$teamSlug/settings/account`
   | `/t/$teamSlug/settings/notifications`
   | `/t/$teamSlug/settings/security`
@@ -163,6 +164,14 @@ const SETTINGS_PAGES: Record<string, Omit<SettingsNavItem, `visible` | `children
     label: `MCP`,
     to: `/t/$teamSlug/settings/mcp`,
     icon: conceptIcon(`settings-mcp`),
+  },
+  // #EXP-1659: the team's skill library (skills.json); every member reads
+  // it, writes are owner-only inside.
+  skills: {
+    id: `skills`,
+    label: `Skills`,
+    to: `/t/$teamSlug/settings/skills`,
+    icon: conceptIcon(`ui-docs`),
   },
   account: {
     id: `account`,

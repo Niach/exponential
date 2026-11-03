@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.IssueImagesApi
 import com.exponential.app.data.api.McpServersApi
+import com.exponential.app.data.api.toSkillOption
 import com.exponential.app.domain.McpServerOption
 import com.exponential.app.domain.mcpServerReady
 import com.exponential.app.domain.preselectMcpServerIds
@@ -783,6 +784,34 @@ class AgentComposerViewModel @Inject constructor(
         }
     }
 
+    // ── #EXP-1661: the "+" menu's Skills (skills.json `menuRow`) ───────────
+
+    /** The team's skills (the synced `skills` shape), sorted by name. */
+    val skills: StateFlow<List<com.exponential.app.domain.SkillOption>> = teamId
+        .flatMapLatest { team ->
+            if (team == null) {
+                flowOf(emptyList())
+            } else {
+                dbFlow.scopedQuery(emptyList<com.exponential.app.data.db.SkillEntity>()) { it.skillDao().observeByTeam(team) }
+            }
+        }
+        .map { rows -> com.exponential.app.domain.sortSkills(rows.map { it.toSkillOption() }) }
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    /** The person's pick this composer (null = untouched: the defaults). */
+    private val _skillPick = MutableStateFlow<List<String>?>(null)
+
+    /** The skills this run gets: the pick clamped to skills that still
+     *  exist, else the enabled-by-default ones (`preselectSkillIds`). */
+    val skillIds: StateFlow<List<String>> = combine(skills, _skillPick) { all, pick ->
+        com.exponential.app.domain.preselectSkillIds(all, pick)
+    }.flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
+
+    fun toggleSkill(id: String) {
+        val current = skillIds.value
+        _skillPick.value = if (id in current) current - id else current + id
+    }
+
     /** Web M12: the person's explicit flip; null = untouched (the device's
      *  default shows and nothing rides the wire). Cleared per device. */
     private val _computerUsePick = MutableStateFlow<Boolean?>(null)
@@ -803,6 +832,7 @@ class AgentComposerViewModel @Inject constructor(
             teamId.collectLatest { team ->
                 _mcpServers.value = emptyList()
                 _mcpServerIds.value = emptyList()
+                _skillPick.value = null
                 val accountId = auth.activeAccountId.value
                 if (team == null || accountId == null) return@collectLatest
                 val servers = runCatching { mcpServersApi.list(accountId, team) }
@@ -874,6 +904,7 @@ class AgentComposerViewModel @Inject constructor(
             // SHOWN value, device default included, not only an explicit flip.
             computerUse = computerUse.value.takeIf { device.value?.canToggleComputerUse == true },
             mcpServerIds = _mcpServerIds.value,
+            skillIds = skillIds.value,
         )
     }
 

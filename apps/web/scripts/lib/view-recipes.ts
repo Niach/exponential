@@ -588,6 +588,19 @@ async function recipeOpenComposerMenuTemporary(page: Page): Promise<void> {
   })
 }
 
+/** #EXP-1659: the same + menu with its Skills submenu open (the team's
+ *  skills, the two enabled-by-default ones picked). */
+async function recipeOpenComposerSkillsMenu(page: Page): Promise<void> {
+  await recipeOpenComposerMenuTemporary(page)
+  const row = page.getByTestId(`agent-composer-menu-skills`).filter({ visible: true }).first()
+  await row.waitFor({ timeout: 15_000 })
+  // md+: the submenu opens on hover and closes when the pointer leaves the
+  // row, so the pointer stays on it; on phones the tap pushes its page.
+  await row.hover()
+  await row.click()
+  await page.getByText(`incident-triage`).filter({ visible: true }).first().waitFor({ timeout: 15_000 })
+}
+
 /** NEW-2: the home composer's `/` menu — the team's prompts. */
 async function recipeTypeSlashInComposer(page: Page): Promise<void> {
   const field = page.getByTestId(`agent-composer-field`).filter({ visible: true }).first()
@@ -853,7 +866,8 @@ async function recipeWaitForMcpActivity(page: Page): Promise<void> {
 
 /** EXP-1558: recipes whose photographed state IS a hover; the capturer
  *  parks the pointer after every other recipe. */
-export const KEEPS_POINTER: ReadonlySet<string> = new Set([`previewDeviceLimits`])
+// #EXP-1659: openComposerSkillsMenu: a hover holds the Skills submenu open.
+export const KEEPS_POINTER: ReadonlySet<string> = new Set([`previewDeviceLimits`, `openComposerSkillsMenu`])
 
 /**
  * The registry itself. Keys are the names `views.json` uses; the view-catalog
@@ -883,6 +897,7 @@ export const RECIPES: Record<string, Recipe> = {
   openGettingStarted: recipeOpenGettingStarted,
   typeIssueRef: recipeTypeIssueRef,
   openComposerMenuTemporary: recipeOpenComposerMenuTemporary,
+  openComposerSkillsMenu: recipeOpenComposerSkillsMenu,
   typeSlashInComposer: recipeTypeSlashInComposer,
   typeSlashInSessionComposer: recipeTypeSlashInSessionComposer,
   scrollToWorkCards: recipeScrollToWorkCards,

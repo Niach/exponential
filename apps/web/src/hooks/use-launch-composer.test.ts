@@ -43,6 +43,7 @@ vi.mock(`@tanstack/react-router`, () => ({ useNavigate: () => mockState.navigate
 vi.mock(`@/lib/collections`, () => ({
   agentCollection: {},
   promptCollection: {},
+  skillCollection: {},
   issueCollection: {},
   sessionCollection: { utils: { awaitTxId: mockState.awaitTxId } },
 }))

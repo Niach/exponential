@@ -37,3 +37,12 @@ object JsonAsStringSerializer : KSerializer<String?> {
         encoder.encodeSerializableValue(delegate, value)
     }
 }
+
+/** #EXP-1661: a jsonb string array stored by [JsonAsStringSerializer]
+ *  (`["a","b"]`) as its strings; null, malformed or non-string = skipped. */
+fun parseJsonStringList(raw: String?): List<String> {
+    if (raw.isNullOrBlank()) return emptyList()
+    val element = runCatching { kotlinx.serialization.json.Json.parseToJsonElement(raw) }.getOrNull()
+    val array = element as? kotlinx.serialization.json.JsonArray ?: return emptyList()
+    return array.mapNotNull { (it as? JsonPrimitive)?.takeIf { p -> p.isString }?.content }
+}

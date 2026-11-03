@@ -25,6 +25,8 @@ enum class ComposerMenuRowId(val wire: String) {
     Subagents("subagents"),
     Ultracode("ultracode"),
     McpServers("mcp-servers"),
+    /** #EXP-1661: the team's skills (skills.json `menuRow`), multi pick. */
+    Skills("skills"),
     ComputerUse("computer-use"),
 }
 
@@ -43,6 +45,8 @@ enum class ComposerMenuCondition(val wire: String) {
     SubagentModel("subagentModel"),
     Ultracode("ultracode"),
     Mcp("mcp"),
+    /** #EXP-1661: the team has at least one skill. */
+    Skills("skills"),
     ComputerUse("computerUse"),
     Prompts("prompts"),
 }
@@ -58,6 +62,8 @@ data class ComposerMenuConditions(
     val subagentModel: Boolean = false,
     val ultracode: Boolean = false,
     val mcp: Boolean = false,
+    /** #EXP-1661: the team has at least one skill. */
+    val skills: Boolean = false,
     val computerUse: Boolean = false,
     /** #EXP-1434: the team has at least one prompt. */
     val prompts: Boolean = false,
@@ -71,6 +77,7 @@ data class ComposerMenuConditions(
         ComposerMenuCondition.SubagentModel -> subagentModel
         ComposerMenuCondition.Ultracode -> ultracode
         ComposerMenuCondition.Mcp -> mcp
+        ComposerMenuCondition.Skills -> skills
         ComposerMenuCondition.ComputerUse -> computerUse
         ComposerMenuCondition.Prompts -> prompts
     }
@@ -177,6 +184,11 @@ object ComposerMenu {
             ComposerMenuRowId.McpServers, ComposerMenuRowKind.Submenu, "MCP servers",
             icon = "ui-mcp", surfaces = LAUNCH,
             conditions = listOf(ComposerMenuCondition.Temporary, ComposerMenuCondition.Mcp),
+        ),
+        ComposerMenuEntry.Row(
+            ComposerMenuRowId.Skills, ComposerMenuRowKind.Submenu, "Skills",
+            icon = "ui-docs", surfaces = LAUNCH,
+            conditions = listOf(ComposerMenuCondition.Temporary, ComposerMenuCondition.Skills),
         ),
         ComposerMenuEntry.Row(
             ComposerMenuRowId.ComputerUse, ComposerMenuRowKind.Toggle, "Computer use",

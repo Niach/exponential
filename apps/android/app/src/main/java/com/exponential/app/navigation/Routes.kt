@@ -63,6 +63,9 @@ object Routes {
     const val PROMPT_SETTINGS_PATTERN = "settings/prompt/{promptId}"
     fun promptSettings(promptId: String): String = "settings/prompt/$promptId"
     const val PROMPT_NEW = "settings/prompt-new"
+    /** #EXP-1661: one skill's read-only page (Settings › Skills). */
+    const val SKILL_SETTINGS_PATTERN = "settings/skill/{skillId}"
+    fun skillSettings(skillId: String): String = "settings/skill/$skillId"
 
     /** VAPP-110: the selected team's Apps (reached from the Threads tab). */
     const val APPS = "apps"

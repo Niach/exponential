@@ -28,12 +28,15 @@ describe(`skills.json (#EXP-1656)`, () => {
   it.each(fixture.menuValueCases)(`menu value: $name`, ({ count, expected }) => {
     expect(skillsMenuValue(count)).toBe(expected)
   })
-  it.each(fixture.agentValueCases)(`agent value: $name`, ({ count, expected }) => {
-    expect(agentSkillsValue(count)).toBe(expected)
+  it.each(fixture.agentValueCases)(`agent value: $name`, ({ names, expected }) => {
+    expect(agentSkillsValue(names)).toBe(expected)
   })
   it(`the + row sits after MCP servers on launch, temporary only`, () => {
     expect(fixture.menuRow).toMatchObject({ id: `skills`, surfaces: [`launch`], after: `mcp-servers` })
     expect(fixture.menuRow.when).toEqual([`temporary`, `skills`])
+  })
+  it(`the agent row sits under Device`, () => {
+    expect(fixture.agentRow).toMatchObject({ id: `skills`, after: `device` })
   })
   it(`phones and members never write`, () => {
     expect(fixture.permissions.owner.write).toBe(true)

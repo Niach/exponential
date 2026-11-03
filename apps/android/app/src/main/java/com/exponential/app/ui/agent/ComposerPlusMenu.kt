@@ -47,7 +47,7 @@ import com.exponential.app.ui.theme.TextEmphasis
  * as its sheet arm): the rows of [ComposerMenu.composerMenuLayout] in a
  * bottom sheet — S-3: Photo or file, Issue › | Device ›, Account ›,
  * Model ›, Repository › | Effort ›, Subagents ›, Ultracode | MCP servers ›,
- * Computer use, each only on its surface and while its condition holds.
+ * Skills › (#EXP-1661), Computer use, each only on its surface and while its condition holds.
  * #EXP-1434: Prompts › (after Issue, while the team has a prompt) pushes
  * [ComposerPromptsPage] as a page of [pages]. SLOP-28 (EXP-1259 D5): Implement issue
  * PUSHES a page inside this sheet ([issuePage]: THE search list, back
@@ -151,7 +151,7 @@ internal fun ComposerPlusMenuSheet(
                                 }
                                 val enabled = when (entry.id) {
                                     ComposerMenuRowId.Effort -> effortEnabled && !rowsReadOnly
-                                    ComposerMenuRowId.Subagents, ComposerMenuRowId.McpServers -> !rowsReadOnly
+                                    ComposerMenuRowId.Subagents, ComposerMenuRowId.McpServers, ComposerMenuRowId.Skills -> !rowsReadOnly
                                     ComposerMenuRowId.AddFile -> canAttach
                                     else -> true
                                 }
@@ -196,6 +196,7 @@ internal fun composerMenuGlyph(id: ComposerMenuRowId): ImageVector = when (id) {
     ComposerMenuRowId.Subagents -> ExpIcons.codingSubagent
     ComposerMenuRowId.Ultracode -> ExpIcons.actionDefault
     ComposerMenuRowId.McpServers -> ExpIcons.uiMcp
+    ComposerMenuRowId.Skills -> ExpIcons.uiDocs
     ComposerMenuRowId.ComputerUse -> ExpIcons.navComputer
 }
 

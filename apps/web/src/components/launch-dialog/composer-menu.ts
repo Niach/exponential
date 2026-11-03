@@ -19,6 +19,7 @@ export type ComposerMenuRowId =
   | `subagents`
   | `ultracode`
   | `mcp-servers`
+  | `skills`
   | `computer-use`
 
 export type ComposerMenuCondition = keyof typeof fixture.conditions
