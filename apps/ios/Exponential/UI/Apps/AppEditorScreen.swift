@@ -331,6 +331,8 @@ struct AppEditorScreen: View {
         guard let action = pendingMenu else { return }
         pendingMenu = nil
         switch action {
+        // The list's / the run view's menus only (the editor IS the editor).
+        case .edit: break
         case .publish:
             if let app = model.app, model.canWrite, Apps.canPublish(app.versions) { publish(app, number: app.headVersion) }
         case .versions: editorSheet = .versions

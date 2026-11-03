@@ -22,10 +22,13 @@ enum AppRoute: Hashable {
     /// VAPP-110: the team's Apps (fixtures/apps.json) — #EXP-1384: the
     /// Apps TAB's root (a link to it switches the tab).
     case apps(accountId: String)
-    /// VAPP-110: one app's editor (`appId` = its row id). VAPP-218:
-    /// `screen` (an app screen link) opens it on its Preview tab showing
-    /// that screen.
+    /// VAPP-110: one app's editor (`appId` = its row id). VAPP-242: only
+    /// from a `…` › Edit app, New app and an import.
     case app(accountId: String, appId: String, screen: Apps.ScreenRequest? = nil)
+    /// VAPP-242 (apps.json THE RUN VIEW): the app as a member uses it, its
+    /// PUBLISHED package full screen (a list row tap); `screen` = an app
+    /// screen link's screen.
+    case appRun(accountId: String, appId: String, screen: Apps.ScreenRequest? = nil)
     /// The Inbox page (EXP-1373: pushed from the Chats header's inbox
     /// circle, notifications only — My issues and Drafts moved to the board).
     case myWork
@@ -1145,6 +1148,10 @@ extension MainNavigator {
             AppEditorScreen(appId: appId, screen: screen)
                 .id(appId)
                 .environment(\.accountId, accountId)
+        case let .appRun(accountId, appId, screen):
+            AppRunScreen(appId: appId, screen: screen)
+                .id(appId)
+                .environment(\.accountId, accountId)
         case .myWork:
             InboxPage()
                 .environment(\.accountId, deps.auth.activeAccountId ?? "")
@@ -1606,9 +1613,8 @@ extension MainNavigator {
         landOnRoot(of: .agent)
     }
 
-    /// VAPP-218 (apps.json `screens`): an app screen link lands on the Apps
-    /// tab with the app's editor pushed, on its Preview tab showing that
-    /// screen. Another signed-in account switches first and leaves the link
+    /// VAPP-218 / VAPP-242 (apps.json `screens`): an app screen link lands
+    /// on the Apps tab with THE RUN VIEW pushed, showing that screen. Another signed-in account switches first and leaves the link
     /// PENDING (the rebuilt navigator's cold-launch `.task` drains it); the
     /// linked team becomes the active one; an app not synced here = the
     /// Safari sheet.
@@ -1644,7 +1650,7 @@ extension MainNavigator {
             applyTeam(app.teamId)
         }
         landOnRoot(of: .apps)
-        path.append(.app(accountId: link.accountId, appId: app.id, screen: link.request))
+        path.append(.appRun(accountId: link.accountId, appId: app.id, screen: link.request))
     }
 
     /// EXP-1373 (chats.json `shell`): the phone shows ONE active team; a

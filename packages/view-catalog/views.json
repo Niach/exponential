@@ -2441,8 +2441,8 @@
       "webMobile": "inherit",
       "notes": {
         "desktop": "VAPP-242: DEV-ONLY `EXP_DEV_SCREEN=run:<slug>`: the seeded Working hours app running full screen (no header of its own; the sidebar's app row is the active one).",
-        "ios": "VAPP-242: the iOS run view lands in its own PR (the Apps tab's row tap).",
-        "android": "VAPP-242: the Android run view lands in its own PR (the Apps tab's row tap).",
+        "ios": "VAPP-242: the LIVE walk: the Apps tab's Working hours row tap (DEMO_APP_SLUG) = the run view under the detail header, gated on `app-run`.",
+        "android": "VAPP-242: the LIVE walk: the Apps tab's Working hours row tap (DEMO_APP_SLUG) = the run view under the detail header, gated on `app-run`.",
         "web": "`$appSlug` resolves to DEMO_APP_SLUG, the seeded Working hours app (published, records)."
       },
       "desktop": {
@@ -2451,6 +2451,14 @@
           "value": "run:working-hours"
         },
         "anchorDelayMs": 1500
+      },
+      "ios": {
+        "shot": "sg_app-run",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_app-run",
+        "lane": "styleguide"
       }
     },
     {

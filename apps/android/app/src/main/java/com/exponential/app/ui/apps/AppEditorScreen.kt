@@ -555,7 +555,7 @@ private fun AppPreviewPane(
  *  screen's template with `{params}`, the phone tab bar under it (phones
  *  always take `Apps.screenShell`'s bar). */
 @Composable
-private fun AppPackageSurface(
+internal fun AppPackageSurface(
     packageJson: String,
     onOpenIssue: (String) -> Unit,
     onOpenTeamSettings: (teamId: String, section: String) -> Unit,
