@@ -646,6 +646,34 @@ interface AppRecordDao {
     suspend fun clear()
 }
 
+// VAPP-235: the offline outbox (oldest first).
+@Dao
+interface AppRecordOutboxDao {
+    @Query("SELECT * FROM app_record_outbox ORDER BY seq")
+    fun observeAll(): Flow<List<AppRecordOutboxEntity>>
+
+    @Query("SELECT * FROM app_record_outbox WHERE app_id = :appId ORDER BY seq")
+    fun observeByApp(appId: String): Flow<List<AppRecordOutboxEntity>>
+
+    @Query("SELECT * FROM app_record_outbox WHERE state = 'pending' ORDER BY seq LIMIT 1")
+    suspend fun oldestPending(): AppRecordOutboxEntity?
+
+    @Query("SELECT COUNT(*) FROM app_record_outbox WHERE state = 'pending'")
+    suspend fun pendingCount(): Int
+
+    @Query("SELECT COALESCE(MAX(seq), 0) FROM app_record_outbox")
+    suspend fun maxSeq(): Long
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insert(item: AppRecordOutboxEntity)
+
+    @Query("UPDATE app_record_outbox SET state = 'acked', acked_at = :ackedAt WHERE write_id = :writeId")
+    suspend fun ack(writeId: String, ackedAt: String)
+
+    @Query("DELETE FROM app_record_outbox WHERE write_id IN (:writeIds)")
+    suspend fun delete(writeIds: List<String>)
+}
+
 // NEW-2: the member teams' events, newest first.
 @Dao
 interface EventDao {

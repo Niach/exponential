@@ -139,6 +139,10 @@ import kotlinx.coroutines.launch
  *  - VAPP-122 `records.upsert {kind, data, id?}` and `records.delete {id}`:
  *    tRPC `apps.records.*` as the viewer, no consent card
  *    (the app's own rows), a refusal = the failed-action toast;
+ *    VAPP-235 every write goes through the OFFLINE OUTBOX
+ *    ([AppRecordOutbox]): persisted, laid over the synced rows, replayed in
+ *    order; alone in the queue it awaits its own outcome (as online), else
+ *    it answers from the entry at once;
  *  - VAPP-194 `records.batch {writes}`: a package action's writes as ONE
  *    `apps.records.batch`; a failed action (that or a false `require`) =
  *    `onActionFailed`'s failed-action toast; VAPP-215 a landed one toasts
@@ -163,6 +167,7 @@ interface AppHostEntryPoint {
     fun databaseHolder(): DatabaseHolder
     fun httpClient(): HttpClient
     fun appsApi(): AppsApi
+    fun appRecordOutbox(): AppRecordOutbox
 }
 
 /** The package files every host installs (read from the shared assets). */
@@ -414,6 +419,9 @@ private object LiveDotPainter : ExtensionPainter {
     }
 }
 
+/** VAPP-235: how often acked outbox entries re-check their grace while the shape catches up. */
+private const val OUTBOX_PRUNE_TICK_MS = 5_000L
+
 /** The theme every app surface paints with (the web's `DEFAULT_THEME_ID`). */
 const val APP_THEME_ID = "exponential"
 
@@ -502,6 +510,7 @@ fun rememberAppHost(
             }
         }
 
+        val outbox = deps.appRecordOutbox()
         // VAPP-122: the `records:<kind>` value over the parsed query (VAPP-189:
         // eUI's one evaluator, the SDK's `RecordsQuery` over the core).
         // VAPP-214: the hosting package's `records` (its kinds' `computed` fields apply on read).
@@ -517,22 +526,43 @@ fun rememberAppHost(
                 teamApps.map { rows -> rows.firstOrNull { it.slug == query.app }?.id }.distinctUntilChanged()
             }
             val rows = target.flatMapLatest { recordsOf(it) }
+            // VAPP-235: that app's outbox entries, laid over the synced rows
+            // (re-emitting on every outbox change); while acked entries wait
+            // for the shape, a tick re-checks their grace.
+            val entries: Flow<List<AppRecords.OutboxEntry>> = target
+                .flatMapLatest { app -> if (app == null) flowOf(emptyList()) else db.scopedQuery(emptyList()) { AppRecordOutbox.entries(it, app) } }
+                .flatMapLatest { list ->
+                    if (list.none { it.state == AppRecords.Outbox.ACKED_STATE }) {
+                        flowOf(list)
+                    } else {
+                        kotlinx.coroutines.flow.flow {
+                            while (true) {
+                                emit(list)
+                                delay(OUTBOX_PRUNE_TICK_MS)
+                            }
+                        }
+                    }
+                }
             // VAPP-219 (R5): the hosting app's refs; an expanded issue ref reads the team's issues.
             val refs = if (query.app == null) RecordsQuery.refs(packageRecords, query.from) else JsonValue.Null
             val expanded = (query.structured["expand"]?.array.orEmpty()).mapNotNull { it.string }
             val issueRefs = expanded.filter { refs[it]?.string == "issue" }
             val memberRefs = expanded.filter { refs[it]?.string == "member" }
             val refIssues: Flow<List<IssueEntity>> = if (issueRefs.isEmpty()) flowOf(emptyList()) else teamRows { d, t -> d.issueDao().observeByTeamForApps(t) }
-            return combine(rows, users, refIssues) { records, people, teamIssueRows ->
-                val mapped = records.map { entity ->
+            return combine(rows, entries, users, refIssues) { records, pending, people, teamIssueRows ->
+                val synced = records.map(AppRecords::row)
+                // VAPP-235: acked entries the shape reflects (or past the grace) leave.
+                val account = auth.activeAccountId.value
+                if (account != null && pending.any { it.state == AppRecords.Outbox.ACKED_STATE }) outbox.prune(account, pending, synced)
+                val mapped = AppRecords.outboxRows(synced, pending, me).map { row ->
                     RecordRow(
-                        id = entity.id,
-                        kind = entity.kind,
-                        data = entity.data?.let { JsonValue.parse(it) } ?: JsonValue.Obj(emptyMap()),
-                        createdBy = entity.createdBy?.takeIf { it.isNotEmpty() },
-                        authorId = entity.authorId?.takeIf { it.isNotEmpty() },
-                        createdAt = AppRecords.isoTimestamp(entity.createdAt),
-                        updatedAt = AppRecords.isoTimestamp(entity.updatedAt),
+                        id = row.id,
+                        kind = row.kind,
+                        data = JsonValue.Obj(row.data),
+                        createdBy = row.createdBy,
+                        authorId = row.authorId,
+                        createdAt = row.createdAt,
+                        updatedAt = row.updatedAt,
                     )
                 }
                 // VAPP-187: `author` = the AUTHOR's name (`authorId ?? createdBy`).
@@ -617,19 +647,24 @@ fun rememberAppHost(
         // VAPP-122: the app's own rows (no consent card); a refusal (the
         // kind's schema, the caps, the plan quota) is a failed action.
         val api = deps.appsApi()
+        // VAPP-235: every write is an outbox entry ([AppRecordOutbox.submit]):
+        // landed = the online answer; refused = the failed-action toast and
+        // the call fails; queued (offline, or behind pending entries) = the
+        // answer from the entry (`{id}` / null / `{ids}`).
+        suspend fun submit(call: String, args: Map<String, JsonValue>): Pair<AppRecords.OutboxEntry, AppRecordOutbox.Answer> {
+            val account = auth.activeAccountId.value ?: error("Not signed in")
+            val app = appId ?: error("No app to keep records for")
+            val entry = outbox.entry(app, call, args)
+            return entry to outbox.submit(account, entry)
+        }
         val recordsUpsert: HostFunction = { args, _ ->
             try {
-                val account = auth.activeAccountId.value ?: error("Not signed in")
-                val app = appId ?: error("No app to keep records for")
-                val data = (args["data"] as? JsonValue.Obj) ?: JsonValue.Obj(emptyMap())
-                val result = api.recordsUpsert(
-                    account,
-                    app,
-                    kind = args["kind"]?.string.orEmpty(),
-                    data = kotlinx.serialization.json.Json.parseToJsonElement(data.orderedJson) as kotlinx.serialization.json.JsonObject,
-                    recordId = args["id"]?.string,
-                )
-                JsonValue.Obj(mapOf("id" to JsonValue.Str(result.id)))
+                val (entry, answer) = submit("upsert", args)
+                when (answer) {
+                    is AppRecordOutbox.Answer.Refused -> error(answer.message ?: "Couldn't save the record")
+                    is AppRecordOutbox.Answer.Done -> JsonValue.Obj(mapOf("id" to JsonValue.Str(answer.upsert?.id ?: entry.writes.first().id)))
+                    AppRecordOutbox.Answer.Queued -> JsonValue.Obj(mapOf("id" to JsonValue.Str(entry.writes.first().id)))
+                }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 toaster.failedAction("save", "the record", e.message)
@@ -638,9 +673,8 @@ fun rememberAppHost(
         }
         val recordsDelete: HostFunction = { args, _ ->
             try {
-                val account = auth.activeAccountId.value ?: error("Not signed in")
-                val app = appId ?: error("No app to keep records for")
-                api.recordsDelete(account, app, args["id"]?.string.orEmpty())
+                val (_, answer) = submit("delete", args)
+                if (answer is AppRecordOutbox.Answer.Refused) error(answer.message ?: "Couldn't delete the record")
                 null
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
@@ -648,26 +682,34 @@ fun rememberAppHost(
                 throw e
             }
         }
-        // VAPP-194: a package action's writes as ONE transaction (the server
-        // checks them again); a refusal lands nothing and is the action's
-        // failure: `onActionFailed` toasts it (not here, so it shows once).
+        // VAPP-194: a package action's writes as ONE entry (one transaction
+        // on the server, all or nothing); a refusal lands nothing and is the
+        // action's failure: `onActionFailed` toasts it (not here, so it
+        // shows once).
         val recordsBatch: HostFunction = { args, _ ->
-            val account = auth.activeAccountId.value ?: error("Not signed in")
-            val app = appId ?: error("No app to keep records for")
-            val writes = kotlinx.serialization.json.Json.parseToJsonElement((args["writes"] ?: JsonValue.Arr(emptyList())).orderedJson)
-            val result = api.recordsBatch(account, app, writes as? kotlinx.serialization.json.JsonArray ?: kotlinx.serialization.json.JsonArray(emptyList()))
-            // VAPP-215: a package action's writes toast Undo for 10 s (app-records.json `history`).
-            toaster.recordUndo("batch", result.eventIds) {
-                undoScope.launch {
-                    try {
-                        api.recordsUndo(account, app, result.eventIds, via = "app")
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        toaster.failedAction(AppRecords.HistoryCopy.UNDO_VERB, AppRecords.HistoryCopy.UNDO_THING, e.message)
+            val (entry, answer) = submit("batch", args)
+            when (answer) {
+                is AppRecordOutbox.Answer.Refused -> error(answer.message ?: "Couldn't save the record")
+                is AppRecordOutbox.Answer.Done -> {
+                    val account = auth.activeAccountId.value
+                    val result = answer.batch
+                    // VAPP-215: a package action's writes toast Undo for 10 s (app-records.json `history`).
+                    if (account != null && result != null) {
+                        toaster.recordUndo("batch", result.eventIds) {
+                            undoScope.launch {
+                                try {
+                                    api.recordsUndo(account, entry.appId, result.eventIds, via = "app")
+                                } catch (e: Exception) {
+                                    if (e is kotlinx.coroutines.CancellationException) throw e
+                                    toaster.failedAction(AppRecords.HistoryCopy.UNDO_VERB, AppRecords.HistoryCopy.UNDO_THING, e.message)
+                                }
+                            }
+                        }
                     }
+                    JsonValue.Obj(mapOf("ids" to JsonValue.Arr((result?.ids ?: entry.writes.map { it.id }).map { JsonValue.Str(it) })))
                 }
+                AppRecordOutbox.Answer.Queued -> JsonValue.Obj(mapOf("ids" to JsonValue.Arr(entry.writes.map { JsonValue.Str(it.id) })))
             }
-            JsonValue.Obj(mapOf("ids" to JsonValue.Arr(result.ids.map { JsonValue.Str(it) })))
         }
         // VAPP-120: every MCP operation as a typed function
         // (fixtures/app-actions.json): the same tools/call as the viewer,

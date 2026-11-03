@@ -364,6 +364,8 @@ fun AppNavHost() {
             // FEED-79: sheets and alerts mount their own host off it.
             LocalOverlayToaster provides toaster,
         ) {
+        // VAPP-235: a later outbox replay's refusal, toasted wherever the member is.
+        com.exponential.app.ui.apps.AppOutboxRefusals()
         val updateRequired = state.updateRequired
         if (updateRequired != null) {
             // Highest priority: the ACTIVE account's server has 426'd this

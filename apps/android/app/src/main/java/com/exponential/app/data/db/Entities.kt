@@ -871,6 +871,27 @@ data class AppRecordEntity(
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
 
+// VAPP-235 (O1, app-records.json `outbox`): the OFFLINE OUTBOX, one row per
+// app host record write (`records.upsert` / `delete` / `batch`), LOCAL ONLY
+// (no shape): [writeId] = the client uuid the replay carries (the server's
+// dedupe key), [seq] = enqueue order (FIFO), [writes] = the entry's writes as
+// JSON, [state] = `pending` | `acked` ([ackedAt] = when the server took it;
+// an acked row keeps overlaying until the shape reflects it).
+@Entity(
+    tableName = "app_record_outbox",
+    indices = [Index("app_id")],
+)
+data class AppRecordOutboxEntity(
+    @PrimaryKey @ColumnInfo(name = "write_id") val writeId: String,
+    val seq: Long,
+    @ColumnInfo(name = "app_id") val appId: String,
+    val call: String,
+    val writes: String,
+    val at: String,
+    val state: String,
+    @ColumnInfo(name = "acked_at") val ackedAt: String? = null,
+)
+
 // NEW-2: a saved prompt (replaces actions): name + curated icon; the body is
 // server-only (tRPC `prompts.get`).
 @Entity(
