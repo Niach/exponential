@@ -411,7 +411,7 @@ object AppRecords {
         const val HISTORY_LIMIT = 50
         const val MAX_FIELDS = 3
         val OPS = listOf("create", "update", "delete", "restore")
-        val VIAS = listOf("editor", "app", "mcp", "action", "import")
+        val VIAS = listOf("editor", "app", "mcp", "action", "import", "migration")
     }
 
     object HistoryCopy {

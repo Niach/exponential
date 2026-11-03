@@ -600,7 +600,7 @@ public enum AppRecords {
         public static let historyLimit = 50
         public static let maxFields = 3
         public static let ops = ["create", "update", "delete", "restore"]
-        public static let vias = ["editor", "app", "mcp", "action", "import"]
+        public static let vias = ["editor", "app", "mcp", "action", "import", "migration"]
 
         public enum Copy {
             public static let history = "History"

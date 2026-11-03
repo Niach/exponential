@@ -2468,6 +2468,18 @@ export const appVersions = pgTable(
     sessionId: uuid(`session_id`).references(() => sessions.id, { onDelete: `set null` }),
     createdBy: text(`created_by`).references(() => users.id, { onDelete: `set null` }),
     createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+    // eApps R8 (#VAPP-233): the record sweep a publish of this version
+    // started (record-migrations.json SWEEP): null = none, running | done |
+    // failed | superseded (a later publish took over); `migration_done` of
+    // `migration_total` records; the first error.
+    migrationState: varchar(`migration_state`, { length: 16 }).$type<`running` | `done` | `failed` | `superseded`>(),
+    // The version published before it: the shape of records written before R8 (schema_version 0).
+    migrationFrom: integer(`migration_from`).notNull().default(0),
+    migrationTotal: integer(`migration_total`).notNull().default(0),
+    migrationDone: integer(`migration_done`).notNull().default(0),
+    migrationError: text(`migration_error`),
+    // Who published it (the sweep's history events are theirs).
+    migrationBy: text(`migration_by`).references(() => users.id, { onDelete: `set null` }),
   },
   (table) => [
     unique().on(table.appId, table.number),
@@ -2511,6 +2523,11 @@ export const appRecords = pgTable(
     viaAppId: uuid(`via_app_id`).references((): AnyPgColumn => apps.id, {
       onDelete: `set null`,
     }),
+    // eApps R8 (#VAPP-233): the published package `number` the record's data
+    // is shaped for (every write stamps it; the publish sweep moves it).
+    // 0 = written before R8 (the published version at the first sweep).
+    // Server-only, shape-excluded.
+    schemaVersion: integer(`schema_version`).notNull().default(0),
     deletedAt: timestamp(`deleted_at`, { withTimezone: true }),
     // Mirror of the app's deleted_at (trigger-maintained): the shape's static
     // trash predicate. Server-only, shape-excluded.
@@ -2551,7 +2568,7 @@ export const appRecordEvents = pgTable(
     op: varchar({ length: 16 }).$type<`create` | `update` | `delete` | `restore`>().notNull(),
     actor: text().references(() => users.id, { onDelete: `set null` }),
     author: text().references(() => users.id, { onDelete: `set null` }),
-    via: varchar({ length: 16 }).$type<`editor` | `app` | `mcp` | `action` | `import`>().notNull(),
+    via: varchar({ length: 16 }).$type<`editor` | `app` | `mcp` | `action` | `import` | `migration`>().notNull(),
     patch: jsonb().$type<AppRecordData>(),
     before: jsonb().$type<AppRecordData>(),
     // VAPP-235 (O1): the client write id of an outbox replay (the dedupe key:

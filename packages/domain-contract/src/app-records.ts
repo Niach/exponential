@@ -280,7 +280,7 @@ export const APP_RECORD_HISTORY = fixture.history
 export const APP_HISTORY_COPY = fixture.history.copy
 
 export type RecordEventOp = `create` | `update` | `delete` | `restore`
-export type RecordEventVia = `editor` | `app` | `mcp` | `action` | `import`
+export type RecordEventVia = `editor` | `app` | `mcp` | `action` | `import` | `migration`
 
 /** The part of an event the pure rules read. */
 export interface RecordEventCore {

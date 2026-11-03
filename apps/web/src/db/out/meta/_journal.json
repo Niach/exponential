@@ -1723,6 +1723,13 @@
       "when": 1793712135193,
       "tag": "0245_app_record_write_id",
       "breakpoints": true
+    },
+    {
+      "idx": 246,
+      "version": "7",
+      "when": 1793715915348,
+      "tag": "0246_record_migrations",
+      "breakpoints": true
     }
   ]
 }
