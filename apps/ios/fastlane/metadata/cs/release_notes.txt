@@ -37,3 +37,4 @@
 - Grafy, seznamy, neaktivní pole a obrázky v aplikacích vypadají stejně jako v ostatních aplikacích
 - Týmové dovednosti: v nabídce + vyberte dovednosti, se kterými relace běží
 - Aplikace mají kartu Data, která se řídí pravidly záznamů každého druhu
+- Aplikace čte chybějící pole záznamu jako prázdné, místo aby selhalo zobrazení

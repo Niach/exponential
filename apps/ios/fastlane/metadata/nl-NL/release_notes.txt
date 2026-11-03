@@ -37,3 +37,4 @@
 - Grafieken, lijsten, uitgeschakelde velden en afbeeldingen in apps zien er hetzelfde uit als in de andere apps
 - Teamvaardigheden: kies in het +-menu de vaardigheden van een sessie
 - Apps hebben een tabblad Gegevens dat de recordregel van elk soort volgt
+- Een app leest een ontbrekend veld als leeg in plaats van de weergave te laten mislukken

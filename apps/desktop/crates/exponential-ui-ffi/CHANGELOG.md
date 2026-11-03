@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.7.0 (2026-11-03)
+
+- **Breaking** (through `eui-core`): `validate_package_json` requires `formatVersion: 3` and validates each kind's record `policy`; `dateAdd` out of range is an error (no overflow). No API change of its own.
+
 ## 0.6.0 (2026-11-02)
 
 - **Breaking** (through `eui-core`): `parse_records_query_json(params_json, kind)` takes the kind only from `kind` (a `kind` param is a field filter); `validate_package_json` requires `formatVersion: 2`; `function_effect("harness.records.upsert")` is `host`, no longer `write`.

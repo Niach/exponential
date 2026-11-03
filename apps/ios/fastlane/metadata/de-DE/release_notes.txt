@@ -37,3 +37,4 @@
 - Diagramme, Listen, deaktivierte Felder und Bilder in Apps sehen aus wie in den anderen Apps
 - Team-Skills: wähle im +-Menü die Skills, mit denen eine Sitzung läuft
 - Apps haben einen Daten-Tab, der der Datensatzregel jeder Art folgt
+- Eine App liest ein fehlendes Feld eines Eintrags als leer, statt die Ansicht scheitern zu lassen

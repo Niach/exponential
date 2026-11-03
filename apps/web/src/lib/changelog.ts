@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-app-buttons-work-on-desktop`,
+    date: `2026-11-03`,
+    title: `App buttons work on desktop`,
+    summary: `Pressing an app's action button no longer closes the desktop app, and apps get record rules per kind and a Data tab.`,
+    body: `- **Desktop**: pressing a button that runs an app's action no longer crashes the desktop app.
+- **Missing fields**: an app reads a record's missing field as empty instead of failing the whole view.
+- **Record rules**: an app can say per kind who may add, change or delete its records; the Data tab follows them on every app.
+- **Run as**: owners can preview an app in the editor as another member.`,
+  },
+  {
     id: `2026-11-03-reliability-fixes`,
     date: `2026-11-03`,
     title: `Reliability fixes`,

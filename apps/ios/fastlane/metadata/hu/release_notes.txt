@@ -37,3 +37,4 @@
 - Az appok diagramjai, listái, letiltott mezői és képei ugyanúgy néznek ki, mint a többi alkalmazásban
 - Csapatkészségek: a + menüben válaszd ki egy munkamenet készségeit
 - Az appok Adatok lapja követi az egyes fajták rekordszabályát
+- Az app a hiányzó mezőt üresnek olvassa, ahelyett hogy a nézet hibára futna

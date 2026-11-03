@@ -37,3 +37,4 @@
 - Wykresy, listy, wyłączone pola i obrazy w aplikacjach wyglądają tak samo jak w pozostałych aplikacjach
 - Umiejętności zespołu: wybierz w menu + umiejętności, z którymi działa sesja
 - Aplikacje mają kartę Dane zgodną z regułą rekordów każdego rodzaju
+- Aplikacja odczytuje brakujące pole jako puste, zamiast przerywać widok

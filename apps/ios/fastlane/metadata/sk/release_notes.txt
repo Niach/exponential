@@ -37,3 +37,4 @@
 - Grafy, zoznamy, neaktívne polia a obrázky v aplikáciách vyzerajú rovnako ako v ostatných aplikáciách
 - Tímové zručnosti: v ponuke + vyberte zručnosti, s ktorými relácia beží
 - Aplikácie majú kartu Údaje, ktorá sa riadi pravidlom záznamov každého druhu
+- Aplikácia číta chýbajúce pole ako prázdne namiesto zlyhania zobrazenia

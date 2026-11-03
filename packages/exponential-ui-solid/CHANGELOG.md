@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.7.0 (2026-11-03)
+
 - VAPP-160: `VoiceWave` (native and primitive) stops animating while it is off screen or in a hidden container; the native resolves its box edge and part colours once per prop or theme change instead of every frame. No visual change.
 
 ## 0.6.0 (2026-11-02)

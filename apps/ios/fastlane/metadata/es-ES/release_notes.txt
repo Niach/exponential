@@ -37,3 +37,4 @@
 - Gráficos, listas, campos desactivados e imágenes en las apps se ven igual que en las demás apps
 - Habilidades del equipo: elige en el menú + las habilidades de una sesión
 - Las apps tienen una pestaña Datos que sigue la regla de registros de cada tipo
+- Una app lee un campo que falta como vacío en lugar de fallar la vista

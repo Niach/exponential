@@ -37,3 +37,4 @@
 - Graficele, listele, câmpurile dezactivate și imaginile din aplicații arată la fel ca în celelalte aplicații
 - Abilități de echipă: alege din meniul + abilitățile unei sesiuni
 - Aplicațiile au o filă Date care urmează regula înregistrărilor fiecărui tip
+- O aplicație citește un câmp lipsă ca gol în loc să eșueze vizualizarea
