@@ -488,7 +488,7 @@ pub fn is_query_name(name: &str) -> bool {
 
 /// A JSON object's entries sorted by key (the issue order every host
 /// shares, whatever order its JSON layer kept).
-fn sorted_entries(map: &serde_json::Map<String, Value>) -> Vec<(&String, &Value)> {
+pub(crate) fn sorted_entries(map: &serde_json::Map<String, Value>) -> Vec<(&String, &Value)> {
     let mut entries: Vec<(&String, &Value)> = map.iter().collect();
     entries.sort_by(|a, b| a.0.cmp(b.0));
     entries

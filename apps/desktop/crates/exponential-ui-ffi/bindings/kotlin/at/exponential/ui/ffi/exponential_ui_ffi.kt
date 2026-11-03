@@ -10753,7 +10753,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
         /**
          * VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
          * the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
-         * `query_json` = a parsed query, `context_json` = `{me, now, names}`;
+         * `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?}` (VAPP-214: the queried kind's computed fields);
          * the value JSON, `null` without a kind.
          */
     @Throws(UiException::class) fun `recordsValueJson`(`rowsJson`: kotlin.String, `queryJson`: kotlin.String, `contextJson`: kotlin.String): kotlin.String {

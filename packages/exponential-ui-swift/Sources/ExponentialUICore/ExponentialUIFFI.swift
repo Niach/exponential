@@ -7753,7 +7753,7 @@ public func qrMatrixJson(value: String, level: String) -> String  {
 /**
  * VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
  * the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
- * `query_json` = a parsed query, `context_json` = `{me, now, names}`;
+ * `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?}` (VAPP-214: the queried kind's computed fields);
  * the value JSON, `null` without a kind.
  */
 public func recordsValueJson(rowsJson: String, queryJson: String, contextJson: String)throws  -> String  {
@@ -8297,7 +8297,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json() != 21220) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_records_value_json() != 1018) {
+    if (uniffi_exponential_ui_ffi_checksum_func_records_value_json() != 38896) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json() != 7405) {

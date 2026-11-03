@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- Swift/Kotlin: the committed UniFFI bindings match the 0.9.0 core again (`records_value_json`'s checksum after Q3); 0.9.0's `ExponentialUICore` reported `apiChecksumMismatch` at init.
+- Every install validation pass (components, actions, expressions, package) walks templates sorted by id, so every renderer reports the issues in one order.
+
 - VAPP-221 (eApps R7): files on records: `format: "attachment"` on a string field or a list's string `items` (the value is `/api/attachments/<id>`), validated by `validateRecord`; `recordAttachmentIds(schema, data)` / `recordAttachmentFields(schema)` list a record's file refs.
 
 ## 0.9.0 (2026-11-03)
