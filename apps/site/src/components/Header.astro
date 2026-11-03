@@ -1,31 +1,42 @@
 ---
-/* The one header of the whole site: Starlight's own parts plus the site
-   nav the landing pages had (docs, libraries, pricing, blog, download). */
+/* The one header of the whole site: Starlight's own parts (title, search,
+   social, theme) plus the site nav. Below 72rem the nav folds into a
+   <details> menu (no script, so the CSP stays hash-only). */
 import Default from "@astrojs/starlight/components/Header.astro"
+import { Icon } from "@astrojs/starlight/components"
 
 const NAV = [
   { label: `Docs`, href: `/docs/` },
-  { label: `eUI`, href: `/ui/` },
-  { label: `Libraries`, href: `/docs/libraries/eui/` },
+  { label: `Libraries`, href: `/#libraries` },
   { label: `Pricing`, href: `/pricing/` },
   { label: `Blog`, href: `/blog/` },
   { label: `Download`, href: `/download/` },
 ]
+const LOGIN = `https://app.exponential.at/auth/login`
 const path = Astro.url.pathname
+const current = (href: string) => (!href.includes(`#`) && path.startsWith(href) ? `page` : undefined)
 ---
 
 <div class="exp-header">
   <Default />
-  <nav class="exp-nav sl-hidden lg:sl-flex" aria-label="Site">
-    {NAV.map((item) => <a href={item.href} aria-current={path.startsWith(item.href) ? `page` : undefined}>{item.label}</a>)}
+  <nav class="exp-nav" aria-label="Site">
+    {NAV.map((item) => <a href={item.href} aria-current={current(item.href)}>{item.label}</a>)}
+    <a class="exp-nav-cta" href={LOGIN}>Sign up</a>
   </nav>
+  <details class="exp-menu">
+    <summary aria-label="Menu"><Icon name="bars" size="1.25rem" /></summary>
+    <nav aria-label="Site">
+      {NAV.map((item) => <a href={item.href} aria-current={current(item.href)}>{item.label}</a>)}
+      <a href={LOGIN}>Sign up</a>
+    </nav>
+  </details>
 </div>
 
 <style>
   .exp-header {
     display: flex;
     align-items: center;
-    gap: 1.5rem;
+    gap: 1.25rem;
     height: 100%;
   }
   .exp-header > :global(.header) {
@@ -33,24 +44,84 @@ const path = Astro.url.pathname
     min-width: 0;
   }
   .exp-nav {
-    order: -1;
     display: none;
   }
-  @media (min-width: 72rem) {
-    .exp-nav {
-      display: flex;
-      order: 0;
-      gap: 1.1rem;
-      font-size: var(--sl-text-sm);
-    }
-  }
-  .exp-nav a {
+  .exp-nav a,
+  .exp-menu nav a {
     color: var(--sl-color-gray-2);
     text-decoration: none;
     white-space: nowrap;
   }
   .exp-nav a:hover,
-  .exp-nav a[aria-current="page"] {
+  .exp-nav a[aria-current="page"],
+  .exp-menu nav a:hover,
+  .exp-menu nav a[aria-current="page"] {
     color: var(--sl-color-white);
+  }
+  .exp-nav .exp-nav-cta {
+    padding: 0.3rem 0.8rem;
+    border-radius: 999px;
+    background: var(--sl-color-white);
+    color: var(--sl-color-black);
+    font-weight: 500;
+  }
+  .exp-nav .exp-nav-cta:hover {
+    color: var(--sl-color-black);
+    opacity: 0.88;
+  }
+
+  .exp-menu {
+    position: relative;
+  }
+  .exp-menu summary {
+    display: flex;
+    align-items: center;
+    list-style: none;
+    cursor: pointer;
+    color: var(--sl-color-gray-1);
+  }
+  .exp-menu summary::-webkit-details-marker {
+    display: none;
+  }
+  .exp-menu nav {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 0.9rem);
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 11rem;
+    padding: 0.5rem;
+    border: 1px solid var(--sl-color-hairline);
+    border-radius: 0.75rem;
+    background: var(--sl-color-black);
+    box-shadow: var(--sl-shadow-md);
+    z-index: 10;
+  }
+  .exp-menu nav a {
+    padding: 0.45rem 0.6rem;
+    border-radius: 0.4rem;
+  }
+  .exp-menu nav a:hover {
+    background: var(--sl-color-gray-6);
+  }
+
+  /* Docs pages under 50rem: Starlight's sidebar button sits at the far end. */
+  @media (max-width: 49.99rem) {
+    :global([data-has-sidebar]) .exp-menu {
+      margin-inline-end: 2.75rem;
+    }
+  }
+
+  @media (min-width: 72rem) {
+    .exp-nav {
+      display: flex;
+      align-items: center;
+      gap: 1.1rem;
+      font-size: var(--sl-text-sm);
+    }
+    .exp-menu {
+      display: none;
+    }
   }
 </style>

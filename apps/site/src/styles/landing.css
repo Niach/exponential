@@ -1,1 +1,472 @@
-/* Styles of the landing area (one file per area; shared tokens live in theme.css). */
+/* Styles of the landing area: home, pricing, download, contact, legal,
+   blog and the site footer (shared tokens live in theme.css). */
+
+/* ─── Sections ─── */
+.exp-landing {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(4rem, 9vw, 7.5rem);
+}
+.exp-landing > * {
+  margin-top: 0 !important;
+}
+.exp-feature h2,
+.exp-section h2 {
+  margin: 0;
+  font-size: clamp(1.6rem, 3.2vw, 2.25rem);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  color: var(--sl-color-white);
+}
+.exp-feature p,
+.exp-section > p {
+  margin: 0.75rem 0 0;
+  font-size: var(--sl-text-lg);
+  line-height: 1.55;
+  color: var(--sl-color-gray-2);
+  max-width: 34rem;
+}
+.exp-more {
+  display: inline-block;
+  margin-top: 1rem;
+  font-size: var(--sl-text-sm);
+  font-weight: 500;
+  color: var(--sl-color-white);
+  text-decoration: none;
+}
+.exp-more:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.exp-feature {
+  display: grid;
+  gap: 1.75rem;
+  align-items: center;
+}
+@media (min-width: 60rem) {
+  .exp-feature {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 3rem;
+  }
+}
+
+.exp-section {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.exp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+/* ─── Duo: a desktop picture with a phone over its corner ─── */
+.exp-duo {
+  position: relative;
+  margin: 0;
+}
+.exp-duo.has-phone {
+  padding-bottom: 6%;
+  margin-right: 7%;
+}
+.exp-duo img {
+  display: block;
+  height: auto;
+  border: 1px solid var(--exp-card-stroke);
+  box-shadow: 0 24px 60px -24px rgba(0, 0, 0, 0.55);
+}
+.exp-duo-desktop {
+  width: 100%;
+  border-radius: clamp(8px, 1.2vw, 14px);
+}
+.exp-duo-phone {
+  position: absolute;
+  right: -7%;
+  bottom: 0;
+  width: 24%;
+  border-radius: clamp(10px, 2vw, 22px);
+}
+/* A landscape "phone" picture (an app's narrow view) sits wider. */
+.exp-duo-phone[width="780"] {
+  width: 34%;
+}
+
+/* ─── Libraries ─── */
+.exp-lib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 1.5rem;
+}
+.exp-lib-grid .sl-link-card {
+  margin: 0;
+  background: var(--exp-card);
+  border-color: var(--exp-card-stroke);
+}
+
+/* ─── Pricing ─── */
+.exp-plans {
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+}
+@media (min-width: 50rem) {
+  .exp-plans {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+.exp-plan {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.5rem;
+  border: 1px solid var(--exp-card-stroke);
+  border-radius: var(--exp-radius-card);
+  background: var(--exp-card);
+}
+.exp-plan.is-highlight {
+  border-color: var(--sl-color-gray-3);
+}
+.exp-plan h3 {
+  margin: 0;
+  font-size: var(--sl-text-lg);
+  font-weight: 500;
+  color: var(--sl-color-white);
+}
+.exp-plan-price {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  color: var(--sl-color-gray-3);
+  font-size: var(--sl-text-sm);
+}
+.exp-plan-amount {
+  font-size: 2.5rem;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  color: var(--sl-color-white);
+}
+.exp-plan ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-2);
+}
+.exp-plan li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.exp-plan li svg {
+  flex: none;
+  color: var(--sl-color-white);
+}
+.exp-plan li.is-caveat svg {
+  color: var(--sl-color-gray-3);
+}
+.exp-plan .sl-link-button {
+  margin: 0;
+  justify-content: center;
+}
+.exp-fine {
+  margin: 1.25rem 0 0;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+}
+.exp-fine a {
+  color: var(--sl-color-white);
+}
+
+.exp-compare {
+  width: 100%;
+  margin-top: 1.5rem;
+  border-collapse: collapse;
+  font-size: var(--sl-text-sm);
+}
+.exp-compare th,
+.exp-compare td {
+  padding: 0.75rem 0.75rem 0.75rem 0;
+  border-bottom: 1px solid var(--sl-color-hairline);
+  text-align: left;
+  vertical-align: top;
+}
+.exp-compare thead th {
+  color: var(--sl-color-gray-3);
+  font-weight: 500;
+}
+.exp-compare tbody th {
+  color: var(--sl-color-gray-2);
+  font-weight: 400;
+  white-space: nowrap;
+}
+.exp-compare td:nth-child(2) {
+  color: var(--sl-color-white);
+}
+.exp-compare td:nth-child(3) {
+  color: var(--sl-color-gray-3);
+}
+@media (max-width: 40rem) {
+  .exp-compare tbody th {
+    white-space: normal;
+  }
+}
+
+/* ─── Download ─── */
+.exp-platform-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(12rem, 1fr));
+  gap: 0.75rem;
+  width: 100%;
+}
+.exp-platform {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 1.25rem;
+  border: 1px solid var(--exp-card-stroke);
+  border-radius: var(--exp-radius-card);
+  background: var(--exp-card);
+  color: var(--sl-color-white);
+  text-decoration: none;
+}
+.exp-platform:hover {
+  border-color: var(--sl-color-gray-3);
+}
+.exp-platform svg {
+  width: 1.75rem;
+  height: 1.75rem;
+  margin-bottom: 0.5rem;
+}
+.exp-platform-name {
+  font-weight: 600;
+}
+.exp-platform-req {
+  font-size: var(--sl-text-xs);
+  color: var(--sl-color-gray-3);
+}
+
+/* ─── Contact form ─── */
+.exp-form {
+  display: grid;
+  gap: 1rem;
+  width: 100%;
+  max-width: 40rem;
+}
+.exp-form-row {
+  display: grid;
+  gap: 1rem;
+}
+@media (min-width: 40rem) {
+  .exp-form-row {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+.exp-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-2);
+}
+.exp-form input,
+.exp-form textarea {
+  font: inherit;
+  font-size: var(--sl-text-base);
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--sl-color-hairline-shade);
+  border-radius: 0.5rem;
+  background: var(--exp-card);
+  color: var(--sl-color-white);
+}
+.exp-form input:focus,
+.exp-form textarea:focus {
+  outline: 2px solid var(--sl-color-gray-3);
+  outline-offset: 1px;
+}
+.exp-form textarea {
+  min-height: 8rem;
+  resize: vertical;
+}
+.exp-form .exp-hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+.exp-form button {
+  justify-self: start;
+  padding: 0.6rem 1.25rem;
+  border: 0;
+  border-radius: 999px;
+  background: var(--sl-color-white);
+  color: var(--sl-color-black);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+.exp-form button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.exp-form-error {
+  margin: 0;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-red-high);
+}
+.exp-form-error a,
+.exp-form-done a {
+  color: inherit;
+}
+.exp-form-done {
+  margin: 0;
+  padding: 1.25rem;
+  border: 1px solid var(--exp-card-stroke);
+  border-radius: var(--exp-radius-card);
+  background: var(--exp-card);
+  color: var(--sl-color-white);
+}
+
+/* ─── Legal ─── */
+.exp-legal {
+  max-width: 45rem;
+}
+.exp-legal-meta {
+  font-family: var(--sl-font-mono);
+  font-size: var(--sl-text-xs);
+  color: var(--sl-color-gray-3);
+}
+
+/* ─── Blog ─── */
+.exp-posts {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exp-post-card {
+  display: grid;
+  gap: 1.25rem;
+  color: inherit;
+  text-decoration: none;
+}
+@media (min-width: 50rem) {
+  .exp-post-card {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    align-items: center;
+  }
+}
+.exp-post-card img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--exp-card-stroke);
+  border-radius: 12px;
+}
+.exp-post-card h2 {
+  margin: 0;
+  font-size: var(--sl-text-2xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--sl-color-white);
+}
+.exp-post-card:hover h2 {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.exp-post-date {
+  display: block;
+  margin-top: 0.4rem;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+}
+.exp-rss {
+  margin-top: 3rem;
+  font-size: var(--sl-text-sm);
+}
+
+.exp-post {
+  max-width: 45rem;
+}
+.exp-post-meta {
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+}
+.exp-post-meta a {
+  color: var(--sl-color-gray-2);
+}
+.exp-post img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--exp-card-stroke);
+  border-radius: 12px;
+}
+.exp-post .exp-post-phones {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  max-width: 30rem;
+}
+.exp-post img.is-phone {
+  max-width: 15rem;
+}
+.exp-post dl div {
+  margin-top: 0.75rem;
+}
+.exp-post dt {
+  font-weight: 600;
+  color: var(--sl-color-white);
+}
+.exp-post dd {
+  margin: 0.15rem 0 0;
+}
+
+/* ─── Site footer ─── */
+.exp-site-footer {
+  margin-top: clamp(4rem, 9vw, 7rem);
+  padding-top: 2rem;
+  border-top: 1px solid var(--sl-color-hairline);
+  font-size: var(--sl-text-sm);
+}
+.exp-site-footer nav {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1.5rem;
+}
+.exp-site-footer ul {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.exp-site-footer a {
+  color: var(--sl-color-gray-2);
+  text-decoration: none;
+}
+.exp-site-footer a:hover {
+  color: var(--sl-color-white);
+}
+.exp-site-footer p {
+  margin: 2rem 0 0;
+  color: var(--sl-color-gray-3);
+}
