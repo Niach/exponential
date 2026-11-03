@@ -1447,8 +1447,10 @@ extension SkillEntity: Codable {
 
 // VAPP-110: a team's APP (fixtures/apps.json) — a declarative Exponential UI
 // package rendered through the client's app host. The `apps` shape allowlist;
-// `package` = the HEAD version's package as its raw jsonb TEXT (nil = no
-// version yet), so the editor's preview repaints on every synced upsert.
+// eApps V1 (#VAPP-210): `package` = the PUBLISHED version's package as its
+// raw jsonb TEXT (nil = never published), `draftPackage` = the HEAD's while
+// it is ahead (nil when head = published, so `headPackage` is always the
+// head), so the editor's preview repaints on every synced upsert.
 // `deleted_at` is the trash mirror (readers hide trashed rows).
 public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
     public static let databaseTableName = "apps"
@@ -1463,6 +1465,10 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
     public let description: String
     public let package: String?
     public let headVersion: Int
+    /// eApps V1: the published version's number (0 = never published).
+    public let publishedVersion: Int
+    /// eApps V1: the head's package (raw jsonb text) while it is ahead.
+    public let draftPackage: String?
     public let createdBy: String
     /// VAPP-120: the exact `exponential.*` function names the app may run as
     /// the viewer without the consent card (`AppActions.grantAllows`).
@@ -1481,6 +1487,8 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
         description: String = "",
         package: String? = nil,
         headVersion: Int = 0,
+        publishedVersion: Int = 0,
+        draftPackage: String? = nil,
         createdBy: String,
         grantedTools: [String] = [],
         deletedAt: String? = nil,
@@ -1496,6 +1504,8 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
         self.description = description
         self.package = package
         self.headVersion = headVersion
+        self.publishedVersion = publishedVersion
+        self.draftPackage = draftPackage
         self.createdBy = createdBy
         self.grantedTools = grantedTools
         self.deletedAt = deletedAt
@@ -1508,11 +1518,21 @@ public struct AppEntity: FetchableRecord, PersistableRecord, Identifiable, Equat
         case grantedTools = "granted_tools"
         case teamId = "team_id"
         case headVersion = "head_version"
+        case publishedVersion = "published_version"
+        case draftPackage = "draft_package"
         case createdBy = "created_by"
         case deletedAt = "deleted_at"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
+
+    /// eApps V1: the two pointers (`Apps.shownVersion`, `listPill`, …).
+    public var versions: Apps.Versions {
+        Apps.Versions(headVersion: headVersion, publishedVersion: publishedVersion)
+    }
+
+    /// eApps V1: the HEAD's package (the draft, else the published one).
+    public var headPackage: String? { draftPackage ?? package }
 }
 
 extension AppEntity: Codable {
@@ -1527,6 +1547,8 @@ extension AppEntity: Codable {
         description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
         package = c.decodeWireJsonString(forKey: .package)
         headVersion = try c.decodeWireInt(forKey: .headVersion) ?? 0
+        publishedVersion = try c.decodeWireInt(forKey: .publishedVersion) ?? 0
+        draftPackage = c.decodeWireJsonString(forKey: .draftPackage)
         createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy) ?? ""
         // The jsonb list as its JSON text (wire or store); missing or
         // garbage = no grants.

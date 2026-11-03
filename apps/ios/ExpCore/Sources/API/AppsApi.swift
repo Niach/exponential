@@ -5,7 +5,9 @@ import Foundation
 // write needs no local echo; the returned txid is never needed here.
 // Creating = any member; renaming and deleting = the creator or a team
 // owner; restoring = any member (a NEW head copying an older version).
-// Publishing a version is the editor session's (MCP `apps upsert`).
+// Saving a version (a DRAFT) is the editor session's (MCP `apps upsert`);
+// eApps V1 (#VAPP-210): `apps.publish` moves the published pointer (write
+// access to the app).
 
 /// VAPP-176 `apps.create {teamId}` with NO other field = a DRAFT named
 /// "Untitled app" (no version; the editor session names it).
@@ -54,6 +56,12 @@ public struct AppUpdateInput: Encodable, Sendable, Equatable {
 public struct AppCreated: Decodable, Sendable, Equatable {
     public let id: String
     public let slug: String
+}
+
+/// eApps V1 `apps.publish`'s answer: the published version and the head.
+public struct AppPublishResult: Decodable, Sendable, Equatable {
+    public let published: Int
+    public let head: Int
 }
 
 /// `apps.restore`'s answer: the version restored and the new head.
@@ -244,6 +252,12 @@ public final class AppsApi: Sendable {
     /// `apps.delete` (the trash mirror) — the creator or a team owner.
     public func delete(accountId: String, id: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "apps.delete", input: AppIdInput(id: id))
+    }
+
+    /// eApps V1 `apps.publish {id, number}`: members and the app's tools run
+    /// version `number` from now on (an older one = a rollback).
+    public func publish(accountId: String, id: String, number: Int) async throws -> AppPublishResult {
+        try await trpc.mutation(accountId: accountId, path: "apps.publish", input: AppRestoreInput(id: id, number: number))
     }
 
     /// `apps.restore`: a NEW head copying version `number`.

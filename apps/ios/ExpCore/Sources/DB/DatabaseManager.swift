@@ -2998,6 +2998,30 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v93 (eApps V1, #VAPP-210): `apps.published_version` (0 = never
+        // published) + `apps.draft_package` (the head's jsonb text while it
+        // is ahead of the published version). The apps cursor resets only
+        // when a column was added, so synced rows re-arrive carrying them
+        // (the server published every existing app's head).
+        migrator.registerMigration("v93_apps_published") { db in
+            guard try db.tableExists("apps") else { return }
+            let existing = Set(try db.columns(in: "apps").map(\.name))
+            let addPublished = !existing.contains("published_version")
+            let addDraft = !existing.contains("draft_package")
+            guard addPublished || addDraft else { return }
+            try db.alter(table: "apps") { t in
+                if addPublished { t.add(column: "published_version", .integer).notNull().defaults(to: 0) }
+                if addDraft { t.add(column: "draft_package", .text) }
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'apps'
+                    """)
+            }
+        }
+
         return migrator
     }
 
