@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open. Dogfood G (2026-11-03): `acme.badqueries` also has a query reading fields its kind lacks (`fields`: a where, group, aggregate, sort and sum on unknown fields, sum/avg on a date) and an exposed tool naming no package query: issues at the query's key and at `/exposes/<i>/run/records/query`.",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open. Dogfood G (2026-11-03): `acme.badqueries` also has a query reading fields its kind lacks (`fields`: a where, group, aggregate, sort and sum on unknown fields, sum/avg on a date) and an exposed tool naming no package query: issues at the query's key and at `/exposes/<i>/run/records/query`. VAPP-221 (eApps R7, files on records): `format: \"attachment\"` on a string field or on a list's string `items` holds the instance's attachment route `/api/attachments/<lowercase uuid>` (relative, nothing else: no origin, query or fragment; anything else = `an attachment (/api/attachments/<id>)`); `items.format` takes the same formats, on string items only. `acme.files` declares a receipt and a list of photos; `acme.badrecords` puts a format on number items. `attachments` = recordAttachmentIds(schema, data): the ids the attachment fields reference, fields sorted, each id once in the order first met, non-refs skipped (the server checks each belongs to the app and its team).",
   "packages": {
     "acme.devices": {
       "formatVersion": 3,
@@ -296,6 +296,13 @@
               },
               "when": {
                 "type": "datetime"
+              },
+              "scans": {
+                "type": "array",
+                "items": {
+                  "type": "number",
+                  "format": "attachment"
+                }
               }
             },
             "required": [
@@ -1327,6 +1334,74 @@
               "style": 1
             }
           ]
+        }
+      }
+    },
+    "acme.files": {
+      "formatVersion": 3,
+      "id": "acme.files",
+      "name": "Expenses",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "expense": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "upload",
+                "receipt"
+              ]
+            },
+            {
+              "id": "upload",
+              "component": "FileUpload",
+              "name": "receipt",
+              "label": "Receipt",
+              "accept": "image/*,application/pdf",
+              "files": {
+                "path": "/draft/files"
+              }
+            },
+            {
+              "id": "receipt",
+              "component": "Image",
+              "src": {
+                "path": "/latest/receipt"
+              },
+              "alt": "Receipt"
+            }
+          ]
+        }
+      },
+      "records": {
+        "expense": {
+          "title": "Expense",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "amount": {
+                "type": "number",
+                "minimum": 0
+              },
+              "photos": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "format": "attachment"
+                },
+                "maxLength": 5
+              },
+              "receipt": {
+                "type": "string",
+                "format": "attachment"
+              }
+            },
+            "required": [
+              "amount"
+            ]
+          }
         }
       }
     }
@@ -2631,7 +2706,11 @@
         },
         {
           "path": "/records/Entry/schema/properties/name/format",
-          "message": "format is date|date-time|time on a string field"
+          "message": "format is date|date-time|time|attachment on a string field"
+        },
+        {
+          "path": "/records/Entry/schema/properties/scans/items/format",
+          "message": "format is date|date-time|time|attachment on a string item"
         },
         {
           "path": "/records/Entry/schema/properties/size/maximum",
@@ -3031,6 +3110,10 @@
           "message": "style is an object"
         }
       ]
+    },
+    {
+      "package": "acme.files",
+      "expected": []
     }
   ],
   "records": [
@@ -3151,6 +3234,109 @@
           "message": "an integer"
         }
       ]
+    },
+    {
+      "name": "attachment refs pass",
+      "package": "acme.files",
+      "kind": "expense",
+      "data": {
+        "amount": 12.5,
+        "receipt": "/api/attachments/0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60",
+        "photos": [
+          "/api/attachments/a1b2c3d4-e5f6-4789-8abc-def012345678",
+          "/api/attachments/5b0c9d8e-7f6a-4b3c-8d2e-1f0a9b8c7d6e"
+        ]
+      },
+      "expected": []
+    },
+    {
+      "name": "anything but the relative attachment route is refused",
+      "package": "acme.files",
+      "kind": "expense",
+      "data": {
+        "amount": 1,
+        "receipt": "https://evil.example/api/attachments/0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60",
+        "photos": [
+          "/api/attachments/A1B2C3D4-E5F6-4789-8ABC-DEF012345678",
+          "/api/attachments/5b0c9d8e-7f6a-4b3c-8d2e-1f0a9b8c7d6e?download=1",
+          "0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60",
+          7
+        ]
+      },
+      "expected": [
+        {
+          "path": "/photos/0",
+          "message": "an attachment (/api/attachments/<id>)"
+        },
+        {
+          "path": "/photos/1",
+          "message": "an attachment (/api/attachments/<id>)"
+        },
+        {
+          "path": "/photos/2",
+          "message": "an attachment (/api/attachments/<id>)"
+        },
+        {
+          "path": "/photos/3",
+          "message": "a string"
+        },
+        {
+          "path": "/receipt",
+          "message": "an attachment (/api/attachments/<id>)"
+        }
+      ]
+    }
+  ],
+  "attachments": [
+    {
+      "name": "a receipt and photos, each id once",
+      "package": "acme.files",
+      "kind": "expense",
+      "data": {
+        "amount": 3,
+        "receipt": "/api/attachments/0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60",
+        "photos": [
+          "/api/attachments/a1b2c3d4-e5f6-4789-8abc-def012345678",
+          "/api/attachments/0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60",
+          "/api/attachments/5b0c9d8e-7f6a-4b3c-8d2e-1f0a9b8c7d6e"
+        ]
+      },
+      "expected": [
+        "a1b2c3d4-e5f6-4789-8abc-def012345678",
+        "0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60",
+        "5b0c9d8e-7f6a-4b3c-8d2e-1f0a9b8c7d6e"
+      ]
+    },
+    {
+      "name": "non-refs and wrong shapes are skipped",
+      "package": "acme.files",
+      "kind": "expense",
+      "data": {
+        "amount": 3,
+        "receipt": [
+          "/api/attachments/0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60"
+        ],
+        "photos": "/api/attachments/a1b2c3d4-e5f6-4789-8abc-def012345678"
+      },
+      "expected": []
+    },
+    {
+      "name": "a record without attachment fields",
+      "package": "acme.hours",
+      "kind": "entry",
+      "data": {
+        "date": "2026-11-03",
+        "hours": 2,
+        "note": "/api/attachments/0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60"
+      },
+      "expected": []
+    },
+    {
+      "name": "not an object",
+      "package": "acme.files",
+      "kind": "expense",
+      "data": [],
+      "expected": []
     }
   ]
 }

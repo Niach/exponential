@@ -38,6 +38,11 @@ fn host_router_every_validation_and_flow_equals_the_reference() {
 }
 
 #[test]
+fn host_router_every_attachment_case_equals_the_reference() {
+    assert_all(support::router_attachment_cases(), count("host-router.json", &["attachments"]));
+}
+
+#[test]
 fn host_package_every_consent_tool_call_extension_canonical_and_signed_text_case_equals_the_reference() {
     assert_all(support::package_cases(), count("host-package.json", &["consent", "toolCalls", "extensions", "canonical", "signatures"]));
 }

@@ -204,6 +204,8 @@ export async function claimCardAttachments(
         eq(attachments.teamId, args.teamId),
         isNull(attachments.issueId),
         isNull(attachments.draftId),
+        // VAPP-221: an app's record file is never a message's.
+        isNull(attachments.appId),
         or(
           eq(attachments.messageId, args.messageId),
           and(isNull(attachments.messageId), eq(attachments.uploaderId, args.uploaderId))

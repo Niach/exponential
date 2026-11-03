@@ -8,6 +8,8 @@ import {
   isInlineSafeContentType,
 } from "@/lib/storage/issue-attachments"
 import { verifyAttachmentToken } from "@/lib/storage/attachment-token"
+import { db } from "@/db/connection"
+import { appAccessLevel } from "@/lib/apps/records-service"
 import {
   assertTeamMember,
   getAttachmentTeamContext,
@@ -149,6 +151,11 @@ async function getAttachment({
       !attachment.messageShared &&
       attachment.messageOwnerId !== session!.user.id
     ) {
+      throw new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
+    }
+    // VAPP-221: an app's record file follows its app's access (none = the
+    // app does not exist for this member).
+    if (`appId` in attachment && attachment.appId && (await appAccessLevel(db, attachment.appId, session!.user.id)) === `none`) {
       throw new TRPCError({ code: `NOT_FOUND`, message: `Attachment not found` })
     }
   }

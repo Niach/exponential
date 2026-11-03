@@ -12,11 +12,16 @@ export const RECORD_KIND_PATTERN = /^[a-z][a-z0-9_]{0,31}$/
 export const RECORD_RESERVED_KEYS: readonly string[] = [`id`, `createdAt`, `updatedAt`, `createdBy`, `authorId`, `author`]
 export const RECORD_FIELD_TYPES: readonly string[] = [`string`, `number`, `integer`, `boolean`, `array`]
 export const RECORD_ITEM_TYPES: readonly string[] = [`string`, `number`, `integer`, `boolean`]
-export const RECORD_FORMATS: readonly string[] = [`date`, `date-time`, `time`]
+export const RECORD_FORMATS: readonly string[] = [`date`, `date-time`, `time`, `attachment`]
+/** eApps R7 (VAPP-221): an `attachment` value is the instance's attachment
+ *  route, relative, with a lowercase uuid: `/api/attachments/<id>`. */
+export const RECORD_ATTACHMENT_REF = /^\/api\/attachments\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/
 
 export interface RecordItems {
   type: `string` | `number` | `integer` | `boolean`
   enum?: string[]
+  /** String items only (eApps R7: `attachment` = a list of files). */
+  format?: `date` | `date-time` | `time` | `attachment`
 }
 
 export interface RecordField {
@@ -29,8 +34,9 @@ export interface RecordField {
   maxLength?: number
   minimum?: number
   maximum?: number
-  /** Strings only: `date` (YYYY-MM-DD), `date-time` (ISO 8601), `time` (HH:MM[:SS]). */
-  format?: `date` | `date-time` | `time`
+  /** Strings only: `date` (YYYY-MM-DD), `date-time` (ISO 8601), `time`
+   *  (HH:MM[:SS]), `attachment` (eApps R7: `/api/attachments/<id>`). */
+  format?: `date` | `date-time` | `time` | `attachment`
   description?: string
 }
 
@@ -75,7 +81,10 @@ export function validateRecordSchema(schema: unknown, at: string): PackageIssue[
     if (field.type === `array`) {
       const items = field.items
       if (!isObject(items) || typeof items.type !== `string` || !RECORD_ITEM_TYPES.includes(items.type)) issues.push({ path: `${fp}/items`, message: `items is {type: ${RECORD_ITEM_TYPES.join(`|`)}}` })
-      else if (items.enum !== undefined && (!isStringList(items.enum) || !items.enum.length || items.type !== `string`)) issues.push({ path: `${fp}/items/enum`, message: `enum is a non-empty list of strings on a string item` })
+      else {
+        if (items.enum !== undefined && (!isStringList(items.enum) || !items.enum.length || items.type !== `string`)) issues.push({ path: `${fp}/items/enum`, message: `enum is a non-empty list of strings on a string item` })
+        if (items.format !== undefined && (typeof items.format !== `string` || !RECORD_FORMATS.includes(items.format) || items.type !== `string`)) issues.push({ path: `${fp}/items/format`, message: `format is ${RECORD_FORMATS.join(`|`)} on a string item` })
+      }
     } else if (field.items !== undefined) issues.push({ path: `${fp}/items`, message: `items belongs to an array field` })
     if (field.format !== undefined && (typeof field.format !== `string` || !RECORD_FORMATS.includes(field.format) || field.type !== `string`)) issues.push({ path: `${fp}/format`, message: `format is ${RECORD_FORMATS.join(`|`)} on a string field` })
     for (const key of [`maxLength`, `minimum`, `maximum`]) if (field[key] !== undefined && typeof field[key] !== `number`) issues.push({ path: `${fp}/${key}`, message: `${key} is a number` })
@@ -104,6 +113,7 @@ function checkScalar(type: string, value: unknown, at: string, field: { enum?: s
       if (field.format === `date` && !DATE.test(value)) issues.push({ path: at, message: `a date (YYYY-MM-DD)` })
       if (field.format === `date-time` && !DATE_TIME.test(value)) issues.push({ path: at, message: `a date-time (ISO 8601)` })
       if (field.format === `time` && !TIME.test(value)) issues.push({ path: at, message: `a time (HH:MM)` })
+      if (field.format === `attachment` && !RECORD_ATTACHMENT_REF.test(value)) issues.push({ path: at, message: `an attachment (/api/attachments/<id>)` })
       return issues
     case `number`:
     case `integer`:
@@ -141,7 +151,7 @@ export function validateRecord(schema: RecordSchema, data: unknown): PackageIssu
       }
       if (field.maxLength !== undefined && value.length > field.maxLength) issues.push({ path: `/${name}`, message: `at most ${field.maxLength} items` })
       const items = field.items ?? { type: `string` }
-      value.forEach((item, i) => issues.push(...checkScalar(items.type, item, `/${name}/${i}`, { enum: items.enum })))
+      value.forEach((item, i) => issues.push(...checkScalar(items.type, item, `/${name}/${i}`, { enum: items.enum, format: items.format })))
       continue
     }
     issues.push(...checkScalar(field.type, value, `/${name}`, field))
@@ -149,4 +159,37 @@ export function validateRecord(schema: RecordSchema, data: unknown): PackageIssu
   if (schema.additionalProperties !== true)
     for (const key of Object.keys(data).sort()) if (!Object.prototype.hasOwnProperty.call(schema.properties, key)) issues.push({ path: `/${key}`, message: `not in the schema` })
   return issues
+}
+
+/** eApps R7 (VAPP-221): the attachment ids `data` references through its
+ *  schema's `attachment` fields (a string field or a list's string items),
+ *  fields in sorted order, each id once, in the order first met. Values that
+ *  are no attachment ref are skipped (`validateRecord` names them). The
+ *  server checks every id belongs to the app and its team before a write. */
+export function recordAttachmentIds(schema: RecordSchema, data: unknown): string[] {
+  if (!isObject(data)) return []
+  const ids: string[] = []
+  const take = (value: unknown) => {
+    const id = typeof value === `string` ? RECORD_ATTACHMENT_REF.exec(value)?.[1] : undefined
+    if (id && !ids.includes(id)) ids.push(id)
+  }
+  for (const name of Object.keys(schema.properties).sort()) {
+    const field = schema.properties[name]!
+    const value = data[name]
+    if (field.type === `array`) {
+      if (field.items?.type === `string` && field.items.format === `attachment` && Array.isArray(value)) value.forEach(take)
+    } else if (field.type === `string` && field.format === `attachment`) take(value)
+  }
+  return ids
+}
+
+/** eApps R7: the attachment fields of a schema (sorted): a string field or
+ *  a list of strings with `format: "attachment"`. */
+export function recordAttachmentFields(schema: RecordSchema): string[] {
+  return Object.keys(schema.properties)
+    .sort()
+    .filter((name) => {
+      const field = schema.properties[name]!
+      return field.type === `array` ? field.items?.type === `string` && field.items.format === `attachment` : field.type === `string` && field.format === `attachment`
+    })
 }

@@ -313,6 +313,8 @@ async function claimAttachments(
         isNull(attachments.issueId),
         isNull(attachments.draftId),
         isNull(attachments.messageId),
+        // VAPP-221: an app's record file is never a message's.
+        isNull(attachments.appId),
         inArray(attachments.uploaderId, args.uploaderIds)
       )
     )

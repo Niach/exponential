@@ -29,6 +29,7 @@ import {
   supportedCatalogIds,
   validatePackage,
   validateRecord,
+  recordAttachmentIds,
   parseRecordsQuery,
   parseRecordsJson,
   parseRecordsSource,
@@ -88,6 +89,8 @@ export function renderHost(): Record<string, string> {
   const pkgFixture = renderPackageFixture(read(`fixtures/host-package.json`))
   router.validation = Object.entries(packages).map(([id, pkg]) => ({ package: id, expected: validatePackage(pkg) }))
   router.records = router.records.map((c: Case) => ({ ...c, expected: validateRecord(packages[c.package as string]!.records![c.kind as string]!.schema, c.data) }))
+  // VAPP-221: the ids a record's attachment fields reference.
+  router.attachments = router.attachments.map((c: Case) => ({ ...c, expected: recordAttachmentIds(packages[c.package as string]!.records![c.kind as string]!.schema, c.data) }))
   router.flows = router.flows.map((flow: Case & { steps: { message?: unknown }[] | unknown[] }) => {
     const r = new HostRouter({ extensionIds: (flow.extensionIds as string[]) ?? [] })
     const installIssues: Record<string, unknown> = {}

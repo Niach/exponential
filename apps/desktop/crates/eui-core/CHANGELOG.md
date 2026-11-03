@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-221 (eApps R7): files on records: `format: "attachment"` on a string field or a list's string `items`, validated by `validate_record`; `record_attachment_ids` / `record_attachment_fields` / `record_attachment_id`.
+
 ## 0.9.0 (2026-11-03)
 
 - VAPP-214 (eApps Q3): computed fields: a record kind's `computed` (`records.<kind>.computed`, a CEL expression per field) is evaluated on read and can be filtered, sorted and grouped on like a stored field; `RecordsQuery.computed` carries them into the query.

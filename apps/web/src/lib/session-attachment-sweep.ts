@@ -38,12 +38,14 @@ export function isOrphanSessionAttachmentPurgeDue(
     issueId: string | null
     draftId: string | null
     messageId: string | null
+    /** VAPP-221: an app's record file is the app-file sweep's. */
+    appId?: string | null
     createdAt: Date
   },
   referencedByGuide: boolean,
   now: Date = new Date()
 ): boolean {
-  if (row.issueId || row.draftId || row.messageId || referencedByGuide) return false
+  if (row.issueId || row.draftId || row.messageId || row.appId || referencedByGuide) return false
   return row.createdAt.getTime() + ORPHAN_SESSION_ATTACHMENT_RETENTION_MS <= now.getTime()
 }
 
@@ -52,6 +54,7 @@ export function isOrphanSessionAttachmentPurgeDue(
  *  and the Guide naming it share the team). */
 function orphanCondition(cutoff: Date) {
   return sql`a.issue_id IS NULL AND a.draft_id IS NULL AND a.message_id IS NULL
+    AND a.app_id IS NULL
     AND a.created_at <= ${cutoff}
     AND NOT EXISTS (
       SELECT 1 FROM sessions s
@@ -78,6 +81,48 @@ export async function reclaimOrphanSessionAttachmentsInTx(
   return { storageKeys: collectAttachmentStorageKeys(rows) }
 }
 
+/** VAPP-221 (eApps R7, lib/apps/app-files.ts): the app-file reclaim
+ *  candidates' SQL: app rows past `cutoff` that no record of their app
+ *  (live or trashed) references. One regex pass over the records of the
+ *  apps with candidates (never one scan per candidate). */
+function unreferencedAppFilesSql(cutoff: Date, limit: number) {
+  return sql`
+    WITH candidates AS (
+      SELECT a.id, a.app_id FROM attachments a
+      WHERE a.app_id IS NOT NULL AND a.issue_id IS NULL AND a.draft_id IS NULL AND a.message_id IS NULL
+        AND a.created_at <= ${cutoff}
+    ),
+    referenced AS (
+      SELECT DISTINCT r.app_id, (m[1])::uuid AS id
+      FROM app_records r,
+        LATERAL regexp_matches(r.data::text, '/api/attachments/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', 'g') AS m
+      WHERE r.app_id IN (SELECT DISTINCT app_id FROM candidates)
+    )
+    SELECT c.id FROM candidates c
+    LEFT JOIN referenced x ON x.app_id = c.app_id AND x.id = c.id
+    WHERE x.id IS NULL
+    LIMIT ${limit}`
+}
+
+/** VAPP-221 (eApps R7): an app's record files no record of the app
+ *  references any more (a trashed record still does until the trash purge
+ *  drops it), aged past the same grace window. */
+export async function reclaimUnreferencedAppFilesInTx(
+  tx: Tx,
+  cutoff: Date
+): Promise<{ storageKeys: string[] }> {
+  const deleted = await tx.execute(sql`
+    DELETE FROM attachments
+    WHERE id IN (${unreferencedAppFilesSql(cutoff, MAX_BATCH)})
+      AND app_id IS NOT NULL AND issue_id IS NULL AND draft_id IS NULL AND message_id IS NULL
+    RETURNING storage_key, poster_storage_key
+  `)
+  const rows = (deleted.rows as Array<{ storage_key: string; poster_storage_key: string | null }>).map(
+    (row) => ({ storageKey: row.storage_key, posterStorageKey: row.poster_storage_key })
+  )
+  return { storageKeys: collectAttachmentStorageKeys(rows) }
+}
+
 // NEW-43: the handoff-blob half of this sweep (EXP-1252/EXP-1349) went with
 // `sessions.handoff` (NEW-1 dropped the column, no handoff package exists any
 // more); only the orphan-attachment reclaim runs.
@@ -86,9 +131,11 @@ export async function runSessionAttachmentSweep(
   now: Date = new Date()
 ): Promise<{ attachmentsDeleted: number; objectsDeleted: number }> {
   const cutoff = new Date(now.getTime() - ORPHAN_SESSION_ATTACHMENT_RETENTION_MS)
-  const { storageKeys } = await db.transaction((tx) =>
-    reclaimOrphanSessionAttachmentsInTx(tx, cutoff)
-  )
+  const { storageKeys } = await db.transaction(async (tx) => {
+    const orphans = await reclaimOrphanSessionAttachmentsInTx(tx, cutoff)
+    const appFiles = await reclaimUnreferencedAppFilesInTx(tx, cutoff)
+    return { storageKeys: [...orphans.storageKeys, ...appFiles.storageKeys] }
+  })
   if (storageKeys.length === 0) return { attachmentsDeleted: 0, objectsDeleted: 0 }
   // Best-effort, per-key error-swallowed (bun-s3-cleanup.ts: this module
   // must not reach aws-sdk).

@@ -26,7 +26,7 @@ import {
   sourceWithParams,
   supportedCatalogIds,
   validatePackage,
-  validateRecord,
+  validateRecord, recordAttachmentIds,
   BUILTIN_FUNCTIONS,
   HOST_ERROR_CODES,
   FORMATTER_METHODS,
@@ -84,6 +84,8 @@ describe(`host-router.json`, () => {
   for (const v of routerFixture.validation) test(`validation: ${v.package}`, () => expect(validatePackage(packages[v.package])).toEqual(v.expected))
   for (const c of routerFixture.records)
     test(`records: ${c.name}`, () => expect(validateRecord(packages[c.package]!.records![c.kind]!.schema, c.data)).toEqual(c.expected as never))
+  for (const c of routerFixture.attachments)
+    test(`attachments: ${c.name}`, () => expect(recordAttachmentIds(packages[c.package]!.records![c.kind]!.schema, c.data)).toEqual(c.expected))
   for (const flow of routerFixture.flows as { name: string; extensionIds?: string[]; packages?: string[]; installIssues?: Record<string, unknown>; steps: { message: unknown; expected: unknown }[] }[])
     test(`flow: ${flow.name}`, () => {
       const r = new HostRouter({ extensionIds: flow.extensionIds ?? [] })

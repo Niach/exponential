@@ -174,6 +174,21 @@ pub fn policy_cases() -> Vec<Case> {
     out
 }
 
+/// VAPP-221: `host-router.json` `attachments` = record_attachment_ids (TS +
+/// Rust only; not a conformance suite case).
+pub fn router_attachment_cases() -> Vec<Case> {
+    let f = fixture("host-router.json");
+    let packages = &f["packages"];
+    list(&f, "attachments")
+        .iter()
+        .map(|c| {
+            let schema = &packages[c["package"].as_str().unwrap()]["records"][c["kind"].as_str().unwrap()]["schema"];
+            let got = eui_core::host::record_attachment_ids(schema, &c["data"]);
+            (format!("attachments: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"]))
+        })
+        .collect()
+}
+
 /// `host-router.json`: validation, then flows.
 pub fn router_cases() -> Vec<Case> {
     let f = fixture("host-router.json");
