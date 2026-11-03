@@ -18,7 +18,7 @@ plugins {
 val ffiCrate = rootDir.parentFile
 
 group = "at.exponential"
-version = (findProperty("talkVersion") as String?) ?: "0.2.3"
+version = (findProperty("talkVersion") as String?) ?: "0.2.4"
 
 android {
     namespace = "at.exponential.talk"

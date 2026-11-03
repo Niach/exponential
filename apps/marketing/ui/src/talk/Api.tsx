@@ -46,7 +46,7 @@ export default function Api({ path }: PageProps) {
             <p>
               The crates live in the Exponential repo and are <code>publish = false</code>: an app takes them as a git dependency
               on an <code>etalk-v&lt;version&gt;</code> tag, because the fixtures in <code>packages/etalk</code> are compiled in. The
-              latest is <code>etalk-v0.2.3</code>.
+              latest is <code>etalk-v0.2.4</code>.
             </p>
           </DocsCallout>
           <h3>Phones and the web</h3>
