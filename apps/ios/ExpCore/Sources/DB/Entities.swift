@@ -1730,6 +1730,70 @@ extension AppRecordEntity: Codable {
     }
 }
 
+// VAPP-235 (eApps O1, app-records.json `outbox`): the app host's OFFLINE
+// OUTBOX, one row per queued `records.*` call. LOCAL ONLY (never synced, and
+// a resync's `clearAllData` keeps it: the pending writes outlive the wipe);
+// per account because the database is. `seq` = FIFO order (AUTOINCREMENT-
+// like: max + 1 on insert); `writes` = the entry's writes as JSON text;
+// `state` = pending | acked.
+public struct AppRecordOutboxEntity: Codable, FetchableRecord, PersistableRecord, Identifiable, Equatable, Sendable {
+    public static let databaseTableName = "app_record_outbox"
+
+    public var id: String { writeId }
+    public let writeId: String
+    public let seq: Int64
+    public let appId: String
+    /// `upsert` | `delete` | `batch`.
+    public let call: String
+    /// The writes as JSON text (`[{op, id, kind?, data?}]`).
+    public let writes: String
+    public let at: String
+    /// `pending` | `acked`.
+    public let state: String
+    public let ackedAt: String?
+
+    public init(
+        writeId: String, seq: Int64, appId: String, call: String, writes: String, at: String,
+        state: String = "pending", ackedAt: String? = nil
+    ) {
+        self.writeId = writeId
+        self.seq = seq
+        self.appId = appId
+        self.call = call
+        self.writes = writes
+        self.at = at
+        self.state = state
+        self.ackedAt = ackedAt
+    }
+
+    /// From a domain entry at position `seq`.
+    public init(_ entry: AppRecords.OutboxEntry, seq: Int64) {
+        self.init(
+            writeId: entry.writeId, seq: seq, appId: entry.appId, call: entry.call.rawValue,
+            writes: CardJSON.array(entry.writes.map(\.json)).compactString, at: entry.at,
+            state: entry.state.rawValue, ackedAt: entry.ackedAt
+        )
+    }
+
+    /// The domain entry (nil = an unreadable row).
+    public var entry: AppRecords.OutboxEntry? {
+        guard let call = AppRecords.OutboxCall(rawValue: call) else { return nil }
+        let parsed = (try? JSONSerialization.jsonObject(with: Data(writes.utf8), options: [.fragmentsAllowed]))
+        guard case let .array(list)? = CardJSON(any: parsed) else { return nil }
+        return AppRecords.OutboxEntry(
+            writeId: writeId, appId: appId, call: call, writes: list.compactMap(AppRecords.OutboxWrite.init(json:)),
+            at: at, state: AppRecords.OutboxEntry.State(rawValue: state) ?? .pending, ackedAt: ackedAt
+        )
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case seq, call, writes, at, state
+        case writeId = "write_id"
+        case appId = "app_id"
+        case ackedAt = "acked_at"
+    }
+}
+
 // EXP-778: personal pins — the 21st Electric shape. ONE row per (user,
 // target): an issue or a session the user pinned into the sidebar. The shape
 // is static per user (`user_id = me`), NOT team/trash scoped, so the local

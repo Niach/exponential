@@ -69,6 +69,9 @@ final class AppDependencies: @unchecked Sendable {
     let skillsApi: SkillsApi
     /// VAPP-110: the team's apps (create, rename, delete, restore, a version's package).
     let appsApi: AppsApi
+    /// VAPP-235: the app hosts' offline outbox of record writes (per
+    /// account, flushed on enqueue, when the network comes back and at launch).
+    let recordOutbox: AppRecordOutbox
     let agentsApi: AgentsApi
     // Widget/agent submission metadata (EXP-496) — tRPC-only.
     let widgetsApi: WidgetsApi
@@ -199,7 +202,10 @@ final class AppDependencies: @unchecked Sendable {
         self.devicesApi = DevicesApi(trpc: trpc)
         self.promptsApi = PromptsApi(trpc: trpc)
         self.skillsApi = SkillsApi(trpc: trpc)
-        self.appsApi = AppsApi(trpc: trpc)
+        let appsApi = AppsApi(trpc: trpc)
+        self.appsApi = appsApi
+        let recordOutbox = AppRecordOutbox(db: db, api: appsApi, auth: auth)
+        self.recordOutbox = recordOutbox
         self.agentsApi = AgentsApi(trpc: trpc)
         self.widgetsApi = WidgetsApi(trpc: trpc)
         self.steerTunnelApi = SteerTunnelApi(trpc: trpc)
@@ -284,6 +290,8 @@ final class AppDependencies: @unchecked Sendable {
         networkPathWatcher.onRegained = { reason in
             installNode?.networkChange()
             Task { @MainActor in steerSessions.reconnectAll(reason: reason) }
+            // VAPP-235: the queued app record writes replay on the same edge.
+            Task { @MainActor in recordOutbox.flushAll() }
         }
         // Watches for the offline → online edge and restarts the pipelines
         // there, so a recovered connection doesn't wait out a 30s backoff.
@@ -296,6 +304,8 @@ final class AppDependencies: @unchecked Sendable {
         // own task once an account is signed in.
         installNode?.start()
         treeKeys.start()
+        // VAPP-235: what the app hosts queued last time replays at launch.
+        Task { @MainActor in recordOutbox.flushAll() }
         // Claim-once loop: stamps the device timezone on accounts that never
         // had one captured (EXP-452 — mobile-only accounts digested in UTC).
         timezoneClaimer.start()

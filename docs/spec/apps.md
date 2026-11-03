@@ -181,7 +181,7 @@ Needs: C2, C13.
 | C21 | Public / guest links (submit-only form, read-only view) | ❌ (#VAPP-24 cancelled, #YO-27 parked) | 🆕 P1 |
 | C22 | Inbound webhooks | ❌ | 🆕 A3 |
 | C23 | Run-as identity for unattended runs | ❌ | 🆕 A1 |
-| C24 | Offline outbox for record writes | 🟡 server dedupe + reference ✅, the hosts ×3 in progress | 🟡 O1 |
+| C24 | Offline outbox for record writes | ✅ desktop, iOS, Android (#VAPP-235) | ✅ O1 |
 | C25 | `eapps` crate (host, query, store, broker executor) | 🟡 the query + `RecordStore` live in eUI (S1 ✅ #VAPP-189); the crate itself is open (#EXP-1420) | S2 |
 | C26 | Widget templates + slots (eDE, home screen) | ❌ | #VAPP-64, NEW-107 |
 | C27 | Form-factor / responsive templates | 🟡 `@media` conditions, `Sidebar.collapseBelow` | 🆕 U1 |
@@ -435,7 +435,7 @@ One language at two levels, on the Q2 core:
 - **All or nothing.** The steps evaluate against one snapshot. A false `require` (its message is the toast), the action step limit (100,000), an error, or a write refused by policy or schema discards the whole action. Record writes land as one unit: one Postgres transaction in the records service, one `RecordStore` batch on a client host, one outbox entry offline (O1).
 - An action runs where it was triggered: the client host for a press, the server broker for `exposes` and automations. The evaluator is the same ×4; fixture `actions.json`.
 - The authority stays the server (§3.4, §14): `require` guards a single write path. Cross-peer invariants are not promised on P2P stores (Spezl, §16).
-- ✅ (E1, #VAPP-194) Built as `src/host/actions.ts` + the effect table in `src/cel.ts` (Rust `eui_core::host::actions` / `cel`, FFI `run_package_action_json`, `apply_record_batch_json`, `function_effect`; SDKs `Actions`), fixture `fixtures/actions.json` replayed in TS, Rust, Swift and Kotlin. Step forms `require` (+ `message`), `records.upsert`, `records.delete`, `set`, `call`; CEL reads `params`, `data` and `me`; a press calls `actions.<name>`. Every host (`ExponentialHost` ×4) gates and asks for every host call first, then commits the writes through `records.batch` (Exponential: tRPC `apps.records.batch` = one transaction in the records service, every write re-checked), then applies the sets, then runs the calls; a failure = `ACTION_FAILED` + the failed-action toast. Open: the broker's `exposes` `run.action` form and automations (A1), the offline outbox entry (O1).
+- ✅ (E1, #VAPP-194) Built as `src/host/actions.ts` + the effect table in `src/cel.ts` (Rust `eui_core::host::actions` / `cel`, FFI `run_package_action_json`, `apply_record_batch_json`, `function_effect`; SDKs `Actions`), fixture `fixtures/actions.json` replayed in TS, Rust, Swift and Kotlin. Step forms `require` (+ `message`), `records.upsert`, `records.delete`, `set`, `call`; CEL reads `params`, `data` and `me`; a press calls `actions.<name>`. Every host (`ExponentialHost` ×4) gates and asks for every host call first, then commits the writes through `records.batch` (Exponential: tRPC `apps.records.batch` = one transaction in the records service, every write re-checked), then applies the sets, then runs the calls; a failure = `ACTION_FAILED` + the failed-action toast. Open: the broker's `exposes` `run.action` form and automations (A1). ✅ The offline outbox entry (O1, #VAPP-235): a batch is one outbox entry on desktop, iOS and Android.
 
 ---
 
@@ -769,12 +769,12 @@ Self-hosted gets everything: the broker is the same image (`ghcr.io/niach/expone
 | Platform | Read | Write | Status |
 |---|---|---|---|
 | Web | Records on demand per app (`subsets`) | Online (tRPC) | ✅ / offline ❌ (banner) |
-| Desktop | Full shape | Online | 🟡 |
-| iOS (GRDB), Android (Room) | Full shape | Online | 🟡 |
+| Desktop | Full shape | Outbox (O1) | ✅ |
+| iOS (GRDB), Android (Room) | Full shape | Outbox (O1) | ✅ |
 | Spezl | Local sqlite + eNet records space | Local first | #YO-32 |
 | eDE | Through the `eapps` crate (Exponential or Spezl store) | Same | 🆕 S4 |
 
-**🟡 O1, the outbox** (#VAPP-235, fixture `app-records.json` `outbox`, TS reference `@exp/domain-contract/app-records` `outbox*`). On desktop and the natives, every record write an app makes (`records.upsert`, `records.delete`, `records.batch`) is applied locally at once and queued:
+**✅ O1, the outbox** (#VAPP-235, fixture `app-records.json` `outbox`, TS reference `@exp/domain-contract/app-records` `outbox*`). On desktop and the natives, every record write an app makes (`records.upsert`, `records.delete`, `records.batch`) is applied locally at once and queued:
 
 - **The entry:** one per call (a package action's batch stays one entry: all or nothing), persisted per account in the host's store (desktop sync sqlite, GRDB, Room), so it survives a restart. The visible rows = the synced rows with every entry laid over them, oldest first.
 - **Ids:** the client generates the uuid of every create (`newId`) and of every write (`writeId`, the idempotency key). The records service answers a `writeId` it already logged (`app_record_events.write_id`, same app and actor) with the first write's result and writes nothing again ✅.
@@ -868,7 +868,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 **Phase 6: Everywhere**
 
-- **O1** Offline outbox for record writes (desktop, iOS, Android). (C24)
+- ✅ **O1** Offline outbox for record writes (desktop, iOS, Android). (C24, #VAPP-235)
 - **S2 ★** `eapps` crate + release (`eapps-v*`). (C25)
 - **S3** Spezl runs eApps: #YO-32 on S2 (keychain vault, loopback, `exponential` upstream).
 - **S4** eDE widgets + apps on the crate. Depends on #VAPP-64 and NEW-107. (C26)
@@ -947,5 +947,5 @@ Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI 
 4. ✅ **#VAPP-201**: the team time zone (`teams.time_zone`, Settings › General ×4; hosts read dates in it, else the device's zone; `team-zone.json` replays the tz databases ×4).
 5. ✅ **#VAPP-200**: an app's own writing controls paint disabled at access `read` (eUI `readOnly` ×7 renderers + the hosts ×4).
 
-Later, not blocking: **U1 screens** (single-screen apps work, as the CRM's tabs show, but navigation and deep links are missing), **O1 offline** (natives write online only), **#VAPP-202** (the local query over 25k rows on phones: optimised and in the eUI bench as `records-25k`; CI and mid-Android numbers owed), #VAPP-205/206/207/208 (authoring gaps and drift found while dogfooding), and the iOS/Android "Run as" (phones have no preview toolbar by design).
+Later, not blocking: **U1 screens** (single-screen apps work, as the CRM's tabs show, but navigation and deep links are missing), **O1 offline** (✅ #VAPP-235: the natives queue record writes), **#VAPP-202** (the local query over 25k rows on phones: optimised and in the eUI bench as `records-25k`; CI and mid-Android numbers owed), #VAPP-205/206/207/208 (authoring gaps and drift found while dogfooding), and the iOS/Android "Run as" (phones have no preview toolbar by design).
 

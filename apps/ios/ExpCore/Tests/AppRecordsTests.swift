@@ -458,4 +458,146 @@ final class AppRecordsTests: XCTestCase {
             XCTAssertEqual(rows, expected, name)
         }
     }
+
+    // MARK: - The offline outbox (VAPP-235, fixture `outbox`)
+
+    private func outbox() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["outbox"] as? [String: Any])
+    }
+
+    private func outboxCases(_ key: String) throws -> [[String: Any]] {
+        let list = try XCTUnwrap(try outbox()[key] as? [[String: Any]], key)
+        XCTAssertFalse(list.isEmpty, key)
+        return list
+    }
+
+    private func entry(_ value: Any?, _ name: String) throws -> AppRecords.OutboxEntry {
+        try XCTUnwrap(AppRecords.OutboxEntry(json: json(value)), name)
+    }
+
+    private func entries(_ value: Any?, _ name: String) throws -> [AppRecords.OutboxEntry] {
+        try XCTUnwrap(value as? [Any], name).map { try entry($0, name) }
+    }
+
+    private func recordRow(_ value: [String: Any]) -> AppRecords.Row {
+        AppRecords.Row(
+            id: value["id"] as? String ?? "",
+            kind: value["kind"] as? String ?? "",
+            data: json(value["data"]).objectValue ?? [:],
+            createdBy: value["createdBy"] as? String,
+            authorId: value["authorId"] as? String,
+            createdAt: value["createdAt"] as? String ?? "",
+            updatedAt: value["updatedAt"] as? String ?? ""
+        )
+    }
+
+    private func rowJSON(_ row: AppRecords.Row) -> CardJSON {
+        .object([
+            "id": .string(row.id), "kind": .string(row.kind), "data": .object(row.data),
+            "createdBy": row.createdBy.map(CardJSON.string) ?? .null,
+            "authorId": row.authorId.map(CardJSON.string) ?? .null,
+            "createdAt": .string(row.createdAt), "updatedAt": .string(row.updatedAt),
+        ])
+    }
+
+    private func outboxResult(_ value: Any?) -> AppRecords.OutboxResult {
+        let object = value as? [String: Any] ?? [:]
+        if let code = object["code"] as? String { return .code(code) }
+        if object["ok"] != nil { return .ok }
+        return .transport
+    }
+
+    func testOutboxConstantsMatchTheFixture() throws {
+        let o = try outbox()
+        XCTAssertEqual(o["ackGraceSeconds"] as? Double, AppRecords.Outbox.ackGraceSeconds)
+        XCTAssertEqual(o["retryCodes"] as? [String], AppRecords.Outbox.retryCodes)
+        XCTAssertEqual(o["copy"] as? [String: String], [
+            "pendingOne": AppRecords.Outbox.Copy.pendingOne, "pending": AppRecords.Outbox.Copy.pending,
+        ])
+    }
+
+    func testOutboxWritesCases() throws {
+        for item in try outboxCases("writesCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let call = try XCTUnwrap(AppRecords.OutboxCall(rawValue: item["call"] as? String ?? ""), name)
+            let args = try XCTUnwrap(json(item["args"]).objectValue, name)
+            let newIds = try XCTUnwrap(item["newIds"] as? [String], name)
+            let writes = AppRecords.outboxWrites(call: call, args: args, newIds: newIds)
+            XCTAssertEqual(CardJSON.array(writes.map(\.json)), json(item["writes"]), name)
+            XCTAssertEqual(AppRecords.outboxCreates(call: call, args: args), newIds.count, name)
+        }
+    }
+
+    func testOutboxRequestCases() throws {
+        for item in try outboxCases("requestCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let request = AppRecords.outboxRequest(try entry(item["entry"], name))
+            let expected = try XCTUnwrap(item["request"] as? [String: Any], name)
+            XCTAssertEqual(request.call.rawValue, expected["call"] as? String, name)
+            XCTAssertEqual(CardJSON.object(request.input), json(expected["input"]), name)
+        }
+    }
+
+    func testOutboxRowsCases() throws {
+        for item in try outboxCases("rowsCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let rows = try XCTUnwrap(item["rows"] as? [[String: Any]], name).map { recordRow($0) }
+            let got = AppRecords.outboxRows(rows, entries: try entries(item["entries"], name), me: item["me"] as? String)
+            XCTAssertEqual(CardJSON.array(got.map { rowJSON($0) }), json(item["expected"]), name)
+        }
+    }
+
+    func testOutboxOutcomeCases() throws {
+        for item in try outboxCases("outcomeCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let outcome = AppRecords.outboxOutcome(try entry(item["entry"], name), result: outboxResult(item["result"]))
+            XCTAssertEqual(outcome.rawValue, item["outcome"] as? String, name)
+        }
+    }
+
+    func testOutboxFlushCases() throws {
+        for item in try outboxCases("flushCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let results = try XCTUnwrap(item["results"] as? [String: Any], name).mapValues { outboxResult($0) }
+            let flush = AppRecords.outboxFlush(
+                try entries(item["entries"], name), results: results, now: try XCTUnwrap(item["now"] as? String, name)
+            )
+            XCTAssertEqual(flush.sent, item["sent"] as? [String], name)
+            let refused = try XCTUnwrap(item["refused"] as? [[String: String]], name)
+            XCTAssertEqual(flush.refused.map { ["writeId": $0.writeId, "verb": $0.verb] }, refused, name)
+            XCTAssertEqual(CardJSON.array(flush.after.map(\.json)), json(item["after"]), name)
+        }
+    }
+
+    func testOutboxPruneCases() throws {
+        for item in try outboxCases("pruneCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let rows = try XCTUnwrap(item["rows"] as? [[String: Any]], name).map { recordRow($0) }
+            let kept = AppRecords.outboxPrune(
+                try entries(item["entries"], name), rows: rows, now: try XCTUnwrap(item["now"] as? String, name)
+            )
+            XCTAssertEqual(kept.map(\.writeId), item["kept"] as? [String], name)
+        }
+    }
+
+    func testOutboxPendingCases() throws {
+        for item in try outboxCases("pendingCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let label = AppRecords.outboxPendingLabel(
+                try entries(item["entries"], name), appId: try XCTUnwrap(item["appId"] as? String, name)
+            )
+            XCTAssertEqual(label, item["label"] as? String, name)
+        }
+    }
+
+    /// A persisted entry round-trips through its JSON (the GRDB row's `writes`).
+    func testOutboxEntryRoundTrips() throws {
+        for item in try outboxCases("flushCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            for e in try entries(item["entries"], name) {
+                XCTAssertEqual(AppRecords.OutboxEntry(json: e.json), e, name)
+            }
+        }
+        XCTAssertEqual(AppRecords.outboxNow(Date(timeIntervalSince1970: 0)), "1970-01-01T00:00:00.000Z")
+    }
 }
