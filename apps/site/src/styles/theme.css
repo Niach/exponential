@@ -90,18 +90,19 @@ h1, h2, h3 {
   color: var(--sl-color-gray-3);
   border-top: 1px solid var(--exp-card-stroke);
 }
+/* Every capture of a view at one height: each figure grows in proportion
+   to its aspect ratio (--exp-ar, set by PlatformShots), so a web shot next
+   to two phones is as tall as they are. Rows wrap when the base width
+   (16rem tall) runs out; a capture never grows past 38rem tall. */
 .exp-platforms {
-  display: grid;
-  grid-template-columns: repeat(var(--exp-cols, 4), minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 0.75rem;
-  max-width: calc(var(--exp-cols, 4) * 18rem);
-}
-/* A wide (web / desktop) capture on its own takes the full width. */
-.exp-platforms:has(> .exp-figure:only-child img:is([src$="/web.webp"], [src$="/desktop.webp"])) {
-  max-width: none;
 }
 .exp-platforms .exp-figure {
   margin: 0;
+  flex: var(--exp-ar, 1) 1 calc(var(--exp-ar, 1) * 16rem);
+  max-width: calc(var(--exp-ar, 1) * 38rem);
 }
 .exp-live {
   padding: 1.25rem;

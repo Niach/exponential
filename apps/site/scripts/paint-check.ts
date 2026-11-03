@@ -103,6 +103,8 @@ async function canvasesPaint(page: import("playwright").Page, label: string, exp
     painted = await page.$$eval(`[data-xui-surface] canvas`, (canvases) =>
       canvases.map((c) => {
         const el = c as HTMLCanvasElement
+        // A box laid out at 0 px still holds a 1×1 backing store: count it as empty.
+        if (el.clientWidth < 8 || el.clientHeight < 8) return 0
         // A tile scrolled off-screen pauses on its poster, still painted.
         const d = el.width && el.height ? el.getContext(`2d`)?.getImageData(0, 0, el.width, el.height).data : undefined
         let n = 0

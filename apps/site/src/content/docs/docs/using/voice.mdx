@@ -1,0 +1,28 @@
+---
+title: Voice
+description: Talk to your Assistant: call it from your phone, the web or the desktop app, or hold a shortcut on your desktop. Beta, in English and German.
+---
+
+import PlatformShots from "../../../../components/PlatformShots.astro"
+
+<PlatformShots view="voice-call" platforms={["ios", "android"]} />
+
+Your Assistant answers out loud, in English or German. Everything runs on your own desktop: the one your Assistant runs on. Voice is in beta.
+
+## Set it up
+
+<PlatformShots view="settings-assistant" platforms={["desktop"]} />
+
+In **Settings → Assistant**, pick one of your desktops as the **Device** under **Runs on**. Its **Voice** section holds the language and, optionally, a clip of [your voice](/docs/libraries/etalk/guides/your-voice/). The desktop downloads the voice on first use; it needs a GPU ([requirements](/docs/libraries/etalk/guides/install/)).
+
+## Call it
+
+<PlatformShots view="voice-call" platforms={["web"]} />
+
+The phone in your Assistant's chat calls it, from the web, your phone or the voice device itself. Talk over a reply to interrupt it. On a phone the call keeps going with the screen locked.
+
+## Push to talk
+
+<PlatformShots view="voice-call-overlay" platforms={["desktop"]} />
+
+On the voice device, hold a shortcut, speak and let go. Record the shortcut under **On `<device>` (tray)** in the same section, or turn on the wake word and say its phrase. [Shortcuts per platform](/docs/libraries/etalk/guides/push-to-talk/).

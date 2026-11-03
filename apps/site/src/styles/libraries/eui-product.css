@@ -1,7 +1,5 @@
 /* eUI + Motion product pages (/ui/, /motion/). */
 .eui-motion-hero {
-  display: flex;
-  justify-content: center;
   padding-block: 2.5rem;
 }
 .eui-prompt {

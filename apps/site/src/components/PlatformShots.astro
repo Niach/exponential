@@ -1,6 +1,6 @@
 ---
 /* One view from the shot store (shots/<view>/<platform>.webp) on every
-   platform it was captured on, side by side. */
+   platform it was captured on, side by side at one height. */
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { webpSize } from "../lib/webp-size.ts"
@@ -16,17 +16,23 @@ const { view, platforms: only, eager = false } = Astro.props
 const LABELS: Record<string, string> = { web: `Web`, ios: `iOS`, android: `Android`, desktop: `Desktop` }
 const root = join(process.cwd(), `../../shots`, view)
 const platforms = (only ?? Object.keys(LABELS)).filter((p) => existsSync(join(root, `${p}.webp`)))
+const sizes: Record<string, { width: number; height: number } | null> = Object.fromEntries(platforms.map((p) => [p, webpSize(join(root, `${p}.webp`))]))
+/** The figure's aspect ratio, which sets its share of the row (theme.css). */
+const ratio = (p: string) => {
+  const s = sizes[p]
+  return s ? `--exp-ar:${(s.width / s.height).toFixed(4)}` : undefined
+}
 if (!platforms.length) throw new Error(`no shots for ${view}`)
 ---
 
-<div class="exp-platforms" style={`--exp-cols:${platforms.length}`}>
+<div class="exp-platforms">
   {
     platforms.map((p) => (
-      <figure class="exp-figure">
+      <figure class="exp-figure" style={ratio(p)}>
         <img
           src={`/shots/${view}/${p}.webp`}
           alt={`${view} on ${LABELS[p]}`}
-          {...(webpSize(join(root, `${p}.webp`)) ?? {})}
+          {...(sizes[p] ?? {})}
           loading={eager ? `eager` : `lazy`}
           fetchpriority={eager ? `high` : undefined}
           decoding="async"
