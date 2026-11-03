@@ -34,9 +34,6 @@ struct TeamSettingsPage: View {
         case .mcp: McpSettingsPage(teamId: teamId)
         // #EXP-1661: Settings › Skills (skills.json `list`), read-only.
         case .skills: SkillsSettingsPage(teamId: teamId)
-        // #EXP-1632: Settings › Apps = the Apps list (apps.json) for this
-        // team: rows open the app, the ⋯ menu, Import… + New app.
-        case .apps: AppsListScreen(settingsTeamId: teamId)
         // The devices page moved here from the phone tab bar (chats.json
         // `shell`): the same screen, titled "Devices" by itself.
         case .devices: AgentsView()

@@ -1,7 +1,7 @@
-// #EXP-1632 (settings-nav.json `apps`): web-mobile's Team page draws ONE Apps
-// row after Skills and before Devices, opening Settings › Apps, and never
-// the nav's injected `@apps` / `@new-app` lists. Lives under a `-` prefix so
-// the route generator ignores it.
+// VAPP-242 (settings-nav.json, replacing #EXP-1632): web-mobile's Team page
+// draws NO Apps row (the Apps tab lists the apps) and never the nav's
+// injected `@apps` / `@new-app` lists; Devices follows Skills. Lives under a
+// `-` prefix so the route generator ignores it.
 import { describe, expect, it, vi } from "vitest"
 import { settingsNavVisible } from "@exp/domain-contract/settings-nav"
 
@@ -19,16 +19,14 @@ const idsFor = (isOwner: boolean) =>
   ).map((entry) => (entry.kind === `row` ? entry.row.id : `page:${entry.item.id}`))
 
 describe(`Team page rows (settings-nav.json)`, () => {
-  it.each([true, false])(`draws exactly one Apps row between Skills and Devices (owner %s)`, (isOwner) => {
+  it.each([true, false])(`draws no Apps row; Devices follows Skills (owner %s)`, (isOwner) => {
     const ids = idsFor(isOwner)
-    expect(ids.filter((id) => id.includes(`app`))).toEqual([`apps`])
-    expect(ids.indexOf(`apps`)).toBe(ids.indexOf(`skills`) + 1)
-    expect(ids.indexOf(`devices`)).toBe(ids.indexOf(`apps`) + 1)
+    expect(ids.filter((id) => id.includes(`app`))).toEqual([])
+    expect(ids.indexOf(`devices`)).toBe(ids.indexOf(`skills`) + 1)
     expect(ids.some((id) => id.includes(`@`))).toBe(false)
   })
 
-  it(`opens Settings › Apps`, () => {
-    expect(teamRowPath(`apps`)).toBe(`/t/$teamSlug/settings/apps`)
+  it(`opens Devices`, () => {
     expect(teamRowPath(`devices`)).toBe(`/t/$teamSlug/devices`)
   })
 })

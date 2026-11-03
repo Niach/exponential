@@ -122,7 +122,6 @@ type TeamRowPath =
   | SettingsSectionPath
   | `/t/$teamSlug/settings/agents`
   | `/t/$teamSlug/settings/boards`
-  | `/t/$teamSlug/settings/apps`
   | `/t/$teamSlug/devices`
 
 /** Where a settings-nav.json row opens: its own settings page, Devices its
