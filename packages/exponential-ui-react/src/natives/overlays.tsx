@@ -10,7 +10,7 @@
 // motion). A trigger slot is wrapped in an inline-flex span so Radix
 // measures the slot's own box and the slot's painter keeps its element.
 
-import { forwardRef, useCallback, useEffect, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { Fragment, forwardRef, useCallback, useEffect, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
@@ -23,6 +23,14 @@ import { CloseOnSubmitContext } from "../form"
 import { useBoundState } from "./bound"
 import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
 import { SearchBody, searchMatches } from "./search"
+
+/** A Radix Portal into the overlay layer, or (EXP-1673, `inlineOverlays`)
+ *  no portal: the content paints in place. */
+function OverlayPortal({ as: Portal, children }: { as: (p: { container?: HTMLElement; children?: ReactNode }) => ReactNode; children: ReactNode }) {
+  const ctx = useSurfaceContext()
+  if (ctx.inlineOverlays) return <Fragment>{children}</Fragment>
+  return <Portal container={ctx.portal ?? undefined}>{children}</Portal>
+}
 
 /** An overlay's `open`: local mirror, bound path written, `change {open}`. */
 function useOpenState(node: NativeProps[`node`], scope: string, external: boolean, emit: NativeProps[`emit`]) {
@@ -129,7 +137,7 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
           </DialogPrimitive.Trigger>
         ) : null}
       </div>
-      <DialogPrimitive.Portal container={ctx.portal ?? undefined}>
+      <OverlayPortal as={DialogPrimitive.Portal}>
         <DialogPrimitive.Overlay {...(part(`overlay`, open && `open`) as Record<string, string>)} data-xui-overlay-backdrop={kind} />
         <DialogPrimitive.Content
           ref={drag.panel}
@@ -166,7 +174,7 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
             </DialogPrimitive.Close>
           ) : null}
         </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
+      </OverlayPortal>
     </DialogPrimitive.Root>
   )
 }
@@ -220,7 +228,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           </PopoverPrimitive.Anchor>
         )}
       </div>
-      <PopoverPrimitive.Portal container={ctx.portal ?? undefined}>
+      <OverlayPortal as={PopoverPrimitive.Portal}>
         <PopoverPrimitive.Content
           ref={contentRef}
           {...(part(`content`, open && `open`) as Record<string, string>)}
@@ -239,7 +247,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
               not even a Dialog around the Popover. */}
           <CloseOnSubmitContext.Provider value={null}>{children}</CloseOnSubmitContext.Provider>
         </PopoverPrimitive.Content>
-      </PopoverPrimitive.Portal>
+      </OverlayPortal>
     </PopoverPrimitive.Root>
   )
 }
@@ -254,7 +262,7 @@ export function TooltipNative({ node, props, rootProps, children }: NativeProps)
   // it shows against; the root is layout-transparent around it.
   return (
     <TooltipPrimitive.Provider delayDuration={300}>
-      <TooltipPrimitive.Root>
+      <TooltipPrimitive.Root open={ctx.inlineOverlays || undefined}>
         <div {...(rootProps as Record<string, unknown>)} data-xui-overlay-root="">
           <TooltipPrimitive.Trigger asChild>
             <div {...(part(`anchor`) as Record<string, string>)} tabIndex={0}>
@@ -262,11 +270,11 @@ export function TooltipNative({ node, props, rootProps, children }: NativeProps)
             </div>
           </TooltipPrimitive.Trigger>
         </div>
-        <TooltipPrimitive.Portal container={ctx.portal ?? undefined}>
+        <OverlayPortal as={TooltipPrimitive.Portal}>
           <TooltipPrimitive.Content {...(part(`content`) as Record<string, string>)} side={side} sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Tooltip">
             {content}
           </TooltipPrimitive.Content>
-        </TooltipPrimitive.Portal>
+        </OverlayPortal>
       </TooltipPrimitive.Root>
     </TooltipPrimitive.Provider>
   )
@@ -376,7 +384,7 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
                   <BuiltinIcon slot="Menu.submenuIndicator" />
                 </span>
               </N.SubTrigger>
-              <N.Portal container={ctx.portal ?? undefined}>
+              <OverlayPortal as={N.Portal}>
                 <N.SubContent
                   {...(part(`content`) as Record<string, string>)}
                   sideOffset={2}
@@ -390,7 +398,7 @@ export function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, pat
                     <MenuItems ns={ns} items={objects<MenuItem>(item.items)} rawItems={raws[i]?.items} part={part} overlay={overlay} emit={emit} scope={scope} path={`${key}.`} close={close} />
                   )}
                 </N.SubContent>
-              </N.Portal>
+              </OverlayPortal>
             </N.Sub>
           )
         }
@@ -446,7 +454,7 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
   const items = objects<MenuItem>(props.items)
   const label = str(props.label)
   const icon = str(props.icon)
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(ctx.inlineOverlays)
   const child = node.children[0] ?? null
   return (
     <MenuPrimitive.Root open={open} onOpenChange={setOpen} dir={ctx.direction}>
@@ -465,11 +473,11 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
           )}
         </MenuPrimitive.Trigger>
       </div>
-      <MenuPrimitive.Portal container={ctx.portal ?? undefined}>
+      <OverlayPortal as={MenuPrimitive.Portal}>
         <MenuPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="press">
           <MenuItems ns={MenuPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" close={() => setOpen(false)} />
         </MenuPrimitive.Content>
-      </MenuPrimitive.Portal>
+      </OverlayPortal>
     </MenuPrimitive.Root>
   )
 }
@@ -501,11 +509,11 @@ function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: N
           {children}
         </div>
       </ContextPrimitive.Trigger>
-      <ContextPrimitive.Portal container={ctx.portal ?? undefined}>
+      <OverlayPortal as={ContextPrimitive.Portal}>
         <ContextPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="contextmenu">
           <MenuItems ns={ContextPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" close={closeContextMenu} />
         </ContextPrimitive.Content>
-      </ContextPrimitive.Portal>
+      </OverlayPortal>
     </ContextPrimitive.Root>
   )
 }
@@ -553,7 +561,7 @@ export function ToastNative({ node, props, rootProps, emit, scope }: NativeProps
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
   useEffect(() => {
-    if (!open || duration === 0 || paused) return
+    if (!open || duration === 0 || paused || ctx.inlineOverlays) return
     startedAt.current = Date.now()
     const t = setTimeout(close, remaining.current)
     return () => {
@@ -561,12 +569,12 @@ export function ToastNative({ node, props, rootProps, emit, scope }: NativeProps
       remaining.current = Math.max(0, remaining.current - (Date.now() - startedAt.current))
     }
   }, [open, duration, paused, close])
-  if (!shown || !ctx.toastLayer) return null
+  if (!shown || !(ctx.toastLayer || ctx.inlineOverlays)) return null
   const title = str(props.title)
   const description = str(props.description)
   const actionLabel = str(props.actionLabel)
   const assertive = type === `error`
-  return createPortal(
+  const toast = (
     <div
       {...(rootProps as Record<string, unknown>)}
       role={assertive ? `alert` : `status`}
@@ -602,7 +610,7 @@ export function ToastNative({ node, props, rootProps, emit, scope }: NativeProps
           <BuiltinIcon slot="Toast.close" />
         </button>
       ) : null}
-    </div>,
-    ctx.toastLayer
+    </div>
   )
+  return ctx.inlineOverlays ? toast : createPortal(toast, ctx.toastLayer!)
 }

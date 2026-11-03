@@ -15,6 +15,7 @@ interface Props {
   theme?: string
   hydrate?: boolean
   icons?: IconMap
+  inlineOverlays?: boolean
 }
 const { hydrate, ...props } = Astro.props
 const llms = Astro.url.pathname.endsWith(`.txt`)
