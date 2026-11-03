@@ -183,12 +183,13 @@ pub fn skills_menu_value(count: usize) -> Option<String> {
     (count > 0).then(|| count.to_string())
 }
 
-/// The agent page row's value: `N skills`, `None` at zero.
-pub fn agent_skills_value(count: usize) -> String {
-    match count {
+/// The agent page row's value: the picked names (list order) through the
+/// shared picker summary (`a` / `a, b` / `a, b +N`), `None` when empty.
+pub fn agent_skills_value(names: &[&str]) -> String {
+    match names.len() {
         0 => AGENT_ROW_NONE.to_string(),
-        1 => "1 skill".to_string(),
-        n => format!("{n} skills"),
+        1 | 2 => names.join(", "),
+        n => format!("{} +{}", names[..2].join(", "), n - 2),
     }
 }
 
@@ -260,8 +261,6 @@ mod tests {
         assert_eq!(f["menuRow"]["label"], MENU_LABEL);
         assert_eq!(f["agentRow"]["label"], AGENT_ROW_LABEL);
         assert_eq!(f["agentRow"]["none"], AGENT_ROW_NONE);
-        assert_eq!(f["agentValue"]["one"], "1 skill");
-        assert_eq!(f["agentValue"]["other"], "{n} skills");
         assert_eq!(f["menuValue"]["one"], "1");
         assert_eq!(f["menuValue"]["other"], "{n}");
     }
@@ -331,8 +330,8 @@ mod tests {
             assert_eq!(skills_menu_value(count).as_deref(), case["expected"].as_str(), "{}", case["name"]);
         }
         for case in f["agentValueCases"].as_array().unwrap() {
-            let count = case["count"].as_u64().unwrap() as usize;
-            assert_eq!(agent_skills_value(count), case["expected"].as_str().unwrap(), "{}", case["name"]);
+            let names: Vec<&str> = case["names"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
+            assert_eq!(agent_skills_value(&names), case["expected"].as_str().unwrap(), "{}", case["name"]);
         }
     }
 }

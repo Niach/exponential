@@ -56,6 +56,7 @@ pub(crate) mod icon_picker;
 pub(crate) mod issue_picker;
 pub(crate) mod label_picker;
 pub(crate) mod mcp_server_picker;
+pub(crate) mod skill_picker;
 pub(crate) mod priority_picker;
 pub(crate) mod search_list;
 pub(crate) mod status_picker;
