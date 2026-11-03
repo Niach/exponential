@@ -841,8 +841,8 @@ mod tests {
     #[test]
     fn tab_spec_parses() {
         assert_eq!(STORIES.tab.copy.label, "Stories");
-        assert_eq!(STORIES.tab.tile.thumb_height.wide, 400.0);
-        assert_eq!(STORIES.tab.tile.thumb_max_width.wide, 720.0);
+        assert_eq!(STORIES.tab.tile.thumb_height.wide, 240.0);
+        assert_eq!(STORIES.tab.tile.thumb_max_width.wide, 320.0);
         assert_eq!(STORIES.tab.tile.text_gap, 4.0);
         assert_eq!(STORIES.row.item_width, 72.0);
         assert_eq!(STORIES.constants.window_hours, 24);

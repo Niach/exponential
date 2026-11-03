@@ -263,7 +263,9 @@ private val SKELETON_BAR_WIDTHS = listOf(56.dp to 168.dp, 56.dp to 120.dp, 56.dp
  * D8.4 THE MARK: the logo disc (foreground) whose three cut stripes sweep in
  * turn on a `mark.loopMs` loop, the cuts punched through to the CALLER's
  * ground. Static logo under reduce motion; [phase] freezes one frame of the
- * loop (the styleguide's specimens).
+ * loop (the styleguide's specimens, drawn as that frame whatever the motion
+ * setting, as web does); [still] = the static logo (the contained blocking
+ * specimen).
  */
 @Composable
 fun FeedbackMark(
@@ -271,11 +273,12 @@ fun FeedbackMark(
     size: Dp = FeedbackStates.MARK_SIZE_INLINE.dp,
     color: Color = MaterialTheme.colorScheme.onSurface,
     phase: Float? = null,
+    still: Boolean = false,
 ) {
     val reduced = LocalReduceMotion.current
     val spans: List<MarkSpan?> = when {
-        reduced -> FeedbackStates.STATIC_SPANS
         phase != null -> FeedbackStates.markSpans(phase.toDouble())
+        reduced || still -> FeedbackStates.STATIC_SPANS
         else -> {
             val transition = rememberInfiniteTransition(label = "feedback-mark")
             val loop by transition.animateFloat(
@@ -374,7 +377,7 @@ object Blocking {
 
 /** The overlay's surface: the window ground at `backdropOpacity`, the mark at 40, one muted line. */
 @Composable
-fun BlockingSurface(label: String, modifier: Modifier = Modifier, phase: Float? = null) {
+fun BlockingSurface(label: String, modifier: Modifier = Modifier, phase: Float? = null, still: Boolean = false) {
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -385,7 +388,7 @@ fun BlockingSurface(label: String, modifier: Modifier = Modifier, phase: Float? 
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            FeedbackMark(size = FeedbackStates.BLOCKING_MARK_SIZE.dp, phase = phase)
+            FeedbackMark(size = FeedbackStates.BLOCKING_MARK_SIZE.dp, phase = phase, still = still)
             Spacer(Modifier.height(FeedbackStates.BLOCKING_GAP.dp))
             Text(
                 label,

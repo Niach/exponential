@@ -1,10 +1,13 @@
 import type { ReactNode } from "react"
 import fixture from "@exp/etalk/fixtures/voice-call.json"
+import voice from "@exp/etalk/fixtures/voice.json"
 import type { CallPlatform, CallView } from "@exp/etalk/voice-call"
 import type { IconConcept } from "@exp/icons"
 
 import { CallButton, CallControls, VoiceCallPill } from "./call-controls"
 import { ExponentialLogo } from "./exponential-logo"
+import { Pill } from "./pill"
+import { VoiceWave, type VoiceWaveActivity } from "./voice-wave"
 import { VoiceCallSurface } from "./voice-call-card"
 
 // S-3: the call specimens (voice-call.json `surfaceSpecimens`), ONE source
@@ -34,17 +37,20 @@ export function VoiceCallSpecimen({
   platform = `phone`,
   names,
   frameClassName = `h-[600px] w-[300px]`,
+  className = `flex flex-wrap items-start gap-4`,
 }: {
   platform?: CallPlatform
   /** The specimen rows to show (default: all). */
   names?: readonly string[]
   frameClassName?: string
+  /** The gallery's layout (default: a wrapping row). */
+  className?: string
 }) {
   const rows = CALL_SPECIMENS.filter((row) => !names || names.includes(row.name)).map((row) => onPlatform(row, platform))
   return (
-    <div className="flex flex-wrap items-start gap-4" data-testid="voice-call-specimen">
+    <div className={className} data-testid="voice-call-specimen">
       {rows.map((row) => (
-        <figure key={row.name} className="grid gap-2">
+        <figure key={row.name} className="grid min-w-0 gap-2">
           <div className={`overflow-hidden rounded-[28px] border border-glass-stroke-card ${frameClassName}`}>
             <VoiceCallSurface
               agent={row.agent}
@@ -58,6 +64,43 @@ export function VoiceCallSpecimen({
           </div>
           <figcaption className="text-center text-xs text-muted-foreground">{row.name}</figcaption>
         </figure>
+      ))}
+    </div>
+  )
+}
+
+interface OverlayCapsule {
+  activity: VoiceWaveActivity
+  level?: number
+  bands?: number[]
+  state: string
+  line: string
+  pill: string
+  primary?: boolean
+}
+
+/** NEW-77: the push-to-talk overlay's capsule, one per voice.json
+ *  `overlaySpecimens` row: THE bar (the bulk bar's capsule) holding
+ *  VoiceWave md with the brand mark, the state, the muted line, one pill.
+ *  The styleguide entry's capsules, as the IDE draws them. */
+export function VoiceOverlayCapsuleSpecimen() {
+  return (
+    <div className="grid justify-items-start gap-4" data-testid="voice-overlay-capsule-specimen">
+      {(voice.overlaySpecimens as OverlayCapsule[]).map((row) => (
+        <div
+          key={row.state}
+          data-slot="voice-overlay"
+          className="flex min-w-0 max-w-full items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2"
+        >
+          <VoiceWave activity={row.activity} level={row.level} bands={row.bands} size="md" label="Voice">
+            {assistant}
+          </VoiceWave>
+          <span className="flex-none whitespace-nowrap px-1 text-sm font-semibold text-foreground">{row.state}</span>
+          <span className="min-w-0 flex-1 truncate px-2 text-sm text-muted-foreground">{row.line}</span>
+          <Pill size="sm" mode="action" primary={row.primary}>
+            {row.pill}
+          </Pill>
+        </div>
       ))}
     </div>
   )

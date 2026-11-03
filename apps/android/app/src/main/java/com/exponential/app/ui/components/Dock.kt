@@ -542,6 +542,8 @@ fun DockSheetSpecimenFrame(
     row: Dock.Row,
     modifier: Modifier = Modifier,
     height: Dp = 360.dp,
+    /** A plan sheet's `ui-fullscreen` glyph (plan-page.json `copy.openFull`). */
+    onOpenFull: (() -> Unit)? = null,
     content: @Composable ColumnScope.(DockSheetScope) -> Unit,
 ) {
     val shape = RoundedCornerShape(topStart = Dock.SHEET_RADIUS.dp, topEnd = Dock.SHEET_RADIUS.dp)
@@ -556,7 +558,7 @@ fun DockSheetSpecimenFrame(
     ) {
         // The live sheet's host rule (GlassSheet): pickers inside open inline.
         CompositionLocalProvider(LocalPickerPresentation provides PickerPresentation.Inline) {
-            DockSheetChrome(row = row, onClose = null, content = content)
+            DockSheetChrome(row = row, onClose = null, onOpenFull = onOpenFull, content = content)
         }
     }
 }

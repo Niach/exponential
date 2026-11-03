@@ -14,7 +14,8 @@ import { ToastSpecimen } from "./toast"
 // is the REAL part at rest: the pending Button with a zero delay (the live
 // one waits `pending.delayMs`), the mark frozen at four phases of its loop
 // (`phase`), the blocking surface contained in its card instead of the
-// window, the error toast as `ToastSpecimen`. Drawn by the styleguide entry
+// window with the mark still (the static logo, every platform), the error
+// toast as `ToastSpecimen`. Drawn by the styleguide entry
 // `feedback-states` and, for the `feedback-states` capture, by the web app's
 // dev-only `/t/$teamSlug/agent?dev=feedback-states` (the kinds never show
 // together in the app).
@@ -85,7 +86,7 @@ export function FeedbackStatesSpecimen(): ReactNode {
       </Kind>
       <Kind index={5} title="Blocking">
         <div className="relative h-40 overflow-hidden rounded-lg border border-border">
-          <BlockingSurface contained label={blockingLabel(`switchTeam`, `Personal`)} />
+          <BlockingSurface contained still label={blockingLabel(`switchTeam`, `Personal`)} />
         </div>
       </Kind>
       <Kind index={6} title="Errors">

@@ -26,6 +26,7 @@ import {
   CallControlsSpecimen,
   VoiceCallPillSpecimen,
   VoiceCallSpecimen,
+  VoiceOverlayCapsuleSpecimen,
   MentionPillSpecimen,
   SchedulePickerSpecimen,
   PrRowSpecimen,
@@ -209,13 +210,19 @@ function AgentRoute() {
         ) : dev === `code-block` ? (
           <CodeBlockSpecimen />
         ) : dev === `voice-call` ? (
+          // voice-call.json `surfaceSpecimens`: all five states, each
+          // captioned; one row on web, one full-width column on phones.
           <VoiceCallSpecimen
             platform="web"
-            names={[`ringing`, `in call, speaking`, `muted`]}
-            frameClassName="h-[700px] w-[300px] max-w-full"
+            className={isMobile ? `grid grid-cols-1 gap-4` : `grid grid-cols-5 items-start gap-3`}
+            frameClassName={isMobile ? `h-[640px] w-full` : `h-[704px] w-full`}
           />
         ) : dev === `voice-call-overlay` ? (
-          <VoiceCallPillSpecimen />
+          // voice-call-overlay: the push-to-talk capsules, then the pills.
+          <div className="grid gap-4">
+            <VoiceOverlayCapsuleSpecimen />
+            <VoiceCallPillSpecimen />
+          </div>
         ) : dev === `call-controls` ? (
           <CallControlsSpecimen />
         ) : (
