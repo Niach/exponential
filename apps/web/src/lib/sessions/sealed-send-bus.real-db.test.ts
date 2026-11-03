@@ -151,7 +151,7 @@ describe.skipIf(!ready.ok)(`sessions.send with sealed content`, () => {
     // A malformed envelope never lands.
     await expect(
       sendSession({ userId: w.owner, input: { teamId: w.teamId, deviceId: w.deviceId, text: `exp-sealed:v1:1:@@`, seal } })
-    ).rejects.toThrow(/Invalid sealed text/)
+    ).rejects.toThrow(/Invalid encrypted text/)
   })
 
   it(`a sealed message's attachments, mentions and refs ride in clear; the body is never appended to`, async () => {
@@ -285,7 +285,7 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     // #FEED-184: the refusal names the writer's device and what sealing needs.
     await db.update(devices).set({ version: `0.14.94` }).where(eq(devices.deviceId, w.deviceId))
     await expect(w.host.reply({ sessionId: childId, body: `a plaintext reply` })).rejects.toThrow(
-      `device "box" (CLI 0.14.94) sent it in clear. Sealing needs the desktop app or CLI ${SEALING_WRITER_MIN_VERSION} or newer`
+      `device "box" (CLI 0.14.94) sent it in clear. Encryption needs the desktop app or CLI ${SEALING_WRITER_MIN_VERSION} or newer`
     )
     await expect(
       sendSession({ userId: w.owner, callerSessionId: childId, viaMcp: true, input: { sessionId: rootId, text: `from an agent` } })
@@ -348,7 +348,7 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     // An invalid sealed card (content beside `sealed`) is refused.
     await expect(
       w.host.reply({ sessionId: childId, body: ``, card: { ...card, question: `leak` } })
-    ).rejects.toThrow(/sealed card/)
+    ).rejects.toThrow(/encrypted card/)
   })
 
   it(`a sealed report card is copied whole (per tree); a sealed summary or last reply is never read into a report`, async () => {
@@ -368,7 +368,7 @@ describe.skipIf(!ready.ok)(`the bus with sealed content`, () => {
     const child3 = (await sendSession({ userId: w.owner, input: { parentId: rootId, text: sealBody(tree.publicKey, 1, `c3`) } })).sessionId
     await expect(
       endSession({ userId: w.owner, sessionId: child3, sealedReport: { ...sealedReport, summary: `leak` } })
-    ).rejects.toThrow(/sealed report/)
+    ).rejects.toThrow(/encrypted report/)
     // #FEED-185: a plaintext summary into the keyed tree is refused (it
     // would sit on the server in clear) and nothing ends or lands; an end
     // without a summary still ends.

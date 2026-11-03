@@ -156,11 +156,12 @@ describe(`the width store`, () => {
 
   it(`follows the viewport: half the window bounds the column`, () => {
     const scale = sidebarUnitScale()
-    window.innerWidth = 800 * scale
+    window.innerWidth = 600 * scale
+    // #EXP-1672: the Inbox list has no rail beside it (it sits in the card).
     const width = renderHook(() => useSidebarWidth(`list`))
     const bounds = renderHook(() => useSidebarWidthBounds(`list`))
-    expect(width.result.current).toBe(400 - SIDEBAR_RAIL_WIDTH)
-    expect(bounds.result.current.max).toBe(400 - SIDEBAR_RAIL_WIDTH)
+    expect(width.result.current).toBe(300)
+    expect(bounds.result.current.max).toBe(300)
     act(() => {
       window.innerWidth = 2000 * scale
       window.dispatchEvent(new Event(`resize`))

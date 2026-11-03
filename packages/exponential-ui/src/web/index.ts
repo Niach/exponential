@@ -26,7 +26,7 @@ export { str, num, bool, arr, objects, phrase, formatFileSize, mediaClock, accep
 export { sortRows, tableMinWidth, tableTemplate } from "./table"
 export type { TableColumn, TableSort } from "./table"
 export { isoDate, parseIsoDate, addDays, addMonths, sameDay, monthGrid, calendarStop } from "./dates"
-export { DEBOUNCE_MS, HostOwnedController, parseLocaleNumber } from "./inputs"
+export { DEBOUNCE_MS, HostOwnedController, parseLocaleNumber, switchTravel } from "./inputs"
 export type { HostOwnedControllerOptions, HostOwnedSend } from "./inputs"
 export { MEDIA_CACHE_IDLE_MAX, acquireMedia, releaseMedia, mediaCacheKey, mediaCacheStats, clearMediaCache, openMediaSource, streamEntry, fetchStream, fetchLimited } from "./media"
 export type { MediaKind, MediaCacheEntry, MediaSourcePlan } from "./media"

@@ -67,7 +67,7 @@ import {
 
 import { CLOSE_ENET_LOST, openEnetSteer } from "@/lib/enet/steer-enet-viewer"
 import { connStatsBuffer, SteerViewStats } from "@/lib/enet/conn-stats"
-import { currentKeyHolder } from "@/lib/enet/current-key-holder"
+import { currentKeySource } from "@/lib/enet/current-key-holder"
 import { openSteerFeed, type FeedStats, type SteerFeedClose } from "@/lib/enet/steer-feed"
 import type { TunnelDeps, TunnelSocket, TunnelTicket } from "@/lib/enet/steer-tunnel"
 import { sessionCollection } from "@/lib/collections"
@@ -715,7 +715,7 @@ function tunnelKeys(sessionId: string) {
   const row = sessionCollection.get(sessionId) as KeyedRow | undefined
   const root = row ? (sessionCollection.get(row.rootId ?? row.id) as KeyedRow | undefined) : undefined
   if (!root?.sealPublicKey || !root.sealEpoch) return null
-  const keys = currentKeyHolder()?.keysFor(root.id)
+  const keys = currentKeySource()?.keysFor(root.id)
   if (!keys?.has(root.sealEpoch)) return null
   return { epoch: root.sealEpoch, publicKey: root.sealPublicKey, keys }
 }

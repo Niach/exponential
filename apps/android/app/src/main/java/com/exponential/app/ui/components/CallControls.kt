@@ -50,8 +50,8 @@ val CallButtonSize: Dp = 56.dp
 /** The glyph inside it (web `size-6`). */
 private val CallGlyphSize: Dp = 24.dp
 
-/** The compact row's circle (the desktop pill's, `size-8`). */
-val CallButtonCompactSize: Dp = 32.dp
+/** The compact row's circle (the call pill's, web `CallButton` sm). */
+val CallButtonCompactSize: Dp = 36.dp
 
 enum class CallButtonTone { Neutral, Toggled, End }
 

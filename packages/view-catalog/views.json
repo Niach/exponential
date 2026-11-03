@@ -796,6 +796,7 @@
         }
       },
       "notes": {
+        "web": "#EXP-1672: the desktop's layout — the main menu never folds into the icon rail; the notifications are the content card's second sidebar (resizable), the selection to their right.",
         "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or session opens beside the list without re-sliding it.",
         "web-mobile": "Thread 58cb32df (chats.json): pushed from the Chats header's inbox circle: a back header with Mark all read and the active team's stream, no segments and no tab bar (My issues and Drafts are board chips)."
       }
@@ -5306,8 +5307,8 @@
         "web": "The styleguide island `session-row` (apps/styleguide/src/entries/session-row.tsx) draws both sizes on the real component; the app views are `agents` and the sidebar.",
         "web-mobile": "See web: the phone's Running list and the Recent sheet draw the big row (`agents` web-mobile).",
         "desktop": "EXP-1654: the desktop styleguide entry `session_row.rs` (`EXP_DEV_SCREEN=styleguide:session-row`, full-window) draws the web island's board line for line on the real `run_rows::run_row`: the Running caption over the APP-5 tree (needs you, a working child, an idle grandchild), APP-14 working, an ended root, the first row lit. It used to draw the session CARDS (`thread`'s), not the row; the live instance is the rail's Active band.",
-        "android": "See ios: the same live walk in StyleguideScreenshotsTest. No SessionRow composable exists on Android (the thread tree sheet draws its own ExpandedSessionRow), so a specimen needs one first.",
-        "ios": "OPEN GAP (EXP-1654): the phones have no list of SessionRows since the Running band left the home (EXP-1316) and the Chats rows became ChatRows (EXP-1373); `sg_session-row` still photographs the live Chats tab, which is `threads`' subject, not this row. The fix is a capture-only specimen of the island's rows (iOS ExpUI `SessionRow` exists; its one live use is the thread tree sheet, ThreadMenuSheet.swift). Until then the phone shots are NOT comparable with desktop."
+        "android": "See ios: the same specimen (`ThreadCardsKind.SessionRow`, `captureOnlyScreens`) on the real `SessionRow` composable (ui/components/SessionRow.kt), the run mark = `AgentRunMark`.",
+        "ios": "Thread 20b7fdc2: a capture-only specimen (`-uiTestingStyleguide session-row`, ThreadCardsScreen `SessionRowSpecimens`) draws the island's board row for row on the real ExpUI `SessionRow`: the Running band over the APP-5 tree (needs you, a working child, an idle grandchild), APP-14 working, an ended root, the first row lit; the lead = `ThreadSessionChipMark`. It used to photograph the live Chats tab (`threads`' subject)."
       },
       "desktop": {
         "drive": {
@@ -6820,7 +6821,7 @@
       "id": "sealed-locked",
       "group": "coding",
       "title": "Locked content",
-      "blurb": "Sealed session content this install cannot open yet (EXP-1459, sealed-content.json `placeholder`): in a transcript THE glass pill with the lock (\"Waiting for the key\" until a holder wraps the tree key, \"Can't be opened here\" when it never opens), in the chats list the preview italic muted.",
+      "blurb": "End-to-end encrypted session content this install cannot open yet (EXP-1459, sealed-content.json `placeholder`): in a transcript THE glass pill with the lock (\"Waiting for the key\" until a holder wraps the tree key, \"Can't be opened here\" when it never opens), in the chats list the preview italic muted.",
       "order": 53,
       "web": {
         "route": "/t/$teamSlug/agent?dev=sealed-locked",
@@ -7085,6 +7086,44 @@
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_call-controls.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:call-controls`: the IDE styleguide twin drawn full-window (every `surfaceSpecimens` button set, then the floating pill row).",
+        "web-mobile": "Inherits web."
+      }
+    },
+    {
+      "id": "call-pill",
+      "group": "coding",
+      "title": "Call pill",
+      "blurb": "THE floating call pill (EXP-1681, voice-call.json `pill`): a running call small and floating, one per `surfaceSpecimens` row: drag handle, avatar sm, name over timer (ringing: the status), VoiceWave sm, mute, red end. The desktop shows it while no IDE window is focused, the phones while a call is minimized.",
+      "order": 60,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=call-pill",
+        "anchor": {
+          "testId": "voice-call-pill-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_call-pill",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_call-pill",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:call-pill"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=call-pill`: `@exp/ui` `VoiceCallPillSpecimen` (the styleguide entry's specimen). Web itself never shows a pill: its call is the full-height overlay.",
+        "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_call-pill: the pill a minimized call draws.",
+        "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:call-pill`: the IDE styleguide twin drawn full-window.",
         "web-mobile": "Inherits web."
       }
     },

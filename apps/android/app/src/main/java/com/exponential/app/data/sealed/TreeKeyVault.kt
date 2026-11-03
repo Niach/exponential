@@ -55,6 +55,15 @@ object SealedKeys {
     fun requestMissing() {
         missing.trySend(Unit)
     }
+
+    /**
+     * Cold start (sealed-content.json `coldStart`): every account's cached
+     * keys, merged before any networked step (registration, the holder), so
+     * the first frame opens what the last run could.
+     */
+    fun preload(vault: TreeKeyVault, accountIds: Iterable<String>) {
+        for (accountId in accountIds) merge(vault.all(accountId))
+    }
 }
 
 /**

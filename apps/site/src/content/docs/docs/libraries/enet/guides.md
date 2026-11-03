@@ -27,4 +27,4 @@ node.send_chat(peer_id, b"hi".to_vec()).await?;   // acked by the peer
 - Hand peers your `Ticket` (`enet1…`, fits a QR code) so they can find you.
 - `NetConfig::relay` picks the relay: the default, your own URLs, or `Disabled` for direct addresses only.
 
-Every channel, push sealing and the security model: [Reference](/docs/libraries/enet/reference/).
+Every channel, push encryption and the security model: [Reference](/docs/libraries/enet/reference/).

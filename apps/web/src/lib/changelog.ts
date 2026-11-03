@@ -25,6 +25,44 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-compact-trigger-switches`,
+    date: `2026-11-03`,
+    title: `Smaller trigger switches`,
+    summary: `An agent's trigger rows carry the compact switch, the same size on web, desktop, iOS and Android.`,
+    body: `- **Trigger rows**: the on/off switch beside each trigger in an agent's settings is the compact switch on every platform, so it no longer outweighs the row on phones.`,
+  },
+  {
+    id: `2026-11-03-phone-call-pill`,
+    date: `2026-11-03`,
+    title: `Keep a call going while you use the app`,
+    summary: `On your phone, minimize a call with your agent into a small floating pill and keep working; tap it to go back to the call.`,
+    body: `- **Minimize**: the chevron at the call screen's top left, a swipe down (iPhone) or Back (Android) turns the call into a floating pill over every screen; the call goes on.
+- **The pill**: the agent, the call's timer, the voice wave, Mute and End call, the same pill the desktop app shows while its windows are in the background.
+- **Move it**: drag the pill anywhere; it stays where you put it. Tap it to open the call screen again.`,
+  },
+  {
+    id: `2026-11-03-sealed-open-at-launch`,
+    date: `2026-11-03`,
+    title: `Encrypted chats open at launch`,
+    summary: `End-to-end encrypted messages open the moment the app starts, offline too, instead of waiting for the key.`,
+    body: `- **Encrypted chats**: the keys this device already holds open its end-to-end encrypted messages on the first screen after a launch, before it reconnects; a key that arrives later opens the waiting messages right away.`,
+  },
+  {
+    id: `2026-11-03-inbox-keeps-sidebar`,
+    date: `2026-11-03`,
+    title: `The Inbox keeps the sidebar`,
+    summary: `On the web, opening the Inbox no longer folds the sidebar into icons: the notifications sit beside it, like in the desktop app.`,
+    body: `- **Full sidebar**: the Inbox keeps the whole sidebar; its list is a column inside the page, with the selected notification to its right.
+- **Resizable**: drag the list's right edge to make it wider or narrower.`,
+  },
+  {
+    id: `2026-11-03-e2e-encrypted-wording`,
+    date: `2026-11-03`,
+    title: `End-to-end encrypted, in plain words`,
+    summary: `Chats, errors and the website now say end-to-end encrypted where they used to say sealed.`,
+    body: `- **Wording**: what used to read "sealed" now reads "end-to-end encrypted", in the apps, their messages and on exponential.at.`,
+  },
+  {
     id: `2026-11-03-device-mcp-servers`,
     date: `2026-11-03`,
     title: `MCP servers on your own machine`,
@@ -103,10 +141,10 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-11-03-sessions-start-fast`,
     date: `2026-11-03`,
     title: `Sessions start fast again`,
-    summary: `Fresh sessions start in seconds, a login stuck behind a wall no longer holds a launch, and sealed messages open as soon as the key holder starts.`,
+    summary: `Fresh sessions start in seconds, a login stuck behind a wall no longer holds a launch, and encrypted messages open as soon as the key holder starts.`,
     body: `- **Fast starts**: a fresh session starts in seconds again instead of waiting on a 3-minute git stall.
 - **Stuck logins**: a login that needs you to act no longer holds up a launch, and a start that dies or hangs says so.
-- **Sealed messages**: sealed messages open as soon as the device holding the key starts.`,
+- **Encrypted messages**: end-to-end encrypted messages open as soon as the device holding the key starts.`,
   },
   {
     id: `2026-11-03-app-buttons-work-on-desktop`,
@@ -229,10 +267,10 @@ export const CHANGELOG: ChangelogEntry[] = [
     id: `2026-11-02-sessions-track-work`,
     date: `2026-11-02`,
     title: `Sessions keep track of their work`,
-    summary: `A continued session keeps its plans and stories, pull requests find the session that pushed them, and sealed chats refuse clearly.`,
+    summary: `A continued session keeps its plans and stories, pull requests find the session that pushed them, and encrypted chats refuse clearly.`,
     body: `- **Continued sessions**: a session that continues an ended one keeps its plans, stories and pull request.
 - **Pull requests**: a pull request opened outside Exponential links to the session that pushed its branch.
-- **Sealed chats**: a message that can't be sealed yet says what to do instead of asking you to update an app that is already current.`,
+- **Encrypted chats**: a message that can't be encrypted yet says what to do instead of asking you to update an app that is already current.`,
   },
   {
     id: `2026-11-02-live-chats-smooth`,
@@ -412,15 +450,15 @@ export const CHANGELOG: ChangelogEntry[] = [
     date: `2026-11-01`,
     title: `Agents get the issue you hand them`,
     summary: `Start coding with an agent picked now gives it the issue's title and description.`,
-    body: `- **The whole issue**: an issue you send to an agent, or forward into a running session, reaches it with its identifier, title and description, in sealed chats too.
+    body: `- **The whole issue**: an issue you send to an agent, or forward into a running session, reaches it with its identifier, title and description, in encrypted chats too.
 - **No prompt needed**: sending just the issue wakes the agent.`,
   },
   {
     id: `2026-11-01-sealed-agent-sends`,
     date: `2026-11-01`,
-    title: `Agents seal their messages from the start`,
-    summary: `Agents started while a device was still coming online now seal their messages and card answers.`,
-    body: `- **No more refusals**: an agent started while its device was still coming online no longer gets "This chat is sealed" when it messages or answers a card.`,
+    title: `Agents encrypt their messages from the start`,
+    summary: `Agents started while a device was still coming online now encrypt their messages and card answers.`,
+    body: `- **No more refusals**: an agent started while its device was still coming online no longer gets "This chat is end-to-end encrypted" when it messages or answers a card.`,
   },
   {
     id: `2026-11-01-agent-signed-out`,
@@ -637,21 +675,21 @@ export const CHANGELOG: ChangelogEntry[] = [
   {
     id: `2026-10-30-sealed-content`,
     date: `2026-10-30`,
-    title: `Sealed session content`,
-    summary: `Messages, cards and titles in your sessions are sealed on your devices, so the server stores them without being able to read them.`,
-    body: `- **Sealed on your devices**: what you, your agents and your Assistant write in a session (messages, cards, answers and titles) is sealed with that session's key before it leaves the device, on web, desktop, iOS and Android. The server stores and syncs it but can't read it.
+    title: `End-to-end encrypted session content`,
+    summary: `Messages, cards and titles in your sessions are end-to-end encrypted on your devices, so the server stores them without being able to read them.`,
+    body: `- **Encrypted on your devices**: what you, your agents and your Assistant write in a session (messages, cards, answers and titles) is encrypted with that session's key before it leaves the device, on web, desktop, iOS and Android. The server stores and syncs it but can't read it.
 - **Keys arrive by themselves**: a new browser, phone or teammate on a shared session gets the key from one of your devices that's online, with no approval step. Until then the row shows "Waiting for the key" and opens on its own.
-- **Agents talk device to device**: a message from one agent to another goes straight to the target device over eNet; the server keeps only a sealed copy. Watching a running session from your phone or browser also connects straight to the device running it.
-- **Update required**: older apps can't open sealed content, so this release raises the minimum version on every platform.
+- **Agents talk device to device**: a message from one agent to another goes straight to the target device over eNet; the server keeps only an encrypted copy. Watching a running session from your phone or browser also connects straight to the device running it.
+- **Update required**: older apps can't open encrypted content, so this release raises the minimum version on every platform.
 - **Also**: calls keep working when you switch between speaker, headphones and Bluetooth on your phone, and web apps load their records only when you open them.`,
   },
   {
     id: `2026-10-30-question-pushes`,
     date: `2026-10-30`,
     title: `Questions push to your phone`,
-    summary: `When a chat you started asks you a question or proposes a plan, your phone gets a push, with the question itself even in sealed chats.`,
+    summary: `When a chat you started asks you a question or proposes a plan, your phone gets a push, with the question itself even in encrypted chats.`,
     body: `- **Every chat you start**: a question or plan from one of your chats now sends you a push, not only your Assistant. Teammates are not pinged; they still see that it needs input.
-- **The question, kept private**: in a sealed chat the push carries the question encrypted, and your phone opens it with the chat's key to show it. Without the key you see "New message in a session".`,
+- **The question, kept private**: in an encrypted chat the push carries the question encrypted, and your phone opens it with the chat's key to show it. Without the key you see "New message in a session".`,
   },
   {
     id: `2026-10-30-conversation-session-rows`,

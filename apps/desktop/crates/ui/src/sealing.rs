@@ -23,14 +23,15 @@ use steer::enet::InstallNode;
 use sync::sealed::{OpenedBody, OpenedCard, Opener, Opens};
 use sync::Store;
 
-/// `sync::sealed::Opens` over the installed keyring (`coding::sealing`).
-/// Cached secrets only: the ingest path never blocks (the key holder pulls
+/// `sync::sealed::Opens` over the process's keyring (`coding::sealing`: the
+/// key holder's, else the one preloaded from disk at connect). Cached
+/// secrets only: the ingest path never blocks (the key holder pulls
 /// `sessionKeys.mine` on start and every minute; a new wrap moves
 /// [`sealing::changed`] and the locked rows re-open).
 struct KeyringOpens;
 
 fn cached(root_id: &str) -> impl Fn(u32) -> Option<[u8; 32]> + '_ {
-    move |epoch| sealing::service().and_then(|service| service.keyring().secret(root_id, epoch))
+    move |epoch| sealing::cached_secret(root_id, epoch)
 }
 
 impl Opens for KeyringOpens {
@@ -50,8 +51,16 @@ impl Opens for KeyringOpens {
     }
 }
 
-/// How often the keyring's change counter is read (an atomic).
-const KEYS_POLL: Duration = Duration::from_secs(2);
+/// The keys `account` already holds, loaded from disk BEFORE its sync store
+/// hydrates: the first frame after a launch shows its sealed rows opened
+/// (the key holder, which needs the network, takes this same keyring).
+pub fn preload(account: &api::Account, data_dir: &std::path::Path) {
+    sealing::preload(sealing::keyring_path(data_dir, &account.id, false));
+}
+
+/// How often the keyring's change counter is read (an atomic): a key that
+/// arrives re-opens its locked rows within this.
+const KEYS_POLL: Duration = Duration::from_millis(500);
 
 /// Bootstrap (before the first account connects): the opener reads the
 /// keyring, and the closed rows re-open whenever new keys land.

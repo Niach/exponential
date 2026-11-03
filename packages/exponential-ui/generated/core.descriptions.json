@@ -1945,7 +1945,7 @@
           "description": "The field's key in the submitted data."
         },
         "checked": {
-          "description": "The state; bind it."
+          "description": "On or off."
         },
         "disabled": {
           "description": "Shows it inert."
@@ -2052,13 +2052,16 @@
           "description": "The field's key in the submitted data."
         },
         "checked": {
-          "description": "The state; bind it."
+          "description": "On or off."
         },
         "description": {
           "description": "A muted line under the label."
         },
         "disabled": {
           "description": "Shows it inert."
+        },
+        "size": {
+          "description": "compact = dense rows."
         }
       },
       "description": "A labelled on/off switch; bind `checked`.",

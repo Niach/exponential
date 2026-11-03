@@ -398,6 +398,7 @@ impl NewAgentPane {
                 trigger_dialog::open_edit_draft(window, cx, edit_draft.clone(), edit_trigger.clone())
             });
             let switch = crate::controls::web_switch(("new-agent-trigger-enabled", index))
+                .small()
                 .checked(enabled)
                 .on_click(cx.listener(move |this, on: &bool, _, cx| {
                     let next = trigger_editor::triggers_with_enabled(&this.triggers.borrow(), &trigger_id, *on);

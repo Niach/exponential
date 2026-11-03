@@ -291,6 +291,10 @@ structured query, below):
 | `limit=<n>` | default 100, capped at 500 |
 | `sum=<field>` | `sum` = Σ of the field over the matches (before `limit`) |
 | `by=<dateField>&month=YYYY-MM` | the month view: that month's rows only, `month` = {key, label, prev, next, today, days (every day with its count and sum), labels/counts/sums}; no `month` = the month of now |
+| `until=<endField>` | eApps U3: a row SPANS its `by` day to its `until` day (inclusive); the calendar views below place it on every day it covers |
+| `view=week&day=YYYY-MM-DD` | eApps U3: the week view (Monday first, the week holding `day`, default today): `week` = {key, label, prev, next, today, days, segments} |
+| `view=timeline&start=…&scale=week\|month\|quarter&columns=n&row=<field>` | eApps U3: the timeline: `timeline` = {scale, key, label, prev, next, today, columns, bands, rows: [{key, index, lanes, count, items}], now} |
+| `day=`, `lanes=1..8`, `tone=<field>` | eApps U3: the month view's selected day (its `agenda`), the lanes per week before "+N more" (default 3), the field a row's colour (`chart1`..`chart8`) comes from |
 | `app=<slug>` | another app's rows (the HOST decides which rows that is) |
 | `<field>=v` | a data field equals `v` (as text) |
 | `<field>.gt\|gte\|lt\|lte=v` | numbers when both parse, else text (code units) |
@@ -365,6 +369,21 @@ pointer) drops that part; the rest still runs.
   = null); `min` / `max` compare like the ranges; `first` / `last` in the
   sort order. The names `count`, `sum`, `running`, `rows` and a group
   column's are taken.
+
+**Calendar views** (eApps U3, `src/host/calendar.ts`, the Rust core's
+`host::calendar`, fixtures/records-query.json): the month view's `month`
+gains `weeks` (Monday-first, padding days included: `{key, days: 7 ×
+{date, day, weekday, initial, inMonth, weekend, today, selected, total,
+dots: [{tone}]}, segments}`), `day` (the selected day) and `agenda` (`{date, label,
+count, items: [{id, tone, start, end, days, row}]}`). A segment is `{id,
+col (1 = Monday), span, lane, contL, contR, tone, more, row}`: the spans
+crossing the week take the lowest free lane (first day, then the longer
+span, then the query's order); past `lanes` a day gets one `more: N`
+marker in lane `lanes`. The JSON form spells the views `month: {field,
+key?, until?, day?, lanes?, tone?}`, `week: {field, key?, until?, lanes?,
+tone?}` and `timeline: {field, until?, row?, scale?, start?, columns?,
+tone?}`, one per query. The `Calendar` and `Timeline` components draw them
+(catalog macros).
 
 **Named queries:** `queries: {<name>: <JSON query>}` (names
 `^[a-z][A-Za-z0-9_]{0,31}$`, each must parse clean, `from` a declared kind).

@@ -2831,6 +2831,15 @@
         },
         {
           "when": {
+            "size": "compact"
+          },
+          "style": {
+            "width": 28,
+            "height": 16
+          }
+        },
+        {
+          "when": {
             "checked": true
           },
           "style": {
@@ -2869,6 +2878,15 @@
             "borderRadius": "$radius.full",
             "backgroundColor": "$color.background",
             "boxShadow": "$shadow.sm"
+          }
+        },
+        {
+          "when": {
+            "size": "compact"
+          },
+          "style": {
+            "width": 12,
+            "height": 12
           }
         },
         {

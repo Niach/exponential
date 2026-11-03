@@ -98,9 +98,9 @@ arrive as `Event::CallFrame {seq, data}` in arrival order: eNet does no
 encoding and no timing, the app's codec (Opus) and jitter buffer do.
 Closing the connection ends the call (`Event::CallEnded {Local|Remote|Failed}`).
 
-## Push sealing
+## Push encryption
 
-For the push relay's `/push` API: the sender seals a small payload to
+For the push relay's `/push` API: the sender encrypts a small payload to
 the recipient install's X25519 public key, the relay forwards opaque bytes,
 the recipient's notification extension opens it (`push_open` needs no node).
 

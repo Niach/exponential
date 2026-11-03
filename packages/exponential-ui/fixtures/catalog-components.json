@@ -9692,6 +9692,32 @@
       }
     },
     {
+      "name": "Switch/size=default",
+      "node": {
+        "id": "switch",
+        "component": "Switch",
+        "props": {
+          "label": "Auto-scan",
+          "name": "autoScan",
+          "checked": true,
+          "size": "default"
+        }
+      }
+    },
+    {
+      "name": "Switch/size=compact",
+      "node": {
+        "id": "switch",
+        "component": "Switch",
+        "props": {
+          "label": "Auto-scan",
+          "name": "autoScan",
+          "checked": true,
+          "size": "compact"
+        }
+      }
+    },
+    {
       "name": "Slider/example",
       "node": {
         "id": "slider",

@@ -19,26 +19,29 @@ public struct CallButton: View {
     var tone: Tone
     var toggled: Bool
     var caption: String?
+    /// The circle's edge: `size` (56), or the call pill's compact 36.
+    var size: CGFloat
     var action: () -> Void
 
     public init(
         icon: String, label: String, tone: Tone = .neutral, toggled: Bool = false,
-        caption: String? = nil, action: @escaping () -> Void
+        caption: String? = nil, size: CGFloat = CallButton.size, action: @escaping () -> Void
     ) {
         self.icon = icon
         self.label = label
         self.tone = tone
         self.toggled = toggled
         self.caption = caption
+        self.size = size
         self.action = action
     }
 
     public var body: some View {
         VStack(spacing: 8) {
             Button(action: action) {
-                AppIcon(icon, size: Self.glyph, weight: .medium)
+                AppIcon(icon, size: size < Self.size ? 16 : Self.glyph, weight: .medium)
             }
-            .buttonStyle(CallButtonStyle(tone: tone, toggled: toggled))
+            .buttonStyle(CallButtonStyle(tone: tone, toggled: toggled, size: size))
             .accessibilityLabel(label)
             .accessibilityAddTraits(toggled ? .isSelected : [])
             if let caption {
@@ -54,12 +57,13 @@ public struct CallButton: View {
 private struct CallButtonStyle: ButtonStyle {
     let tone: CallButton.Tone
     let toggled: Bool
+    let size: CGFloat
 
     func makeBody(configuration: Configuration) -> some View {
         let inverted = tone == .neutral && (toggled || configuration.isPressed)
         configuration.label
             .foregroundStyle(inverted ? DesignTokens.Palette.background : DesignTokens.Palette.foreground)
-            .frame(width: CallButton.size, height: CallButton.size)
+            .frame(width: size, height: size)
             .background(Circle().fill(fill(inverted: inverted)))
             .opacity(tone == .destructive && configuration.isPressed ? 0.85 : 1)
             .contentShape(Circle())

@@ -1,7 +1,8 @@
 import { renderHook } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-// EXP-923 / EXP-1246: the sidebar occupant off the router state alone.
+// EXP-923 / EXP-1246 / #EXP-1672: the sidebar occupant and the card's second
+// sidebar off the router state alone.
 
 const location = vi.hoisted(() => ({
   value: { pathname: `/t/acme/agent`, search: {} as Record<string, unknown> },
@@ -12,7 +13,10 @@ vi.mock(`@tanstack/react-router`, () => ({
     select({ location: location.value }),
 }))
 
-import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
+import {
+  useSecondSidebar,
+  useSidebarOccupant,
+} from "@/hooks/use-sidebar-occupant"
 afterEach(() => {
   location.value = { pathname: `/t/acme/agent`, search: {} }
 })
@@ -39,33 +43,46 @@ describe(`useSidebarOccupant`, () => {
     })
   })
 
+  // #EXP-1672: the Inbox never folds the main menu — its list is the card's
+  // second sidebar.
+  it(`keeps the main menu on the inbox and beside an inbox detail`, () => {
+    for (const [pathname, search] of [
+      [`/t/acme/inbox`, {}],
+      [`/t/acme/boards/web/issues/MET-1`, { from: `inbox` }],
+    ] as const) {
+      location.value = { pathname, search }
+      expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
+        kind: `main`,
+      })
+    }
+  })
+})
+
+describe(`useSecondSidebar`, () => {
   // EXP-1246: the diff face no longer swaps the panel — the inbox stays.
   it(`keeps the inbox beside an issue on any face`, () => {
     location.value = {
       pathname: `/t/acme/boards/web/issues/MET-1`,
       search: { view: `diff`, from: `inbox` },
     }
-    expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
-      kind: `list`,
-      origin: { kind: `inbox` },
+    expect(renderHook(() => useSecondSidebar()).result.current).toEqual({
+      kind: `inbox`,
     })
   })
 
   it(`reads the inbox page's tab`, () => {
     location.value = { pathname: `/t/acme/inbox`, search: { tab: `my-issues` } }
-    expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
-      kind: `list`,
-      origin: { kind: `inbox`, tab: `my-issues` },
+    expect(renderHook(() => useSecondSidebar()).result.current).toEqual({
+      kind: `inbox`,
+      tab: `my-issues`,
     })
   })
 
-  it(`keeps the main menu for a running-origin detail`, () => {
+  it(`shows none for a running-origin detail`, () => {
     location.value = {
       pathname: `/t/acme/sessions/s1`,
       search: { from: `running` },
     }
-    expect(renderHook(() => useSidebarOccupant()).result.current).toEqual({
-      kind: `main`,
-    })
+    expect(renderHook(() => useSecondSidebar()).result.current).toBeNull()
   })
 })

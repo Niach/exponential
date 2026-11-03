@@ -107,6 +107,11 @@ impl Keyring {
         }
     }
 
+    /// The file this keyring persists to (`None` = in memory).
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
     /// Rises whenever a secret or a public key arrives: a reader that
     /// showed a locked row re-opens it.
     pub fn changed(&self) -> u64 {
@@ -363,6 +368,10 @@ pub trait SealService: Send + Sync {
 }
 
 static SERVICE: RwLock<Option<Arc<dyn SealService>>> = RwLock::new(None);
+/// The install's persisted keyring, loaded from disk at boot ([`preload`])
+/// before its key holder runs: the holder needs a registered install and a
+/// running eNet node (network), the reader only the secrets it already has.
+static PRELOADED: RwLock<Option<Arc<Keyring>>> = RwLock::new(None);
 static FALLBACK: std::sync::OnceLock<Keyring> = std::sync::OnceLock::new();
 
 /// #FEED-184: this process WILL have a seal service (its eNet node is
@@ -386,6 +395,38 @@ pub fn install(service: Arc<dyn SealService>) {
 pub fn uninstall() {
     *write(&SERVICE) = None;
     GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+/// The keyring persisted at `path`, loaded now and made the process's
+/// reading keyring until a key holder is installed (which then takes THIS
+/// keyring: it calls [`preload`] with the same path): sealed rows open from the first frame
+/// after a launch instead of once the install registered. Idempotent per
+/// path; another path (an account switch) replaces it.
+pub fn preload(path: PathBuf) -> Arc<Keyring> {
+    if let Some(keyring) = read(&PRELOADED).as_ref().filter(|k| k.path() == Some(path.as_path())) {
+        return Arc::clone(keyring);
+    }
+    let keyring = Arc::new(Keyring::load(path));
+    *write(&PRELOADED) = Some(Arc::clone(&keyring));
+    GENERATION.fetch_add(1, Ordering::SeqCst);
+    keyring
+}
+
+/// Drops the preloaded keyring of `path` (sign-out); another path's stays.
+pub fn unload(path: &Path) {
+    let mut preloaded = write(&PRELOADED);
+    if preloaded.as_ref().is_some_and(|k| k.path() == Some(path)) {
+        *preloaded = None;
+        drop(preloaded);
+        GENERATION.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+/// The secret of `root`'s `epoch` in the process's reading keyring (the
+/// holder's, else the preloaded one): what a UI opens rows with. Never
+/// blocks, never fetches.
+pub fn cached_secret(root_id: &str, epoch: u32) -> Option<[u8; 32]> {
+    with_keyring(|keyring| keyring.secret(root_id, epoch))
 }
 
 pub fn service() -> Option<Arc<dyn SealService>> {
@@ -449,10 +490,15 @@ pub fn wake_holder() {
     }
 }
 
-/// The installed keyring (an empty in-memory one when there is no service).
+/// The installed keyring, else the preloaded one ([`preload`]), else an
+/// empty in-memory one.
 fn with_keyring<R>(f: impl FnOnce(&Keyring) -> R) -> R {
-    match service() {
-        Some(service) => f(service.keyring()),
+    if let Some(service) = service() {
+        return f(service.keyring());
+    }
+    let preloaded = read(&PRELOADED).clone();
+    match preloaded {
+        Some(keyring) => f(&keyring),
         None => f(FALLBACK.get_or_init(Keyring::in_memory)),
     }
 }
@@ -540,7 +586,7 @@ impl std::fmt::Display for SealError {
             SealError::NoKey(why) => write!(f, "no tree key: {why}"),
             SealError::NoHolder => write!(
                 f,
-                "this chat is sealed and this device's key holder is not running (signed out, offline or not registered when the session started); restart the app or daemon while signed in and online, then send again"
+                "this chat is end-to-end encrypted and this device's key holder is not running (signed out, offline or not registered when the session started); restart the app or daemon while signed in and online, then send again"
             ),
             SealError::Invalid(why) => write!(f, "{why}"),
         }
@@ -668,7 +714,7 @@ fn opening<T>(root_id: &str, open: impl Fn(&dyn Fn(u32) -> Option<[u8; 32]>) -> 
     let service = service();
     let keyring_open = |keyring: &Keyring| open(&|epoch| keyring.secret(root_id, epoch));
     let Some(service) = service else {
-        return keyring_open(FALLBACK.get_or_init(Keyring::in_memory)).1;
+        return with_keyring(|keyring| keyring_open(keyring).1);
     };
     let (status, value) = keyring_open(service.keyring());
     if status != OpenStatus::NoKey || !service.keyring().may_fetch(root_id) {
@@ -726,7 +772,7 @@ pub fn open_body_text_waiting(root_id: &str, body: &str, wait: Duration, step: D
 }
 
 /// The placeholder an agent reads for content this install cannot open.
-pub const LOCKED_TEXT: &str = "[sealed content this device cannot open yet]";
+pub const LOCKED_TEXT: &str = "[encrypted content this device cannot open yet]";
 
 /// A message row with its body and card opened (the agent-facing copy).
 /// Content this install cannot open reads [`LOCKED_TEXT`]; a locked card
@@ -1021,6 +1067,60 @@ mod tests {
         install_fake();
         assert_ne!(changed(), before);
         uninstall();
+    }
+
+    /// Cold start (`sealed-content.json` `coldStart`): the keys persisted by
+    /// the last run open the rows before any key holder runs (no install
+    /// registered, no network); a key landing later re-opens them; the
+    /// holder then runs on that SAME keyring (the roots the rows taught it
+    /// stay).
+    #[test]
+    fn a_cold_start_opens_with_the_persisted_keys_before_the_holder() {
+        let _serial = serial();
+        uninstall();
+        let fx = fixture();
+        let dir = std::env::temp_dir().join(format!("exp-sealing-cold-{}", std::process::id()));
+        for (i, case) in fx["coldStart"]["cases"].as_array().unwrap().iter().enumerate() {
+            let name = case["name"].as_str().unwrap();
+            assert_eq!(case["holder"], "none", "{name}");
+            let path = dir.join(format!("seal-keys-{i}"));
+            let _ = std::fs::remove_file(&path);
+            // What the previous run stored.
+            let previous = Keyring::load(path.clone());
+            for (epoch, secret) in case["persisted"].as_object().unwrap() {
+                previous.insert_secret("root-1", epoch.parse().unwrap(), hex32(secret));
+            }
+            drop(previous);
+            let body = case["body"].as_str().unwrap();
+            let before = changed();
+            let keyring = preload(path.clone());
+            assert_ne!(changed(), before, "{name}: the preload re-opens rows shown locked");
+            let first = open_body("root-1", body);
+            assert_eq!(first.status.as_str(), case["firstFrame"].as_str().unwrap(), "{name}: first frame");
+            if case["firstFrame"] == "opened" {
+                assert_eq!(first.text.as_deref(), case["text"].as_str(), "{name}");
+            }
+            let seen = changed();
+            for (epoch, secret) in case["arrives"].as_object().into_iter().flatten() {
+                keyring.insert_secret("root-1", epoch.parse().unwrap(), hex32(secret));
+                assert_ne!(changed(), seen, "{name}: an arriving key re-opens the rows");
+            }
+            let after = open_body("root-1", body);
+            assert_eq!(after.status.as_str(), case["after"].as_str().unwrap(), "{name}: after");
+            if case["after"] == "opened" {
+                assert_eq!(after.text.as_deref(), case["text"].as_str(), "{name}");
+            }
+            // The holder registers later and takes the same keyring.
+            note_sessions(&[SessionRow { id: "child".into(), root_id: Some("root-1".into()), ..Default::default() }]);
+            assert!(Arc::ptr_eq(&keyring, &preload(path.clone())), "{name}");
+            assert_eq!(keyring.root_of("child").as_deref(), Some("root-1"), "{name}");
+            // Another account's node stopping leaves it; its own sign-out drops it.
+            unload(&dir.join("other"));
+            assert!(read(&PRELOADED).is_some(), "{name}");
+            unload(&path);
+            assert!(read(&PRELOADED).is_none(), "{name}");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

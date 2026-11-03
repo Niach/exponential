@@ -341,12 +341,12 @@ async function claimAttachments(
   await tx.execute(sql`UPDATE messages SET body = ${body} WHERE id = ${args.messageId}`)
 }
 
-export const SEALED_NO_KEY_MESSAGE = `This chat has no key for sealed messages yet: pass seal with the first one`
+export const SEALED_NO_KEY_MESSAGE = `This chat has no key for encrypted messages yet: pass seal with the first one`
 
 /** EXP-1458: a sealed text names an epoch its tree has (a keyless tree, or
  *  a future epoch, could never be opened by anyone). */
 async function assertSealedForTree(tx: Tx, rootId: string, text: string): Promise<void> {
-  if (!validSealedBody(text)) throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid sealed text` })
+  if (!validSealedBody(text)) throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid encrypted text` })
   const envelope = parseBodyEnvelope(text)
   if (envelope.kind !== `sealed`) return
   const [root] = await tx.select({ sealEpoch: sessions.sealEpoch }).from(sessions).where(eq(sessions.id, rootId)).limit(1)
@@ -356,7 +356,7 @@ async function assertSealedForTree(tx: Tx, rootId: string, text: string): Promis
   }
 }
 
-export const PLAIN_IN_SEALED_TREE_MESSAGE = `This chat is sealed: its messages must be sealed too`
+export const PLAIN_IN_SEALED_TREE_MESSAGE = `This chat is end-to-end encrypted: its messages must be encrypted too`
 
 /** #FEED-184: the first desktop/CLI release whose agents seal every send
  *  and card answer, even when launched before the device's key holder ran. */
@@ -373,14 +373,14 @@ export async function plainWriterHint(
   // (an MCP client outside one, or an app that did not seal): say so
   // instead of blaming devices that may well be current.
   if (!writerSessionId) {
-    return `: this sender is not an Exponential session (an MCP client outside a session cannot seal). Send from the web, iOS or Android app, or from a session on ${needs}`
+    return `: this sender is not an Exponential session (an MCP client outside a session cannot encrypt). Send from the web, iOS or Android app, or from a session on ${needs}`
   }
   const [session] = await database
     .select({ userId: sessions.userId, deviceId: sessions.deviceId })
     .from(sessions)
     .where(eq(sessions.id, writerSessionId))
     .limit(1)
-  if (!session) return `: sealing needs ${needs} (or an up-to-date web, iOS or Android app)`
+  if (!session) return `: encryption needs ${needs} (or an up-to-date web, iOS or Android app)`
   // #FEED-186: devices rows are per (user, deviceId): a teammate's session
   // on a shared device has no row under its starter, so read the device by
   // id, the starter's own row first, else the latest-seen one.
@@ -391,7 +391,7 @@ export async function plainWriterHint(
     .orderBy(sql`(${devices.userId} = ${session.userId}) DESC`, sql`${devices.lastSeenAt} DESC NULLS LAST`)
     .limit(1)
   if (!writer) {
-    return `: its device ${session.deviceId} is not registered. Sealing needs ${needs}, signed in on that machine`
+    return `: its device ${session.deviceId} is not registered. Encryption needs ${needs}, signed in on that machine`
   }
   const app = writer.kind === `desktop` ? `desktop app` : `CLI`
   const version = writer.version ? ` ${writer.version}` : ``
@@ -402,7 +402,7 @@ export async function plainWriterHint(
   if (writerSeals(writer.version)) {
     return `: device "${writer.label}" (${app}${version}) sent it in clear because its key holder was not running (signed out, offline or not registered when the session started). Restart its ${restart} while signed in and online, then send again`
   }
-  return `: device "${writer.label}" (${app}${version}) sent it in clear. Sealing needs ${needs}: update it and restart its ${restart}`
+  return `: device "${writer.label}" (${app}${version}) sent it in clear. Encryption needs ${needs}: update it and restart its ${restart}`
 }
 
 /** #FEED-185: the writer's release seals every send (unknown = no). */

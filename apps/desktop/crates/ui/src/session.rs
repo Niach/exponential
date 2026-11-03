@@ -130,6 +130,9 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
         // The desktop syncs all 23 shapes; only the CLI daemon subsets.
         shapes: None,
     };
+    // Sealed rows open from the first frame: the persisted tree keys are
+    // in memory before the store hydrates its rows.
+    crate::sealing::preload(account, &auth.data_dir);
     match store.connect(config, cx) {
         Ok(_) => {
             // §08 device presence: dial the steer control socket for this

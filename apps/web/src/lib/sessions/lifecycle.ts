@@ -239,7 +239,7 @@ function checkSealedReport(
 ): { card: MessageCard; copies: ListenerCopy[] } {
   for (const each of [card, ...(copies ?? []).map((copy) => copy.card)]) {
     if (each.kind !== `report` || !validSealedCard(each)) {
-      throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid sealed report` })
+      throw new TRPCError({ code: `BAD_REQUEST`, message: `Invalid encrypted report` })
     }
   }
   return {

@@ -72,10 +72,15 @@ export class KeyHolder {
 
   /** The cache first (content opens offline), then every wrap the server holds. */
   async start(): Promise<void> {
+    await this.loadCache()
+    await this.refresh()
+  }
+
+  /** The keys this install cached (IndexedDB), no network. */
+  async loadCache(): Promise<void> {
     const cached = await this.deps.store.all(this.userId).catch(() => [])
     for (const key of cached) this.hold(key.rootId, key.epoch, key.secret)
     if (cached.length > 0) this.notify()
-    await this.refresh()
   }
 
   stop() {
@@ -244,4 +249,40 @@ function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = []
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size))
   return out
+}
+
+/** The keys this install cached on its last run, readable BEFORE its install
+ *  is resolved (`installs.mine`, a network call): a cold start opens sealed
+ *  content on its first render, offline too (fixtures/sealed-content.json
+ *  `coldStart`). Read-only: it never asks for wraps (the holder's first
+ *  pass, once it runs, fetches every wrap). */
+export class CachedKeys {
+  private keys = new Map<string, Map<number, Uint8Array>>()
+
+  constructor(readonly userId: string) {}
+
+  static async load(userId: string, store: TreeKeyStore): Promise<CachedKeys> {
+    const out = new CachedKeys(userId)
+    for (const key of await store.all(userId).catch(() => [])) {
+      let epochs = out.keys.get(key.rootId)
+      if (!epochs) out.keys.set(key.rootId, (epochs = new Map()))
+      epochs.set(key.epoch, key.secret)
+    }
+    return out
+  }
+
+  get size(): number {
+    return this.keys.size
+  }
+
+  keysFor(rootId: string): TreeKeys {
+    return this.keys.get(rootId) ?? EMPTY
+  }
+
+  request(_rootId: string, _epoch: number | null) {}
+
+  clear() {
+    for (const epochs of this.keys.values()) for (const secret of epochs.values()) secret.fill(0)
+    this.keys.clear()
+  }
 }

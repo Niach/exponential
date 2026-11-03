@@ -156,23 +156,53 @@ pub fn validate_record_computed(kind: &Value, at: &str) -> Vec<PackageIssue> {
     issues
 }
 
-/// A month view's value (`RecordsMonth`).
-fn month_type() -> Value {
+/// eApps U3: a calendar day cell (calendar.rs).
+fn day_cell_type() -> Value {
+    json!({"date": "date", "day": "number", "weekday": "string", "initial": "string", "inMonth": "bool", "weekend": "bool", "today": "bool", "selected": "bool", "total": "number", "dots": [{"tone": "string"}]})
+}
+
+/// eApps U3: a week segment (a "+N more" marker has no tone and no row).
+fn segment_type(row: &Value) -> Value {
+    json!({"id": "string", "col": "number", "span": "number", "lane": "number", "contL": "bool", "contR": "bool", "tone": optional_type(ty("string")), "more": "number", "row": optional_type(row.clone())})
+}
+
+/// A month view's value (`RecordsMonth`; eApps U3: + weeks, day, agenda).
+fn month_type(row: &Value) -> Value {
     json!({
         "key": "string", "label": "string", "prev": "string", "next": "string", "today": "date",
         "days": [{"date": "date", "day": "number", "weekday": "string", "count": "number", "sum": "number", "running": optional_type(ty("map"))}],
-        "labels": ["string"], "counts": ["number"], "sums": ["number"]
+        "labels": ["string"], "counts": ["number"], "sums": ["number"],
+        "weeks": [{"key": "date", "days": [day_cell_type()], "segments": [segment_type(row)]}],
+        "day": "date",
+        "agenda": {"date": "date", "label": "string", "count": "number", "items": [{"id": "string", "tone": "string", "start": "date", "end": "date", "days": "number", "row": row}]}
+    })
+}
+
+/// eApps U3: the week view's value.
+fn week_type(row: &Value) -> Value {
+    json!({"key": "date", "label": "string", "prev": "date", "next": "date", "today": "date", "days": [day_cell_type()], "segments": [segment_type(row)]})
+}
+
+/// eApps U3: the timeline's value.
+fn timeline_type(row: &Value) -> Value {
+    json!({
+        "scale": "string", "key": "date", "label": "string", "prev": "date", "next": "date", "today": "date",
+        "columns": [{"key": "date", "label": "string", "end": "date", "today": "bool"}],
+        "bands": [{"label": "string", "col": "number", "span": "number"}],
+        "rows": [{"key": "string", "index": "number", "lanes": "number", "count": "number", "items": [{"id": "string", "rowIndex": "number", "col": "number", "span": "number", "lane": "number", "contL": "bool", "contR": "bool", "tone": "string", "row": row}]}],
+        "now": optional_type(json!({"col": "number", "percent": "number"}))
     })
 }
 
 /// The value a records binding lands (docs/package-format.md "Records").
 /// VAPP-204: what the binding's query leaves out may be missing (`T?`):
 /// `sum` without a sum, `month` without a month view, `groups` without a
-/// group, `totals` without an aggregate, `before` without a before; with no
-/// query known, all of them.
+/// group, `totals` without an aggregate, `before` without a before (eApps
+/// U3: `week`, `timeline` without theirs); with no query known, all of them.
 pub fn records_value_type(kind: Option<&Value>, query: Option<&RecordsQuery>) -> Value {
     let has = |present: Option<bool>, t: Value| if present == Some(true) { t } else { optional_type(t) };
     let mut row = record_row_type(kind);
+    let plain = row.clone();
     if let (Some(q), Value::Object(m)) = (query, &mut row) {
         if !q.running.is_empty() && q.group.is_empty() {
             m.insert("running".into(), ty("map"));
@@ -185,7 +215,9 @@ pub fn records_value_type(kind: Option<&Value>, query: Option<&RecordsQuery>) ->
     out.insert("groups".into(), has(query.map(|q| !q.group.is_empty()), json!(["map"])));
     out.insert("totals".into(), has(query.map(|q| !q.aggregate.is_empty()), ty("map")));
     out.insert("before".into(), has(query.map(|q| q.before.is_some()), ty("map")));
-    out.insert("month".into(), has(query.map(|q| q.month.is_some()), month_type()));
+    out.insert("month".into(), has(query.map(|q| q.month.is_some()), month_type(&plain)));
+    out.insert("week".into(), has(query.map(|q| q.week.is_some()), week_type(&plain)));
+    out.insert("timeline".into(), has(query.map(|q| q.timeline.is_some()), timeline_type(&plain)));
     Value::Object(out)
 }
 
