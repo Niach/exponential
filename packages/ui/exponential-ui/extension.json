@@ -155,9 +155,9 @@
       "kind": "native", "group": "feedback", "lite": true, "children": "none",
       "description": "The small state dot (live, attention, done, unread, idle, muted) with an optional ping halo.",
       "props": {
-        "tone": { "type": "enum", "enum": "liveTone", "required": true, "description": "Which state it shows." },
+        "tone": { "type": "enum", "enum": "liveTone", "required": true, "bindable": true, "description": "Which state it shows." },
         "ping": { "type": "boolean", "default": false, "description": "Animates the halo." },
-        "label": { "type": "string", "description": "An accessibility label." }
+        "label": { "type": "string", "description": "An accessibility label.", "bindable": true }
       },
       "example": { "tone": "live", "ping": true, "label": "Running" }
     },
@@ -165,8 +165,8 @@
       "kind": "native", "group": "feedback", "lite": true, "children": "none",
       "description": "An icon on a tinted disc, the onboarding and empty-state glyph.",
       "props": {
-        "icon": { "type": "icon", "required": true, "description": "The icon concept." },
-        "tone": { "type": "enum", "values": ["primary", "success", "danger", "muted"], "default": "primary", "description": "The disc tint." }
+        "icon": { "type": "icon", "required": true, "description": "The icon concept.", "bindable": true },
+        "tone": { "type": "enum", "values": ["primary", "success", "danger", "muted"], "default": "primary", "bindable": true, "description": "The disc tint." }
       },
       "example": { "icon": "nav-devices", "tone": "primary" }
     },

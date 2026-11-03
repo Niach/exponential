@@ -97,9 +97,6 @@
           {
             "id": "root",
             "component": "Button",
-            "props": {
-              "label": "Log"
-            },
             "on": {
               "press": {
                 "functionCall": {
@@ -114,7 +111,8 @@
                   }
                 }
               }
-            }
+            },
+            "label": "Log"
           }
         ],
         "data": {

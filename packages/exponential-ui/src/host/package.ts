@@ -3,7 +3,7 @@
 
 import { A2UI_BASIC_CATALOG_ID, CORE_CATALOG_ID, CORE_LITE_CATALOG_ID } from "../catalog"
 import { A2UI_VERSION } from "../catalog"
-import type { FlatComponent } from "../types"
+import type { ExtensionDef, FlatComponent } from "../types"
 import type { ServerMessage } from "./contract"
 import { matchesPattern } from "./policy"
 import { parseSource } from "./sources"
@@ -18,6 +18,7 @@ import type { PackageExpose } from "./exposes"
 import { validatePackageExpressions } from "./expressions"
 import { validatePackageActions, validatePackageEffects } from "./actions"
 import { packageTestIssues, validatePackageTests } from "./tests"
+import { validatePackageComponents } from "./components"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
@@ -114,11 +115,14 @@ export interface AvailableExtension {
   version?: string
   /** Unset = not checked. */
   components?: readonly string[]
+  /** VAPP-203: its definition, so install checks its components' props
+   *  (unset = its component names stay open). */
+  def?: ExtensionDef
 }
 
 /** A host's extension catalogs as `validatePackage` checks them. */
-export function availableExtensions(defs: readonly { id: string; version?: string; components: Record<string, unknown>; macros?: Record<string, unknown> }[]): AvailableExtension[] {
-  return defs.map((d) => ({ id: d.id, ...(d.version ? { version: d.version } : {}), components: [...Object.keys(d.components), ...Object.keys(d.macros ?? {})] }))
+export function availableExtensions(defs: readonly ExtensionDef[]): AvailableExtension[] {
+  return defs.map((d) => ({ id: d.id, ...(d.version ? { version: d.version } : {}), components: [...Object.keys(d.components), ...Object.keys(d.macros ?? {})], def: d }))
 }
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/
@@ -248,6 +252,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
           issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `query ${name} names no package query` })
       })
     }
+  // VAPP-203: every template reduces clean, as the host will render it.
+  issues.push(...validatePackageComponents(pkg, catalogIds, (extensions ?? []).flatMap((e) => (e.def ? [e.def] : []))))
   // VAPP-191: every expression in a template parses and type-checks.
   issues.push(...validatePackageExpressions(pkg))
   // VAPP-194: bindings are pure; actions are checked step by step.

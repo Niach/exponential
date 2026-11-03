@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object.",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open.",
   "packages": {
     "acme.devices": {
       "formatVersion": 3,
@@ -12,7 +12,7 @@
           "components": [
             {
               "id": "root",
-              "component": "Column",
+              "component": "Stack",
               "children": [
                 "title"
               ]
@@ -123,7 +123,8 @@
           "components": [
             {
               "id": "root",
-              "component": "Text"
+              "component": "Text",
+              "text": "Hi"
             }
           ],
           "bindings": [
@@ -153,7 +154,7 @@
           "components": [
             {
               "id": "root",
-              "component": "Column",
+              "component": "Stack",
               "children": [
                 "title"
               ]
@@ -260,7 +261,7 @@
           "components": [
             {
               "id": "root",
-              "component": "Column"
+              "component": "Stack"
             }
           ]
         }
@@ -405,7 +406,8 @@
           "components": [
             {
               "id": "root",
-              "component": "Text"
+              "component": "Text",
+              "text": "Hi"
             }
           ],
           "bindings": [
@@ -548,8 +550,23 @@
           "components": [
             {
               "id": "root",
+              "component": "Stack",
+              "children": [
+                "title",
+                "gantt"
+              ]
+            },
+            {
+              "id": "title",
               "component": "Text",
               "text": "Hi"
+            },
+            {
+              "id": "gantt",
+              "component": "Gantt",
+              "rows": {
+                "path": "/rows"
+              }
             }
           ]
         }
@@ -575,7 +592,7 @@
           "components": [
             {
               "id": "root",
-              "component": "Column"
+              "component": "Stack"
             }
           ]
         }
@@ -725,7 +742,7 @@
           "components": [
             {
               "id": "root",
-              "component": "Column"
+              "component": "Stack"
             }
           ]
         }
@@ -974,7 +991,7 @@
           "components": [
             {
               "id": "root",
-              "component": "Column"
+              "component": "Stack"
             }
           ]
         }
@@ -1183,6 +1200,80 @@
       "queries": [
         "month"
       ]
+    },
+    "acme.badcomponents": {
+      "formatVersion": 3,
+      "id": "acme.badcomponents",
+      "name": "Bad components",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "main": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "missing1",
+                "x",
+                "bare",
+                "typed"
+              ],
+              "slots": {
+                "header": "nowhere"
+              }
+            },
+            {
+              "id": "x",
+              "component": "NoSuchThing"
+            },
+            {
+              "id": "bare",
+              "component": "Text"
+            },
+            {
+              "id": "typed",
+              "component": "Text",
+              "text": 5,
+              "nope": 1
+            },
+            {
+              "id": "list",
+              "component": "List",
+              "children": {
+                "componentId": "row",
+                "path": "/rows"
+              }
+            }
+          ]
+        },
+        "rows": {
+          "components": [
+            {
+              "id": "root",
+              "component": "List",
+              "children": {
+                "componentId": "row",
+                "path": "/rows"
+              }
+            }
+          ]
+        },
+        "shape": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": 7,
+              "slots": [
+                "a"
+              ],
+              "on": "press",
+              "style": 1
+            }
+          ]
+        }
+      }
     }
   },
   "flows": [
@@ -1856,7 +1947,7 @@
               "components": [
                 {
                   "id": "root",
-                  "component": "Column",
+                  "component": "Stack",
                   "children": [
                     "title"
                   ]
@@ -1908,7 +1999,7 @@
               "components": [
                 {
                   "id": "root",
-                  "component": "Column",
+                  "component": "Stack",
                   "children": [
                     "title"
                   ]
@@ -2163,7 +2254,7 @@
               "components": [
                 {
                   "id": "root",
-                  "component": "Column",
+                  "component": "Stack",
                   "children": [
                     "title"
                   ]
@@ -2802,6 +2893,59 @@
         {
           "path": "/queries",
           "message": "queries is an object of named queries"
+        }
+      ]
+    },
+    {
+      "package": "acme.badcomponents",
+      "expected": [
+        {
+          "path": "/templates/main/components/0/children/0",
+          "message": "missing1: no component with this id"
+        },
+        {
+          "path": "/templates/main/components/1",
+          "message": "unknown component NoSuchThing"
+        },
+        {
+          "path": "/templates/main/components/2",
+          "message": "props.text: required"
+        },
+        {
+          "path": "/templates/main/components/3",
+          "message": "props.text: expected a string"
+        },
+        {
+          "path": "/templates/main/components/3",
+          "message": "props.nope: unknown prop"
+        },
+        {
+          "path": "/templates/main/components/0/slots/header",
+          "message": "nowhere: no component with this id"
+        },
+        {
+          "path": "/templates/main/components/0",
+          "message": "slots.header: Stack has no such slot"
+        },
+        {
+          "path": "/templates/rows/components/0/children/componentId",
+          "message": "row: template: no component with this id"
+        },
+        {
+          "path": "/templates/shape/components/0/children",
+          "message": "children is a list of ids or {componentId, path, key?}"
+        },
+        {
+          "path": "/templates/shape/components/0/slots",
+          "message": "slots is an object of component ids"
+        },
+        {
+          "path": "/templates/shape/components/0/on",
+          "message": "on is an object of actions"
+        },
+        {
+          "path": "/templates/shape/components/0/style",
+          "message": "style is an object"
         }
       ]
     }

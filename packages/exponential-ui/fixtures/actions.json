@@ -167,7 +167,7 @@
         "components": [
           {
             "id": "root",
-            "component": "Column",
+            "component": "Stack",
             "children": [
               "total",
               "log"
@@ -176,27 +176,22 @@
           {
             "id": "total",
             "component": "Text",
-            "props": {
-              "text": {
-                "call": "expr",
-                "args": {
-                  "expr": "formatDuration(h, 'h:mm')",
-                  "vars": {
-                    "h": {
-                      "path": "/form/hours"
-                    }
-                  },
-                  "default": null
-                }
+            "text": {
+              "call": "expr",
+              "args": {
+                "expr": "formatDuration(h, 'h:mm')",
+                "vars": {
+                  "h": {
+                    "path": "/form/hours"
+                  }
+                },
+                "default": null
               }
             }
           },
           {
             "id": "log",
             "component": "Button",
-            "props": {
-              "label": "Log"
-            },
             "on": {
               "press": {
                 "functionCall": {
@@ -211,7 +206,8 @@
                   }
                 }
               }
-            }
+            },
+            "label": "Log"
           }
         ],
         "data": {
@@ -482,7 +478,7 @@
             "components": [
               {
                 "id": "root",
-                "component": "Column",
+                "component": "Stack",
                 "children": [
                   "t"
                 ]
@@ -490,13 +486,11 @@
               {
                 "id": "t",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "records.upsert",
-                    "args": {
-                      "kind": "entry",
-                      "data": {}
-                    }
+                "text": {
+                  "call": "records.upsert",
+                  "args": {
+                    "kind": "entry",
+                    "data": {}
                   }
                 }
               }
@@ -506,7 +500,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/props/text/call",
+          "path": "/templates/month/components/1/text/call",
           "message": "records.upsert writes: a binding is pure, name an action in on.press"
         }
       ]
@@ -519,7 +513,7 @@
             "components": [
               {
                 "id": "root",
-                "component": "Column",
+                "component": "Stack",
                 "children": [
                   "t"
                 ]
@@ -527,12 +521,10 @@
               {
                 "id": "t",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "harness.toast",
-                    "args": {
-                      "message": "hi"
-                    }
+                "text": {
+                  "call": "harness.toast",
+                  "args": {
+                    "message": "hi"
                   }
                 }
               }
@@ -542,7 +534,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/props/text/call",
+          "path": "/templates/month/components/1/text/call",
           "message": "harness.toast is a host function: a binding is pure, name an action in on.press"
         }
       ]
@@ -555,7 +547,7 @@
             "components": [
               {
                 "id": "root",
-                "component": "Column",
+                "component": "Stack",
                 "children": [
                   "b"
                 ]
@@ -563,9 +555,6 @@
               {
                 "id": "b",
                 "component": "Button",
-                "props": {
-                  "label": "x"
-                },
                 "on": {
                   "press": {
                     "functionCall": {
@@ -581,7 +570,8 @@
                       }
                     }
                   }
-                }
+                },
+                "label": "x"
               }
             ]
           }
@@ -602,7 +592,7 @@
             "components": [
               {
                 "id": "root",
-                "component": "Column",
+                "component": "Stack",
                 "children": [
                   "b"
                 ]
@@ -610,16 +600,14 @@
               {
                 "id": "b",
                 "component": "Button",
-                "props": {
-                  "label": "x"
-                },
                 "on": {
                   "press": {
                     "functionCall": {
                       "call": "actions.nope"
                     }
                   }
-                }
+                },
+                "label": "x"
               }
             ]
           }
@@ -640,7 +628,7 @@
             "components": [
               {
                 "id": "root",
-                "component": "Column",
+                "component": "Stack",
                 "children": [
                   "b"
                 ]
@@ -648,9 +636,6 @@
               {
                 "id": "b",
                 "component": "Button",
-                "props": {
-                  "label": "x"
-                },
                 "on": {
                   "press": {
                     "functionCall": {
@@ -660,7 +645,8 @@
                       }
                     }
                   }
-                }
+                },
+                "label": "x"
               }
             ]
           }
@@ -676,7 +662,7 @@
             "components": [
               {
                 "id": "root",
-                "component": "Column",
+                "component": "Stack",
                 "children": [
                   "t"
                 ]
@@ -684,14 +670,12 @@
               {
                 "id": "t",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "records.upsert(1)",
-                      "vars": {},
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "records.upsert(1)",
+                    "vars": {},
+                    "default": null
                   }
                 }
               }
@@ -701,7 +685,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/1/props/text/args/expr",
+          "path": "/templates/month/components/1/text/args/expr",
           "message": "at 0: records.upsert writes: an expression is pure, use an action step"
         }
       ]

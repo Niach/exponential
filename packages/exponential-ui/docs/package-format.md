@@ -51,6 +51,21 @@ Required: `formatVersion`, `id`, `name`, `version`, `catalogId`,
 `templates`. Everything else is optional (`functions`, `sources`, `theme`,
 `icon`, `description`, `records` kinds: `catalog/host.json` `package`).
 
+**Components are checked at install (VAPP-203):** `validatePackage` reduces
+every template exactly as the renderer will (`reduceSurface`), so a surface
+that would render broken never installs. An unknown component, a missing,
+unknown or mistyped prop, a slot the component has not, a cycle or a style
+mistake is an issue at the component's entry
+(`/templates/<id>/components/<i>`, the reducer's message, e.g. `props.text:
+required`); an id no component has is an issue at every place that names it
+(`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, `<id>: no
+component with this id`); a `children`, `slots`, `on` or `style` of the wrong
+shape is an issue at that key. Extension components are checked against the
+extension's definition when the host has it (TS: `AvailableExtension.def`,
+filled by `availableExtensions(defs)`; Rust: `validate_package_in` with a
+`CatalogView`); without one their names stay open. A component no tree
+reaches (neither the root nor a list's row template) is not checked.
+
 ## Records
 
 An app's own data. `records: {<kind>: {schema, title?, description?, policy?}}`
