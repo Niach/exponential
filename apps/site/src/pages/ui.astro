@@ -1,0 +1,50 @@
+---
+/* eUI's product page: a headline and a visual per section. Product pages
+   live in src/pages (StarlightPage = the docs' header, search and theme);
+   the docs collection, and so llms.txt, stays reference-only. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import catalog from "@exponential_app/eui/catalog/core.catalog.json"
+import manifest from "@exponential_app/eui/conformance/manifest.json"
+import EuiSurface from "../components/eui/EuiSurface.tsx"
+import { DEPLOY_CARD, MOTION_GALLERY, SETTINGS_DATA, SETTINGS_FORM } from "../components/eui/trees.ts"
+import PlatformShots from "../components/PlatformShots.astro"
+
+const components = Object.keys(catalog.components).length
+const cases = manifest.suites.reduce((n, s) => n + s.cases, 0).toLocaleString(`en-US`)
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `eUI`,
+    description: `Agents send interfaces as data; React, Solid, web components, SwiftUI, Compose and gpui paint them natively.`,
+    template: `splash`,
+    hero: {
+      tagline: `Agents send UI as data. Every platform paints it natively.`,
+      actions: [
+        { text: `Get started`, link: `/docs/libraries/eui/guides/`, icon: `right-arrow` },
+        { text: `Components`, link: `/docs/libraries/eui/reference/`, variant: `minimal` },
+      ],
+    },
+  }}
+>
+  <h2>Native on every platform</h2>
+  <PlatformShots view="exponential-ui-demo" platforms={[`ios`, `android`]} />
+
+  <h2>HTML at build time</h2>
+  <div class="exp-live">
+    <EuiSurface id="deploy" tree={DEPLOY_CARD} />
+  </div>
+
+  <h2>Live where it's touched</h2>
+  <div class="exp-live">
+    <EuiSurface client:visible id="settings" tree={SETTINGS_FORM} data={SETTINGS_DATA} />
+  </div>
+
+  <h2>Motion</h2>
+  <div class="exp-live">
+    <EuiSurface client:visible id="motion" tree={MOTION_GALLERY} />
+  </div>
+
+  <h2>{components} components · {cases} conformance cases</h2>
+  <p>Every renderer, every change.</p>
+</StarlightPage>

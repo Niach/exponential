@@ -1,0 +1,19 @@
+---
+/* The home page (ported from apps/marketing in the landing-pages step). */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `Exponential`,
+    description: `The issue tracker where coding agents work in sessions.`,
+    template: `splash`,
+    hero: {
+      tagline: `Issues in, pull requests out.`,
+      actions: [
+        { text: `Get started`, link: `/docs/get-started/`, icon: `right-arrow` },
+        { text: `Download`, link: `/download/`, variant: `minimal` },
+      ],
+    },
+  }}
+/>
