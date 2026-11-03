@@ -39,7 +39,7 @@ export interface BuiltinSkillSource {
   files: BuiltinSkillFile[]
 }
 
-export const BUILTIN_SKILLS_VERSION = "0.8.0"
+export const BUILTIN_SKILLS_VERSION = "0.9.0"
 
 export const BUILTIN_SKILL_SOURCES: BuiltinSkillSource[] = [
   {

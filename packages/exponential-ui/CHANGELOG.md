@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.9.0 (2026-11-03)
+
+- VAPP-214 (eApps Q3): computed fields: a record kind's `computed` (`records.<kind>.computed`, a CEL expression per field) is evaluated on read and can be filtered, sorted and grouped on like a stored field; `RecordsQuery.computed` carries them into the query.
+- VAPP-201: install-time template issues come out in sorted path order, the same on every renderer.
 - EXP-1673: the `orange` theme passes WCAG AA in light mode: `primary` #ea580c → #c2410c (white text 3.56 → 5.18:1), `ring` #fb923c → #ea580c; regenerated for every platform.
 - EXP-1673 (React): `ExponentialSurface` `inlineOverlays`: a static render (docs, galleries, server markup) paints its open overlays in place below the trigger, no portal, focus trap or scroll lock (`data-xui-overlays="inline"`, base CSS).
 

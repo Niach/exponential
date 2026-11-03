@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.9.0 (2026-11-03)
+
+- No changes of its own; released with the SDK (computed fields and the sorted install issues landed in the core).
+
 ## 0.8.0 (2026-11-03)
 
 - VAPP-200: `HostOptions.read_only` (every host surface read-only) and `SurfaceViewOptions.settings` with `read_only`: every writing control paints disabled. Conformance suite `read-only`.

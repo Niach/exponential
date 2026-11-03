@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-computed-fields",
+    date: "2026-11-03",
+    title: "Computed fields in apps",
+    summary: "An app can compute a field from a record's other fields, and filter, sort and group on it like any other field.",
+    body: r#"- **Computed fields**: an app's record kind can define fields computed from the record (a total, a due-in-days count); they update as the record changes and work in filters, sorting and grouping.
+- **Team time zone on desktop**: the desktop app knows every time zone a team can pick, older names included."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_184: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-publish-apps",
     date: "2026-11-03",
     title: "Publish apps when they are ready",

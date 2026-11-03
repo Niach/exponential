@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.9.0 (2026-11-03)
+
+- No API of its own; carries the core's computed fields (VAPP-214) and sorted install issues (VAPP-201).
+
 ## 0.8.0 (2026-11-03)
 
 - VAPP-200: `SurfaceSettings(readOnly = true)`: every writing control paints disabled (the core's read-only build). Conformance suite `read-only`.
