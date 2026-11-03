@@ -3,14 +3,14 @@
 // crates/ui/src/navigation.rs), same rule, same cases:
 //
 //   * Opened from a LIST screen (board, inbox, threads): that
-//     list STAYS — it rides the detail's `?from=` token and the sidebar shows
-//     it as the LIST NAV panel beside the detail.
+//     list STAYS — it rides the detail's `?from=` token and the content card
+//     shows it as its second sidebar beside the detail (#EXP-1672).
 //   * Opened CONTEXT-FREE (a pinned row, a sidebar session row, a deep link, a
 //     full-page screen like Devices/Settings): no token, and the sidebar's
 //     MAIN MENU stays put.
 //
-// EXP-851 made the token the only input: `?from=` decides the sidebar occupant
-// (`sidebarOccupant`) and where Back goes. The vocabulary is the list set —
+// EXP-851 made the token the only input: `?from=` decides the second sidebar
+// (`secondSidebarFor`) and where Back goes. The vocabulary is the list set —
 // `board:<slug>`, `inbox`, `inbox:my-issues`, `threads` (EXP-1293: the
 // Threads page, which replaced the Agent page's lists and Reviews),
 // `drafts` (EXP-1170), `running`. The retired `agent`, `agent:recent`,
@@ -235,16 +235,14 @@ export function originListNavigation(
   }
 }
 
-/** Which of the sidebar's two panels occupies the slot. EXP-1246: `list` =
- *  the ONE list-detail host (`components/team/list-detail.tsx`): the Inbox.
- *  EXP-1293: the Agent › Recent arm is gone with the Agent page's history. */
-export type SidebarOccupant =
-  | { kind: `main` }
-  | { kind: `settings` }
-  | { kind: `list`; origin: DetailOrigin }
+/** Who occupies the sidebar column: the main menu, or (on `/settings`) the
+ *  48px icon rail beside the settings nav. #EXP-1672: the Inbox never folds
+ *  the main menu any more — its list is the content card's second sidebar
+ *  (`secondSidebarFor`), desktop `second_sidebar_for` parity. */
+export type SidebarOccupant = { kind: `main` } | { kind: `settings` }
 
 /** A DETAIL route below `/t/$teamSlug` — the only routes that can show a list
- * nav. Board/inbox/threads are LIST screens and keep the main menu. */
+ * nav. Board/inbox/threads are LIST screens. */
 function isDetailRest(rest: string): boolean {
   if (/^\/boards\/[^/]+\/issues\/[^/]+$/.test(rest)) return true
   if (/^\/sessions\/[^/]+$/.test(rest)) return true
@@ -258,72 +256,47 @@ function isDetailRest(rest: string): boolean {
 
 /**
  * EXP-851: the sidebar's occupant, from the URL alone — settings while any
- * `/settings` route is active, the LIST-DETAIL host on a detail route whose
- * `?from=` keeps its list (`originHasListNav`), the main menu otherwise.
- * EXP-1246: the md+ Inbox page IS that host with nothing selected (`tab` =
- * its `?tab=`).
- * Derived (never click state) so a deep link lands settled and every entry
- * point drives the same swap.
+ * `/settings` route is active, the main menu otherwise. Derived (never click
+ * state) so a deep link lands settled.
  */
-export function sidebarOccupant(
+export function sidebarOccupant(pathname: string): SidebarOccupant {
+  const rest = teamRest(pathname)
+  if (rest === `/settings` || rest?.startsWith(`/settings/`)) {
+    return { kind: `settings` }
+  }
+  return { kind: `main` }
+}
+
+/**
+ * #EXP-1672 (EXP-1246): the list the content card shows as its SECOND
+ * sidebar, beside the active screen — desktop `second_sidebar_for`. The md+
+ * Inbox page always (nothing selected; `tab` = its `?tab=`), and a detail
+ * whose `?from=` keeps its list (`originHasListNav`). `null` = the screen
+ * alone, full width.
+ */
+export function secondSidebarFor(
   pathname: string,
   from: string | null | undefined,
   options: {
-    /** The Inbox page's `?tab=` — which of its lists the host shows. */
+    /** The Inbox page's `?tab=` — which of its lists the sidebar shows. */
     tab?: string | null
   } = {}
-): SidebarOccupant {
+): DetailOrigin | null {
   const rest = teamRest(pathname)
-  if (rest === null) return { kind: `main` }
-  if (rest === `/settings` || rest.startsWith(`/settings/`)) {
-    return { kind: `settings` }
-  }
+  if (rest === null) return null
   if (rest === `/inbox`) {
-    return {
-      kind: `list`,
-      origin:
-        options.tab === `my-issues`
-          ? { kind: `inbox`, tab: `my-issues` }
-          : { kind: `inbox` },
-    }
+    return options.tab === `my-issues`
+      ? { kind: `inbox`, tab: `my-issues` }
+      : { kind: `inbox` }
   }
-  if (!isDetailRest(rest)) return { kind: `main` }
+  if (!isDetailRest(rest)) return null
   const origin = parseOrigin(from)
-  return origin && originHasListNav(origin)
-    ? { kind: `list`, origin }
-    : { kind: `main` }
+  return origin && originHasListNav(origin) ? origin : null
 }
 
 /** EXP-1246: the ONLY origin whose list stays beside the detail — the Inbox
  * (both its lists; desktop `second_sidebar_for` parity). Board, threads,
- * running and drafts origins keep the main menu and name only where
- * Back goes. */
+ * running and drafts origins name only where Back goes. */
 export function originHasListNav(origin: DetailOrigin): boolean {
   return origin.kind === `inbox` && origin.tab !== `drafts`
-}
-
-/** EXP-870: how deep an occupant sits — the main menu 0, the list-detail
- * host 1, settings 2. The slide reads direction off it. */
-export function occupantDepth(kind: SidebarOccupant[`kind`]): number {
-  if (kind === `main`) return 0
-  if (kind === `list`) return 1
-  return 2
-}
-
-/**
- * EXP-870: where one of the two sliding panels sits, in panel widths — `0` in
- * the slot, `-1` tucked under the rail's edge (deeper than what is up: it
- * enters FROM the rail going forward and slides back under it on return), `1`
- * pushed out to the right (shallower than what is up: a list nav settings
- * slid in over). Directional, so going deeper and coming back never look the
- * same.
- */
-export function panelOffset(
-  panel: `list` | `settings`,
-  occupant: SidebarOccupant[`kind`]
-): -1 | 0 | 1 {
-  const depth = occupantDepth(panel)
-  const current = occupantDepth(occupant)
-  if (depth === current) return 0
-  return depth > current ? -1 : 1
 }
