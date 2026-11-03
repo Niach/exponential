@@ -5,11 +5,11 @@ import SwiftUI
 /// EXP-878 — the Drafts segment of My Work: every unfiled issue this user has
 /// composed, across teams. EXP-818's list language — a filled `GlassSectionBand`
 /// over FLAT rows, no cards. Tapping a row reopens the compose page on that
-/// draft; the trash glyph is a SIBLING of the link, so deleting never
-/// navigates (the Settings labels list's pattern).
+/// draft; a hold opens the glass menu with Discard (web's row Menu).
 struct DraftsListContent: View {
     let viewModel: DraftsViewModel
     @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
 
     @ViewBuilder
     var body: some View {
@@ -25,11 +25,8 @@ struct DraftsListContent: View {
     private var list: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand("Drafts") {
-                    Text("\(viewModel.rows.count)")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
+                // EXP-1320: the band carries NO count.
+                GlassSectionBand("Drafts")
 
                 ForEach(viewModel.rows) { row in
                     draftRow(row)
@@ -42,58 +39,46 @@ struct DraftsListContent: View {
         .tabBarBottomInset()
     }
 
-    @ViewBuilder
+    /// Web's `DraftsList` row (`ListRow`: p-3, gap-3): the status glyph, the
+    /// title (muted italic while untitled) and the compact age right-aligned
+    /// — one line, no buttons. Discard lives in the row's hold menu, the way
+    /// web's long-press/right-click Menu carries it (EXP-1647).
     private func draftRow(_ row: IssueDraftRow) -> some View {
-        HStack(spacing: 10) {
-            NavigationLink(value: AppRoute.issueDraft(
+        let untitled = row.draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return HStack(spacing: 12) {
+            // The draft's status (NULL `status_id` = the team's Backlog
+            // builtin), resolved by IssueDraftQueries.
+            AppIcon(row.status.iconName, size: 16)
+                .foregroundStyle(row.status.color)
+                .frame(width: 16)
+
+            Text(untitled ? IssueDraftPage.untitled : row.draft.title)
+                .font(.system(size: 14))
+                .italic(untitled)
+                .foregroundStyle(.white.opacity(untitled ? TextOpacity.secondary : TextOpacity.primary))
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text(relativeWireDate(row.draft.updatedAt))
+                .font(.system(size: 12).monospacedDigit())
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .lineLimit(1)
+        }
+        .padding(12)
+        .contentShape(Rectangle())
+        .flatRow()
+        .glassLongPressMenu(onTap: {
+            pushRoute(.issueDraft(
                 accountId: accountId,
                 draftId: row.draft.id,
                 boardId: row.draft.boardId
-            )) {
-                HStack(spacing: 10) {
-                    // The draft's status (NULL `status_id` = the team's
-                    // Backlog builtin), resolved by IssueDraftQueries.
-                    AppIcon(row.status.iconName, size: AppIcon.Size.small)
-                        .foregroundStyle(row.status.color)
-                        .frame(width: 16)
-
-                    VStack(alignment: .leading, spacing: 2) {
-                        if row.draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            Text(IssueDraftPage.untitled)
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .lineLimit(1)
-                        } else {
-                            Text(row.draft.title)
-                                .font(.subheadline)
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                        }
-
-                        // Drafts span teams here, so the board names the
-                        // destination; the stamp is the last edit.
-                        Text("\(row.board.name) · \(relativeWireDate(row.draft.updatedAt))")
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                    }
-
-                    Spacer(minLength: 8)
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            GhostIconButton(
-                AppIcons.uiDelete,
-                accessibilityLabel: "Delete draft",
-                tint: DesignTokens.Palette.destructive.opacity(0.7)
-            ) {
+            ))
+        }) {
+            GlassMenuItem("Discard draft", icon: AppIcons.uiDelete, destructive: true) {
                 Task { await viewModel.delete(row) }
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .flatRow()
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
     }
 }
