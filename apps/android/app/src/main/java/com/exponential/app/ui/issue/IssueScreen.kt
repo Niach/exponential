@@ -1,6 +1,5 @@
 package com.exponential.app.ui.issue
 
-import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
@@ -15,9 +14,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -26,11 +23,8 @@ import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ClosePr
 import com.exponential.app.domain.CodingReadiness
 import com.exponential.app.domain.DomainContract
-import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
-import com.exponential.app.ui.work.ChangesMergeControl
-import com.exponential.app.ui.work.PullRequestStack
 import com.exponential.app.ui.work.STACK_CONFIRM_CANCEL_LABEL
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.markdown.ProvideMarkdownToolbar
@@ -83,7 +77,6 @@ fun IssueScreen(
     val issue = state.issue
     val permissions by issueVm.permissions.collectAsStateWithLifecycle()
     val steerEnabled by issueVm.steerEnabled.collectAsStateWithLifecycle()
-    val context = LocalContext.current
 
     // EXP-1121: whether this issue can Start right now (the readiness steps).
     val readinessVm: CodingReadinessViewModel = hiltViewModel(key = "readiness:$issueId")
@@ -117,40 +110,9 @@ fun IssueScreen(
             else -> readinessSheetOpen = true
         }
     }
-    val openPullRequest: (PullRequestEntity) -> Unit = { pr ->
-        val root = pr.rootSessionId
-        if (root != null) {
-            onOpenThread(root)
-        } else if (pr.url.isNotBlank()) {
-            CustomTabsIntent.Builder().build().launchUrl(context, pr.url.toUri())
-        }
-    }
-
-    // ── EXP-1291: the PR rows' Merge / the menu's Close PR ──────────────────
-    val teamPullRequests by issueVm.teamPullRequests.collectAsStateWithLifecycle()
+    // ── EXP-1154: the menu's Close PR (EXP-1647: no PR rows on this page) ──
     val prIssueCounts by issueVm.pullRequestIssueCounts.collectAsStateWithLifecycle()
-    val prBusyId by issueVm.prBusyId.collectAsStateWithLifecycle()
     val issuePullRequests by issueVm.pullRequests.collectAsStateWithLifecycle()
-    val prMergeControl: (PullRequestEntity) -> ChangesMergeControl? = { pr ->
-        if (!permissions.isMember) {
-            null
-        } else {
-            val stack = PullRequestStack.stackConfirm(pr, teamPullRequests)
-            ChangesMergeControl(
-                label = if (stack != null) DomainContract.diffUiMergeStack else DomainContract.diffUiMergePr,
-                loading = prBusyId == pr.id,
-                // Refusals toast through the face's mutation-error slot.
-                error = null,
-                confirmPrompt = Prompts.MergeIssuePr.prompt(pr.number, prIssueCounts[pr.id] ?: 1),
-                onConfirm = { issueVm.mergePullRequest(pr) },
-                stackConfirm = stack,
-                onMergeStack = {
-                    val through = stack?.throughId?.let { id -> teamPullRequests.firstOrNull { it.id == id } } ?: pr
-                    issueVm.mergePullRequest(through, stack = true)
-                },
-            )
-        }
-    }
     // EXP-1154: Close PR (the `…` menu) acts on the newest OPEN pull request.
     val closablePr = issuePullRequests.firstOrNull { it.state == DomainContract.prStateOpen }
         ?.takeIf { permissions.isMember }
@@ -164,8 +126,6 @@ fun IssueScreen(
             padding = contentPadding,
             onBack = onBack,
             onOpenIssue = onOpenIssue,
-            onOpenPullRequest = openPullRequest,
-            prMergeControl = prMergeControl,
             trailingBarSlot = {
                 val ui = startUi.takeUnless { embedded }
                 if (ui != null) StartCircle(ui = ui, onClick = { startCoding() }) else Spacer(Modifier.size(0.dp))

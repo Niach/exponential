@@ -255,10 +255,6 @@ fun IssueFace(
     padding: PaddingValues,
     onBack: () -> Unit,
     onOpenIssue: (String) -> Unit,
-    /** EXP-1291: a pull request row's tap (null = rows inert). */
-    onOpenPullRequest: ((com.exponential.app.data.db.PullRequestEntity) -> Unit)? = null,
-    /** EXP-1291: an open PR row's Merge (null = no control on that row). */
-    prMergeControl: ((com.exponential.app.data.db.PullRequestEntity) -> com.exponential.app.ui.work.ChangesMergeControl?)? = null,
     /** The bar's right circle — the host's Start play, else empty. */
     trailingBarSlot: @Composable () -> Unit,
     /** EXP-1191: the bar's Merge circle, directly right of the Comment
