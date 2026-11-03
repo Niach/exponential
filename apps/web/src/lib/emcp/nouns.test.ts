@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
-// NEW-4: the noun router — 21 tools (EXP-1657: 7 groups), `op` routes to the per-operation
+// NEW-4: the noun router — 22 tools (EXP-1657: 7 groups), `op` routes to the per-operation
 // definitions, their STRICT schemas validate the flat arguments, an op the
 // caller lacks errors instead of vanishing, the display rows are the
 // contract's. The per-operation handlers themselves are tools.test.ts's.
@@ -93,10 +93,10 @@ function surface(gates = ALL_MCP_TOOL_GATES) {
 const text = (result: { content: { text?: string }[] }) => result.content[0]?.text ?? ``
 
 describe(`registerNounTools`, () => {
-  it(`registers the 21 tools, every caller alike`, () => {
+  it(`registers the 22 tools, every caller alike`, () => {
     const names = [...surface().keys()]
     expect(names).toEqual(NOUN_TOOLS.map((spec) => `exponential_${spec.name}`))
-    expect(names).toHaveLength(21)
+    expect(names).toHaveLength(22)
     expect(names).not.toContain(`exponential_team_config`)
     const headerless = [...surface({ inSession: false, unattended: false, agent: false }).keys()]
     expect(headerless).toEqual(names)
@@ -216,6 +216,20 @@ describe(`registerNounTools`, () => {
       expect(group.tools, group.id).toEqual(NOUN_TOOLS.filter((spec) => spec.group === group.id).map((spec) => spec.name))
     }
     expect(NOUN_TOOLS.map((spec) => spec.name)).toEqual(contract.expToolDisplay.groups.flatMap((group) => group.tools))
+    // EXP-1663: skills sits in Agents, between prompts and mcp_servers.
+    expect(contract.expToolDisplay.groups.find((group) => group.id === `agents`)?.tools).toEqual([
+      `agents`,
+      `prompts`,
+      `skills`,
+      `mcp_servers`,
+    ])
+    expect(displayRowNames().filter((row) => row.startsWith(`skills_`))).toEqual([
+      `skills_list`,
+      `skills_get`,
+      `skills_create`,
+      `skills_update`,
+      `skills_delete`,
+    ])
     expect(contract.expToolDisplay.groups.find((group) => group.id === `work`)?.tools).toEqual(
       NOUN_TOOLS.filter((spec) => spec.alwaysLoad).map((spec) => spec.name)
     )

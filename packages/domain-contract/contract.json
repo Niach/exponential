@@ -583,7 +583,7 @@
       { "id": "work", "label": "Work", "tools": ["issues", "comments", "pr", "sessions_send", "show"]},
       { "id": "tracker", "label": "Tracker", "tools": ["boards", "labels", "statuses", "attachments"]},
       { "id": "team", "label": "Team", "tools": ["teams", "people", "repositories", "devices"]},
-      { "id": "agents", "label": "Agents", "tools": ["agents", "prompts", "mcp_servers"]},
+      { "id": "agents", "label": "Agents", "tools": ["agents", "prompts", "skills", "mcp_servers"]},
       { "id": "sessions", "label": "Sessions", "tools": ["sessions", "session_self"]},
       { "id": "apps", "label": "Apps", "tools": ["apps"]},
       { "id": "activity", "label": "Activity", "tools": ["events", "notifications"]}
@@ -1327,6 +1327,61 @@
         "result": "none"
       },
       {
+        "name": "skills_list",
+        "title": "List skills",
+        "blurb": "Lists the team's skills.",
+        "progressive": "Listing skills",
+        "done": "Listed skills",
+        "progressiveMany": "Listing skills {n} times",
+        "doneMany": "Listed skills {n} times",
+        "subjectKey": "",
+        "result": "list"
+      },
+      {
+        "name": "skills_get",
+        "title": "Read skill",
+        "blurb": "Reads one skill with its body.",
+        "progressive": "Reading skill",
+        "done": "Read skill",
+        "progressiveMany": "Reading {n} skills",
+        "doneMany": "Read {n} skills",
+        "subjectKey": "name",
+        "result": "none"
+      },
+      {
+        "name": "skills_create",
+        "title": "Create skill",
+        "blurb": "Adds a skill to a team, with its name, description and body.",
+        "progressive": "Creating skill",
+        "done": "Created skill",
+        "progressiveMany": "Creating {n} skills",
+        "doneMany": "Created {n} skills",
+        "subjectKey": "name",
+        "result": "none"
+      },
+      {
+        "name": "skills_update",
+        "title": "Update skill",
+        "blurb": "Changes a skill's name, description, body or default.",
+        "progressive": "Updating skill",
+        "done": "Updated skill",
+        "progressiveMany": "Updating {n} skills",
+        "doneMany": "Updated {n} skills",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
+        "name": "skills_delete",
+        "title": "Delete skill",
+        "blurb": "Removes a skill from the team.",
+        "progressive": "Deleting skill",
+        "done": "Deleted skill",
+        "progressiveMany": "Deleting {n} skills",
+        "doneMany": "Deleted {n} skills",
+        "subjectKey": "id",
+        "result": "none"
+      },
+      {
         "name": "mcp_servers_list",
         "title": "List MCP servers",
         "blurb": "Lists the team's MCP servers and your connection to each.",
@@ -1968,6 +2023,11 @@
       { "name": "prompts_create", "refs": "prompt@" },
       { "name": "prompts_update", "refs": "prompt@" },
       { "name": "prompts_delete", "refs": "" },
+      { "name": "skills_list", "refs": "" },
+      { "name": "skills_get", "refs": "" },
+      { "name": "skills_create", "refs": "" },
+      { "name": "skills_update", "refs": "" },
+      { "name": "skills_delete", "refs": "" },
       { "name": "mcp_servers_list", "refs": "" },
       { "name": "mcp_servers_create", "refs": "" },
       { "name": "mcp_servers_delete", "refs": "" },

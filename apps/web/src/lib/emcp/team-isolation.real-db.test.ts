@@ -28,6 +28,7 @@ import {
   notifications,
   prompts,
   pullRequests,
+  skills,
   sessions,
   teamInvites,
   teamMembers,
@@ -149,6 +150,10 @@ async function world() {
     .values({ teamId: teamB, category: `started`, name: `${MARK} status`, color: `#123456`, sortOrder: 99 })
     .returning({ id: issueStatuses.id })
   const [promptB] = await db.insert(prompts).values({ teamId: teamB, name: `${MARK} prompt`, body: `${MARK} prompt body` }).returning({ id: prompts.id })
+  const [skillB] = await db
+    .insert(skills)
+    .values({ teamId: teamB, name: `teamb-secret-skill`, description: `${MARK} skill`, body: `${MARK} skill body` })
+    .returning({ id: skills.id })
   const [agentB] = await db.insert(agents).values({ teamId: teamB, name: `${MARK} agent`, deviceId: bBox, ownerId: u.id }).returning({ id: agents.id })
   const [eventB] = await db
     .insert(events)
@@ -222,6 +227,7 @@ async function world() {
     labelId: labelB!.id,
     statusId: statusB!.id,
     promptId: promptB!.id,
+    skillId: skillB!.id,
     agentId: agentB!.id,
     eventId: eventB!.id,
     sessionId: threadB.sessionId,
@@ -301,7 +307,7 @@ async function snapshotB(w: World): Promise<Record<string, string>> {
 }
 
 /** B's ids, the strings a read must never carry. */
-const secretIds = (w: World) => [w.b.teamId, w.b.boardId, w.b.repositoryId, w.b.issueId, w.b.identifier, w.b.issue2Id, w.b.commentId, w.b.labelId, w.b.statusId, w.b.promptId, w.b.agentId, w.b.eventId, w.b.sessionId, w.b.messageId, w.b.appId, w.b.appSlug, w.b.recordId, w.b.attachmentId, w.b.mcpServerId, w.b.pullRequestId, w.b.inviteId, w.b.notificationId, w.b.mateId, w.b.deviceId]
+const secretIds = (w: World) => [w.b.teamId, w.b.boardId, w.b.repositoryId, w.b.issueId, w.b.identifier, w.b.issue2Id, w.b.commentId, w.b.labelId, w.b.statusId, w.b.promptId, w.b.skillId, w.b.agentId, w.b.eventId, w.b.sessionId, w.b.messageId, w.b.appId, w.b.appSlug, w.b.recordId, w.b.attachmentId, w.b.mcpServerId, w.b.pullRequestId, w.b.inviteId, w.b.notificationId, w.b.mateId, w.b.deviceId]
 
 type Kind = `read` | `write`
 interface Case {
@@ -385,6 +391,14 @@ const CASES: Record<string, Case> = {
   [`prompts.create`]: wr(`prompts.create`, (w) => ({ op: `create`, teamId: w.b.teamId, name: `leak`, body: `leak` })),
   [`prompts.update`]: wr(`prompts.update`, (w) => ({ op: `update`, id: w.b.promptId, body: `hijacked` })),
   [`prompts.delete`]: wr(`prompts.delete`, (w) => ({ op: `delete`, id: w.b.promptId })),
+  // EXP-1663
+  [`skills.list teamId`]: r(`skills.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
+  [`skills.list unfiltered`]: r(`skills.list`, () => ({ op: `list` })),
+  [`skills.get`]: r(`skills.get`, (w) => ({ op: `get`, id: w.b.skillId })),
+  [`skills.get by name`]: r(`skills.get`, () => ({ op: `get`, name: `teamb-secret-skill` })),
+  [`skills.create`]: wr(`skills.create`, (w) => ({ op: `create`, teamId: w.b.teamId, name: `leak`, description: `leak`, body: `leak` })),
+  [`skills.update`]: wr(`skills.update`, (w) => ({ op: `update`, id: w.b.skillId, body: `hijacked` })),
+  [`skills.delete`]: wr(`skills.delete`, (w) => ({ op: `delete`, id: w.b.skillId })),
   [`agents.list`]: r(`agents.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),
   [`agents.get`]: r(`agents.get`, (w) => ({ op: `get`, id: w.b.agentId })),
   [`mcp_servers.list`]: r(`mcp_servers.list`, (w) => ({ op: `list`, teamId: w.b.teamId })),

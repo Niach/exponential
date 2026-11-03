@@ -79,7 +79,7 @@
         {"id": "work", "label": "Work", "count": 28},
         {"id": "tracker", "label": "Tracker", "count": 19},
         {"id": "team", "label": "Team", "count": 13},
-        {"id": "agents", "label": "Agents", "count": 10},
+        {"id": "agents", "label": "Agents", "count": 15},
         {"id": "sessions", "label": "Sessions", "count": 10},
         {"id": "apps", "label": "Apps", "count": 8},
         {"id": "activity", "label": "Activity", "count": 4}

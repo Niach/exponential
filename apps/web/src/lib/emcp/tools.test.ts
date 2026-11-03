@@ -18,6 +18,8 @@ const h = vi.hoisted(() => {
     notifications: { markRead: vi.fn(), markAllRead: vi.fn() },
     repositories: { list: vi.fn(), add: vi.fn() },
     prompts: { list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
+    // EXP-1663
+    skills: { list: vi.fn(), get: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     agents: { list: vi.fn() },
     issues: {
       // EXP-684: statusId passthrough on create.
@@ -868,6 +870,123 @@ describe(`exponential_prompts_create / update / delete`, () => {
     dbRows.current = [{ teamId: WS }]
     caller.prompts.delete.mockResolvedValue({ txId: 1, ok: true, id: UUID })
     expect(parseOk(await scoped.get(`exponential_prompts_delete`)!({ id: UUID }))).toEqual({ ok: true, id: UUID })
+  })
+})
+
+// ── EXP-1663: skills (owner writes, member reads, a confined grant) ─────────
+
+describe(`exponential_skills`, () => {
+  const OTHER_TEAM = `88888888-8888-8888-8888-888888888888`
+  const SKILL = { id: UUID, teamId: WS, name: `review-checklist`, description: `Review a PR`, enabledByDefault: false }
+  const ownerRefusal = () => new TRPCError({ code: `FORBIDDEN`, message: `Insufficient role. Required: owner` })
+  const BODY = { ...SKILL, body: `# Review` }
+
+  it(`list reads every reachable team and searches name and description`, async () => {
+    membership.getUserTeamIds.mockResolvedValue([WS, OTHER_TEAM])
+    caller.skills.list.mockImplementation(async ({ teamId }: { teamId: string }) => ({
+      skills: teamId === WS ? [SKILL] : [{ ...SKILL, id: `other`, teamId, name: `deploy`, description: `Ship it` }],
+    }))
+    expect((parseOk(await tool(`exponential_skills_list`)({})) as unknown[]).length).toBe(2)
+    expect(parseOk(await tool(`exponential_skills_list`)({ search: `REVIEW` }))).toEqual([SKILL])
+    expect(parseOk(await tool(`exponential_skills_list`)({ teamId: WS }))).toEqual([SKILL])
+    expect(caller.skills.list).toHaveBeenLastCalledWith({ teamId: WS })
+    // A confined grant lists only its own team and refuses another.
+    const scoped = collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS)
+    expect(parseOk(await scoped.get(`exponential_skills_list`)!({}))).toEqual([SKILL])
+    const refused = await scoped.get(`exponential_skills_list`)!({ teamId: OTHER_TEAM })
+    expect(refused.content[0].text).toContain(`not granted access`)
+  })
+
+  it(`get reads a body by id, or by name (+ teamId when ambiguous)`, async () => {
+    caller.skills.get.mockResolvedValue({ skill: BODY })
+    expect(parseOk(await tool(`exponential_skills_get`)({ id: UUID }))).toEqual(BODY)
+    expect(caller.skills.get).toHaveBeenLastCalledWith({ id: UUID })
+
+    membership.getUserTeamIds.mockResolvedValue([WS, OTHER_TEAM])
+    caller.skills.list.mockImplementation(async ({ teamId }: { teamId: string }) => ({
+      skills: [{ ...SKILL, id: teamId === WS ? UUID : `other`, teamId }],
+    }))
+    const ambiguous = await tool(`exponential_skills_get`)({ name: `review-checklist` })
+    expect(ambiguous.content[0].text).toContain(`pass teamId`)
+    expect(parseOk(await tool(`exponential_skills_get`)({ name: `review-checklist`, teamId: WS }))).toEqual(BODY)
+    expect(caller.skills.get).toHaveBeenLastCalledWith({ id: UUID })
+    const missing = await tool(`exponential_skills_get`)({ name: `nope`, teamId: WS })
+    expect(missing.content[0].text).toContain(`Skill not found`)
+    expect((await tool(`exponential_skills_get`)({})).isError).toBe(true)
+  })
+
+  it(`validates like fixtures/skills.json (name pattern, description 1024, body 64 KB)`, () => {
+    const defs = collectToolDefs()
+    const create = defs.get(`exponential_skills_create`)!.inputSchema!
+    const update = defs.get(`exponential_skills_update`)!.inputSchema!
+    const ok = { teamId: WS, name: `review-checklist`, description: `d`, body: `# b` }
+    expect(create.safeParse({ ...ok, enabledByDefault: true }).success).toBe(true)
+    for (const args of [
+      { ...ok, name: `Review Checklist` },
+      { ...ok, name: `n`.repeat(65) },
+      { ...ok, description: `` },
+      { ...ok, description: `d`.repeat(1025) },
+      { ...ok, body: `` },
+      { ...ok, body: `b`.repeat(64 * 1024 + 1) },
+      { ...ok, files: [] },
+    ]) {
+      expect(create.safeParse(args).success, JSON.stringify(args).slice(0, 80)).toBe(false)
+    }
+    expect(update.safeParse({ id: UUID, enabledByDefault: false }).success).toBe(true)
+    expect(update.safeParse({ id: UUID, name: `UPPER` }).success).toBe(false)
+  })
+
+  it(`an owner writes through the router`, async () => {
+    dbRows.current = [{ teamId: WS }]
+    caller.skills.create.mockResolvedValue({ txId: 1, skill: BODY })
+    caller.skills.update.mockResolvedValue({ txId: 1, skill: { ...BODY, enabledByDefault: true } })
+    caller.skills.delete.mockResolvedValue({ txId: 1, ok: true, id: UUID })
+    const create = { teamId: WS, name: `review-checklist`, description: `Review a PR`, body: `# Review` }
+    expect(parseOk(await tool(`exponential_skills_create`)(create))).toEqual(BODY)
+    expect(caller.skills.create).toHaveBeenCalledWith(create)
+    expect(parseOk(await tool(`exponential_skills_update`)({ id: UUID, enabledByDefault: true }))).toMatchObject({
+      enabledByDefault: true,
+    })
+    expect(caller.skills.update).toHaveBeenCalledWith({ id: UUID, enabledByDefault: true })
+    expect(parseOk(await tool(`exponential_skills_delete`)({ id: UUID }))).toEqual({ ok: true, id: UUID })
+  })
+
+  it(`a member is refused every write with "only team owners can"`, async () => {
+    dbRows.current = [{ teamId: WS }]
+    for (const fn of [caller.skills.create, caller.skills.update, caller.skills.delete]) {
+      fn.mockRejectedValue(ownerRefusal())
+    }
+    for (const [name, args] of [
+      [`exponential_skills_create`, { teamId: WS, name: `n`, description: `d`, body: `b` }],
+      [`exponential_skills_update`, { id: UUID, body: `hijacked` }],
+      [`exponential_skills_delete`, { id: UUID }],
+    ] as const) {
+      const result = await tool(name)(args)
+      expect(result.isError, name).toBe(true)
+      expect(result.content[0].text, name).toMatch(/only team owners can/i)
+    }
+    // A member still reads.
+    caller.skills.get.mockResolvedValue({ skill: BODY })
+    expect(parseOk(await tool(`exponential_skills_get`)({ id: UUID }))).toEqual(BODY)
+  })
+
+  it(`refuses a grant confined to another team before any write`, async () => {
+    const scoped = collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS)
+    const create = await scoped.get(`exponential_skills_create`)!({ teamId: OTHER_TEAM, name: `n`, description: `d`, body: `b` })
+    expect(create.content[0].text).toContain(`not granted access`)
+    dbRows.current = [{ teamId: OTHER_TEAM }]
+    for (const [name, args] of [
+      [`exponential_skills_get`, { id: UUID }],
+      [`exponential_skills_update`, { id: UUID, name: `n` }],
+      [`exponential_skills_delete`, { id: UUID }],
+    ] as const) {
+      const result = await scoped.get(name)!(args)
+      expect(result.content[0].text, name).toContain(`not granted access`)
+    }
+    expect(caller.skills.create).not.toHaveBeenCalled()
+    expect(caller.skills.get).not.toHaveBeenCalled()
+    expect(caller.skills.update).not.toHaveBeenCalled()
+    expect(caller.skills.delete).not.toHaveBeenCalled()
   })
 })
 

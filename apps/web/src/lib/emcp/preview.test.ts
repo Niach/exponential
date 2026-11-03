@@ -66,7 +66,7 @@ import { contract } from "@exp/domain-contract"
 import fixture from "@exp/domain-contract/fixtures/tool-result-preview.json"
 
 function registeredToolNames(): string[] {
-  // NEW-4 → EXP-1657: the surface is 21 tools; a result's preview is keyed by the
+  // NEW-4 → EXP-1657: the surface is 22 tools; a result's preview is keyed by the
   // display row `<noun>_<op>` the engine composes (nouns.ts).
   return displayRowNames()
     .map((row) => `${contract.expToolDisplay.prefix}${row}`)
@@ -162,6 +162,12 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_prompts_get: [`prompt`],
   exponential_prompts_update: [`prompt`],
   exponential_prompts_list: [`list`, `prompt`],
+  // EXP-1663: skills answer plain JSON (no skill chip).
+  exponential_skills_create: [],
+  exponential_skills_delete: [],
+  exponential_skills_get: [],
+  exponential_skills_list: [],
+  exponential_skills_update: [],
   exponential_pr_close: [`issue`],
   exponential_pr_files: [`issue`],
   exponential_pr_merge: [`issue`],
