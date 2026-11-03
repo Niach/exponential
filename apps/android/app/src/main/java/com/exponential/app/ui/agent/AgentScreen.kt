@@ -624,6 +624,21 @@ fun AgentScreen(
                         )
                     }
                     item(key = "__composer__") {
+                      Column {
+                        // NEW-2: the launch composer's `/` = the team's prompts
+                        // alone; a pick is the subject (its chip), never text.
+                        // EXP-1649: web's TypeaheadMenu `placement="above"` —
+                        // its own 288dp menu surface ABOVE the card, 4dp gap.
+                        if (slashPrompts.isNotEmpty()) {
+                            SlashPromptRows(
+                                prompts = slashPrompts,
+                                onPick = { prompt ->
+                                    viewModel.pickPrompt(prompt.id)
+                                    viewModel.setDraft("")
+                                },
+                            )
+                            Spacer(Modifier.height(4.dp))
+                        }
                         AgentComposer(
                             value = composerField,
                             // A user edit is the ONLY write that may arm the
@@ -682,19 +697,7 @@ fun AgentScreen(
                             canSubmit = canSubmit,
                             onSubmit = { viewModel.submit(resumeCandidate != null) },
                         )
-                    }
-                    // NEW-2: the launch composer's `/` = the team's prompts
-                    // alone; a pick is the subject (its chip), never text.
-                    if (slashPrompts.isNotEmpty()) {
-                        item(key = "__slash_prompts__") {
-                            SlashPromptRows(
-                                prompts = slashPrompts,
-                                onPick = { prompt ->
-                                    viewModel.pickPrompt(prompt.id)
-                                    viewModel.setDraft("")
-                                },
-                            )
-                        }
+                      }
                     }
                     if (menuOpen) {
                         item(key = "__autocomplete__") {
@@ -1062,11 +1065,12 @@ internal fun AgentHomeDawn(modifier: Modifier = Modifier) {
 }
 
 
-/** NEW-2: the launch composer's `/` rows — the team's prompts (icon + name),
- *  under the card like the `@` / `:` rows. */
+/** NEW-2: the launch composer's `/` rows — the team's prompts (icon + name).
+ *  EXP-1649: web `SlashCommandMenu` = a TypeaheadMenu ABOVE the card, its own
+ *  bordered menu surface `w-72` (288dp), start-aligned. */
 @Composable
 private fun SlashPromptRows(prompts: List<SlashPrompt>, onPick: (SlashPrompt) -> Unit) {
-    com.exponential.app.ui.components.GlassMenuSurface(modifier = Modifier.fillMaxWidth().testTag("agent-composer-slash-menu")) {
+    com.exponential.app.ui.components.GlassMenuSurface(modifier = Modifier.width(288.dp).testTag("agent-composer-slash-menu")) {
         Column(modifier = Modifier.padding(vertical = 4.dp)) {
             prompts.forEachIndexed { index, prompt ->
                 com.exponential.app.ui.session.SlashPromptRow(
