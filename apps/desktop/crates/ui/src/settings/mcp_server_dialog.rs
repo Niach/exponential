@@ -62,6 +62,8 @@ pub(super) fn open(
     initial: Option<McpServerConfig>,
     device: Option<McpServerDevice>,
     pane: WeakEntity<McpServersPane>,
+    // #VAPP-243: an add pre-filled with an app's upstream name.
+    name: Option<String>,
 ) {
     let title = if initial.is_some() {
         "Edit MCP server"
@@ -74,7 +76,7 @@ pub(super) fn open(
     let spec = DialogSpec::new(title, size(px(460.), height))
         .resizable(size(px(400.), px(360.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| McpServerDialogView::new(team_id, initial, device, pane, window, cx));
+        let view = cx.new(|cx| McpServerDialogView::new(team_id, initial, device, pane, name, window, cx));
         let busy = view.clone();
         DialogContent::new(view)
             // The view pins its own action bar and scrolls only the form.
@@ -289,10 +291,16 @@ impl McpServerDialogView {
         initial: Option<McpServerConfig>,
         device: Option<McpServerDevice>,
         pane: WeakEntity<McpServersPane>,
+        prefill_name: Option<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let seed = initial.clone().unwrap_or_default();
+        let mut seed = initial.clone().unwrap_or_default();
+        if initial.is_none() {
+            if let Some(name) = prefill_name {
+                seed.name = name;
+            }
+        }
         let http = seed.is_http();
         let mut field = |placeholder: &'static str, value: String, cx: &mut gpui::Context<Self>| {
             cx.new(|cx| {

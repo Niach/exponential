@@ -449,6 +449,13 @@ impl AppDetailPane {
     /// deep link runs `mcpServers.connect` in the SIGNED-IN browser, and this
     /// side re-reads the sections until the row reads connected. Any other
     /// server opens Settings → MCP servers.
+    /// #VAPP-243: an owner's Add server for an upstream the team lacks:
+    /// Settings › MCP with the add form pre-filled with its name.
+    pub(crate) fn add_upstream_server(&mut self, name: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        super::mcp_servers::request_add(name, cx);
+        select_settings_section(window, cx, SettingsSection::Mcp);
+    }
+
     pub(crate) fn connect_upstream(
         &mut self,
         upstream: &api::app_access::AppUpstream,

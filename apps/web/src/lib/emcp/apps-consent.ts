@@ -47,6 +47,8 @@ export interface ConsentTeam {
   id: string
   name: string
   slug: string
+  /** #VAPP-243: an owner may add a server an app declares that the team lacks. */
+  isOwner: boolean
   apps: ConsentApp[]
 }
 
@@ -54,7 +56,7 @@ export interface ConsentTeam {
  * the member could see are left out). */
 export async function appsConsentTree(userId: string): Promise<ConsentTeam[]> {
   const memberTeams = await db
-    .select({ id: teams.id, name: teams.name, slug: teams.slug })
+    .select({ id: teams.id, name: teams.name, slug: teams.slug, role: teamMembers.role })
     .from(teams)
     .innerJoin(teamMembers, eq(teamMembers.teamId, teams.id))
     .where(eq(teamMembers.userId, userId))
@@ -99,7 +101,7 @@ export async function appsConsentTree(userId: string): Promise<ConsentTeam[]> {
       })
       byApp.set(tool.app.id, { id: tool.app.id, slug: tool.app.slug, name: tool.app.name, icon: tool.app.icon, color: tool.app.color, toolCount: 1, level: tool.app.level, upstreams })
     }
-    out.push({ ...team, apps: [...byApp.values()].sort((a, b) => a.name.localeCompare(b.name)) })
+    out.push({ id: team.id, name: team.name, slug: team.slug, isOwner: team.role === `owner`, apps: [...byApp.values()].sort((a, b) => a.name.localeCompare(b.name)) })
   }
   return out
 }

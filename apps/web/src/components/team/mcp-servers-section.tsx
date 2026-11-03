@@ -117,6 +117,8 @@ const ShareIcon = conceptIcon(`ui-share`)
  * callback's verdict. */
 export interface McpSettingsRequest {
   connect?: string
+  /** #VAPP-243: an owner's Add server for an app's upstream: the add form with this name. */
+  add?: string
   mcp?: `connected` | `failed`
   server?: string
   error?: string
@@ -237,10 +239,24 @@ export function TeamMcpServersSection({
   const handledRef = useRef<string | null>(null)
   useEffect(() => {
     if (!request || servers === null) return
-    if (!request.connect && !request.mcp) return
+    if (!request.connect && !request.mcp && !request.add) return
     const key = JSON.stringify(request)
     if (handledRef.current === key) return
     handledRef.current = key
+    if (request.add) {
+      onRequestConsumed?.()
+      if (!isOwner) return
+      const name = request.add
+      const taken = servers.find((server) => server.name === name)
+      if (taken) {
+        toast.success(`${taken.name} is already on the team`)
+        return
+      }
+      setDialogError(null)
+      setSeed({ draft: { ...EMPTY_MCP_SERVER_DRAFT, name }, note: null, focus: `url` })
+      setEditor({ mode: `add` })
+      return
+    }
     const byId = (id: string | undefined) =>
       id ? (servers.find((server) => server.id === id) ?? null) : null
     if (request.mcp) {
@@ -432,7 +448,7 @@ export function TeamMcpServersSection({
             editor === null
               ? `closed`
               : editor.mode === `add`
-                ? `add:${seed?.draft.url ?? ``}`
+                ? `add:${seed?.draft.name ?? ``}:${seed?.draft.url ?? ``}`
                 : editor.server.id
           }
           open={editor !== null}
