@@ -51,7 +51,7 @@ import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-con
 import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { APPS_COPY, appMediaAllowed } from "@exp/domain-contract/apps"
 import { hostZone, zoneDay } from "@exp/domain-contract/team-zone"
-import { readableRows, type AppAccessLevel } from "@exponential_app/eui/host"
+import { kindTransitions, readableRows, type AppAccessLevel } from "@exponential_app/eui/host"
 import { grantableTools } from "@/lib/app-grants"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
@@ -336,6 +336,8 @@ export interface RecordsScope {
   readable?: (rows: readonly RecordRow[]) => RecordRow[]
   /** VAPP-214: the hosting package's kinds (their `computed` fields apply on read). */
   records?: Record<string, unknown>
+  /** VAPP-222 (R6): the viewer's team role (the rows' `transitions`). */
+  role?: () => string | null
 }
 
 /** VAPP-122: `records:<kind>?…` → the eUI evaluator's value over the synced
@@ -379,7 +381,9 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
         }
       }
     }
-    const value = recordsValue(rows, query, { me: scope.me, now: new Date(ms).toISOString(), today: zoneDay((at) => teamZoneOffset(scope.teamId, at), ms), names, computed, refs, issues })
+    // VAPP-222 (R6): the hosting app's state machine: each row's legal next states.
+    const transitions = query.app || !query.from ? null : kindTransitions(scope.records?.[query.from])
+    const value = recordsValue(rows, query, { me: scope.me, now: new Date(ms).toISOString(), today: zoneDay((at) => teamZoneOffset(scope.teamId, at), ms), names, computed, refs, issues, transitions, role: transitions ? (scope.role?.() ?? null) : null })
     const key = JSON.stringify(value)
     if (key === last) return
     last = key
@@ -617,6 +621,8 @@ export function createAppHost(options: AppHostOptions): AppHost {
     me: runAs ? runAs.id : (options.me ?? null),
     readable: runAs ? (rows) => readableRows(rows, kinds, { id: runAs.id, role: runAs.role, access: runAs.access }) : undefined,
     records: kinds,
+    // VAPP-222 (R6): the viewer's team role (an owner takes every edge).
+    role: () => (runAs ? runAs.role : (teamMemberCollection.toArray.find((m) => m.teamId === options.teamId && m.userId === options.me)?.role ?? null)),
   }
   const appRef = () => {
     if (!scope.appId) throw new Error(`No app to keep records for`)

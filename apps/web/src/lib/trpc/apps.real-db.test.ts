@@ -303,6 +303,41 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(stored!.data).toMatchObject({ customer: acme.id })
   })
 
+  // eApps R6 (#VAPP-222, record-transitions.json): the records service
+  // refuses an undeclared edge (BAD_REQUEST naming it) and a mover the
+  // edge's `who` excludes (FORBIDDEN), on upsert, batch and restore.
+  it(`R6: transitions are enforced on every write`, async () => {
+    const w = await world()
+    const approver = await user()
+    await db.insert(teamMembers).values({ teamId: w.teamId, userId: approver, role: `member` })
+    const pkg = {
+      ...RECORDS_PACKAGE,
+      id: `t.expenses`,
+      records: {
+        expense: {
+          schema: { type: `object`, properties: { title: { type: `string` }, status: { type: `string`, enum: [`requested`, `approved`, `rejected`, `paid`] }, approver: { type: `string` } } },
+          policy: { update: `member` },
+          refs: { approver: `member` },
+          transitions: { field: `status`, from: { requested: [`approved`, `rejected`], approved: [`paid`] }, who: { "requested->approved": `role:approver`, paid: `owners` } },
+        },
+      },
+    }
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Expenses`, package: pkg })
+    const appId = created.app.id
+    const mate = caller(w.mate).records
+    await expect(mate.upsert({ id: appId, kind: `expense`, data: { title: `Laptop`, status: `approved` } })).rejects.toThrow(/status: a new record starts in requested/)
+    const e = await mate.upsert({ id: appId, kind: `expense`, data: { title: `Laptop`, status: `requested`, approver } })
+    await expect(mate.upsert({ id: appId, kind: `expense`, data: { status: `paid` }, recordId: e.id })).rejects.toMatchObject({ code: `BAD_REQUEST`, message: `status: requested → paid is not a declared transition` })
+    await expect(mate.upsert({ id: appId, kind: `expense`, data: { status: `approved` }, recordId: e.id })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await expect(mate.batch({ id: appId, writes: [{ op: `upsert`, kind: `expense`, id: e.id, data: { status: `approved`, approver: w.mate } }] })).rejects.toThrow(/^write 0: Only the record's approver/)
+    await mate.upsert({ id: appId, kind: `expense`, data: { title: `Laptop 2` }, recordId: e.id })
+    await caller(approver).records.upsert({ id: appId, kind: `expense`, data: { status: `approved` }, recordId: e.id })
+    await expect(caller(approver).records.upsert({ id: appId, kind: `expense`, data: { status: `paid` }, recordId: e.id })).rejects.toThrow(/Only team owners can move status to paid/)
+    await caller(w.owner).records.upsert({ id: appId, kind: `expense`, data: { status: `paid` }, recordId: e.id })
+    const [row] = await db.select().from(appRecords).where(eq(appRecords.id, e.id))
+    expect(row!.data).toMatchObject({ status: `paid` })
+  })
+
   // Release train 2026-10-25: a patch merges onto the row locked in its own
   // transaction, so concurrent patches of different fields both land.
   it(`records: concurrent patches of one record never lose a field`, async () => {

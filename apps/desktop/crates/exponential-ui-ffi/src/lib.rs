@@ -2875,7 +2875,7 @@ pub fn parse_records_source_json(source: String) -> Option<String> {
 
 /// VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
 /// the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
-/// `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?}` (VAPP-214: the queried kind's computed fields);
+/// `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?, refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's computed fields; VAPP-219: its refs and the issue summaries `expand` inlines);
 /// the value JSON, `null` without a kind.
 #[uniffi::export]
 pub fn records_value_json(rows_json: String, query_json: String, context_json: String) -> Result<String, UiError> {
@@ -2898,12 +2898,64 @@ pub fn records_value_json(rows_json: String, query_json: String, context_json: S
             refs: Option<Value>,
             #[serde(default)]
             issues: Option<serde_json::Map<String, Value>>,
+            /// eApps R6 (VAPP-222): the queried kind's transitions + the viewer's team role.
+            #[serde(default)]
+            transitions: Option<Value>,
+            #[serde(default)]
+            role: Option<String>,
         }
         let rows: Vec<h::RecordRow> = parse(&rows_json)?;
         let query: h::RecordsQuery = parse(&query_json)?;
         let ctx: Context = parse(&context_json)?;
-        let value = h::records_value_owned(&rows, &query, h::RecordsContext { me: ctx.me.as_deref(), now: &ctx.now, today: ctx.today.as_deref(), names: &ctx.names, computed: ctx.computed.as_ref(), refs: ctx.refs.as_ref().filter(|r| r.is_object()), issues: ctx.issues.as_ref() });
+        let transitions = ctx.transitions.as_ref().and_then(|t| h::kind_transitions(Some(&serde_json::json!({ "transitions": t }))));
+        let value = h::records_value_owned(&rows, &query, h::RecordsContext { me: ctx.me.as_deref(), now: &ctx.now, today: ctx.today.as_deref(), names: &ctx.names, computed: ctx.computed.as_ref(), refs: ctx.refs.as_ref().filter(|r| r.is_object()), issues: ctx.issues.as_ref(), transitions: transitions.as_ref(), role: ctx.role.as_deref() });
         Ok(value.map_or_else(|| "null".to_string(), |v| v.to_string()))
+    })
+}
+
+/// eApps R6 (VAPP-222, `record-transitions.json` `refusalCases`): why a
+/// write of a kind (`kind_json` = its definition, `transitions` inside) may
+/// not move its state: `before_json` = the stored data (none = a create),
+/// `after_json` = the data as it would be stored, `viewer_json` = `{id, role}`,
+/// `row_json` = the record's `{authorId, createdBy}`; `{code, message}` JSON
+/// or none (it may).
+#[uniffi::export]
+pub fn transition_refusal_json(kind_json: String, before_json: Option<String>, after_json: String, viewer_json: String, row_json: Option<String>) -> Result<Option<String>, UiError> {
+    guarded("transition_refusal_json", || {
+        let kind: Value = parse(&kind_json)?;
+        let before: Option<Value> = before_json.map(|b| parse(&b)).transpose()?.filter(|b: &Value| !b.is_null());
+        let after: Value = parse(&after_json)?;
+        let viewer: Value = parse(&viewer_json)?;
+        let row: Option<Value> = row_json.map(|r| parse(&r)).transpose()?;
+        let t = h::kind_transitions(Some(&kind));
+        let v = h::TransitionViewer { id: viewer.get("id").and_then(Value::as_str), role: viewer.get("role").and_then(Value::as_str) };
+        Ok(h::transition_refusal(t.as_ref(), before.as_ref(), &after, &v, row.as_ref()).map(|r| json_string(&r)))
+    })
+}
+
+/// eApps R6 (`fromCases`): the next states a record may move to (JSON list;
+/// `record_json` none = a new record: the initial states), only those the
+/// viewer (`{id, role}`, none = anyone) may take.
+#[uniffi::export]
+pub fn transitions_from_json(kind_json: String, record_json: Option<String>, viewer_json: Option<String>, row_json: Option<String>) -> Result<String, UiError> {
+    guarded("transitions_from_json", || {
+        let kind: Value = parse(&kind_json)?;
+        let record: Option<Value> = record_json.map(|r| parse(&r)).transpose()?.filter(|r: &Value| !r.is_null());
+        let viewer: Option<Value> = viewer_json.map(|v| parse(&v)).transpose()?.filter(|v: &Value| !v.is_null());
+        let row: Option<Value> = row_json.map(|r| parse(&r)).transpose()?;
+        let t = h::kind_transitions(Some(&kind));
+        let v = viewer.as_ref().map(|v| h::TransitionViewer { id: v.get("id").and_then(Value::as_str), role: v.get("role").and_then(Value::as_str) });
+        Ok(json_string(&h::transitions_from(t.as_ref(), record.as_ref(), v.as_ref(), row.as_ref())))
+    })
+}
+
+/// eApps R6 (`validateCases`): the issues of a kind's `transitions`
+/// (`[{path, message}]` under `<at>/transitions`).
+#[uniffi::export]
+pub fn validate_record_transitions_json(kind_json: String, at: String, kind_name: String) -> Result<String, UiError> {
+    guarded("validate_record_transitions_json", || {
+        let kind: Value = parse(&kind_json)?;
+        Ok(json_string(&h::validate_record_transitions(&kind, &at, &kind_name)))
     })
 }
 

@@ -893,9 +893,15 @@ external fun uniffi_exponential_ui_ffi_checksum_func_theme_issues_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_transition_refusal_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_transitions_from_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_validate_package_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_validate_record_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_validate_record_transitions_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_validate_style_json(
 ): Short
@@ -1600,9 +1606,15 @@ external fun uniffi_exponential_ui_ffi_fn_func_theme_issues_json(`themeJson`: Ru
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_tokenize_code_json(`code`: RustBuffer.ByValue,`language`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(`kindJson`: RustBuffer.ByValue,`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_transitions_from_json(`kindJson`: RustBuffer.ByValue,`recordJson`: RustBuffer.ByValue,`viewerJson`: RustBuffer.ByValue,`rowJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_validate_package_json(`packageJson`: RustBuffer.ByValue,`catalogIds`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_validate_record_json(`schemaJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_validate_record_transitions_json(`kindJson`: RustBuffer.ByValue,`at`: RustBuffer.ByValue,`kindName`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_validate_style_json(`styleJson`: RustBuffer.ByValue,`root`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -10753,7 +10765,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
         /**
          * VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
          * the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
-         * `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?}` (VAPP-214: the queried kind's computed fields);
+         * `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?, refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's computed fields; VAPP-219: its refs and the issue summaries `expand` inlines);
          * the value JSON, `null` without a kind.
          */
     @Throws(UiException::class) fun `recordsValueJson`(`rowsJson`: kotlin.String, `queryJson`: kotlin.String, `contextJson`: kotlin.String): kotlin.String {
@@ -11050,6 +11062,41 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * eApps R6 (VAPP-222, `record-transitions.json` `refusalCases`): why a
+         * write of a kind (`kind_json` = its definition, `transitions` inside) may
+         * not move its state: `before_json` = the stored data (none = a create),
+         * `after_json` = the data as it would be stored, `viewer_json` = `{id, role}`,
+         * `row_json` = the record's `{authorId, createdBy}`; `{code, message}` JSON
+         * or none (it may).
+         */
+    @Throws(UiException::class) fun `transitionRefusalJson`(`kindJson`: kotlin.String, `beforeJson`: kotlin.String?, `afterJson`: kotlin.String, `viewerJson`: kotlin.String, `rowJson`: kotlin.String?): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(
+    
+        FfiConverterString.lower(`kindJson`),FfiConverterOptionalString.lower(`beforeJson`),FfiConverterString.lower(`afterJson`),FfiConverterString.lower(`viewerJson`),FfiConverterOptionalString.lower(`rowJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * eApps R6 (`fromCases`): the next states a record may move to (JSON list;
+         * `record_json` none = a new record: the initial states), only those the
+         * viewer (`{id, role}`, none = anyone) may take.
+         */
+    @Throws(UiException::class) fun `transitionsFromJson`(`kindJson`: kotlin.String, `recordJson`: kotlin.String?, `viewerJson`: kotlin.String?, `rowJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_transitions_from_json(
+    
+        FfiConverterString.lower(`kindJson`),FfiConverterOptionalString.lower(`recordJson`),FfiConverterOptionalString.lower(`viewerJson`),FfiConverterOptionalString.lower(`rowJson`),_status)
+}
+    )
+    }
+    
+
+        /**
          * A package's issues `[{path, message}]` JSON (`catalog_ids` default: the
          * three built-in catalogs).
          */
@@ -11074,6 +11121,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_validate_record_json(
     
         FfiConverterString.lower(`schemaJson`),FfiConverterString.lower(`dataJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * eApps R6 (`validateCases`): the issues of a kind's `transitions`
+         * (`[{path, message}]` under `<at>/transitions`).
+         */
+    @Throws(UiException::class) fun `validateRecordTransitionsJson`(`kindJson`: kotlin.String, `at`: kotlin.String, `kindName`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_validate_record_transitions_json(
+    
+        FfiConverterString.lower(`kindJson`),FfiConverterString.lower(`at`),FfiConverterString.lower(`kindName`),_status)
 }
     )
     }

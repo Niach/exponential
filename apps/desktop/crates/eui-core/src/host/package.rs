@@ -239,6 +239,8 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
                             issues.extend(super::expressions::validate_record_computed(&Value::Object(def.clone()), &at));
                             // eApps R5 (VAPP-219): refs name a string field and a declared kind.
                             issues.extend(super::records::validate_record_refs(&Value::Object(def.clone()), &at, p.get("records")));
+                            // eApps R6 (VAPP-222): a state machine on one enum field.
+                            issues.extend(super::record_transitions::validate_record_transitions(&Value::Object(def.clone()), &at, kind));
                         }
                     }
                 }

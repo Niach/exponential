@@ -219,7 +219,8 @@ fn records_source_value(source: &str, pkg: &Map<String, Value>, rows: &[RecordRo
     let names = HashMap::new();
     let computed = if query.app.is_none() { super::query::kind_computed(pkg.get("records"), query.from.as_deref()) } else { None };
     let refs = if query.app.is_none() { super::query::kind_refs(pkg.get("records"), query.from.as_deref()) } else { None };
-    records_value_owned(rows, &query, RecordsContext { me: Some(me), now, today: None, names: &names, computed: computed.as_ref(), refs: refs.as_ref(), issues: None }).unwrap_or(Value::Null)
+    let transitions = if query.app.is_none() { super::record_transitions::kind_transitions(query.from.as_deref().and_then(|k| pkg.get("records").and_then(|r| r.get(k)))) } else { None };
+    records_value_owned(rows, &query, RecordsContext { me: Some(me), now, today: None, names: &names, computed: computed.as_ref(), refs: refs.as_ref(), issues: None, transitions: transitions.as_ref(), role: None }).unwrap_or(Value::Null)
 }
 
 /// Run one (valid) test: what it produced.

@@ -73,12 +73,15 @@ public struct RecordsQuery: Sendable, Equatable {
     /// (`RecordsQuery.refs(records:kind:)`), what `expand` follows; `issues`
     /// = identifier → the issue summary `{id, identifier, title, status}` an
     /// `issue` ref inlines (members resolve through `names`).
-    public func value(rows: [RecordRow], me: String?, now: Date = Date(), today: String? = nil, names: [String: String] = [:], computed: [String: String] = [:], refs: JSONValue = .null, issues: [String: JSONValue] = [:]) -> JSONValue {
-        value(rows: rows, me: me, now: RecordsQuery.iso(now), today: today, names: names, computed: computed, refs: refs, issues: issues)
+    /// VAPP-222 (R6): `transitions` = the queried kind's state machine
+    /// (`records.<kind>.transitions`, `.null` = none): every row carries
+    /// `transitions`, the next states the viewer (`me`, `role`) may take.
+    public func value(rows: [RecordRow], me: String?, now: Date = Date(), today: String? = nil, names: [String: String] = [:], computed: [String: String] = [:], refs: JSONValue = .null, issues: [String: JSONValue] = [:], transitions: JSONValue = .null, role: String? = nil) -> JSONValue {
+        value(rows: rows, me: me, now: RecordsQuery.iso(now), today: today, names: names, computed: computed, refs: refs, issues: issues, transitions: transitions, role: role)
     }
 
     /// `value` with `now` as ISO 8601 text.
-    public func value(rows: [RecordRow], me: String?, now: String, today: String? = nil, names: [String: String], computed: [String: String] = [:], refs: JSONValue = .null, issues: [String: JSONValue] = [:]) -> JSONValue {
+    public func value(rows: [RecordRow], me: String?, now: String, today: String? = nil, names: [String: String], computed: [String: String] = [:], refs: JSONValue = .null, issues: [String: JSONValue] = [:], transitions: JSONValue = .null, role: String? = nil) -> JSONValue {
         let rowsJson = JSONValue.array(rows.map(\.json)).json
         let context = JSONValue.object([
             "me": me.map(JSONValue.string) ?? .null,
@@ -88,6 +91,8 @@ public struct RecordsQuery: Sendable, Equatable {
             "computed": .object(computed.mapValues { .string($0) }),
             "refs": refs,
             "issues": .object(issues),
+            "transitions": transitions,
+            "role": role.map(JSONValue.string) ?? .null,
         ]).json
         guard let out = try? recordsValueJson(rowsJson: rowsJson, queryJson: json, contextJson: context) else { return .null }
         return JSONValue.parse(out)
@@ -110,6 +115,13 @@ public struct RecordsQuery: Sendable, Equatable {
     public static func refs(records: JSONValue?, kind: String?) -> JSONValue {
         guard let kind, let refs = records?[kind]?["refs"], refs.object != nil else { return .null }
         return refs
+    }
+
+    /// VAPP-222 (R6): a package's state machine of `kind`
+    /// (`records.<kind>.transitions`); what a host passes as `transitions`.
+    public static func transitions(records: JSONValue?, kind: String?) -> JSONValue {
+        guard let kind, let t = records?[kind]?["transitions"], t.object != nil else { return .null }
+        return t
     }
 
     private nonisolated(unsafe) static let isoMillis: ISO8601DateFormatter = {

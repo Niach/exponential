@@ -4,7 +4,7 @@
 
 ## Records
 
-An app's own data. `records: {<kind>: {schema, title?, description?, policy?, computed?, refs?}}`
+An app's own data. `records: {<kind>: {schema, title?, description?, policy?, computed?, refs?, transitions?}}`
 declares every kind (VAPP-122: the kind pattern, the JSON Schema subset and
 the reserved row keys are in `catalog/host.json` `package.records`). The
 host provides the store; the format fixes what a surface sees and calls.
@@ -97,6 +97,42 @@ of that kind in the app, no such issue or member in the team) refuses the
 write (Exponential: BAD_REQUEST naming the field). A read follows a ref with
 `expand` (below); deleting the target never cascades: the ref dangles and
 an expanded one reads null.
+
+**Transitions** (eApps R6, VAPP-222; `fixtures/record-transitions.json`): a
+state machine on ONE enum field:
+
+```jsonc
+"transitions": {
+  "field": "status",                       // a string field with an enum: its values are the states
+  "initial": ["requested"],                // optional; default = every from state no edge enters
+  "from": { "requested": ["approved", "rejected"], "approved": ["paid"] },
+  "who": { "requested->approved": "role:approver", "paid": "owners" }
+}
+```
+
+A write that moves the field along an edge `from` does not list is refused
+(Exponential: BAD_REQUEST `status: requested → paid is not a declared
+transition`; clearing the state is an edge too), and a create must start in
+an initial state. `who` names an edge (`a->b`) or a target state (`b`: every
+edge into it; the edge wins); its level is `member` (the default), `author`
+(the record's author or a team owner), `owners`, or `role:<field>`: the
+member a `member` ref of the record names BEFORE the write (or a team owner);
+a mover the level excludes is refused (FORBIDDEN `Only the record's approver
+or a team owner can move status to approved`). A write that leaves the state
+as it is always passes the machine (the policy still applies). At install,
+issues at `/records/<kind>/transitions…`: the field is a declared enum field,
+every state is one of its values, a `who` key is a declared edge or a state,
+a level is one of the above (a `role:` field a `member` ref of the kind).
+Every row of such a kind carries `transitions`: the next states the viewer
+may take (no state yet = the initial states), so a template offers only
+those (a `Select` over `row.transitions`); a kind with transitions declares
+no field of that name. The rule is `transitionRefusal` / `transitionsFrom` /
+`validateRecordTransitions` (Rust `transition_refusal` / `transitions_from`,
+the FFI's `*_json`, the SDKs' `RecordTransitions`); the records value takes
+the kind's machine and the viewer's role (`recordsValue(rows, query, {…,
+transitions: kindTransitions(kind), role})`). Exponential's server enforces
+it on every create, patch, batch write and restore (an owner may restore any
+state).
 
 **Read** = the binding source `records:<kind>[?query]`. The value is
 `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?, groups?, totals?, before?}`
@@ -239,7 +275,7 @@ Layers, all intersected:
 
 The defaults are `member/member/author/author`. This is the common case; it ships with `formatVersion 3`, and as eApps keeps no backwards compatibility (decided 2026-11-02) v2 packages are not read after that.
 
-The server enforces the policy (the records service on every read and write, the broker's reads, the import's creates; a row the member may not read is NOT_FOUND). The app-records shape enforces `read: author` / `read: owners` with a row filter for non-owners (`lib/apps/records-shape.ts`): a private kind never syncs to other members' devices. `create` is never `author`. Package tests take `role` and run under the policies. `role:<field>` levels wait for R6.
+The server enforces the policy (the records service on every read and write, the broker's reads, the import's creates; a row the member may not read is NOT_FOUND). The app-records shape enforces `read: author` / `read: owners` with a row filter for non-owners (`lib/apps/records-shape.ts`): a private kind never syncs to other members' devices. `create` is never `author`. Package tests take `role` and run under the policies. ✅ R6 (#VAPP-222): `role:<field>` levels live on a kind's `transitions.who` (the member a `member` ref names), not on `policy`.
 
 4. **Field-level privacy is out.** Use a separate kind with `read: owners` (for example, salary next to a hiring candidate).
 5. **The Postgres scope** ✅ (#VAPP-193), a backstop under layers 1 to 3, not a replacement. Every server read and write of a record runs through ONE service (`apps/web/src/lib/apps/records-service.ts`), which checks layers 1 to 3, ownership and quota, then runs the record statements as the `NOLOGIN` role `eapps` scoped to one team and its apps (§12.2). Ownership and policy stay in the service, never in RLS.

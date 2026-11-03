@@ -20,6 +20,7 @@ pub mod package;
 pub mod policy;
 pub mod query;
 pub mod record_policy;
+pub mod record_transitions;
 pub mod record_store;
 pub mod records;
 pub mod router;
@@ -50,6 +51,7 @@ pub use query::{
     computed_data, expand_query_source, fill_query_templates, kind_computed, kind_refs, month_days, month_label, parse_records_json, parse_records_query, parse_records_source, records_value, records_value_owned, shift_month, RecordRow, RecordRowRef, RecordsAggregate, RecordsAggregateOp, RecordsBefore, RecordsContext, RecordsDay, RecordsFilter, RecordsFilterOp, RecordsFilterValue, RecordsGroupKey, RecordsMonthView, RecordsOrder, RecordsQueryIssue, RecordsRunning, RecordsRunningOp,
     RecordsQuery, RecordsSortKey, RECORDS_AGGREGATE_OPS, RECORDS_AGGREGATE_RESERVED, RECORDS_COMPUTED_MAX, RECORDS_COMPUTED_ROW_KEYS, RECORDS_FILTER_OPS, RECORDS_MONTHS, RECORDS_OP_ALIASES, RECORDS_RUNNING_OPS, RECORDS_RESERVED_PARAMS, RECORDS_ROW_KEYS, RECORDS_SCHEME, RECORDS_WEEKDAYS,
 };
+pub use record_transitions::{initial_states, kind_transitions, transition_refusal, transitions_from, validate_record_transitions, RecordTransitions, TransitionRefusal, TransitionViewer, RECORD_TRANSITIONS_ROW_KEY, TRANSITION_LEVELS};
 pub use record_policy::{
     readable_rows, record_allowed, record_author_of, record_policy, record_policy_copy, record_refusal, validate_record_policy, RecordOp, RecordPolicy, RecordViewer, APP_ACCESS_LEVELS, DEFAULT_RECORD_POLICY, RECORD_POLICY_LEVELS, RECORD_POLICY_OPS,
 };

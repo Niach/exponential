@@ -264,6 +264,9 @@ pub(crate) struct RecordsFeed {
     /// identifier, title, status}`), what an expanded `issue` ref inlines;
     /// filled only when the hosting package declares an issue ref.
     pub(crate) issues: serde_json::Map<String, Value>,
+    /// VAPP-222 (R6): the viewer's team role in the scope team (an owner
+    /// takes every edge of a kind's transitions).
+    pub(crate) role: Option<String>,
 }
 
 /// Dogfood G: the calendar day at `now` in the feed's zone (the team's,
@@ -321,7 +324,9 @@ pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &eui_core::host::Rec
     let today = feed_today(feed, now);
     // VAPP-219 (R5): the hosting app's refs (`expand`); members resolve through `names`.
     let refs = if query.app.is_none() { eui_core::host::kind_refs(scope.and_then(|s| s.records.as_ref()), query.from.as_deref()) } else { None };
-    let ctx = eui_core::host::RecordsContext { me: feed.me.as_deref(), now, today: today.as_deref(), names: &feed.names, computed: computed.as_ref(), refs: refs.as_ref(), issues: Some(&feed.issues) };
+    // VAPP-222 (R6): the hosting app's state machine: each row's legal next states.
+    let transitions = if query.app.is_none() { eui_core::host::kind_transitions(query.from.as_deref().and_then(|k| scope.and_then(|s| s.records.as_ref()).and_then(|r| r.get(k)))) } else { None };
+    let ctx = eui_core::host::RecordsContext { me: feed.me.as_deref(), now, today: today.as_deref(), names: &feed.names, computed: computed.as_ref(), refs: refs.as_ref(), issues: Some(&feed.issues), transitions: transitions.as_ref(), role: feed.role.as_deref() };
     eui_core::host::records_value(&rows, query, ctx).unwrap_or(Value::Null)
 }
 
@@ -753,6 +758,12 @@ fn refresh_records(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
         .map(|u| (u.id.clone(), u.name.clone().unwrap_or_default()))
         .collect();
     let mut me = crate::queries::active_account(cx).map(|a| a.user_id);
+    // VAPP-222 (R6): my role in the scope team (Run as: theirs).
+    let scope_team = feeds.borrow().records.scope.as_ref().and_then(|s| s.team_id.clone());
+    let mut role: Option<String> = match (&me, &scope_team) {
+        (Some(me), Some(team)) => collections.team_members.read(cx).iter().find(|m| &m.user_id == me && &m.team_id == team).and_then(|m| m.role.clone()),
+        _ => None,
+    };
     let mut records = records;
     if feeds.borrow().records.scope.as_ref().is_none_or(|s| s.run_as.is_none()) {
         let entries = active_outbox_entries(cx);
@@ -769,6 +780,7 @@ fn refresh_records(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
             eui_core::host::record_refusal(&eui_core::host::record_policy(kinds.get(&r.kind)), eui_core::host::RecordOp::Read, &viewer, Some(&row)).is_none()
         });
         me = Some(run_as.id.clone());
+        role = Some(run_as.role.clone());
     }
     // Dogfood G: the team zone the month view's `today` reads (as host_zone).
     let team_id = feeds.borrow().records.scope.as_ref().and_then(|s| s.team_id.clone());
@@ -786,7 +798,7 @@ fn refresh_records(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
         }
     }
     let mut f = feeds.borrow_mut();
-    let next = RecordsFeed { scope: f.records.scope.clone(), me, records, apps, names, zone, issues };
+    let next = RecordsFeed { scope: f.records.scope.clone(), me, records, apps, names, zone, issues, role };
     if f.records != next {
         f.records = next;
         f.publish();
@@ -1772,6 +1784,9 @@ impl IdeHost {
                 let f = feeds.clone();
                 subscriptions.push(cx.observe(&outbox, move |_, cx| refresh_records(&f, cx)));
             }
+            // VAPP-222: the viewer's role decides an owner-only edge.
+            let f = feeds.clone();
+            subscriptions.push(cx.observe(&collections.team_members, move |_, cx| refresh_records(&f, cx)));
         }
         let weak = Rc::downgrade(&feeds);
         let tick = cx.spawn(async move |cx| loop {
@@ -2035,6 +2050,7 @@ mod tests {
             names: HashMap::from([("u1".to_string(), "Danny".to_string())]),
             zone: None,
             issues: serde_json::Map::new(),
+            role: None,
         }
     }
 
@@ -2120,6 +2136,24 @@ mod tests {
         let own = records_feed_value(&feed, &query("records:entry?expand=owner,task"), "2026-10-24T09:00:00.000Z");
         assert_eq!(own["rows"][0]["owner"], json!({"id": "u1", "name": "Danny"}));
         assert_eq!(own["rows"][0]["task"]["title"], "Ship it");
+    }
+
+    /// VAPP-222 (R6): a kind's rows carry the next states the viewer may take.
+    #[test]
+    fn records_carry_the_legal_transitions() {
+        let mut feed = records_feed();
+        feed.records[0].data = json!({"date": "2026-10-05", "hours": 3, "status": "open"});
+        if let Some(scope) = feed.scope.as_mut() {
+            scope.records = Some(json!({"entry": {"schema": {"type": "object", "properties": {"status": {"type": "string", "enum": ["open", "done", "void"]}}}, "transitions": {"field": "status", "from": {"open": ["done", "void"]}, "who": {"void": "owners"}}}}));
+        }
+        let query = match query_of(&eui_core::host::parse_source("records:entry").unwrap()) {
+            Some(Query::Records(q)) => q,
+            other => panic!("{other:?}"),
+        };
+        let now = "2026-10-24T09:00:00.000Z";
+        assert_eq!(records_feed_value(&feed, &query, now)["rows"][0]["transitions"], json!(["done"]));
+        feed.role = Some("owner".into());
+        assert_eq!(records_feed_value(&feed, &query, now)["rows"][0]["transitions"], json!(["done", "void"]));
     }
 
     #[test]

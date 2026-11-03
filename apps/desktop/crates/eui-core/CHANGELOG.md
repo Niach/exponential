@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-222 (eApps R6): `host::record_transitions` (`transition_refusal`, `transitions_from`, `validate_record_transitions`, `kind_transitions`); `RecordsContext.transitions` + `role` (rows carry `transitions`).
+
 ## 0.10.0 (2026-11-03)
 
 - VAPP-219 (eApps R5): record refs + expand: a kind's `refs` (`records.<kind>.refs`) name the kind a field points to, and a query's `expand` resolves them into the rows.

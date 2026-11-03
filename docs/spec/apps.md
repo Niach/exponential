@@ -166,7 +166,7 @@ Needs: C2, C13.
 | C7 | mul/div/round, date maths (add, diff, startOf, weekday) | ✅ CEL subset, type-checked | #VAPP-191 |
 | C8 | Several screens per app with navigation and deep links | ❌ (the preview paints only the first template) | 🆕 U1 |
 | C9 | Forms and tables generated from a kind's schema | 🟡 the Data tab does it in Exponential's own UI (#VAPP-178); nothing in eUI | 🆕 U2 |
-| C10 | Field state machine (allowed transitions) | ❌ | 🆕 R6 |
+| C10 | Field state machine (allowed transitions) | ✅ R6 (#VAPP-222) | R6 |
 | C11 | Computed fields on a kind | ❌ | 🆕 Q3 |
 | C12 | CSV/xlsx export of a kind or the current query | ❌ **out of scope** (decided 2026-11-01): records leave through `.app.json` and MCP | — |
 | C13 | Spreadsheet import (agent path + mapping dialog) | 🟡 the agent recipe (§10.2, #VAPP-228); the dialog (§10.3) open | 🆕 X2 |
@@ -287,7 +287,7 @@ A per-member view groups by `author`, not `created_by`. That way a backfill an o
   - `"issue"` stores an identifier like `EXP-12`.
   - `"member"` stores a user id.
   - Refs are validated on write (the target exists in the same app or team; else BAD_REQUEST naming the field) and resolved by queries (`expand`). Cross-app refs are not allowed. Install checks the field is a declared string field and the kind exists. Deleting a target never cascades: the ref dangles and reads null when expanded.
-- **transitions:** `{"field": "status", "from": {"requested": ["approved", "rejected"]}, "who": {"approved": "role:approver"}}`, enforced on the server.
+- **transitions** (✅ R6, #VAPP-222): `{"field": "status", "initial"?: ["requested"], "from": {"requested": ["approved", "rejected"]}, "who": {"requested->approved": "role:approver", "paid": "owners"}}`, enforced on the server (the records service: an undeclared edge = BAD_REQUEST naming it, a mover the edge's `who` excludes = FORBIDDEN; creates start in an initial state; restores follow it unless an owner restores). `who` names an edge or a target; levels `member` (default), `author`, `owners`, `role:<field>` (the member a `member` ref names before the write, or an owner). The checker validates the field is an enum and every state exists. Rows of the kind carry `transitions` (the viewer's legal next states) so a template offers only those; `record-transitions.json`, TS + Rust, replayed ×4.
 - **files** ✅ (R7, #VAPP-221): `{"type": "string", "format": "attachment"}` holds one file, a list of strings with `"items": {"type": "string", "format": "attachment"}` several. The value is `/api/attachments/<id>` (relative, lowercase uuid; eUI `validateRecord` ×2 twins, `host-router.json` `acme.files`).
   - **Upload:** a `FileUpload` whose `files` is bound; the app host posts each picked file to `POST /api/apps/{appId}/files` (write access to the app; the attachments pipeline: caps, the team's storage budget) and writes the returned `url` into the entry of the same name at the bound path. An action stores the urls in the record.
   - **The row** is the app's (`attachments.app_id`, no other owner, never synced). The bytes route serves it to team members whose access to the app is not `none`; the app hosts' media rule (`appMediaAllowed`) loads it in `Image`.
@@ -314,7 +314,7 @@ Layers, all intersected:
 
 The defaults are `member/member/author/author`. This is the common case; it ships with `formatVersion 3`, and as eApps keeps no backwards compatibility (decided 2026-11-02) v2 packages are not read after that.
 
-The server enforces the policy (the records service on every read and write, the broker's reads, the import's creates; a row the member may not read is NOT_FOUND). The app-records shape enforces `read: author` / `read: owners` with a row filter for non-owners (`lib/apps/records-shape.ts`): a private kind never syncs to other members' devices. `create` is never `author`. Package tests take `role` and run under the policies. `role:<field>` levels wait for R6.
+The server enforces the policy (the records service on every read and write, the broker's reads, the import's creates; a row the member may not read is NOT_FOUND). The app-records shape enforces `read: author` / `read: owners` with a row filter for non-owners (`lib/apps/records-shape.ts`): a private kind never syncs to other members' devices. `create` is never `author`. Package tests take `role` and run under the policies. ✅ R6 (#VAPP-222): `role:<field>` levels live on a kind's `transitions.who` (the member a `member` ref names), not on `policy`.
 
 4. **Field-level privacy is out.** Use a separate kind with `read: owners` (for example, salary next to a hiring candidate).
 5. **The Postgres scope** ✅ (#VAPP-193), a backstop under layers 1 to 3, not a replacement. Every server read and write of a record runs through ONE service (`apps/web/src/lib/apps/records-service.ts`), which checks layers 1 to 3, ownership and quota, then runs the record statements as the `NOLOGIN` role `eapps` scoped to one team and its apps (§12.2). Ownership and policy stay in the service, never in RLS.
@@ -848,7 +848,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 - **U1** `screens` + `navigate` + deep links + phone bar + the `formFactor` condition. (C8, C27)
 - **U2** `RecordForm` and `RecordTable` macros: styleguide entry ×5 sites, eUI catalog, prompt budget trimmed to fit. (C9)
-- **R5** Refs + `expand` (✅ #VAPP-219). **R6** Transitions. **R7** ✅ #VAPP-221 Files on records. (C3, C10, C20)
+- **R5** Refs + `expand` (✅ #VAPP-219). **R6** Transitions (✅ #VAPP-222). **R7** ✅ #VAPP-221 Files on records. (C3, C10, C20)
 - **V1** ✅ #VAPP-210 / #VAPP-211 Draft vs published (`published_version`, Publish, tools and automations on published). (§2.3)
 - **R8** Declarative migrations + the sweep. (§3.6)
 

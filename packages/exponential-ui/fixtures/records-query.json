@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-189 (S1, docs/package-format.md \"Records\"): THE records query, one evaluator on every host. TS reference src/host/query.ts (`@exponential_app/eui/host/query`), Rust twin eui-core `host/query.rs`, reached by the Swift and Compose SDKs over the FFI (`parse_records_query_json`, `parse_records_source_json`, `records_value_json`); every one replays these cases. Inputs hand-written, `expected` filled by scripts/generate-host.ts. PARSE (`parseCases`: parseRecordsQuery(params, kind?)): query params (as parseSource gives them) → the structured query {from, app, mine, user, where: [{field, op, value}], sort: [{field, order}], limit, sum, month: {field, key} | null}. `kind` = the source's own name (`records:<kind>`); `from` = the kind (none = null); `app=<slug>` = another app's rows (the HOST resolves whose); `mine=1|true` = the viewer's rows; `user=<id>`; `sort` (default `query.sortDefault`) + `order=asc|desc` (default `orderDefault`, anything else = the default) = the one sort key of the URL sugar; `limit` a positive integer (default `limitDefault`, capped at `limitMax`); `sum=<field>`; `by=<dateField>` (+ `month=YYYY-MM`, a malformed one = null = the month of now) = the month view, `month` without `by` = none; every OTHER key (the `reserved` keys never; an empty key never) = a condition: `<field>=v` eq, `<field>.gt|gte|lt|lte=v` (a different suffix = an eq on the whole key), sorted by field then operator. The JSON query form (VAPP-190) adds keys next to these. SOURCES (`sourceCases`: parseRecordsSource(parseSource(source))): `records:<kind>?q` = parse(q, kind); any other scheme = null. VALUE (`valueCases`: recordsValue(rows, parse(params, kind), {me, now, names})): null without a kind; else the rows of that kind where: the AUTHOR (`authorId ?? createdBy`, #VAPP-187: an owner's on-behalf write is its author's) is `me` for `mine` (signed out = nothing) and `user` for `user=`; with a month view the `field` text starts with the month key; every condition holds over the field (the row keys `id`, `createdAt`, `updatedAt`, `createdBy` read the row, `authorId` the author, any other name the data): eq compares as text (null/missing = \"\", objects as JSON), the ranges as numbers when both sides parse (finite), else as text by UTF-16 code units. Sorted by each sort key (desc reverses), ties by id; {rows: [{…data, id, createdAt, updatedAt, createdBy, authorId (the author), author}] cut at the limit (a data key never shadows a row key; `author` = names[author] or \"\"), count: the matches before the limit, sum?: Σ of the field's numbers over the matches (non-numbers count 0, rounded to 1e-6), month?: {key, label (`months`), prev, next, today (now's date), days: every day of the month {date, day, weekday (`weekdays`), count, sum}, labels/counts/sums: the same days as chart-ready arrays}}. The `rowKeys` ride on every row and are reserved: a kind's schema may not declare them. VAPP-214 (Q3, spec §4.4): a case's `computed` = the queried kind's computed fields (`records.<kind>.computed`, name → CEL), passed in the context: before the query each row of the kind gets every computed field written into its data (computed wins over a stored key of that name), the expression reading the row's data fields and the row keys id createdAt updatedAt createdBy authorId by name (a name absent from the row reads null); a parse or evaluation error reads null; evaluated in UTC with `now` as the clock. Then filters, sorts, groups, aggregates, running values, sum= and the month view read a computed field like any field, and the rows carry it. Never stored. Dogfood G (2026-11-03): a value case may carry `today` (`YYYY-MM-DD`, the host's calendar day in the TEAM zone, team-zone.json): the month view's `today` and its default month read it; without it, `now`'s UTC day. Every host ×4 and the server broker pass it. eApps R5 (VAPP-219, spec §3.3): a kind's `refs` ({field: {kind} | \"issue\" | \"member\"}) mark string fields holding an id. `expand` (URL `expand=a,b`, comma-separated, trimmed, duplicates dropped; JSON `expand: [field…]`, a non-string/empty entry or a duplicate = an issue at `/expand/<i>`) inlines each named REF into every output row (not into groups, totals or filters: those read the stored id): a `{kind}` ref = the row of that kind with that id among the case's rows, as a value row {…data, id, createdAt, updatedAt, createdBy, authorId, author} (its stored data, its own refs not followed: one level); `issue` = the context's `issues[identifier]` (the host's summary {id, identifier, title, status}); `member` = {id, name} when the id is in `names`. A dangling ref (the target deleted, of another kind, unknown, or not readable by the viewer and so not in the rows) and an empty or missing one read null (no cascade). An expanded name that is not a ref of the kind (the context's `refs`) stays as stored. A case's `refs` and `issues` ride in the context.",
+  "$comment": "VAPP-189 (S1, docs/package-format.md \"Records\"): THE records query, one evaluator on every host. TS reference src/host/query.ts (`@exponential_app/eui/host/query`), Rust twin eui-core `host/query.rs`, reached by the Swift and Compose SDKs over the FFI (`parse_records_query_json`, `parse_records_source_json`, `records_value_json`); every one replays these cases. Inputs hand-written, `expected` filled by scripts/generate-host.ts. PARSE (`parseCases`: parseRecordsQuery(params, kind?)): query params (as parseSource gives them) → the structured query {from, app, mine, user, where: [{field, op, value}], sort: [{field, order}], limit, sum, month: {field, key} | null}. `kind` = the source's own name (`records:<kind>`); `from` = the kind (none = null); `app=<slug>` = another app's rows (the HOST resolves whose); `mine=1|true` = the viewer's rows; `user=<id>`; `sort` (default `query.sortDefault`) + `order=asc|desc` (default `orderDefault`, anything else = the default) = the one sort key of the URL sugar; `limit` a positive integer (default `limitDefault`, capped at `limitMax`); `sum=<field>`; `by=<dateField>` (+ `month=YYYY-MM`, a malformed one = null = the month of now) = the month view, `month` without `by` = none; every OTHER key (the `reserved` keys never; an empty key never) = a condition: `<field>=v` eq, `<field>.gt|gte|lt|lte=v` (a different suffix = an eq on the whole key), sorted by field then operator. The JSON query form (VAPP-190) adds keys next to these. SOURCES (`sourceCases`: parseRecordsSource(parseSource(source))): `records:<kind>?q` = parse(q, kind); any other scheme = null. VALUE (`valueCases`: recordsValue(rows, parse(params, kind), {me, now, names})): null without a kind; else the rows of that kind where: the AUTHOR (`authorId ?? createdBy`, #VAPP-187: an owner's on-behalf write is its author's) is `me` for `mine` (signed out = nothing) and `user` for `user=`; with a month view the `field` text starts with the month key; every condition holds over the field (the row keys `id`, `createdAt`, `updatedAt`, `createdBy` read the row, `authorId` the author, any other name the data): eq compares as text (null/missing = \"\", objects as JSON), the ranges as numbers when both sides parse (finite), else as text by UTF-16 code units. Sorted by each sort key (desc reverses), ties by id; {rows: [{…data, id, createdAt, updatedAt, createdBy, authorId (the author), author}] cut at the limit (a data key never shadows a row key; `author` = names[author] or \"\"), count: the matches before the limit, sum?: Σ of the field's numbers over the matches (non-numbers count 0, rounded to 1e-6), month?: {key, label (`months`), prev, next, today (now's date), days: every day of the month {date, day, weekday (`weekdays`), count, sum}, labels/counts/sums: the same days as chart-ready arrays}}. The `rowKeys` ride on every row and are reserved: a kind's schema may not declare them. VAPP-214 (Q3, spec §4.4): a case's `computed` = the queried kind's computed fields (`records.<kind>.computed`, name → CEL), passed in the context: before the query each row of the kind gets every computed field written into its data (computed wins over a stored key of that name), the expression reading the row's data fields and the row keys id createdAt updatedAt createdBy authorId by name (a name absent from the row reads null); a parse or evaluation error reads null; evaluated in UTC with `now` as the clock. Then filters, sorts, groups, aggregates, running values, sum= and the month view read a computed field like any field, and the rows carry it. Never stored. Dogfood G (2026-11-03): a value case may carry `today` (`YYYY-MM-DD`, the host's calendar day in the TEAM zone, team-zone.json): the month view's `today` and its default month read it; without it, `now`'s UTC day. Every host ×4 and the server broker pass it. eApps R5 (VAPP-219, spec §3.3): a kind's `refs` ({field: {kind} | \"issue\" | \"member\"}) mark string fields holding an id. `expand` (URL `expand=a,b`, comma-separated, trimmed, duplicates dropped; JSON `expand: [field…]`, a non-string/empty entry or a duplicate = an issue at `/expand/<i>`) inlines each named REF into every output row (not into groups, totals or filters: those read the stored id): a `{kind}` ref = the row of that kind with that id among the case's rows, as a value row {…data, id, createdAt, updatedAt, createdBy, authorId, author} (its stored data, its own refs not followed: one level); `issue` = the context's `issues[identifier]` (the host's summary {id, identifier, title, status}); `member` = {id, name} when the id is in `names`. A dangling ref (the target deleted, of another kind, unknown, or not readable by the viewer and so not in the rows) and an empty or missing one read null (no cascade). An expanded name that is not a ref of the kind (the context's `refs`) stays as stored. A case's `refs` and `issues` ride in the context. eApps R6 (VAPP-222, record-transitions.json): a case's `transitions` (the queried kind's machine) and `role` (the viewer's team role; unset = a member) ride in the context: every output row of the kind carries `transitions` = transitionsFrom(machine, the row's data, {id: me, role}, the row): the next states the viewer may take (no state = the initial states).",
   "query": {
     "reserved": [
       "app",
@@ -10290,6 +10290,239 @@
           }
         ],
         "count": 2
+      }
+    },
+    {
+      "name": "VAPP-222 rows carry the next states the viewer may take (the approver)",
+      "kind": "expense",
+      "params": {
+        "sort": "createdAt",
+        "order": "asc"
+      },
+      "me": "u2",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {},
+      "rows": [
+        {
+          "id": "e1",
+          "kind": "expense",
+          "data": {
+            "title": "Laptop",
+            "status": "requested",
+            "approver": "u2"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "e2",
+          "kind": "expense",
+          "data": {
+            "title": "Desk",
+            "status": "approved",
+            "approver": "u2"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "e3",
+          "kind": "expense",
+          "data": {
+            "title": "Chair"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-03T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        }
+      ],
+      "transitions": {
+        "field": "status",
+        "initial": [
+          "requested"
+        ],
+        "from": {
+          "requested": [
+            "approved",
+            "rejected"
+          ],
+          "approved": [
+            "paid"
+          ],
+          "rejected": [
+            "requested"
+          ]
+        },
+        "who": {
+          "requested->approved": "role:approver",
+          "requested->rejected": "role:approver",
+          "paid": "owners",
+          "rejected->requested": "author"
+        }
+      },
+      "expected": {
+        "rows": [
+          {
+            "title": "Laptop",
+            "status": "requested",
+            "approver": "u2",
+            "id": "e1",
+            "createdAt": "2026-10-01T09:00:00Z",
+            "updatedAt": "2026-10-01T09:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "",
+            "transitions": [
+              "approved",
+              "rejected"
+            ]
+          },
+          {
+            "title": "Desk",
+            "status": "approved",
+            "approver": "u2",
+            "id": "e2",
+            "createdAt": "2026-10-02T09:00:00Z",
+            "updatedAt": "2026-10-02T09:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "",
+            "transitions": []
+          },
+          {
+            "title": "Chair",
+            "id": "e3",
+            "createdAt": "2026-10-03T09:00:00Z",
+            "updatedAt": "2026-10-03T09:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "",
+            "transitions": [
+              "requested"
+            ]
+          }
+        ],
+        "count": 3
+      }
+    },
+    {
+      "name": "VAPP-222 an owner takes every edge",
+      "kind": "expense",
+      "params": {
+        "sort": "createdAt",
+        "order": "asc"
+      },
+      "me": "o1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {},
+      "rows": [
+        {
+          "id": "e1",
+          "kind": "expense",
+          "data": {
+            "title": "Laptop",
+            "status": "requested",
+            "approver": "u2"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        },
+        {
+          "id": "e2",
+          "kind": "expense",
+          "data": {
+            "title": "Desk",
+            "status": "approved",
+            "approver": "u2"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "e3",
+          "kind": "expense",
+          "data": {
+            "title": "Chair"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-03T09:00:00Z",
+          "updatedAt": "2026-10-03T09:00:00Z"
+        }
+      ],
+      "transitions": {
+        "field": "status",
+        "initial": [
+          "requested"
+        ],
+        "from": {
+          "requested": [
+            "approved",
+            "rejected"
+          ],
+          "approved": [
+            "paid"
+          ],
+          "rejected": [
+            "requested"
+          ]
+        },
+        "who": {
+          "requested->approved": "role:approver",
+          "requested->rejected": "role:approver",
+          "paid": "owners",
+          "rejected->requested": "author"
+        }
+      },
+      "role": "owner",
+      "expected": {
+        "rows": [
+          {
+            "title": "Laptop",
+            "status": "requested",
+            "approver": "u2",
+            "id": "e1",
+            "createdAt": "2026-10-01T09:00:00Z",
+            "updatedAt": "2026-10-01T09:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "",
+            "transitions": [
+              "approved",
+              "rejected"
+            ]
+          },
+          {
+            "title": "Desk",
+            "status": "approved",
+            "approver": "u2",
+            "id": "e2",
+            "createdAt": "2026-10-02T09:00:00Z",
+            "updatedAt": "2026-10-02T09:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "",
+            "transitions": [
+              "paid"
+            ]
+          },
+          {
+            "title": "Chair",
+            "id": "e3",
+            "createdAt": "2026-10-03T09:00:00Z",
+            "updatedAt": "2026-10-03T09:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "",
+            "transitions": [
+              "requested"
+            ]
+          }
+        ],
+        "count": 3
       }
     }
   ],

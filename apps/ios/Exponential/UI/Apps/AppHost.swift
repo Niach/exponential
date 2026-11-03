@@ -947,6 +947,8 @@ enum AppHostStore {
         /// VAPP-235: this account's outbox entries for the app, oldest first
         /// (laid over `rows`: `AppRecords.outboxRows`).
         var entries: [AppRecords.OutboxEntry] = []
+        /// VAPP-222 (R6): my team role (an owner takes every edge).
+        var role: String?
     }
 
     /// `records:<kind>?…`: eUI's one evaluator (VAPP-189, the SDK's
@@ -965,6 +967,8 @@ enum AppHostStore {
         let expanded = (query.structured["expand"]?.array ?? []).compactMap(\.string)
         let memberRefs = expanded.filter { refs[$0]?.string == "member" }
         let issueRefs = expanded.filter { refs[$0]?.string == "issue" }
+        // VAPP-222 (R6): the hosting app's state machine: each row's legal next states.
+        let transitions = query.app == nil ? RecordsQuery.transitions(records: scope.records, kind: query.from) : .null
         let push = { (snapshot: RecordsSnapshot) in
             // VAPP-235: the outbox laid over the synced rows (pending AND
             // acked, oldest first); acked entries the rows reflect (or past
@@ -990,7 +994,7 @@ enum AppHostStore {
             // VAPP-214: the hosting app's computed fields (another app's rows carry none).
             let computed = query.app == nil ? RecordsQuery.computed(records: scope.records, kind: query.from) : [:]
             let now = Date()
-            let value = query.value(rows: rows, me: scope.me, now: now, today: TeamZone.day(now, in: zone), names: snapshot.names, computed: computed, refs: refs, issues: snapshot.issues)
+            let value = query.value(rows: rows, me: scope.me, now: now, today: TeamZone.day(now, in: zone), names: snapshot.names, computed: computed, refs: refs, issues: snapshot.issues, transitions: transitions, role: snapshot.role)
             let json = value.json
             guard json != last else { return }
             last = json
@@ -1045,7 +1049,11 @@ enum AppHostStore {
                     issues[identifier] = .object(["id": .string(issue.id), "identifier": .string(identifier), "title": .string(issue.title), "status": .string(issue.status)])
                 }
             }
-            return RecordsSnapshot(rows: rows, names: names, issues: issues, entries: entries)
+            var role: String?
+            if transitions != .null, let me = scope.me, let teamId = scope.teamId {
+                role = try TeamMemberEntity.filter(Column("team_id") == teamId && Column("user_id") == me).fetchOne(db)?.role
+            }
+            return RecordsSnapshot(rows: rows, names: names, issues: issues, entries: entries, role: role)
         }
         let observe = Task { @MainActor in
             do {

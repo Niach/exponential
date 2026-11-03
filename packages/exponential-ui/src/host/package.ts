@@ -9,6 +9,7 @@ import { matchesPattern } from "./policy"
 import { parseSource } from "./sources"
 import { RECORD_KIND_PATTERN, validateRecordRefs, validateRecordSchema } from "./records"
 import { validateRecordPolicy } from "./record-policy"
+import { validateRecordTransitions } from "./record-transitions"
 import type { RecordKind } from "./records"
 import { RECORDS_SCHEME, parseRecordsJson } from "./query"
 import { validateTools } from "./tools"
@@ -207,6 +208,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
           issues.push(...validateRecordComputed(def, at))
           // eApps R5 (VAPP-219): refs name a string field and a declared kind.
           issues.push(...validateRecordRefs(def, at, pkg.records))
+          // eApps R6 (VAPP-222): a state machine on one enum field.
+          issues.push(...validateRecordTransitions(def, at, kind))
         }
       }
   }

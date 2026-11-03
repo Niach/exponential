@@ -20,7 +20,7 @@ import { afterRecordWrite, type RecordTriggerOp } from "@/lib/apps/automation-sc
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
 import { validateRecord, type RecordSchema } from "@exponential_app/eui"
-import { RECORD_POLICY_COPY, recordPolicy, recordRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
+import { RECORD_POLICY_COPY, kindTransitions, recordPolicy, recordRefusal, transitionRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
 import { kindComputed, kindRefs, parseRecordsJson, recordsValue, withComputed, type RecordRefTarget, type RecordRow, type RecordsQueryIssue, type RecordsValue } from "@exponential_app/eui/host/query"
 import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { resolveZone, zoneDay, zoneOffset } from "@exp/domain-contract/team-zone"
@@ -175,6 +175,15 @@ const kindPolicy = (app: RecordsApp, kind: string) => recordPolicy(effectiveReco
 function assertRecordOp(app: RecordsApp, kind: string, op: RecordOp, viewer: RecordViewer, row?: { authorId: string | null; createdBy: string | null }) {
   const refusal = recordRefusal(kindPolicy(app, kind), op, viewer, row)
   if (refusal) throw new TRPCError({ code: `FORBIDDEN`, message: refusal })
+}
+
+/** eApps R6 (#VAPP-222): refuse a write that moves the kind's state field
+ *  along an undeclared edge (BAD_REQUEST naming it) or by someone the edge's
+ *  `who` excludes (FORBIDDEN); `before` = the stored data (null = a create),
+ *  `after` = the data as it will be stored (record-transitions.json). */
+function assertTransition(app: RecordsApp, kind: string, viewer: { id: string; role: string }, before: Record<string, unknown> | null, after: Record<string, unknown>, row?: { authorId: string | null; createdBy: string | null }) {
+  const refusal = transitionRefusal(kindTransitions(effectiveRecords(app)[kind]), before, after, viewer, row)
+  if (refusal) throw new TRPCError({ code: refusal.code, message: refusal.message })
 }
 
 /** A row the viewer may not read is not there for them (NOT_FOUND, no leak). */
@@ -397,6 +406,7 @@ export async function upsertRecord(
         const reassign = input.author !== undefined && input.author !== recordAuthor(existing)
         if (reassign) assertCanWriteAs(userId, member.role, input.author, members)
         const data = checked({ ...existing.data, ...input.data })
+        assertTransition(app, input.kind, viewer, existing.data as Record<string, unknown>, data, existing)
         await assertRecordRefs(tx, app, input.kind, input.data)
         await tx
           .update(appRecords)
@@ -416,6 +426,7 @@ export async function upsertRecord(
     }
     assertRecordOp(app, input.kind, `create`, viewer)
     const data = checked(input.data)
+    assertTransition(app, input.kind, viewer, null, data)
     // VAPP-188: an on-behalf create (owners only; the author a member).
     assertCanWriteAs(userId, member.role, input.author, members)
     // The team's quota, counted in THIS transaction behind the team's lock:
@@ -573,6 +584,7 @@ export async function commitRecordBatch(
             assertReadable(app, viewer, existing)
             assertRecordOp(app, w.kind, `update`, viewer, existing)
             const data = checkedAgainst(schema, { ...existing.data, ...w.data })
+            assertTransition(app, w.kind, viewer, existing.data as Record<string, unknown>, data, existing)
             await assertRecordRefs(tx, app, w.kind, w.data)
             await tx.update(appRecords).set({ data, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             fired.push({ kind: w.kind, op: `update`, record: { ...data, id: existing.id } })
@@ -582,6 +594,7 @@ export async function commitRecordBatch(
           }
           assertRecordOp(app, w.kind, `create`, viewer)
           const data = checkedAgainst(schema, w.data)
+          assertTransition(app, w.kind, viewer, null, data)
           await assertRecordRefs(tx, app, w.kind, data)
           const [row] = await tx
             .insert(appRecords)
@@ -690,6 +703,8 @@ async function writeTargets(
         const schemas = kindSchemas(app, existing.kind)
         if (schemas.length === 0) throw new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${existing.kind}" any more` })
         const data = checkedAgainst(schemas, target.state)
+        // eApps R6: a restore (an undo) moves the state like any write; a team owner may repair any state.
+        if (viewer.role !== `owner`) assertTransition(app, existing.kind, viewer, live ? (existing.data as Record<string, unknown>) : null, data, existing)
         await tx.update(appRecords).set({ data, deletedAt: null, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
         events.push({ recordId: existing.id, kind: existing.kind, op: `restore`, author: recordAuthor(existing), patch: data, before: live ? existing.data : null })
       }

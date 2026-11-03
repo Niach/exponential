@@ -32,7 +32,7 @@ fn main() {
     ];
     let names = HashMap::new();
     for (name, q) in &queries {
-        let run = || records_value_owned(&rows, q, RecordsContext { me: Some("u1"), now: "2026-11-02T09:30:00.000Z", today: None, names: &names, computed: None, refs: None, issues: None });
+        let run = || records_value_owned(&rows, q, RecordsContext { me: Some("u1"), now: "2026-11-02T09:30:00.000Z", today: None, names: &names, computed: None, refs: None, issues: None, transitions: None, role: None });
         for _ in 0..5 {
             run();
         }

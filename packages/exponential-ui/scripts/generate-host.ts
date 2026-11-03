@@ -42,9 +42,13 @@ import {
   packageFileSignedBytes,
   base64UrlEncode,
   AUTHOR_KEY_PREFIX,
+  kindTransitions,
+  transitionRefusal,
+  transitionsFrom,
+  validateRecordTransitions,
 } from "../src/host"
 import { dateBucket, type DateBucket } from "../src/dates"
-import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage, AvailableExtension, PackageTool, RecordRefTarget, RecordRow } from "../src/host"
+import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage, AvailableExtension, PackageTool, RecordOwnership, RecordRefTarget, RecordRow, RecordTransitions, TransitionViewer } from "../src/host"
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), `..`)
 const read = (rel: string) => JSON.parse(readFileSync(join(pkgRoot, rel), `utf8`))
@@ -115,6 +119,7 @@ export function renderHost(): Record<string, string> {
     "fixtures/host-router.json": json(router),
     "fixtures/host-package.json": json(pkgFixture),
     "fixtures/records-query.json": json(renderRecordsQuery(read(`fixtures/records-query.json`))),
+    "fixtures/record-transitions.json": json(renderRecordTransitions(read(`fixtures/record-transitions.json`))),
   }
 }
 
@@ -150,8 +155,27 @@ function renderRecordsQuery(f: Record<string, any>): Record<string, unknown> {
       computed: c.computed as Record<string, string> | undefined,
       refs: c.refs as Record<string, RecordRefTarget> | undefined,
       issues: c.issues as Record<string, Record<string, unknown>> | undefined,
+      transitions: c.transitions ? kindTransitions({ transitions: c.transitions }) : undefined,
+      role: c.role as string | undefined,
     }),
   }))
+  return f
+}
+
+/** eApps R6 (VAPP-222): a case's machine = its own `transitions` (null =
+ *  none), else the fixture kind's. */
+export function caseTransitions(f: Record<string, any>, c: Case): RecordTransitions | null {
+  return `transitions` in c ? kindTransitions({ transitions: c.transitions }) : kindTransitions(f.kind)
+}
+
+/** eApps R6: `validateCases`, `refusalCases`, `fromCases` (record-transitions.json). */
+function renderRecordTransitions(f: Record<string, any>): Record<string, unknown> {
+  f.validateCases = f.validateCases.map((c: Case) => ({ ...c, expected: validateRecordTransitions(c.kind, `/records/${c.kindName}`, c.kindName as string) }))
+  f.refusalCases = f.refusalCases.map((c: Case) => ({
+    ...c,
+    expected: transitionRefusal(caseTransitions(f, c), c.before as Record<string, unknown> | null, c.after as Record<string, unknown>, c.viewer as TransitionViewer, c.row as RecordOwnership | undefined),
+  }))
+  f.fromCases = f.fromCases.map((c: Case) => ({ ...c, expected: transitionsFrom(caseTransitions(f, c), c.record as Record<string, unknown> | null, c.viewer as TransitionViewer | undefined, c.row as RecordOwnership | undefined) }))
   return f
 }
 
