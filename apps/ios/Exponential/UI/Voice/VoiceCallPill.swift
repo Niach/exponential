@@ -46,7 +46,7 @@ struct VoiceCallPill: View {
         .padding(.leading, 12)
         .padding(.trailing, 10)
         .frame(width: width, height: CGFloat(VoiceCall.Pill.height))
-        .background(GlassTokens.fillCard, in: Capsule())
+        .background(GlassTokens.opaqueCardFill, in: Capsule())
         .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
         .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
         .accessibilityElement(children: .contain)

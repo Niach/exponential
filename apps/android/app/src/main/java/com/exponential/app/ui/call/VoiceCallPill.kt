@@ -92,7 +92,7 @@ fun VoiceCallPill(
             .width(width)
             .height(VoiceCall.Pill.HEIGHT.dp)
             .shadow(12.dp, CircleShape)
-            .background(GlassTokens.FillCard, CircleShape)
+            .background(GlassTokens.OpaqueCardFill, CircleShape)
             .border(GlassTokens.Hairline, GlassTokens.StrokeCard, CircleShape)
             .padding(start = 12.dp, end = 10.dp)
             .testTag(VoiceCall.TestIds.PILL),
