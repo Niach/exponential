@@ -104,7 +104,7 @@ mod tests {
     }
 
     /// EXP-825: a start prompt with image embeds is localized for the agent
-    /// — the agent's text carries the `Image #N: <path>` manifest, and the
+    /// — the agent's text carries the `Image #N: <path> (attachment <id>)` manifest, and the
     /// restore pairs land in the shared map. Without an embed the text goes
     /// through untouched and nothing is recorded (the announce/agent split
     /// itself is the core's, tested there).
@@ -127,13 +127,13 @@ mod tests {
         let localized = runtime.block_on(localizer.localize(text.clone()));
         assert_eq!(
             localized,
-            "Please read the issue.\n\n## Additional instructions from the requester\n\nMatch [Image #1].\n\nImage #1: /wt/.exp-steer-images/a.png"
+            "Please read the issue.\n\n## Additional instructions from the requester\n\nMatch [Image #1].\n\nImage #1: /wt/.exp-steer-images/a.png (attachment 11111111-2222-3333-4444-555555555555)"
         );
         assert_eq!(
             embeds.snapshot(),
             vec![
                 (
-                    "Image #1: /wt/.exp-steer-images/a.png".to_string(),
+                    "Image #1: /wt/.exp-steer-images/a.png (attachment 11111111-2222-3333-4444-555555555555)".to_string(),
                     embed.to_string()
                 ),
                 ("/wt/.exp-steer-images/a.png".to_string(), embed.to_string()),
@@ -166,7 +166,7 @@ mod tests {
         assert!(localizer.wants(&steered));
         assert_eq!(
             runtime.block_on(localizer.localize(steered)),
-            "cant answer plan: [Image #1] newest IDE\n\nImage #1: /wt/.exp-steer-images/shot.png"
+            "cant answer plan: [Image #1] newest IDE\n\nImage #1: /wt/.exp-steer-images/shot.png (attachment 11111111-2222-3333-4444-555555555555)"
         );
         let request = coding::pickup::request_with_attachments(
             "Match [Image #1]",
@@ -175,7 +175,7 @@ mod tests {
         let brief = coding::pickup::brief_with_request("Wait for the next message.", &request);
         assert_eq!(
             runtime.block_on(localizer.localize(brief)),
-            "## Request\n\nMatch [Image #1]\n\nImage #1: /wt/.exp-steer-images/shot.png"
+            "## Request\n\nMatch [Image #1]\n\nImage #1: /wt/.exp-steer-images/shot.png (attachment 11111111-2222-3333-4444-555555555555)"
         );
     }
 }
