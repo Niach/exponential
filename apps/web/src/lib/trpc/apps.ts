@@ -12,14 +12,14 @@ import {
   isDraftApp,
   slugify,
 } from "@exp/domain-contract/apps"
-import { router, authedProcedure, generateTxId } from "@/lib/trpc"
+import { router, authedProcedure, generateTxId, type Context } from "@/lib/trpc"
 import { appAccess, appVersions, apps, mcpServers, sessions, type App, type AppPackageJson } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
 import { ACTION_LIMITS, validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
-import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecords, loadApp, queryRecords, teamMemberIds, upsertRecord } from "@/lib/apps/records-service"
+import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecordEvents, listRecords, loadApp, queryRecords, restoreRecord, teamMemberIds, undoEvents, upsertRecord, type RecordWriteVia } from "@/lib/apps/records-service"
 import { RECORD_POLICY_COPY } from "@exponential_app/eui/host"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { importAuthor } from "@exp/domain-contract/app-records"
@@ -48,6 +48,16 @@ const packageSchema = z.record(z.string(), z.unknown())
 const uuid = z.string().uuid()
 const kindSchema = z.string().trim().regex(APP_RECORD_KIND_PATTERN, `a kind is lowercase letters, digits and underscores`)
 const recordDataSchema = z.record(z.string(), z.unknown())
+
+/** VAPP-215: where a client says its write came from (the Data tab =
+ *  editor, an app's own UI = app); the server's own context wins. */
+const clientVia = z.enum([`editor`, `app`]).optional()
+/** An MCP call = mcp, an app's MCP tool = app, else what the client said. */
+function writeVia(ctx: Pick<Context, `viaMcp` | `viaAppId`>, via: `editor` | `app` | undefined): RecordWriteVia {
+  if (ctx.viaAppId) return `app`
+  if (ctx.viaMcp) return `mcp`
+  return via ?? `app`
+}
 
 /** One app by id or by (team, slug). */
 const appRefSchema = z
@@ -628,12 +638,30 @@ export const appsRouter = router({
      *  author, or an update's reassignment; created_by/updated_by stay the
      *  real writer. */
     upsert: authedProcedure
-      .input(appRefSchema.and(z.object({ kind: kindSchema, data: recordDataSchema, recordId: uuid.optional(), author: z.string().min(1).max(64).optional() })))
-      .mutation(({ ctx, input }) => upsertRecord(ctx.session.user.id, input, input, ctx.db)),
+      .input(appRefSchema.and(z.object({ kind: kindSchema, data: recordDataSchema, recordId: uuid.optional(), author: z.string().min(1).max(64).optional(), via: clientVia })))
+      .mutation(({ ctx, input }) => upsertRecord(ctx.session.user.id, input, { ...input, via: writeVia(ctx, input.via) }, ctx.db)),
 
     delete: authedProcedure
+      .input(appRefSchema.and(z.object({ recordId: uuid, via: clientVia })))
+      .mutation(({ ctx, input }) => deleteRecord(ctx.session.user.id, input, input.recordId, ctx.db, writeVia(ctx, input.via))),
+
+    /** VAPP-215 (R4, app-records.json `history`): a record's events, newest
+     *  first (its read policy; a deleted record keeps its history). */
+    history: authedProcedure
       .input(appRefSchema.and(z.object({ recordId: uuid })))
-      .mutation(({ ctx, input }) => deleteRecord(ctx.session.user.id, input, input.recordId, ctx.db)),
+      .query(({ ctx, input }) => listRecordEvents(ctx.session.user.id, input, input.recordId, ctx.db)),
+
+    /** VAPP-215: History's Restore: the record as that event left it, as a
+     *  new write (update policy). */
+    restore: authedProcedure
+      .input(appRefSchema.and(z.object({ recordId: uuid, eventId: uuid, via: clientVia })))
+      .mutation(({ ctx, input }) => restoreRecord(ctx.session.user.id, input, { recordId: input.recordId, eventId: input.eventId, via: writeVia(ctx, input.via) }, ctx.db)),
+
+    /** VAPP-215: the toast's Undo: each event's `before` as a new write,
+     *  newest first, in one transaction. */
+    undo: authedProcedure
+      .input(appRefSchema.and(z.object({ eventIds: z.array(uuid).min(1).max(ACTION_LIMITS.steps), via: clientVia })))
+      .mutation(({ ctx, input }) => undoEvents(ctx.session.user.id, input, { eventIds: input.eventIds, via: writeVia(ctx, input.via) }, ctx.db)),
 
     /** VAPP-194 (eApps E1): a package action's record writes (its plan's
      *  `writes`, passed through by every client host's `records.batch`) as

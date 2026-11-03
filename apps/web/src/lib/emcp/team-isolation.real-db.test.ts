@@ -417,6 +417,8 @@ const CASES: Record<string, Case> = {
   [`apps.records_list`]: r(`apps.records_list`, (w) => ({ op: `records_list`, slug: w.b.appSlug, teamId: w.b.teamId })),
   [`apps.records_upsert`]: wr(`apps.records_upsert`, (w) => ({ op: `records_upsert`, slug: w.b.appSlug, teamId: w.b.teamId, kind: `note`, data: { text: `leak` } })),
   [`apps.records_delete`]: wr(`apps.records_delete`, (w) => ({ op: `records_delete`, slug: w.b.appSlug, teamId: w.b.teamId, id: w.b.recordId })),
+  [`apps.records_history`]: r(`apps.records_history`, (w) => ({ op: `records_history`, slug: w.b.appSlug, teamId: w.b.teamId, id: w.b.recordId })),
+  [`apps.records_restore`]: wr(`apps.records_restore`, (w) => ({ op: `records_restore`, slug: w.b.appSlug, teamId: w.b.teamId, id: w.b.recordId, eventId: w.b.recordId })),
   // sessions_send (the verb)
   [`sessions_send teamId`]: wr(`sessions_send`, (w) => ({ teamId: w.b.teamId, deviceId: w.personal, text: `leak` })),
   [`sessions_send B session`]: wr(`sessions_send`, (w) => ({ sessionId: w.b.sessionId, text: `leak` })),

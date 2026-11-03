@@ -2488,6 +2488,38 @@ export const appRecords = pgTable(
   ]
 )
 
+// VAPP-215 (R4, app-records.json `history`): one row per records-service
+// write, inserted in the write's own transaction under role `eapps` (RLS:
+// team + app, like app_records). Server-only (no shape): read on demand by
+// `apps.records.history`. Kept 90 days (the watchdog purge); a record's hard
+// delete takes its events.
+export const appRecordEvents = pgTable(
+  `app_record_events`,
+  {
+    id: uuidPk(),
+    // The write order inside one transaction (created_at ties there).
+    seq: bigint({ mode: `number` }).generatedAlwaysAsIdentity(),
+    recordId: uuid(`record_id`)
+      .notNull()
+      .references(() => appRecords.id, { onDelete: `cascade` }),
+    appId: uuid(`app_id`)
+      .notNull()
+      .references(() => apps.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    kind: varchar({ length: 32 }).notNull(),
+    op: varchar({ length: 16 }).$type<`create` | `update` | `delete` | `restore`>().notNull(),
+    actor: text().references(() => users.id, { onDelete: `set null` }),
+    author: text().references(() => users.id, { onDelete: `set null` }),
+    via: varchar({ length: 16 }).$type<`editor` | `app` | `mcp` | `action` | `import`>().notNull(),
+    patch: jsonb().$type<AppRecordData>(),
+    before: jsonb().$type<AppRecordData>(),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index(`idx_app_record_events_record`).on(table.recordId, table.createdAt), index(`idx_app_record_events_created`).on(table.createdAt)]
+)
+
 // A session's issues (n ↔ n: an issue may sit in several sessions). NEW-1:
 // a row sits on the session that HOLDS the issue (a worker's link, the
 // issues a start names, a filed issue); a forward moves the row; a root's
@@ -4083,6 +4115,7 @@ export type AppVersion = InferSelectModel<typeof appVersions>
 export type SyncedAppVersion = Omit<AppVersion, `package`>
 export type AppRecord = InferSelectModel<typeof appRecords>
 export type SyncedAppRecord = Omit<AppRecord, `appDeletedAt`>
+export type AppRecordEvent = InferSelectModel<typeof appRecordEvents>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs
 >

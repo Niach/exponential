@@ -1688,6 +1688,13 @@
       "when": 1793696118748,
       "tag": "0240_team_time_zone",
       "breakpoints": true
+    },
+    {
+      "idx": 241,
+      "version": "7",
+      "when": 1793699113955,
+      "tag": "0241_app_record_events",
+      "breakpoints": true
     }
   ]
 }

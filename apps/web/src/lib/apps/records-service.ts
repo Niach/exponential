@@ -13,15 +13,18 @@
 // backstop behind these checks (docs/spec/apps.md §3.4, §12.2). The
 // structured query maps onto a parameterised Drizzle query over a fixed
 // column allowlist: app text never becomes SQL.
+// #VAPP-215 (R4): every write appends its `app_record_events` row in the
+// same transaction under the same role (`logEvents`); history, restore and
+// undo read those rows back (app-records.json `history`).
 import { TRPCError } from "@trpc/server"
-import { and, asc, desc, eq, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
 import { validateRecord, type RecordSchema } from "@exponential_app/eui"
 import { RECORD_POLICY_COPY, recordPolicy, recordRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
 import { kindComputed, parseRecordsJson, recordsValue, withComputed, type RecordRow, type RecordsQueryIssue, type RecordsValue } from "@exponential_app/eui/host/query"
 import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
-import { APP_RECORDS_ON_BEHALF, recordAuthor, writeAsVerdict } from "@exp/domain-contract/app-records"
+import { APP_RECORD_HISTORY, APP_RECORDS_ON_BEHALF, eventState, inverseWrite, recordAuthor, writeAsVerdict, type RecordEventOp, type RecordEventVia } from "@exp/domain-contract/app-records"
 import { db as defaultDb } from "@/db/connection"
-import { appAccess, appRecords, apps, teamMembers, users, type App } from "@/db/schema"
+import { appAccess, appRecordEvents, appRecords, apps, teamMembers, users, type App } from "@/db/schema"
 import { assertTeamMember } from "@/lib/auth/membership"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { packageBytes, recordKindSchema } from "@/lib/apps/package"
@@ -223,6 +226,30 @@ const RECORD_COLUMNS = {
 const { kind: _kind, ...BROKER_COLUMNS } = RECORD_COLUMNS
 const newestFirst = [desc(appRecords.createdAt), asc(appRecords.id)] as const
 
+/** VAPP-215: where a write came from (app-records.json `history.vias`). */
+export type RecordWriteVia = RecordEventVia
+
+/** One history row to append (app-records.json `history`). */
+interface EventInput {
+  recordId: string
+  kind: string
+  op: RecordEventOp
+  author: string | null
+  patch: Record<string, unknown> | null
+  before: Record<string, unknown> | null
+}
+
+/** VAPP-215: append the writes' events in `tx` (already under the role,
+ *  `eapps.write = on`); their ids in order. */
+async function logEvents(tx: Tx, app: Pick<App, `id` | `teamId`>, actor: string, via: RecordWriteVia, events: readonly EventInput[]): Promise<string[]> {
+  if (events.length === 0) return []
+  const rows = await tx
+    .insert(appRecordEvents)
+    .values(events.map((e) => ({ ...e, appId: app.id, teamId: app.teamId, actor, via })))
+    .returning({ id: appRecordEvents.id })
+  return rows.map((r) => r.id)
+}
+
 // ── tRPC `apps.records.*` (and the MCP records_* ops through it) ──────────
 
 /** Any member lists an app's live records, newest first. */
@@ -256,9 +283,9 @@ export async function listRecords(
 export async function upsertRecord(
   userId: string,
   ref: AppRef,
-  input: { kind: string; data: Record<string, unknown>; recordId?: string; author?: string },
+  input: { kind: string; data: Record<string, unknown>; recordId?: string; author?: string; via?: RecordWriteVia },
   executor: Executor = defaultDb
-): Promise<{ txid: number; id: string; created: boolean }> {
+): Promise<{ txid: number; id: string; created: boolean; eventId: string }> {
   const app = await loadApp(executor, ref)
   const viewer = await viewerOf(executor, app, userId)
   assertCanWrite(viewer)
@@ -297,7 +324,10 @@ export async function upsertRecord(
           .update(appRecords)
           .set({ data, ...(reassign ? { authorId: input.author } : {}), updatedBy: userId, updatedAt: new Date() })
           .where(eq(appRecords.id, existing.id))
-        return { txid: txId, id: existing.id, created: false }
+        const [eventId] = await logEvents(tx, app, userId, input.via ?? `app`, [
+          { recordId: existing.id, kind: existing.kind, op: `update`, author: reassign ? input.author! : recordAuthor(existing), patch: input.data, before: existing.data },
+        ])
+        return { txid: txId, id: existing.id, created: false, eventId: eventId! }
       })
     }
     assertRecordOp(app, input.kind, `create`, viewer)
@@ -313,13 +343,22 @@ export async function upsertRecord(
         .insert(appRecords)
         .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId })
         .returning({ id: appRecords.id })
-      return { txid: txId, id: row!.id, created: true }
+      const [eventId] = await logEvents(tx, app, userId, input.via ?? `app`, [
+        { recordId: row!.id, kind: input.kind, op: `create`, author: input.author ?? userId, patch: data, before: null },
+      ])
+      return { txid: txId, id: row!.id, created: true, eventId: eventId! }
     })
   })
 }
 
 /** Soft-delete one record (its author or a team owner). */
-export async function deleteRecord(userId: string, ref: AppRef, recordId: string, executor: Executor = defaultDb): Promise<{ txid: number }> {
+export async function deleteRecord(
+  userId: string,
+  ref: AppRef,
+  recordId: string,
+  executor: Executor = defaultDb,
+  via: RecordWriteVia = `app`
+): Promise<{ txid: number; eventId: string }> {
   const app = await loadApp(executor, ref)
   const viewer = await viewerOf(executor, app, userId)
   assertCanWrite(viewer)
@@ -327,7 +366,7 @@ export async function deleteRecord(userId: string, ref: AppRef, recordId: string
     const txId = await generateTxId(tx)
     return asEapps(tx, { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }, async (tx) => {
       const [existing] = await tx
-        .select({ id: appRecords.id, kind: appRecords.kind, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+        .select({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
         .from(appRecords)
         .where(and(eq(appRecords.id, recordId), eq(appRecords.appId, app.id), isNull(appRecords.deletedAt)))
         .limit(1)
@@ -339,7 +378,10 @@ export async function deleteRecord(userId: string, ref: AppRef, recordId: string
         .update(appRecords)
         .set({ deletedAt: sql`now()`, updatedBy: userId, updatedAt: new Date() })
         .where(eq(appRecords.id, existing.id))
-      return { txid: txId }
+      const [eventId] = await logEvents(tx, app, userId, via, [
+        { recordId: existing.id, kind: existing.kind, op: `delete`, author: recordAuthor(existing), patch: null, before: existing.data },
+      ])
+      return { txid: txId, eventId: eventId! }
     })
   })
 }
@@ -360,7 +402,7 @@ export async function commitRecordBatch(
   ref: AppRef,
   writes: readonly RecordBatchWrite[],
   executor: Executor = defaultDb
-): Promise<{ txid: number; ids: string[] }> {
+): Promise<{ txid: number; ids: string[]; eventIds: string[] }> {
   const app = await loadApp(executor, ref)
   const viewer = await viewerOf(executor, app, userId)
   assertCanWrite(viewer)
@@ -381,11 +423,12 @@ export async function commitRecordBatch(
     if (creates > 0) await lockAndCheckQuota(tx, app.teamId, creates)
     return asEapps(tx, scope, async (tx) => {
       const ids: string[] = []
+      const events: EventInput[] = []
       for (const [i, w] of writes.entries()) {
         try {
           if (w.op === `delete`) {
             const [existing] = await tx
-              .select({ id: appRecords.id, kind: appRecords.kind, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+              .select({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
               .from(appRecords)
               .where(and(eq(appRecords.id, w.id), eq(appRecords.appId, app.id), isNull(appRecords.deletedAt)))
               .limit(1)
@@ -395,6 +438,7 @@ export async function commitRecordBatch(
             assertRecordOp(app, existing.kind, `delete`, viewer, existing)
             await tx.update(appRecords).set({ deletedAt: sql`now()`, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             ids.push(existing.id)
+            events.push({ recordId: existing.id, kind: existing.kind, op: `delete`, author: recordAuthor(existing), patch: null, before: existing.data })
             continue
           }
           const schema = schemas[i]!
@@ -411,6 +455,7 @@ export async function commitRecordBatch(
             const data = checkedAgainst(schema, { ...existing.data, ...w.data })
             await tx.update(appRecords).set({ data, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             ids.push(existing.id)
+            events.push({ recordId: existing.id, kind: existing.kind, op: `update`, author: recordAuthor(existing), patch: w.data, before: existing.data })
             continue
           }
           assertRecordOp(app, w.kind, `create`, viewer)
@@ -420,13 +465,167 @@ export async function commitRecordBatch(
             .values({ appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: userId, updatedBy: userId })
             .returning({ id: appRecords.id })
           ids.push(row!.id)
+          events.push({ recordId: row!.id, kind: w.kind, op: `create`, author: userId, patch: data, before: null })
         } catch (e) {
           at(i, e)
         }
       }
-      return { txid: txId, ids }
+      const eventIds = await logEvents(tx, app, userId, `action`, events)
+      return { txid: txId, ids, eventIds }
     })
   })
+}
+
+// ── VAPP-215 (R4): history, restore, undo ─────────────────────────────────
+
+/** The columns a history read returns. */
+const EVENT_COLUMNS = {
+  id: appRecordEvents.id,
+  recordId: appRecordEvents.recordId,
+  kind: appRecordEvents.kind,
+  op: appRecordEvents.op,
+  actor: appRecordEvents.actor,
+  author: appRecordEvents.author,
+  via: appRecordEvents.via,
+  patch: appRecordEvents.patch,
+  before: appRecordEvents.before,
+  createdAt: appRecordEvents.createdAt,
+}
+/** Newest first; a transaction's writes share created_at, so then the write order. */
+const eventsNewestFirst = [desc(appRecordEvents.createdAt), desc(appRecordEvents.seq)] as const
+
+/** A record's events, newest first (`history.historyLimit`). Needs the
+ *  record's read policy (else NOT_FOUND); a deleted record keeps its history. */
+export async function listRecordEvents(userId: string, ref: AppRef, recordId: string, executor: Executor = defaultDb) {
+  const app = await loadApp(executor, ref)
+  const viewer = await viewerOf(executor, app, userId)
+  return inRecordsScope(
+    { teamId: app.teamId, appIds: [app.id] },
+    async (tx) => {
+      const [record] = await tx
+        .select({ id: appRecords.id, kind: appRecords.kind, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
+        .from(appRecords)
+        .where(and(eq(appRecords.id, recordId), eq(appRecords.appId, app.id)))
+        .limit(1)
+      if (!record) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+      assertReadable(app, viewer, record)
+      const events = await tx
+        .select(EVENT_COLUMNS)
+        .from(appRecordEvents)
+        .where(and(eq(appRecordEvents.recordId, record.id), eq(appRecordEvents.appId, app.id)))
+        .orderBy(...eventsNewestFirst)
+        .limit(APP_RECORD_HISTORY.historyLimit)
+      return { events }
+    },
+    executor
+  )
+}
+
+/** The state to write back: data (a restore, live again) or null (a delete). */
+type Target = { recordId: string; state: Record<string, unknown> | null }
+
+/** VAPP-215: write each target as a NEW write (op restore, or delete), in
+ *  order, in ONE transaction; each needs the record's update policy (a
+ *  delete: delete). A delete of an already deleted record is a no-op. */
+async function writeTargets(
+  userId: string,
+  app: App,
+  viewer: RecordViewer & { id: string; role: string },
+  via: RecordWriteVia,
+  resolve: (tx: Tx) => Promise<Target[]>,
+  executor: Executor
+): Promise<{ txid: number; eventIds: string[] }> {
+  assertCanWrite(viewer)
+  const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
+  return await executor.transaction(async (tx) => {
+    const txId = await generateTxId(tx)
+    return asEapps(tx, scope, async (tx) => {
+      const events: EventInput[] = []
+      for (const target of await resolve(tx)) {
+        const [existing] = await tx
+          .select({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy, deletedAt: appRecords.deletedAt })
+          .from(appRecords)
+          .where(and(eq(appRecords.id, target.recordId), eq(appRecords.appId, app.id)))
+          .limit(1)
+          .for(`update`)
+        if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
+        assertReadable(app, viewer, existing)
+        const live = existing.deletedAt === null
+        if (target.state === null) {
+          if (!live) continue
+          assertRecordOp(app, existing.kind, `delete`, viewer, existing)
+          await tx.update(appRecords).set({ deletedAt: sql`now()`, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+          events.push({ recordId: existing.id, kind: existing.kind, op: `delete`, author: recordAuthor(existing), patch: null, before: existing.data })
+          continue
+        }
+        assertRecordOp(app, existing.kind, `update`, viewer, existing)
+        const schemas = kindSchemas(app, existing.kind)
+        if (schemas.length === 0) throw new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${existing.kind}" any more` })
+        const data = checkedAgainst(schemas, target.state)
+        await tx.update(appRecords).set({ data, deletedAt: null, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+        events.push({ recordId: existing.id, kind: existing.kind, op: `restore`, author: recordAuthor(existing), patch: data, before: live ? existing.data : null })
+      }
+      return { txid: txId, eventIds: await logEvents(tx, app, userId, via, events) }
+    })
+  })
+}
+
+/** History's Restore: the record as `eventId` left it, as a new write. */
+export async function restoreRecord(
+  userId: string,
+  ref: AppRef,
+  input: { recordId: string; eventId: string; via?: RecordWriteVia },
+  executor: Executor = defaultDb
+): Promise<{ txid: number; eventIds: string[] }> {
+  const app = await loadApp(executor, ref)
+  const viewer = await viewerOf(executor, app, userId)
+  return writeTargets(
+    userId,
+    app,
+    viewer,
+    input.via ?? `app`,
+    async (tx) => {
+      const [event] = await tx
+        .select(EVENT_COLUMNS)
+        .from(appRecordEvents)
+        .where(and(eq(appRecordEvents.id, input.eventId), eq(appRecordEvents.recordId, input.recordId), eq(appRecordEvents.appId, app.id)))
+        .limit(1)
+      if (!event) throw new TRPCError({ code: `NOT_FOUND`, message: `Event not found` })
+      return [{ recordId: event.recordId, state: eventState(event) }]
+    },
+    executor
+  )
+}
+
+/** The toast's Undo: each event's `before` (`inverseWrite`), newest first,
+ *  all in one transaction. */
+export async function undoEvents(
+  userId: string,
+  ref: AppRef,
+  input: { eventIds: readonly string[]; via?: RecordWriteVia },
+  executor: Executor = defaultDb
+): Promise<{ txid: number; eventIds: string[] }> {
+  const app = await loadApp(executor, ref)
+  const viewer = await viewerOf(executor, app, userId)
+  return writeTargets(
+    userId,
+    app,
+    viewer,
+    input.via ?? `app`,
+    async (tx) => {
+      const events = await tx
+        .select({ ...EVENT_COLUMNS, seq: appRecordEvents.seq })
+        .from(appRecordEvents)
+        .where(and(inArray(appRecordEvents.id, [...input.eventIds]), eq(appRecordEvents.appId, app.id)))
+        .orderBy(...eventsNewestFirst)
+      if (events.length !== new Set(input.eventIds).size) throw new TRPCError({ code: `NOT_FOUND`, message: `Event not found` })
+      return events.map((event) => {
+        const inverse = inverseWrite(event)
+        return { recordId: event.recordId, state: inverse.op === `delete` ? null : inverse.data }
+      })
+    },
+    executor
+  )
 }
 
 // ── the apps broker (`/api/mcp/apps`): reads of one app's own kind ───────
@@ -566,8 +765,16 @@ export async function importRecords(
   for (const kind of new Set(records.map((r) => r.kind))) assertRecordOp(app, kind, `create`, { id: userId, role })
   await lockAndCheckQuota(tx, app.teamId, records.length)
   await asEapps(tx, { teamId: app.teamId, appIds: [app.id], write: true }, async (tx) => {
-    await tx
+    const rows = await tx
       .insert(appRecords)
       .values(records.map((r) => ({ appId: app.id, teamId: app.teamId, kind: r.kind, data: r.data, createdBy: userId, authorId: r.author ?? userId, updatedBy: userId })))
+      .returning({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, authorId: appRecords.authorId })
+    await logEvents(
+      tx,
+      app,
+      userId,
+      `import`,
+      rows.map((r) => ({ recordId: r.id, kind: r.kind, op: `create` as const, author: r.authorId, patch: r.data, before: null }))
+    )
   })
 }

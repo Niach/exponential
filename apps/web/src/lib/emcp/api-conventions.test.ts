@@ -125,6 +125,8 @@ function paramSchema(tool: string, param: string): z.ZodType {
 const READ_ONLY_EXTRA = new Set([
   // VAPP-110: the app catalog is a read.
   `exponential_apps_catalog`,
+  // VAPP-215: a record's history is a read.
+  `exponential_apps_records_history`,
   `exponential_issues_activity`,
   `exponential_pr_files`,
   `exponential_issues_show`,

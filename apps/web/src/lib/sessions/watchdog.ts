@@ -7,7 +7,7 @@ import { db } from "@/db/connection"
 import { devices, messages, sessions, userVoiceSettings } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
 import { pruneEvents } from "@/lib/events"
-import { purgeTrashedAppRecords } from "@/lib/app-records-purge"
+import { purgeOldAppRecordEvents, purgeTrashedAppRecords } from "@/lib/app-records-purge"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
 import { hostRowCondition, hostedByCondition, resolveSessionHost } from "@/lib/sessions/host"
 import { pendingInput, sessionConversation } from "@/lib/sessions/messages"
@@ -54,6 +54,7 @@ export interface WatchdogRun {
   meetingsStopped: number
   /** VAPP-159: trashed app records hard-deleted this tick. */
   recordsPurged: number
+  recordEventsPurged: number
   /** EXP-1610: PRs whose CI check sat queued too long, flagged once. */
   checksQueued: number
   checksSwept: number
@@ -589,6 +590,8 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     meetingsStopped: await stopExpiredMeetings(now),
     // VAPP-159: app records trashed past the retention (app-records.json `purge`).
     recordsPurged: await purgeTrashedAppRecords(now),
+    // VAPP-215: record history past its 90 days (app-records.json `history`).
+    recordEventsPurged: await purgeOldAppRecordEvents(now),
     // EXP-1610: a CI check queued past contract prChecks.queuedFlagMinutes
     // wakes its PR's session once (no runner picked it up).
     checksQueued: await flagQueuedChecks(now),
@@ -674,7 +677,7 @@ export function startSessionWatchdog(): void {
         reportSchedulerRun(`session-watchdog`, {
           ok: true,
           durationMs: performance.now() - begun,
-          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.checksQueued} queued CI checks flagged`,
+          detail: `${run.unclaimed} unclaimed, ${run.nudged} nudged, ${run.stuck} stuck, ${run.offline} offline, ${run.unresumed} unresumed, ${run.expired} walls expired, ${run.fired} fired, ${run.pruned} events pruned, ${run.meetingPruned} meeting messages pruned, ${run.meetingsStopped} meetings auto-stopped, ${run.recordsPurged} app records purged, ${run.recordEventsPurged} record events purged, ${run.checksQueued} queued CI checks flagged`,
         })
       )
       .catch((error: unknown) => {

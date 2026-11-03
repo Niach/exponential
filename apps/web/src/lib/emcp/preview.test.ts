@@ -85,6 +85,9 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_apps_publish: [],
   // VAPP-122
   exponential_apps_records_delete: [],
+  // VAPP-215
+  exponential_apps_records_history: [],
+  exponential_apps_records_restore: [],
   exponential_apps_records_list: [],
   exponential_apps_records_upsert: [],
   exponential_apps_get: [],

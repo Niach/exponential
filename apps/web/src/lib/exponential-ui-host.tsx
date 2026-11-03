@@ -21,6 +21,7 @@
 //   - status: `host_offline` + the catalog-update banner (`HostBanner`).
 // No private hook: if one is ever needed, the SDK's API is incomplete.
 
+import { toastRecordUndo } from "@/lib/apps/record-undo"
 import { useState, useSyncExternalStore } from "react"
 import { eq } from "@tanstack/react-db"
 import { ExponentialHost, isPrivateHost } from "@exponential_app/eui"
@@ -566,6 +567,8 @@ export function createAppHost(options: AppHostOptions): AppHost {
   const recordsBatch: HostFunction = async ({ writes }) => {
     const result = await trpc.apps.records.batch.mutate({ ...appRef(), writes: (Array.isArray(writes) ? writes : []) as never }, SKIP_ERROR_TOAST)
     await appRecordCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+    // VAPP-215: a package action's writes toast Undo for 10 s (app-records.json `history`).
+    if (scope.appId) toastRecordUndo(scope.appId, `batch`, result.eventIds, `app`)
     return { ids: result.ids }
   }
   return new AppHost({

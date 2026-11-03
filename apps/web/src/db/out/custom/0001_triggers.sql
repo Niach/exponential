@@ -839,6 +839,25 @@ BEGIN
   CREATE POLICY eapps_write_update ON app_records AS RESTRICTIVE FOR UPDATE TO eapps
     USING (current_setting('eapps.write', true) = 'on')
     WITH CHECK (current_setting('eapps.write', true) = 'on');
+  -- #VAPP-215 (R4): a record's history, written in the write's own
+  -- transaction under the same role and scope (read + append only: the
+  -- 90-day purge runs as the main role).
+  REVOKE ALL ON app_record_events FROM eapps;
+  GRANT SELECT, INSERT ON app_record_events TO eapps;
+  ALTER TABLE app_record_events ENABLE ROW LEVEL SECURITY;
+  DROP POLICY IF EXISTS eapps_scope ON app_record_events;
+  CREATE POLICY eapps_scope ON app_record_events TO eapps
+    USING (
+      team_id = NULLIF(current_setting('eapps.team', true), '')::uuid
+      AND app_id = ANY (string_to_array(NULLIF(current_setting('eapps.apps', true), ''), ',')::uuid[])
+    )
+    WITH CHECK (
+      team_id = NULLIF(current_setting('eapps.team', true), '')::uuid
+      AND app_id = ANY (string_to_array(NULLIF(current_setting('eapps.apps', true), ''), ',')::uuid[])
+    );
+  DROP POLICY IF EXISTS eapps_write_insert ON app_record_events;
+  CREATE POLICY eapps_write_insert ON app_record_events AS RESTRICTIVE FOR INSERT TO eapps
+    WITH CHECK (current_setting('eapps.write', true) = 'on');
 EXCEPTION WHEN insufficient_privilege THEN
   RAISE WARNING 'eapps: cannot create or grant role eapps (needs CREATEROLE); app records stay unavailable until it exists';
 END $$;

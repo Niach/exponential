@@ -80,7 +80,7 @@
       "edit": "Edit",
       "delete": "Delete",
       "deleteTitle": "Delete this record?",
-      "deleteBody": "The app stops showing it. This cannot be undone.",
+      "deleteBody": "The app stops showing it.",
       "by": "by",
       "updated": "updated",
       "empty": "No records yet",
@@ -125,7 +125,10 @@
       "menu": "app-data-row-menu",
       "form": "app-data-form",
       "save": "app-data-save",
-      "error": "app-data-error"
+      "error": "app-data-error",
+      "history": "app-data-history",
+      "historyRow": "app-data-history-row",
+      "restore": "app-data-restore"
     },
     "kindCases": [
       {
@@ -1335,6 +1338,392 @@
           "u3"
         ],
         "expected": "u1"
+      }
+    ]
+  },
+  "history": {
+    "$comment": "VAPP-215 (R4, docs/spec/apps.md §3.5) RECORD HISTORY + UNDO ×4. EVENTS: the records service writes ONE `app_record_events` row per record write in the SAME transaction as the write, under the `eapps` role and its RLS scope: `{id, recordId, appId, teamId, kind, op, actor, author, via, patch, before, createdAt}`. `op` (`ops`): `create` (before null, patch = the data written), `update` (before = the whole data before, patch = the fields the write sent), `delete` (before = the data, patch null), `restore` (before = the data before, null when it was deleted; patch = the whole data written, the row live again). `actor` = the member who wrote (an agent writes as its member), `author` = the record's author after the write, `via` (`vias`): `editor` (the Data tab), `app` (an app's own UI or its MCP tool), `mcp` (an agent's records_* op), `action` (a package action's batch), `import` (`.app.json`). Kept `retentionDays` days, purged `batch` rows per watchdog tick with the trash purge; a record's hard delete takes its events. STATE: the record an event left (`eventState`, `stateCases`): delete = gone (null), update = before merged with patch (shallow), create/restore = patch. UNDO: a write a person made in the UI (the Data tab's add, save, delete; a package action's batch) toasts `copy.undoCreate`/`undoUpdate`/`undoDelete`/`undoBatch` (kind success) with the existing toast action `copy.undo` for `undoSeconds` s (the toast's duration); Undo = ONE new write per event, newest first, of the event's `before` (`inverseWrite`, `inverseCases`): before null (a create) = a delete, else a restore of before (a delete comes back live). A failed undo = the failed-action toast (`Couldn't undo the change`). HISTORY: the Data tab's record form (Edit), under the fields, a section headed `copy.history` (the muted list head) over the existing grouped list: one row per event in the server's order, newest first (created_at, then the write order; `historyRows`, `rowsCases`): title = the label (`eventLabel`, `labelCases`): `copy.created`/`copy.deleted`/`copy.restored`, an update `copy.changed` with the fields whose value differs from before (deep equality), sorted by name, the first `maxFields` joined `, ` then `copy.more`; none differ = `copy.saved`; subtitle (muted) = the actor's name (else apps.json byAgent) · the relative time; trailing `copy.restore` (ghost, small) on every row but the newest and never on a delete; no events = `copy.empty`. Restore = the event's STATE as a new write (op restore; a delete event's state never shows the button). ACCESS: history needs the record's read policy (else NOT_FOUND); restore and undo need `update` (a restore that deletes needs `delete`). Read on demand through tRPC `apps.records.history {recordId}` / `restore {recordId, eventId}` / `undo {eventIds}` (no synced shape) and MCP `apps records_history` / `records_restore`.",
+    "undoSeconds": 10,
+    "retentionDays": 90,
+    "batch": 500,
+    "historyLimit": 50,
+    "maxFields": 3,
+    "ops": [
+      "create",
+      "update",
+      "delete",
+      "restore"
+    ],
+    "vias": [
+      "editor",
+      "app",
+      "mcp",
+      "action",
+      "import"
+    ],
+    "copy": {
+      "history": "History",
+      "restore": "Restore",
+      "undo": "Undo",
+      "created": "Created",
+      "deleted": "Deleted",
+      "restored": "Restored",
+      "changed": "Changed {fields}",
+      "more": "+{n}",
+      "saved": "Saved",
+      "empty": "No history yet",
+      "undoCreate": "Record added",
+      "undoUpdate": "Record saved",
+      "undoDelete": "Record deleted",
+      "undoBatch": "Records saved",
+      "undoVerb": "undo",
+      "undoThing": "the change"
+    },
+    "stateCases": [
+      {
+        "name": "a create leaves its data",
+        "event": {
+          "op": "create",
+          "before": null,
+          "patch": {
+            "hours": 2
+          }
+        },
+        "state": {
+          "hours": 2
+        }
+      },
+      {
+        "name": "an update merges its patch onto before",
+        "event": {
+          "op": "update",
+          "before": {
+            "hours": 2,
+            "note": "a"
+          },
+          "patch": {
+            "hours": 3
+          }
+        },
+        "state": {
+          "hours": 3,
+          "note": "a"
+        }
+      },
+      {
+        "name": "a delete leaves nothing",
+        "event": {
+          "op": "delete",
+          "before": {
+            "hours": 2
+          },
+          "patch": null
+        },
+        "state": null
+      },
+      {
+        "name": "a restore leaves its data",
+        "event": {
+          "op": "restore",
+          "before": null,
+          "patch": {
+            "hours": 2
+          }
+        },
+        "state": {
+          "hours": 2
+        }
+      }
+    ],
+    "inverseCases": [
+      {
+        "name": "a create is undone by a delete",
+        "event": {
+          "op": "create",
+          "before": null,
+          "patch": {
+            "hours": 2
+          }
+        },
+        "inverse": {
+          "op": "delete"
+        }
+      },
+      {
+        "name": "an update is undone by restoring before",
+        "event": {
+          "op": "update",
+          "before": {
+            "hours": 2,
+            "note": "a"
+          },
+          "patch": {
+            "hours": 3
+          }
+        },
+        "inverse": {
+          "op": "restore",
+          "data": {
+            "hours": 2,
+            "note": "a"
+          }
+        }
+      },
+      {
+        "name": "a delete is undone by restoring it",
+        "event": {
+          "op": "delete",
+          "before": {
+            "hours": 2
+          },
+          "patch": null
+        },
+        "inverse": {
+          "op": "restore",
+          "data": {
+            "hours": 2
+          }
+        }
+      },
+      {
+        "name": "a restore of a deleted record is undone by a delete",
+        "event": {
+          "op": "restore",
+          "before": null,
+          "patch": {
+            "hours": 2
+          }
+        },
+        "inverse": {
+          "op": "delete"
+        }
+      },
+      {
+        "name": "a restore of a live record is undone by restoring before",
+        "event": {
+          "op": "restore",
+          "before": {
+            "hours": 5
+          },
+          "patch": {
+            "hours": 2
+          }
+        },
+        "inverse": {
+          "op": "restore",
+          "data": {
+            "hours": 5
+          }
+        }
+      }
+    ],
+    "labelCases": [
+      {
+        "name": "create",
+        "event": {
+          "op": "create",
+          "before": null,
+          "patch": {
+            "hours": 2
+          }
+        },
+        "label": "Created"
+      },
+      {
+        "name": "delete",
+        "event": {
+          "op": "delete",
+          "before": {
+            "hours": 2
+          },
+          "patch": null
+        },
+        "label": "Deleted"
+      },
+      {
+        "name": "restore",
+        "event": {
+          "op": "restore",
+          "before": null,
+          "patch": {
+            "hours": 2
+          }
+        },
+        "label": "Restored"
+      },
+      {
+        "name": "an update names the changed fields by name",
+        "event": {
+          "op": "update",
+          "before": {
+            "note": "a",
+            "hours": 2,
+            "day": "mon"
+          },
+          "patch": {
+            "note": "b",
+            "hours": 3,
+            "day": "mon"
+          }
+        },
+        "label": "Changed hours, note"
+      },
+      {
+        "name": "a field added by the update counts",
+        "event": {
+          "op": "update",
+          "before": {
+            "hours": 2
+          },
+          "patch": {
+            "note": "b"
+          }
+        },
+        "label": "Changed note"
+      },
+      {
+        "name": "lists compare by value",
+        "event": {
+          "op": "update",
+          "before": {
+            "tags": [
+              "a",
+              "b"
+            ]
+          },
+          "patch": {
+            "tags": [
+              "a",
+              "b"
+            ]
+          }
+        },
+        "label": "Saved"
+      },
+      {
+        "name": "more than three fields collapse",
+        "event": {
+          "op": "update",
+          "before": {
+            "a": 1,
+            "b": 1,
+            "c": 1,
+            "d": 1,
+            "e": 1
+          },
+          "patch": {
+            "e": 2,
+            "d": 2,
+            "c": 2,
+            "b": 2,
+            "a": 2
+          }
+        },
+        "label": "Changed a, b, c +2"
+      },
+      {
+        "name": "a number written as the same value is no change",
+        "event": {
+          "op": "update",
+          "before": {
+            "hours": 2
+          },
+          "patch": {
+            "hours": 2.0
+          }
+        },
+        "label": "Saved"
+      }
+    ],
+    "rowsCases": [
+      {
+        "name": "restore on every older row but deletes",
+        "names": {
+          "u1": "Ana",
+          "u2": "Ben"
+        },
+        "fallback": "the editor session",
+        "events": [
+          {
+            "id": "e4",
+            "op": "restore",
+            "actor": "u9",
+            "before": null,
+            "patch": {
+              "hours": 3
+            },
+            "createdAt": "2026-11-01T13:00:00.000Z"
+          },
+          {
+            "id": "e3",
+            "op": "delete",
+            "actor": "u1",
+            "before": {
+              "hours": 3
+            },
+            "patch": null,
+            "createdAt": "2026-11-01T12:00:00.000Z"
+          },
+          {
+            "id": "e2",
+            "op": "update",
+            "actor": "u2",
+            "before": {
+              "hours": 2
+            },
+            "patch": {
+              "hours": 3
+            },
+            "createdAt": "2026-11-01T11:00:00.000Z"
+          },
+          {
+            "id": "e1",
+            "op": "create",
+            "actor": "u1",
+            "before": null,
+            "patch": {
+              "hours": 2
+            },
+            "createdAt": "2026-11-01T10:00:00.000Z"
+          }
+        ],
+        "rows": [
+          {
+            "id": "e4",
+            "label": "Restored",
+            "who": "the editor session",
+            "at": "2026-11-01T13:00:00.000Z",
+            "restorable": false
+          },
+          {
+            "id": "e3",
+            "label": "Deleted",
+            "who": "Ana",
+            "at": "2026-11-01T12:00:00.000Z",
+            "restorable": false
+          },
+          {
+            "id": "e2",
+            "label": "Changed hours",
+            "who": "Ben",
+            "at": "2026-11-01T11:00:00.000Z",
+            "restorable": true
+          },
+          {
+            "id": "e1",
+            "label": "Created",
+            "who": "Ana",
+            "at": "2026-11-01T10:00:00.000Z",
+            "restorable": true
+          }
+        ]
+      },
+      {
+        "name": "no events",
+        "names": {},
+        "fallback": "x",
+        "events": [],
+        "rows": []
       }
     ]
   }
