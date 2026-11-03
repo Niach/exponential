@@ -261,6 +261,45 @@ export function threadDockQueue(
   return best ? { sessionId: best.sessionId, sessionName: best.name } : null
 }
 
+/** #EXP-1678 (ONE CHILD STREAM): what a thread knows of one Live child's
+ *  Queue before it pays for that child's stream. */
+export type ThreadQueueChildState = `open` | `closed` | `unknown`
+export interface ThreadQueueProbe {
+  sessionId: string
+  activeAt: number | null
+  state: ThreadQueueChildState
+}
+export const THREAD_QUEUE_PROBE_DEADLINE_MS: number = fixture.probeDeadlineMs
+export const THREAD_QUEUE_CLOSED_TTL_MS: number = fixture.closedQueueTtlMs
+
+/** #EXP-1678: the ONE Live child a thread holds a stream on for THE THREAD
+ *  QUEUE: none while the root's Queue is open, else the first child in
+ *  `threadDockQueue`'s order that is not known closed. */
+export function threadQueueProbe(rootOpen: boolean, children: readonly ThreadQueueProbe[]): string | null {
+  if (rootOpen) return null
+  const ordered = [...children].sort((a, b) => {
+    const x = a.activeAt ?? -Infinity
+    const y = b.activeAt ?? -Infinity
+    return x !== y ? y - x : compareIds(a.sessionId, b.sessionId)
+  })
+  return ordered.find((child) => child.state !== `closed`)?.sessionId ?? null
+}
+
+/** #EXP-1678: one Live child's state for [threadQueueProbe]. */
+export function threadQueueChildState(input: {
+  open: boolean
+  remembered: boolean
+  stream: { phase: `connecting` | `live` | `starting` | `closed` | `ended`; replayed: boolean; attachedMs: number } | null
+}): ThreadQueueChildState {
+  if (input.open) return `open`
+  if (input.remembered) return `closed`
+  const stream = input.stream
+  if (!stream) return `unknown`
+  if (stream.phase === `starting` || stream.phase === `closed` || stream.phase === `ended`) return `closed`
+  if (stream.replayed || stream.attachedMs >= THREAD_QUEUE_PROBE_DEADLINE_MS) return `closed`
+  return `unknown`
+}
+
 /** The band: the pile (or the fan while `expanded`), the front card, the
  *  open sheet. */
 export function dock(input: { rows: readonly DockRow[]; expanded: boolean; openId: string | null }): DockView {

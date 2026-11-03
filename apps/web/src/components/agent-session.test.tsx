@@ -102,6 +102,7 @@ function snap(over: Partial<SteerSessionSnapshot>): SteerSessionSnapshot {
     connected: true,
     canLoadEarlier: false,
     deviceOffline: false,
+    replayed: true,
     ...over,
   }
 }

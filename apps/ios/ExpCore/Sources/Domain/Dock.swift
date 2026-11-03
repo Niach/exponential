@@ -325,6 +325,41 @@ public enum Dock {
         return ordered.first { $0.state != .closed }?.sessionId
     }
 
+    /// #EXP-1678 (dock.json ONE CHILD STREAM): a child stream as the probe
+    /// reads it.
+    public struct ChildStream: Equatable, Sendable {
+        public enum Phase: String, Sendable { case connecting, live, starting, closed, ended }
+        public let phase: Phase
+        public let replayed: Bool
+        public let attachedMs: Int
+
+        public init(phase: Phase, replayed: Bool, attachedMs: Int) {
+            self.phase = phase
+            self.replayed = replayed
+            self.attachedMs = attachedMs
+        }
+    }
+
+    /// dock.json `probeDeadlineMs` / `closedQueueTtlMs`.
+    public static let probeDeadlineMs = 15_000
+    public static let closedQueueTtlMs = 60_000
+
+    /// #EXP-1678 (`childStateCases`): one Live child's state for
+    /// [threadQueueProbe]: open = its stream has a todo item; closed = read
+    /// closed and remembered, or its stream is starting / dropped / ended,
+    /// replayed without a todo, or attached `probeDeadlineMs` without one.
+    public static func threadQueueChildState(open: Bool, remembered: Bool, stream: ChildStream?) -> ChildQueueState {
+        if open { return .open }
+        if remembered { return .closed }
+        guard let stream else { return .unknown }
+        switch stream.phase {
+        case .starting, .closed, .ended: return .closed
+        case .connecting, .live: break
+        }
+        if stream.replayed || stream.attachedMs >= probeDeadlineMs { return .closed }
+        return .unknown
+    }
+
     /// The band: the pile (or the fan while `expanded`), the front card, the
     /// open sheet.
     public static func view(rows: [Row], expanded: Bool, openId: String?) -> View {

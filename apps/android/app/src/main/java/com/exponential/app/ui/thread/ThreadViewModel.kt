@@ -16,6 +16,15 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.steer.SteerConnection
 import com.exponential.app.data.steer.SteerConnectionStore
 import com.exponential.app.domain.ActivityFeedState
+import com.exponential.app.domain.AgentPhase
+import com.exponential.app.domain.Dock
+import com.exponential.app.domain.TaskQueueBackgroundInput
+import com.exponential.app.domain.TaskQueueInput
+import com.exponential.app.domain.TaskQueueTaskInput
+import com.exponential.app.domain.TaskQueues
+import com.exponential.app.domain.WireTimestamps
+import com.exponential.app.domain.openWaits
+import kotlinx.coroutines.Job
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.ui.steer.steerDeviceFlow
 import com.exponential.app.data.api.trpcErrorMessage
@@ -588,14 +597,18 @@ class ThreadViewModel @Inject constructor(
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
-    /** #EXP-1545: one held connection per Live child of the tree (the
-     *  thread's Dock reads their Queues), released when the child ends,
-     *  leaves the tree, and in [onCleared]. */
+    /** #EXP-1545 / #EXP-1678 (dock.json ONE CHILD STREAM): the ONE held
+     *  connection on the child [Dock.threadQueueProbe] names (was one per
+     *  Live child: opening a thread dialled every child's feed at once, 4 to
+     *  9 joins to one device, and the views failed to settle in bursts). */
     private val childConnections = mutableMapOf<String, SteerConnection>()
 
     private fun releaseChildren(keep: Set<String> = emptySet()) {
         val gone = childConnections.keys.filter { it !in keep }
-        for (id in gone) childConnections.remove(id)?.let { steerStore.release(it.codingSessionId) }
+        for (id in gone) {
+            childConnections.remove(id)?.let { steerStore.release(it.codingSessionId) }
+            childAttachedAt.remove(id)
+        }
     }
 
     /** One Live child's Dock slice: its stream's last-known slots ([slots] =
@@ -605,35 +618,112 @@ class ThreadViewModel @Inject constructor(
         val activity: com.exponential.app.ui.session.AgentSessionViewModel.DockActivity,
     )
 
-    /**
-     * #EXP-1545 (dock.json THREAD QUEUE): every not-ended child's relay
-     * state, by id: the same per-session connection the session view reads
-     * ([SteerConnectionStore]), so its last-known Queue is there at once. An
-     * ended child contributes nothing (its connection goes back to the store).
-     */
-    val childDocks: StateFlow<Map<String, ChildDockState>> = tree
-        .map { rows -> rows.filter { it.id != rootId && !it.isEnded }.map { it.id }.sorted() }
+    private data class LiveChild(val id: String, val activeAt: Long?)
+
+    /** What the probe reads off the held child's stream. */
+    private data class HeldChild(val id: String, val phase: AgentPhase, val replayed: Boolean, val open: Boolean)
+
+    /** A child read closed, keyed by its activeAt then (dock.json `closedQueueTtlMs`). */
+    private val closedReads = mutableMapOf<String, Pair<Long?, Long>>()
+    private val childAttachedAt = mutableMapOf<String, Long>()
+    private val heldChild = MutableStateFlow<String?>(null)
+    private val probeTick = MutableStateFlow(0)
+    private var probeTimer: Job? = null
+
+    private val liveChildren: Flow<List<LiveChild>> = tree
+        .map { rows ->
+            rows.filter { it.id != rootId && !it.isEnded }
+                .map { LiveChild(it.id, (it.lastTurnAt ?: it.startedAt)?.let(WireTimestamps::parseEpochMs)) }
+                .sortedBy { it.id }
+        }
         .distinctUntilChanged()
-        .flatMapLatest { ids ->
-            releaseChildren(ids.toSet())
-            if (ids.isEmpty()) {
-                flowOf(emptyMap())
-            } else {
-                val flows = ids.map { id ->
-                    val connection = childConnections.getOrPut(id) {
-                        steerStore.acquire(id).also { it.kick("thread-child-dock") }
-                    }
+
+    private val rootQueueOpen: Flow<Boolean> = liveActivity
+        .map { it != null && queueOpen(it) }
+        .flowOn(Dispatchers.Default)
+        .distinctUntilChanged()
+
+    private val held: Flow<HeldChild?> = heldChild.flatMapLatest { id ->
+        val connection = id?.let(childConnections::get)
+        if (id == null || connection == null) {
+            flowOf(null)
+        } else {
+            combine(
+                connection.phase,
+                connection.replayed,
+                connection.activity.map(::queueOpen).flowOn(Dispatchers.Default).distinctUntilChanged(),
+            ) { phase, replayed, open -> HeldChild(id, phase, replayed, open) }
+        }
+    }.distinctUntilChanged()
+
+    /** The probe: which ONE child to hold, side effects (acquire/release) included. */
+    private fun probe(children: List<LiveChild>, rootOpen: Boolean, held: HeldChild?): String? {
+        val now = System.currentTimeMillis()
+        val probes = children.map { child ->
+            val seen = closedReads[child.id]
+            val remembered = seen != null && seen.first == child.activeAt && now - seen.second < Dock.CLOSED_QUEUE_TTL_MS
+            val heldHere = held?.takeIf { it.id == child.id && child.id in childConnections }
+            val stream = heldHere?.let {
+                Dock.ChildStream(streamPhase(it.phase), it.replayed, now - (childAttachedAt[child.id] ?: now))
+            }
+            Dock.ThreadQueueProbe(child.id, child.activeAt, Dock.threadQueueChildState(heldHere?.open == true, remembered, stream))
+        }
+        for (p in probes) {
+            if (p.state != Dock.ChildQueueState.Closed) continue
+            val seen = closedReads[p.sessionId]
+            if (seen == null || seen.first != p.activeAt || now - seen.second >= Dock.CLOSED_QUEUE_TTL_MS) {
+                closedReads[p.sessionId] = p.activeAt to now
+            }
+        }
+        val wanted = Dock.threadQueueProbe(rootOpen, probes)
+        releaseChildren(setOfNotNull(wanted))
+        if (wanted != null && wanted !in childConnections) {
+            childConnections[wanted] = steerStore.acquire(wanted).also { it.kick("thread-child-probe") }
+            childAttachedAt[wanted] = now
+            rearmProbe(Dock.PROBE_DEADLINE_MS)
+        } else if (wanted == null && children.isNotEmpty() && !rootOpen) {
+            // Every child read closed: read them again once the memory runs out.
+            rearmProbe(Dock.CLOSED_QUEUE_TTL_MS)
+        }
+        heldChild.value = wanted
+        return wanted
+    }
+
+    private fun rearmProbe(afterMs: Long) {
+        probeTimer?.cancel()
+        probeTimer = viewModelScope.launch {
+            delay(afterMs)
+            probeTick.value += 1
+        }
+    }
+
+    /**
+     * #EXP-1545 (dock.json THREAD QUEUE) + #EXP-1678 (ONE CHILD STREAM): the
+     * held Live child's relay state, by id (at most one): the same
+     * per-session connection the session view reads ([SteerConnectionStore]),
+     * so its last-known Queue is there at once.
+     */
+    val childDocks: StateFlow<Map<String, ChildDockState>> =
+        combine(liveChildren, rootQueueOpen, held, probeTick) { children, rootOpen, held, _ ->
+            probe(children, rootOpen, held)
+        }
+            .distinctUntilChanged()
+            .flatMapLatest { id ->
+                val connection = id?.let(childConnections::get)
+                if (id == null || connection == null) {
+                    flowOf(emptyMap())
+                } else {
                     combine(connection.phase, connection.activity) { phase, activity ->
-                        id to ChildDockState(
-                            slots = com.exponential.app.ui.session.dockStreamSlots(phase, sessionEnded = false),
-                            activity = com.exponential.app.ui.session.dockActivityOf(activity),
+                        mapOf(
+                            id to ChildDockState(
+                                slots = com.exponential.app.ui.session.dockStreamSlots(phase, sessionEnded = false),
+                                activity = com.exponential.app.ui.session.dockActivityOf(activity),
+                            ),
                         )
                     }.distinctUntilChanged()
                 }
-                combine(flows) { pairs -> pairs.toMap() }
             }
-        }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
     override fun onCleared() {
         releaseTail()
@@ -819,4 +909,28 @@ class ThreadViewModel @Inject constructor(
             }
         }
     }
+}
+
+/** #EXP-1678: a connection's phase as the child probe reads it. */
+private fun streamPhase(phase: AgentPhase): Dock.ChildStream.Phase = when (phase) {
+    AgentPhase.Idle, AgentPhase.Connecting -> Dock.ChildStream.Phase.Connecting
+    AgentPhase.Live -> Dock.ChildStream.Phase.Live
+    AgentPhase.Starting -> Dock.ChildStream.Phase.Starting
+    is AgentPhase.Ended -> Dock.ChildStream.Phase.Ended
+    is AgentPhase.Closed -> if (phase.reconnecting) Dock.ChildStream.Phase.Connecting else Dock.ChildStream.Phase.Closed
+}
+
+/** #EXP-1678: whether a session's Queue has a todo item (dock.json `open`). */
+private fun queueOpen(state: ActivityFeedState): Boolean {
+    val now = System.currentTimeMillis()
+    return TaskQueues.of(
+        TaskQueueInput(
+            tasks = state.taskList.map { TaskQueueTaskInput(it.content, it.status) },
+            backgroundTasks = state.backgroundTasks.map {
+                TaskQueueBackgroundInput(id = it.id, kind = it.kind, description = it.description, startedAt = it.startedAt ?: now)
+            },
+            waits = openWaits(state.feed),
+            now = now,
+        ),
+    )?.todo?.items?.isNotEmpty() == true
 }

@@ -195,6 +195,42 @@ final class DockTests: XCTestCase {
         XCTAssertNil(Dock.threadQueueProbe(rootOpen: false, children: []))
     }
 
+    /// #EXP-1678: the probe and the child state, replayed from dock.json.
+    func testThreadQueueProbeCases() throws {
+        let f = try fixture()
+        XCTAssertEqual(f["probeDeadlineMs"] as? Int, Dock.probeDeadlineMs)
+        XCTAssertEqual(f["closedQueueTtlMs"] as? Int, Dock.closedQueueTtlMs)
+        let cases = try list("threadQueueProbeCases")
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let children = (c["children"] as? [[String: Any]] ?? []).map { raw in
+                Dock.ThreadQueueProbe(
+                    sessionId: raw["sessionId"] as? String ?? "",
+                    activeAt: (raw["activeAt"] as? NSNumber)?.doubleValue,
+                    state: raw["state"] as? String == "open" ? .open : raw["state"] as? String == "closed" ? .closed : .unknown
+                )
+            }
+            XCTAssertEqual(
+                Dock.threadQueueProbe(rootOpen: c["rootOpen"] as? Bool ?? false, children: children),
+                c["expected"] as? String, c["name"] as? String ?? ""
+            )
+        }
+        let states = try list("childStateCases")
+        XCTAssertFalse(states.isEmpty)
+        for c in states {
+            let stream = (c["stream"] as? [String: Any]).map { raw in
+                Dock.ChildStream(
+                    phase: Dock.ChildStream.Phase(rawValue: raw["phase"] as? String ?? "") ?? .connecting,
+                    replayed: raw["replayed"] as? Bool ?? false,
+                    attachedMs: (raw["attachedMs"] as? NSNumber)?.intValue ?? 0
+                )
+            }
+            let got = Dock.threadQueueChildState(open: c["open"] as? Bool ?? false, remembered: c["remembered"] as? Bool ?? false, stream: stream)
+            let want: Dock.ChildQueueState = c["state"] as? String == "open" ? .open : c["state"] as? String == "closed" ? .closed : .unknown
+            XCTAssertEqual(got, want, c["name"] as? String ?? "")
+        }
+    }
+
     func testCases() throws {
         let all = try list("cases")
         XCTAssertFalse(all.isEmpty)

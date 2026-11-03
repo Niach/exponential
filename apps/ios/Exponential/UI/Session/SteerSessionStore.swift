@@ -57,7 +57,7 @@ final class SteerSessionStore {
     /// stream, no replay) until they are active again, or for
     /// `closedQueueTTL` at most (a Queue can open mid-turn).
     @ObservationIgnored private var closedQueues: [String: (activeAt: Double?, at: Date)] = [:]
-    private static let closedQueueTTL: TimeInterval = 60
+    private static let closedQueueTTL = TimeInterval(Dock.closedQueueTtlMs) / 1000
 
     func noteQueueClosed(accountId: String, sessionId: String, activeAt: Double?) {
         let key = Key(accountId: accountId, sessionId: sessionId).memoryKey

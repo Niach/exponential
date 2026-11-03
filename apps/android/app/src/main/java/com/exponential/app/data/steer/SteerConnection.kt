@@ -258,6 +258,11 @@ class SteerConnection internal constructor(
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected
 
+    /** #EXP-1678: a join replay has landed in [activity] (at least once):
+     *  the thread's child probe reads a Queue only once it is there. */
+    private val _replayed = MutableStateFlow(false)
+    val replayed: StateFlow<Boolean> = _replayed
+
     /**
      * EXP-773: why an ENDED run shows no transcript. VAPP-43: the device that
      * ran it replays its stored journal over eNet; when no endpoint answers
@@ -1230,6 +1235,7 @@ class SteerConnection internal constructor(
             if (key !in carried) ackTimeouts.remove(key)?.cancel()
         }
         _activity.value = next
+        _replayed.value = true
         // EXP-724: the swap re-derived the compaction state from the replay —
         // arm the backstop for a start it carried, drop it otherwise. The
         // other slots (`turn`, `background_tasks`, `rate_limit`, EXP-861's

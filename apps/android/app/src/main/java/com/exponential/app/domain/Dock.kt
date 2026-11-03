@@ -300,6 +300,42 @@ object Dock {
     /** The session whose Queue the thread's Dock shows ([sessionName] null for the root). */
     data class ThreadDockQueue(val sessionId: String, val sessionName: String?)
 
+    /** dock.json `probeDeadlineMs` / `closedQueueTtlMs` (#EXP-1678). */
+    const val PROBE_DEADLINE_MS = 15_000L
+    const val CLOSED_QUEUE_TTL_MS = 60_000L
+
+    /** #EXP-1678 (ONE CHILD STREAM): what a thread knows of one Live child's Queue. */
+    enum class ChildQueueState(val wire: String) { Open("open"), Closed("closed"), Unknown("unknown") }
+
+    data class ThreadQueueProbe(val sessionId: String, val activeAt: Long?, val state: ChildQueueState)
+
+    /** A held child stream as the probe reads it. */
+    data class ChildStream(val phase: Phase, val replayed: Boolean, val attachedMs: Long) {
+        enum class Phase(val wire: String) { Connecting("connecting"), Live("live"), Starting("starting"), Closed("closed"), Ended("ended") }
+    }
+
+    /** #EXP-1678: the ONE Live child a thread holds a stream on: none while
+     *  the root's Queue is open, else the first child in [threadDockQueue]'s
+     *  order (latest activeAt, none = oldest, ties by id) not known closed. */
+    fun threadQueueProbe(rootOpen: Boolean, children: List<ThreadQueueProbe>): String? {
+        if (rootOpen) return null
+        return children.sortedWith(
+            compareByDescending<ThreadQueueProbe> { it.activeAt ?: Long.MIN_VALUE }.thenBy { it.sessionId },
+        ).firstOrNull { it.state != ChildQueueState.Closed }?.sessionId
+    }
+
+    /** #EXP-1678 (`childStateCases`): one Live child's state for [threadQueueProbe]. */
+    fun threadQueueChildState(open: Boolean, remembered: Boolean, stream: ChildStream?): ChildQueueState = when {
+        open -> ChildQueueState.Open
+        remembered -> ChildQueueState.Closed
+        stream == null -> ChildQueueState.Unknown
+        stream.phase == ChildStream.Phase.Starting ||
+            stream.phase == ChildStream.Phase.Closed ||
+            stream.phase == ChildStream.Phase.Ended -> ChildQueueState.Closed
+        stream.replayed || stream.attachedMs >= PROBE_DEADLINE_MS -> ChildQueueState.Closed
+        else -> ChildQueueState.Unknown
+    }
+
     /** #EXP-1545: whose Queue the thread's Dock shows: the root's while it is
      *  open, else the most recently active Live child's (ties by id), else
      *  none. An ended session contributes nothing. */

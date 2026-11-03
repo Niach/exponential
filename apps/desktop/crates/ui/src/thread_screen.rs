@@ -2879,6 +2879,10 @@ struct QueueFeed {
     /// The child's name as the thread's tabs show it.
     name: String,
     view: Entity<crate::steer_viewer::SteerSessionView>,
+    /// #EXP-1678: when the thread attached it (the probe deadline's clock).
+    attached: Instant,
+    /// This process runs the child: its engine, no network stream at all.
+    local: bool,
     _sub: Subscription,
 }
 
@@ -2958,6 +2962,10 @@ pub(crate) struct ThreadScreenView {
     /// of the tree, read for its Queue only (its per-session slots, seeded
     /// LOCAL FIRST from the last-known memo), while the Conversation shows.
     queue_feeds: HashMap<String, QueueFeed>,
+    /// #EXP-1678: remote children read closed (their activeAt then, when).
+    closed_queue_reads: HashMap<String, (Option<i64>, Instant)>,
+    /// #EXP-1678: a probe re-read is scheduled.
+    probe_timer: Option<gpui::Task<()>>,
     /// #EXP-1562: a waiting chip's card to scroll to (and ring) once the
     /// Conversation shows.
     reveal: Option<String>,
@@ -3049,6 +3057,8 @@ impl ThreadScreenView {
             main: None,
             _main_sub: None,
             queue_feeds: HashMap::new(),
+            closed_queue_reads: HashMap::new(),
+            probe_timer: None,
             reveal: None,
             _missing_tick: missing_tick,
             _subscriptions: subscriptions,
@@ -3447,18 +3457,76 @@ impl ThreadScreenView {
         }
     }
 
-    /// #EXP-1545: keep ONE viewer (the local engine when this process runs it, else eNet) per Live (not ended) child
-    /// in `live` (session id, the tab's name) and drop the rest; each
-    /// repaints the thread only when its Queue moved.
+    /// #EXP-1545 + #EXP-1678 (dock.json ONE CHILD STREAM): keep a viewer
+    /// for every Live child THIS process runs (its engine: no network) and
+    /// ONE eNet viewer among the rest, on the child
+    /// [`domain::dock::thread_queue_probe`] names (one per remote child was a
+    /// burst of joins to one device on every thread open). Each repaints the
+    /// thread when its Queue or what the probe reads moved.
     fn sync_queue_feeds(&mut self, live: Vec<(String, String)>, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        let keep: HashSet<&str> = live.iter().map(|(id, _)| id.as_str()).collect();
+        use domain::dock::{thread_queue_child_state, thread_queue_probe, ChildQueueState, ThreadQueueProbe, CLOSED_QUEUE_TTL_MS, PROBE_DEADLINE_MS};
+        let ttl = Duration::from_millis(CLOSED_QUEUE_TTL_MS);
+        let active_at = |id: &str, cx: &App| {
+            crate::session_data::session(id, cx).and_then(|row| {
+                row.last_turn_at
+                    .as_deref()
+                    .and_then(domain::session_tree::iso_ms)
+                    .or_else(|| row.started_at.as_deref().and_then(domain::session_tree::iso_ms))
+            })
+        };
+        let now = Instant::now();
+        let root_open = self.composer.read(cx).dock_queue().is_some();
+        let mut keep: HashSet<String> = HashSet::new();
+        let mut probes = Vec::new();
+        for (id, _) in &live {
+            let local = self.queue_feeds.get(id).map(|feed| feed.local)
+                .unwrap_or_else(|| crate::session_screen::local_engine(id, cx).is_some());
+            if local {
+                keep.insert(id.clone());
+                continue;
+            }
+            let at = active_at(id, cx);
+            let remembered = self
+                .closed_queue_reads
+                .get(id)
+                .is_some_and(|(seen_at, when)| *seen_at == at && now.duration_since(*when) < ttl);
+            let (open, stream) = match self.queue_feeds.get(id) {
+                Some(feed) => {
+                    let view = feed.view.read(cx);
+                    let attached = now.duration_since(feed.attached).as_millis() as u64;
+                    (view.dock_queue().is_some(), Some(view.probe_stream(attached)))
+                }
+                None => (false, None),
+            };
+            probes.push(ThreadQueueProbe { session_id: id.clone(), active_at: at, state: thread_queue_child_state(open, remembered, stream) });
+        }
+        for probe in &probes {
+            if probe.state != ChildQueueState::Closed {
+                continue;
+            }
+            let fresh = self
+                .closed_queue_reads
+                .get(&probe.session_id)
+                .is_some_and(|(seen_at, when)| *seen_at == probe.active_at && now.duration_since(*when) < ttl);
+            if !fresh {
+                self.closed_queue_reads.insert(probe.session_id.clone(), (probe.active_at, now));
+            }
+        }
+        let wanted = thread_queue_probe(root_open, &probes);
+        if let Some(wanted) = &wanted {
+            keep.insert(wanted.clone());
+        }
         let gone: Vec<String> = self.queue_feeds.keys().filter(|id| !keep.contains(id.as_str())).cloned().collect();
         for id in gone {
             if let Some(feed) = self.queue_feeds.remove(&id) {
                 feed.view.update(cx, |view, _| view.shutdown());
             }
         }
+        let mut attached_remote = false;
         for (id, name) in live {
+            if !keep.contains(&id) {
+                continue;
+            }
             if let Some(feed) = self.queue_feeds.get_mut(&id) {
                 feed.name = name;
                 continue;
@@ -3466,19 +3534,40 @@ impl ThreadScreenView {
             // A child THIS process runs reads its engine: an eNet viewer of
             // our own run found only our own endpoint (`no_endpoint`) and
             // fell back to a relay tunnel to ourselves.
-            let (_, source) = crate::session_screen::resolve_source(&id, cx);
+            let (feed_kind, source) = crate::session_screen::resolve_source(&id, cx);
+            let local = feed_kind == crate::session_screen::SessionFeed::Local;
+            attached_remote |= !local;
             let view = cx.new(|cx| {
                 crate::steer_viewer::SteerSessionView::with_source(id.clone(), source, window, cx)
             });
-            let mut last = view.read(cx).dock_queue();
+            let read = |view: &crate::steer_viewer::SteerSessionView| (view.dock_queue(), view.probe_stream(0).phase, view.probe_stream(0).replayed);
+            let mut last = read(view.read(cx));
             let sub = cx.observe(&view, move |_, view, cx| {
-                let queue = view.read(cx).dock_queue();
-                if queue != last {
-                    last = queue;
+                let now = read(view.read(cx));
+                if now != last {
+                    last = now;
                     cx.notify();
                 }
             });
-            self.queue_feeds.insert(id, QueueFeed { name, view, _sub: sub });
+            self.queue_feeds.insert(id, QueueFeed { name, view, attached: now, local, _sub: sub });
+        }
+        // Re-read at the probe deadline after an attach, and (every remote
+        // child read closed) once the closed memory runs out.
+        let rearm = if attached_remote {
+            Some(Duration::from_millis(PROBE_DEADLINE_MS))
+        } else if wanted.is_none() && !probes.is_empty() && !root_open && self.probe_timer.is_none() {
+            Some(ttl)
+        } else {
+            None
+        };
+        if let Some(after) = rearm {
+            self.probe_timer = Some(cx.spawn(async move |this, cx| {
+                cx.background_executor().timer(after).await;
+                let _ = this.update(cx, |this, cx| {
+                    this.probe_timer = None;
+                    cx.notify();
+                });
+            }));
         }
     }
 

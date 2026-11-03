@@ -137,7 +137,7 @@ struct ThreadScreen: View {
     /// #EXP-1623: claims are taken only while the screen is on screen; a
     /// covered screen still observes its inputs.
     @State private var onScreen = false
-    private static let childProbeDeadline: TimeInterval = 15
+    private static let childProbeDeadline = TimeInterval(Dock.probeDeadlineMs) / 1000
     /// EXP-1343: the shown session page's model (its embedded view's claim);
     /// nil off a session page.
     @State private var sessionPageModel: (id: String, model: AgentSessionModel)?
