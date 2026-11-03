@@ -178,6 +178,9 @@ pub struct HostOptions {
     /// VAPP-194: a package action that landed nothing (a false require's
     /// message, a refused write or call): a failed action, so the toast.
     pub on_action_failed: Option<ActionFailedHook>,
+    /// VAPP-200: every surface is read-only (the viewer's app access is
+    /// `read`): its writing controls paint disabled.
+    pub read_only: bool,
 }
 
 impl HostOptions {
@@ -217,6 +220,7 @@ impl Default for HostOptions {
             now: None,
             zone: None,
             on_action_failed: None,
+            read_only: false,
         }
     }
 }
@@ -278,6 +282,7 @@ pub struct ExponentialHost {
     theme: Option<Arc<ResolvedTheme>>,
     mode: Mode,
     formatter: Option<Arc<dyn eui_core::format::Formatter>>,
+    read_only: bool,
     base: Rc<dyn HostPlugin>,
     on_send: Option<ValueObserver>,
     on_op: Option<ValueObserver>,
@@ -328,6 +333,7 @@ impl ExponentialHost {
             theme: options.theme,
             mode: options.mode,
             formatter: options.formatter,
+            read_only: options.read_only,
             base: options.plugin,
             on_send: options.on_send,
             on_op: options.on_op,
@@ -633,6 +639,14 @@ impl ExponentialHost {
                     host: plugin,
                     rounding: false,
                     formatter: self.formatter.clone(),
+                    settings: self.read_only.then(|| eui_core::surface::SurfaceSettings {
+                        mode: match self.mode {
+                            Mode::Light => eui_core::theme::ModeSetting::Light,
+                            Mode::Dark => eui_core::theme::ModeSetting::Dark,
+                        },
+                        read_only: true,
+                        ..Default::default()
+                    }),
                     ..Default::default()
                 };
                 let painters = self.painters.clone();
