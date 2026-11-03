@@ -43,7 +43,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use crate::git_worktree::{run_git, TokenUrl};
+use crate::git_worktree::{origin_has_ref, run_git, TokenUrl};
 
 /// The hidden ref namespace a branch's uncommitted-work snapshot lives in,
 /// on `origin` and (as "what was last pushed") in the clone.
@@ -663,6 +663,11 @@ pub fn restore_wip(clone: &Path, worktree: &Path, branch: &str, url: Option<&Tok
         return WipRestore::Skipped("not on the branch".into());
     }
     let wip = wip_ref(branch);
+    // A fresh branch never has a snapshot: asked first, since a fetch of
+    // the missing ref stalled the launch ([`origin_has_ref`]).
+    if origin_has_ref(clone, &wip, url) == Some(false) {
+        return WipRestore::None;
+    }
     let fetched = run_git(
         Some(clone),
         &["fetch", "--quiet", "--no-tags", "origin", &format!("+{wip}:{wip}")],
