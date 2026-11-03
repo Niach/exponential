@@ -74,7 +74,7 @@ mod wakeword_fixtures;
 
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -87,6 +87,14 @@ const BACKEND: &str = "qwen3-tts";
 /// The warm-up must run at least this much faster than real time (the
 /// 4090 measured 0.13-0.27, the CPU ~2.0).
 const MAX_WARMUP_RTF: f64 = 0.6;
+/// eTalk device pass (2026-11-03): an M4 Pro warms up at 0.51-0.58, so a
+/// busy machine (a build, a test suite) runs one warm-up over the bar. A
+/// slow warm-up is retried on [`retry_after`]'s schedule; only this many
+/// in a row (this worker) are a "too slow" verdict cached for
+/// [`NO_GPU_TTL`].
+const SLOW_WARMUPS_TO_CACHE: u32 = 3;
+/// The slow warm-ups in a row so far.
+static SLOW_WARMUPS: AtomicU32 = AtomicU32::new(0);
 /// A GPU needs this much memory for the F16 model (measured peak 3.7 GB).
 const MIN_GPU_BYTES: u64 = 4_000_000_000;
 
@@ -730,7 +738,14 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
                     State::Ready(loaded)
                 }
                 Ok(None) => State::NoGpu,
-                Err(err) => {
+                // Never a download toast: the voice is only not up yet.
+                Err(NotUp::Slow(why)) => {
+                    let failures = failures + 1;
+                    let wait = retry_after(failures);
+                    eprintln!("voice not up (attempt {failures}, next in {}s): {why}", wait.as_secs());
+                    State::Idle { failures, retry_at: Some(Instant::now() + wait) }
+                }
+                Err(NotUp::Failed(err)) => {
                     let failures = failures + 1;
                     let wait = retry_after(failures);
                     eprintln!("voice unavailable (attempt {failures}, next in {}s): {err}", wait.as_secs());
@@ -763,9 +778,24 @@ fn engine_loop(data_dir: &Path, rx: Receiver<Job>, shared: &Arc<Shared>) {
     }
 }
 
+/// Why [`bring_up`] did not finish; both are retried later.
+enum NotUp {
+    /// A download, verify or load failed (`DownloadFailed`).
+    Failed(String),
+    /// The warm-up ran over [`MAX_WARMUP_RTF`] (fewer than
+    /// [`SLOW_WARMUPS_TO_CACHE`] times in a row).
+    Slow(String),
+}
+
+impl From<String> for NotUp {
+    fn from(err: String) -> Self {
+        NotUp::Failed(err)
+    }
+}
+
 /// Probe, download, verify, load and warm up. `Ok(None)` = no usable GPU
-/// (permanent for this worker); `Err` = a failure worth retrying later.
-fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
+/// (permanent for this worker); `Err` = worth retrying later.
+fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, NotUp> {
     if !etalk_crispasr::platform::supported() || !etalk_crispasr::platform::gpu_driver_present() {
         eprintln!("no usable GPU: no GPU driver for the voice on this machine");
         return Ok(None);
@@ -841,11 +871,20 @@ fn bring_up(data_dir: &Path) -> Result<Option<Loaded>, String> {
     }
     eprintln!("voice warm-up: real-time factor {best:.2}");
     if best > MAX_WARMUP_RTF {
-        eprintln!("no usable GPU: the voice runs slower than {MAX_WARMUP_RTF} of real time");
+        if retry_slow_warmup() {
+            return Err(NotUp::Slow(format!("the warm-up ran at {best:.2} of real time (over {MAX_WARMUP_RTF}; a busy machine?)")));
+        }
+        eprintln!("no usable GPU: the voice runs slower than {MAX_WARMUP_RTF} of real time, {SLOW_WARMUPS_TO_CACHE} times in a row");
         remember_no_gpu(&cache, &fingerprint, SystemTime::now());
         return Ok(None);
     }
+    SLOW_WARMUPS.store(0, Ordering::SeqCst);
     Ok(Some(loaded))
+}
+
+/// Count a slow warm-up: `true` = retry, not yet a verdict.
+fn retry_slow_warmup() -> bool {
+    SLOW_WARMUPS.fetch_add(1, Ordering::SeqCst) + 1 < SLOW_WARMUPS_TO_CACHE
 }
 
 /// How long a "too slow" verdict stands before the GPU is tried again.
@@ -1210,6 +1249,19 @@ mod tests {
         assert!(!no_gpu_cached(&path, &gpu_fingerprint(&other, Some("cuda 12080")), now), "another GPU re-tests");
         assert!(!no_gpu_cached(&path, &print, now + NO_GPU_TTL), "after 30 days it re-tests");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// eTalk device pass: a busy machine's slow warm-up is retried; only
+    /// the third in a row is the cached verdict.
+    #[test]
+    fn only_three_slow_warmups_in_a_row_are_a_verdict() {
+        SLOW_WARMUPS.store(0, Ordering::SeqCst);
+        assert!(retry_slow_warmup());
+        assert!(retry_slow_warmup());
+        assert!(!retry_slow_warmup(), "the third is the verdict");
+        SLOW_WARMUPS.store(0, Ordering::SeqCst);
+        assert!(retry_slow_warmup(), "a fast warm-up starts the count again");
+        SLOW_WARMUPS.store(0, Ordering::SeqCst);
     }
 
     #[test]
