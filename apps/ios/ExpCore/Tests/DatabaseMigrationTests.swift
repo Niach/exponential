@@ -142,7 +142,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone", "v96_via_app_id"]
+             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox"]
         )
     }
 
@@ -206,7 +206,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone", "v96_via_app_id"]
+             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox"]
         )
     }
 
@@ -742,7 +742,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone", "v96_via_app_id"]
+             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -854,7 +854,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone", "v96_via_app_id"]
+             "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -4168,6 +4168,41 @@ final class DatabaseMigrationTests: XCTestCase {
              "created_at":"x","updated_at":"x"}
             """#.utf8))
         XCTAssertNil(legacy.viaAppId)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #VAPP-235: v97 adds the LOCAL `app_record_outbox` (no shape: no cursor
+    // resets); an entry round-trips through its row, FIFO by `seq`.
+    func testAppRecordOutboxTableAdded() throws {
+        let pool = try makePool("vapp235-app-record-outbox")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v96_via_app_id")
+        XCTAssertFalse(try pool.read { db in try db.tableExists("app_record_outbox") })
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v97_app_record_outbox"))
+        XCTAssertEqual(
+            try columnNames(pool, "app_record_outbox"),
+            ["write_id", "seq", "app_id", "call", "writes", "at", "state", "acked_at"]
+        )
+        let first = AppRecords.OutboxEntry(
+            writeId: "w1", appId: "a1", call: .batch,
+            writes: [
+                AppRecords.OutboxWrite(op: .create, id: "n1", kind: "log", data: ["hours": .number(2)]),
+                AppRecords.OutboxWrite(op: .delete, id: "r1"),
+            ],
+            at: "2026-11-03T10:00:00.000Z"
+        )
+        let second = AppRecords.OutboxEntry(
+            writeId: "w0", appId: "a1", call: .delete, writes: [AppRecords.OutboxWrite(op: .delete, id: "r2")],
+            at: "2026-11-03T10:00:01.000Z", state: .acked, ackedAt: "2026-11-03T10:00:02.000Z"
+        )
+        try pool.write { db in
+            try AppRecordOutboxEntity(first, seq: 1).insert(db)
+            try AppRecordOutboxEntity(second, seq: 2).insert(db)
+        }
+        let read = try pool.read { db in
+            try AppRecordOutboxEntity.order(Column("seq")).fetchAll(db).compactMap(\.entry)
+        }
+        XCTAssertEqual(read, [first, second])
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

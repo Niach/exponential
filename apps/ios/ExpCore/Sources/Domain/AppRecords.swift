@@ -770,3 +770,346 @@ public enum AppRecords {
             .replacingOccurrences(of: "{max}", with: grouped(max))
     }
 }
+
+// MARK: - The offline outbox (VAPP-235, fixture `outbox`)
+
+/// VAPP-235 (eApps O1, docs/spec/apps.md §14): the app host queues every
+/// record write as ONE entry, lays the entries over the synced rows and
+/// replays them in order with an idempotency key (TS `outboxWrites` …
+/// `outboxPendingLabel`; desktop `domain::app_records`, Android
+/// `AppRecords.kt`; `AppRecordsTests` replays every `outbox.*Cases`). The
+/// web stays online-only.
+extension AppRecords {
+    public enum Outbox {
+        public static let ackGraceSeconds: Double = 30
+        public static let retryCodes = [
+            "UNAUTHORIZED", "TIMEOUT", "TOO_MANY_REQUESTS", "CLIENT_CLOSED_REQUEST",
+            "INTERNAL_SERVER_ERROR", "BAD_GATEWAY", "SERVICE_UNAVAILABLE", "GATEWAY_TIMEOUT",
+        ]
+
+        public enum Copy {
+            public static let pendingOne = "1 change waiting to sync"
+            /// `{n} changes waiting to sync`.
+            public static let pending = "{n} changes waiting to sync"
+        }
+    }
+
+    /// The host call an entry came from.
+    public enum OutboxCall: String, Equatable, Sendable {
+        case upsert, delete, batch
+    }
+
+    /// One write of an entry: `create` / `update` carry `kind` + `data`, a
+    /// `delete` only its `id`.
+    public struct OutboxWrite: Equatable, Sendable {
+        public enum Op: String, Equatable, Sendable {
+            case create, update, delete
+        }
+
+        public let op: Op
+        public let id: String
+        public let kind: String
+        public let data: [String: CardJSON]
+
+        public init(op: Op, id: String, kind: String = "", data: [String: CardJSON] = [:]) {
+            self.op = op
+            self.id = id
+            self.kind = op == .delete ? "" : kind
+            self.data = op == .delete ? [:] : data
+        }
+
+        /// The fixture / persisted form (`{op, id, kind?, data?}`).
+        public var json: CardJSON {
+            if op == .delete { return .object(["op": .string(op.rawValue), "id": .string(id)]) }
+            return .object(["op": .string(op.rawValue), "id": .string(id), "kind": .string(kind), "data": .object(data)])
+        }
+
+        public init?(json: CardJSON) {
+            guard let object = json.objectValue,
+                  case let .string(raw)? = object["op"], let op = Op(rawValue: raw),
+                  case let .string(id)? = object["id"] else { return nil }
+            var kind = ""
+            if case let .string(k)? = object["kind"] { kind = k }
+            self.init(op: op, id: id, kind: kind, data: object["data"]?.objectValue ?? [:])
+        }
+    }
+
+    /// One queued host call (`{writeId, appId, call, writes, at, state, ackedAt?}`).
+    public struct OutboxEntry: Equatable, Sendable {
+        public enum State: String, Equatable, Sendable {
+            case pending, acked
+        }
+
+        public let writeId: String
+        public let appId: String
+        public let call: OutboxCall
+        public let writes: [OutboxWrite]
+        /// ISO time the write was made.
+        public let at: String
+        public var state: State
+        public var ackedAt: String?
+
+        public init(
+            writeId: String, appId: String, call: OutboxCall, writes: [OutboxWrite], at: String,
+            state: State = .pending, ackedAt: String? = nil
+        ) {
+            self.writeId = writeId
+            self.appId = appId
+            self.call = call
+            self.writes = writes
+            self.at = at
+            self.state = state
+            self.ackedAt = ackedAt
+        }
+
+        /// The fixture form (`ackedAt` only when set).
+        public var json: CardJSON {
+            var object: [String: CardJSON] = [
+                "writeId": .string(writeId), "appId": .string(appId), "call": .string(call.rawValue),
+                "writes": .array(writes.map(\.json)), "at": .string(at), "state": .string(state.rawValue),
+            ]
+            if let ackedAt { object["ackedAt"] = .string(ackedAt) }
+            return .object(object)
+        }
+
+        public init?(json: CardJSON) {
+            guard let object = json.objectValue,
+                  case let .string(writeId)? = object["writeId"],
+                  case let .string(appId)? = object["appId"],
+                  case let .string(rawCall)? = object["call"], let call = OutboxCall(rawValue: rawCall),
+                  case let .array(writes)? = object["writes"],
+                  case let .string(at)? = object["at"] else { return nil }
+            var state = State.pending
+            if case let .string(raw)? = object["state"], let parsed = State(rawValue: raw) { state = parsed }
+            var ackedAt: String?
+            if case let .string(raw)? = object["ackedAt"] { ackedAt = raw }
+            self.init(
+                writeId: writeId, appId: appId, call: call, writes: writes.compactMap(OutboxWrite.init(json:)),
+                at: at, state: state, ackedAt: ackedAt
+            )
+        }
+
+        /// What the call answers from the entry (offline): `upsert` → `{id}`,
+        /// `delete` → nil, `batch` → `{ids}` (every write's id in order).
+        public var answer: CardJSON? {
+            switch call {
+            case .upsert: return .object(["id": .string(writes.first?.id ?? "")])
+            case .delete: return nil
+            case .batch: return .object(["ids": .array(writes.map { .string($0.id) })])
+            }
+        }
+    }
+
+    /// A replay's answer: ok, no network, or the server's tRPC code.
+    public enum OutboxResult: Equatable, Sendable {
+        case ok
+        case transport
+        case code(String)
+    }
+
+    public enum OutboxOutcome: String, Equatable, Sendable {
+        case done, retry, dropped, refused
+    }
+
+    /// The replay request of an entry; the host adds the app (`id`).
+    public struct OutboxRequest: Equatable, Sendable {
+        public let call: OutboxCall
+        public let input: [String: CardJSON]
+    }
+
+    /// One flush's answer (`flushCases`).
+    public struct OutboxFlushResult: Equatable, Sendable {
+        public struct Refused: Equatable, Sendable {
+            public let writeId: String
+            /// `save` | `delete` (`outboxVerb`).
+            public let verb: String
+        }
+
+        public let sent: [String]
+        public let refused: [Refused]
+        public let after: [OutboxEntry]
+    }
+
+    /// A host call's writes (TS `outboxWrites`, `writesCases`): a create
+    /// takes the next client id.
+    public static func outboxWrites(call: OutboxCall, args: [String: CardJSON], newIds: [String]) -> [OutboxWrite] {
+        var next = 0
+        func upsert(_ w: [String: CardJSON]) -> OutboxWrite {
+            let data = w["data"]?.objectValue ?? [:]
+            var kind = ""
+            if case let .string(k)? = w["kind"] { kind = k }
+            if case let .string(id)? = w["id"] { return OutboxWrite(op: .update, id: id, kind: kind, data: data) }
+            let id = next < newIds.count ? newIds[next] : ""
+            next += 1
+            return OutboxWrite(op: .create, id: id, kind: kind, data: data)
+        }
+        func idOf(_ w: [String: CardJSON]) -> String {
+            if case let .string(id)? = w["id"] { return id }
+            return ""
+        }
+        switch call {
+        case .upsert: return [upsert(args)]
+        case .delete: return [OutboxWrite(op: .delete, id: idOf(args))]
+        case .batch:
+            guard case let .array(list)? = args["writes"] else { return [] }
+            return list.compactMap(\.objectValue).map { w in
+                if case .string("delete")? = w["op"] { return OutboxWrite(op: .delete, id: idOf(w)) }
+                return upsert(w)
+            }
+        }
+    }
+
+    /// How many client ids a host call's creates take (the host mints them
+    /// before `outboxWrites`).
+    public static func outboxCreates(call: OutboxCall, args: [String: CardJSON]) -> Int {
+        outboxWrites(call: call, args: args, newIds: []).filter { $0.op == .create }.count
+    }
+
+    /// The replay request of an entry (TS `outboxRequest`, `requestCases`).
+    public static func outboxRequest(_ entry: OutboxEntry) -> OutboxRequest {
+        let writeId = CardJSON.string(entry.writeId)
+        if entry.call == .batch {
+            let writes: [CardJSON] = entry.writes.map { w in
+                switch w.op {
+                case .delete: return .object(["op": .string("delete"), "id": .string(w.id)])
+                case .create: return .object(["op": .string("upsert"), "kind": .string(w.kind), "data": .object(w.data), "newId": .string(w.id)])
+                case .update: return .object(["op": .string("upsert"), "kind": .string(w.kind), "data": .object(w.data), "id": .string(w.id)])
+                }
+            }
+            return OutboxRequest(call: .batch, input: ["writes": .array(writes), "writeId": writeId])
+        }
+        guard let w = entry.writes.first else { return OutboxRequest(call: entry.call, input: ["writeId": writeId]) }
+        if w.op == .delete {
+            return OutboxRequest(call: .delete, input: ["recordId": .string(w.id), "writeId": writeId])
+        }
+        var input: [String: CardJSON] = ["kind": .string(w.kind), "data": .object(w.data), "writeId": writeId]
+        input[w.op == .create ? "newId" : "recordId"] = .string(w.id)
+        return OutboxRequest(call: .upsert, input: input)
+    }
+
+    /// The visible rows: the synced rows with every entry laid over them,
+    /// oldest first (TS `outboxRows`, `rowsCases`).
+    public static func outboxRows(_ rows: [Row], entries: [OutboxEntry], me: String?) -> [Row] {
+        var out = rows
+        for entry in entries {
+            for w in entry.writes {
+                let i = out.firstIndex { $0.id == w.id }
+                if w.op == .delete {
+                    if let i { out.remove(at: i) }
+                } else if let i {
+                    let row = out[i]
+                    out[i] = Row(
+                        id: row.id, kind: row.kind, data: row.data.merging(w.data) { _, new in new },
+                        createdBy: row.createdBy, authorId: row.authorId, createdAt: row.createdAt, updatedAt: row.updatedAt
+                    )
+                } else if w.op == .create {
+                    out.append(Row(id: w.id, kind: w.kind, data: w.data, createdBy: me, authorId: me, createdAt: entry.at, updatedAt: entry.at))
+                }
+            }
+        }
+        return out
+    }
+
+    /// What a replay's answer does to its entry (TS `outboxOutcome`,
+    /// `outcomeCases`).
+    public static func outboxOutcome(_ entry: OutboxEntry, result: OutboxResult) -> OutboxOutcome {
+        switch result {
+        case .ok: return .done
+        case .transport: return .retry
+        case let .code(code):
+            if Outbox.retryCodes.contains(code) { return .retry }
+            if code == "NOT_FOUND", entry.call != .batch, entry.writes.allSatisfy({ $0.op != .create }) { return .dropped }
+            return .refused
+        }
+    }
+
+    /// The failed-action toast's verb for a refused entry (`save` | `delete`).
+    public static func outboxVerb(_ entry: OutboxEntry) -> String {
+        entry.writes.allSatisfy { $0.op == .delete } ? "delete" : "save"
+    }
+
+    /// One flush (TS `outboxFlush`, `flushCases`): pending entries oldest
+    /// first, one at a time; a retry stops it; `results` = each write id's
+    /// answer (missing = no network).
+    public static func outboxFlush(_ entries: [OutboxEntry], results: [String: OutboxResult], now: String) -> OutboxFlushResult {
+        var sent: [String] = []
+        var refused: [OutboxFlushResult.Refused] = []
+        var after: [OutboxEntry] = []
+        var stopped = false
+        for entry in entries {
+            if stopped || entry.state == .acked {
+                after.append(entry)
+                continue
+            }
+            sent.append(entry.writeId)
+            switch outboxOutcome(entry, result: results[entry.writeId] ?? .transport) {
+            case .done:
+                var acked = entry
+                acked.state = .acked
+                acked.ackedAt = now
+                after.append(acked)
+            case .retry:
+                stopped = true
+                after.append(entry)
+            case .refused:
+                refused.append(.init(writeId: entry.writeId, verb: outboxVerb(entry)))
+            case .dropped:
+                break
+            }
+        }
+        return OutboxFlushResult(sent: sent, refused: refused, after: after)
+    }
+
+    /// Do the synced rows reflect an entry (TS `outboxReflected`)?
+    public static func outboxReflected(_ entry: OutboxEntry, rows: [Row]) -> Bool {
+        entry.writes.allSatisfy { w in
+            let row = rows.first { $0.id == w.id }
+            if w.op == .delete { return row == nil }
+            guard let row else { return false }
+            return w.data.allSatisfy { key, value in jsonEqual(row.data[key], value) }
+        }
+    }
+
+    /// The entries that stay (TS `outboxPrune`, `pruneCases`): pending ones,
+    /// and acked ones the rows don't reflect yet within the grace.
+    public static func outboxPrune(_ entries: [OutboxEntry], rows: [Row], now: String) -> [OutboxEntry] {
+        let nowDate = WireTimestamps.parse(now)
+        return entries.filter { e in
+            if e.state != .acked { return true }
+            if outboxReflected(e, rows: rows) { return false }
+            guard let nowDate, let acked = WireTimestamps.parse(e.ackedAt ?? e.at) else { return false }
+            return nowDate.timeIntervalSince(acked) < Outbox.ackGraceSeconds
+        }
+    }
+
+    /// The header glyph's label for an app's pending entries (TS
+    /// `outboxPendingLabel`, `pendingCases`); nil = no glyph.
+    public static func outboxPendingLabel(_ entries: [OutboxEntry], appId: String) -> String? {
+        let n = entries.filter { $0.appId == appId && $0.state == .pending }.count
+        if n == 0 { return nil }
+        return n == 1 ? Outbox.Copy.pendingOne : Outbox.Copy.pending.replacingOccurrences(of: "{n}", with: String(n))
+    }
+
+    /// `now` as the entries carry it (JS `toISOString`).
+    public static func outboxNow(_ date: Date = Date()) -> String {
+        isoMillis.string(from: date)
+    }
+
+    /// A replay failure as the outbox reads it: the server's tRPC code; an
+    /// HTTP failure without one by its status (5xx = a server error, 401 =
+    /// signed out, 429 = too many requests); anything else (no network, a
+    /// timeout, no instance) = transport.
+    public static func outboxResult(_ error: Error) -> OutboxResult {
+        if let code = error.trpcErrorCode { return .code(code) }
+        if let trpc = error as? TrpcError, case let .httpError(status, _) = trpc {
+            switch status {
+            case 401: return .code("UNAUTHORIZED")
+            case 408: return .code("TIMEOUT")
+            case 429: return .code("TOO_MANY_REQUESTS")
+            case 500...: return .code("INTERNAL_SERVER_ERROR")
+            default: return .code("BAD_REQUEST")
+            }
+        }
+        return .transport
+    }
+}

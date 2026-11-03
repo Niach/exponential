@@ -165,8 +165,12 @@ private struct AppRecordUpsertInput: Encodable {
     var author: String? = nil
     /// VAPP-215: where the write came from (`editor` = the Data tab; nil = omitted).
     var via: String? = nil
+    /// VAPP-235: a create's CLIENT id (the outbox's; nil = omitted).
+    var newId: String? = nil
+    /// VAPP-235: the outbox entry's idempotency key (nil = omitted).
+    var writeId: String? = nil
 
-    enum CodingKeys: String, CodingKey { case id, kind, data, recordId, author, via }
+    enum CodingKeys: String, CodingKey { case id, kind, data, recordId, author, via, newId, writeId }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
@@ -176,6 +180,8 @@ private struct AppRecordUpsertInput: Encodable {
         try c.encodeIfPresent(recordId, forKey: .recordId)
         try c.encodeIfPresent(author, forKey: .author)
         try c.encodeIfPresent(via, forKey: .via)
+        try c.encodeIfPresent(newId, forKey: .newId)
+        try c.encodeIfPresent(writeId, forKey: .writeId)
     }
 }
 
@@ -184,6 +190,18 @@ private struct AppRecordDeleteInput: Encodable {
     let recordId: String
     /// VAPP-215: `editor` = the Data tab (nil = omitted).
     var via: String? = nil
+    /// VAPP-235: the outbox entry's idempotency key (nil = omitted).
+    var writeId: String? = nil
+
+    enum CodingKeys: String, CodingKey { case id, recordId, via, writeId }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(recordId, forKey: .recordId)
+        try c.encodeIfPresent(via, forKey: .via)
+        try c.encodeIfPresent(writeId, forKey: .writeId)
+    }
 }
 
 /// VAPP-215 `apps.records.history {id, recordId}`.
@@ -242,6 +260,18 @@ public struct AppRecordDeleted: Decodable, Sendable, Equatable {
 private struct AppRecordBatchInput: Encodable {
     let id: String
     let writes: EncodableJSON
+    /// VAPP-235: the outbox entry's idempotency key (nil = omitted; a
+    /// write's `newId` rides inside `writes`).
+    var writeId: String? = nil
+
+    enum CodingKeys: String, CodingKey { case id, writes, writeId }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(writes, forKey: .writes)
+        try c.encodeIfPresent(writeId, forKey: .writeId)
+    }
 }
 
 /// `apps.records.batch`'s answer: each write's record id, in order.
@@ -250,6 +280,13 @@ public struct AppRecordBatched: Decodable, Sendable, Equatable {
     public let ids: [String]
     /// VAPP-215: the events the batch wrote (the Undo toast's).
     public let eventIds: [String]?
+}
+
+/// VAPP-235: a replayed outbox entry's answer (the call's own).
+public enum AppRecordReplayed: Sendable, Equatable {
+    case upserted(AppRecordUpserted)
+    case deleted(AppRecordDeleted)
+    case batched(AppRecordBatched)
 }
 
 /// `apps.records.upsert`'s answer: the row's id and whether it is new.
@@ -408,16 +445,18 @@ public final class AppsApi: Sendable {
     /// VAPP-122 `apps.records.upsert` as the viewer (the app's own rows; the
     /// server validates `data` against the kind's schema and the quota).
     /// VAPP-188: `author` = an on-behalf write (owners only; nil = omitted).
+    /// VAPP-235: `newId` = a create's client id, `writeId` = the outbox
+    /// entry's idempotency key (a replay answers the first write's result).
     public func recordsUpsert(
         accountId: String, appId: String, kind: String, data: [String: CardJSON], recordId: String?,
-        author: String? = nil, via: String? = nil
+        author: String? = nil, via: String? = nil, newId: String? = nil, writeId: String? = nil
     ) async throws -> AppRecordUpserted {
         try await trpc.mutation(
             accountId: accountId,
             path: "apps.records.upsert",
             input: AppRecordUpsertInput(
                 id: appId, kind: kind, data: EncodableJSON(value: .object(data)), recordId: recordId, author: author,
-                via: via
+                via: via, newId: newId, writeId: writeId
             )
         )
     }
@@ -425,22 +464,53 @@ public final class AppsApi: Sendable {
     /// VAPP-194 `apps.records.batch` as the viewer: a package action's
     /// writes, all or none (the server checks each against its kind's
     /// schema, the caps and the quota again).
-    public func recordsBatch(accountId: String, appId: String, writes: [CardJSON]) async throws -> AppRecordBatched {
+    /// VAPP-235: `writeId` = the outbox entry's idempotency key.
+    public func recordsBatch(accountId: String, appId: String, writes: [CardJSON], writeId: String? = nil) async throws -> AppRecordBatched {
         try await trpc.mutation(
             accountId: accountId,
             path: "apps.records.batch",
-            input: AppRecordBatchInput(id: appId, writes: EncodableJSON(value: .array(writes)))
+            input: AppRecordBatchInput(id: appId, writes: EncodableJSON(value: .array(writes)), writeId: writeId)
         )
     }
 
     /// VAPP-122 `apps.records.delete` (the trash mirror). VAPP-215: `via`
     /// (`editor` = the Data tab) and the write's event back.
     @discardableResult
-    public func recordsDelete(accountId: String, appId: String, recordId: String, via: String? = nil) async throws -> AppRecordDeleted {
+    public func recordsDelete(
+        accountId: String, appId: String, recordId: String, via: String? = nil, writeId: String? = nil
+    ) async throws -> AppRecordDeleted {
         try await trpc.mutation(
             accountId: accountId, path: "apps.records.delete",
-            input: AppRecordDeleteInput(id: appId, recordId: recordId, via: via)
+            input: AppRecordDeleteInput(id: appId, recordId: recordId, via: via, writeId: writeId)
         )
+    }
+
+    /// VAPP-235: replay ONE outbox entry (`AppRecords.outboxRequest`: its
+    /// `writeId` beside the call's own input; a create's `newId`).
+    public func recordsReplay(accountId: String, entry: AppRecords.OutboxEntry) async throws -> AppRecordReplayed {
+        let request = AppRecords.outboxRequest(entry)
+        let input = request.input
+        func text(_ key: String) -> String? {
+            if case let .string(value)? = input[key] { return value }
+            return nil
+        }
+        switch request.call {
+        case .upsert:
+            return .upserted(try await recordsUpsert(
+                accountId: accountId, appId: entry.appId, kind: text("kind") ?? "", data: input["data"]?.objectValue ?? [:],
+                recordId: text("recordId"), newId: text("newId"), writeId: text("writeId")
+            ))
+        case .delete:
+            return .deleted(try await recordsDelete(
+                accountId: accountId, appId: entry.appId, recordId: text("recordId") ?? "", writeId: text("writeId")
+            ))
+        case .batch:
+            var writes: [CardJSON] = []
+            if case let .array(list)? = input["writes"] { writes = list }
+            return .batched(try await recordsBatch(
+                accountId: accountId, appId: entry.appId, writes: writes, writeId: text("writeId")
+            ))
+        }
     }
 
     /// VAPP-215 `apps.records.history`: a record's events, newest first.

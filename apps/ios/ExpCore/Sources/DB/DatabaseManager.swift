@@ -3080,6 +3080,13 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v97 (#VAPP-235, eApps O1): the app host's offline outbox, LOCAL
+        // ONLY (no shape, no cursor): one row per queued `records.*` call,
+        // replayed FIFO by `seq` (app-records.json `outbox`).
+        migrator.registerMigration("v97_app_record_outbox") { db in
+            try createAppRecordOutboxTable(db)
+        }
+
         return migrator
     }
 
@@ -3168,6 +3175,23 @@ public final class DatabaseManager: @unchecked Sendable {
             t.column("session_id", .text)
             t.column("created_by", .text)
             t.column("created_at", .text).notNull()
+        }
+    }
+
+    /// #VAPP-235: the local `app_record_outbox` table (never synced).
+    static func createAppRecordOutboxTable(_ db: Database) throws {
+        try db.create(table: "app_record_outbox", ifNotExists: true) { t in
+            t.primaryKey("write_id", .text)
+            t.column("seq", .integer).notNull()
+            t.column("app_id", .text).notNull().indexed()
+            // upsert | delete | batch.
+            t.column("call", .text).notNull()
+            // The entry's writes as JSON text.
+            t.column("writes", .text).notNull().defaults(to: "[]")
+            t.column("at", .text).notNull()
+            // pending | acked.
+            t.column("state", .text).notNull().defaults(to: "pending")
+            t.column("acked_at", .text)
         }
     }
 
