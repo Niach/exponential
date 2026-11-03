@@ -34,7 +34,12 @@ fn host_policy_every_function_url_media_source_and_negotiation_case_equals_the_r
 
 #[test]
 fn host_router_every_validation_and_flow_equals_the_reference() {
-    assert_all(support::router_cases(), count("host-router.json", &["validation", "records", "attachments", "flows"]));
+    assert_all(support::router_cases(), count("host-router.json", &["validation", "records", "flows"]));
+}
+
+#[test]
+fn host_router_every_attachment_case_equals_the_reference() {
+    assert_all(support::router_attachment_cases(), count("host-router.json", &["attachments"]));
 }
 
 #[test]
