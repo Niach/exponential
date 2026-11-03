@@ -109,6 +109,12 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
     let footer: (() -> AnyView)?
     let onPick: (Value) -> Void
     let onBackspaceEmpty: (() -> Void)?
+    /// EXP-1649: web's phone PAGE input row (`CommandInput variant="field"`,
+    /// the global search): a host control before the field (the back arrow)
+    /// and the field drawn as THE search field — a 36pt capsule, glyph,
+    /// text, clear — with the count trailing outside it.
+    let leading: AnyView?
+    let fieldChrome: Bool
 
     public init(
         items: [PickerItem<Value>],
@@ -123,8 +129,12 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
         emptyText: String? = nil,
         footer: (() -> AnyView)? = nil,
         onPick: @escaping (Value) -> Void,
-        onBackspaceEmpty: (() -> Void)? = nil
+        onBackspaceEmpty: (() -> Void)? = nil,
+        leading: AnyView? = nil,
+        fieldChrome: Bool = false
     ) {
+        self.leading = leading
+        self.fieldChrome = fieldChrome
         self.items = items
         self._query = query
         self.placeholder = placeholder
@@ -158,27 +168,75 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
         .accessibilityIdentifier(SearchList.TestId.list)
     }
 
+    @ViewBuilder
     private var input: some View {
+        if fieldChrome { fieldInput } else { bareInput }
+    }
+
+    private var textField: some View {
+        SearchListTextField(
+            text: $query,
+            placeholder: placeholder,
+            identifier: inputIdentifier,
+            autofocus: autofocus,
+            onSubmit: {
+                if let top = visible.first(where: { !$0.disabled }) { onPick(top.value) }
+            },
+            onBackspaceEmpty: onBackspaceEmpty
+        )
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private var count: some View {
+        if hasQuery, !loading {
+            Text("\(visible.count)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .accessibilityIdentifier(SearchList.TestId.count)
+        }
+    }
+
+    /// Web's `field` row: px-3 py-2, gap-2; the field h-9, rounded-full,
+    /// `glass-card` fill inside a `glass-stroke-card` ring, the glyph 16pt at
+    /// 10pt in, the clear button 6pt from the end.
+    private var fieldInput: some View {
+        HStack(spacing: 8) {
+            if let leading { leading }
+            HStack(spacing: 6) {
+                AppIcon(AppIcons.navSearch, size: 16)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                textField
+                if !query.isEmpty {
+                    Button {
+                        query = ""
+                    } label: {
+                        AppIcon(AppIcons.uiClear, size: 14)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                            .frame(width: 24, height: 24)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.leading, 10)
+            .padding(.trailing, 6)
+            .frame(height: 36)
+            .background(GlassTokens.fillCard, in: Capsule())
+            .overlay(Capsule().strokeBorder(GlassTokens.strokeCard, lineWidth: 1))
+            count
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+    }
+
+    private var bareInput: some View {
         HStack(spacing: 10) {
             AppIcon(AppIcons.navSearch, size: AppIcon.Size.small)
                 .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            SearchListTextField(
-                text: $query,
-                placeholder: placeholder,
-                identifier: inputIdentifier,
-                autofocus: autofocus,
-                onSubmit: {
-                    if let top = visible.first(where: { !$0.disabled }) { onPick(top.value) }
-                },
-                onBackspaceEmpty: onBackspaceEmpty
-            )
-            .frame(maxWidth: .infinity)
-            if hasQuery, !loading {
-                Text("\(visible.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .accessibilityIdentifier(SearchList.TestId.count)
-            }
+            textField
+            count
         }
         .padding(.horizontal, GlassPickerTokens.searchHPadding)
         .frame(height: CGFloat(SearchList.inputHeight) + 8)

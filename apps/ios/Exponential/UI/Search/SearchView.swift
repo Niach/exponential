@@ -17,6 +17,7 @@ struct SearchView: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @Environment(TeamState.self) private var teamState
+    @Environment(\.dismiss) private var dismiss
     @State private var viewModel: SearchViewModel?
     @State private var query = ""
 
@@ -41,17 +42,20 @@ struct SearchView: View {
                     emptyText: trimmed.isEmpty || vm.isRanking ? nil : "No issues match",
                     onPick: { issueId in
                         pushRoute(.issue(accountId: accountId, id: issueId))
-                    }
+                    },
+                    leading: AnyView(backButton),
+                    fieldChrome: true
                 )
-                .padding(.top, 4)
                 .overlay {
                     if trimmed.isEmpty { searchHint.allowsHitTesting(false) }
                 }
             }
         }
+        // EXP-1649: web-mobile's search page has no title bar: the back
+        // arrow rides the field's row (the navigator's edge swipe stays
+        // armed by `bareBackButton`).
         .navigationTitle("Search")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
+        .toolbar(.hidden, for: .navigationBar)
         .onAppear {
             if viewModel == nil {
                 viewModel = SearchViewModel(accountId: accountId, db: deps.db, issuesApi: deps.issuesApi)
@@ -89,6 +93,22 @@ struct SearchView: View {
             color: status.color,
             identifier: issue.identifier
         )
+    }
+
+    /// Web's ghost `icon-xs` back button: the bare `ui-back` arrow, muted.
+    private var backButton: some View {
+        Button {
+            dismiss()
+        } label: {
+            AppIcon(AppIcons.uiBack, size: 16)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .frame(width: 24, height: 24)
+                // A thumb-sized target around the 24pt glyph box.
+                .contentShape(Rectangle().inset(by: -10))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back")
+        .accessibilityIdentifier("BackButton")
     }
 
     // MARK: - Empty-query state (search hint)
