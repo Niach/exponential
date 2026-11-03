@@ -30,7 +30,7 @@ import XCTest
 ///   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card ·
 ///   sg_chat-list · sg_phone-tab-bar · sg_phone-board-menu · sg_phone-page-header ·
 ///   sg_chat-transcript · sg_sealed-locked · sg_chat-menus · sg_chat-selection · sg_schedule-picker · sg_mention-pill ·
-///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_device-readiness ·
+///   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_device-readiness ·
 ///   sg_story-ring · sg_story-viewer · sg_plan-page ·
 ///   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
 ///   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
@@ -1135,7 +1135,7 @@ final class StyleguideScreenshots: XCTestCase {
         // sg_phone-page-header · sg_chat-transcript ·
         // sg_chat-menus · sg_chat-selection (#EXP-1388) · sg_schedule-picker · sg_mention-pill (thread 58cb32df / e4a04d22, chats.json +
         // schedule-picker.json) · sg_voice-call (NEW-69, voice-call.json) ·
-        // sg_call-controls (S-3, the round call buttons) ·
+        // sg_call-controls (S-3, the round call buttons) · sg_call-pill (EXP-1681) ·
         // sg_device-readiness (EXP-1375) · sg_session-xref · sg_pr-checks (#EXP-1611) ·
         // sg_story-ring · sg_story-viewer · sg_story-tab (S-3, stories.json): the
         // styleguide entries' specimens.
@@ -1182,7 +1182,7 @@ final class StyleguideScreenshots: XCTestCase {
     static let specimenEntries = [
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
-        "call-controls", "device-readiness", "session-xref", "story-ring", "story-viewer",
+        "call-controls", "call-pill", "device-readiness", "session-xref", "story-ring", "story-viewer",
         "story-tab", "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
     ]
 
@@ -1210,6 +1210,7 @@ final class StyleguideScreenshots: XCTestCase {
             case "mention-pill": snapshot("sg_mention-pill", settle: 2)
             case "voice-call": snapshot("sg_voice-call", settle: 2)
             case "call-controls": snapshot("sg_call-controls", settle: 2)
+            case "call-pill": snapshot("sg_call-pill", settle: 2)
             case "device-readiness": snapshot("sg_device-readiness", settle: 2)
             case "session-xref": snapshot("sg_session-xref", settle: 2)
             case "story-ring": snapshot("sg_story-ring", settle: 2)

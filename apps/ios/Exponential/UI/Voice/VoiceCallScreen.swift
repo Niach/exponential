@@ -26,10 +26,19 @@ struct VoiceCallScreen: View {
                     bands: [],
                     onMute: { client.toggleMute() },
                     onSpeaker: { client.toggleSpeaker() },
-                    onEnd: { client.end() }
+                    onEnd: { client.end() },
+                    onMinimize: { client.minimize() }
                 )
             }
         }
+        // EXP-1681: a swipe down minimizes the call (the chevron's twin).
+        .gesture(
+            DragGesture(minimumDistance: 24).onEnded { drag in
+                if drag.translation.height > 120, abs(drag.translation.width) < drag.translation.height {
+                    client.minimize()
+                }
+            }
+        )
         .preferredColorScheme(.dark)
         .onAppear { shown = client.view }
         .onChange(of: client.view) { _, view in
@@ -69,6 +78,8 @@ struct VoiceCallSurface: View {
     var onMute: () -> Void = {}
     var onSpeaker: () -> Void = {}
     var onEnd: () -> Void = {}
+    /// EXP-1681: the top leading chevron (nil = none: web's twin has none).
+    var onMinimize: (() -> Void)? = nil
 
     var body: some View {
         VStack(spacing: 0) {
@@ -101,6 +112,16 @@ struct VoiceCallSurface: View {
                 .padding(.bottom, 40)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(alignment: .topLeading) {
+            if let onMinimize {
+                GhostIconButton(
+                    AppIcons.uiChevronDown, accessibilityLabel: VoiceCall.Copy.minimize, action: onMinimize
+                )
+                .accessibilityIdentifier(VoiceCall.TestIds.minimize)
+                .padding(.leading, 12)
+                .padding(.top, 4)
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(VoiceCall.TestIds.surface)
     }
@@ -270,16 +291,19 @@ struct VoiceCallWave: View {
     var level: Double
     var bands: [Double]
     var animated: Bool = true
+    /// `VoiceWave` xl (`VOICE_WAVE_SIZE_PX.xl`) around the avatar; the pill's sm.
+    var size: CGFloat = Self.xl
 
-    /// `VoiceWave` xl (`VOICE_WAVE_SIZE_PX.xl`).
-    static let size: CGFloat = 200
+    static let xl: CGFloat = 200
+    /// `VoiceWave` sm (the call pill's).
+    static let sm: CGFloat = 32
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var start = Date()
 
     var body: some View {
         content
-            .frame(width: Self.size, height: Self.size)
+            .frame(width: size, height: size)
             .accessibilityHidden(true)
     }
 
@@ -288,11 +312,12 @@ struct VoiceCallWave: View {
         let animates = animated && !reduceMotion
         return TimelineView(.animation(paused: !animates)) { timeline in
             let elapsed = animates ? timeline.date.timeIntervalSince(start) : 0
+            // The ring is the avatar's halo; the wave itself idles (web `VoiceCallPill`).
             let frame = VoiceWaveFrame.compute(
-                size: Self.size, activity: activity.rawValue, level: level, bands: bands,
+                size: size, activity: activity == .ringing ? "idle" : activity.rawValue, level: level, bands: bands,
                 elapsed: elapsed, reducedMotion: reduceMotion || !animated
             )
-            VoiceWaveView.with(rings: (frame?.rings ?? []).map(ring), size: Self.size, childScale: 0) {
+            VoiceWaveView.with(rings: (frame?.rings ?? []).map(ring), size: size, childScale: 0) {
                 Color.clear
             }
         }
