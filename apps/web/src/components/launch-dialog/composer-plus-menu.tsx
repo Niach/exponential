@@ -37,6 +37,8 @@ import {
   subagentModelChoices,
 } from "@/components/launch-dialog/launch-options-pane"
 import { McpServerMenuRows } from "@/components/launch-dialog/mcp-server-picker"
+import { SkillMenuRows, type SkillPickerRow } from "@/components/launch-dialog/skill-picker"
+import { skillsMenuValue } from "@exp/domain-contract/skills"
 import { healthBadgeLabel } from "@/lib/agent-usage"
 import { accountOptionKey } from "@/lib/accounts/account-option"
 import { ISSUE_SEARCH_NO_RESULTS, ISSUE_SEARCH_PLACEHOLDER } from "@/lib/issue-search"
@@ -95,6 +97,10 @@ export interface ComposerOptionsBinding {
   mcpServerIds: string[]
   toggleMcpServer: (id: string) => void
   mcpConnectHref: (serverId: string) => string | null
+  /** #EXP-1659: the team's skills and the run's pick (skills.json). */
+  skills: readonly SkillPickerRow[]
+  skillIds: string[]
+  toggleSkill: (id: string) => void
 }
 
 /** S-3: the runner submenus, each present only where it can change
@@ -207,6 +213,7 @@ export function ComposerOptionsMenu({
     subagentModel: work && agentSupportsSubagentModel(agent),
     ultracode: work && agentSupportsUltracode(agent),
     mcp: work && options.mcpServers.length > 0,
+    skills: work && options.skills.length > 0,
     computerUse: work && options.computerUseAvailable,
     prompts: (prompts?.prompts.length ?? 0) > 0,
   })
@@ -411,6 +418,22 @@ export function ComposerOptionsMenu({
               selectedIds={options.mcpServerIds}
               onToggle={options.toggleMcpServer}
               connectHref={options.mcpConnectHref}
+            />
+          ),
+        }
+      case `skills`:
+        if (!options) return null
+        return {
+          ...base,
+          kind: `submenu`,
+          value: skillsMenuValue(options.skillIds.length) ?? undefined,
+          disabled: rowsDisabled,
+          contentClassName: `w-[20rem]`,
+          body: (
+            <SkillMenuRows
+              skills={options.skills}
+              selectedIds={options.skillIds}
+              onToggle={options.toggleSkill}
             />
           ),
         }
@@ -698,6 +721,9 @@ export function ComposerPlusMenu({
         mcpServerIds: launch.mcpServerIds,
         toggleMcpServer: launch.toggleMcpServer,
         mcpConnectHref: model.mcpConnectHref,
+        skills: model.skills,
+        skillIds: launch.skillIds,
+        toggleSkill: launch.toggleSkill,
       }}
       runner={runner}
       issues={issues}

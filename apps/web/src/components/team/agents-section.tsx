@@ -23,6 +23,7 @@ import {
   Menu,
   ModelPicker,
   Picker,
+  PickerTrigger,
   Pill,
   Prompt,
   SETTINGS_LIST_CLASS,
@@ -88,6 +89,9 @@ import {
 import { modelChoices } from "@/components/launch-dialog/launch-options-pane"
 import { VoiceSettingsSection, type VoiceSettings } from "@/components/account/voice-settings-card"
 import { AssistantMark } from "@/components/team/assistant-mark"
+import { skillPickerItems } from "@/components/launch-dialog/skill-picker"
+import { useSkills } from "@/hooks/use-skills"
+import { agentSkillsValue, SKILLS } from "@exp/domain-contract/skills"
 
 // EXP-1293 / NEW-2: Team settings → Agents (fixtures/agent-settings.json
 // ×4) over the `agents` DEFINITION rows. Agents are managed exactly like
@@ -268,6 +272,10 @@ export function AgentSettingsPage({
   const [icon, setIcon] = useState<BoardIcon>(DEFAULT_AGENT_ICON)
   const [color, setColor] = useState(DEFAULT_AGENT_COLOR)
   const [deviceId, setDeviceId] = useState<string | null>(null)
+  // #EXP-1659 (skills.json `agentRow`): the skills every run of the agent
+  // starts with; a pick writes at once (`agents.update {skillIds}`).
+  const [skillIds, setSkillIds] = useState<string[]>([])
+  const { skills } = useSkills(team.id)
   const [pin, setPin] = useState<TriggerAccountPin>(EMPTY_PIN)
   const [model, setModel] = useState<string | null>(null)
   const [triggers, setTriggers] = useState<AgentTrigger[]>([])
@@ -293,6 +301,7 @@ export function AgentSettingsPage({
     setIcon(((agent?.icon as BoardIcon | null) ?? DEFAULT_AGENT_ICON))
     setColor(agent?.color ?? DEFAULT_AGENT_COLOR)
     setDeviceId(agent?.deviceId ?? null)
+    setSkillIds(agent?.skillIds ?? [])
     setPin({ agent: agent?.cli ?? ``, account: agent?.account ?? `` })
     setModel(agent?.model ?? null)
     setTriggers(readTriggers(agent?.triggers))
@@ -314,6 +323,10 @@ export function AgentSettingsPage({
   useEffect(() => {
     if (syncedDevice) setDeviceId(syncedDevice)
   }, [syncedDevice])
+  const syncedSkillIds = agent?.skillIds
+  useEffect(() => {
+    if (syncedSkillIds) setSkillIds(syncedSkillIds)
+  }, [syncedSkillIds])
   useEffect(() => {
     if (!creating) setTriggers(readTriggers(syncedTriggers))
   }, [creating, syncedTriggers])
@@ -586,6 +599,7 @@ export function AgentSettingsPage({
           instructions,
           triggers,
           deviceId,
+          ...(skillIds.length > 0 ? { skillIds } : {}),
           ...(pin.agent ? { cli: pin.agent } : {}),
           ...(pin.account ? { account: pin.account } : {}),
         },
@@ -639,6 +653,45 @@ export function AgentSettingsPage({
     limits: option.limits,
   }))
 
+  // A pick naming a deleted skill drops it from the count and the rows.
+  // Names in list order (skills.json `agentValueCases`).
+  const pickedSkills = skills.filter((skill) => skillIds.includes(skill.id))
+  const pickedSkillIds = pickedSkills.map((skill) => skill.id)
+  const pickSkills = (next: readonly string[]) => {
+    const previous = skillIds
+    setSkillIds([...next])
+    if (creating) return
+    quietly(update({ skillIds: [...next] }, () => setSkillIds(previous)))
+  }
+  const skillsRow = (
+    <Picker
+      mode="multi"
+      width="md"
+      search
+      mobileTitle={SKILLS.agentRow.label}
+      value={pickedSkillIds}
+      items={skillPickerItems(skills)}
+      onChange={pickSkills}
+      disabled={readOnly}
+      emptyText={SKILLS.list.empty.title}
+      trigger={
+        <PickerTrigger
+          variant="row"
+          label={SKILLS.agentRow.label}
+          value={
+            pickedSkills.length > 0
+              ? agentSkillsValue(pickedSkills.map((skill) => skill.name))
+              : undefined
+          }
+          placeholder={SKILLS.agentRow.none}
+          className={pickedSkills.length === 0 ? `[&>span:nth-child(2)]:text-foreground/50` : undefined}
+          disabled={readOnly}
+        />
+      }
+      data-testid="agent-skills"
+    />
+  )
+
   const deviceRow = (
     <DevicePicker
       triggerVariant="row"
@@ -690,6 +743,7 @@ export function AgentSettingsPage({
             lead={assistant ? <AssistantMark className="size-9" /> : undefined}
           />
           {!assistant && deviceRow}
+          {!assistant && skillsRow}
         </GlassGroup>
         <FieldError className="px-1">{identityError ?? (assistant ? null : deviceError)}</FieldError>
       </div>
@@ -710,6 +764,7 @@ export function AgentSettingsPage({
               models={modelOptions}
               data-testid="assistant-model"
             />
+            {skillsRow}
           </GlassGroup>
           <FieldError className="px-1">{deviceError}</FieldError>
         </div>

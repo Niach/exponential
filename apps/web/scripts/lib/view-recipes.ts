@@ -588,6 +588,17 @@ async function recipeOpenComposerMenuTemporary(page: Page): Promise<void> {
   })
 }
 
+/** #EXP-1659: the same + menu with its Skills submenu open (the team's
+ *  skills, the two enabled-by-default ones picked). */
+async function recipeOpenComposerSkillsMenu(page: Page): Promise<void> {
+  await recipeOpenComposerMenuTemporary(page)
+  const row = page.getByTestId(`agent-composer-menu-skills`).filter({ visible: true }).first()
+  await row.waitFor({ timeout: 15_000 })
+  await row.click()
+  await page.getByText(`incident-triage`).filter({ visible: true }).first().waitFor({ timeout: 15_000 })
+  await page.mouse.move(0, 0)
+}
+
 /** NEW-2: the home composer's `/` menu — the team's prompts. */
 async function recipeTypeSlashInComposer(page: Page): Promise<void> {
   const field = page.getByTestId(`agent-composer-field`).filter({ visible: true }).first()
@@ -883,6 +894,7 @@ export const RECIPES: Record<string, Recipe> = {
   openGettingStarted: recipeOpenGettingStarted,
   typeIssueRef: recipeTypeIssueRef,
   openComposerMenuTemporary: recipeOpenComposerMenuTemporary,
+  openComposerSkillsMenu: recipeOpenComposerSkillsMenu,
   typeSlashInComposer: recipeTypeSlashInComposer,
   typeSlashInSessionComposer: recipeTypeSlashInSessionComposer,
   scrollToWorkCards: recipeScrollToWorkCards,
