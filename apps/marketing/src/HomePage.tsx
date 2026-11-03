@@ -216,16 +216,16 @@ export function HomePage() {
                 className={`aw-shot aw-shot-desktop`}
                 src={`/eapps/time-tracker.webp`}
                 width={2360}
-                height={1125}
+                height={1232}
                 loading={`lazy`}
                 decoding={`async`}
-                alt={`Stunden, a time tracker app: a month of hours as a chart and a table`}
+                alt={`Hours, a time tracker app: a month of hours as a chart and a table`}
               />
               <img
                 className={`aw-shot aw-shot-phone hx-phone-wide`}
                 src={`/eapps/time-tracker-phone.webp`}
                 width={780}
-                height={736}
+                height={824}
                 loading={`lazy`}
                 decoding={`async`}
                 alt={`The same app on a phone`}
