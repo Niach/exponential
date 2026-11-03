@@ -176,7 +176,7 @@ Needs: C2, C13.
 | C17 | `upstream:` read bindings in templates | ✅ #VAPP-230 (M1) | |
 | C17b | Device-routed upstreams (stdio, LAN-only) | ❌ | 🆕 M2 |
 | C18 | Schedules and record/event triggers | ❌ (agents only: `agentTrigger`) | 🆕 A1 |
-| C19 | Agent hand-off (`run.agent`) | ❌ | 🆕 A2 |
+| C19 | Agent hand-off (`run.agent`) | ✅ A2 (#VAPP-236) | ✅ A2 |
 | C20 | Files on records | ✅ R7 (#VAPP-221) | `format: "attachment"` fields, `POST /api/apps/{id}/files` |
 | C21 | Public / guest links (submit-only form, read-only view) | ❌ (#VAPP-24 cancelled, #YO-27 parked) | 🆕 P1 |
 | C22 | Inbound webhooks | ❌ | 🆕 A3 |
@@ -488,7 +488,7 @@ The two Hours mocks above are the same package. The phone picks the `month.phone
 
 The complete list: records writes, MCP operations, toasts, navigation and links. There is no `fetch`, no background code and no package `tools` (refused by Exponential's validator ✅).
 
-🆕 Add `navigate` (§5.1) and `handoff` (§7.3).
+🆕 Add `navigate` (§5.1). ✅ `handoff` (§7.3, A2): the `exponential.apps.handoff` action.
 
 ### 6.3 Upstreams in the UI (✅ M1, #VAPP-230)
 
@@ -531,7 +531,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
   - `record: {kind, op}`: a committed create/update/delete of a declared kind (members' writes, package actions, tools).
   - `event: "<name>"`: the team stream (`issue.created`, `pr.merged`, `session.ended`… or any `events_emit` name), the same events agents' triggers use ✅. It runs once the event is committed.
   - `webhook` comes with A3 (§7.2). `where` filters are not in A1.
-- **`run`:** an `exposes` run (`records`, `action`, `upstream`) with the same validator: no destructive runs, an action must be granted by an owner, an upstream must be declared. `agent` comes with A2 (§7.3). Templates: `${record.<field>}` (record triggers: its data + `id`; on delete, the data it had), `${event.<field>}` (event triggers: the payload + `name`), `${firedAt}`. No action through `exponential.apps.*`.
+- **`run`:** an `exposes` run (`records`, `action`, `upstream`, `agent`) with the same validator: no destructive runs, an action must be granted by an owner, an upstream must be declared. `agent` (A2) hands off to a team agent (§7.3). Templates: `${record.<field>}` (record triggers: its data + `id`; on delete, the data it had), `${event.<field>}` (event triggers: the payload + `name`), `${firedAt}`. No action through `exponential.apps.*`.
 - **Executor:** the **server broker** (`runBrokerTool`, the same records service, grants and vault as a tool call), on the **published** version only (V1). Every run, and every refusal, is one `mcp_calls` row with `client_id = automation:<name>`, `tool` = `records.<op>:<kind>`, the action, or `<server>/<tool>` (Settings › MCP › Activity).
 - **Run-as** (C23): an automation acts as its **sponsor**: the member who published the running version (`apps.published_by`), or a member it names by email (`sponsor`), honoured only when an owner published. The sponsor must still be a member with write access to the app. Upstream runs use the sponsor's credential; writes read "via <app>" (§9.3). Otherwise the automation pauses (`sponsorGone`, `sponsorReadOnly`, `sponsorNotAllowed`), the app's owners get one notification per pause, and a publish by a member with access resumes it. There is no bot identity (decided 2026-11-01).
 - **Caps:** at most 16 automations per app; at most 30 runs a minute per app (over it: audited `rateLimited`, not run). **No chaining:** a run executes in an automation scope, so its records write and the events its action emits fire no automation, its own included.
@@ -545,17 +545,21 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 - **Size and rate:** body ≤ 256 KB; 60 calls per minute per hook.
 - **The payload is untrusted data**: it never reaches an agent prompt outside a fenced data block (§12.1).
 
-### 7.3 Agent hand-off (🆕 A2)
+### 7.3 Agent hand-off (✅ A2, #VAPP-236)
 
-`run.agent` = `sessions.send` to a team agent (✅ agents run as one conversation session per member). It carries:
+`run.agent` hands judgement to a team agent. The contract is `packages/emcp/fixtures/exposes.json` (`agent`, `$comment` the spec) and `automations.json` (the agent loop guard); the server half is `apps/web/src/lib/apps/agent-handoff.ts`.
 
-- `prompt`: the app's text, frozen per version;
-- `data`: query results or the triggering record, passed as an attachment-like JSON block marked as data;
-- `as`: the sponsor.
+```jsonc
+{ "name": "route_request", "on": { "record": { "kind": "request", "op": "create" } },
+  "run": { "agent": "triage-bot", "prompt": "Route the request ${record.title} to its owner.", "device": "default" } }
+```
 
-The agent's output lands in its own conversation. It can call back into the app only through the app's `exposes`, if the agent's MCP grant includes the app.
-
-The UI form is the `handoff` action: "Ask agent to follow up" in the Admin console.
+- **The form:** `{agent, prompt, device?}`. `agent` = the agent's slug (its name lower-cased, everything outside `a-z0-9` one `-`: "Triage Bot" = `triage-bot`; the team's oldest agent with that slug, never a personal Assistant). `prompt` = at most 4000 characters, frozen per version. `device` absent or `"default"` (the agent's own device). It always writes.
+- **Where it runs:** an automation (A1, as its **sponsor**), an `exposes` tool (as the **calling member**) and the `handoff` action `exponential.apps.handoff {slug, tool, input, record?}` (a press runs one of the package's published `agent` exposes as the viewer, behind the consent card unless an owner granted it; display row `apps_handoff`).
+- **The session:** `sessions.send {agentId}`, the one entrypoint: the run-as member's own conversation with that agent (created on first use on the agent's device, then resumed), reading "via <app>" (M3 `via_app_id`). The agent's output lands in that conversation; it calls back into the app only through the app's `exposes`, if its MCP grant includes the app.
+- **The brief (data is never instructions, §12.1):** the prompt with each `${…}` filled as inline data (backticks, quotes stripped of backticks and newlines, at most 200 characters each), then `From the app <name> (<automation|tool|handoff> <name>).`, for a record trigger `Record: <kind> <id> of the app <slug>.` (the ref back to the record), and the whole input as a fenced JSON block marked as data (at most 8000 characters).
+- **Caps:** at most 10 hand-offs per app per rolling minute (over it: `rateLimited`, audited), beside the automations' 30 runs. **Loop guard:** a record write or an event caused from inside an agent's session tree (the MCP gate tags each call with the caller's own session) never fires an automation that hands off to that same agent; every other automation still runs.
+- **Audit:** an automation's row reads `tool = agent:<slug>`; an exposed tool's row is the broker's as before.
 
 ---
 
@@ -756,7 +760,7 @@ Added here:
 |---|---|---|---|
 | Client host ×4 (web, desktop, iOS, Android) | Bindings, queries, actions, forms | While the app is open | ✅ |
 | Server broker | `exposes`, upstream reads (M1), automations (A1), webhooks (A3), public links (P1) | Always (the web server process) | ✅ for exposes and upstream reads, 🆕 for the rest |
-| Agent | Anything that needs judgement (`run.agent`) | On trigger | 🆕 A2 |
+| Agent | Anything that needs judgement (`run.agent`) | On trigger | ✅ A2 |
 | Device | stdio/LAN upstreams (M2) | When the device is online | 🆕 |
 | Spezl (no server) | Everything above, in-app; automations only while the app runs (eagent-hub scheduler) | Local | #YO-32, 🆕 S3 |
 
@@ -860,7 +864,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 5: Automation and upstreams**
 
 - **A1** ✅ #VAPP-220 Automations: schedule, record and event triggers, one run, a sponsor, audit, the loop guard and the rate cap; `automations.json` (TS + Rust), the server executor on the watchdog tick, Settings ×4. (C18, C23)
-- **A2** `run.agent` + the `handoff` action. (C19)
+- **A2** ✅ #VAPP-236 `run.agent` + the `handoff` action: an automation, an exposed tool or a press hands judgement to a team agent through `sessions.send` (the brief = the frozen prompt + a fenced data block + the record ref), `via <app>`, 10 hand-offs a minute per app, the agent loop guard; `exposes.json` `agent` + `automations.json` (TS + Rust), `exponential.apps.handoff`. (C19)
 - **A3** Inbound webhooks with vault-sealed secrets. (C22)
 - ✅ **M1** `upstream:` read bindings through the broker, with a 60 s cache. (C17, #VAPP-230)
 - **M2** Device-routed (stdio/LAN) upstreams over eNet. (C17b)

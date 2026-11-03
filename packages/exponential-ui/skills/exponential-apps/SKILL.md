@@ -35,7 +35,7 @@ Components and their props are NOT listed here: read exponential_apps {op: "cata
 - `references/actions.md` — Actions: all-or-nothing writes, require.
 - `references/tests.md` — Package tests.
 - `references/tools-and-exposes.md` — Tools, exposes and extensions.
-- `references/automations.md` — Automations: schedule, record and event triggers.
+- `references/automations.md` — Automations: schedule, record and event triggers; agent hand-off.
 
 ## Worked examples (complete packages)
 

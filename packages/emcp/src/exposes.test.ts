@@ -6,6 +6,11 @@ import actions from "@exp/domain-contract/fixtures/app-actions.json" with { type
 import fixture from "../fixtures/exposes.json" with { type: "json" }
 import {
   actionAccess,
+  agentAuditTool,
+  agentBrief,
+  agentRateAllows,
+  agentSlug,
+  type AgentBriefInput,
   listToolNames,
   provenanceMeta,
   qualifiedToolName,
@@ -99,4 +104,25 @@ describe(`provenanceMeta`, () => {
       expect(provenanceMeta(entry.slug, entry.expose as unknown as Expose)).toEqual(entry.expected as Record<string, string>)
     })
   }
+})
+
+// #VAPP-236 (A2): the agent hand-off (server-only: replayed here).
+describe(`agent hand-off`, () => {
+  test(`agentSlug`, () => {
+    for (const entry of fixture.agent.agentSlugCases) expect(agentSlug(entry.name)).toBe(entry.expected)
+  })
+  test(`rate`, () => {
+    for (const entry of fixture.agent.agentRateCases) expect(agentRateAllows(entry.handoffsLastMinute)).toBe(entry.allowed)
+  })
+  for (const entry of fixture.agent.briefCases) {
+    test(entry.name, () => expect(agentBrief(entry.brief as AgentBriefInput)).toBe(entry.expected))
+  }
+  test(`a filled prompt is cut at promptMax`, () => {
+    const c = fixture.agent.promptCutCase
+    const out = agentBrief({ prompt: c.template.repeat(c.repeat), input: { v: c.value.repeat(c.valueRepeat) }, app: { name: `A`, slug: `a` }, source: `tool t` })
+    const prompt = out.split(`\n`)[0]!
+    expect(prompt.length).toBe(c.promptLength)
+    expect(prompt.endsWith(c.endsWith)).toBe(true)
+  })
+  test(`the audit tool`, () => expect(agentAuditTool(`triage`)).toBe(`${fixture.agent.auditPrefix}triage`))
 })

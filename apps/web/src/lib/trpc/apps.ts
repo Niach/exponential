@@ -28,6 +28,8 @@ import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
 import { readUpstreamBinding } from "@/lib/emcp/upstream-reads"
+import { runVia, validateExposes, type AgentRun, type Expose } from "@exp/emcp/exposes"
+import { handOff } from "@/lib/apps/agent-handoff"
 
 // VAPP-110: Exponential APPS. The rows sync (the `apps` shape carries the
 // head package; `app_versions` their metadata); the writes here return a
@@ -694,6 +696,48 @@ export const appsRouter = router({
       )
       .mutation(({ ctx, input }) => commitRecordBatch(ctx.session.user.id, input, input.writes, ctx.db, input.writeId)),
   }),
+
+  /** #VAPP-236 (eApps A2): the `handoff` action (`exponential.apps.handoff`):
+   *  runs one of the app's PUBLISHED `exposes` whose run is `agent` as the
+   *  member (write access to the app), its brief source `handoff <tool>`,
+   *  the session reading "via <app>" (@exp/emcp exposes.json `agent`). */
+  handoff: authedProcedure
+    .input(
+      appRefSchema.and(
+        z.object({
+          tool: z.string().min(1).max(64),
+          input: z.record(z.string(), z.unknown()).default({}),
+          record: z.object({ kind: kindSchema, id: uuid }).optional(),
+        })
+      )
+    )
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const app = await loadApp(ctx.db, input)
+      await assertTeamMember(userId, app.teamId)
+      await assertAppAccess(ctx.db, app, userId, `write`)
+      const pkg = (app.package ?? {}) as { exposes?: unknown; records?: Record<string, unknown>; upstreams?: unknown }
+      const exposes = Array.isArray(pkg.exposes) ? (pkg.exposes as Expose[]) : []
+      const index = exposes.findIndex((e) => e?.name === input.tool)
+      const expose = exposes[index]
+      const upstreams = Array.isArray(pkg.upstreams) ? pkg.upstreams.filter((u): u is string => typeof u === `string`) : []
+      const broken = validateExposes(exposes, { kinds: Object.keys(pkg.records ?? {}), upstreams }).some((e) => e.index === null || e.index === index)
+      if (!expose || broken || runVia(expose.run) !== `agent` || app.mcpDisabledTools.includes(expose.name)) {
+        throw new TRPCError({ code: `NOT_FOUND`, message: `${app.name} has no agent hand-off ${JSON.stringify(input.tool)}` })
+      }
+      const missing = (expose.input?.required ?? []).filter((key) => !Object.prototype.hasOwnProperty.call(input.input, key))
+      if (missing.length > 0) throw new TRPCError({ code: `BAD_REQUEST`, message: `missing ${missing.join(`, `)}` })
+      const out = await handOff({
+        app,
+        userId,
+        run: expose.run as AgentRun,
+        input: input.input,
+        source: `handoff ${expose.name}`,
+        ref: input.record ?? null,
+      })
+      if (`sessionId` in out) return { sessionId: out.sessionId }
+      throw new TRPCError({ code: out.code === `rateLimited` ? `TOO_MANY_REQUESTS` : out.code === `agentMissing` ? `NOT_FOUND` : `INTERNAL_SERVER_ERROR`, message: out.error })
+    }),
 
   /** #VAPP-230 (eApps M1): one `upstream:<server>/<tool>?…` read binding,
    *  run by the broker as the viewer with their own connection, cached 60 s

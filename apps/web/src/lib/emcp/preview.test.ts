@@ -88,6 +88,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   // VAPP-215
   exponential_apps_records_history: [],
   exponential_apps_records_restore: [],
+  exponential_apps_handoff: [],
   exponential_apps_records_list: [],
   exponential_apps_records_upsert: [],
   exponential_apps_get: [],

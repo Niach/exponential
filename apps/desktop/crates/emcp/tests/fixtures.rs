@@ -310,6 +310,16 @@ fn exposes_constants_match() {
     assert_eq!(limits["separator"], exposes::SEPARATOR);
     assert_eq!(limits["toolNameMax"], exposes::TOOL_NAME_MAX);
     assert_eq!(limits["slugHashLength"], exposes::SLUG_HASH_LENGTH);
+    let agent = &f["agent"];
+    assert_eq!(agent["slugMax"], exposes::AGENT_SLUG_MAX);
+    assert_eq!(agent["promptMax"], exposes::AGENT_PROMPT_MAX);
+    assert_eq!(strings(&agent["devices"]), exposes::AGENT_DEVICES);
+    assert_eq!(agent["auditPrefix"], exposes::AGENT_AUDIT_PREFIX);
+    for case in agent["agentSlugCases"].as_array().unwrap() {
+        let slug = exposes::agent_slug(s(&case["name"]));
+        assert_eq!(slug, s(&case["expected"]), "{case}");
+        assert!(slug.is_empty() || exposes::agent_slug_ok(&slug), "{slug}");
+    }
     assert_eq!(f["destructiveWords"], fixture::app_actions()["destructiveWords"]);
     assert_eq!(f["provenance"]["app"], exposes::META_APP);
     assert_eq!(f["provenance"]["tool"], exposes::META_TOOL);
@@ -603,7 +613,7 @@ fn automations_match_cases() {
         } else {
             FiredBy::Event(s(&trigger["event"]))
         };
-        let got = automations::match_automations(&case["automations"], &fired, case["fromAutomation"] == true);
+        let got = automations::match_automations_by(&case["automations"], &fired, case["fromAutomation"] == true, opt_str(&trigger["byAgent"]));
         assert_eq!(got, strings(&case["expected"]), "{}", case["name"]);
     }
 }

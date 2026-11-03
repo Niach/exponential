@@ -1418,6 +1418,9 @@ async function messageAgent(
   return db.transaction(async (tx) => {
     const txid = await generateTxId(tx)
     const { session, created } = await conversationInTx(tx, agent, userId)
+    // #VAPP-236: a conversation an app's hand-off starts reads "via <app>".
+    const viaAppId = sendViaApp.getStore()
+    if (created && viaAppId) await tx.update(sessions).set({ viaAppId }).where(eq(sessions.id, session.id))
     const from = caller
       ? { sessionId: caller.id, asSession: viaMcp && caller.id !== session.id }
       : null

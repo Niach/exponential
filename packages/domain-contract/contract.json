@@ -1646,6 +1646,17 @@
         "result": "none"
       },
       {
+        "name": "apps_handoff",
+        "title": "Hand off to an agent",
+        "blurb": "Runs an app's agent hand-off: a team agent gets the app's prompt and its data.",
+        "progressive": "Handing off to an agent",
+        "done": "Handed off to an agent",
+        "progressiveMany": "Handing off {n} times",
+        "doneMany": "Handed off {n} times",
+        "subjectKey": "",
+        "result": "none"
+      },
+      {
         "name": "events_emit",
         "title": "Emit event",
         "blurb": "Posts a named event with a payload; the agents listening on that name wake with it.",
@@ -2085,6 +2096,7 @@
       { "name": "apps_records_delete", "refs": "" },
       { "name": "apps_records_history", "refs": "" },
       { "name": "apps_records_restore", "refs": "" },
+      { "name": "apps_handoff", "refs": "" },
       { "name": "events_emit", "refs": "" },
       { "name": "events_list", "refs": "list:event@events" },
       { "name": "notifications_list", "refs": "list:notification@" },

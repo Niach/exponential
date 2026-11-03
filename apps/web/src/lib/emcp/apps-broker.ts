@@ -42,6 +42,7 @@ import {
   upstreamCallError,
   validateExposes,
   type ActionRun,
+  type AgentRun,
   type Expose,
   type RecordsRun,
   type UpstreamRun,
@@ -59,6 +60,7 @@ import { callUpstreamTool } from "@/lib/emcp/upstream/mcp-client"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { requestViaApp } from "@/lib/emcp/via-app"
 import { fillQueryTemplates } from "@exponential_app/eui/host/query"
+import { handOff } from "@/lib/apps/agent-handoff"
 import { getAppRecord, queryIssuesText, readAppRecordRows, readRefLookups, serverRecordsValue, teamMemberNames, teamToday, upsertRecord } from "@/lib/apps/records-service"
 
 /** The endpoint's path (Settings › MCP shows it). */
@@ -75,6 +77,9 @@ export const BROKER_ERRORS: Record<string, CallOutcome> = {
   [UPSTREAM_ERRORS.disconnected]: { upstreamError: true },
   [UPSTREAM_ERRORS.failed]: { upstreamError: true },
   toolError: { error: true },
+  // #VAPP-236: an agent hand-off's refusals.
+  rateLimited: { denied: true },
+  agentMissing: { denied: true },
 }
 
 /** The `mcp_grants` row a request runs under, as @exp/emcp reads it. */
@@ -278,6 +283,9 @@ export interface BrokerContext {
   request: Request
   teamId: string
   teamSlug: string
+  /** #VAPP-236: an agent run's brief source (default `tool <name>`) and
+   *  the record it is about (an automation's record trigger). */
+  handoff?: { source: string; ref?: { kind: string; id: string } | null }
 }
 
 const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
@@ -424,6 +432,19 @@ async function runUpstream(ctx: BrokerContext, tool: BrokerTool, input: Record<s
   return brokerError(tool, UPSTREAM_ERRORS.failed, `${run.upstream}: ${called.error}`)
 }
 
+/** #VAPP-236 (A2): hand the input to a team agent as the member. */
+async function runAgent(ctx: BrokerContext, tool: BrokerTool, input: Record<string, unknown>): Promise<CallToolResult> {
+  const out = await handOff({
+    app: tool.app,
+    userId: ctx.user.id,
+    run: tool.expose.run as AgentRun,
+    input,
+    source: ctx.handoff?.source ?? `tool ${tool.expose.name}`,
+    ref: ctx.handoff?.ref ?? null,
+  })
+  return `sessionId` in out ? answer(tool, { sessionId: out.sessionId }) : brokerError(tool, out.code, out.error)
+}
+
 /** Run one listed tool for the member. */
 export async function runBrokerTool(ctx: BrokerContext, tool: BrokerTool, args: unknown): Promise<CallToolResult> {
   const invalid = argumentsError(tool.expose, args ?? {})
@@ -432,6 +453,7 @@ export async function runBrokerTool(ctx: BrokerContext, tool: BrokerTool, args: 
   const via = runVia(tool.expose.run)
   if (via === `records`) return runRecords(ctx, tool, input)
   if (via === `action`) return runAction(ctx, tool, input)
+  if (via === `agent`) return runAgent(ctx, tool, input)
   return runUpstream(ctx, tool, input)
 }
 

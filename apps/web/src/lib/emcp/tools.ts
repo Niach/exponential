@@ -4225,6 +4225,29 @@ export function registerExponentialTools(
     }
   )
 
+  // #VAPP-236 (A2): the `handoff` action: an app's own agent hand-off.
+  server.registerTool(
+    `exponential_apps_handoff`,
+    {
+      description: `Run an app's agent hand-off (one of its published exposes whose run is agent) as you: its team agent gets the app's prompt + input as data in your conversation with it. record = the app record it is about.`,
+      inputSchema: strictInput({
+        slug: appSlug,
+        teamId: uuidString.optional(),
+        tool: z.string().min(1).max(64),
+        input: z.record(z.string(), z.unknown()).optional(),
+        record: z.object({ kind: z.string().min(1).max(32), id: uuidString }).optional(),
+      }),
+    },
+    async ({ slug, teamId, tool, input, record }) => {
+      try {
+        const out = await caller(user, request).apps.handoff({ slug, teamId: await appsTeam(teamId), tool, input: input ?? {}, record })
+        return ok({ ok: true, slug, tool, sessionId: out.sessionId })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   server.registerTool(
     `exponential_apps_catalog`,
     {
