@@ -598,6 +598,51 @@ fn a_voice_wave_paints_three_rings_and_its_centred_child_and_moves(cx: &mut Test
     assert!(two.len() % 3 == 0 && last.phase > one[0].phase, "the phase runs while listening: {} then {}", one[0].phase, last.phase);
 }
 
+/// VAPP-160: a moving wave asks for the next frame from its paint, only
+/// while it is painted on screen.
+#[gpui::test]
+fn a_moving_voice_wave_on_screen_requests_frames(cx: &mut TestAppContext) {
+    let (_view, _log, cx) = surface(cx, voice_wave_tree("listening", "md"));
+    let _ = cx.update(|window, cx| window.simulate_next_frame(cx));
+    draw(cx);
+    assert!(cx.update(|window, cx| window.simulate_next_frame(cx)) > 0, "on screen: the next frame is asked for");
+}
+
+/// VAPP-160: below the window's fold (outside every content mask) a
+/// moving wave asks for no frame at all; at rest neither.
+#[gpui::test]
+fn a_voice_wave_offscreen_or_at_rest_requests_no_frames(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "style": {"width": 400, "flexDirection": "column"}, "children": [
+        {"id": "spacer", "component": "Box", "style": {"height": 20000}},
+        {"id": "wave", "component": "VoiceWave", "props": {"activity": "speaking", "level": 0.6, "size": "md"}},
+        {"id": "still", "component": "VoiceWave", "props": {"activity": "idle", "size": "md"}}
+    ]});
+    let (_view, _log, cx) = surface(cx, tree);
+    let _ = cx.update(|window, cx| window.simulate_next_frame(cx));
+    draw(cx);
+    assert_eq!(cx.update(|window, cx| window.simulate_next_frame(cx)), 0, "offscreen: no frame requests");
+}
+
+/// VAPP-160: a wave removed mid-animation drops its clock (no leak in the
+/// view's animation starts).
+#[gpui::test]
+fn a_voice_wave_removed_mid_animation_drops_its_clock(cx: &mut TestAppContext) {
+    let (view, _log, cx) = surface(cx, voice_wave_tree("listening", "md"));
+    view.update(cx, |v, cx| v.advance_clock(Duration::from_millis(300), cx));
+    draw(cx);
+    assert!(view.read_with(cx, |v, _| v.animation_clocks()) >= 1, "the moving wave has a clock");
+    let gone = json!({"id": "root", "component": "Box", "style": {"padding": 20, "width": 400}, "children": [
+        {"id": "other", "component": "Text", "props": {"text": "gone"}}
+    ]});
+    view.update(cx, |v, cx| {
+        let out = v.set_nested(serde_json::from_value::<NestedNode>(gone).unwrap(), cx);
+        assert!(out.issues.is_empty(), "{:?}", out.issues);
+    });
+    draw(cx);
+    draw(cx);
+    assert_eq!(view.read_with(cx, |v, _| v.animation_clocks()), 0, "the removed wave's clock is pruned");
+}
+
 #[gpui::test]
 fn a_voice_wave_rests_under_reduced_motion_and_hides_the_child_at_sm(cx: &mut TestAppContext) {
     use eui_gpui::paint::natives::{record_voice_wave, take_voice_wave};

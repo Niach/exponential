@@ -41,6 +41,7 @@ nothing from the Exponential app.
 | `src/` | the TS reference implementation (below) |
 | `generated/*.{swift,kt,rs}` | generated constants for the three native targets; `*Themes*` = the built-ins RESOLVED, embedded as JSON; `catalog.descriptions.generated.rs` = the catalog's text for a Rust host behind the crate's `descriptions` feature (VAPP-106) |
 | `generated/core.runtime.json` | VAPP-106: the RUNTIME catalog `src/catalog.ts` loads (the source minus every description, example and `$comment`): what a renderer needs, what the Rust core embeds |
+| `generated/style.runtime.json` | VAPP-160: `catalog/style.json` minus every `$comment` (the spec prose): what `src/` imports, so no bundle ships the comments |
 | `generated/core.descriptions.json` | VAPP-106: the rest of the source, keyed like the catalog; `describeCatalog()` (`src/catalog.described.ts`) attaches it for the prompt, the schema emitter and the docs |
 | `docs/components.generated.json` | generated: one doc page per component as data (ui.exponential.at renders it, VAPP-93) |
 | `docs/themes.generated.json` | generated: the token vocabulary with every built-in's values, the recipe contract per component |

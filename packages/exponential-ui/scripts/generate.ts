@@ -128,6 +128,13 @@ export function iconNames(): string[] {
 }
 
 const json = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`
+
+/** VAPP-160: `value` without any `$comment` key, at every depth. */
+function stripComments(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripComments)
+  if (value && typeof value === `object`) return Object.fromEntries(Object.entries(value).filter(([k]) => k !== `$comment`).map(([k, v]) => [k, stripComments(v)]))
+  return value
+}
 const kebab = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1-$2`).toLowerCase()
 const screaming = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, `$1_$2`).replace(/[^A-Za-z0-9]+/g, `_`).toUpperCase()
 const capFirst = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
@@ -1389,6 +1396,9 @@ function renderFiles(): Record<string, string> {
     // VAPP-106: the runtime catalog and its text, split (src/catalog.described.ts).
     "generated/core.runtime.json": json(catalogSplit.runtime),
     "generated/core.descriptions.json": json(catalogSplit.descriptions),
+    // VAPP-160: catalog/style.json without its `$comment`s (the spec prose),
+    // what src/ imports so no bundle ships the comments.
+    "generated/style.runtime.json": json(stripComments(styleJson)),
     "generated/catalog.descriptions.generated.rs": rustDescriptions,
     "../../apps/desktop/crates/eui-core/src/generated/descriptions.rs": rustDescriptions,
     "src/catalog.generated.ts": renderTs(icons),

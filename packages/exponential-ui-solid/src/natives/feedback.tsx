@@ -3,7 +3,7 @@
 // recipes (`resolveRecipe`), exactly as React reads them.
 
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
-import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES } from "@exponential_app/eui"
+import { resolveRecipe, nativeRecipeProps, voiceWave, voiceWaveBars, voiceWaveChildBox, voiceWavePath, voiceWaveVariant, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, VOICE_WAVE_ACTIVITIES, VOICE_WAVE_RINGS } from "@exponential_app/eui"
 import type { VoiceWaveActivity, VoiceWaveSizeName } from "@exponential_app/eui"
 import { voiceWaveAnimates, voiceWaveClock, voiceWaveFitChild, voiceWaveName } from "@exponential_app/eui/web"
 import type { Component } from "solid-js"
@@ -194,13 +194,14 @@ function VoiceWaveBarsNative(props: NativeProps): JSX.Element {
     return (VOICE_WAVE_ACTIVITIES as readonly string[]).includes(a) ? (a as VoiceWaveActivity) : `idle`
   })
   const [elapsed, setElapsed] = createSignal(0)
+  let svg: SVGSVGElement | undefined
   const animates = createMemo(() => voiceWaveAnimates(activity()) && !ctx.reducedMotion)
   createEffect(() => {
     if (!animates()) {
       setElapsed(0)
       return
     }
-    onCleanup(voiceWaveClock(setElapsed))
+    onCleanup(voiceWaveClock(setElapsed, svg))
   })
   const meter = createMemo(() =>
     voiceWaveBars({
@@ -216,7 +217,7 @@ function VoiceWaveBarsNative(props: NativeProps): JSX.Element {
   const name = () => voiceWaveName(str(props.props.label) || undefined, activity())
   return (
     <span {...props.rootProps} role={name() ? `img` : undefined} aria-label={name()} aria-hidden={name() ? undefined : `true`} data-variant="bars" style={mergeStyle(props.rootProps, { width: meter().width, height: meter().height })}>
-      <svg viewBox={`0 0 ${meter().width} ${meter().height}`} width={meter().width} height={meter().height} aria-hidden="true" style={css({ color: colour() })}>
+      <svg ref={svg} viewBox={`0 0 ${meter().width} ${meter().height}`} width={meter().width} height={meter().height} aria-hidden="true" style={css({ color: colour() })}>
         <Index each={meter().bars}>{(bar) => <rect {...part(`bar`)} x={bar().x} y={bar().y} width={bar().width} height={bar().height} rx={bar().radius} fill="currentColor" />}</Index>
       </svg>
       <Show when={props.node.children.length > 0}>
@@ -235,15 +236,18 @@ function VoiceWaveRingNative(props: NativeProps): JSX.Element {
     const a = str(props.props.activity)
     return (VOICE_WAVE_ACTIVITIES as readonly string[]).includes(a) ? (a as VoiceWaveActivity) : `idle`
   })
-  const size = () => sizeOf(ctx, `VoiceWave`, `root`, props.props, 56)
+  // VAPP-160: the box edge and the part colours resolve once per prop /
+  // theme change, never per frame (the frames only move the phase).
+  const size = createMemo(() => sizeOf(ctx, `VoiceWave`, `root`, props.props, 56))
   const [elapsed, setElapsed] = createSignal(0)
+  let svg: SVGSVGElement | undefined
   const animates = createMemo(() => voiceWaveAnimates(activity()) && !ctx.reducedMotion)
   createEffect(() => {
     if (!animates()) {
       setElapsed(0)
       return
     }
-    onCleanup(voiceWaveClock(setElapsed))
+    onCleanup(voiceWaveClock(setElapsed, svg))
   })
   const wave = createMemo(() =>
     voiceWave({
@@ -256,14 +260,15 @@ function VoiceWaveRingNative(props: NativeProps): JSX.Element {
     })
   )
   const colour = (name: string) => String(resolveRecipe(ctx.theme, { component: `VoiceWave`, part: name, props: nativeRecipeProps(`VoiceWave`, props.props) }, ctx.mode).color ?? `currentColor`)
+  const colours = createMemo(() => Object.fromEntries([...VOICE_WAVE_RINGS, `child`].map((p) => [p, colour(p)])) as Record<string, string>)
   const name = () => voiceWaveName(str(props.props.label) || undefined, activity())
   return (
     <span {...props.rootProps} role={name() ? `img` : undefined} aria-label={name()} aria-hidden={name() ? undefined : `true`} style={mergeStyle(props.rootProps, { width: size(), height: size() })}>
-      <svg viewBox={`0 0 ${size()} ${size()}`} width={size()} height={size()} aria-hidden="true">
+      <svg ref={svg} viewBox={`0 0 ${size()} ${size()}`} width={size()} height={size()} aria-hidden="true">
         <Index each={wave().rings}>
-          {(ring) => (
+          {(ring, k) => (
             <path
-              {...part(ring().part)}
+              {...part(VOICE_WAVE_RINGS[k]!)}
               d={voiceWavePath(ring())}
               fill="currentColor"
               fill-opacity={ring().fillAlpha}
@@ -271,7 +276,7 @@ function VoiceWaveRingNative(props: NativeProps): JSX.Element {
               stroke-opacity={ring().strokeAlpha}
               stroke-width={ring().strokeWidth}
               stroke-linejoin="round"
-              style={css({ color: colour(ring().part) })}
+              style={css({ color: colours()[VOICE_WAVE_RINGS[k]!] })}
             />
           )}
         </Index>
@@ -285,7 +290,7 @@ function VoiceWaveRingNative(props: NativeProps): JSX.Element {
           {...part(`child`)}
           data-hidden={wave().childSize > 0 ? undefined : `true`}
           aria-hidden={wave().childSize > 0 ? undefined : `true`}
-          style={css({ color: colour(`child`) })}
+          style={css({ color: colours().child })}
         >
           {props.children}
         </span>

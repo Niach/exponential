@@ -9839,7 +9839,7 @@
     },
     "VoiceWave": {
       "type": "object",
-      "description": "A live voice level: three waves around an optional centre child.",
+      "description": "A live voice level: three waves around an optional decorative child.",
       "allOf": [
         {
           "$ref": "#/$defs/ComponentCommon"

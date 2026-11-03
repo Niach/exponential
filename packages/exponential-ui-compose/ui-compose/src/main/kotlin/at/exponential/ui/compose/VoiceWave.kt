@@ -8,13 +8,22 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import at.exponential.ui.ffi.voiceWaveJson
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
@@ -23,6 +32,7 @@ import at.exponential.ui.json.num
 import at.exponential.ui.json.str
 import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
+import at.exponential.ui.primitives.VoiceWaveGeometry
 import at.exponential.ui.primitives.VoiceWaveRing
 import at.exponential.ui.primitives.drawVoiceWave
 import at.exponential.ui.primitives.voiceWaveChild
@@ -114,6 +124,51 @@ internal class VoiceWaveSpec(val rings: List<VoiceWaveRingSpec>, val childSize: 
     }
 }
 
+/**
+ * VAPP-160: a wave's clock (elapsed seconds) and the [tracker] that sees
+ * whether it is on screen. It advances once per display frame only while
+ * [rememberVoiceWaveClock]'s `moving` holds, the host lifecycle is at least
+ * STARTED and the wave's bounds in the window are not empty (scrolled off,
+ * clipped away, a zero-size container); paused, it keeps its value and the
+ * next run continues from there.
+ */
+internal class VoiceWaveClock {
+    val elapsed = mutableDoubleStateOf(0.0)
+    var onScreen by mutableStateOf(true)
+    val tracker: Modifier = Modifier.onGloballyPositioned { c ->
+        val b = c.boundsInWindow()
+        onScreen = b.width > 0f && b.height > 0f
+    }
+}
+
+@Composable
+internal fun rememberVoiceWaveClock(key: Any, moving: Boolean): VoiceWaveClock {
+    val clock = remember(key) { VoiceWaveClock() }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var started by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) }
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, _ -> started = lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED) }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    // At rest the clock goes back to 0: the next moving activity starts at
+    // phase 0, like the other renderers (a pause off screen keeps it).
+    LaunchedEffect(clock, moving) {
+        if (!moving) clock.elapsed.doubleValue = 0.0
+    }
+    if (moving && started && clock.onScreen) {
+        LaunchedEffect(clock) {
+            var last = -1L
+            while (true) {
+                val now = withInfiniteAnimationFrameNanos { it }
+                if (last >= 0) clock.elapsed.doubleValue += (now - last) / 1e9
+                last = now
+            }
+        }
+    }
+    return clock
+}
+
 /** The props a VoiceWave paints with, catalog defaults filled (activity idle, size md, level 0, variant ring). */
 internal data class VoiceWaveProps(val activity: String, val size: String, val level: Double, val bands: List<Double>, val variant: String = "ring") {
     /** The recipe props (`activity` + `size` + `variant`). */
@@ -147,17 +202,7 @@ private fun VoiceWaveBarsContent(index: Int, node: NodeInfo, model: SurfaceModel
         model.part("VoiceWave", "bar", p.recipeProps).color ?: model.color("primary") ?: model.ink(index)
     }
     val still = model.reducedMotion || !VoiceWaveSpec.animates(p.activity)
-    val elapsed = remember(node.id) { mutableFloatStateOf(0f) }
-    if (!still) {
-        LaunchedEffect(node.id, p.activity) {
-            var start = -1L
-            while (true) {
-                val now = withInfiniteAnimationFrameNanos { it }
-                if (start < 0) start = now
-                elapsed.floatValue = (now - start) / 1e9f
-            }
-        }
-    }
+    val clock = rememberVoiceWaveClock(node.id, moving = !still)
     val rest = remember(p, model.reducedMotion) {
         VoiceWaveBarsSpec.of(VoiceWaveBarsSpec.input(p.size, p.activity, p.level, p.bands, 0.0, model.reducedMotion))
     }
@@ -165,9 +210,9 @@ private fun VoiceWaveBarsContent(index: Int, node: NodeInfo, model: SurfaceModel
         SideEffect { model.paintFailed(node.id, "VoiceWave: the core refused the bars") }
         return
     }
-    Canvas(Modifier.fillMaxSize()) {
-        val t = if (still) 0f else elapsed.floatValue
-        val spec = if (t == 0f) rest else VoiceWaveBarsSpec.of(VoiceWaveBarsSpec.input(p.size, p.activity, p.level, p.bands, t.toDouble(), model.reducedMotion)) ?: rest
+    Canvas(Modifier.fillMaxSize().then(clock.tracker)) {
+        val t = if (still) 0.0 else clock.elapsed.doubleValue
+        val spec = if (t == 0.0) rest else VoiceWaveBarsSpec.of(VoiceWaveBarsSpec.input(p.size, p.activity, p.level, p.bands, t, model.reducedMotion)) ?: rest
         val origin = Offset((size.width - spec.width) / 2f * density, (size.height - spec.height) / 2f * density)
         drawVoiceWaveBars(spec, origin, color)
     }
@@ -186,9 +231,10 @@ private fun VoiceWaveBarsContent(index: Int, node: NodeInfo, model: SurfaceModel
 /**
  * A `VoiceWave` (NEW-77): the three waves the core computes for the box
  * edge of the root recipe, each filled / stroked in its part colour
- * (`VoiceWave/outer|mid|inner`), animated (elapsed seconds, one core frame
- * per display frame) while listening, thinking or speaking unless reduced
- * motion; the root recipe's opacity is the box's (`paintedBox`). THE
+ * (`VoiceWave/outer|mid|inner`), animated (elapsed seconds, one
+ * [VoiceWaveGeometry] frame per display frame, paused off screen and while
+ * the host is stopped: [rememberVoiceWaveClock]) while listening, thinking
+ * or speaking unless reduced motion; the root recipe's opacity is the box's (`paintedBox`). THE
  * CHILD RULE: the core lays the one child out centred at its own size; it
  * is drawn at that frame scaled about the wave box's centre by the core's
  * `child.scale` (min(1, childSize / its longer edge), never up) and at
@@ -207,17 +253,7 @@ internal fun VoiceWaveContent(index: Int, node: NodeInfo, model: SurfaceModel, s
         }
     }
     val still = model.reducedMotion || !VoiceWaveSpec.animates(p.activity)
-    val elapsed = remember(node.id) { mutableFloatStateOf(0f) }
-    if (!still) {
-        LaunchedEffect(node.id, p.activity) {
-            var start = -1L
-            while (true) {
-                val now = withInfiniteAnimationFrameNanos { it }
-                if (start < 0) start = now
-                elapsed.floatValue = (now - start) / 1e9f
-            }
-        }
-    }
+    val clock = rememberVoiceWaveClock(node.id, moving = !still)
     val rest = remember(edge, p, model.reducedMotion) {
         VoiceWaveSpec.of(VoiceWaveSpec.input(edge, p.activity, p.level, p.bands, 0.0, model.reducedMotion))
     }
@@ -226,11 +262,16 @@ internal fun VoiceWaveContent(index: Int, node: NodeInfo, model: SurfaceModel, s
         return
     }
     val origin = Offset((size.width - edge) / 2f, (size.height - edge) / 2f)
-    Canvas(Modifier.fillMaxSize()) {
+    // VAPP-160: the rings per frame in pure Kotlin (no JSON, no FFI): the
+    // size-only tables cached per edge, the points rewritten in place.
+    val geometry = remember(edge) { VoiceWaveGeometry(edge.toDouble()) }
+    val rings = remember(geometry, colors) {
+        geometry.rings.map { r -> VoiceWaveRing(r.points, colors[r.part] ?: Color.Unspecified, r.fillAlpha, r.strokeAlpha, r.strokeWidth) }
+    }
+    Canvas(Modifier.fillMaxSize().then(clock.tracker)) {
         // Read in the draw phase: a new frame redraws, never recomposes.
-        val t = if (still) 0f else elapsed.floatValue
-        val spec = if (t == 0f) rest else VoiceWaveSpec.of(VoiceWaveSpec.input(edge, p.activity, p.level, p.bands, t.toDouble(), model.reducedMotion)) ?: rest
-        val rings = spec.rings.map { r -> VoiceWaveRing(r.points, colors[r.part] ?: Color.Unspecified, r.fillAlpha, r.strokeAlpha, r.strokeWidth) }
+        val t = if (still) 0.0 else clock.elapsed.doubleValue
+        geometry.update(p.activity, p.level, p.bands, t, model.reducedMotion)
         drawVoiceWave(rings, Offset(origin.x * density, origin.y * density))
     }
     val kids = (model.children.getOrNull(index) ?: emptyList()).filter { model.node(it)?.hidden == false }

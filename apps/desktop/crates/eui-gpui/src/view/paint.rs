@@ -370,10 +370,10 @@ impl SurfaceView {
         if n.component == "VoiceWave" && !leaf && natives::voice_wave_is_bars(&n.props) {
             // VAPP-162: the `bars` meter has no child (it stays in the tree,
             // laid out and unpainted).
-            el = el.child(self.voice_wave(index, n, w, h, ink, window));
+            el = el.children(self.voice_wave(index, n, w, h, ink));
             kids_shown = false;
         } else if n.component == "VoiceWave" && !leaf {
-            el = el.child(self.voice_wave(index, n, w, h, ink, window));
+            el = el.children(self.voice_wave(index, n, w, h, ink));
             // NEW-77 THE CHILD RULE: the core centres the one child at its
             // own size; it paints scaled about the wave's centre by
             // min(1, childSize / its longer edge), never up
@@ -1023,9 +1023,12 @@ impl SurfaceView {
 
     /// NEW-77: a VoiceWave's rings now. While its activity animates (and
     /// motion is not reduced) the phase runs off the seconds since the node
-    /// started animating, asking for the next frame; otherwise the clock
-    /// resets so the next animating activity starts at phase 0.
-    fn voice_wave(&self, index: u32, n: &PlacedNode, w: f32, h: f32, ink: Hsla, window: &mut Window) -> AnyElement {
+    /// started animating; otherwise the clock resets so the next animating
+    /// activity starts at phase 0. VAPP-160: the next frame is asked for
+    /// by a [`natives::frame_ticker`] over the wave, i.e. only while the
+    /// wave is actually painted on screen (never from here: a hidden node
+    /// never gets here, an offscreen or clipped-away one asks for nothing).
+    fn voice_wave(&self, index: u32, n: &PlacedNode, w: f32, h: f32, ink: Hsla) -> Vec<AnyElement> {
         let reduced = self.surface.settings().reduced_motion;
         let moving = natives::voice_wave_activity(&n.props).animates() && !reduced && !self.ghosting.get();
         let mut elapsed = 0.0;
@@ -1034,16 +1037,21 @@ impl SurfaceView {
                 let now = self.now();
                 let start = *self.anim_start.borrow_mut().entry(id).or_insert(now);
                 elapsed = now.saturating_duration_since(start).as_secs_f64();
-                window.request_animation_frame();
             } else if !self.ghosting.get() {
                 self.anim_start.borrow_mut().remove(id.as_ref());
             }
         }
         let theme = self.surface.theme().cloned();
-        if natives::voice_wave_is_bars(&n.props) {
-            return natives::voice_wave_bars(&n.id, &n.props, theme.as_deref(), self.surface.mode(), w, h, elapsed, reduced, ink);
+        let wave = if natives::voice_wave_is_bars(&n.props) {
+            natives::voice_wave_bars(&n.id, &n.props, theme.as_deref(), self.surface.mode(), w, h, elapsed, reduced, ink)
+        } else {
+            natives::voice_wave(&n.id, &n.props, theme.as_deref(), self.surface.mode(), w, h, elapsed, reduced, ink)
+        };
+        let mut out = vec![wave];
+        if moving {
+            out.push(natives::frame_ticker().absolute().top_0().left_0().w(px(w)).h(px(h)).into_any_element());
         }
-        natives::voice_wave(&n.id, &n.props, theme.as_deref(), self.surface.mode(), w, h, elapsed, reduced, ink)
+        out
     }
 
     /// The checked dot of a Radio, centred in its circle.

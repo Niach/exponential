@@ -8,7 +8,7 @@
 // lowest penalty. Pure; the Rust core ports it and fixtures/qr-code.json
 // locks every matrix.
 
-import styleJson from "../catalog/style.json" with { type: "json" }
+import styleJson from "../generated/style.runtime.json" with { type: "json" }
 
 export const QR_CODE = styleJson.qrCode
 

@@ -10,7 +10,7 @@
 // `@media` block in SOURCE order, then `:hover`, `:focus-visible`,
 // `:pressed`; fixtures/style-conditions.json locks it.
 
-import styleJson from "../catalog/style.json" with { type: "json" }
+import styleJson from "../generated/style.runtime.json" with { type: "json" }
 import { TOKEN_GROUPS, isKnownToken, parseTokenRef } from "./catalog"
 
 interface KeySpec {

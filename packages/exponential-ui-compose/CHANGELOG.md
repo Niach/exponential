@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-160: VoiceWave hardening. The rings are computed per frame in pure Kotlin (`VoiceWaveGeometry` + `VoiceWaveStyle` in the primitives: per-edge cos/sin tables, the points rewritten in place; no JSON, FFI call or parse per frame); same points (`VoiceWaveGeometryTest` holds the constants to catalog/style.json `voiceWave` and replays every `fixtures/voice-wave.json` case). The frame loop (rings and `variant: bars`) pauses while the wave is off screen (empty bounds in the window) or the host lifecycle is below STARTED, and resumes where it stopped.
+
 ## 0.6.0 (2026-11-02)
 
 - EXP-1589: parity with the web renderer. A cartesian Chart maps its nice-tick range, so the top tick label no longer rides into the title. A node's opacity dims it as one group like CSS, so a disabled Button inside a disabled Form keeps a legible label; nodes with shadows still modulate. A disabled NumberField or ChipInput dims its whole `field` (the core's `disabled` state) instead of only the value. Markdown bullets are a filled disc in the text colour, 0.34 em across, centred 1 em before the text (`MarkdownView` in the primitives too). The CodeBlock copy glyph is 12. A ZoomableImage whose picture has not loaded draws no pill.

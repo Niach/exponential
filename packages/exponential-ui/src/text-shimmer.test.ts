@@ -5,7 +5,7 @@ import { TEXT_SHIMMER, textShimmer } from "./text-shimmer"
 
 describe(`EXP-1324 text shimmer`, () => {
   test(`the numbers are packages/design-tokens motion.shimmer`, () => {
-    const { $comment: _, lightAlphaFactor: __, ...ours } = TEXT_SHIMMER
+    const { lightAlphaFactor: _, ...ours } = TEXT_SHIMMER
     expect(ours).toEqual(designTokens.motion.shimmer)
   })
 

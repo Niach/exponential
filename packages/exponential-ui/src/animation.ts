@@ -5,7 +5,7 @@
 // values (opacity, translate, rotate, scale, the shimmer band) — and into
 // CSS @keyframes. fixtures/animations.json locks the sampled frames. Pure.
 
-import styleJson from "../catalog/style.json" with { type: "json" }
+import styleJson from "../generated/style.runtime.json" with { type: "json" }
 import { parseTokenRef } from "./catalog"
 import type { Easing, ResolvedTheme } from "./theme-types"
 

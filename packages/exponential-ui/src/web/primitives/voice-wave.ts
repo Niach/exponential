@@ -17,7 +17,9 @@ export type { VoiceWaveActivity, VoiceWaveRingName } from "../../voice-wave"
 export const VOICE_WAVE_SIZES = [`sm`, `md`, `lg`, `xl`] as const
 export type VoiceWaveSize = (typeof VOICE_WAVE_SIZES)[number]
 
-/** The box edge per size (px): the `VoiceWave/root` recipe's width. */
+/** The box edge per size (px): the `VoiceWave/root` recipe's width
+ *  (src/voice-wave.test.ts gates this copy, `VOICE_WAVE_CLASSES.size` and
+ *  the neutral theme's recipe against each other). */
 export const VOICE_WAVE_SIZE_PX: Readonly<Record<VoiceWaveSize, number>> = { sm: 32, md: 56, lg: 160, xl: 200 }
 
 /** Whether `activity` moves the waves (listening, thinking, speaking). */
@@ -41,18 +43,45 @@ export function voiceWaveName(label: string | undefined, activity: VoiceWaveActi
 
 /** Calls `onFrame(elapsed seconds)` on every animation frame after the
  *  first (the first frame is the clock's zero, already painted); returns
- *  the stop. Without `requestAnimationFrame` (SSR) it never ticks. */
-export function voiceWaveClock(onFrame: (elapsed: number) => void): () => void {
+ *  the stop. Without `requestAnimationFrame` (SSR) it never ticks.
+ *  VAPP-160: given the wave's element (and an IntersectionObserver), it
+ *  ticks only while that element is on screen: scrolled offscreen or in a
+ *  hidden (`display: none`) container it requests no frames at all; the
+ *  elapsed seconds keep counting from the first frame, so it resumes where
+ *  the wall clock is (a hidden document already stops the frames). */
+export function voiceWaveClock(onFrame: (elapsed: number) => void, el?: Element | null): () => void {
   if (typeof requestAnimationFrame !== `function`) return () => {}
   let start: number | null = null
   let id = 0
+  let running = false
   const tick = (now: number) => {
     if (start === null) start = now
     else onFrame((now - start) / 1000)
     id = requestAnimationFrame(tick)
   }
-  id = requestAnimationFrame(tick)
-  return () => cancelAnimationFrame(id)
+  const run = () => {
+    if (running) return
+    running = true
+    id = requestAnimationFrame(tick)
+  }
+  const pause = () => {
+    if (!running) return
+    running = false
+    cancelAnimationFrame(id)
+  }
+  if (!el || typeof IntersectionObserver !== `function`) {
+    run()
+    return pause
+  }
+  const io = new IntersectionObserver((entries) => {
+    if (entries[entries.length - 1]?.isIntersecting) run()
+    else pause()
+  })
+  io.observe(el)
+  return () => {
+    io.disconnect()
+    pause()
+  }
 }
 
 /** THE CHILD RULE's painter half (catalog/style.json `voiceWave`): the child

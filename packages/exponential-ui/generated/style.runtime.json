@@ -1,0 +1,771 @@
+{
+  "layout": {
+    "display": {
+      "enum": [
+        "flex",
+        "grid",
+        "block",
+        "none"
+      ]
+    },
+    "flexDirection": {
+      "enum": [
+        "row",
+        "column",
+        "row-reverse",
+        "column-reverse"
+      ]
+    },
+    "flexWrap": {
+      "enum": [
+        "nowrap",
+        "wrap",
+        "wrap-reverse"
+      ]
+    },
+    "justifyContent": {
+      "enum": [
+        "flex-start",
+        "flex-end",
+        "start",
+        "end",
+        "center",
+        "stretch",
+        "space-between",
+        "space-around",
+        "space-evenly"
+      ]
+    },
+    "alignItems": {
+      "enum": [
+        "flex-start",
+        "flex-end",
+        "start",
+        "end",
+        "center",
+        "stretch",
+        "baseline"
+      ]
+    },
+    "alignContent": {
+      "enum": [
+        "flex-start",
+        "flex-end",
+        "start",
+        "end",
+        "center",
+        "stretch",
+        "space-between",
+        "space-around",
+        "space-evenly"
+      ]
+    },
+    "alignSelf": {
+      "enum": [
+        "flex-start",
+        "flex-end",
+        "start",
+        "end",
+        "center",
+        "stretch",
+        "baseline"
+      ]
+    },
+    "justifySelf": {
+      "enum": [
+        "flex-start",
+        "flex-end",
+        "start",
+        "end",
+        "center",
+        "stretch",
+        "baseline"
+      ]
+    },
+    "flexGrow": {
+      "type": "number"
+    },
+    "flexShrink": {
+      "type": "number"
+    },
+    "flexBasis": {
+      "type": "length"
+    },
+    "gap": {
+      "type": "length"
+    },
+    "rowGap": {
+      "type": "length"
+    },
+    "columnGap": {
+      "type": "length"
+    },
+    "direction": {
+      "enum": [
+        "ltr",
+        "rtl"
+      ]
+    },
+    "overflow": {
+      "enum": [
+        "visible",
+        "hidden",
+        "clip",
+        "scroll",
+        "auto"
+      ]
+    },
+    "overflowX": {
+      "enum": [
+        "visible",
+        "hidden",
+        "clip",
+        "scroll",
+        "auto"
+      ]
+    },
+    "overflowY": {
+      "enum": [
+        "visible",
+        "hidden",
+        "clip",
+        "scroll",
+        "auto"
+      ]
+    },
+    "width": {
+      "type": "length"
+    },
+    "height": {
+      "type": "length"
+    },
+    "minWidth": {
+      "type": "length"
+    },
+    "minHeight": {
+      "type": "length"
+    },
+    "maxWidth": {
+      "type": "length"
+    },
+    "maxHeight": {
+      "type": "length"
+    },
+    "aspectRatio": {
+      "type": "ratio"
+    },
+    "position": {
+      "enum": [
+        "relative",
+        "absolute",
+        "sticky"
+      ]
+    },
+    "top": {
+      "type": "length"
+    },
+    "right": {
+      "type": "length"
+    },
+    "bottom": {
+      "type": "length"
+    },
+    "left": {
+      "type": "length"
+    },
+    "inset": {
+      "type": "length"
+    },
+    "insetInlineStart": {
+      "type": "length"
+    },
+    "insetInlineEnd": {
+      "type": "length"
+    },
+    "insetBlockStart": {
+      "type": "length"
+    },
+    "insetBlockEnd": {
+      "type": "length"
+    },
+    "padding": {
+      "type": "length"
+    },
+    "paddingTop": {
+      "type": "length"
+    },
+    "paddingRight": {
+      "type": "length"
+    },
+    "paddingBottom": {
+      "type": "length"
+    },
+    "paddingLeft": {
+      "type": "length"
+    },
+    "paddingHorizontal": {
+      "type": "length"
+    },
+    "paddingVertical": {
+      "type": "length"
+    },
+    "paddingInlineStart": {
+      "type": "length"
+    },
+    "paddingInlineEnd": {
+      "type": "length"
+    },
+    "margin": {
+      "type": "length"
+    },
+    "marginTop": {
+      "type": "length"
+    },
+    "marginRight": {
+      "type": "length"
+    },
+    "marginBottom": {
+      "type": "length"
+    },
+    "marginLeft": {
+      "type": "length"
+    },
+    "marginHorizontal": {
+      "type": "length"
+    },
+    "marginVertical": {
+      "type": "length"
+    },
+    "marginInlineStart": {
+      "type": "length"
+    },
+    "marginInlineEnd": {
+      "type": "length"
+    },
+    "gridTemplateColumns": {
+      "type": "tracks"
+    },
+    "gridTemplateRows": {
+      "type": "tracks"
+    },
+    "gridTemplateAreas": {
+      "type": "areas"
+    },
+    "gridArea": {
+      "type": "string"
+    },
+    "gridColumn": {
+      "type": "string"
+    },
+    "gridRow": {
+      "type": "string"
+    }
+  },
+  "visual": {
+    "backgroundColor": {
+      "type": "color"
+    },
+    "backgroundGradient": {
+      "type": "gradient"
+    },
+    "color": {
+      "type": "color"
+    },
+    "borderWidth": {
+      "type": "number",
+      "layoutEffect": true
+    },
+    "borderTopWidth": {
+      "type": "number",
+      "layoutEffect": true
+    },
+    "borderRightWidth": {
+      "type": "number",
+      "layoutEffect": true
+    },
+    "borderBottomWidth": {
+      "type": "number",
+      "layoutEffect": true
+    },
+    "borderLeftWidth": {
+      "type": "number",
+      "layoutEffect": true
+    },
+    "borderColor": {
+      "type": "color"
+    },
+    "borderStyle": {
+      "enum": [
+        "solid",
+        "dashed",
+        "dotted"
+      ]
+    },
+    "borderRadius": {
+      "type": "length"
+    },
+    "borderTopLeftRadius": {
+      "type": "length"
+    },
+    "borderTopRightRadius": {
+      "type": "length"
+    },
+    "borderBottomRightRadius": {
+      "type": "length"
+    },
+    "borderBottomLeftRadius": {
+      "type": "length"
+    },
+    "opacity": {
+      "type": "number"
+    },
+    "boxShadow": {
+      "type": "token",
+      "group": "shadow"
+    },
+    "fontSize": {
+      "type": "length"
+    },
+    "fontWeight": {
+      "enum": [
+        300,
+        400,
+        500,
+        600,
+        700,
+        800
+      ]
+    },
+    "lineHeight": {
+      "type": "length"
+    },
+    "letterSpacing": {
+      "type": "length"
+    },
+    "textAlign": {
+      "enum": [
+        "left",
+        "right",
+        "center",
+        "start",
+        "end",
+        "justify"
+      ]
+    },
+    "textDecoration": {
+      "enum": [
+        "none",
+        "underline",
+        "line-through"
+      ]
+    },
+    "textTransform": {
+      "enum": [
+        "none",
+        "uppercase",
+        "lowercase",
+        "capitalize"
+      ]
+    },
+    "fontStyle": {
+      "enum": [
+        "normal",
+        "italic"
+      ]
+    },
+    "fontFamily": {
+      "type": "token",
+      "group": "type.family"
+    },
+    "transition": {
+      "type": "token",
+      "group": "motion"
+    },
+    "transitionEasing": {
+      "type": "token",
+      "group": "ease"
+    },
+    "transform": {
+      "type": "transform"
+    },
+    "visibility": {
+      "enum": [
+        "visible",
+        "hidden"
+      ]
+    },
+    "pointerEvents": {
+      "enum": [
+        "auto",
+        "none"
+      ]
+    },
+    "userSelect": {
+      "enum": [
+        "auto",
+        "none",
+        "text"
+      ]
+    },
+    "cursor": {
+      "enum": [
+        "auto",
+        "default",
+        "pointer",
+        "text",
+        "not-allowed",
+        "grab",
+        "grabbing",
+        "move",
+        "col-resize",
+        "row-resize"
+      ]
+    },
+    "backdropBlur": {
+      "type": "token",
+      "group": "blur"
+    },
+    "animation": {
+      "enum": [
+        "pulse",
+        "spin",
+        "fade-in",
+        "slide-in-up",
+        "slide-in-down",
+        "slide-in-left",
+        "slide-in-right",
+        "shimmer"
+      ]
+    },
+    "animationDuration": {
+      "type": "token",
+      "group": "motion"
+    }
+  },
+  "animations": {
+    "pulse": {
+      "duration": "$motion.slow",
+      "factor": 7,
+      "easing": "$ease.standard",
+      "iterations": "infinite",
+      "rest": 0,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 1
+        },
+        {
+          "offset": 0.5,
+          "opacity": 0.5
+        },
+        {
+          "offset": 1,
+          "opacity": 1
+        }
+      ]
+    },
+    "spin": {
+      "duration": "$motion.slow",
+      "factor": 4,
+      "easing": "linear",
+      "iterations": "infinite",
+      "rest": 0,
+      "keyframes": [
+        {
+          "offset": 0,
+          "rotate": 0
+        },
+        {
+          "offset": 1,
+          "rotate": 360
+        }
+      ]
+    },
+    "fade-in": {
+      "duration": "$motion.standard",
+      "factor": 1,
+      "easing": "$ease.decelerate",
+      "iterations": 1,
+      "rest": 1,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 0
+        },
+        {
+          "offset": 1,
+          "opacity": 1
+        }
+      ]
+    },
+    "slide-in-up": {
+      "duration": "$motion.standard",
+      "factor": 1,
+      "easing": "$ease.decelerate",
+      "iterations": 1,
+      "rest": 1,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 0,
+          "translateY": 8
+        },
+        {
+          "offset": 1,
+          "opacity": 1,
+          "translateY": 0
+        }
+      ]
+    },
+    "slide-in-down": {
+      "duration": "$motion.standard",
+      "factor": 1,
+      "easing": "$ease.decelerate",
+      "iterations": 1,
+      "rest": 1,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 0,
+          "translateY": -8
+        },
+        {
+          "offset": 1,
+          "opacity": 1,
+          "translateY": 0
+        }
+      ]
+    },
+    "slide-in-left": {
+      "duration": "$motion.standard",
+      "factor": 1,
+      "easing": "$ease.decelerate",
+      "iterations": 1,
+      "rest": 1,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 0,
+          "translateX": 8
+        },
+        {
+          "offset": 1,
+          "opacity": 1,
+          "translateX": 0
+        }
+      ]
+    },
+    "slide-in-right": {
+      "duration": "$motion.standard",
+      "factor": 1,
+      "easing": "$ease.decelerate",
+      "iterations": 1,
+      "rest": 1,
+      "keyframes": [
+        {
+          "offset": 0,
+          "opacity": 0,
+          "translateX": -8
+        },
+        {
+          "offset": 1,
+          "opacity": 1,
+          "translateX": 0
+        }
+      ]
+    },
+    "shimmer": {
+      "duration": "$motion.slow",
+      "factor": 5,
+      "easing": "linear",
+      "iterations": "infinite",
+      "rest": 0,
+      "keyframes": [
+        {
+          "offset": 0,
+          "band": -1
+        },
+        {
+          "offset": 1,
+          "band": 1
+        }
+      ],
+      "band": {
+        "color": "$color.background",
+        "stops": [
+          {
+            "offset": 0,
+            "alpha": 0
+          },
+          {
+            "offset": 0.5,
+            "alpha": 0.5
+          },
+          {
+            "offset": 1,
+            "alpha": 0
+          }
+        ]
+      }
+    }
+  },
+  "conditions": {
+    "media": "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\$breakpoint\\.[a-zA-Z0-9]+)\\)$|^@media \\(orientation: (portrait|landscape)\\)$|^@media \\(hover: (hover|none)\\)$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)$",
+    "states": [
+      ":hover",
+      ":focus-visible",
+      ":pressed"
+    ],
+    "transform": "^((translate\\(-?\\d+(\\.\\d+)?px, -?\\d+(\\.\\d+)?px\\)|scale\\(-?\\d+(\\.\\d+)?\\)|rotate\\(-?\\d+(\\.\\d+)?deg\\))( (?=\\S)|$))+$"
+  },
+  "textShimmer": {
+    "durationMs": 2000,
+    "angleDeg": 20,
+    "spreadPx": 60,
+    "highlightLightnessMin": 0.8,
+    "highlightLightnessBoost": 0.4,
+    "highlightAlphaBoost": 0.4,
+    "lightAlphaFactor": 0.2
+  },
+  "voiceWave": {
+    "steps": 120,
+    "radius": [
+      0.33,
+      0.3,
+      0.26
+    ],
+    "harmonics": [
+      [
+        11,
+        17,
+        23
+      ],
+      [
+        9,
+        15,
+        21
+      ],
+      [
+        7,
+        13
+      ]
+    ],
+    "phase0": [
+      0.4,
+      1.9,
+      3.1
+    ],
+    "ringAmp": [
+      1,
+      0.85,
+      0.45
+    ],
+    "ampBase": 2,
+    "ampLevel": 6,
+    "thinkingAmp": 2.5,
+    "phaseSpeed": 0.9,
+    "fillAlpha": [
+      0.1,
+      0.1,
+      0.15
+    ],
+    "strokeAlpha": [
+      0.7,
+      0.8,
+      0.4
+    ],
+    "strokeWidth": [
+      1.5,
+      1.5,
+      1
+    ],
+    "childScale": 0.3,
+    "childScaleLarge": 0.22,
+    "maxBands": 8,
+    "bars": {
+      "count": 20,
+      "minFraction": 0.12,
+      "envelope": 0.5,
+      "shapeFreq": 1.7,
+      "shapeBase": 0.35,
+      "sizes": {
+        "sm": {
+          "height": 16,
+          "barWidth": 2,
+          "gap": 2
+        },
+        "md": {
+          "height": 24,
+          "barWidth": 3,
+          "gap": 3
+        },
+        "lg": {
+          "height": 40,
+          "barWidth": 4,
+          "gap": 4
+        },
+        "xl": {
+          "height": 56,
+          "barWidth": 5,
+          "gap": 5
+        }
+      }
+    }
+  },
+  "qrCode": {
+    "quietZone": 4,
+    "labelGap": 8,
+    "maxValueBytes": 2953
+  },
+  "qrScanner": {
+    "maxWidth": 280,
+    "aspectRatio": 1,
+    "cornerLength": 24,
+    "cornerStroke": 3,
+    "feedAlpha": 0.06,
+    "scanLineHeight": 2,
+    "scanLineInset": 16,
+    "sweepMs": 2000,
+    "hintGap": 12,
+    "placeholderIcon": "ui-scan",
+    "placeholderIconSize": 32
+  },
+  "zoomableImage": {
+    "tallAspect": 0.3333333333333333,
+    "maxScale": 8,
+    "presets": [
+      0.25,
+      0.33,
+      0.5,
+      0.67,
+      1,
+      1.5,
+      2,
+      3,
+      4,
+      6,
+      8
+    ],
+    "menuPresets": [
+      0,
+      0.5,
+      1,
+      2,
+      4
+    ],
+    "doubleTapFactor": 2,
+    "wheelRate": 0.002,
+    "wheelLinePx": 16,
+    "rubber": 0.55,
+    "momentumTauMs": 325,
+    "autoHideMs": 2000,
+    "pill": {
+      "height": 36,
+      "inset": 16,
+      "padding": 4,
+      "gap": 2,
+      "percentMinWidth": 56,
+      "dividerHeight": 16
+    }
+  }
+}

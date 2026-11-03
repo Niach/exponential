@@ -374,7 +374,7 @@
     },
     "VoiceWave": {
       "role": "img",
-      "notes": "img named by `label` (with the activity appended, e.g. `Voice, listening`); decorative (hidden) without a label; never focusable",
+      "notes": "img named by `label` (with the activity appended, e.g. `Voice, listening`); decorative (hidden) without a label; never focusable. The one child is DECORATIVE on every renderer: inside the img (or the hidden wave) assistive tech never reaches it, so it must be non-interactive (an Icon, Avatar or short Text); a control or text to read goes beside the wave, never in it",
       "keys": []
     },
     "CallSurface": {

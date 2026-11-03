@@ -3,7 +3,7 @@
 // surface, and the same emitter for an extension's schema (`extends` the
 // core). Generated into catalog/core.schema.json by scripts/generate.ts.
 
-import styleJson from "../catalog/style.json" with { type: "json" }
+import styleJson from "../generated/style.runtime.json" with { type: "json" }
 import vendoredBasic from "../vendor/a2ui/v0_9/basic_catalog.json" with { type: "json" }
 import { catalogView, coreCatalog, TOKEN_GROUPS } from "./catalog"
 import type { CatalogView } from "./catalog"

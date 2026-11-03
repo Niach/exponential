@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-160: `VoiceWave` hardening. The rings no longer round-trip JSON through the core every frame: `ExponentialUIPrimitives` gains `VoiceWaveGeometry` (the core's `voiceWave` in pure Swift: style.json's constants, per-edge trig tables cached by `VoiceWaveGeometryCache`, a per-frame `frame(activity:level:bands:elapsed:reducedMotion:)` rounded like JS `Math.round`), gated against style.json and replaying every fixtures/voice-wave.json case; the child box and `variant: bars` stay on the core. The rings and the bars stop animating while off screen or in the background. No visual change.
+
 ## 0.6.0 (2026-11-02)
 
 - **Breaking**: eApps keeps no backwards compatibility (over the core): `installPackage` refuses a package without `formatVersion: 2` (version 1 is no longer read); `RecordsQuery.parse(params:kind:)` takes the kind only from `kind` (the source's name, `records:<kind>`): a `kind` param is a field filter, and Exponential's `exp:records?kind=…` is no records source; `authorId` is a reserved record key; `Actions.effect(_:)` no longer knows `harness.records.upsert` / `.delete` (records are written only through `records.upsert` / `.delete` / `.batch`).

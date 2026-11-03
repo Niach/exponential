@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-160: `VoiceWave` hardening. `src/` reads `generated/style.runtime.json` (catalog/style.json without its `$comment`s, drift-gated), so no bundle ships the spec prose (about 15.4 KB less in the root, schema, conformance, host and web entries; the budgets lowered by exactly that). `voiceWaveClock(onFrame, el?)` takes the wave's element and ticks only while an IntersectionObserver sees it on screen (scrolled offscreen or in a `display: none` container: no frames). The catalog and a11y.json call the one child decorative (never a control). fixtures/voice-wave.json gains negative-level and negative-band cases (clamped to 0) for the rings and the bars. A test gates `VOICE_WAVE_SIZE_PX`, the size classes and every built-in theme's `VoiceWave/root` against each other. No visual change.
+
 ## 0.6.0 (2026-11-02)
 
 - **Breaking** (hence the minor): eApps packages need `formatVersion: 2` and read records only through `records:<kind>`; an expression is pure (writes and host calls only in `actions`); every `{call: expr}` binding needs a `default`, and an unguarded optional (`T?`) value is an install issue.
