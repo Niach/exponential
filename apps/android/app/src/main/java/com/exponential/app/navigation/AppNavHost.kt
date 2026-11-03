@@ -829,6 +829,10 @@ private fun AuthenticatedNav(
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
                 // #VAPP-230: Connect <server> opens the app team's Settings › MCP.
                 onOpenTeamSettings = openReadinessTeamSettings,
+                // VAPP-234: a template picked in a draft replaces the draft's editor.
+                onOpenApp = { id ->
+                    navController.navigate(Routes.app(id)) { popUpTo(Routes.APP_PATTERN) { inclusive = true } }
+                },
             )
         }
         composable("settings") {

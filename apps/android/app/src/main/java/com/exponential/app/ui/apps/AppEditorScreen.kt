@@ -68,6 +68,7 @@ import at.exponential.ui.primitives.EmptyStateSize
 import com.exponential.app.data.db.AppVersionEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.AppExport
+import com.exponential.app.domain.AppTemplates
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.DomainContract
@@ -144,6 +145,8 @@ fun AppEditorScreen(
     onOpenSession: (sessionId: String) -> Unit,
     /** #VAPP-230: the upstream banner's Connect (Settings › MCP of the app's team). */
     onOpenTeamSettings: (teamId: String, section: String) -> Unit = { _, _ -> },
+    /** VAPP-234: a template picked from the draft's starters opens its editor. */
+    onOpenApp: (appId: String) -> Unit = {},
     viewModel: AppEditorViewModel = hiltViewModel(),
 ) {
     val app by viewModel.app.collectAsStateWithLifecycle()
@@ -263,6 +266,7 @@ fun AppEditorScreen(
                     padding = padding,
                     viewModel = viewModel,
                     onOpenSession = onOpenSession,
+                    onOpenApp = onOpenApp,
                 )
                 EditorTab.Preview -> {
                     val shown = Apps.shownVersion(entry.versions, editing, viewing?.number)
@@ -688,6 +692,7 @@ private fun AppChatPane(
     padding: PaddingValues,
     viewModel: AppEditorViewModel,
     onOpenSession: (String) -> Unit,
+    onOpenApp: (String) -> Unit = {},
 ) {
     if (rootId != null) {
         SessionArgsStore(rootId) {
@@ -700,6 +705,23 @@ private fun AppChatPane(
     // VAPP-176: a DRAFT (no version yet) with an empty chat = the starters +
     // the composer open and focused on `draftPlaceholder`.
     val draft = Apps.isDraft(app.headVersion)
+    // VAPP-234: the draft's "Start from a template" = the import sheet.
+    var importing by rememberSaveable { mutableStateOf(false) }
+    if (importing) {
+        val apps: AppsViewModel = hiltViewModel()
+        val busy by apps.busy.collectAsStateWithLifecycle()
+        val failure by apps.failure.collectAsStateWithLifecycle()
+        FailedActionToast(failure, onShown = apps::clearFailure)
+        AppImportSheet(
+            busy = busy,
+            onDismiss = { importing = false },
+            onValidate = apps::validateImport,
+            onImport = { text -> apps.importApp(text) { id -> importing = false; onOpenApp(id) } },
+            onTemplate = { template, includeRecords ->
+                apps.importTemplate(template, includeRecords) { id -> importing = false; onOpenApp(id) }
+            },
+        )
+    }
     var text by rememberSaveable { mutableStateOf("") }
     var expanded by rememberSaveable { mutableStateOf(draft) }
     val bottomInset = padding.calculateBottomPadding()
@@ -724,6 +746,7 @@ private fun AppChatPane(
                     AppStarters(
                         enabled = deviceId != null && !sending,
                         onStart = { starter -> viewModel.send(starter) {} },
+                        onFromTemplate = { importing = true },
                     )
                 }
             }
@@ -800,7 +823,7 @@ private fun AppChatPane(
  *  text as the first message (disabled like the composer without a device). */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AppStarters(enabled: Boolean, onStart: (String) -> Unit) {
+private fun AppStarters(enabled: Boolean, onStart: (String) -> Unit, onFromTemplate: () -> Unit) {
     EmptyState(
         title = Apps.Copy.STARTER_TITLE,
         icon = ExpIcons.navApps,
@@ -819,6 +842,12 @@ private fun AppStarters(enabled: Boolean, onStart: (String) -> Unit) {
                         modifier = Modifier.testTag(Apps.TestIds.STARTER),
                     )
                 }
+                // VAPP-234: never disabled (an import needs no device).
+                GlassPill(
+                    AppTemplates.Copy.FROM_TEMPLATE,
+                    onClick = onFromTemplate,
+                    modifier = Modifier.testTag(AppTemplates.TestIds.FROM_TEMPLATE),
+                )
             }
         },
     )

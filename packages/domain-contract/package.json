@@ -59,6 +59,7 @@
     "./app-sources": "./src/app-sources.ts",
     "./app-actions": "./src/app-actions.ts",
     "./app-export": "./src/app-export.ts",
+    "./app-templates": "./src/app-templates.ts",
     "./sealed-content": "./src/sealed-content.ts",
     "./question-push": "./src/question-push.ts",
     "./steer-enet": "./src/steer-enet.ts",

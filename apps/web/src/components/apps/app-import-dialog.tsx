@@ -1,7 +1,22 @@
 import { useEffect, useRef, useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, type ImportIssue } from "@exp/domain-contract/app-export"
-import { Button, Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle, Textarea } from "@exp/ui"
+import { APP_TEMPLATES, APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
+import {
+  BoardGlyph,
+  Button,
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  GlassGroup,
+  GlassSectionHeader,
+  ListRow,
+  Switch,
+  Textarea,
+} from "@exp/ui"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
@@ -10,6 +25,9 @@ import { trpc } from "@/lib/trpc-client"
 // dialog, opened from the Apps list band's Import pill (New app has no
 // dialog any more). Paste or choose an app file; the server lists its issues
 // as `path: message` rows; Import creates the app and opens its editor.
+// VAPP-234 (fixtures/app-templates.json): the TEMPLATES step above it: a
+// tap on a signed template imports it at once (v1 published, the sample
+// records only with the switch on) and opens its editor.
 
 export function AppImportDialog({
   open,
@@ -26,6 +44,8 @@ export function AppImportDialog({
   const [text, setText] = useState(``)
   const [issues, setIssues] = useState<ImportIssue[] | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [withRecords, setWithRecords] = useState(false)
+  const [picking, setPicking] = useState<string | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
 
   // The server is the one authority: a debounced check as the text changes.
@@ -48,6 +68,27 @@ export function AppImportDialog({
   const reset = () => {
     setText(``)
     setIssues(null)
+    setWithRecords(false)
+  }
+
+  const opened = (slug: string) => {
+    reset()
+    onOpenChange(false)
+    void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: slug } })
+  }
+
+  const pickTemplate = async (template: string) => {
+    if (picking || submitting) return
+    setPicking(template)
+    try {
+      const result = await trpc.apps.importTemplate.mutate({ teamId, template, includeRecords: withRecords }, SKIP_ERROR_TOAST)
+      await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+      opened(result.app.slug)
+    } catch (error) {
+      failedAction(`import`, `the template`, error)
+    } finally {
+      setPicking(null)
+    }
   }
 
   const runImport = async () => {
@@ -56,9 +97,7 @@ export function AppImportDialog({
     try {
       const result = await trpc.apps.import.mutate({ teamId, text }, SKIP_ERROR_TOAST)
       await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
-      reset()
-      onOpenChange(false)
-      void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: result.app.slug } })
+      opened(result.app.slug)
     } catch (error) {
       failedAction(`import`, `the app`, error)
     } finally {
@@ -80,12 +119,36 @@ export function AppImportDialog({
         </DialogHeader>
         <div className="flex min-h-0 flex-1 flex-col gap-4">
           <DialogBody className="space-y-3">
+            <GlassSectionHeader label={APP_TEMPLATES_COPY.title} />
+            <GlassGroup>
+              {APP_TEMPLATES.map((template) => (
+                <ListRow
+                  key={template.id}
+                  interactive={picking === null}
+                  onClick={() => void pickTemplate(template.id)}
+                  aria-disabled={picking !== null}
+                  className="gap-3 px-4 py-2.5 text-sm"
+                  data-testid={`${APP_TEMPLATES_TEST_IDS.row}-${template.id}`}
+                >
+                  <BoardGlyph board={template} />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate font-medium">{template.name}</span>
+                    <span className="truncate text-xs text-muted-foreground">{template.description}</span>
+                  </span>
+                </ListRow>
+              ))}
+            </GlassGroup>
+            <GlassGroup>
+              <label className="flex items-center justify-between gap-3 px-4 py-3 text-sm">
+                {APP_TEMPLATES_COPY.includeRecords}
+                <Switch checked={withRecords} onCheckedChange={setWithRecords} disabled={picking !== null} data-testid={APP_TEMPLATES_TEST_IDS.records} />
+              </label>
+            </GlassGroup>
             <Textarea
               value={text}
               onChange={(event) => setText(event.target.value)}
               placeholder={APP_EXPORT_COPY.importPlaceholder}
-              rows={8}
-              autoFocus
+              rows={6}
               spellCheck={false}
               className="font-mono text-xs"
               data-testid="app-import-text"

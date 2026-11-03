@@ -6,6 +6,10 @@
 //! the field as `path: message` rows; Import (enabled only with none) =
 //! `apps.import`, then the editor opens. New app has no dialog any more
 //! (VAPP-176: a draft and its editor, [`crate::apps_view::new_app`]).
+//! VAPP-234 (fixtures/app-templates.json): the TEMPLATES step above the
+//! field: one row per signed template (a click = `apps.importTemplate` at
+//! once, then its editor) and the `Include sample records` switch row; a
+//! draft's `Start from a template` pill opens the same dialog.
 
 use gpui::{
     div, px, size, App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString,
@@ -21,13 +25,14 @@ use sync::Store;
 
 use api::apps::ImportIssue;
 use domain::app_export::{more_issues_label, APP_EXPORT_COPY, APP_EXPORT_LIMITS};
+use domain::app_templates::{APP_TEMPLATES, APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS};
 
 use crate::controls::WebControl as _;
 use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::navigation::{navigate, Screen};
 
 /// The dialog's content size (the field + its issues).
-const IMPORT_SIZE: (f32, f32) = (416., 380.);
+const IMPORT_SIZE: (f32, f32) = (416., 640.);
 /// The server check's debounce (the web's 300 ms).
 const VALIDATE_DEBOUNCE_MS: u64 = 300;
 
@@ -67,13 +72,17 @@ pub(crate) struct AppImportView {
     /// The debounced `apps.validateImport` (replacing it cancels).
     validate: Option<Task<()>>,
     import_focused: bool,
+    /// VAPP-234: the templates step's switch (off by default).
+    with_records: bool,
+    /// VAPP-234: the template being imported (every row waits).
+    picking: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AppImportView {
     fn new(team_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let import_text = cx.new(|cx| {
-            crate::controls::web_textarea(8, 8, window, cx).placeholder(APP_EXPORT_COPY.import_placeholder.clone())
+            crate::controls::web_textarea(6, 6, window, cx).placeholder(APP_EXPORT_COPY.import_placeholder.clone())
         });
         let subscriptions = vec![cx.subscribe(&import_text, |this: &mut Self, _, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -87,6 +96,8 @@ impl AppImportView {
             issues: None,
             validate: None,
             import_focused: false,
+            with_records: false,
+            picking: None,
             _subscriptions: subscriptions,
         }
     }
@@ -152,6 +163,99 @@ impl AppImportView {
             });
         })
         .detach();
+    }
+
+    /// VAPP-234: a template row = `apps.importTemplate` at once, then the
+    /// new app's editor (the import's path).
+    fn pick_template(&mut self, template: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if self.picking.is_some() || self.pending.active() {
+            return;
+        }
+        let team_id = self.team_id.clone();
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("import", "the template", None, cx);
+            return;
+        };
+        let include_records = self.with_records;
+        self.picking = Some(template.clone());
+        cx.notify();
+        cx.spawn_in(window, async move |this, window| {
+            let result = window
+                .background_executor()
+                .spawn(async move { api::apps::import_template(&trpc, &team_id, &template, include_records) })
+                .await;
+            match result {
+                Ok(output) => {
+                    let app_id = output.app.id.clone();
+                    let apps = window.update(|_, cx| Store::global(cx).collections().apps.clone()).ok();
+                    if let Some(apps) = apps {
+                        crate::queries::await_row_visible(&apps, &app_id, window).await;
+                    }
+                    let _ = this.update_in(window, |this, window, cx| {
+                        this.picking = None;
+                        native_dialog::close_then(window, cx, move |window, cx| {
+                            navigate(window, cx, Screen::App { app: app_id });
+                        });
+                    });
+                }
+                Err(err) => {
+                    let _ = this.update_in(window, |this, _, cx| {
+                        this.picking = None;
+                        crate::action_error::failed_action_err("import", "the template", &err, cx);
+                        cx.notify();
+                    });
+                }
+            }
+        })
+        .detach();
+    }
+
+    /// VAPP-234: the templates step: the band, one row per template, the
+    /// sample-records switch row.
+    fn render_templates(&mut self, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        let row_hover = cx.theme().list_hover;
+        let muted = cx.theme().muted_foreground;
+        let busy = self.picking.is_some();
+        let rows = APP_TEMPLATES.iter().map(|template| {
+            let id = template.id.clone();
+            crate::surface::flat_row()
+                .id(SharedString::from(format!("{}-{}", APP_TEMPLATES_TEST_IDS.row, template.id)))
+                .flex()
+                .w_full()
+                .min_w_0()
+                .items_center()
+                .gap_3()
+                .px_4()
+                .py(px(10.))
+                .text_sm()
+                .when(!busy, |row| row.cursor_pointer().hover(move |this| this.bg(row_hover)))
+                .on_click(cx.listener(move |this, _: &gpui::ClickEvent, window, cx| this.pick_template(id.clone(), window, cx)))
+                .child(crate::icons::app_icon(Some(&template.icon), Some(&template.color)).small().flex_shrink_0())
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().truncate().font_weight(gpui::FontWeight::MEDIUM).child(SharedString::from(template.name.clone())))
+                        .child(div().truncate().text_xs().text_color(muted).child(SharedString::from(template.description.clone()))),
+                )
+        });
+        let rows: Vec<gpui::Div> = rows.map(|row| div().child(row)).collect();
+        v_flex()
+            .gap_3()
+            .child(crate::surface::glass_section_header(APP_TEMPLATES_COPY.title.clone(), None, cx))
+            .child(crate::surface::glass_group_rows(rows))
+            .child(crate::surface::glass_group_rows(vec![crate::surface::glass_toggle_row(
+                APP_TEMPLATES_COPY.include_records.clone(),
+                None,
+                crate::controls::web_switch(SharedString::from(APP_TEMPLATES_TEST_IDS.records.clone()))
+                    .checked(self.with_records)
+                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        this.with_records = *checked;
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+                cx,
+            )]))
     }
 
     /// `Import`: `apps.import`, then the new app's editor (Create's path).
@@ -228,6 +332,7 @@ impl AppImportView {
         v_flex()
             .size_full()
             .gap_3()
+            .child(self.render_templates(cx))
             .child(
                 crate::surface::glass_group().child(
                     Textarea::new(&self.import_text)
@@ -278,4 +383,5 @@ impl Render for AppImportView {
     }
 }
 
-use gpui::InteractiveElement as _;
+use gpui::{InteractiveElement as _, StatefulInteractiveElement as _, prelude::FluentBuilder as _};
+use gpui_component::Sizable as _;

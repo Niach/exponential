@@ -54,6 +54,8 @@ Tools the app exposes over MCP appear under **MCP tools**, and the team MCP serv
 
 **Export** from the app's menu, editor or settings saves one `.app.json` file with its name, icon, colour, current version and, with **Include records** on, its records. **Import…** on the Apps list takes a pasted file or a picked one and lists any problem before you import. An imported app starts with no tools granted.
 
+**Start from a template**: the same Import dialog lists Exponential's signed templates (Time tracker, CRM, Standup). Pick one to get a finished, published app you can keep editing; switch on **Include sample records** to start with example data. A new app's empty chat offers the same list.
+
 ## Build over MCP
 
 Any coding agent can do what the editor does through the [`exponential_apps`](/docs/build/mcp/) tool: `catalog` reads the eUI catalog, `upsert` writes a version, and `records_list`, `records_upsert` and `records_delete` work on the data.

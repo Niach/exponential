@@ -17,6 +17,7 @@ import { appAccess, appVersions, apps, mcpServers, sessions, type App, type AppP
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
+import { APP_TEMPLATES_COPY } from "@exp/domain-contract/app-templates"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
 import { ACTION_LIMITS, validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
 import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecordEvents, listRecords, loadApp, queryRecords, restoreRecord, teamMemberIds, undoEvents, upsertRecord, type RecordWriteVia } from "@/lib/apps/records-service"
@@ -30,6 +31,7 @@ import type { Tx } from "@/lib/sessions/tx"
 import { readUpstreamBinding } from "@/lib/emcp/upstream-reads"
 import { runVia, validateExposes, type AgentRun, type Expose } from "@exp/emcp/exposes"
 import { handOff } from "@/lib/apps/agent-handoff"
+import { templateImportText } from "@/lib/apps/templates"
 
 // VAPP-110: Exponential APPS. The rows sync (the `apps` shape carries the
 // head package; `app_versions` their metadata); the writes here return a
@@ -300,6 +302,59 @@ async function assertTeamUpstreams(db: Pick<Tx, `select`>, teamId: string, pkg: 
 
 const IMPORT_SLUG_ATTEMPTS = 5
 
+/** VAPP-121: a new app out of an app file (or a bare package): the
+ *  identity from the file, the package as v1 noted `note` (published at
+ *  once), the records as the importer's within the team's quota. No grants:
+ *  an owner grants on the settings page. Any member. `import` and
+ *  `importTemplate` (VAPP-234) share it. */
+async function importAppText(ctx: Context & { session: NonNullable<Context[`session`]> }, teamId: string, text: string, note: string) {
+  const userId = ctx.session.user.id
+  const member = await assertTeamMember(userId, teamId)
+  const { issues, file } = await checkAppImport(text, { userId, role: member.role, members: await teamMemberIds(ctx.db, teamId) })
+  if (!file) {
+    const listed = issues.slice(0, 10).map((issue) => `${issue.path}: ${issue.message}`)
+    throw new TRPCError({ code: `BAD_REQUEST`, message: `the app file is invalid: ${listed.join(`; `)}` })
+  }
+  const icon = boardIconSchema.safeParse(file.app.icon)
+  const color = colorSchema.safeParse(file.app.color)
+  const importInTx = () => ctx.db.transaction(async (tx) => {
+    const txId = await generateTxId(tx)
+    const slug = slugify(file.app.name, await takenSlugs(tx, teamId))
+    const [app] = await tx
+      .insert(apps)
+      .values({
+        teamId,
+        slug,
+        name: file.app.name,
+        icon: icon.success ? icon.data : null,
+        color: color.success ? color.data : null,
+        description: file.app.description,
+        createdBy: userId,
+      })
+      .returning()
+    const { number } = await writeVersionInTx(tx, app!, file.package, { note, sessionId: null, createdBy: userId, byOwner: false })
+    // eApps V1: an imported app file is a finished app: v1 is published at once.
+    await publishVersionInTx(tx, app!, { number, byOwner: false, userId })
+    // #VAPP-193: last in the transaction (it switches to role eapps).
+    await importRecords(tx, { ...app!, package: file.package as App[`package`] }, userId, member.role, file.records)
+    return { txid: txId, app: { ...app!, headVersion: number, publishedVersion: number }, records: file.records.length }
+  })
+  // VAPP-154: two same-name imports at once derive the same slug; the
+  // loser's insert hits the unique index and retries on a fresh read of
+  // the taken slugs, like a sequential duplicate (`-2`). Out of
+  // attempts = CONFLICT, never a 500.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await importInTx()
+    } catch (error) {
+      if (uniqueViolationConstraint(error) !== `uniq_apps_team_slug`) throw error
+      if (attempt >= IMPORT_SLUG_ATTEMPTS) {
+        throw new TRPCError({ code: `CONFLICT`, message: `An app named "${file.app.name}" is being imported at the same time; try again` })
+      }
+    }
+  }
+}
+
 const importInputSchema = z.object({ teamId: uuid, text: z.string().max(APP_EXPORT_LIMITS.importMaxBytes * 2) })
 
 async function takenSlugs(tx: Tx, teamId: string): Promise<string[]> {
@@ -455,52 +510,17 @@ export const appsRouter = router({
    *  on the settings page. Any member. */
   import: authedProcedure
     .input(importInputSchema)
+    .mutation(({ ctx, input }) => importAppText(ctx, input.teamId, input.text, APP_EXPORT_COPY.importNote)),
+
+  /** VAPP-234 (app-templates.json): a new app out of a SIGNED template of
+   *  the gallery: the pinned signature verified, then imported exactly like
+   *  `import` (v1 published, the sample records only when asked). Any member. */
+  importTemplate: authedProcedure
+    .input(z.object({ teamId: uuid, template: z.string().min(1).max(64), includeRecords: z.boolean().default(false) }))
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.session.user.id
-      const member = await assertTeamMember(userId, input.teamId)
-      const { issues, file } = await checkAppImport(input.text, { userId, role: member.role, members: await teamMemberIds(ctx.db, input.teamId) })
-      if (!file) {
-        const listed = issues.slice(0, 10).map((issue) => `${issue.path}: ${issue.message}`)
-        throw new TRPCError({ code: `BAD_REQUEST`, message: `the app file is invalid: ${listed.join(`; `)}` })
-      }
-      const icon = boardIconSchema.safeParse(file.app.icon)
-      const color = colorSchema.safeParse(file.app.color)
-      const importInTx = () => ctx.db.transaction(async (tx) => {
-        const txId = await generateTxId(tx)
-        const slug = slugify(file.app.name, await takenSlugs(tx, input.teamId))
-        const [app] = await tx
-          .insert(apps)
-          .values({
-            teamId: input.teamId,
-            slug,
-            name: file.app.name,
-            icon: icon.success ? icon.data : null,
-            color: color.success ? color.data : null,
-            description: file.app.description,
-            createdBy: userId,
-          })
-          .returning()
-        const { number } = await writeVersionInTx(tx, app!, file.package, { note: APP_EXPORT_COPY.importNote, sessionId: null, createdBy: userId, byOwner: false })
-        // eApps V1: an imported app file is a finished app: v1 is published at once.
-        await publishVersionInTx(tx, app!, { number, byOwner: false, userId })
-        // #VAPP-193: last in the transaction (it switches to role eapps).
-        await importRecords(tx, { ...app!, package: file.package as App[`package`] }, userId, member.role, file.records)
-        return { txid: txId, app: { ...app!, headVersion: number, publishedVersion: number }, records: file.records.length }
-      })
-      // VAPP-154: two same-name imports at once derive the same slug; the
-      // loser's insert hits the unique index and retries on a fresh read of
-      // the taken slugs, like a sequential duplicate (`-2`). Out of
-      // attempts = CONFLICT, never a 500.
-      for (let attempt = 1; ; attempt++) {
-        try {
-          return await importInTx()
-        } catch (error) {
-          if (uniqueViolationConstraint(error) !== `uniq_apps_team_slug`) throw error
-          if (attempt >= IMPORT_SLUG_ATTEMPTS) {
-            throw new TRPCError({ code: `CONFLICT`, message: `An app named "${file.app.name}" is being imported at the same time; try again` })
-          }
-        }
-      }
+      const found = await templateImportText(input.template, input.includeRecords)
+      if (`error` in found) throw new TRPCError({ code: `BAD_REQUEST`, message: found.error })
+      return importAppText(ctx, input.teamId, found.text, APP_TEMPLATES_COPY.note)
     }),
 
   update: authedProcedure

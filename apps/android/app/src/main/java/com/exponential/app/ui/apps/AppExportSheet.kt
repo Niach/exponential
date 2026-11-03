@@ -180,7 +180,7 @@ fun AppImportStep(
             value = text,
             onValueChange = onTextChange,
             placeholder = AppExport.Copy.IMPORT_PLACEHOLDER,
-            minLines = 8,
+            minLines = 6,
             maxLines = 12,
             textStyle = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
             modifier = Modifier.fillMaxWidth().testTag("app-import-text"),

@@ -186,6 +186,21 @@ pub fn import(trpc: &TrpcClient, team_id: &str, text: &str) -> Result<ImportOutp
     trpc.mutation("apps.import", &ImportInput { team_id, text })
 }
 
+/// VAPP-234 `apps.importTemplate` input.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportTemplateInput<'a> {
+    team_id: &'a str,
+    template: &'a str,
+    include_records: bool,
+}
+
+/// VAPP-234 `apps.importTemplate`: a new app out of a signed gallery
+/// template (fixtures/app-templates.json), its sample records when asked.
+pub fn import_template(trpc: &TrpcClient, team_id: &str, template: &str, include_records: bool) -> Result<ImportOutput, ApiError> {
+    trpc.mutation("apps.importTemplate", &ImportTemplateInput { team_id, template, include_records })
+}
+
 /// `apps.update`: rename / re-icon / re-describe / re-grant (VAPP-120).
 pub fn update(trpc: &TrpcClient, input: &AppInput) -> Result<AppOutput, ApiError> {
     trpc.mutation("apps.update", input)

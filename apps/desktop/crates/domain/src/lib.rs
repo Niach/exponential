@@ -110,6 +110,7 @@ pub mod team_zone;
 pub mod app_actions;
 // VAPP-121: an app as one JSON file (export name + file), fixture-locked ×4.
 pub mod app_export;
+pub mod app_templates;
 // VAPP-122: app records (the `records:<kind>` query + value), fixture-locked ×4.
 pub mod app_records;
 // VAPP-119: the `exp:` binding sources (issues, boards, members, sessions,
