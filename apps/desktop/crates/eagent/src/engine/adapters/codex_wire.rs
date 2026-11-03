@@ -388,6 +388,12 @@ impl AppServer {
 // Request payloads
 // ---------------------------------------------------------------------------
 
+/// #EXP-1658: `skills/extraRoots/set` params — the session's team skills
+/// root (absolute; `<data_dir>/skills/<session>/.claude/skills`).
+pub fn skills_extra_roots_params(root: &std::path::Path) -> Value {
+    json!({ "extraRoots": [root.display().to_string()] })
+}
+
 /// `initialize` params. `optOutNotificationMethods` is the lever that keeps
 /// the ~35 notifications the engine would parse-and-drop off the wire
 /// entirely, `process/outputDelta` and `command/exec/outputDelta` included.
@@ -1186,6 +1192,12 @@ fn parse_range_start(range: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn skills_extra_roots_names_the_one_session_root() {
+        let params = skills_extra_roots_params(std::path::Path::new("/data/skills/s1/.claude/skills"));
+        assert_eq!(params, json!({ "extraRoots": ["/data/skills/s1/.claude/skills"] }));
+    }
 
     struct Discard;
     impl LineSink for Discard {

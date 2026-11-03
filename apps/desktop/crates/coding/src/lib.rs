@@ -90,6 +90,7 @@ pub mod wip_save;
 pub mod session_retention;
 pub mod settings;
 pub mod skill;
+pub mod team_skills;
 #[cfg(test)]
 pub(crate) mod test_support;
 pub mod token_cache;

@@ -90,6 +90,8 @@ pub fn run(args: &[String]) -> CommandResult {
 /// EXP-764 (daemon parity): a repo-less run is purged whole with the run —
 /// scratch dir, trust entries, record, journal. Shared with `run`.
 pub fn purge_scratch(ctx: &context::Ctx, session: &RunningSession) {
+    // #EXP-1658: the run's team skills folder goes with every run.
+    coding::team_skills::purge(&ctx.data_dir, &session.session_id);
     if coding::scratch::is_scratch_dir(&ctx.data_dir, &session.worktree) {
         let purged = coding::scratch::purge(
             &ctx.data_dir,

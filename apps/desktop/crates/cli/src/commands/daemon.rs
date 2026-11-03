@@ -641,6 +641,8 @@ fn run_daemon(args: &[String]) -> CommandResult {
             // scratch dir in that window keeps it (`scratch::purge`).
             let reaped_at = std::time::SystemTime::now();
             for (session_id, cleanup, worktree) in reaped {
+                // #EXP-1658: every ended run's team skills folder goes.
+                coding::team_skills::purge(&ctx.data_dir, &session_id);
                 match cleanup {
                     Some(cleanup) => {
                         // The record outlives a removal: a resume re-creates
@@ -1464,6 +1466,11 @@ fn sweep_scratch_dirs_now(ctx: &Ctx) {
     // journal: they are its transcript and its resume.
     live.extend(registry::recorded_ids(&ctx.data_dir));
     let report = coding::scratch::sweep(&ctx.data_dir, &live);
+    // #EXP-1658: ended runs' team skills folders.
+    let skills = coding::team_skills::sweep(&ctx.data_dir, &live);
+    if skills > 0 {
+        log::info!("skills sweep: removed {skills} folder(s)");
+    }
     // EXP-764: the purged runs' steer journals go with their records.
     for session_id in &report.purged {
         steer::remove_journal(&ctx.data_dir, session_id);

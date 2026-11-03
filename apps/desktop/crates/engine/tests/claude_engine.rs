@@ -120,6 +120,7 @@ fn adapter_spec(scenario: &str, work: &Path, session_id: &str, exit: ChildExitLi
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
         confine_to: None,
+        skills_dir: None,
         aside: false,
         exit,
     }
@@ -151,6 +152,7 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
             servers: Vec::new(),
             mcp_secrets: Default::default(),
             confine_to: None,
+            skills_dir: None,
         },
         tab_title: "claude · EXP-12".to_string(),
         tab_title_prefix: "EXP-12".to_string(),
@@ -163,6 +165,7 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
         codex_resume_id: None,
         launch_hold: None,
         mcp_pick: None,
+        skill_pick: None,
         audience: None,
     }
 }

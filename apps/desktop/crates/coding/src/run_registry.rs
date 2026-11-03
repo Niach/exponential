@@ -291,6 +291,47 @@ pub fn mcp_server_ids_extra(ids: &[String]) -> BTreeMap<String, serde_json::Valu
     extra
 }
 
+/// #EXP-1658: the [`RunRecord::extra`] key carrying the session's team skill
+/// pick the launch resolved (sorted ids). Rides `extra` like
+/// [`MCP_SERVER_IDS_KEY`], so an older host round-trips it untouched.
+pub const SKILL_IDS_KEY: &str = "skillIds";
+
+impl RunRecord {
+    /// #EXP-1658: the recorded skill ids (empty when none).
+    pub fn skill_ids(&self) -> Vec<String> {
+        self.extra
+            .get(SKILL_IDS_KEY)
+            .and_then(|value| value.as_array())
+            .map(|ids| {
+                ids.iter()
+                    .filter_map(|id| id.as_str())
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// #EXP-1658: record the pick; an empty one REMOVES the key.
+    pub fn set_skill_ids(&mut self, ids: &[String]) {
+        self.extra.remove(SKILL_IDS_KEY);
+        self.extra.extend(skill_ids_extra(ids));
+    }
+}
+
+/// #EXP-1658: the [`RunRecord::extra`] entries a skill pick writes (empty
+/// for an empty pick).
+pub fn skill_ids_extra(ids: &[String]) -> BTreeMap<String, serde_json::Value> {
+    let mut extra = BTreeMap::new();
+    if !ids.is_empty() {
+        extra.insert(
+            SKILL_IDS_KEY.to_string(),
+            serde_json::Value::Array(ids.iter().map(|id| serde_json::Value::String(id.clone())).collect()),
+        );
+    }
+    extra
+}
+
 /// EXP-792 (EXP-747 B7): the [`RunRecord::extra`] key carrying the run's
 /// agent ACCOUNT PROFILE id — a resume must reopen the SAME config dir
 /// (credentials, trust flags, codex rollouts). Absent on a legacy record

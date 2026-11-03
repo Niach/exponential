@@ -196,6 +196,7 @@ impl EngineSession {
             aside: false,
             // A replay never runs a tool.
             confine_to: None,
+            skills_dir: None,
             exit: child_exit.clone(),
         })?;
 
@@ -326,6 +327,8 @@ pub fn start(start: EngineStart, host: Arc<dyn EngineHost>) -> Result<EngineSess
         aside: is_aside_run(&start.data_dir, &start.prepared.session_id),
         // N-5 / NEW-5: a repo-less run is confined to its scratch dir.
         confine_to: acp.confine_to.clone(),
+        // #EXP-1658: the session's team skills.
+        skills_dir: acp.skills_dir.clone(),
         exit: child_exit.clone(),
     })?;
     start_with(

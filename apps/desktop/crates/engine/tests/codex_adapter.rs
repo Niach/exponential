@@ -172,6 +172,11 @@ impl FakeServer {
             .unwrap_or_default()
     }
 
+    /// Every method we were sent, in order.
+    fn seen(&self) -> Vec<String> {
+        self.state.lock().map(|state| state.seen.clone()).unwrap_or_default()
+    }
+
     fn answers(&self) -> Vec<Value> {
         self.state
             .lock()
@@ -350,6 +355,7 @@ fn spec() -> engine::adapters::AdapterSpec {
         context_layers: coding::ContextLayers::default(),
         name_conversation: false,
         confine_to: None,
+        skills_dir: None,
         aside: false,
         exit: engine::ChildExitLink::new(),
     }
@@ -1462,4 +1468,48 @@ async fn plan_mode_is_a_local_flag_never_sent_to_codex() {
 
     assert!(!watcher.saw("thread/settings/update"), "plan mode never reaches codex");
     assert_eq!(modes.lock().unwrap().first().map(String::as_str), Some("plan"));
+}
+
+/// #EXP-1658: the session's team skills folder reaches codex as ONE extra
+/// skills root (`<dir>/.claude/skills`), registered after the handshake and
+/// BEFORE `thread/start`; a run without skills never sends the call.
+#[tokio::test]
+async fn the_skills_folder_is_an_extra_root_before_the_thread_starts() {
+    let _session = one_session_at_a_time();
+    for skills_dir in [Some(PathBuf::from("/data/skills/row-1")), None] {
+        let (fake, connection) = FakeServer::new(Vec::new(), Vec::new(), Vec::new());
+        let agent = CodexAgent::with_connection(
+            engine::adapters::AdapterSpec { skills_dir: skills_dir.clone(), ..spec() },
+            connection,
+        );
+        Client
+            .builder()
+            .connect_with(agent, async move |cx: ConnectionTo<agent_client_protocol::Agent>| {
+                cx.send_request(
+                    InitializeRequest::new(ProtocolVersion::V1)
+                        .client_capabilities(ClientCapabilities::new()),
+                )
+                .block_task()
+                .await?;
+                cx.send_request(NewSessionRequest::new(PathBuf::from("/work/tree")))
+                    .block_task()
+                    .await?;
+                Ok(())
+            })
+            .await
+            .expect("the session opens");
+        let seen = fake.seen();
+        let set = seen.iter().position(|method| method == "skills/extraRoots/set");
+        if skills_dir.is_some() {
+            let set = set.expect("skills/extraRoots/set sent");
+            let start = seen.iter().position(|method| method == "thread/start").expect("thread/start");
+            assert!(set < start, "registered before the thread starts: {seen:?}");
+            assert_eq!(
+                fake.params_of("skills/extraRoots/set"),
+                vec![json!({ "extraRoots": ["/data/skills/row-1/.claude/skills"] })]
+            );
+        } else {
+            assert_eq!(set, None, "no skills, no call: {seen:?}");
+        }
+    }
 }
