@@ -26,12 +26,14 @@
     "./generated/*": "./generated/*",
     "./conformance/*": "./conformance/*",
     "./eval/*": "./eval/*",
+    "./skills/*": "./skills/*",
     "./motion": "./src/motion/index.ts",
     "./wasm/*": "./wasm/*",
     "./motion/server": "./src/motion/server.ts"
   },
   "scripts": {
     "generate": "bun run ./scripts/generate.ts",
+    "generate:skills": "bun run ./scripts/generate-skills.ts",
     "test": "bun test ./src ./conformance ./release ./eval",
     "conformance": "bun run ./conformance/run.ts",
     "typecheck": "tsc --noEmit",

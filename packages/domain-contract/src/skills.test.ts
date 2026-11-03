@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest"
 import fixture from "../fixtures/skills.json" with { type: "json" }
 import {
   agentSkillsValue,
+  canEditSkill,
+  isSkillFilePath,
+  skillPill,
   preselectSkillIds,
   skillsMenuValue,
   sortSkills,
@@ -43,5 +46,14 @@ describe(`skills.json (#EXP-1656)`, () => {
     expect(fixture.permissions.member.write).toBe(false)
     expect(fixture.permissions.phone.write).toBe(false)
     expect(fixture.permissions.phone.pick).toBe(true)
+  })
+  it.each(fixture.pillCases)(`pill: $name`, ({ skill, expected }) => {
+    expect(skillPill(skill)).toBe(expected)
+  })
+  it.each(fixture.editCases)(`edit: $name`, ({ skill, owner, expected }) => {
+    expect(canEditSkill(skill, owner)).toBe(expected)
+  })
+  it.each(fixture.filePathCases)(`file path: $name`, ({ path, expected }) => {
+    expect(isSkillFilePath(path)).toBe(expected)
   })
 })

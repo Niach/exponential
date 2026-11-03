@@ -470,3 +470,8 @@
   margin: 2rem 0 0;
   color: var(--sl-color-gray-3);
 }
+/* A link inside the copyright line is told apart by more than colour. */
+.exp-site-footer p a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

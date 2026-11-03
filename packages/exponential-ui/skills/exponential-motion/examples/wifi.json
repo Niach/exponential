@@ -1,0 +1,179 @@
+{
+  "size": [
+    64,
+    64
+  ],
+  "duration": 1600,
+  "fps": 60,
+  "layers": [
+    {
+      "type": "shape",
+      "id": "dot",
+      "transform": {},
+      "shapes": [
+        {
+          "type": "ellipse",
+          "position": [
+            32,
+            50
+          ],
+          "size": [
+            7,
+            7
+          ]
+        },
+        {
+          "type": "fill",
+          "color": "$color.primary"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "arc1",
+      "transform": {
+        "opacity": {
+          "keys": [
+            {
+              "t": 0,
+              "v": 25
+            },
+            {
+              "t": 200,
+              "v": 25,
+              "ease": "ease-out"
+            },
+            {
+              "t": 350,
+              "v": 100
+            },
+            {
+              "t": 1300,
+              "v": 100,
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1550,
+              "v": 25
+            },
+            {
+              "t": 1600,
+              "v": 25
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "path",
+          "d": "M23.5 41.5 A12 12 0 0 1 40.5 41.5"
+        },
+        {
+          "type": "stroke",
+          "color": "$color.primary",
+          "width": 5,
+          "cap": "round",
+          "join": "round"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "arc2",
+      "transform": {
+        "opacity": {
+          "keys": [
+            {
+              "t": 0,
+              "v": 25
+            },
+            {
+              "t": 500,
+              "v": 25,
+              "ease": "ease-out"
+            },
+            {
+              "t": 650,
+              "v": 100
+            },
+            {
+              "t": 1300,
+              "v": 100,
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1550,
+              "v": 25
+            },
+            {
+              "t": 1600,
+              "v": 25
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "path",
+          "d": "M16.4 34.4 A22 22 0 0 1 47.6 34.4"
+        },
+        {
+          "type": "stroke",
+          "color": "$color.primary",
+          "width": 5,
+          "cap": "round",
+          "join": "round"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "arc3",
+      "transform": {
+        "opacity": {
+          "keys": [
+            {
+              "t": 0,
+              "v": 25
+            },
+            {
+              "t": 800,
+              "v": 25,
+              "ease": "ease-out"
+            },
+            {
+              "t": 950,
+              "v": 100
+            },
+            {
+              "t": 1300,
+              "v": 100,
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1550,
+              "v": 25
+            },
+            {
+              "t": 1600,
+              "v": 25
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "path",
+          "d": "M9.4 27.4 A32 32 0 0 1 54.6 27.4"
+        },
+        {
+          "type": "stroke",
+          "color": "$color.primary",
+          "width": 5,
+          "cap": "round",
+          "join": "round"
+        }
+      ]
+    }
+  ]
+}
