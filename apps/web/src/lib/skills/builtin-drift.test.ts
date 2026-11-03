@@ -32,8 +32,8 @@ describe(`built-in skills (#VAPP-213)`, () => {
     expect(BUILTIN_SKILLS.editorDelivery.every((name) => BUILTIN_SKILLS.names.includes(name))).toBe(true)
   })
 
-  it(`the Motion examples are the guide page's gallery`, () => {
-    const page = readFileSync(resolve(import.meta.dirname, `../../../../marketing/ui/src/pages/guide-motion.tsx`), `utf8`)
+  it(`the Motion examples are the site's gallery`, () => {
+    const page = readFileSync(resolve(import.meta.dirname, `../../../../site/src/components/eui/trees.ts`), `utf8`)
     const gallery = [...page.matchAll(/eval\/motion\/fixtures\/dialect\/([a-z0-9-]+)\.json/g)].map((m) => m[1])
     expect(gallery).toEqual([...MOTION_GALLERY])
   })

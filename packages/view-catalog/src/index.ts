@@ -47,7 +47,7 @@ import catalogJson from "../views.json"
  * at twice the native runtime. The eight iPad frames Apple demands in a 13"
  * slot are an App Store concern only — the iOS Snapfile still runs the store
  * set on both simulators, and the ASO compositor
- * (`apps/marketing/scripts/store/raw-store.ts`) reads the `iPad…-<shot>.png`
+ * (`packages/store-shots/scripts/store/raw-store.ts`) reads the `iPad…-<shot>.png`
  * files straight out of fastlane's output. They never enter this store.
  */
 export type Platform = `web` | `web-mobile` | `desktop` | `ios` | `android`

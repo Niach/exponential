@@ -9,7 +9,7 @@ name: exponential-ui
 # the gpui painter on Linux, the SwiftUI painter on macOS against the
 # xcframework, the Compose painter under Robolectric against the host build
 # of the facade. Each job also compiles its exponential.at/ui guides from a
-# fresh project (`apps/marketing/ui/guides/check.ts`, VAPP-93). VAPP-103: the
+# fresh project (`packages/exponential-ui/guides/check.ts`, VAPP-93). VAPP-103: the
 # SwiftUI painter also builds and tests on an iOS Simulator (the UIKit paths)
 # with the KitchenSink example, and the Compose painter runs its instrumented
 # tests on an Android emulator. FEED-128: the Solid renderer runs the same
@@ -107,10 +107,10 @@ jobs:
       - name: Guides (React, agent, define, theme) from a fresh project
         if: ${{ !inputs.conformance_only }}
         run: |
-          bun apps/marketing/ui/guides/check.ts react
-          bun apps/marketing/ui/guides/check.ts agent
-          bun apps/marketing/ui/guides/check.ts define
-          bun apps/marketing/ui/guides/check.ts theme
+          bun packages/exponential-ui/guides/check.ts react
+          bun packages/exponential-ui/guides/check.ts agent
+          bun packages/exponential-ui/guides/check.ts define
+          bun packages/exponential-ui/guides/check.ts theme
       - name: Bench scenarios are generated and the ratchet's tests pass
         if: ${{ !inputs.conformance_only }}
         run: bun run --filter @exponential_app/eui-bench test
@@ -175,7 +175,7 @@ jobs:
         run: bunx vitest run --config vitest.browser.config.ts --exclude browser/suites.test.ts --exclude browser/parity.test.ts
       - name: Guide (Solid) from a fresh project
         if: ${{ !inputs.conformance_only }}
-        run: bun apps/marketing/ui/guides/check.ts solid
+        run: bun packages/exponential-ui/guides/check.ts solid
       - name: Bench (Solid, headless Chromium)
         if: ${{ !inputs.conformance_only }}
         env:
@@ -233,7 +233,7 @@ jobs:
         run: bun run --filter @exponential_app/eui-element test:browser browser/element.test.ts browser/standalone.test.ts
       - name: Guide (element) from a fresh project
         if: ${{ !inputs.conformance_only }}
-        run: bun apps/marketing/ui/guides/check.ts element
+        run: bun packages/exponential-ui/guides/check.ts element
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -311,7 +311,7 @@ jobs:
           bun packages/exponential-ui/release/size.ts crate --check
       - name: Guide (gpui) from a fresh project
         if: ${{ !inputs.conformance_only }}
-        run: bun apps/marketing/ui/guides/check.ts gpui
+        run: bun packages/exponential-ui/guides/check.ts gpui
       - name: Bench (the Rust core, release)
         if: ${{ !inputs.conformance_only }}
         env:
@@ -396,7 +396,7 @@ jobs:
         run: swift test
       - name: Guide (SwiftUI) from a fresh project
         if: ${{ !inputs.conformance_only }}
-        run: bun apps/marketing/ui/guides/check.ts swift
+        run: bun packages/exponential-ui/guides/check.ts swift
       - name: Bench (SwiftUI, macOS, release)
         if: ${{ !inputs.conformance_only }}
         env:
@@ -621,7 +621,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Guide (Compose) from a fresh project
         if: ${{ !inputs.conformance_only }}
-        run: bun apps/marketing/ui/guides/check.ts compose
+        run: bun packages/exponential-ui/guides/check.ts compose
       - name: Bench (Compose, JVM, Robolectric)
         if: ${{ !inputs.conformance_only }}
         env:

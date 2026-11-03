@@ -13,9 +13,9 @@
  *   bun run screenshots:social
  *
  * Writes raw PNGs (3200×2000, a 1600×1000 viewport at 2x) into
- * apps/marketing/social-shots/ — NOT committed (EXP-348: screenshots stay out
+ * packages/store-shots/social-shots/ — NOT committed (EXP-348: screenshots stay out
  * of git); the committed cards are composed from them by
- * apps/marketing/scripts/generate-social.tsx.
+ * packages/store-shots/scripts/generate-social.tsx (`bun run social:generate`).
  *
  * EXP-566: the browser engine and the three interactions this needs now live in
  * `lib/capture-web.ts` and `lib/view-recipes.ts`, shared with the catalog-driven
@@ -37,14 +37,14 @@ import { launchContext, login, settle, shot } from "./lib/capture-web"
 import { RECIPES, recipeContext } from "./lib/view-recipes"
 
 const HERE = dirname(fileURLToPath(import.meta.url))
-const OUT = resolve(HERE, `../../marketing/social-shots`)
+const OUT = resolve(HERE, `../../../packages/store-shots/social-shots`)
 const BASE = process.env.CAPTURE_BASE_URL ?? `https://localhost:3000`
 
 const T = `/t/${TEAM_SLUG}`
 
 interface SocialShot {
   /** Output file name, without the extension. These are load-bearing: the card
-   *  generator in apps/marketing reads them by name. */
+   *  generator in packages/store-shots reads them by name. */
   name: string
   /** Omitted = stay on the page the previous shot left behind. */
   route?: string

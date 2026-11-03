@@ -54,6 +54,7 @@ import {
   keyframesCss,
   resolveStyleValues,
   styleToCss,
+  readOnlyDisabledIds,
 } from "../src/index"
 import type { ChildTemplate, Decoded, ExtensionDef, FlatComponent, ModeName, NestedNode, UiNode, AppPackage } from "../src/index"
 import { conformanceManifest } from "../src/conformance"
@@ -689,6 +690,44 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
         await mount({ id: `a`, component: `Box`, style: { width: 40, height: 40, opacity: c.own, animation: c.animation } }, { theme: c.theme })
         const painted = await opacityAt(c.t)
         record(`animations`, `opacity: ${c.name}`, Math.abs(painted - c.expected) <= 1e-3, String(painted))
+      }
+      await context.close()
+    })
+
+    // VAPP-200: a read-only surface. The pass (root, then each lifted
+    // template by key), then the painted surface: every `inert` id paints
+    // disabled with `readOnly`, every `live` id enabled, and without it the
+    // `disabled` ids paint enabled.
+    await block(`read-only: the pass and the painted controls`, async () => {
+      const context = await browser.newContext({ viewport: { width: 1200, height: 900 }, deviceScaleFactor: 1 })
+      const page = await context.newPage()
+      await page.goto(url({ view: `mount` }))
+      await page.waitForFunction(() => typeof (window as unknown as XuiProbes).__xuiMount === `function`)
+      const mount = (tree: unknown, options: Record<string, unknown> = {}) => page.evaluate(([t, o]) => (window as unknown as XuiProbes).__xuiMount!(t as never, o as never), [tree, options] as const)
+      const inertOf = (ids: string[]) =>
+        page.evaluate((ids) => {
+          const sel = `:disabled, [data-disabled], [aria-disabled="true"], [data-xs~="disabled"]`
+          const out: Record<string, boolean | null> = {}
+          for (const id of ids) {
+            const el = document.querySelector<HTMLElement>(`[data-xui-id="${id}"]`)
+            out[id] = el ? el.matches(sel) || el.querySelector(sel) !== null : null
+          }
+          return out
+        }, ids)
+      for (const c of fixture(`read-only.json`).cases as { name: string; node: NestedNode; data?: Record<string, unknown>; disabled: string[]; inert: string[]; live: string[] }[]) {
+        const { root, templates } = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
+        const lifted = templates ?? {}
+        const ids = [...readOnlyDisabledIds(root!), ...Object.keys(lifted).sort().flatMap((k) => readOnlyDisabledIds(lifted[k]))]
+        if (canon(ids) !== canon(c.disabled)) {
+          record(`read-only`, c.name, `pass ${canon(ids)}`)
+          continue
+        }
+        await mount(c.node, { data: c.data, width: 600, readOnly: true })
+        const on = await inertOf([...c.inert, ...c.live])
+        await mount(c.node, { data: c.data, width: 600 })
+        const off = await inertOf(c.disabled)
+        const bad = [...c.inert.filter((id) => on[id] !== true).map((id) => `${id} not disabled`), ...c.live.filter((id) => on[id] !== false).map((id) => `${id} not live`), ...c.disabled.filter((id) => off[id] === true).map((id) => `${id} disabled without readOnly`)]
+        record(`read-only`, c.name, bad.length === 0, bad.join(`; `))
       }
       await context.close()
     })

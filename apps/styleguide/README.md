@@ -118,7 +118,7 @@ real Dock around it), **Trace** / **TraceItem**, **CodeBlock**, **ChoiceTiles**,
 [`https://exponential.at/ui/components/`](https://exponential.at/ui/components/),
 where it renders live through the SDK beside its four platform shots. Their
 per-platform status tables moved with them, verbatim, to
-`apps/marketing/ui/src/data/app-parity.ts`, one row per old id; the generic specs
+`apps/styleguide/src/data/app-parity.ts`, one row per old id; the generic specs
 the VAPP-88 merge dropped from here (list item, tooltip, hover card,
 collapsible, the menu family, the picker surface) were re-homed there too
 (VAPP-102). The view-catalog

@@ -589,7 +589,8 @@ The UI form is the `handoff` action: "Ask agent to follow up" in the Admin conso
 ### 9.2 Per-app policy
 
 - `app_access` none/read/write per member (✅).
-- ✅ (#VAPP-199) It is enforced in tRPC, the shapes (none = the app, its versions and its records never sync, so it is hidden from the Apps list ×4) and the clients' Data tab; an app's inputs paint disabled at read (#VAPP-200).
+- ✅ (#VAPP-199) It is enforced in tRPC, the shapes (none = the app, its versions and its records never sync, so it is hidden from the Apps list ×4) and the clients' Data tab.
+- ✅ (#VAPP-200) At `read` an app's own writing controls paint disabled ×4: eUI's `readOnly` surface setting (a node calling `records.*` or `actions.*`, a writing Form and its fields, a field without an action of its own; a `bind`/`set` view control stays live; fixture `read-only.json`, conformance suite `read-only`). The editor preview passes it from `appAccess.mine`, or from the Run as member's level.
 
 ### 9.3 Audit and attribution
 

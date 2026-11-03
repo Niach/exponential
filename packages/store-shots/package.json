@@ -1,0 +1,29 @@
+{
+  "name": "@exp/store-shots",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Dev-only picture tooling around exponential.at: the App Store / Play Store screenshot compositor, the social cards, the eApps concept pictures. Nothing it renders is committed except apps/site/public/{social,eapps}.",
+  "scripts": {
+    "screenshots:store": "bun scripts/store/render-store-screenshots.tsx",
+    "screenshots:pop-sidecars": "bun scripts/store/pop-sidecars.ts",
+    "social:generate": "bun scripts/generate-social.tsx",
+    "eapps:mocks": "bun scripts/eapps-mocks/capture.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.2",
+    "@resvg/resvg-js": "^2.6.2",
+    "@types/bun": "latest",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "playwright": "^1.54.2",
+    "satori": "^0.26.0",
+    "sharp": "^0.34.4",
+    "typescript": "^5.7.2"
+  }
+}

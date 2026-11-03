@@ -21,14 +21,17 @@ struct AppPreview: View {
     /// Release train 2026-10-25: the row's grants are about the HEAD
     /// package; an older version's preview runs with none (web alike).
     var grants = true
+    /// VAPP-200: the viewer's app access is `read`: the app's own writing
+    /// controls paint disabled (eUI `readOnly`).
+    var readOnly = false
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Apps.Preview.radius)
         ScrollView {
             Group {
                 if let packageJSON {
-                    AppPackageSurface(packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants)
-                        .id("\(grants):\(packageJSON)")
+                    AppPackageSurface(packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants, readOnly: readOnly)
+                        .id("\(grants):\(readOnly):\(packageJSON)")
                 } else {
                     EmptyState(title: Apps.Copy.previewEmpty, icon: AppIcons.navApps, size: .page)
                         .frame(maxWidth: .infinity, minHeight: 192)
@@ -54,6 +57,7 @@ private struct AppPackageSurface: View {
     let appId: String?
     let teamId: String?
     let grants: Bool
+    let readOnly: Bool
 
     #if canImport(ExponentialUI)
     @Environment(AppDependencies.self) private var deps
@@ -90,6 +94,7 @@ private struct AppPackageSurface: View {
             deps: deps,
             consent: consent,
             grants: grants,
+            readOnly: readOnly,
             onOpenIssue: { [pushRoute, accountId] issueId in
                 pushRoute(.issue(accountId: accountId, id: issueId))
             }

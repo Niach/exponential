@@ -21,6 +21,8 @@ import {
   themeOrDefault,
   mediaMatches,
   parseMediaCondition,
+  readOnlyTemplates,
+  readOnlyTree,
   resolveMode,
   stringTable,
   templateBudget,
@@ -84,6 +86,9 @@ export interface ExponentialSurfaceProps {
   timeZone?: string
   /** Built-in string overrides by id (`catalog/strings.json`). */
   strings?: Record<string, string>
+  /** VAPP-200: the viewer may read, not write (an app at app access
+   *  `read`): every writing control paints disabled (`readOnlyTree`). */
+  readOnly?: boolean
   host?: HostPlugin
   extensions?: readonly ReactExtension[]
   /** Forced interaction states on every node (the builder's recipe sheet). */
@@ -337,6 +342,7 @@ export function ExponentialSurface({
   locale = DEFAULT_LOCALE,
   timeZone,
   strings: stringOverrides,
+  readOnly = false,
   host,
   extensions: extensionsProp = EMPTY,
   states = EMPTY as unknown as readonly string[],
@@ -402,11 +408,13 @@ export function ExponentialSurface({
   // it changed.
   const lastTree = useRef<{ root: UiNode | null; templates: Readonly<Record<string, UiNode>> }>({ root: null, templates: NO_TEMPLATES })
   const rawRoot = surface ? surface.root : (rootProp ?? null)
-  const root = useMemo(() => (lastTree.current.root = share(lastTree.current.root, rawRoot)), [rawRoot])
+  // VAPP-200: a read-only surface disables its writing controls, root and
+  // lifted templates alike.
+  const root = useMemo(() => (lastTree.current.root = share(lastTree.current.root, readOnly && rawRoot ? readOnlyTree(rawRoot) : rawRoot)), [rawRoot, readOnly])
   // Round 2 §4: a data template's node comes from the reducer's LIFTED
   // `templates` (it is no longer in the tree, so never painted in place).
   const rawTemplates = (surface ? surface.templates : templatesProp) ?? NO_TEMPLATES
-  const templates = useMemo(() => (lastTree.current.templates = share(lastTree.current.templates, rawTemplates)), [rawTemplates])
+  const templates = useMemo(() => (lastTree.current.templates = share(lastTree.current.templates, readOnly ? readOnlyTemplates(rawTemplates) : rawTemplates)), [rawTemplates, readOnly])
   const templateNode = useCallback((componentId: string) => templates[componentId], [templates])
   const templateRoots = useMemo(() => Object.values(templates), [templates])
   // VAPP-103: past `maxTemplateItems` items or `maxComponents` nodes per

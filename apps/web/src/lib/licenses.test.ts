@@ -51,7 +51,7 @@ const inventory = (file: string): Inventory =>
 
 const rust = inventory(`rust.json`)
 const npmWeb = inventory(`npm-web.json`)
-const npmMarketing = inventory(`npm-marketing.json`)
+const npmSite = inventory(`npm-site.json`)
 const ios = inventory(`ios.json`)
 const android = inventory(`android.json`)
 
@@ -59,7 +59,7 @@ const android = inventory(`android.json`)
 const OUTPUTS = {
   desktop: `apps/desktop/assets/licenses/NOTICES.txt`,
   web: `apps/web/public/NOTICES.txt`,
-  marketing: `apps/marketing/public/NOTICES.txt`,
+  site: `apps/site/public/NOTICES.txt`,
   ios: `apps/ios/Exponential/Resources/NOTICES.txt`,
   android: `apps/android/app/src/main/assets/NOTICES.txt`,
 } as const
@@ -240,7 +240,7 @@ describe(`coverage — npm`, () => {
 
   const cases = [
     { scope: `apps/web`, inv: npmWeb },
-    { scope: `apps/marketing`, inv: npmMarketing },
+    { scope: `apps/site`, inv: npmSite },
   ]
 
   it.each(cases)(`$scope: the inventory IS bun.lock's production closure`, ({ scope, inv }) => {
@@ -272,7 +272,7 @@ describe(`coverage — npm`, () => {
     // EXP-1205: `shadcn` is the generator behind `bunx shadcn add`; nothing
     // imports it. Declared under `dependencies` of `@exp/ui` it dragged ~200
     // packages (msw, ts-morph, inquirer, ora, …) into both closures.
-    for (const inv of [npmWeb, npmMarketing]) {
+    for (const inv of [npmWeb, npmSite]) {
       expect(inv.components.map((c) => c.name)).not.toContain(`shadcn`)
     }
     const ui = lock.workspaces.get(`packages/ui`)!
@@ -507,7 +507,7 @@ describe(`notice sections`, () => {
   })
 
   it(`trademarks are in their own section, never under a licence heading`, () => {
-    for (const client of [`desktop`, `web`, `marketing`, `android`, `ios`] as const) {
+    for (const client of [`desktop`, `web`, `site`, `android`, `ios`] as const) {
       const trademarks = section(notices[client], `Trademarks`)
       if (!trademarks) continue
       expect(flat(trademarks), client).toContain(
@@ -533,14 +533,14 @@ describe(`notice sections`, () => {
 
   it(`non-OSS components are separated from the open-source aggregate`, () => {
     // docs/third-party-licences.md: iOS and Android carry Google's closed
-    // binaries, and web, marketing and desktop carry nothing — the section must
+    // binaries, and web, site and desktop carry nothing — the section must
     // be ABSENT rather than empty.
     for (const client of [`ios`, `android`] as const) {
       const commercial = section(notices[client], `Commercially licensed components`)
       expect(commercial, `${client} should have a commercial section`).toBeDefined()
       expect(flat(commercial!)).toContain(`NOT open source`)
     }
-    for (const client of [`desktop`, `web`, `marketing`] as const) {
+    for (const client of [`desktop`, `web`, `site`] as const) {
       // docs/third-party-licences.md: "the section should be absent rather
       // than empty". The two web packages that declare no licence at all
       // (@better-fetch/fetch, creem) are both MIT — see curated/overrides.ts.
@@ -569,7 +569,7 @@ describe(`notice sections`, () => {
   })
 
   it(`fonts reproduce the OFL wherever font binaries ship`, () => {
-    for (const client of [`desktop`, `marketing`] as const) {
+    for (const client of [`desktop`, `site`] as const) {
       const fonts = section(notices[client], `Bundled fonts`)
       expect(fonts, `${client} ships font binaries`).toBeDefined()
       expect(fonts).toContain(`SIL OPEN FONT LICENSE Version 1.1`)

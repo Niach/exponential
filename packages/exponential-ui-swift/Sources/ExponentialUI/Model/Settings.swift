@@ -39,8 +39,11 @@ public struct SurfaceSettings: Sendable, Equatable {
     /// The IANA zone instants format in (round 2 §3); nil = the device's.
     /// The surface's Formatter (`FoundationFormatter`) is built in it.
     public var timeZone: String?
+    /// VAPP-200: the viewer may read, not write (an app at app access
+    /// `read`): every writing control paints disabled.
+    public var readOnly: Bool
 
-    public init(locale: String = "en-US", strings: [String: String] = [:], mode: ModeSetting = .system, density: Density = .default, contrast: Contrast = .system, fontScale: Double? = nil, insets: EdgeInsets? = nil, hover: Bool? = nil, reducedMotion: Bool? = nil, today: String? = nil, hoverCloseMs: Int = 150, timeZone: String? = nil) {
+    public init(locale: String = "en-US", strings: [String: String] = [:], mode: ModeSetting = .system, density: Density = .default, contrast: Contrast = .system, fontScale: Double? = nil, insets: EdgeInsets? = nil, hover: Bool? = nil, reducedMotion: Bool? = nil, today: String? = nil, hoverCloseMs: Int = 150, timeZone: String? = nil, readOnly: Bool = false) {
         self.locale = locale
         self.strings = strings
         self.mode = mode
@@ -53,6 +56,7 @@ public struct SurfaceSettings: Sendable, Equatable {
         self.today = today
         self.hoverCloseMs = hoverCloseMs
         self.timeZone = timeZone
+        self.readOnly = readOnly
     }
 }
 
@@ -131,7 +135,8 @@ extension SurfaceSettings {
             insetLeft: Float(insets.leading),
             today: today ?? localToday(),
             hoverCloseMs: UInt32(max(0, hoverCloseMs)),
-            timeZone: timeZone ?? TimeZone.current.identifier
+            timeZone: timeZone ?? TimeZone.current.identifier,
+            readOnly: readOnly
         )
     }
 }

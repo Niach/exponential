@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-200: `SurfaceSettings.readOnly` (catalog/host.json `surface.settings`): a read-only surface (an app at app access `read`) paints every WRITING control as if its author had written `disabled: true`: a node whose `on.<event>` calls `records.*` or `actions.*` (a writing Form disables its fields and buttons), a form field with no action of its own; a field whose actions are all pure or host calls (`bind`, `set`) stays live. Pure `readOnlyTree` / `readOnlyTemplates` / `readOnlyDisables` / `readOnlyDisabledIds`; fixture `read-only.json`, new conformance suite `read-only` (every renderer replays it).
+
 ## 0.7.1 (2026-11-03)
 
 - #1744: `docs/package-format.md` and the fixtures use neutral example names.

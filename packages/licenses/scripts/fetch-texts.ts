@@ -112,7 +112,7 @@ writeFileSync(
 //
 // Inter and JetBrains Mono already have their upstream OFL reproduced in the
 // repo (apps/desktop/assets/fonts/), and the curated supplement points at those
-// files so there is exactly one copy of each. Geist is marketing-only and has
+// files so there is exactly one copy of each. Geist is site-only and has
 // no such file, so it is vendored here, pinned to an upstream commit.
 
 const FONTS = [

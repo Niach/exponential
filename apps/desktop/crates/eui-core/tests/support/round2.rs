@@ -431,3 +431,62 @@ pub fn animation_cases() -> Vec<Case> {
     }
     out
 }
+
+/// VAPP-200 `read-only.json`: the pure pass (root, then each lifted
+/// template by key), then a themed surface built with `read_only`: every
+/// `inert` id builds disabled, every `live` id enabled; off, the
+/// `disabled` ids build enabled.
+pub fn read_only_cases() -> Vec<Case> {
+    use std::collections::HashMap;
+    use eui_core::measure::FixedMeasure;
+    use eui_core::surface::{Surface, SurfaceOptions};
+    let f = fixture("read-only.json");
+    let core = ReduceOptions::new(CORE_CATALOG_ID);
+    arr(&f["cases"])
+        .iter()
+        .map(|c| {
+            case(c["name"].as_str().unwrap_or(""), || {
+                let node: NestedNode = serde_json::from_value(c["node"].clone()).map_err(|e| e.to_string())?;
+                let result = reduce_nested(&node, &core);
+                ensure(result.issues.is_empty(), || format!("issues {:?}", result.issues))?;
+                let mut ids = eui_core::read_only::disabled_ids(&result.root);
+                if let Some(templates) = &result.templates {
+                    let mut keys: Vec<&String> = templates.keys().collect();
+                    keys.sort();
+                    for k in keys {
+                        ids.extend(eui_core::read_only::disabled_ids(&templates[k]));
+                    }
+                }
+                same(&json!(ids), &c["disabled"])?;
+                let painted = |read_only: bool| -> HashMap<String, bool> {
+                    let mut surface = Surface::new("read-only", SurfaceOptions::default());
+                    surface.set_read_only(read_only);
+                    surface.set_nested(node.clone());
+                    if let Some(data) = c.get("data").and_then(Value::as_object) {
+                        for (k, v) in data {
+                            let _ = surface.set_data(&format!("/{k}"), Some(v.clone()));
+                        }
+                    }
+                    surface.set_viewport(600.0, 0.0, None);
+                    surface.layout(&mut FixedMeasure { sizes: HashMap::new(), wrap: true });
+                    surface.nodes().into_iter().filter(|n| n.part.is_none() && n.owner.is_none()).map(|n| (n.id.clone(), n.props.get("disabled") == Some(&Value::Bool(true)))).collect()
+                };
+                let on = painted(true);
+                for id in arr(&c["inert"]) {
+                    let id = id.as_str().unwrap_or("");
+                    ensure(on.get(id) == Some(&true), || format!("{id} is not disabled"))?;
+                }
+                for id in arr(&c["live"]) {
+                    let id = id.as_str().unwrap_or("");
+                    ensure(on.get(id) == Some(&false), || format!("{id} is not live"))?;
+                }
+                let off = painted(false);
+                for id in arr(&c["disabled"]) {
+                    let id = id.as_str().unwrap_or("");
+                    ensure(off.get(id) != Some(&true), || format!("{id} is disabled without readOnly"))?;
+                }
+                Ok(())
+            })
+        })
+        .collect()
+}

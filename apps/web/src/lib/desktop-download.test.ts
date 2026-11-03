@@ -7,7 +7,7 @@ import {
 
 // Asset names are a three-way contract: build-desktop.yml publishes them, the
 // desktop self-updater (updater::expected_asset_name) downloads them, and
-// these links (plus apps/marketing links.ts) point users at them.
+// these links (plus apps/site/src/components/landing/links.ts) point users at them.
 describe(`desktopDownloadHref`, () => {
   it(`maps macOS user agents to the .dmg`, () => {
     expect(

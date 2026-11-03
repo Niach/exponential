@@ -361,6 +361,10 @@ pub struct SurfaceSettings {
     /// and raises [`OutEvent::HoverTimer`]; the host calls
     /// [`Surface::hover_timeout`] when it fires.
     pub hover_close_ms: u32,
+    /// VAPP-200: the viewer may read, not write (an app at app access
+    /// `read`): every writing control builds as `disabled: true`
+    /// ([`crate::read_only`], `fixtures/read-only.json`).
+    pub read_only: bool,
 }
 
 impl Default for SurfaceSettings {
@@ -379,6 +383,7 @@ impl Default for SurfaceSettings {
             insets: Insets::default(),
             today: None,
             hover_close_ms: 0,
+            read_only: false,
         }
     }
 }
@@ -772,6 +777,10 @@ impl Surface {
             self.strings = crate::strings::string_table(&s.strings);
             self.needs_build = true;
         }
+        if old.read_only != s.read_only {
+            self.needs_build = true;
+            self.restyle_all = true;
+        }
         if old.locale != s.locale || old.today != s.today {
             self.needs_build = true;
             self.restyle_all = true;
@@ -790,6 +799,13 @@ impl Surface {
         if old.insets != s.insets {
             self.engine.mark_all_dirty();
         }
+    }
+
+    /// VAPP-200: a read-only surface (every writing control disabled).
+    pub fn set_read_only(&mut self, on: bool) {
+        let mut s = self.settings.clone();
+        s.read_only = on;
+        self.set_settings(s);
     }
 
     pub fn set_locale(&mut self, locale: &str) {

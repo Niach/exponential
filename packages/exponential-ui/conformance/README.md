@@ -43,6 +43,7 @@ replays them byte for byte.
 | `virtual-list` | `virtual-list.json` | the window, scrollToIndex (sectioned: data index → row), sections, the sticky header |
 | `animations` | `animations.json` | timing + frames per theme within 1e-3; painted opacity = own × frame |
 | `pointer` | `pointer.json` | a pointer write lands and reads back (`-` appends, reads the last element) or is refused unchanged; reads |
+| `read-only` | `read-only.json` | the read-only pass disables exactly `disabled`; painted with `readOnly` (VAPP-200): `inert` ids disabled, `live` ids enabled, and without it `disabled` ids enabled |
 
 `manifest.json` says how each count is derived (`unit`). A renderer built on
 the Rust core (the facade, `exponential-ui-ffi`) gets the pure suites through

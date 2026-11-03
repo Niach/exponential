@@ -2,7 +2,6 @@ FROM oven/bun:1.3.10-alpine AS builder
 WORKDIR /app
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/web/package.json apps/web/package.json
-COPY apps/marketing/package.json apps/marketing/package.json
 COPY apps/site/package.json apps/site/package.json
 COPY apps/push-relay/package.json apps/push-relay/package.json
 COPY packages/db-schema/package.json packages/db-schema/package.json
@@ -28,7 +27,7 @@ COPY packages/tsconfig/package.json packages/tsconfig/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/widget/package.json packages/widget/package.json
 COPY apps/styleguide/package.json apps/styleguide/package.json
-COPY packages/site-shell/package.json packages/site-shell/package.json
+COPY packages/store-shots/package.json packages/store-shots/package.json
 COPY packages/view-catalog/package.json packages/view-catalog/package.json
 COPY packages/shots/package.json packages/shots/package.json
 RUN bun install --frozen-lockfile
@@ -47,7 +46,6 @@ COPY --from=builder /app/apps/web/package.json apps/web/package.json
 COPY --from=builder /app/package.json .
 COPY --from=builder /app/bun.lock .
 COPY --from=builder /app/bunfig.toml .
-COPY --from=builder /app/apps/marketing/package.json apps/marketing/package.json
 COPY --from=builder /app/apps/site/package.json apps/site/package.json
 COPY --from=builder /app/apps/push-relay/package.json apps/push-relay/package.json
 COPY --from=builder /app/apps/steer-relay/package.json apps/steer-relay/package.json
@@ -56,10 +54,10 @@ COPY --from=builder /app/packages packages
 # EXP-380: scoped to @exp/web on purpose. Unfiltered, this reinstalled the ENTIRE
 # workspace into the published image, so every recipient would receive the other
 # apps' dependencies too (and the licence inventory would have to cover them; see
-# docs/third-party-licences.md). The web app imports none of them; marketing is a
-# separately built and separately deployed Vite site. The filter keeps drizzle-kit
+# docs/third-party-licences.md). The web app imports none of them; the site is a
+# separately built and separately deployed Astro site. The filter keeps drizzle-kit
 # and the workspace packages the boot-time migrate needs.
-# The marketing/push-relay/steer-relay package.json COPYs above must stay even so
+# The site/push-relay/steer-relay package.json COPYs above must stay even so
 # — --frozen-lockfile validates the full workspace set and fails if one is absent.
 RUN bun install --frozen-lockfile --filter '@exp/web'
 RUN touch apps/web/.env

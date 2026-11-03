@@ -200,6 +200,7 @@ final class ExpAppHost {
         deps: AppDependencies,
         consent: AppConsentGate,
         grants: Bool = true,
+        readOnly: Bool = false,
         onOpenIssue: @escaping (String) -> Void
     ) {
         self.consent = consent
@@ -375,6 +376,8 @@ final class ExpAppHost {
             ),
             theme: ThemeHandle.builtin(appHostThemeId),
             mode: .dark,
+            // VAPP-200: at app access `read` every surface is read-only.
+            settings: readOnly ? SurfaceSettings(mode: .dark, readOnly: true) : nil,
             plugin: AppHostPlugin(origin: origin ?? ""),
             // VAPP-194: a package action runs as the viewer; one that landed
             // nothing = the failed-action toast. VAPP-201 (team-zone.json):

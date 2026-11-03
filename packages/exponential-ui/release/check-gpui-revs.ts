@@ -3,8 +3,8 @@
 //   apps/desktop/Cargo.toml + Cargo.lock        (the workspace the painter builds in)
 //   apps/desktop/crates/app/tests/pinned_revs.rs (the cargo-side lock gate)
 //   apps/desktop/crates/eui-gpui/README.md (the consumer policy table)
-//   apps/marketing/ui/guides/gpui/Cargo.toml + Cargo.lock (the third-party guide app)
-//   apps/marketing/ui/src/pages/Guide.tsx       (the install snippet on exponential.at/ui)
+//   packages/exponential-ui/guides/gpui/Cargo.toml + Cargo.lock (the third-party guide app)
+//   apps/site/src/content/docs/docs/libraries/eui/guides/gpui.mdx (the install snippet on exponential.at)
 // plus the rust toolchain of both,
 // and both consumers carry the ztracing [patch]. Text only, no cargo: it runs
 // in the test.yml gate.
@@ -96,10 +96,10 @@ function checkMentions(path: string, required: { zed: boolean; component: boolea
 if (SHA.test(zedRev) && SHA.test(componentRev)) {
   checkManifest(`apps/desktop/Cargo.toml`)
   checkLock(`apps/desktop/Cargo.lock`)
-  checkManifest(`apps/marketing/ui/guides/gpui/Cargo.toml`)
-  checkLock(`apps/marketing/ui/guides/gpui/Cargo.lock`)
+  checkManifest(`packages/exponential-ui/guides/gpui/Cargo.toml`)
+  checkLock(`packages/exponential-ui/guides/gpui/Cargo.lock`)
   checkMentions(`apps/desktop/crates/app/tests/pinned_revs.rs`, { zed: true, component: true })
-  checkMentions(`apps/marketing/ui/src/pages/Guide.tsx`, { zed: true, component: true })
+  checkMentions(`apps/site/src/content/docs/docs/libraries/eui/guides/gpui.mdx`, { zed: true, component: true })
 }
 
 // The compiler the pinned gpui needs: `| rust | \`1.96.0\` |`.
@@ -109,7 +109,7 @@ const rust = read(README)
   ?.match(/`([0-9.]+)`/)?.[1]
 if (!rust) fail(README, `no "| rust | \`<version>\` |" row in the gpui revision table`)
 else
-  for (const path of [`apps/desktop/rust-toolchain.toml`, `apps/marketing/ui/guides/gpui/rust-toolchain.toml`]) {
+  for (const path of [`apps/desktop/rust-toolchain.toml`, `packages/exponential-ui/guides/gpui/rust-toolchain.toml`]) {
     const channel = read(path).match(/^channel = "([^"]+)"/m)?.[1]
     if (channel !== rust) fail(path, `toolchain ${channel} is not the pinned rust ${rust}`)
   }

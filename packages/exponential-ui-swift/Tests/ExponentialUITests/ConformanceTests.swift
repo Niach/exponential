@@ -74,6 +74,42 @@ final class ConformanceTests: XCTestCase {
         return missing.isEmpty ? nil : "not painted: \(missing.prefix(5).map(\.id))"
     }
 
+    /// VAPP-200 `read-only.json`: the case built through THIS painter's
+    /// settings (`SurfaceSettings.readOnly` → the core): with it, every
+    /// `disabled` and `inert` id builds disabled and every `live` id enabled;
+    /// without it, the `disabled` ids build enabled.
+    func readOnlySuite() throws -> [Case] {
+        try (Fixtures.json("read-only.json")["cases"]?.array ?? []).map { c in
+            run(c["name"]?.string ?? "") {
+                @MainActor func built(_ readOnly: Bool) throws -> [String: Bool] {
+                    var o = SurfaceOptions(catalogId: coreCatalogId())
+                    o.theme = nil
+                    o.mode = .light
+                    o.settings = SurfaceSettings(mode: .light, readOnly: readOnly)
+                    let m = try SurfaceModel(id: "read-only", options: o, host: NoHost())
+                    try m.setNested(json: c["node"]!.json)
+                    for (k, v) in c["data"]?.object ?? [:] { m.setData(path: "/\(k)", value: v) }
+                    _ = m.surface.setViewport(width: 600, height: 0, maxHeight: nil)
+                    _ = try m.surface.layoutFixed(sizesJson: nil, wrap: true)
+                    var out: [String: Bool] = [:]
+                    for n in m.surface.nodes() where n.part == nil && n.owner == nil {
+                        out[n.id] = JSONValue.parse(n.propsJson).object?["disabled"]?.bool == true
+                    }
+                    return out
+                }
+                let on = try built(true)
+                let off = try built(false)
+                func ids(_ key: String) -> [String] { (c[key]?.array ?? []).compactMap { $0.string } }
+                var bad: [String] = []
+                bad += ids("disabled").filter { on[$0] != nil && on[$0] != true }.map { "\($0) not disabled" }
+                bad += ids("inert").filter { on[$0] != true }.map { "\($0) not disabled" }
+                bad += ids("live").filter { on[$0] != false }.map { "\($0) not live" }
+                bad += ids("disabled").filter { off[$0] == true }.map { "\($0) disabled without readOnly" }
+                return bad.isEmpty ? nil : bad.joined(separator: "; ")
+            }
+        }
+    }
+
     // MARK: - suites
 
     func catalogSuite() throws -> [Case] {
@@ -523,6 +559,7 @@ final class ConformanceTests: XCTestCase {
         case "virtual-list": try Round2Suites.virtualList()
         case "animations": try Round2Suites.animations()
         case "pointer": try Round2Suites.pointer()
+        case "read-only": try readOnlySuite()
         case "text-shimmer": try Round2Suites.textShimmer()
         case "text-clusters": try Round2Suites.textClusters()
         default: [("suite \(id)", "the runner does not know the suite \(id): add it")]

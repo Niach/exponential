@@ -17,7 +17,7 @@
 // the rules, functions and style sections every model gets), the built-in
 // themes, the Motion guide (eval/motion/guide.md + lottie-guide.md, the
 // text models get) and the Motion gallery (the 8 recorded replies the guide
-// page shows, apps/marketing/ui/src/pages/guide-motion.tsx). Components are
+// page shows, apps/site/src/components/eui/trees.ts). Components are
 // NOT inlined: the skills point to exponential_apps {op: "catalog"}.
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"

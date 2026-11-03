@@ -15,7 +15,7 @@ surface appears.
 Every image the repo builds runs its published `bun install` with
 `--filter '<its workspace>'` (`@exp/web`, `@exp/steer-relay`,
 `@exp/push-relay`). Unfiltered, the install pulls in every other workspace's
-production dependencies — marketing, the styleguide, the shots pipeline — and
+production dependencies — the site, the styleguide, the shots pipeline — and
 hands them to whoever pulls the image, including the self-hosters of the public
 `ghcr.io/niach/exponential-web` and `ghcr.io/niach/exponential-steer-relay`
 images. None of those apps' code runs in an image, and the per-client notices
@@ -157,8 +157,8 @@ that were never granted.
 - **Android** (`apps/android/app/src/main/assets/NOTICES.txt`) — the ten
   proprietary Google artifacts tabulated above, under the Play Core SDK Terms of
   Service and the Android SDK License.
-- **Web** (`apps/web/public/NOTICES.txt`), **marketing**
-  (`apps/marketing/public/NOTICES.txt`) and **desktop** — nothing from this
+- **Web** (`apps/web/public/NOTICES.txt`), **site**
+  (`apps/site/public/NOTICES.txt`) and **desktop** — nothing from this
   file, and the section should be absent rather than empty.
 
 This sits alongside, and follows the same rule as, EXP-375's trademarks section:

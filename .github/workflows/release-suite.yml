@@ -11,7 +11,7 @@ name: release-suite
 # and package tests (`extras`), the real-DB suites (in `migrations`, on its
 # service Postgres; a not-ready DB fails them), the feedback-widget
 # Playwright e2e on the compose dev stack (`e2e`), the push-relay
-# image smoke build, marketing + styleguide builds + shots:check, the full
+# image smoke build, site + styleguide builds + shots:check, the full
 # desktop cargo test + Rust licence inventory (+ the engine's macOS-only
 # confine cases on the Mac, the coding crate's long-path removal on
 # Windows), the desktop fuzz targets (short
@@ -133,23 +133,34 @@ jobs:
           cache-to: type=gha,mode=max,scope=push-relay
 
 
-  marketing:
+  site:
     needs: [dedupe, pick]
     if: needs.dedupe.outputs.run == 'true'
-    # REV2-62: nothing else in CI typechecks or builds apps/marketing — its
-    # breaks used to surface only at Coolify deploy time. `build` also runs
-    # scripts/prerender.tsx, the Bun SSR prerender of every page.
-    runs-on: ubuntu-latest
+    # exponential.at (apps/site): the same Astro build + Chromium paint check
+    # as test.yml's `site` job, on every release regardless of paths — the
+    # site deploys straight from Coolify, so this is its pre-deploy gate.
+    runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - name: Build marketing site
-        run: bun run build:marketing
-      - name: Chromium for the built-site Motion check (motion-paint.test.ts)
-        run: cd apps/marketing && bunx playwright install --with-deps chromium
-      - name: Exponential UI section tests (/ui/, after the build so the built-CSP and Motion paint checks run)
-        run: bun --filter @exp/marketing test
+      - name: Site tests
+        run: bun --filter @exp/site test
+      - name: Build site
+        run: bun run build:site
+      - name: Chromium for the paint check
+        run: bunx playwright install --with-deps chromium
+      - name: Paint check
+        run: |
+          bun run apps/site/scripts/serve.ts 4391 &
+          bun run apps/site/scripts/paint-check.ts http://localhost:4391 /tmp/site-shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site-shots
+          path: /tmp/site-shots
+          retention-days: 14
+          if-no-files-found: ignore
       - name: Build styleguide
         # EXP-566: same rationale — the styleguide deploys straight from Coolify,
         # so its only pre-deploy gate is here.

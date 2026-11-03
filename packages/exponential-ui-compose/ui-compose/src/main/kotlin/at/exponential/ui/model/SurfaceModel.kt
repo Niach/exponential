@@ -106,6 +106,8 @@ data class SurfaceSettings(
     val hoverCloseMs: Int = 0,
     /** The formatter; null = [IcuFormatter] in the locale and time zone. */
     val formatter: HostFormatter? = null,
+    /** VAPP-200: the viewer may read, not write (an app at app access `read`): every writing control paints disabled. */
+    val readOnly: Boolean = false,
 )
 
 /** Safe-area insets in dp. */
@@ -448,6 +450,7 @@ class SurfaceModel(
             today = st.today,
             hoverCloseMs = st.hoverCloseMs.coerceAtLeast(0).toUInt(),
             timeZone = zone,
+            readOnly = st.readOnly,
         )
         val key = "$locale|$zone|${System.identityHashCode(st.formatter)}"
         var changed = false
