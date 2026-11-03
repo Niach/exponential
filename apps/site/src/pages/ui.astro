@@ -30,7 +30,7 @@ const cases = manifest.suites.reduce((n, s) => n + s.cases, 0).toLocaleString(`e
   }}
 >
   <h2>Native on every platform</h2>
-  <PlatformShots view="exponential-ui-demo" platforms={[`ios`, `android`]} />
+  <PlatformShots view="exponential-ui-demo" platforms={[`ios`, `android`]} eager />
 
   <h2>HTML at build time</h2>
   <div class="exp-live">
