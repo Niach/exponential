@@ -885,7 +885,7 @@ pub const SHAPES: [ShapeSpec; 34] = [
         // `body` column: the SKILL.md body stays server-only (tRPC
         // `skills.get`; the running device gets it from
         // `skills.resolveForLaunch`).
-        columns: &["id", "team_id", "name", "description", "enabled_by_default", "created_by_id", "created_at", "updated_at"],
+        columns: &["id", "team_id", "name", "description", "enabled_by_default", "builtin", "created_by_id", "created_at", "updated_at"],
         pk: PkKind::Id,
     },
 ];
@@ -1068,7 +1068,7 @@ mod tests {
         // #EXP-1656: skills sync body-less (apps/web routes/api/shapes/skills.ts).
         assert_eq!(
             shape_by_name("skills").unwrap().columns,
-            &["id", "team_id", "name", "description", "enabled_by_default", "created_by_id", "created_at", "updated_at"]
+            &["id", "team_id", "name", "description", "enabled_by_default", "builtin", "created_by_id", "created_at", "updated_at"]
         );
         let sessions = shape_by_name("sessions").unwrap();
         assert!(sessions.columns.contains(&"agent_id"));

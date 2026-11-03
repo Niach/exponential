@@ -35,6 +35,7 @@
 import { ASSISTANT_COPY, assistantScheduleTriggers } from "@exp/domain-contract/agent-settings"
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
+import { seedBuiltinSkills } from "@/lib/skills/builtin"
 import { storeOauthTokens } from "@/lib/emcp/upstream/credentials"
 import {
   accounts,
@@ -2791,6 +2792,9 @@ async function main() {
       },
     ])
     .returning()
+  // #VAPP-213: and the built-ins every team holds (the server seeds them on
+  // team create and boot; this seed inserts the team directly).
+  await seedBuiltinSkills(db, [ws.id])
 
   // A teammate's headless `exponential` server shared with the team (EXP-432),
   // so the Agents page renders its "Team machines" section and a Shared badge

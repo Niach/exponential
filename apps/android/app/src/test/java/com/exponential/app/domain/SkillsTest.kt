@@ -12,7 +12,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// #EXP-1661: team skills, replayed off `skills.json` (web `skills.test.ts`,
+// #EXP-1661 (+ #VAPP-213 built-ins): team skills, replayed off `skills.json` (web `skills.test.ts`,
 // same case names).
 class SkillsTest {
     private val fixture: JsonObject = Json.parseToJsonElement(contractFixtureJson("skills.json")).jsonObject
@@ -54,6 +54,46 @@ class SkillsTest {
         for (case in cases("agentValueCases")) {
             assertEquals(case.string("name"), case.string("expected"), agentSkillsValue(case.strings("names")))
         }
+    }
+
+    @Test
+    fun `pillCases replay`() {
+        for (case in cases("pillCases")) {
+            val skill = case.getValue("skill").jsonObject
+            val expected = case.getValue("expected").let { if (it is JsonNull) null else it.jsonPrimitive.content }
+            assertEquals(
+                case.string("name"),
+                expected,
+                skillPill(skill.getValue("builtin").jsonPrimitive.boolean, skill.getValue("enabledByDefault").jsonPrimitive.boolean),
+            )
+        }
+    }
+
+    @Test
+    fun `editCases replay`() {
+        for (case in cases("editCases")) {
+            val builtin = case.getValue("skill").jsonObject.getValue("builtin").jsonPrimitive.boolean
+            assertEquals(
+                case.string("name"),
+                case.getValue("expected").jsonPrimitive.boolean,
+                canEditSkill(builtin, case.getValue("owner").jsonPrimitive.boolean),
+            )
+        }
+    }
+
+    @Test
+    fun `filePathCases replay`() {
+        for (case in cases("filePathCases")) {
+            assertEquals(case.string("name"), case.getValue("expected").jsonPrimitive.boolean, isSkillFilePath(case.string("path")))
+        }
+    }
+
+    @Test
+    fun `the built-ins match the fixture`() {
+        val builtin = fixture.getValue("builtin").jsonObject
+        assertEquals(builtin.strings("names"), Skills.BUILTIN_NAMES)
+        assertEquals(builtin.strings("editorDelivery"), Skills.BUILTIN_EDITOR_DELIVERY)
+        assertEquals(builtin.string("pill"), Skills.BUILTIN_PILL)
     }
 
     @Test

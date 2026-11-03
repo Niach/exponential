@@ -18,6 +18,8 @@ data class SkillDto(
     val name: String = "",
     val description: String = "",
     val enabledByDefault: Boolean = false,
+    /** #VAPP-213: a built-in (read-only, served from the shipped set). */
+    val builtin: Boolean = false,
     val body: String = "",
     val createdAt: String = "",
     val updatedAt: String = "",
@@ -44,4 +46,4 @@ class SkillsApi @Inject constructor(private val trpc: TrpcClient) {
 
 /** A synced row as the pickers' [SkillOption]. */
 fun SkillEntity.toSkillOption(): SkillOption =
-    SkillOption(id = id, name = name, description = description, enabledByDefault = enabledByDefault)
+    SkillOption(id = id, name = name, description = description, enabledByDefault = enabledByDefault, builtin = builtin)

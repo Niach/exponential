@@ -4,7 +4,8 @@ import XCTest
 
 // #EXP-1661: team skills on the phone, locked ×4 against fixtures/skills.json
 // (TS `skills.test.ts`): sort, preselect, the + menu value, the agent row
-// value, and the copy + test ids the read-only pages show.
+// value, the copy + test ids the read-only pages show, and the built-ins'
+// pill, edit rule and file paths (#VAPP-213).
 final class SkillsTests: XCTestCase {
     private func fixture() throws -> [String: Any] {
         let url = URL(fileURLWithPath: #filePath)
@@ -66,6 +67,54 @@ final class SkillsTests: XCTestCase {
         for c in cases {
             let names = try XCTUnwrap(c["names"] as? [String])
             XCTAssertEqual(Skills.agentSkillsValue(names), c["expected"] as? String, c["name"] as? String ?? "")
+        }
+    }
+
+    // #VAPP-213: the built-in names, their editor delivery order and the pill.
+    func testBuiltinMatchesTheFixture() throws {
+        let builtin = try XCTUnwrap(try fixture()["builtin"] as? [String: Any])
+        XCTAssertEqual(Skills.Builtin.names, builtin["names"] as? [String])
+        XCTAssertEqual(Skills.Builtin.editorDelivery, builtin["editorDelivery"] as? [String])
+        XCTAssertEqual(Skills.Builtin.pill, builtin["pill"] as? String)
+    }
+
+    func testPillCases() throws {
+        let cases = try XCTUnwrap(try fixture()["pillCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let row = try XCTUnwrap(c["skill"] as? [String: Any])
+            // JSON null = no pill.
+            XCTAssertEqual(
+                Skills.skillPill(
+                    builtin: row["builtin"] as? Bool ?? false,
+                    enabledByDefault: row["enabledByDefault"] as? Bool ?? false
+                ),
+                c["expected"] as? String,
+                c["name"] as? String ?? ""
+            )
+        }
+    }
+
+    func testEditCases() throws {
+        let cases = try XCTUnwrap(try fixture()["editCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let row = try XCTUnwrap(c["skill"] as? [String: Any])
+            let owner = try XCTUnwrap(c["owner"] as? Bool)
+            XCTAssertEqual(
+                Skills.canEditSkill(builtin: row["builtin"] as? Bool ?? false, owner: owner),
+                try XCTUnwrap(c["expected"] as? Bool),
+                c["name"] as? String ?? ""
+            )
+        }
+    }
+
+    func testFilePathCases() throws {
+        let cases = try XCTUnwrap(try fixture()["filePathCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let path = try XCTUnwrap(c["path"] as? String)
+            XCTAssertEqual(Skills.isSkillFilePath(path), try XCTUnwrap(c["expected"] as? Bool), c["name"] as? String ?? "")
         }
     }
 
