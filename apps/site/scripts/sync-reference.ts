@@ -23,6 +23,13 @@ export interface ReferenceSource {
   transform?: (markdown: string) => string
 }
 
+/** A page a list builds itself (e.g. one per eUI component, from JSON):
+ *  `file` is relative to src/content/docs and ends in `.gen.md` or `.gen.mdx`. */
+export interface GeneratedPage {
+  file: string
+  content: string
+}
+
 /** The source minus its H1, with repo-relative links made absolute. */
 export function toPage(entry: ReferenceSource, markdown: string): string {
   let body = markdown.replace(/^# .*\n+/, ``)
@@ -47,7 +54,7 @@ function generated(dir: string): string[] {
   return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
     const path = join(dir, e.name)
     if (e.isDirectory()) return generated(path)
-    return e.name.endsWith(`.gen.md`) ? [path] : []
+    return /\.gen\.mdx?$/.test(e.name) ? [path] : []
   })
 }
 
@@ -55,12 +62,18 @@ if (import.meta.main) {
   for (const file of generated(DOCS)) rmSync(file)
   const lists = readdirSync(join(SITE, `scripts/reference`)).filter((f) => f.endsWith(`.ts`))
   for (const list of lists) {
-    const { REFERENCE } = (await import(join(SITE, `scripts/reference`, list))) as { REFERENCE: ReferenceSource[] }
+    const { REFERENCE = [], PAGES = [] } = (await import(join(SITE, `scripts/reference`, list))) as { REFERENCE?: ReferenceSource[]; PAGES?: GeneratedPage[] }
     for (const entry of REFERENCE) {
       const out = join(DOCS, `${entry.slug}.gen.md`)
       mkdirSync(dirname(out), { recursive: true })
       writeFileSync(out, toPage(entry, readFileSync(join(REPO, entry.source), `utf8`)))
       console.log(`reference: ${entry.source} → /${entry.slug}/`)
     }
+    for (const page of PAGES) {
+      const out = join(DOCS, page.file)
+      mkdirSync(dirname(out), { recursive: true })
+      writeFileSync(out, page.content)
+    }
+    if (PAGES.length) console.log(`reference: ${PAGES.length} generated page(s) from ${list}`)
   }
 }
