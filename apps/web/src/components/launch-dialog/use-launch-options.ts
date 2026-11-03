@@ -5,7 +5,9 @@ import {
   agentSupportsUltracode,
   DEFAULT_LAUNCH_AGENT,
   loadMcpServerPick,
+  loadSkillPick,
   saveMcpServerPick,
+  saveSkillPick,
   type CodingLaunchPrefs,
 } from "@/lib/coding-launch-prefs"
 import {
@@ -13,6 +15,7 @@ import {
   preselectMcpServerIds,
   type McpServerRow,
 } from "@/lib/mcp-servers"
+import { preselectSkillIds } from "@exp/domain-contract/skills"
 import { resolveLaunchDeviceId } from "@/lib/launch-device"
 import {
   deviceAgentIds,
@@ -84,6 +87,12 @@ export interface LaunchOptions {
   mcpServerIds: string[]
   setMcpServerIds: (ids: string[]) => void
   toggleMcpServer: (id: string) => void
+  /** #EXP-1659: the picked team skills (row ids, list order), seeded once
+   * per open like the MCP pick (skills.json `preselectSkillIds`): the saved
+   * per-team pick clamped to skills that still exist, else the team's
+   * `enabledByDefault` skills; every change is persisted per team. */
+  skillIds: string[]
+  toggleSkill: (id: string) => void
   /** EXP-1249: a device is settled, so the composer's "+" offers the
    * per-run `computerUse` toggle. */
   computerUseAvailable: boolean
@@ -118,6 +127,7 @@ export function useLaunchOptions({
   initialDeviceId,
   teamId,
   mcpServers = null,
+  skills = null,
 }: {
   open: boolean
   /** The caller's CANDIDATE devices, already capability-filtered. */
@@ -132,6 +142,8 @@ export function useLaunchOptions({
   mcpServers?:
     | readonly Pick<McpServerRow, `id` | `enabledByDefault` | `connection`>[]
     | null
+  /** #EXP-1659: the team's skills once synced (null while in flight). */
+  skills?: readonly { id: string; name: string; enabledByDefault: boolean }[] | null
 }): LaunchOptions {
   const [agent, setAgent] = useState<string>(DEFAULT_LAUNCH_AGENT)
   const [model, setModel] = useState(``)
@@ -151,6 +163,8 @@ export function useLaunchOptions({
   )
   const [pickedDeviceId, setPickedDeviceId] = useState<string | null>(null)
   const [mcpServerIds, setMcpServerIdsState] = useState<string[]>([])
+  const [skillIds, setSkillIdsState] = useState<string[]>([])
+  const skillsSeededRef = useRef(false)
   // EXP-872: the account pick — one key over the flattened login list; a
   // device change re-seeds it to that machine's last used login (below).
   const [accountKey, setAccountKeyState] = useState<string | undefined>(
@@ -179,6 +193,8 @@ export function useLaunchOptions({
     previousAccountRef.current = undefined
     mcpSeededRef.current = false
     setMcpServerIdsState([])
+    skillsSeededRef.current = false
+    setSkillIdsState([])
     const seed = agentSeed(DEFAULT_LAUNCH_AGENT, null)
     setAgent(DEFAULT_LAUNCH_AGENT)
     setModel(seed.model)
@@ -294,6 +310,31 @@ export function useLaunchOptions({
     )
   }
 
+  // #EXP-1659: seed the skills pick once the team's list is known; a skill
+  // deleted meanwhile drops out of the pick.
+  useEffect(() => {
+    if (!open || !teamId || skills === null) return
+    if (skillsSeededRef.current) {
+      const known = new Set(skills.map((skill) => skill.id))
+      setSkillIdsState((current) => {
+        const kept = current.filter((id) => known.has(id))
+        return kept.length === current.length ? current : kept
+      })
+      return
+    }
+    skillsSeededRef.current = true
+    setSkillIdsState(preselectSkillIds(skills, loadSkillPick(teamId)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, teamId, skills])
+
+  const toggleSkill = (id: string) => {
+    const next = skillIds.includes(id)
+      ? skillIds.filter((current) => current !== id)
+      : [...skillIds, id]
+    setSkillIdsState(next)
+    if (teamId) saveSkillPick(teamId, next)
+  }
+
   // EXP-201: only agents the chosen device advertised are offerable; a
   // device change re-clamps a now-unavailable selection.
   const availableAgents = deviceAgentIds(device)
@@ -372,6 +413,8 @@ export function useLaunchOptions({
     ...(mcpServerIds.length > 0
       ? { mcpServerIds: [...mcpServerIds] }
       : {}),
+    // #EXP-1659: only while the pick is non-empty.
+    ...(skillIds.length > 0 ? { skillIds: [...skillIds] } : {}),
     // EXP-1249: only a picked device gets it, and only
     // once the person flipped it (or it differs from the device's CURRENT
     // default); otherwise the key is omitted so the machine's own setting
@@ -408,6 +451,8 @@ export function useLaunchOptions({
     mcpServerIds,
     setMcpServerIds,
     toggleMcpServer,
+    skillIds,
+    toggleSkill,
     computerUseAvailable,
     computerUse,
     setComputerUse: setComputerUsePick,

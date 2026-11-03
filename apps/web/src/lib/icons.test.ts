@@ -497,7 +497,9 @@ describe(`icon call sites`, () => {
     // NEW-2: + Prompts (Agents), web-only for now.
     // NEW-67: + Voice (Personal). S-3: − Voice (the Assistant page's
     // section now).
-    expect(webNav.size).toBe(16)
+    // #EXP-1659: + Skills (Agents); the desktop's twin (#EXP-1660) adds the
+    // shared pair below.
+    expect(webNav.size).toBe(17)
     // EXP-262: + About (desktop-only in the settings nav, like Tools/Agents).
     // EXP-500: + Archived boards (EXP-862: on both clients' navs now).
     // EXP-771: + Feedback widget (SLOP-4: labelled Widget; Helpdesk gone).

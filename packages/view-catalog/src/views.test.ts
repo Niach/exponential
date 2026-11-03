@@ -87,6 +87,7 @@ const PINNED_RECIPES = [
   `openGettingStarted`,
   `typeIssueRef`,
   `openComposerMenuTemporary`,
+  `openComposerSkillsMenu`,
   `typeSlashInComposer`,
   `typeSlashInSessionComposer`,
   `scrollToWorkCards`,

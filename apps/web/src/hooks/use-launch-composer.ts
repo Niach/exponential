@@ -53,6 +53,8 @@ import {
   type LaunchOptions,
 } from "@/components/launch-dialog/use-launch-options"
 import type { McpServerList } from "@/lib/mcp-servers"
+import type { SyncedSkill } from "@/db/schema"
+import { useSkills } from "@/hooks/use-skills"
 import type { LaunchSeed } from "@/lib/launch-seed"
 
 // EXP-825: the ONE launcher's state: the Agent page composer (and the same
@@ -167,6 +169,9 @@ export function buildSendInput(args: {
     ...(options.mcpServerIds && options.mcpServerIds.length > 0
       ? { mcpServerIds: [...options.mcpServerIds] }
       : {}),
+    ...(options.skillIds && options.skillIds.length > 0
+      ? { skillIds: [...options.skillIds] }
+      : {}),
     ...(text ? { text: args.text } : {}),
     ...(args.attachmentIds.length > 0 ? { attachmentIds: [...args.attachmentIds] } : {}),
     ...(subject?.kind === `issues`
@@ -258,6 +263,8 @@ export interface LaunchComposerModel {
   mcpServers: McpServerList | null
   /** EXP-792: where a server the caller has not connected yet sends them. */
   mcpConnectHref: (serverId: string) => string | null
+  /** #EXP-1659: the team's skills (name order), the + menu › Skills rows. */
+  skills: SyncedSkill[]
 
   submitLabel: string
   /** Something stops the submit; the notes say what. */
@@ -423,6 +430,7 @@ export function useLaunchComposer({
     [devices]
   )
   const mcp = useMcpServers(teamId)
+  const { skills, isReady: skillsReady } = useSkills(teamId)
   const team = useTeamById(teamId)
   const teamSlug = team?.slug ?? null
   const mcpConnectHref = useCallback(
@@ -438,6 +446,7 @@ export function useLaunchComposer({
     initialDeviceId: seed?.deviceId,
     teamId,
     mcpServers: mcp.servers,
+    skills: skillsReady ? skills : null,
   })
   const { device } = launch
   // EXP-836: a play button can name a machine the composer cannot start on.
@@ -668,6 +677,7 @@ export function useLaunchComposer({
     deviceRequestNote,
     mcpServers: mcp.servers,
     mcpConnectHref,
+    skills,
     submitLabel: submitLabelFor(subject, toAgent),
     blocked,
     overCap,

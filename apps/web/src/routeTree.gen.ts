@@ -133,11 +133,14 @@ import { Route as ApiIssueDraftsDraftIdFilesRouteImport } from './routes/api/iss
 import { Route as ApiCliInstallTokenRedeemRouteImport } from './routes/api/cli/install-token/redeem'
 import { Route as AuthenticatedAdminUsersUserIdRouteImport } from './routes/_authenticated/admin/users_.$userId'
 import { Route as AuthenticatedAdminTeamsTeamIdRouteImport } from './routes/_authenticated/admin/teams_.$teamId'
+import { Route as TTeamSlugSettingsSkillsIndexRouteImport } from './routes/t/$teamSlug/settings/skills/index'
 import { Route as TTeamSlugSettingsPromptsIndexRouteImport } from './routes/t/$teamSlug/settings/prompts/index'
 import { Route as TTeamSlugSettingsBoardsIndexRouteImport } from './routes/t/$teamSlug/settings/boards/index'
 import { Route as TTeamSlugSettingsAppsIndexRouteImport } from './routes/t/$teamSlug/settings/apps/index'
 import { Route as TTeamSlugSettingsAgentsIndexRouteImport } from './routes/t/$teamSlug/settings/agents/index'
 import { Route as TTeamSlugBoardsBoardSlugIndexRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/index'
+import { Route as TTeamSlugSettingsSkillsNewRouteImport } from './routes/t/$teamSlug/settings/skills/new'
+import { Route as TTeamSlugSettingsSkillsSkillIdRouteImport } from './routes/t/$teamSlug/settings/skills/$skillId'
 import { Route as TTeamSlugSettingsPromptsNewRouteImport } from './routes/t/$teamSlug/settings/prompts/new'
 import { Route as TTeamSlugSettingsPromptsPromptIdRouteImport } from './routes/t/$teamSlug/settings/prompts/$promptId'
 import { Route as TTeamSlugSettingsMcpActivityRouteImport } from './routes/t/$teamSlug/settings/mcp_.activity'
@@ -802,6 +805,12 @@ const AuthenticatedAdminTeamsTeamIdRoute =
     path: '/teams/$teamId',
     getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
+const TTeamSlugSettingsSkillsIndexRoute =
+  TTeamSlugSettingsSkillsIndexRouteImport.update({
+    id: '/skills/',
+    path: '/skills/',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
 const TTeamSlugSettingsPromptsIndexRoute =
   TTeamSlugSettingsPromptsIndexRouteImport.update({
     id: '/prompts/',
@@ -831,6 +840,18 @@ const TTeamSlugBoardsBoardSlugIndexRoute =
     id: '/boards/$boardSlug/',
     path: '/boards/$boardSlug/',
     getParentRoute: () => TTeamSlugRouteRoute,
+  } as any)
+const TTeamSlugSettingsSkillsNewRoute =
+  TTeamSlugSettingsSkillsNewRouteImport.update({
+    id: '/skills/new',
+    path: '/skills/new',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
+  } as any)
+const TTeamSlugSettingsSkillsSkillIdRoute =
+  TTeamSlugSettingsSkillsSkillIdRouteImport.update({
+    id: '/skills/$skillId',
+    path: '/skills/$skillId',
+    getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
 const TTeamSlugSettingsPromptsNewRoute =
   TTeamSlugSettingsPromptsNewRouteImport.update({
@@ -1025,11 +1046,14 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/mcp/activity': typeof TTeamSlugSettingsMcpActivityRoute
   '/t/$teamSlug/settings/prompts/$promptId': typeof TTeamSlugSettingsPromptsPromptIdRoute
   '/t/$teamSlug/settings/prompts/new': typeof TTeamSlugSettingsPromptsNewRoute
+  '/t/$teamSlug/settings/skills/$skillId': typeof TTeamSlugSettingsSkillsSkillIdRoute
+  '/t/$teamSlug/settings/skills/new': typeof TTeamSlugSettingsSkillsNewRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
   '/t/$teamSlug/settings/agents/': typeof TTeamSlugSettingsAgentsIndexRoute
   '/t/$teamSlug/settings/apps/': typeof TTeamSlugSettingsAppsIndexRoute
   '/t/$teamSlug/settings/boards/': typeof TTeamSlugSettingsBoardsIndexRoute
   '/t/$teamSlug/settings/prompts/': typeof TTeamSlugSettingsPromptsIndexRoute
+  '/t/$teamSlug/settings/skills/': typeof TTeamSlugSettingsSkillsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId/plan/$messageId': typeof TTeamSlugSessionsSessionIdPlanMessageIdRoute
 }
@@ -1162,11 +1186,14 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/mcp/activity': typeof TTeamSlugSettingsMcpActivityRoute
   '/t/$teamSlug/settings/prompts/$promptId': typeof TTeamSlugSettingsPromptsPromptIdRoute
   '/t/$teamSlug/settings/prompts/new': typeof TTeamSlugSettingsPromptsNewRoute
+  '/t/$teamSlug/settings/skills/$skillId': typeof TTeamSlugSettingsSkillsSkillIdRoute
+  '/t/$teamSlug/settings/skills/new': typeof TTeamSlugSettingsSkillsNewRoute
   '/t/$teamSlug/boards/$boardSlug': typeof TTeamSlugBoardsBoardSlugIndexRoute
   '/t/$teamSlug/settings/agents': typeof TTeamSlugSettingsAgentsIndexRoute
   '/t/$teamSlug/settings/apps': typeof TTeamSlugSettingsAppsIndexRoute
   '/t/$teamSlug/settings/boards': typeof TTeamSlugSettingsBoardsIndexRoute
   '/t/$teamSlug/settings/prompts': typeof TTeamSlugSettingsPromptsIndexRoute
+  '/t/$teamSlug/settings/skills': typeof TTeamSlugSettingsSkillsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId/plan/$messageId': typeof TTeamSlugSessionsSessionIdPlanMessageIdRoute
 }
@@ -1304,11 +1331,14 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/mcp_/activity': typeof TTeamSlugSettingsMcpActivityRoute
   '/t/$teamSlug/settings/prompts/$promptId': typeof TTeamSlugSettingsPromptsPromptIdRoute
   '/t/$teamSlug/settings/prompts/new': typeof TTeamSlugSettingsPromptsNewRoute
+  '/t/$teamSlug/settings/skills/$skillId': typeof TTeamSlugSettingsSkillsSkillIdRoute
+  '/t/$teamSlug/settings/skills/new': typeof TTeamSlugSettingsSkillsNewRoute
   '/t/$teamSlug/boards/$boardSlug/': typeof TTeamSlugBoardsBoardSlugIndexRoute
   '/t/$teamSlug/settings/agents/': typeof TTeamSlugSettingsAgentsIndexRoute
   '/t/$teamSlug/settings/apps/': typeof TTeamSlugSettingsAppsIndexRoute
   '/t/$teamSlug/settings/boards/': typeof TTeamSlugSettingsBoardsIndexRoute
   '/t/$teamSlug/settings/prompts/': typeof TTeamSlugSettingsPromptsIndexRoute
+  '/t/$teamSlug/settings/skills/': typeof TTeamSlugSettingsSkillsIndexRoute
   '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier': typeof TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRoute
   '/t/$teamSlug/sessions/$sessionId_/plan/$messageId': typeof TTeamSlugSessionsSessionIdPlanMessageIdRoute
 }
@@ -1446,11 +1476,14 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/mcp/activity'
     | '/t/$teamSlug/settings/prompts/$promptId'
     | '/t/$teamSlug/settings/prompts/new'
+    | '/t/$teamSlug/settings/skills/$skillId'
+    | '/t/$teamSlug/settings/skills/new'
     | '/t/$teamSlug/boards/$boardSlug/'
     | '/t/$teamSlug/settings/agents/'
     | '/t/$teamSlug/settings/apps/'
     | '/t/$teamSlug/settings/boards/'
     | '/t/$teamSlug/settings/prompts/'
+    | '/t/$teamSlug/settings/skills/'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
     | '/t/$teamSlug/sessions/$sessionId/plan/$messageId'
   fileRoutesByTo: FileRoutesByTo
@@ -1583,11 +1616,14 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/mcp/activity'
     | '/t/$teamSlug/settings/prompts/$promptId'
     | '/t/$teamSlug/settings/prompts/new'
+    | '/t/$teamSlug/settings/skills/$skillId'
+    | '/t/$teamSlug/settings/skills/new'
     | '/t/$teamSlug/boards/$boardSlug'
     | '/t/$teamSlug/settings/agents'
     | '/t/$teamSlug/settings/apps'
     | '/t/$teamSlug/settings/boards'
     | '/t/$teamSlug/settings/prompts'
+    | '/t/$teamSlug/settings/skills'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
     | '/t/$teamSlug/sessions/$sessionId/plan/$messageId'
   id:
@@ -1724,11 +1760,14 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/mcp_/activity'
     | '/t/$teamSlug/settings/prompts/$promptId'
     | '/t/$teamSlug/settings/prompts/new'
+    | '/t/$teamSlug/settings/skills/$skillId'
+    | '/t/$teamSlug/settings/skills/new'
     | '/t/$teamSlug/boards/$boardSlug/'
     | '/t/$teamSlug/settings/agents/'
     | '/t/$teamSlug/settings/apps/'
     | '/t/$teamSlug/settings/boards/'
     | '/t/$teamSlug/settings/prompts/'
+    | '/t/$teamSlug/settings/skills/'
     | '/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
     | '/t/$teamSlug/sessions/$sessionId_/plan/$messageId'
   fileRoutesById: FileRoutesById
@@ -2687,6 +2726,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminTeamsTeamIdRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
+    '/t/$teamSlug/settings/skills/': {
+      id: '/t/$teamSlug/settings/skills/'
+      path: '/skills'
+      fullPath: '/t/$teamSlug/settings/skills/'
+      preLoaderRoute: typeof TTeamSlugSettingsSkillsIndexRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
     '/t/$teamSlug/settings/prompts/': {
       id: '/t/$teamSlug/settings/prompts/'
       path: '/prompts'
@@ -2721,6 +2767,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/t/$teamSlug/boards/$boardSlug/'
       preLoaderRoute: typeof TTeamSlugBoardsBoardSlugIndexRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/settings/skills/new': {
+      id: '/t/$teamSlug/settings/skills/new'
+      path: '/skills/new'
+      fullPath: '/t/$teamSlug/settings/skills/new'
+      preLoaderRoute: typeof TTeamSlugSettingsSkillsNewRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
+    }
+    '/t/$teamSlug/settings/skills/$skillId': {
+      id: '/t/$teamSlug/settings/skills/$skillId'
+      path: '/skills/$skillId'
+      fullPath: '/t/$teamSlug/settings/skills/$skillId'
+      preLoaderRoute: typeof TTeamSlugSettingsSkillsSkillIdRouteImport
+      parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
     '/t/$teamSlug/settings/prompts/new': {
       id: '/t/$teamSlug/settings/prompts/new'
@@ -2868,10 +2928,13 @@ interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsMcpActivityRoute: typeof TTeamSlugSettingsMcpActivityRoute
   TTeamSlugSettingsPromptsPromptIdRoute: typeof TTeamSlugSettingsPromptsPromptIdRoute
   TTeamSlugSettingsPromptsNewRoute: typeof TTeamSlugSettingsPromptsNewRoute
+  TTeamSlugSettingsSkillsSkillIdRoute: typeof TTeamSlugSettingsSkillsSkillIdRoute
+  TTeamSlugSettingsSkillsNewRoute: typeof TTeamSlugSettingsSkillsNewRoute
   TTeamSlugSettingsAgentsIndexRoute: typeof TTeamSlugSettingsAgentsIndexRoute
   TTeamSlugSettingsAppsIndexRoute: typeof TTeamSlugSettingsAppsIndexRoute
   TTeamSlugSettingsBoardsIndexRoute: typeof TTeamSlugSettingsBoardsIndexRoute
   TTeamSlugSettingsPromptsIndexRoute: typeof TTeamSlugSettingsPromptsIndexRoute
+  TTeamSlugSettingsSkillsIndexRoute: typeof TTeamSlugSettingsSkillsIndexRoute
 }
 
 const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
@@ -2902,10 +2965,13 @@ const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
     TTeamSlugSettingsPromptsPromptIdRoute:
       TTeamSlugSettingsPromptsPromptIdRoute,
     TTeamSlugSettingsPromptsNewRoute: TTeamSlugSettingsPromptsNewRoute,
+    TTeamSlugSettingsSkillsSkillIdRoute: TTeamSlugSettingsSkillsSkillIdRoute,
+    TTeamSlugSettingsSkillsNewRoute: TTeamSlugSettingsSkillsNewRoute,
     TTeamSlugSettingsAgentsIndexRoute: TTeamSlugSettingsAgentsIndexRoute,
     TTeamSlugSettingsAppsIndexRoute: TTeamSlugSettingsAppsIndexRoute,
     TTeamSlugSettingsBoardsIndexRoute: TTeamSlugSettingsBoardsIndexRoute,
     TTeamSlugSettingsPromptsIndexRoute: TTeamSlugSettingsPromptsIndexRoute,
+    TTeamSlugSettingsSkillsIndexRoute: TTeamSlugSettingsSkillsIndexRoute,
   }
 
 const TTeamSlugSettingsRouteRouteWithChildren =

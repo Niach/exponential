@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-team-skills`,
+    date: `2026-11-03`,
+    title: `Team skills`,
+    summary: `Owners keep a library of skills in Settings › Skills; pick them for a run in the + menu, or give an agent its own.`,
+    body: `- **Settings › Skills**: write a skill once (a name, when to use it and its instructions) and the whole team can run with it; owners edit, everyone reads.
+- **+ menu › Skills**: pick the skills a new session runs with; the ones marked On by default start picked.
+- **Agents**: an agent's page has a Skills row, so every run of that agent starts with them.`,
+  },
+  {
     id: `2026-11-03-voice-works-on-windows`,
     date: `2026-11-03`,
     title: `Voice works on Windows`,

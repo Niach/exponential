@@ -176,6 +176,8 @@ export function ComposerSpecimen({
 const SAMPLE_VALUES: Record<string, string> = {
   effort: `High`,
   "mcp-servers": `2`,
+  // #EXP-1659: the + menu › Skills (the two enabled-by-default skills).
+  skills: `2`,
 }
 const SAMPLE_CHECKED: Record<string, boolean> = {
   ultracode: false,
