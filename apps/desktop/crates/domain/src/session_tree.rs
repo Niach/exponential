@@ -1612,6 +1612,26 @@ fn issue_fold_parent<'a>(
 /// open question/plan card surfacing here) and the composer target (the
 /// root). `focus` = the session open in place ([`SessionThreadView::focus_id`]);
 /// the chips stay the dispatcher's.
+/// #EXP-1682 (session-thread.json `$comment` ATTACHMENTS, TS
+/// `messageRowBody`): a message row's body = its body, then a blank line and
+/// one `![image](/api/attachments/<id>)` line per clear `attachment_ids`
+/// entry the body does not already name (the steer image block, the same one
+/// the device embeds for the agent). A sealed or main-composer message keeps
+/// its files ONLY there, so without this its pictures never showed.
+pub fn message_row_body(body: &str, attachment_ids: &[String]) -> String {
+    let mut missing: Vec<String> = Vec::new();
+    for id in attachment_ids {
+        if id.is_empty() || missing.contains(id) || body.contains(&format!("/api/attachments/{id}")) {
+            continue;
+        }
+        missing.push(id.clone());
+    }
+    if missing.is_empty() {
+        return body.to_string();
+    }
+    crate::image_message::build_steer_image_message(body, &missing)
+}
+
 pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) -> SessionThreadView {
     let root = input.root;
     let now = input.now_ms;
@@ -1760,7 +1780,8 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 Some(MESSAGE_AUTHOR_KIND_AGENT) => MESSAGE_AUTHOR_KIND_AGENT,
                 _ => crate::contract::MESSAGE_AUTHOR_KIND_SYSTEM,
             };
-            if message.body_text().trim().is_empty() {
+            let body = message_row_body(message.body_text(), &message.attachment_ids);
+            if body.trim().is_empty() {
                 continue;
             }
             let divider = (author == MESSAGE_AUTHOR_KIND_USER)
@@ -1778,7 +1799,7 @@ pub fn build_session_thread(input: SessionThreadInput<'_>, focus: Option<&str>) 
                 id: message.id.clone(),
                 author: author.to_string(),
                 author_id: message.author_id.clone(),
-                body: message.body_text().to_string(),
+                body,
                 queued: author == MESSAGE_AUTHOR_KIND_USER
                     && message.consumed_at.as_deref().is_none_or(str::is_empty),
                 author_session_id: message.author_session_id.clone(),

@@ -988,11 +988,19 @@ data class MessageEntity(
     val body: String = "",
     @ColumnInfo(name = "card") @SerialName("card")
     @Serializable(with = JsonAsStringSerializer::class) val card: String? = null,
+    // #EXP-1682: the files the message carries in the clear (a nullable
+    // Postgres uuid[]). Kept as the wire text (Electric's `{a,b}` literal or
+    // a JSON array) so a partial update binds as-is; read [attachmentIdList].
+    @ColumnInfo(name = "attachment_ids") @SerialName("attachment_ids") @JsonNames("attachmentIds")
+    @Serializable(with = JsonAsStringSerializer::class) val attachmentIds: String? = null,
     @ColumnInfo(name = "answered_at") @SerialName("answered_at") @JsonNames("answeredAt") val answeredAt: String? = null,
     @ColumnInfo(name = "consumed_at") @SerialName("consumed_at") @JsonNames("consumedAt") val consumedAt: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
-)
+) {
+    /** #EXP-1682: [attachmentIds] as ids (null / malformed = none). */
+    val attachmentIdList: List<String> get() = attachmentIds?.let(PgUuidArraySerializer::parseText).orEmpty()
+}
 
 // NEW-3: the chat primitive. Step 1: every row is a session's own (kind
 // `session`), visible exactly when its session is; dm/channel rows arrive

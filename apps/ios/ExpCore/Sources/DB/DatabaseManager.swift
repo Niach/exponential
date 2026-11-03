@@ -3108,6 +3108,26 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v99 (#EXP-1682): `messages.attachment_ids` (uuid[] on the wire,
+        // stored as JSON text like `issue_drafts.label_ids`): a sealed or
+        // main-composer message keeps its files ONLY there, and the thread
+        // row embeds them (session-thread.json "ATTACHMENTS"). The messages
+        // cursor resets only when the column was added.
+        migrator.registerMigration("v99_message_attachment_ids") { db in
+            guard try db.tableExists("messages") else { return }
+            guard try db.columns(in: "messages").contains(where: { $0.name == "attachment_ids" }) == false else { return }
+            try db.alter(table: "messages") { t in
+                t.add(column: "attachment_ids", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'messages'
+                    """)
+            }
+        }
+
         return migrator
     }
 

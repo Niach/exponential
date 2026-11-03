@@ -735,6 +735,9 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// EXP-1323: the session that posted it (a child asking its parent);
     /// nil = none.
     public let authorSessionId: String?
+    /// #EXP-1682: the files it carries in the clear (`messages.attachment_ids`,
+    /// a Postgres uuid[] stored as JSON text like `issue_drafts.label_ids`).
+    public let attachmentIds: [String]
 
     public init(
         id: String,
@@ -749,9 +752,11 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         consumedAt: String? = nil,
         createdAt: String,
         updatedAt: String,
-        authorSessionId: String? = nil
+        authorSessionId: String? = nil,
+        attachmentIds: [String] = []
     ) {
         self.authorSessionId = authorSessionId
+        self.attachmentIds = attachmentIds
         self.conversationId = conversationId
         self.id = id
         self.rootId = rootId
@@ -774,6 +779,7 @@ public struct MessageEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case authorId = "author_id"
         case authorSessionId = "author_session_id"
         case conversationId = "conversation_id"
+        case attachmentIds = "attachment_ids"
         case answeredAt = "answered_at"
         case consumedAt = "consumed_at"
         case createdAt = "created_at"
@@ -797,6 +803,9 @@ extension MessageEntity: Codable {
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
         authorSessionId = try c.decodeIfPresent(String.self, forKey: .authorSessionId)
+        // #EXP-1682: `{a,b}` off the wire, JSON text out of GRDB; absent on
+        // a partial or a pre-v99 row = none.
+        attachmentIds = c.decodeWireStringList(forKey: .attachmentIds)
     }
 }
 

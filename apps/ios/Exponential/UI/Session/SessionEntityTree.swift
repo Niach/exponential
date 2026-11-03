@@ -71,7 +71,8 @@ extension TreeMessage {
             createdAt: row.createdAt,
             authorSessionId: row.authorSessionId,
             sealStatus: opened.status,
-            escalated: TreeMessageCard.parse(SealedMessage.escalatedCard(row.card, rootId: row.message.rootId))
+            escalated: TreeMessageCard.parse(SealedMessage.escalatedCard(row.card, rootId: row.message.rootId)),
+            attachmentIds: row.attachmentIds
         )
     }
 }
