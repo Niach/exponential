@@ -1307,11 +1307,94 @@ export async function mergePullRequestSmart(opts: {
   if (state.status === `pending`) {
     throw new GitHubAsyncMergePending(prNumber, state.uuid)
   }
+  if (state.status === `enqueued`) {
+    // FEED-187: `enqueued` (above all the 409 a repeat call gets) is only
+    // GitHub's word that SOME merge job exists. A job that stalled after our
+    // first call timed out left #1665 answering 409 for half an hour while
+    // nothing was queued (`auto_merge` null, no merge queue). The PR's own
+    // state decides: merged = merged, really queued = queued, neither = a
+    // stalled job, which the synchronous squash lands (what `gh pr merge
+    // --squash` did). A stack member never takes the plain squash: it would
+    // land INTO the branch below, so it gets an error that says why.
+    const queue = await fetchMergeQueueState({
+      repo,
+      prNumber,
+      token,
+      ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
+    }).catch(() => null)
+    if (queue?.merged) {
+      return { merged: true, queued: false, sha: queue.mergeCommitSha, mergedBy: null }
+    }
+    if (queue && queue.state === `open` && !queue.queued) {
+      if (opts.stack) {
+        throw new GitHubMergeError(
+          409,
+          `GitHub reports a merge job for PR #${prNumber}, but the PR is neither merged nor queued. Retry the merge in a few minutes, or merge the stack on GitHub.`
+        )
+      }
+      return legacySquashMerge(opts, verified)
+    }
+  }
   return {
     merged: true,
     queued: state.status === `enqueued`,
     sha: state.sha,
     mergedBy: null,
+  }
+}
+
+/**
+ * FEED-187: is the PR REALLY waiting to merge? GraphQL is the only place
+ * GitHub says whether a PR sits in a merge queue (`isInMergeQueue`) or has
+ * auto-merge armed (`autoMergeRequest`); REST shows neither for a queue.
+ */
+export async function fetchMergeQueueState(opts: {
+  repo: string
+  prNumber: number
+  token: string
+  fetchImpl?: GitHubFetch
+}): Promise<{
+  state: `open` | `closed`
+  merged: boolean
+  queued: boolean
+  mergeCommitSha: string | null
+}> {
+  const doFetch = opts.fetchImpl ?? (githubFetch as unknown as GitHubFetch)
+  const [owner, name] = opts.repo.split(`/`)
+  const query = `query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { state merged isInMergeQueue autoMergeRequest { enabledAt } mergeCommit { oid } } } }`
+  const res = await doFetch(`https://api.github.com/graphql`, {
+    method: `POST`,
+    headers: { ...githubApiHeaders(opts.token), "content-type": `application/json` },
+    body: JSON.stringify({ query, variables: { owner, name, number: opts.prNumber } }),
+  })
+  if (!res.ok) throw new GitHubMergeError(res.status, await githubErrorMessage(res))
+  const data = (await res.json()) as {
+    errors?: Array<{ message?: string }>
+    data?: {
+      repository?: {
+        pullRequest?: {
+          state?: string
+          merged?: boolean
+          isInMergeQueue?: boolean
+          autoMergeRequest?: { enabledAt?: string } | null
+          mergeCommit?: { oid?: string } | null
+        } | null
+      } | null
+    }
+  }
+  const pull = data.data?.repository?.pullRequest
+  if (data.errors?.length || !pull) {
+    throw new GitHubMergeError(
+      422,
+      data.errors?.map((e) => e.message ?? `error`).join(`; `) || `GitHub sent no pull request`
+    )
+  }
+  const merged = Boolean(pull.merged)
+  return {
+    state: pull.state === `OPEN` ? `open` : `closed`,
+    merged,
+    queued: Boolean(pull.isInMergeQueue) || Boolean(pull.autoMergeRequest),
+    mergeCommitSha: merged ? (pull.mergeCommit?.oid ?? null) : null,
   }
 }
 

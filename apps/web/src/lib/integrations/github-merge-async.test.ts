@@ -283,6 +283,13 @@ describe(`mergePullRequestSmart (EXP-1248: async-first)`, () => {
     ])
   })
 
+  const graphqlPull = (pull: Record<string, unknown>): Route => ({
+    match: `/graphql`,
+    method: `POST`,
+    status: 200,
+    body: { data: { repository: { pullRequest: pull } } },
+  })
+
   it(`reports an enqueued merge as success + queued`, async () => {
     install([
       {
@@ -291,6 +298,88 @@ describe(`mergePullRequestSmart (EXP-1248: async-first)`, () => {
         status: 202,
         body: { status: `enqueued`, details: { uuid: `u-1` } },
       },
+      graphqlPull({ state: `OPEN`, merged: false, isInMergeQueue: true, autoMergeRequest: null }),
+    ])
+    await expect(
+      mergePullRequestSmart({ repo: `o/r`, prNumber: 241, token: `tok` })
+    ).resolves.toMatchObject({ merged: true, queued: true })
+  })
+
+  // FEED-187: #1665's first merge-async job stalled; every retry got 409
+  // "already enqueued" and answered queued:true for half an hour while the
+  // PR sat open with nothing queued. `gh pr merge --squash` landed it at once.
+  it(`lands a stalled job (409, nothing queued) with the synchronous squash`, async () => {
+    const { calls } = install([
+      {
+        match: `/pulls/1665/merge-async`,
+        method: `PUT`,
+        status: 409,
+        body: { message: `A merge is already enqueued` },
+      },
+      graphqlPull({ state: `OPEN`, merged: false, isInMergeQueue: false, autoMergeRequest: null }),
+      {
+        match: `/pulls/1665/merge`,
+        method: `PUT`,
+        status: 200,
+        body: { merged: true, sha: `f00d` },
+      },
+    ])
+    const result = await mergePullRequestSmart({
+      repo: `o/r`,
+      prNumber: 1665,
+      token: `tok`,
+      commitTitle: `FEED-1: t (#1665)`,
+    })
+    expect(result).toMatchObject({ merged: true, queued: false, sha: `f00d` })
+    expect(calls.map((call) => call.url.split(`api.github.com/`)[1])).toEqual([
+      `repos/o/r/pulls/1665/merge-async`,
+      `graphql`,
+      `repos/o/r/pulls/1665/merge`,
+    ])
+    expect(JSON.parse(calls[2]!.body!)).toMatchObject({ commit_title: `FEED-1: t (#1665)` })
+  })
+
+  it(`answers merged when the "enqueued" job had already landed`, async () => {
+    const { calls } = install([
+      {
+        match: `/pulls/241/merge-async`,
+        method: `PUT`,
+        status: 409,
+        body: { message: `A merge is already enqueued` },
+      },
+      graphqlPull({ state: `MERGED`, merged: true, isInMergeQueue: false, mergeCommit: { oid: `beef` } }),
+    ])
+    await expect(
+      mergePullRequestSmart({ repo: `o/r`, prNumber: 241, token: `tok` })
+    ).resolves.toMatchObject({ merged: true, queued: false, sha: `beef` })
+    expect(calls).toHaveLength(2)
+  })
+
+  it(`keeps queued when auto-merge is armed`, async () => {
+    install([
+      { match: `/pulls/241/merge-async`, method: `PUT`, status: 409, body: {} },
+      graphqlPull({ state: `OPEN`, merged: false, isInMergeQueue: false, autoMergeRequest: { enabledAt: `2026-11-03T00:00:00Z` } }),
+    ])
+    await expect(
+      mergePullRequestSmart({ repo: `o/r`, prNumber: 241, token: `tok` })
+    ).resolves.toMatchObject({ merged: true, queued: true })
+  })
+
+  it(`a stalled stack merge errors instead of squashing into the branch below`, async () => {
+    const { calls } = install([
+      { match: `/pulls/241/merge-async`, method: `PUT`, status: 409, body: {} },
+      graphqlPull({ state: `OPEN`, merged: false, isInMergeQueue: false, autoMergeRequest: null }),
+    ])
+    await expect(
+      mergePullRequestSmart({ repo: `o/r`, prNumber: 241, token: `tok`, stack: true })
+    ).rejects.toThrow(/neither merged nor queued/)
+    expect(calls.some((call) => call.url.endsWith(`/pulls/241/merge`))).toBe(false)
+  })
+
+  it(`keeps queued when the queue read itself fails (never masks the answer)`, async () => {
+    install([
+      { match: `/pulls/241/merge-async`, method: `PUT`, status: 409, body: {} },
+      { match: `/graphql`, method: `POST`, status: 502, body: { message: `Bad Gateway` } },
     ])
     await expect(
       mergePullRequestSmart({ repo: `o/r`, prNumber: 241, token: `tok` })
@@ -391,6 +480,7 @@ describe(`mergePullRequestSmart (EXP-1248: async-first)`, () => {
         status: 200,
         body: { status: `enqueued`, details: { uuid: `u-1` } },
       },
+      graphqlPull({ state: `OPEN`, merged: false, isInMergeQueue: true }),
     ])
     const result = await mergePullRequestSmart({
       repo: `o/r`,
@@ -400,7 +490,7 @@ describe(`mergePullRequestSmart (EXP-1248: async-first)`, () => {
       sleepImpl: async () => {},
     })
     expect(result).toMatchObject({ merged: true, queued: true })
-    expect(calls).toHaveLength(2)
+    expect(calls).toHaveLength(3)
   })
 
   // FEED-64: GitHub's merge answered 500 "Server Error" AFTER it had written
