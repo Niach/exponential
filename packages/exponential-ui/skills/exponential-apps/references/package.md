@@ -106,4 +106,4 @@ Today:
 
 Proposed:
 
-- **`version` (SemVer)** is the author's label. **`number`** is the truth. A major bump with no `migrations` for a changed kind is refused (§3.6).
+- **`version` (SemVer)** is the author's label. **`number`** is the truth. A major bump with no `migrations` for a changed kind is refused (§3.6). ✅ R8 (#VAPP-233): refused at upsert, naming the kind and the change (`migrationRefusal`, `record-migrations.json`).

@@ -1,0 +1,2559 @@
+{
+  "$comment": "eApps R8 (VAPP-233, docs/spec/apps.md §3.6/§2.3): declarative record migrations between package versions. TS reference src/host/record-migrations.ts, Rust twin eui-core `host::record_migrations` (the FFI's `migrate_record_json` / `migration_refusal_json` for the Swift and Compose SDKs); the Exponential server sweeps an app's records through them on publish and refuses an uncovered incompatible major bump at upsert. Inputs hand-written, `expected` filled by scripts/generate-host.ts. RANGES (`rangeCases`: rangeHolds(version, range), isVersionRange(range)): a version is MAJOR.MINOR.PATCH; a range is alternatives split by `||`, each space-separated comparators that must all hold: an exact or partial version (`1.2.3`, `1.2`, `1.x`, `1`, `*`; `x`/`*` any part, `=` optional), `>= > <= <` v, `~v` (same major.minor, not lower), `^v` (the same leftmost non-zero part, not lower; `^0.0.3` = exactly 0.0.3); after an operator v is numeric with missing parts = 0 (`^1` = `^1.0.0`, `>=1.2` = `>=1.2.0`; `>=1.x` is no range). Anything else is no range (holds nothing). MIGRATE (`migrateCases`: migrateRecord(package.migrations, version, kind, data, now = 0)): in order, every migration whose `from` holds `version` and whose `kind` is the record's kind AT THAT STEP (a `renameKind` moves the later migrations to the new kind) runs its ops in order: `rename {from, to}` moves a present field (the target overwritten; absent = nothing); `default {field, value}` sets a missing or null field; `drop {field}` removes it; `map {field, expr}` writes a CEL expression (expressions.json) over the record's fields (a name the record lacks reads null) into the field; an evaluation error = {error: `migration <i> op <j>: <message>`} and the record is left as it was; `renameKind <kind>`. Result {kind, data, applied (migrations that ran)}. VALIDATE (`validateCases`: validateMigrations(package)): issues under `/migrations`: a list of at most `limits.migrations`, each {from, kind, ops} (an unknown key named), `from` a range, `kind` a kind name, `ops` a list of at most `limits.ops`, each exactly one of rename {from, to}, default {field, value}, drop {field}, map {field, expr} (the expression parses: `/ops/<j>/map/expr`), renameKind <kind name>; the kind the migration ends in (after renameKind) is declared in `records`. CHANGES (`changeCases`: kindChanges(before, after)): per kind of `before` (code-unit order): `removed` (no such kind after), then per field of before: `drops` (gone), `retypes` (type changed; an array's item type counts), `narrows` (the enum lost a value, or gained one where there was none), then `requires` (required after, not before, the field present after). An added optional field or kind is compatible. REFUSAL (`refusalCases`: migrationRefusal(before, after)): null unless after.version's MAJOR is above before.version's; then the first uncovered change (kinds, then changes in order) = `<kind> <is removed | drops f | changes the type of f | narrows the values of f | requires f> in <after.version>: add a migration from <before.version> that covers it`. A change is covered by an op of a migration from before.version for that kind: removed = renameKind; drops = drop or a rename from the field; retypes / narrows = a map of the field; requires = a default, a map or a rename to the field.",
+  "limits": {
+    "migrations": 64,
+    "ops": 32
+  },
+  "rangeCases": [
+    {
+      "version": "1.4.0",
+      "range": "^1",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "2.0.0",
+      "range": "^1",
+      "expected": {
+        "holds": false,
+        "range": true
+      }
+    },
+    {
+      "version": "1.4.0",
+      "range": "1.x",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "1.4.0",
+      "range": "1.4",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "1.4.1",
+      "range": "1.4.0",
+      "expected": {
+        "holds": false,
+        "range": true
+      }
+    },
+    {
+      "version": "1.4.0",
+      "range": "=1.4.0",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "1.4.0",
+      "range": "*",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "0.3.1",
+      "range": "^0.3.0",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "0.4.0",
+      "range": "^0.3.0",
+      "expected": {
+        "holds": false,
+        "range": true
+      }
+    },
+    {
+      "version": "0.0.3",
+      "range": "^0.0.3",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "0.0.4",
+      "range": "^0.0.3",
+      "expected": {
+        "holds": false,
+        "range": true
+      }
+    },
+    {
+      "version": "1.2.9",
+      "range": "~1.2.3",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "1.3.0",
+      "range": "~1.2.3",
+      "expected": {
+        "holds": false,
+        "range": true
+      }
+    },
+    {
+      "version": "1.5.0",
+      "range": ">=1.0.0 <2.0.0",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "2.0.0",
+      "range": ">=1.0.0 <2.0.0",
+      "expected": {
+        "holds": false,
+        "range": true
+      }
+    },
+    {
+      "version": "3.1.0",
+      "range": "^1 || ^3",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "1.0.0",
+      "range": "<1.2.0",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    },
+    {
+      "version": "1.2.0",
+      "range": "<1.2.0",
+      "expected": {
+        "holds": false,
+        "range": true
+      }
+    },
+    {
+      "version": "1.4.0",
+      "range": "banana",
+      "expected": {
+        "holds": false,
+        "range": false
+      }
+    },
+    {
+      "version": "1.4.0",
+      "range": "",
+      "expected": {
+        "holds": false,
+        "range": false
+      }
+    },
+    {
+      "version": "1.4",
+      "range": "^1",
+      "expected": {
+        "holds": false,
+        "range": true
+      }
+    },
+    {
+      "version": "1.4.0",
+      "range": ">=1.x",
+      "expected": {
+        "holds": false,
+        "range": false
+      }
+    },
+    {
+      "version": "1.2.0",
+      "range": ">=1.2",
+      "expected": {
+        "holds": true,
+        "range": true
+      }
+    }
+  ],
+  "migrateCases": [
+    {
+      "name": "the v1 → v2 entry migration, op by op",
+      "package": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "^1",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "issues",
+                  "to": "refs"
+                }
+              },
+              {
+                "default": {
+                  "field": "project",
+                  "value": "Exponential"
+                }
+              },
+              {
+                "drop": {
+                  "field": "legacy"
+                }
+              },
+              {
+                "map": {
+                  "field": "hours",
+                  "expr": "minutes / 60.0"
+                }
+              },
+              {
+                "drop": {
+                  "field": "minutes"
+                }
+              },
+              {
+                "map": {
+                  "field": "kind",
+                  "expr": "kind == 'support' ? 'work' : kind"
+                }
+              }
+            ]
+          },
+          {
+            "from": "1.x",
+            "kind": "tag",
+            "ops": [
+              {
+                "renameKind": "label"
+              }
+            ]
+          },
+          {
+            "from": "<1.2.0",
+            "kind": "label",
+            "ops": [
+              {
+                "default": {
+                  "field": "color",
+                  "value": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "version": "1.4.0",
+      "kind": "entry",
+      "data": {
+        "date": "2026-10-05",
+        "minutes": 90,
+        "issues": [
+          "EXP-1"
+        ],
+        "kind": "support",
+        "legacy": "x",
+        "note": "meet"
+      },
+      "expected": {
+        "kind": "entry",
+        "data": {
+          "date": "2026-10-05",
+          "kind": "work",
+          "note": "meet",
+          "refs": [
+            "EXP-1"
+          ],
+          "project": "Exponential",
+          "hours": 1.5
+        },
+        "applied": 1
+      }
+    },
+    {
+      "name": "default keeps a set field; rename of an absent field does nothing",
+      "package": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "^1",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "issues",
+                  "to": "refs"
+                }
+              },
+              {
+                "default": {
+                  "field": "project",
+                  "value": "Exponential"
+                }
+              },
+              {
+                "drop": {
+                  "field": "legacy"
+                }
+              },
+              {
+                "map": {
+                  "field": "hours",
+                  "expr": "minutes / 60.0"
+                }
+              },
+              {
+                "drop": {
+                  "field": "minutes"
+                }
+              },
+              {
+                "map": {
+                  "field": "kind",
+                  "expr": "kind == 'support' ? 'work' : kind"
+                }
+              }
+            ]
+          },
+          {
+            "from": "1.x",
+            "kind": "tag",
+            "ops": [
+              {
+                "renameKind": "label"
+              }
+            ]
+          },
+          {
+            "from": "<1.2.0",
+            "kind": "label",
+            "ops": [
+              {
+                "default": {
+                  "field": "color",
+                  "value": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "version": "1.0.0",
+      "kind": "entry",
+      "data": {
+        "date": "2026-10-05",
+        "minutes": 30,
+        "project": "Spezl"
+      },
+      "expected": {
+        "kind": "entry",
+        "data": {
+          "date": "2026-10-05",
+          "project": "Spezl",
+          "hours": 0.5,
+          "kind": null
+        },
+        "applied": 1
+      }
+    },
+    {
+      "name": "a version outside every range: untouched",
+      "package": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "^1",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "issues",
+                  "to": "refs"
+                }
+              },
+              {
+                "default": {
+                  "field": "project",
+                  "value": "Exponential"
+                }
+              },
+              {
+                "drop": {
+                  "field": "legacy"
+                }
+              },
+              {
+                "map": {
+                  "field": "hours",
+                  "expr": "minutes / 60.0"
+                }
+              },
+              {
+                "drop": {
+                  "field": "minutes"
+                }
+              },
+              {
+                "map": {
+                  "field": "kind",
+                  "expr": "kind == 'support' ? 'work' : kind"
+                }
+              }
+            ]
+          },
+          {
+            "from": "1.x",
+            "kind": "tag",
+            "ops": [
+              {
+                "renameKind": "label"
+              }
+            ]
+          },
+          {
+            "from": "<1.2.0",
+            "kind": "label",
+            "ops": [
+              {
+                "default": {
+                  "field": "color",
+                  "value": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "version": "2.1.0",
+      "kind": "entry",
+      "data": {
+        "date": "2026-10-05",
+        "hours": 1
+      },
+      "expected": {
+        "kind": "entry",
+        "data": {
+          "date": "2026-10-05",
+          "hours": 1
+        },
+        "applied": 0
+      }
+    },
+    {
+      "name": "renameKind moves the later migrations to the new kind",
+      "package": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "^1",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "issues",
+                  "to": "refs"
+                }
+              },
+              {
+                "default": {
+                  "field": "project",
+                  "value": "Exponential"
+                }
+              },
+              {
+                "drop": {
+                  "field": "legacy"
+                }
+              },
+              {
+                "map": {
+                  "field": "hours",
+                  "expr": "minutes / 60.0"
+                }
+              },
+              {
+                "drop": {
+                  "field": "minutes"
+                }
+              },
+              {
+                "map": {
+                  "field": "kind",
+                  "expr": "kind == 'support' ? 'work' : kind"
+                }
+              }
+            ]
+          },
+          {
+            "from": "1.x",
+            "kind": "tag",
+            "ops": [
+              {
+                "renameKind": "label"
+              }
+            ]
+          },
+          {
+            "from": "<1.2.0",
+            "kind": "label",
+            "ops": [
+              {
+                "default": {
+                  "field": "color",
+                  "value": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "version": "1.1.0",
+      "kind": "tag",
+      "data": {
+        "name": "urgent"
+      },
+      "expected": {
+        "kind": "label",
+        "data": {
+          "name": "urgent",
+          "color": "gray"
+        },
+        "applied": 2
+      }
+    },
+    {
+      "name": "the next migration's range must hold too",
+      "package": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "^1",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "issues",
+                  "to": "refs"
+                }
+              },
+              {
+                "default": {
+                  "field": "project",
+                  "value": "Exponential"
+                }
+              },
+              {
+                "drop": {
+                  "field": "legacy"
+                }
+              },
+              {
+                "map": {
+                  "field": "hours",
+                  "expr": "minutes / 60.0"
+                }
+              },
+              {
+                "drop": {
+                  "field": "minutes"
+                }
+              },
+              {
+                "map": {
+                  "field": "kind",
+                  "expr": "kind == 'support' ? 'work' : kind"
+                }
+              }
+            ]
+          },
+          {
+            "from": "1.x",
+            "kind": "tag",
+            "ops": [
+              {
+                "renameKind": "label"
+              }
+            ]
+          },
+          {
+            "from": "<1.2.0",
+            "kind": "label",
+            "ops": [
+              {
+                "default": {
+                  "field": "color",
+                  "value": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "version": "1.3.0",
+      "kind": "tag",
+      "data": {
+        "name": "urgent"
+      },
+      "expected": {
+        "kind": "label",
+        "data": {
+          "name": "urgent"
+        },
+        "applied": 1
+      }
+    },
+    {
+      "name": "a failing map fails the record",
+      "package": {
+        "migrations": [
+          {
+            "from": "*",
+            "kind": "entry",
+            "ops": [
+              {
+                "map": {
+                  "field": "h",
+                  "expr": "minutes / 60"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "version": "1.0.0",
+      "kind": "entry",
+      "data": {
+        "minutes": "ninety"
+      },
+      "expected": {
+        "error": "migration 0 op 0: cannot apply / to string and number"
+      }
+    },
+    {
+      "name": "map reads a missing field as null",
+      "package": {
+        "migrations": [
+          {
+            "from": "*",
+            "kind": "entry",
+            "ops": [
+              {
+                "map": {
+                  "field": "h",
+                  "expr": "minutes != null ? 1 : 0"
+                }
+              },
+              {
+                "map": {
+                  "field": "z",
+                  "expr": "orElse(minutes, 7)"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "version": "1.0.0",
+      "kind": "entry",
+      "data": {},
+      "expected": {
+        "kind": "entry",
+        "data": {
+          "h": 0,
+          "z": 7
+        },
+        "applied": 1
+      }
+    }
+  ],
+  "validateCases": [
+    {
+      "name": "the v2 package is valid",
+      "package": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "^1",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "issues",
+                  "to": "refs"
+                }
+              },
+              {
+                "default": {
+                  "field": "project",
+                  "value": "Exponential"
+                }
+              },
+              {
+                "drop": {
+                  "field": "legacy"
+                }
+              },
+              {
+                "map": {
+                  "field": "hours",
+                  "expr": "minutes / 60.0"
+                }
+              },
+              {
+                "drop": {
+                  "field": "minutes"
+                }
+              },
+              {
+                "map": {
+                  "field": "kind",
+                  "expr": "kind == 'support' ? 'work' : kind"
+                }
+              }
+            ]
+          },
+          {
+            "from": "1.x",
+            "kind": "tag",
+            "ops": [
+              {
+                "renameKind": "label"
+              }
+            ]
+          },
+          {
+            "from": "<1.2.0",
+            "kind": "label",
+            "ops": [
+              {
+                "default": {
+                  "field": "color",
+                  "value": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected": []
+    },
+    {
+      "name": "no migrations = no issues",
+      "package": {
+        "records": {}
+      },
+      "expected": []
+    },
+    {
+      "name": "migrations is a list",
+      "package": {
+        "migrations": {}
+      },
+      "expected": [
+        {
+          "path": "/migrations",
+          "message": "migrations is a list of {from, kind, ops}"
+        }
+      ]
+    },
+    {
+      "name": "every check fires",
+      "package": {
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "banana",
+            "kind": "Entry",
+            "ops": []
+          },
+          {
+            "from": "^1",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "a"
+                }
+              },
+              {
+                "default": {
+                  "field": "a"
+                }
+              },
+              {
+                "drop": "a"
+              },
+              {
+                "map": {
+                  "field": "a",
+                  "expr": "1 +"
+                }
+              },
+              {
+                "renameKind": "Bad Kind"
+              },
+              {
+                "cast": {}
+              },
+              {
+                "drop": {
+                  "field": "a"
+                },
+                "rename": {
+                  "from": "a",
+                  "to": "b"
+                }
+              }
+            ]
+          },
+          {
+            "from": "*",
+            "kind": "tag",
+            "ops": [
+              {
+                "renameKind": "label"
+              }
+            ],
+            "note": 1
+          },
+          "x",
+          {
+            "from": "*",
+            "kind": "entry",
+            "ops": "drop"
+          }
+        ]
+      },
+      "expected": [
+        {
+          "path": "/migrations/0/from",
+          "message": "from is a version or a range (1.2.3, 1.x, ^1.2.0, >=1.0.0 <2.0.0)"
+        },
+        {
+          "path": "/migrations/0/kind",
+          "message": "kind is a kind name"
+        },
+        {
+          "path": "/migrations/1/ops/0/rename",
+          "message": "rename is {from, to}"
+        },
+        {
+          "path": "/migrations/1/ops/1/default",
+          "message": "default is {field, value}"
+        },
+        {
+          "path": "/migrations/1/ops/2/drop",
+          "message": "drop is {field}"
+        },
+        {
+          "path": "/migrations/1/ops/3/map/expr",
+          "message": "at 3: unexpected end"
+        },
+        {
+          "path": "/migrations/1/ops/4/renameKind",
+          "message": "renameKind is a kind name"
+        },
+        {
+          "path": "/migrations/1/ops/5",
+          "message": "an op is one of rename, default, drop, map, renameKind"
+        },
+        {
+          "path": "/migrations/1/ops/6",
+          "message": "an op is one of rename, default, drop, map, renameKind"
+        },
+        {
+          "path": "/migrations/2/note",
+          "message": "unknown key note"
+        },
+        {
+          "path": "/migrations/2/kind",
+          "message": "the migration ends in label, which the package does not declare"
+        },
+        {
+          "path": "/migrations/3",
+          "message": "a migration is {from, kind, ops}"
+        },
+        {
+          "path": "/migrations/4/ops",
+          "message": "ops is a list"
+        }
+      ]
+    }
+  ],
+  "changeCases": [
+    {
+      "name": "v1 → v2 (without migrations)",
+      "before": {
+        "version": "1.4.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "minutes": {
+                  "type": "integer"
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting",
+                    "support"
+                  ]
+                },
+                "legacy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "minutes"
+              ]
+            }
+          },
+          "tag": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": []
+      },
+      "expected": {
+        "entry": [
+          {
+            "change": "drops",
+            "field": "issues"
+          },
+          {
+            "change": "narrows",
+            "field": "kind"
+          },
+          {
+            "change": "drops",
+            "field": "legacy"
+          },
+          {
+            "change": "drops",
+            "field": "minutes"
+          },
+          {
+            "change": "requires",
+            "field": "hours"
+          },
+          {
+            "change": "requires",
+            "field": "project"
+          }
+        ],
+        "tag": [
+          {
+            "change": "removed",
+            "field": null
+          }
+        ]
+      }
+    },
+    {
+      "name": "an added optional field and kind are compatible",
+      "before": {
+        "version": "1.4.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "minutes": {
+                  "type": "integer"
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting",
+                    "support"
+                  ]
+                },
+                "legacy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "minutes"
+              ]
+            }
+          },
+          "tag": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "version": "1.4.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "minutes": {
+                  "type": "integer"
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting",
+                    "support"
+                  ]
+                },
+                "legacy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "extra": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "minutes"
+              ]
+            }
+          },
+          "tag": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "x": {
+            "schema": {
+              "type": "object",
+              "properties": {}
+            }
+          }
+        }
+      },
+      "expected": {}
+    },
+    {
+      "name": "an enum where there was none narrows; array item types count",
+      "before": {
+        "records": {
+          "k": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "s": {
+                  "type": "string"
+                },
+                "l": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "records": {
+          "k": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "s": {
+                  "type": "string",
+                  "enum": [
+                    "a"
+                  ]
+                },
+                "l": {
+                  "type": "array",
+                  "items": {
+                    "type": "number"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "expected": {
+        "k": [
+          {
+            "change": "retypes",
+            "field": "l"
+          },
+          {
+            "change": "narrows",
+            "field": "s"
+          }
+        ]
+      }
+    }
+  ],
+  "refusalCases": [
+    {
+      "name": "the v2 migrations cover every change",
+      "before": {
+        "version": "1.4.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "minutes": {
+                  "type": "integer"
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting",
+                    "support"
+                  ]
+                },
+                "legacy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "minutes"
+              ]
+            }
+          },
+          "tag": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "^1",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "issues",
+                  "to": "refs"
+                }
+              },
+              {
+                "default": {
+                  "field": "project",
+                  "value": "Exponential"
+                }
+              },
+              {
+                "drop": {
+                  "field": "legacy"
+                }
+              },
+              {
+                "map": {
+                  "field": "hours",
+                  "expr": "minutes / 60.0"
+                }
+              },
+              {
+                "drop": {
+                  "field": "minutes"
+                }
+              },
+              {
+                "map": {
+                  "field": "kind",
+                  "expr": "kind == 'support' ? 'work' : kind"
+                }
+              }
+            ]
+          },
+          {
+            "from": "1.x",
+            "kind": "tag",
+            "ops": [
+              {
+                "renameKind": "label"
+              }
+            ]
+          },
+          {
+            "from": "<1.2.0",
+            "kind": "label",
+            "ops": [
+              {
+                "default": {
+                  "field": "color",
+                  "value": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected": null
+    },
+    {
+      "name": "no migrations on a major bump: the first uncovered change",
+      "before": {
+        "version": "1.4.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "minutes": {
+                  "type": "integer"
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting",
+                    "support"
+                  ]
+                },
+                "legacy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "minutes"
+              ]
+            }
+          },
+          "tag": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": []
+      },
+      "expected": "entry drops issues in 2.0.0: add a migration from 1.4.0 that covers it"
+    },
+    {
+      "name": "a minor bump is never refused",
+      "before": {
+        "version": "1.4.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "minutes": {
+                  "type": "integer"
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting",
+                    "support"
+                  ]
+                },
+                "legacy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "minutes"
+              ]
+            }
+          },
+          "tag": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "version": "1.5.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": []
+      },
+      "expected": null
+    },
+    {
+      "name": "a migration from another range covers nothing",
+      "before": {
+        "version": "1.4.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "minutes": {
+                  "type": "integer"
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting",
+                    "support"
+                  ]
+                },
+                "legacy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "minutes"
+              ]
+            }
+          },
+          "tag": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "^0.9",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "issues",
+                  "to": "refs"
+                }
+              },
+              {
+                "default": {
+                  "field": "project",
+                  "value": "Exponential"
+                }
+              },
+              {
+                "drop": {
+                  "field": "legacy"
+                }
+              },
+              {
+                "map": {
+                  "field": "hours",
+                  "expr": "minutes / 60.0"
+                }
+              },
+              {
+                "drop": {
+                  "field": "minutes"
+                }
+              },
+              {
+                "map": {
+                  "field": "kind",
+                  "expr": "kind == 'support' ? 'work' : kind"
+                }
+              }
+            ]
+          },
+          {
+            "from": "^0.9",
+            "kind": "tag",
+            "ops": [
+              {
+                "renameKind": "label"
+              }
+            ]
+          },
+          {
+            "from": "^0.9",
+            "kind": "label",
+            "ops": [
+              {
+                "default": {
+                  "field": "color",
+                  "value": "gray"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "entry drops issues in 2.0.0: add a migration from 1.4.0 that covers it"
+    },
+    {
+      "name": "a removed kind needs a renameKind",
+      "before": {
+        "version": "1.4.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "minutes": {
+                  "type": "integer"
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting",
+                    "support"
+                  ]
+                },
+                "legacy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "minutes"
+              ]
+            }
+          },
+          "tag": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "^1",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "issues",
+                  "to": "refs"
+                }
+              },
+              {
+                "default": {
+                  "field": "project",
+                  "value": "Exponential"
+                }
+              },
+              {
+                "drop": {
+                  "field": "legacy"
+                }
+              },
+              {
+                "map": {
+                  "field": "hours",
+                  "expr": "minutes / 60.0"
+                }
+              },
+              {
+                "drop": {
+                  "field": "minutes"
+                }
+              },
+              {
+                "map": {
+                  "field": "kind",
+                  "expr": "kind == 'support' ? 'work' : kind"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "tag is removed in 2.0.0: add a migration from 1.4.0 that covers it"
+    },
+    {
+      "name": "one change left uncovered",
+      "before": {
+        "version": "1.4.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "minutes": {
+                  "type": "integer"
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting",
+                    "support"
+                  ]
+                },
+                "legacy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "minutes"
+              ]
+            }
+          },
+          "tag": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": [
+          {
+            "from": "^1",
+            "kind": "entry",
+            "ops": [
+              {
+                "rename": {
+                  "from": "issues",
+                  "to": "refs"
+                }
+              },
+              {
+                "default": {
+                  "field": "project",
+                  "value": "Exponential"
+                }
+              },
+              {
+                "drop": {
+                  "field": "legacy"
+                }
+              },
+              {
+                "map": {
+                  "field": "hours",
+                  "expr": "minutes / 60.0"
+                }
+              },
+              {
+                "drop": {
+                  "field": "minutes"
+                }
+              }
+            ]
+          },
+          {
+            "from": "1.x",
+            "kind": "tag",
+            "ops": [
+              {
+                "renameKind": "label"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": "entry narrows the values of kind in 2.0.0: add a migration from 1.4.0 that covers it"
+    },
+    {
+      "name": "versions that are not semver: never refused",
+      "before": {
+        "version": "one",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "minutes": {
+                  "type": "integer"
+                },
+                "issues": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting",
+                    "support"
+                  ]
+                },
+                "legacy": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "minutes"
+              ]
+            }
+          },
+          "tag": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "after": {
+        "version": "2.0.0",
+        "records": {
+          "entry": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "date": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "hours": {
+                  "type": "number"
+                },
+                "refs": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "work",
+                    "meeting"
+                  ]
+                },
+                "project": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "hours",
+                "project"
+              ]
+            }
+          },
+          "label": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "color": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "migrations": []
+      },
+      "expected": null
+    }
+  ]
+}

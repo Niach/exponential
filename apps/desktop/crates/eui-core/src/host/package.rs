@@ -266,6 +266,8 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
             }
         }
     }
+    // eApps R8 (VAPP-233): declarative record migrations.
+    issues.extend(super::record_migrations::validate_migrations(pkg));
     // VAPP-161: a `records:<kind>` binding names a declared kind.
     for (id, template) in p.get("templates").and_then(Value::as_object).map(sorted_entries).into_iter().flatten() {
         let Some(bindings) = template.as_object().and_then(|t| t.get("bindings")).and_then(Value::as_array) else { continue };

@@ -10,6 +10,7 @@ import { parseSource } from "./sources"
 import { RECORD_KIND_PATTERN, validateRecordRefs, validateRecordSchema } from "./records"
 import { validateRecordPolicy } from "./record-policy"
 import { validateRecordTransitions } from "./record-transitions"
+import { validateMigrations } from "./record-migrations"
 import type { RecordKind } from "./records"
 import { RECORDS_SCHEME, parseRecordsJson } from "./query"
 import { validateTools } from "./tools"
@@ -92,6 +93,9 @@ export interface AppPackage {
    *  `records:<kind>?query=<name>&<params>` follows one, its `${param}`
    *  templates filled from the binding's other params. */
   queries?: Record<string, unknown>
+  /** eApps R8 (VAPP-233): declarative record migrations from earlier
+   *  versions (`host/record-migrations.ts`). */
+  migrations?: import("./record-migrations").RecordMigration[]
   /** VAPP-194: named actions, the only place a package writes
    *  (`host/actions.ts`): `{params?, steps}`, run by `actions.<name>`. */
   actions?: Record<string, unknown>
@@ -223,6 +227,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
           issues.push({ path: `/templates/${id}/bindings/${i}/source`, message: `source ${b.source} is not in the package's sources` })
       })
     }
+  // eApps R8 (VAPP-233): declarative record migrations.
+  issues.push(...validateMigrations(pkg))
   // VAPP-161: a `records:<kind>` binding names a declared kind.
   if (isObject(pkg.templates))
     for (const [id, template] of Object.entries(pkg.templates)) {

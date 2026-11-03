@@ -20,7 +20,7 @@ import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, valid
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
 import { ACTION_LIMITS, validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
 import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecordEvents, listRecords, loadApp, queryRecords, restoreRecord, teamMemberIds, undoEvents, upsertRecord, type RecordWriteVia } from "@/lib/apps/records-service"
-import { RECORD_POLICY_COPY } from "@exponential_app/eui/host"
+import { RECORD_POLICY_COPY, migrationRefusal } from "@exponential_app/eui/host"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { importAuthor } from "@exp/domain-contract/app-records"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
@@ -129,12 +129,16 @@ export async function writeVersionInTx(
   args: { note: string | null; sessionId: string | null; createdBy: string | null; byOwner: boolean }
 ): Promise<{ number: number; versionId: string }> {
   const [locked] = await tx
-    .select({ headVersion: apps.headVersion, publishedVersion: apps.publishedVersion, grantedTools: apps.grantedTools })
+    .select({ headVersion: apps.headVersion, publishedVersion: apps.publishedVersion, grantedTools: apps.grantedTools, package: apps.package })
     .from(apps)
     .where(eq(apps.id, app.id))
     .for(`update`)
   const number = (locked?.headVersion ?? app.headVersion) + 1
   const unpublished = (locked?.publishedVersion ?? app.publishedVersion) === 0
+  // eApps R8 (#VAPP-233): a major bump that changes a published kind
+  // incompatibly needs a migration that covers it (record-migrations.json).
+  const refusal = unpublished ? null : migrationRefusal(locked?.package ?? app.package, pkg)
+  if (refusal) throw new TRPCError({ code: `BAD_REQUEST`, message: refusal })
   const grantedTools = unpublished ? carriedGrants(locked?.grantedTools ?? app.grantedTools, pkg, args.byOwner) : (locked?.grantedTools ?? app.grantedTools ?? [])
   const [version] = await tx
     .insert(appVersions)
