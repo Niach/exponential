@@ -500,7 +500,12 @@ class StyleguideScreenshotsTest {
         // on the board view opens the board menu instead.
         step("board") {
             flow.waitFor(hasTestTag(Chats.TestIds.TAB_BOARD), SYNC_TIMEOUT)
-            if (!flow.exists(hasTestTag(BOARD_ROOT_TAG))) {
+            // DISPLAYED, not merely composed: the walk arrives here from the
+            // Threads tab, where the board's chips can still sit in the tree.
+            val onBoardRoot = runCatching {
+                composeRule.onAllNodes(hasTestTag(BOARD_ROOT_TAG)).onFirst().assertIsDisplayed()
+            }.isSuccess
+            if (!onBoardRoot) {
                 composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
                 flow.settle()
             }
@@ -1249,19 +1254,28 @@ class StyleguideScreenshotsTest {
             // Real drags: a programmatic scroll is re-pinned to the tail.
             if (ScreenshotFlow.anyRequested("sg_script-card", "sg_work-card")) {
                 val feed = hasTestTag("agent-feed")
+                // Short drags, a settle after each: a full-height fling (what
+                // `waitForInList` swipes) carried the lazy feed past the card
+                // between two polls.
                 fun revealFeedCard(tag: String) {
-                    flow.waitForInList(feed, hasTestTag(tag), SYNC_TIMEOUT)
-                    repeat(6) {
-                        val shown = runCatching {
-                            composeRule.onAllNodes(hasTestTag(tag)).onFirst().assertIsDisplayed()
-                        }.isSuccess
-                        if (!shown) {
-                            composeRule.onNode(feed)
-                                .performTouchInput { swipeDown(startY = centerY, endY = centerY + 300f) }
-                            flow.settle()
-                        }
+                    // The feed holds more than one Work card: name the workflow's.
+                    val card = if (tag == "work-card") {
+                        hasTestTag(tag) and hasAnyDescendant(hasText("cold-start-review"))
+                    } else {
+                        hasTestTag(tag)
                     }
-                    flow.waitFor(hasTestTag(tag), SYNC_TIMEOUT)
+                    var drags = 0
+                    while (drags < 24) {
+                        val shown = runCatching {
+                            composeRule.onAllNodes(card).onFirst().assertIsDisplayed()
+                        }.isSuccess
+                        if (shown) break
+                        composeRule.onNode(feed)
+                            .performTouchInput { swipeDown(startY = centerY, endY = centerY + 300f, durationMillis = 400) }
+                        flow.settle()
+                        drags++
+                    }
+                    flow.waitFor(card, SYNC_TIMEOUT)
                     flow.settle()
                 }
                 // The names stay literal: views.test.ts reads them off the source.

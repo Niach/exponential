@@ -237,7 +237,9 @@ The recipe the full ×5 refresh runs with, every lane against ONE stack:
 ```bash
 # once: own compose project (postgres wal_level=logical, electric, garage,
 # caddy with `max_conns_per_host 512`, steer-relay), migrate + custom triggers,
-# both .env files pointed at it, then
+# both .env files pointed at it (BETTER_AUTH_TRUSTED_ORIGINS must list the
+# emulator's http://10.0.2.2:<vite port> too: else every Android sign-in is a
+# 403 and the walks time out on `agent-home`/`tab-board`), then
 cd apps/web && bun run dev:capture --port 5174 --strictPort   # nohup it
 bash scripts/build-enet-wasm.sh          # public/enet: web's session feed
 bun run seed:screenshots                 # from apps/web, against the stack

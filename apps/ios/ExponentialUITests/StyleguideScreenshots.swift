@@ -1542,8 +1542,12 @@ final class StyleguideScreenshots: XCTestCase {
         // sit below the strip's bottom edge.
         // The names stay literal: views.test.ts reads them off the source.
         let strip = anyElement(app, identified: "thread-tab-conversation")
+        // The Work card is found by its workflow's title: the feed holds more
+        // than one `work-card` (firstMatch named one far above the strip).
         let revealFeedCard = { (id: String) in
-            let card = anyElement(app, identified: id)
+            let card = id == "work-card"
+                ? app.staticTexts["cold-start-review"].firstMatch
+                : self.anyElement(app, identified: id)
             var drags = 0
             while drags < 14, !(card.exists && card.isHittable && card.frame.minY > strip.frame.maxY) {
                 app.swipeDown(velocity: .slow)
