@@ -2,9 +2,9 @@
   "formatVersion": 3,
   "id": "exponential.time-tracker",
   "name": "Time tracker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "catalogId": "https://ui.exponential.at/catalogs/exponential-app/v1",
-  "description": "Log your hours per day against the team's projects; see the month per day, the total and what is left of the monthly target. Entries are private to their author (owners see everyone's).",
+  "description": "Log your hours per day against the team's projects; see the month per day and per ISO week, the total and what is left of the monthly target. Entries are private to their author (owners see everyone's). Agents read the weeks and log hours over MCP.",
   "icon": {
     "glyph": "ui-clock"
   },
@@ -57,6 +57,10 @@
           "hours"
         ],
         "additionalProperties": false
+      },
+      "computed": {
+        "minutes": "round(hours * 60)",
+        "week": "isoWeek(date)"
       }
     },
     "project": {
@@ -169,6 +173,38 @@
         [
           "hours",
           "desc"
+        ]
+      ],
+      "limit": 500
+    },
+    "weeks": {
+      "from": "entry",
+      "mine": true,
+      "month": {
+        "field": "date",
+        "key": "${month}"
+      },
+      "group": [
+        "week"
+      ],
+      "aggregate": {
+        "minutes": [
+          "sum",
+          "minutes"
+        ],
+        "hours": [
+          "sum",
+          "hours"
+        ],
+        "days": [
+          "countDistinct",
+          "date"
+        ]
+      },
+      "sort": [
+        [
+          "week",
+          "asc"
         ]
       ],
       "limit": 500
@@ -410,6 +446,75 @@
       ]
     }
   },
+  "exposes": [
+    {
+      "name": "week_summary",
+      "title": "Hours per week",
+      "description": "Your logged hours in one month, grouped by ISO week (minutes, hours and days per week). month = YYYY-MM; left out = this month.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "pattern": "^[0-9]{4}-[0-9]{2}$",
+            "description": "YYYY-MM"
+          }
+        }
+      },
+      "access": "read",
+      "run": {
+        "records": {
+          "op": "list",
+          "kind": "entry",
+          "query": "weeks"
+        }
+      }
+    },
+    {
+      "name": "log_hours",
+      "title": "Log hours",
+      "description": "Log hours you worked on one day (as you, via the time tracker).",
+      "input": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "hours": {
+            "type": "number",
+            "minimum": 0.25,
+            "maximum": 24
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          },
+          "project": {
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "date",
+          "hours"
+        ]
+      },
+      "access": "write",
+      "run": {
+        "records": {
+          "op": "upsert",
+          "kind": "entry",
+          "data": {
+            "date": "${input.date}",
+            "hours": "${input.hours}",
+            "note": "${input.note}",
+            "project": "${input.project}"
+          }
+        }
+      }
+    }
+  ],
   "templates": {
     "month": {
       "data": {
@@ -457,12 +562,22 @@
           "value": "",
           "label": ""
         },
-        "targetDraft": 160
+        "targetDraft": 160,
+        "weeks": {
+          "rows": [],
+          "count": 0,
+          "groups": [],
+          "totals": {}
+        }
       },
       "bindings": [
         {
           "path": "/month",
           "source": "records:entry?query=month"
+        },
+        {
+          "path": "/weeks",
+          "source": "records:entry?query=weeks"
         },
         {
           "path": "/team",
@@ -490,6 +605,7 @@
             "stats",
             "progress",
             "entries",
+            "weeks",
             "team",
             "admin",
             "editor"
@@ -856,6 +972,64 @@
                 }
               }
             }
+          }
+        },
+        {
+          "id": "weeks",
+          "component": "Section",
+          "title": "This month by week",
+          "count": {
+            "call": "expr",
+            "args": {
+              "expr": "size(w.groups)",
+              "default": 0,
+              "vars": {
+                "w": {
+                  "path": "/weeks"
+                }
+              }
+            }
+          },
+          "collapsible": true,
+          "open": false,
+          "children": [
+            "weekTable"
+          ]
+        },
+        {
+          "id": "weekTable",
+          "component": "Table",
+          "density": "compact",
+          "rowKey": "week",
+          "columns": [
+            {
+              "key": "week",
+              "label": "Week",
+              "type": "number",
+              "align": "start"
+            },
+            {
+              "key": "days",
+              "label": "Days",
+              "type": "number",
+              "align": "end"
+            },
+            {
+              "key": "minutes",
+              "label": "Minutes",
+              "type": "number",
+              "align": "end"
+            },
+            {
+              "key": "hours",
+              "label": "Hours",
+              "type": "number",
+              "decimals": 2,
+              "align": "end"
+            }
+          ],
+          "rows": {
+            "path": "/weeks/groups"
           }
         },
         {
@@ -1489,6 +1663,153 @@
           "n": 3
         }
       }
+    },
+    {
+      "name": "computed minutes and ISO weeks group the month",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          },
+          {
+            "id": "e5",
+            "author": "member",
+            "date": "2026-11-09",
+            "hours": 0.75,
+            "project": "web"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "query": {
+        "name": "weeks",
+        "params": {
+          "month": "2026-11"
+        }
+      },
+      "expect": {
+        "count": 4,
+        "groups": [
+          {
+            "week": 45,
+            "minutes": 990,
+            "hours": 16.5,
+            "days": 2
+          },
+          {
+            "week": 46,
+            "minutes": 45,
+            "hours": 0.75,
+            "days": 1
+          }
+        ],
+        "totals": {
+          "minutes": 1035,
+          "hours": 17.25,
+          "days": 3
+        }
+      }
+    },
+    {
+      "name": "a row carries its computed fields",
+      "now": "2026-11-12T09:00:00.000Z",
+      "records": {
+        "entry": [
+          {
+            "id": "e1",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 7.5,
+            "note": "Sprint planning",
+            "project": "web"
+          },
+          {
+            "id": "e2",
+            "author": "member",
+            "date": "2026-11-02",
+            "hours": 1
+          },
+          {
+            "id": "e3",
+            "author": "member",
+            "date": "2026-11-03",
+            "hours": 8,
+            "project": "ios"
+          },
+          {
+            "id": "e4",
+            "author": "member",
+            "date": "2026-10-30",
+            "hours": 6
+          },
+          {
+            "id": "a1",
+            "date": "2026-11-04",
+            "hours": 5,
+            "author": "ada"
+          },
+          {
+            "id": "e5",
+            "author": "member",
+            "date": "2026-11-09",
+            "hours": 0.75,
+            "project": "web"
+          }
+        ],
+        "settings": [
+          {
+            "hours_per_month": 120,
+            "author": "owner1"
+          }
+        ]
+      },
+      "expr": {
+        "expr": "w.rows.filter(r, r.week == 46).map(r, r.minutes)",
+        "vars": {
+          "w": {
+            "source": "records:entry?query=weeks"
+          }
+        }
+      },
+      "expect": [
+        45
+      ]
     },
     {
       "name": "October is another month",

@@ -856,6 +856,14 @@ What a team can rely on:
 
 Rich apps continue in §17 order: R4 history, then U1 screens and the rest.
 
+**Dogfood G (2026-11-03, staging, the "eApps Dogfood" team: an owner and a member).** The time tracker sample (`samples/apps/time-tracker.app.json` 1.1.0) now uses every Milestone G feature: computed `minutes` + `week` and a `weeks` query grouped on them (a "This month by week" table), and two `exposes` tools (`week_summary` runs the `weeks` query, `log_hours` writes). Its package tests pass at install (17). Verified over MCP and on web:
+
+- **V1:** an upsert lands as a draft (`published` stays). The member's editor shows the published version, and `/api/mcp/apps` lists and runs the published package's tools (none before the first publish). Publish moves them, and `publish {version: 2}` rolls back: the tool's title and the query's sort follow at once.
+- **Q3 + Q4:** `time-tracker__week_summary` returns `groups` keyed by the computed `week`, with the computed `minutes` summed, per member (read policy `author`). `log_hours` writes as the caller.
+- **Read-only:** with app access `read`, the member's forms paint disabled (the Log hours dialog's Save too). The write tool disappears from the list, and `records_upsert`, `records_delete`, tRPC `records.upsert` and `records.batch` all answer "You have read-only access to this app". Reads still work.
+- **Install checks:** 18 broken variants of the time tracker (unknown component, missing prop, dangling child, computed shadowing/chaining/typos/types, typos in a row template, unknown queries in bindings and tests, destructive exposes) are refused at the right path. Two gaps were fixed: a query on a field its kind lacks (or a sum of a text) and an exposes run naming no query (#VAPP-223, PR #1793).
+- **Team zone:** with the team on `Pacific/Kiritimati`, `today()` read the team's day, but the records month view's `today` and its default month read UTC's on every host and in the broker (the Log hours dialog opened on yesterday). Fixed: the records context takes the host's `today` (#VAPP-224, PR #1794; `records-query.json`, ×4 + the server).
+
 ### 20.1 Readiness (batch 1, 2026-11-03)
 
 Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI (#1719), R3 per-kind policies + `app_access` everywhere (#VAPP-199), "Run as" (#VAPP-198), authors in `.app.json` exports (#VAPP-192), the eApps real-DB suites run against Postgres 17 (all green), the §15 limits measured, and three real apps dogfooded on staging (time tracker, CRM, standup; `samples/apps/`, #VAPP-209). The dogfood found and fixed a desktop crash on every package action and a web/desktop disagreement on missing fields.
