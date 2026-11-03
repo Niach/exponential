@@ -1,14 +1,24 @@
 #!/usr/bin/env bash
 # EXP-1364: the MacBook's self-hosted runner (label exp-mac), native under the
 # logged-in user (Xcode + simulators need it). Idempotent; rerun to upgrade.
-#   bash .github/runners/mac/install.sh
+#   bash .github/runners/mac/install.sh              # macbook   in ~/actions-runner
+#   bash .github/runners/mac/install.sh macbook-2    # macbook-2 in ~/actions-runner-2
+# Every instance gets its own work dir, launchd service, TMPDIR, sccache
+# server port and simulator, so two Mac jobs run side by side; touching one
+# instance never restarts another.
 # Needs: gh logged in as a repo admin, the newest release Xcode 27.x at /Applications/Xcode.app
 # with the iOS 27 simulator runtime (.github/scripts/select-xcode.sh), Homebrew
 # tuist at the CI pin.
 set -euo pipefail
 
 REPO=Niach/exponential
-DIR="$HOME/actions-runner"
+NAME="${1:-macbook}"
+case "$NAME" in
+  macbook) N=1 ;;
+  macbook-[2-9]) N="${NAME#macbook-}" ;;
+  *) echo "usage: $0 [macbook|macbook-<2-9>]" >&2; exit 2 ;;
+esac
+DIR="$HOME/actions-runner${NAME#macbook}"
 VERSION="$(gh api repos/actions/runner/releases/latest -q .tag_name | sed s/^v//)"
 
 command -v sccache >/dev/null || brew install sccache
@@ -22,7 +32,7 @@ fi
 if [ ! -f .runner ]; then
   TOKEN="$(gh api -X POST "repos/$REPO/actions/runners/registration-token" -q .token)"
   ./config.sh --unattended --replace --url "https://github.com/$REPO" --token "$TOKEN" \
-    --name macbook --labels exp-mac --work _work
+    --name "$NAME" --labels exp-mac --work _work
 fi
 
 # Jobs skip Swatinem/rust-cache on self-hosted: sccache replaces it. Only the
@@ -34,11 +44,22 @@ SCCACHE_CACHE_SIZE=40G
 CARGO_INCREMENTAL=0
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 ENV
+# One sccache server per instance (the cache dir stays shared): a job's disk
+# guard stopping its server never kills the other instance's build.
+echo "SCCACHE_SERVER_PORT=$((4225 + N))" >> .env
+if [ "$N" -gt 1 ]; then
+  # Never the user's TMPDIR: tools park fixed paths there (the swift-ios bench's
+  # DerivedData). Never the first instance's simulator: swift-ios shuts down
+  # the device it booted (.github/scripts/select-xcode.sh reads the name).
+  mkdir -p "$DIR/_tmp"
+  echo "TMPDIR=$DIR/_tmp/" >> .env
+  echo "IOS_SIM_DEVICE_NAME=iPhone 17 Pro Max ($NAME)" >> .env
+fi
 # EXP-1396: the disk guard also drops the dev box's shared cargo incremental dirs.
 [ -n "${CARGO_TARGET_DIR:-}" ] && echo "DISK_GUARD_CARGO_TARGETS=$CARGO_TARGET_DIR" >> .env
 
-ls "$HOME"/Library/LaunchAgents/actions.runner.*.plist >/dev/null 2>&1 || ./svc.sh install
-PLIST="$(ls "$HOME"/Library/LaunchAgents/actions.runner.*.plist | head -1)"
+PLIST="$HOME/Library/LaunchAgents/actions.runner.${REPO/\//-}.$NAME.plist"
+[ -f "$PLIST" ] || ./svc.sh install
 # Nice only: builds yield to whatever you are doing. Never Background QoS:
 # it pins the jobs to the efficiency cores (a 40-minute xcframework build).
 plutil -replace ProcessType -string Standard "$PLIST"

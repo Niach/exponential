@@ -51,6 +51,19 @@ A LaunchAgent under your user, niced (never Background QoS: it pins jobs to the 
 only (`.github/scripts/select-xcode.sh`; no beta Xcode, no other runtime) and Homebrew tuist (test-ios fails loudly if tuist is off the pin).
 `~/actions-runner/svc.sh stop` pauses it; jobs then fall back to GitHub.
 
+Two instances (2026-11-03), so a release build never queues the PR jobs:
+`macbook` in `~/actions-runner` and `macbook-2` in `~/actions-runner-2`
+(`bash .github/runners/mac/install.sh macbook-2`), same labels, each its own
+launchd service (`~/actions-runner-2/svc.sh stop` pauses only it). What they
+must not share, the script splits per instance: the work dir (so checkouts,
+`apps/desktop/target`, `$RUNNER_TEMP/dd` and tuist's per-workspace DerivedData
+differ), the sccache server port (4226, 4227; the cache dir stays shared),
+`TMPDIR` (`~/actions-runner-2/_tmp`: the swift-ios bench's fixed DerivedData)
+and the simulator (`IOS_SIM_DEVICE_NAME` = `iPhone 17 Pro Max (macbook-2)`;
+swift-ios shuts down the device it booted). Shared on purpose: rustup, the
+cargo registry, Homebrew tuist, Xcode. Bench timings on a Mac running two jobs
+are noisier (they only warn).
+
 Disk (EXP-1396): every Mac job runs `.github/scripts/disk-guard.sh` first.
 Below 25 GB free it cleans (DerivedData older than a day, cargo `incremental/`
 dirs, unavailable simulators, dangling docker images, then

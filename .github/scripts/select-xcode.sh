@@ -12,11 +12,14 @@
 #
 # Exports to the job: DEVELOPER_DIR, IOS_SIM_OS (e.g. 27.0), IOS_SIM_NAME,
 # IOS_SIM_UDID. `--simulator` also picks (or creates) the device.
+# IOS_SIM_DEVICE_NAME (a second runner instance's .env, runners/mac/install.sh)
+# names this runner's own device of that type, so parallel jobs never share one.
 set -euo pipefail
 
 XCODE_MAJOR=27
 IOS_MAJOR=27
 SIM_NAME="iPhone 17 Pro Max"
+DEVICE_NAME="${IOS_SIM_DEVICE_NAME:-$SIM_NAME}"
 
 # Apple's beta builds end in a letter (27A5194q); a release build never does.
 app="" best=""
@@ -60,15 +63,15 @@ fi
 runtime_id="${runtime% *}"
 os="${runtime#* }"
 
-udid="$(xcrun simctl list devices available -j | jq -r --arg r "$runtime_id" --arg n "$SIM_NAME" '
+udid="$(xcrun simctl list devices available -j | jq -r --arg r "$runtime_id" --arg n "$DEVICE_NAME" '
   .devices[$r] // [] | map(select(.name == $n)) | .[0].udid // empty')"
 if [ -z "$udid" ]; then
   type="$(xcrun simctl list devicetypes -j | jq -r --arg n "$SIM_NAME" '.devicetypes[] | select(.name == $n) | .identifier')"
-  udid="$(xcrun simctl create "$SIM_NAME" "$type" "$runtime_id")"
+  udid="$(xcrun simctl create "$DEVICE_NAME" "$type" "$runtime_id")"
 fi
-echo "Simulator: $SIM_NAME, iOS $os ($udid)"
+echo "Simulator: $DEVICE_NAME, iOS $os ($udid)"
 {
   echo "IOS_SIM_OS=$os"
-  echo "IOS_SIM_NAME=$SIM_NAME"
+  echo "IOS_SIM_NAME=$DEVICE_NAME"
   echo "IOS_SIM_UDID=$udid"
 } >> "${GITHUB_ENV:-/dev/null}"
