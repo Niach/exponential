@@ -91,7 +91,7 @@ type InputEvent = Parameters<NonNullable<HostPlugin[`onInput`]>>[0]
 type Waitable<T> = T & { waitUntil: (promise: Promise<unknown>) => void }
 
 /** The element's settable surface (properties, camelCase). */
-type SurfaceProps = Partial<Pick<ExponentialSurfaceElement, `surface` | `root` | `templates` | `data` | `theme` | `mode` | `direction` | `width` | `height` | `locale` | `surfaceId` | `plugin` | `measure` | `viewportHeight` | `states`>>
+type SurfaceProps = Partial<Pick<ExponentialSurfaceElement, `surface` | `root` | `templates` | `data` | `theme` | `mode` | `direction` | `width` | `height` | `locale` | `surfaceId` | `plugin` | `measure` | `viewportHeight` | `states` | `readOnly`>>
 
 /** A new `<exponential-surface>` with `props` set as properties (before it
  *  is attached: the element paints on connect). Undefined values stay unset. */
