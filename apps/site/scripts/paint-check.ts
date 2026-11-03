@@ -89,7 +89,7 @@ for (const theme of [`dark`, `light`] as const) {
 }
 
 // 5. Pictures of the key pages (CI uploads them; mint captures nothing).
-const PAGES = [`/`, `/ui/`, `/motion/`, `/apps/`, `/docs/`, `/docs/using/sessions/`, `/docs/eapps/`, `/docs/libraries/motion/reference/`, `/pricing/`, `/blog/`]
+const PAGES = [`/`, `/ui/`, `/motion/`, `/apps/`, `/docs/`, `/docs/using/sessions/`, `/docs/eapps/`, `/docs/libraries/motion/reference/`, `/pricing/`, `/download/`, `/contact/`, `/imprint/`, `/blog/`, `/blog/exponentialos/`, `/blog/session-as-interface/`]
 if (shots) {
   for (const path of PAGES) {
     for (const theme of [`dark`, `light`] as const) {
