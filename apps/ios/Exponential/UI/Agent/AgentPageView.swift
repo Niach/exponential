@@ -92,18 +92,18 @@ struct AgentPageView: View {
                             }
                             VStack(alignment: .leading, spacing: CGFloat(ComposerAgentRow.rowToCard)) {
                                 agentRow(composer)
-                                AgentComposerCard(model: composer) { issueId in
-                                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
-                                }
-                                // EXP-1649: the `/` menu floats ABOVE the
+                                // EXP-1649: the `/` menu sits fully ABOVE the
                                 // card as its own surface (web's caret
-                                // typeahead: w-72, placed above), over the
-                                // agent row, never pushing the column.
-                                .overlay(alignment: .topLeading) {
+                                // typeahead: w-72, its bottom 4pt over the
+                                // card's top); laid out, so it pushes the
+                                // agent row up and never covers the card.
+                                VStack(alignment: .leading, spacing: 4) {
                                     if !composer.draftEditor.showsAutocompleteMenu, slashMenuVisible(composer) {
                                         slashMenu(composer)
-                                            .frame(width: 288)
-                                            .alignmentGuide(.top) { $0[.bottom] + 4 }
+                                            .frame(width: 288, alignment: .leading)
+                                    }
+                                    AgentComposerCard(model: composer) { issueId in
+                                        deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
                                     }
                                 }
                             }
@@ -135,6 +135,10 @@ struct AgentPageView: View {
                     }
                 }
                 .scrollDismissesKeyboard(.interactively)
+                // EXP-1649: a column taller than the room (the `/` menu over
+                // the card, the keyboard up) keeps its BOTTOM in view — the
+                // card, never the dawn above it.
+                .defaultScrollAnchor(.bottom)
                 // On the SCROLLER itself (EXP-36), so the composer clears
                 // the floating bar.
                 .tabBarBottomInset(reservesTabBar)
