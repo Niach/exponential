@@ -106,8 +106,12 @@ export function validateRecordComputed(kind: unknown, at: string): ExpressionIss
   return issues
 }
 
-/** A month view's value (`RecordsMonth`). */
-const MONTH_TYPE: ExprType = {
+/** eApps U3: a calendar day cell and a segment (calendar.ts). */
+const DAY_CELL_TYPE: ExprType = { date: `date`, day: `number`, weekday: `string`, initial: `string`, inMonth: `bool`, weekend: `bool`, today: `bool`, selected: `bool`, total: `number`, dots: [{ tone: `string` }] }
+const segmentType = (row: ExprType): ExprType => ({ id: `string`, col: `number`, span: `number`, lane: `number`, contL: `bool`, contR: `bool`, tone: optionalType(`string`), more: `number`, row: optionalType(row) })
+
+/** A month view's value (`RecordsMonth`; eApps U3: + weeks, day, agenda). */
+const monthType = (row: ExprType): ExprType => ({
   key: `string`,
   label: `string`,
   prev: `string`,
@@ -117,13 +121,33 @@ const MONTH_TYPE: ExprType = {
   labels: [`string`],
   counts: [`number`],
   sums: [`number`],
-}
+  weeks: [{ key: `date`, days: [DAY_CELL_TYPE], segments: [segmentType(row)] }],
+  day: `date`,
+  agenda: { date: `date`, label: `string`, count: `number`, items: [{ id: `string`, tone: `string`, start: `date`, end: `date`, days: `number`, row }] },
+})
+
+/** eApps U3: the week view's value. */
+const weekType = (row: ExprType): ExprType => ({ key: `date`, label: `string`, prev: `date`, next: `date`, today: `date`, days: [DAY_CELL_TYPE], segments: [segmentType(row)] })
+
+/** eApps U3: the timeline's value. */
+const timelineType = (row: ExprType): ExprType => ({
+  scale: `string`,
+  key: `date`,
+  label: `string`,
+  prev: `date`,
+  next: `date`,
+  today: `date`,
+  columns: [{ key: `date`, label: `string`, end: `date`, today: `bool` }],
+  bands: [{ label: `string`, col: `number`, span: `number` }],
+  rows: [{ key: `string`, index: `number`, lanes: `number`, count: `number`, items: [{ id: `string`, rowIndex: `number`, col: `number`, span: `number`, lane: `number`, contL: `bool`, contR: `bool`, tone: `string`, row }] }],
+  now: optionalType({ col: `number`, percent: `number` }),
+})
 
 /** The value a records binding lands (docs/package-format.md "Records").
  *  VAPP-204: what the binding's query leaves out may be missing (`T?`):
  *  `sum` without a sum, `month` without a month view, `groups` without a
- *  group, `totals` without an aggregate, `before` without a before; with no
- *  query known, all of them. */
+ *  group, `totals` without an aggregate, `before` without a before (eApps
+ *  U3: `week`, `timeline` without theirs); with no query known, all of them. */
 export function recordsValueType(kind: unknown, query?: RecordsQuery | null): ExprType {
   const has = (present: boolean | undefined, t: ExprType) => (present ? t : optionalType(t))
   const row = recordRowType(kind) as Record<string, ExprType>
@@ -134,7 +158,9 @@ export function recordsValueType(kind: unknown, query?: RecordsQuery | null): Ex
     groups: has(query ? query.group.length > 0 : undefined, [`map`]),
     totals: has(query ? query.aggregate.length > 0 : undefined, `map`),
     before: has(query ? query.before !== null : undefined, `map`),
-    month: has(query ? query.month !== null : undefined, MONTH_TYPE),
+    month: has(query ? query.month !== null : undefined, monthType(row)),
+    week: has(query ? query.week !== null : undefined, weekType(row)),
+    timeline: has(query ? query.timeline !== null : undefined, timelineType(row)),
   }
 }
 

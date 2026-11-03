@@ -18,6 +18,7 @@ pub mod exposes;
 pub mod expressions;
 pub mod package;
 pub mod policy;
+pub mod calendar;
 pub mod query;
 pub mod record_migrations;
 pub mod record_policy;

@@ -23,7 +23,10 @@ use serde_json::{json, Map, Value};
 use super::signature::canonical_json;
 use super::sources::{parse_source, source_with_params, ParsedSource};
 use super::{js_trim, utf16_cmp};
-use crate::dates::{date_bucket, days_in_month, weekday_of, DateBucket, DATE_BUCKETS};
+use super::calendar::{
+    calendar_month, calendar_timeline, calendar_week_view, day_of, period_start, shift_period, span_of, tones_of, CalendarSpan, CALENDAR_LANES_DEFAULT, CALENDAR_LANES_MAX, TIMELINE_COLUMNS_DEFAULT, TIMELINE_COLUMNS_MAX, TIMELINE_SCALES,
+};
+use crate::dates::{date_bucket, days_in_month, parse_day, weekday_of, DateBucket, DATE_BUCKETS};
 use crate::json::{number, number_to_string};
 
 /// The binding scheme: `records:<kind>[?query]`.
@@ -34,7 +37,7 @@ pub const RECORDS_ORDER_DEFAULT: &str = "desc";
 pub const RECORDS_LIMIT_DEFAULT: u32 = 100;
 pub const RECORDS_LIMIT_MAX: u32 = 500;
 /// Query keys with a meaning of their own; never a field filter.
-pub const RECORDS_RESERVED_PARAMS: &[&str] = &["app", "before", "by", "expand", "limit", "mine", "month", "order", "q", "query", "sort", "sum", "user"];
+pub const RECORDS_RESERVED_PARAMS: &[&str] = &["app", "before", "by", "columns", "day", "expand", "lanes", "limit", "mine", "month", "order", "q", "query", "row", "scale", "sort", "start", "sum", "tone", "until", "user", "view"];
 /// The keys every value row carries next to its data (a data key never shadows one).
 pub const RECORDS_ROW_KEYS: &[&str] = &["id", "createdAt", "updatedAt", "createdBy", "authorId", "author"];
 /// The filter operators: `eq` is the bare key, the others a `.<op>` suffix
@@ -144,6 +147,41 @@ pub struct RecordsMonthView {
     pub field: String,
     /// `YYYY-MM`; `None` = the month of `now`.
     pub key: Option<String>,
+    /// eApps U3: the end-date field (a row spans `field`..`until`); `None` = one day.
+    pub until: Option<String>,
+    /// eApps U3: the selected day (`YYYY-MM-DD`); `None` = today or the 1st.
+    pub day: Option<String>,
+    /// eApps U3: the lanes a week shows before "+N more" (1–8).
+    pub lanes: u32,
+    /// eApps U3: the field a placed row's tone (chart1..8) reads.
+    pub tone: Option<String>,
+}
+
+/// eApps U3: `view=week`: the Monday-first week holding `key`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RecordsWeekView {
+    pub field: String,
+    /// A day of the week (`YYYY-MM-DD`); `None` = today's week.
+    pub key: Option<String>,
+    pub until: Option<String>,
+    pub lanes: u32,
+    pub tone: Option<String>,
+}
+
+/// eApps U3: `view=timeline`: `columns` periods of `scale` from the one
+/// holding `start`, the rows grouped by `row`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct RecordsTimelineView {
+    pub field: String,
+    pub until: Option<String>,
+    /// The field rows group by; `None` = one row per record.
+    pub row: Option<String>,
+    /// `week` | `month` | `quarter`.
+    pub scale: String,
+    /// A day (`YYYY-MM-DD`); `None` = today.
+    pub start: Option<String>,
+    pub columns: u32,
+    pub tone: Option<String>,
 }
 
 /// One group-by key: a field (`author` = the author, by name), or a date
@@ -253,6 +291,11 @@ pub struct RecordsQuery {
     /// Σ of this field over the matches (before the limit).
     pub sum: Option<String>,
     pub month: Option<RecordsMonthView>,
+    /// eApps U3: the week view and the timeline (at most one calendar view per query).
+    #[serde(default)]
+    pub week: Option<RecordsWeekView>,
+    #[serde(default)]
+    pub timeline: Option<RecordsTimelineView>,
     /// VAPP-190: the group-by keys.
     #[serde(default)]
     pub group: Vec<RecordsGroupKey>,
@@ -283,6 +326,8 @@ impl Default for RecordsQuery {
             limit: RECORDS_LIMIT_DEFAULT,
             sum: None,
             month: None,
+            week: None,
+            timeline: None,
             group: Vec::new(),
             aggregate: Vec::new(),
             running: Vec::new(),
@@ -366,6 +411,25 @@ fn trimmed(v: Option<&str>) -> Option<String> {
     v.map(js_trim).filter(|s| !s.is_empty()).map(str::to_string)
 }
 
+/// A real day's `YYYY-MM-DD` text; `None` = anything else.
+fn day_key(v: Option<&str>) -> Option<String> {
+    v.filter(|t| t.len() == 10 && parse_day(t).is_some()).map(str::to_string)
+}
+
+/// An integer in `1..=max` (a number or its text); `None` = anything else.
+fn bounded_int(v: &Value, max: u32) -> Option<u32> {
+    let n = match v {
+        Value::Number(n) => n.as_f64().unwrap_or(f64::NAN),
+        Value::String(s) if !js_trim(s).is_empty() => js_string_number(s),
+        _ => f64::NAN,
+    };
+    (n.is_finite() && n.fract() == 0.0 && n >= 1.0 && n <= f64::from(max)).then_some(n as u32)
+}
+
+fn bounded_param(v: Option<&String>, max: u32) -> Option<u32> {
+    v.and_then(|s| bounded_int(&Value::String(s.clone()), max))
+}
+
 /// Query params (as [`super::parse_source`] gives them) → the query. `kind`
 /// = the source's own name (`records:<kind>`). Unknown keys are field
 /// filters. VAPP-190: `q=<json>` = the
@@ -403,6 +467,15 @@ pub fn parse_records_query(params: &BTreeMap<String, String>, kind: Option<&str>
     let limit = if limit_raw.is_finite() && limit_raw.fract() == 0.0 && limit_raw > 0.0 { limit_raw.min(f64::from(RECORDS_LIMIT_MAX)) as u32 } else { RECORDS_LIMIT_DEFAULT };
     let by = trimmed(params.get("by").map(String::as_str));
     let before = trimmed(params.get("before").map(String::as_str));
+    // eApps U3: `view=week|timeline` (else the month view) over `by`.
+    let view = match params.get("view").map(String::as_str) {
+        Some(v @ ("week" | "timeline")) => v,
+        _ => "month",
+    };
+    let until = trimmed(params.get("until").map(String::as_str));
+    let tone = trimmed(params.get("tone").map(String::as_str));
+    let lanes = bounded_param(params.get("lanes"), CALENDAR_LANES_MAX).unwrap_or(CALENDAR_LANES_DEFAULT);
+    let day = day_key(params.get("day").map(String::as_str));
     RecordsQuery {
         from,
         app: trimmed(params.get("app").map(String::as_str)),
@@ -413,7 +486,17 @@ pub fn parse_records_query(params: &BTreeMap<String, String>, kind: Option<&str>
         limit,
         sum: trimmed(params.get("sum").map(String::as_str)),
         before: before.map(|date| RecordsBefore { field: by.clone().unwrap_or_else(|| RECORDS_SORT_DEFAULT.to_string()), date }),
-        month: by.map(|field| RecordsMonthView { field, key: params.get("month").filter(|m| is_month_key(m)).cloned() }),
+        month: by.clone().filter(|_| view == "month").map(|field| RecordsMonthView { field, key: params.get("month").filter(|m| is_month_key(m)).cloned(), until: until.clone(), day: day.clone(), lanes, tone: tone.clone() }),
+        week: by.clone().filter(|_| view == "week").map(|field| RecordsWeekView { field, key: day.clone(), until: until.clone(), lanes, tone: tone.clone() }),
+        timeline: by.clone().filter(|_| view == "timeline").map(|field| RecordsTimelineView {
+            field,
+            until: until.clone(),
+            row: trimmed(params.get("row").map(String::as_str)),
+            scale: params.get("scale").filter(|s| TIMELINE_SCALES.contains(&s.as_str())).cloned().unwrap_or_else(|| "week".to_string()),
+            start: day_key(params.get("start").map(String::as_str)),
+            columns: bounded_param(params.get("columns"), TIMELINE_COLUMNS_MAX).unwrap_or(TIMELINE_COLUMNS_DEFAULT),
+            tone: tone.clone(),
+        }),
         expand: {
             let mut out: Vec<String> = Vec::new();
             for f in params.get("expand").map(String::as_str).unwrap_or("").split(',').map(js_trim).filter(|f| !f.is_empty()) {
@@ -483,7 +566,62 @@ fn parse_condition(entry: &Value, at: &str, issues: &mut Vec<RecordsQueryIssue>)
     Some(RecordsFilter { field: field.to_string(), op, value })
 }
 
-const QUERY_KEYS: &[&str] = &["from", "app", "mine", "user", "where", "sort", "limit", "sum", "month", "group", "aggregate", "running", "before", "expand"];
+const QUERY_KEYS: &[&str] = &["from", "app", "mine", "user", "where", "sort", "limit", "sum", "month", "week", "timeline", "group", "aggregate", "running", "before", "expand"];
+
+/// eApps U3: the keys of each JSON calendar view (`field` required).
+fn view_keys(name: &str) -> &'static [&'static str] {
+    match name {
+        "month" => &["field", "key", "until", "day", "lanes", "tone"],
+        "week" => &["field", "key", "until", "lanes", "tone"],
+        _ => &["field", "until", "row", "scale", "start", "columns", "tone"],
+    }
+}
+
+/// eApps U3: one JSON calendar view's keys (every problem an issue at
+/// `/<view>/<key>`); `None` = not `{field, …}`.
+fn parse_view_json(name: &str, v: &Value, issues: &mut Vec<RecordsQueryIssue>) -> Option<Map<String, Value>> {
+    let keys = view_keys(name);
+    let field = v.get("field").and_then(Value::as_str).map(js_trim).filter(|f| !f.is_empty());
+    let (Some(obj), Some(field)) = (v.as_object(), field) else {
+        let shape: Vec<String> = keys.iter().map(|k| if *k == "field" { (*k).to_string() } else { format!("{k}?") }).collect();
+        issue(issues, format!("/{name}"), format!("{name} is {{{}}}", shape.join(", ")));
+        return None;
+    };
+    let mut out = Map::new();
+    out.insert("field".into(), json!(field));
+    for key in sorted_keys(obj) {
+        if key == "field" {
+            continue;
+        }
+        let value = &obj[key.as_str()];
+        let at = format!("/{name}/{key}");
+        if !keys.contains(&key.as_str()) {
+            issue(issues, at, format!("unknown key {key}"));
+        } else if value.is_null() {
+            continue;
+        } else if key == "lanes" || key == "columns" {
+            let max = if key == "lanes" { CALENDAR_LANES_MAX } else { TIMELINE_COLUMNS_MAX };
+            match bounded_int(value, max) {
+                Some(n) => {
+                    out.insert(key.clone(), json!(n));
+                }
+                None => issue(issues, at, format!("{key} is an integer 1–{max}")),
+            }
+        } else if key == "scale" {
+            match value.as_str().filter(|s| TIMELINE_SCALES.contains(s)) {
+                Some(s) => {
+                    out.insert(key.clone(), json!(s));
+                }
+                None => issue(issues, at, format!("scale is {}", TIMELINE_SCALES.join("|"))),
+            }
+        } else if let Some(s) = value.as_str() {
+            out.insert(key.clone(), trimmed(Some(s)).map_or(Value::Null, Value::String));
+        } else {
+            issue(issues, at, format!("{key} is a string"));
+        }
+    }
+    Some(out)
+}
 
 fn sorted_keys(map: &Map<String, Value>) -> Vec<&String> {
     let mut keys: Vec<&String> = map.keys().collect();
@@ -603,16 +741,30 @@ pub fn parse_records_json(json: &Value, kind: Option<&str>) -> (RecordsQuery, Ve
             issue(&mut issues, "/limit", "limit is a positive integer");
         }
     }
-    match obj.get("month") {
-        None | Some(Value::Null) => {}
-        Some(m) => {
-            let field = m.get("field").and_then(Value::as_str).map(js_trim).filter(|f| !f.is_empty());
-            let key = m.get("key");
-            match (m.as_object(), field) {
-                (Some(_), Some(field)) if matches!(key, None | Some(Value::Null) | Some(Value::String(_))) => {
-                    query.month = Some(RecordsMonthView { field: field.to_string(), key: key.and_then(Value::as_str).filter(|k| is_month_key(k)).map(str::to_string) });
-                }
-                _ => issue(&mut issues, "/month", "month is {field, key?}"),
+    // eApps U3: at most one calendar view (month, then week, then timeline).
+    for name in ["month", "week", "timeline"] {
+        let Some(raw) = obj.get(name).filter(|v| !v.is_null()) else { continue };
+        if query.month.is_some() || query.week.is_some() || query.timeline.is_some() {
+            issue(&mut issues, format!("/{name}"), "one calendar view per query");
+            continue;
+        }
+        let Some(v) = parse_view_json(name, raw, &mut issues) else { continue };
+        let str_at = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
+        let lanes = v.get("lanes").and_then(Value::as_u64).map_or(CALENDAR_LANES_DEFAULT, |n| n as u32);
+        let field = str_at("field").unwrap_or_default();
+        match name {
+            "month" => query.month = Some(RecordsMonthView { field, key: str_at("key").filter(|k| is_month_key(k)), until: str_at("until"), day: day_key(str_at("day").as_deref()), lanes, tone: str_at("tone") }),
+            "week" => query.week = Some(RecordsWeekView { field, key: day_key(str_at("key").as_deref()), until: str_at("until"), lanes, tone: str_at("tone") }),
+            _ => {
+                query.timeline = Some(RecordsTimelineView {
+                    field,
+                    until: str_at("until"),
+                    row: str_at("row"),
+                    scale: str_at("scale").unwrap_or_else(|| "week".to_string()),
+                    start: day_key(str_at("start").as_deref()),
+                    columns: v.get("columns").and_then(Value::as_u64).map_or(TIMELINE_COLUMNS_DEFAULT, |n| n as u32),
+                    tone: str_at("tone"),
+                })
             }
         }
     }
@@ -682,7 +834,10 @@ pub fn parse_records_json(json: &Value, kind: Option<&str>) -> (RecordsQuery, Ve
     match obj.get("before") {
         None | Some(Value::Null) => {}
         Some(Value::String(date)) => {
-            let implied = query.group.iter().find(|g| g.bucket.is_some()).map(|g| g.field.clone()).or_else(|| query.month.as_ref().map(|m| m.field.clone())).unwrap_or_else(|| RECORDS_SORT_DEFAULT.to_string());
+            let implied = query.group.iter().find(|g| g.bucket.is_some()).map(|g| g.field.clone()).or_else(|| query.month.as_ref().map(|m| m.field.clone()))
+                .or_else(|| query.week.as_ref().map(|m| m.field.clone()))
+                .or_else(|| query.timeline.as_ref().map(|m| m.field.clone()))
+                .unwrap_or_else(|| RECORDS_SORT_DEFAULT.to_string());
             query.before = trimmed(Some(date)).map(|date| RecordsBefore { field: implied, date });
         }
         Some(b) => {
@@ -1382,6 +1537,34 @@ fn records_value_in(all: &[RecordRowRef], rows: &[RecordRowRef], query: &Records
     let view = query.month.as_ref();
     let today: &str = ctx.today.filter(|t| is_day_text(t)).unwrap_or_else(|| prefix_str(ctx.now, 10));
     let month_key: Option<String> = view.map(|v| v.key.clone().unwrap_or_else(|| prefix(today, 7)));
+    // eApps U3: a calendar view's window (day numbers): a row SPANS its
+    // `field`..`until` days and is matched when the span crosses the window
+    // (a month view without `until` keeps its month prefix rule).
+    let today_n = day_of(today).unwrap_or(0);
+    let cal: Option<(&str, Option<&str>, Option<&str>)> = query
+        .month
+        .as_ref()
+        .map(|m| (m.field.as_str(), m.until.as_deref(), m.tone.as_deref()))
+        .or_else(|| query.week.as_ref().map(|w| (w.field.as_str(), w.until.as_deref(), w.tone.as_deref())))
+        .or_else(|| query.timeline.as_ref().map(|t| (t.field.as_str(), t.until.as_deref(), t.tone.as_deref())));
+    let window: Option<(i64, i64)> = if let (Some(_), Some(key)) = (view.filter(|v| v.until.is_some()), &month_key) {
+        let (y, m) = parse_month(key);
+        Some((crate::dates::day_number(y, m, 1), crate::dates::day_number(y, m, days_in_month(y, m))))
+    } else if let Some(w) = &query.week {
+        let monday = period_start(w.key.as_deref().and_then(day_of).unwrap_or(today_n), "week");
+        Some((monday, monday + 6))
+    } else if let Some(t) = &query.timeline {
+        let p0 = period_start(t.start.as_deref().and_then(day_of).unwrap_or(today_n), &t.scale);
+        Some((p0, shift_period(p0, &t.scale, i64::from(t.columns)) - 1))
+    } else {
+        None
+    };
+    let span_of_row = |row: &RecordRowRef| -> Option<(i64, i64)> {
+        let (f, until, _) = cal?;
+        let start = text(&data_field(row, f));
+        let end = until.map(|u| text(&data_field(row, u)).into_owned());
+        span_of(&start, end.as_deref())
+    };
     let where_: Vec<Cond> = query.where_.iter().map(Cond::new).collect();
     let or: Vec<Vec<Cond>> = query.or.iter().map(|alt| alt.iter().map(Cond::new).collect()).collect();
     let before_date = query.before.as_ref().map(|b| Key::of(Field::Text(&b.date)));
@@ -1413,7 +1596,12 @@ fn records_value_in(all: &[RecordRowRef], rows: &[RecordRowRef], query: &Records
                 continue;
             }
         }
-        if let (Some(view), Some(key)) = (view, &month_key) {
+        if let Some((from, to)) = window {
+            match span_of_row(row) {
+                Some((start, end)) if end >= from && start <= to => {}
+                _ => continue,
+            }
+        } else if let (Some(view), Some(key)) = (view, &month_key) {
             if !text(&data_field(row, &view.field)).starts_with(key.as_str()) {
                 continue;
             }
@@ -1430,20 +1618,25 @@ fn records_value_in(all: &[RecordRowRef], rows: &[RecordRowRef], query: &Records
         r
     };
     let mut row_running = (!query.running.is_empty() && query.group.is_empty()).then(seeded);
+    // A row as the output carries it: its value row, the expanded refs, the transitions.
+    let present = |row: &RecordRowRef| -> Map<String, Value> {
+        let mut obj = value_row(row, ctx.names);
+        for (name, target) in &expand {
+            obj.insert((*name).to_string(), expanded_ref(target, row.data.get(*name), &by_id, &ctx));
+        }
+        if let Some(t) = ctx.transitions {
+            let viewer = super::record_transitions::TransitionViewer { id: ctx.me, role: ctx.role };
+            let ownership = json!({"authorId": row.author_id, "createdBy": row.created_by});
+            let next = super::record_transitions::transitions_from(Some(t), Some(row.data), Some(&viewer), Some(&ownership));
+            obj.insert(super::record_transitions::RECORD_TRANSITIONS_ROW_KEY.into(), json!(next));
+        }
+        obj
+    };
     let out_rows: Vec<Value> = matched
         .iter()
         .take(query.limit as usize)
         .map(|row| {
-            let mut obj = value_row(row, ctx.names);
-            for (name, target) in &expand {
-                obj.insert((*name).to_string(), expanded_ref(target, row.data.get(*name), &by_id, &ctx));
-            }
-            if let Some(t) = ctx.transitions {
-                let viewer = super::record_transitions::TransitionViewer { id: ctx.me, role: ctx.role };
-                let ownership = json!({"authorId": row.author_id, "createdBy": row.created_by});
-                let next = super::record_transitions::transitions_from(Some(t), Some(row.data), Some(&viewer), Some(&ownership));
-                obj.insert(super::record_transitions::RECORD_TRANSITIONS_ROW_KEY.into(), json!(next));
-            }
+            let mut obj = present(row);
             if let Some(r) = row_running.as_mut() {
                 r.add(row);
                 obj.insert("running".into(), r.read());
@@ -1512,6 +1705,37 @@ fn records_value_in(all: &[RecordRowRef], rows: &[RecordRowRef], query: &Records
                 "sums": sums,
             }),
         );
+    }
+    // eApps U3: every matched row with a real start day is placed (all
+    // matches, before the limit), its tone from the `tone` field.
+    if let Some((_, _, tone_field)) = cal {
+        let placed: Vec<(usize, &&RecordRowRef, i64, i64)> = matched.iter().enumerate().filter_map(|(order, row)| span_of_row(row).map(|(s, e)| (order, row, s, e))).collect();
+        let tone_texts: Vec<String> = placed.iter().map(|(_, row, _, _)| tone_field.map_or(String::new(), |t| text(&field(row, t)).into_owned())).collect();
+        let tones = tones_of(&tone_texts);
+        let row_field = query.timeline.as_ref().and_then(|t| t.row.as_deref());
+        let spans: Vec<CalendarSpan> = placed
+            .iter()
+            .zip(tones)
+            .map(|((order, row, start, end), tone)| CalendarSpan {
+                id: row.id.to_string(),
+                start: *start,
+                end: *end,
+                tone,
+                value: Value::Object(present(row)),
+                order: *order,
+                row_key: row_field.map(|f| text(&field(row, f)).into_owned()),
+            })
+            .collect();
+        if let (Some(v), Some(key), Some(Value::Object(month))) = (view, &month_key, out.get_mut("month")) {
+            let (y, m) = parse_month(key);
+            for (k, val) in calendar_month(y, m, days_in_month(y, m), &spans, v.lanes, today_n, v.day.as_deref()) {
+                month.insert(k, val);
+            }
+        } else if let (Some(w), Some((from, _))) = (&query.week, window) {
+            out.insert("week".into(), calendar_week_view(from, &spans, w.lanes, today_n));
+        } else if let (Some(t), Some((from, _))) = (&query.timeline, window) {
+            out.insert("timeline".into(), calendar_timeline(from, &spans, &t.scale, t.columns, today_n));
+        }
     }
     if !query.group.is_empty() {
         struct Group<'r, 'a> {
