@@ -161,7 +161,9 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
     match p.get("templates").and_then(Value::as_object).filter(|t| !t.is_empty()) {
         None => issues.push(issue("/templates", "templates is a non-empty object")),
         Some(templates) => {
-            for (id, template) in templates {
+            // Sorted by id: a host whose JSON layer reorders keys (Swift's
+            // JSONSerialization) reports the issues in the fixture's order.
+            for (id, template) in sorted_entries(templates) {
                 let at = format!("/templates/{id}");
                 let Some(template) = template.as_object() else {
                     issues.push(issue(at, "a template is an object"));
@@ -246,7 +248,7 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
             None => issues.push(issue("/sources", "sources is a list of scheme:name sources or prefix* patterns")),
             Some(list) => {
                 let allowed: Vec<String> = list.iter().filter_map(Value::as_str).map(str::to_string).collect();
-                for (id, template) in p.get("templates").and_then(Value::as_object).into_iter().flatten() {
+                for (id, template) in p.get("templates").and_then(Value::as_object).map(sorted_entries).into_iter().flatten() {
                     for (i, b) in template.get("bindings").and_then(Value::as_array).into_iter().flatten().enumerate() {
                         if let Some(source) = b.get("source").and_then(Value::as_str).filter(|s| parse_source(s).is_some()) {
                             if !source_allowed(Some(&allowed), source) {
@@ -259,7 +261,7 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
         }
     }
     // VAPP-161: a `records:<kind>` binding names a declared kind.
-    for (id, template) in p.get("templates").and_then(Value::as_object).into_iter().flatten() {
+    for (id, template) in p.get("templates").and_then(Value::as_object).map(sorted_entries).into_iter().flatten() {
         let Some(bindings) = template.as_object().and_then(|t| t.get("bindings")).and_then(Value::as_array) else { continue };
         for (i, b) in bindings.iter().enumerate() {
             let Some(parsed) = b.as_object().and_then(|o| o.get("source")).and_then(Value::as_str).and_then(parse_source) else { continue };
@@ -296,7 +298,7 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
             }
         }
     }
-    for (id, template) in p.get("templates").and_then(Value::as_object).into_iter().flatten() {
+    for (id, template) in p.get("templates").and_then(Value::as_object).map(sorted_entries).into_iter().flatten() {
         let Some(bindings) = template.as_object().and_then(|t| t.get("bindings")).and_then(Value::as_array) else { continue };
         for (i, b) in bindings.iter().enumerate() {
             let Some(parsed) = b.as_object().and_then(|o| o.get("source")).and_then(Value::as_str).and_then(parse_source) else { continue };
@@ -463,3 +465,12 @@ pub fn is_query_name(name: &str) -> bool {
     let b = name.as_bytes();
     !b.is_empty() && b.len() <= 32 && b[0].is_ascii_lowercase() && b[1..].iter().all(|c| c.is_ascii_alphanumeric() || *c == b'_')
 }
+
+/// A JSON object's entries sorted by key (the issue order every host
+/// shares, whatever order its JSON layer kept).
+fn sorted_entries(map: &serde_json::Map<String, Value>) -> Vec<(&String, &Value)> {
+    let mut entries: Vec<(&String, &Value)> = map.iter().collect();
+    entries.sort_by(|a, b| a.0.cmp(b.0));
+    entries
+}
+

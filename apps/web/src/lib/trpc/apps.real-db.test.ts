@@ -196,7 +196,7 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     name: `Hours`,
     version: `1.0.0`,
     catalogId: `https://ui.exponential.at/catalogs/core/v1`,
-    templates: { m: { components: [{ id: `root`, component: `Column` }] } },
+    templates: { m: { components: [{ id: `root`, component: `Stack`, children: [] }] } },
     sources: [`records:*`],
     records: {
       entry: {

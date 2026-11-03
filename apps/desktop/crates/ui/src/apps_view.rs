@@ -463,8 +463,8 @@ mod tests {
 
     #[test]
     fn apps_sort_by_name_and_pills_read_the_fixture() {
-        let zeta = AppEntry::from_row(&row(serde_json::json!({"id": "z", "slug": "zeta", "name": "Zeta", "head_version": 3})));
-        let devices = AppEntry::from_row(&row(serde_json::json!({"id": "d", "slug": "devices", "name": "Devices", "head_version": 1})));
+        let zeta = AppEntry::from_row(&row(serde_json::json!({"id": "z", "slug": "zeta", "name": "Zeta", "head_version": 4, "published_version": 3})));
+        let devices = AppEntry::from_row(&row(serde_json::json!({"id": "d", "slug": "devices", "name": "Devices", "head_version": 1, "published_version": 1})));
         let alpha = AppEntry::from_row(&row(serde_json::json!({"id": "a", "slug": "alpha", "name": "alpha"})));
         let mut entries = vec![zeta, devices, alpha];
         sort_apps(&mut entries);
