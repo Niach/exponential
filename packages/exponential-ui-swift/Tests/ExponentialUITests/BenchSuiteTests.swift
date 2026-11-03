@@ -31,7 +31,11 @@ final class BenchSuiteTests: XCTestCase {
         let dir = try Self.scenarioDir()
         let manifest = try Self.read(dir.appendingPathComponent("manifest.json"))
         let only = Set((Self.flag("EXPONENTIAL_UI_BENCH_SCENARIO") ?? "").split(separator: ",").map(String.init))
-        let ids = (manifest["scenarios"]?.array ?? []).compactMap { $0["id"]?.string }.filter { only.isEmpty || only.contains($0) }
+        // VAPP-202: a scenario naming its renderers (records-25k: the core and the web) runs only on them.
+        let ids = (manifest["scenarios"]?.array ?? [])
+            .filter { entry in entry["renderers"]?.array.map { list in list.contains { $0.string?.hasPrefix("swift") == true } } ?? true }
+            .compactMap { $0["id"]?.string }
+            .filter { only.isEmpty || only.contains($0) }
         XCTAssertFalse(ids.isEmpty, "scenarios/manifest.json lists scenarios")
         let repeats = max(1, Int(Self.flag("EXPONENTIAL_UI_BENCH_REPEAT") ?? "3") ?? 3)
 

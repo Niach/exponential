@@ -14,11 +14,12 @@
 //! allocations of that start.
 
 use std::alloc::{GlobalAlloc, Layout, System};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use eui_core::host::{parse_records_json, parse_records_query, records_value_owned, RecordRow, RecordsContext};
 use eui_core::list::ScrollAlign;
 use eui_core::measure::FixedMeasure;
 use eui_core::surface::{LayoutOutput, Surface, SurfaceOptions};
@@ -420,9 +421,95 @@ fn run_scenario(sc: &Value, first_in_process: bool) -> Metrics {
             b.pass();
             m.insert("sortMs".into(), ms(t));
         }
+        "records-25k" => records(sc, &mut m),
         other => panic!("unknown scenario {other}"),
     }
     m
+}
+
+// ---------------------------------------------------------------------------
+// VAPP-202: records-25k (src/records.ts `recordRows` + `runRecordsQueries`)
+// ---------------------------------------------------------------------------
+
+/// `start` + n days as `YYYY-MM-DD` (src/records.ts `addDays`).
+fn add_days(start: &str, n: usize) -> String {
+    let mut parts = start.split('-').map(|p| p.parse::<i64>().expect("records.start"));
+    let (mut y, mut m, mut d) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
+    d += n as i64;
+    loop {
+        let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+        let len: i64 = if m == 2 && leap { 29 } else { [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][(m - 1) as usize] };
+        if d <= len {
+            break;
+        }
+        d -= len;
+        m += 1;
+        if m > 12 {
+            m = 1;
+            y += 1;
+        }
+    }
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// The scenario's rows (src/records.ts `recordRows`).
+fn record_rows(spec: &Value) -> Vec<RecordRow> {
+    let n = |k: &str| spec[k].as_u64().unwrap_or_else(|| panic!("records.{k}")) as usize;
+    let s = |k: &str| spec[k].as_str().unwrap_or_else(|| panic!("records.{k}")).to_string();
+    let authors: Vec<String> = spec["authors"].as_array().expect("records.authors").iter().map(|a| a.as_str().expect("author").to_string()).collect();
+    let (kind, start, created) = (s("kind"), s("start"), s("createdAt"));
+    let (days, projects, hours, note) = (n("days"), n("projects"), n("hoursModulo"), n("noteEvery"));
+    (0..n("count"))
+        .map(|i| {
+            let mut data = json!({"date": add_days(&start, i % days), "hours": (i % hours) as f64 + 0.5, "project": format!("p{}", i % projects)});
+            if i % note != 0 {
+                data["note"] = json!(format!("n{i}"));
+            }
+            let author = authors[i % authors.len()].clone();
+            RecordRow { id: format!("r{i}"), kind: kind.clone(), data, created_by: Some(author.clone()), author_id: Some(author), created_at: created.clone(), updated_at: created.clone() }
+        })
+        .collect()
+}
+
+/// Each query parsed once, `warmup` runs, then `runs` timed: `<id>P50Ms` /
+/// `<id>P95Ms` = the sorted timings at floor(runs × 0.5 / 0.95); `matched` = Σ count.
+fn records(sc: &Value, m: &mut Metrics) {
+    let spec = &sc["data"]["records"];
+    let steps = &sc["steps"];
+    let rows = record_rows(spec);
+    let kind = spec["kind"].as_str().expect("records.kind");
+    let names = HashMap::new();
+    let ctx = RecordsContext { me: steps["me"].as_str(), now: steps["now"].as_str().expect("steps.now"), names: &names };
+    let warmup = steps["warmup"].as_u64().expect("steps.warmup") as usize;
+    let runs = steps["runs"].as_u64().expect("steps.runs") as usize;
+    let mut matched = 0.0;
+    for q in steps["queries"].as_array().expect("steps.queries") {
+        let id = q["id"].as_str().expect("query id");
+        let query = match q.get("json") {
+            Some(json) => parse_records_json(json, Some(kind)).0,
+            None => {
+                let params: BTreeMap<String, String> = q["params"].as_object().expect("query params").iter().map(|(k, v)| (k.clone(), v.as_str().expect("param").to_string())).collect();
+                parse_records_query(&params, Some(kind))
+            }
+        };
+        let run = || records_value_owned(&rows, &query, ctx);
+        for _ in 0..warmup {
+            std::hint::black_box(run());
+        }
+        let mut ts: Vec<f64> = Vec::with_capacity(runs);
+        let mut count = 0.0;
+        for _ in 0..runs {
+            let t = Instant::now();
+            let v = std::hint::black_box(run());
+            ts.push(ms(t));
+            count = v.as_ref().and_then(|v| v["count"].as_f64()).unwrap_or(0.0);
+        }
+        ts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        m.insert(format!("{id}P50Ms"), ts[runs / 2]);
+        m.insert(format!("{id}P95Ms"), ts[(runs as f64 * 0.95).floor() as usize]);
+        matched += count;
+    }
+    m.insert("matched".into(), matched);
 }
 
 fn main() {
@@ -450,6 +537,10 @@ fn main() {
     for entry in manifest["scenarios"].as_array().expect("scenarios") {
         let id = entry["id"].as_str().unwrap();
         if only.as_deref().is_some_and(|o| o != id) {
+            continue;
+        }
+        // VAPP-202: a scenario naming its renderers runs only on them.
+        if entry["renderers"].as_array().is_some_and(|r| !r.iter().any(|x| x == "core")) {
             continue;
         }
         let sc = read_json(&format!("{id}.json"));

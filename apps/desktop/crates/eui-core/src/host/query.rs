@@ -12,9 +12,11 @@
 //! `queries`, the `q=<json>` param): `group` (any field, `author`, date
 //! buckets), `aggregate`, `running`, `before`, `in` / `between` and `or`.
 
+use std::borrow::Cow;
 use std::cmp::Ordering;
 use std::collections::{BTreeMap, HashMap};
 
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
 
@@ -780,6 +782,7 @@ pub struct RecordsContext<'a> {
 }
 
 /// A field as a JS value (`undefined` = `Missing`).
+#[derive(Clone, Copy)]
 enum Field<'a> {
     Text(&'a str),
     Json(&'a Value),
@@ -806,14 +809,16 @@ fn num_value(v: Option<&Value>) -> Option<f64> {
     v.and_then(|v| num(&Field::Json(v)))
 }
 
-fn text(v: &Field) -> String {
-    match v {
-        Field::Missing | Field::Json(Value::Null) => String::new(),
-        Field::Text(s) => (*s).to_string(),
-        Field::Json(Value::String(s)) => s.clone(),
-        Field::Json(Value::Bool(b)) => b.to_string(),
-        Field::Json(Value::Number(n)) => number_to_string(n.as_f64().unwrap_or(0.0)),
-        Field::Json(other) => canonical_json(other),
+/// VAPP-202: the field as text, BORROWED when it is one (strings, the row
+/// keys); only numbers, booleans and objects allocate.
+fn text<'a>(v: &Field<'a>) -> Cow<'a, str> {
+    match *v {
+        Field::Missing | Field::Json(Value::Null) => Cow::Borrowed(""),
+        Field::Text(s) => Cow::Borrowed(s),
+        Field::Json(Value::String(s)) => Cow::Borrowed(s.as_str()),
+        Field::Json(Value::Bool(b)) => Cow::Borrowed(if *b { "true" } else { "false" }),
+        Field::Json(Value::Number(n)) => Cow::Owned(number_to_string(n.as_f64().unwrap_or(0.0))),
+        Field::Json(other) => Cow::Owned(canonical_json(other)),
     }
 }
 
@@ -826,37 +831,94 @@ fn json_of(v: &Field) -> Value {
     }
 }
 
-/// Numbers when both parse, else text (UTF-16 code units, no locale).
-fn compare(a: &Field, b: &Field) -> Ordering {
-    if let (Some(na), Some(nb)) = (num(a), num(b)) {
-        return na.partial_cmp(&nb).unwrap_or(Ordering::Equal);
-    }
-    utf16_cmp(&text(a), &text(b))
+/// VAPP-202: a field read ONCE for comparing (a sort key, a filter's bound):
+/// its number when it parses, else its text. [`cmp_keys`] = [`compare`]
+/// without parsing or stringifying per comparison.
+enum Key<'a> {
+    /// A number; the field stays for the text side of a mixed comparison.
+    Num(f64, Field<'a>),
+    Text(Cow<'a, str>),
 }
 
-fn holds(filter: &RecordsFilter, value: &Field) -> bool {
-    let list: Vec<&str> = match &filter.value {
-        RecordsFilterValue::One(v) => vec![v.as_str()],
-        RecordsFilterValue::Many(vs) => vs.iter().map(String::as_str).collect(),
-    };
-    match filter.op {
-        RecordsFilterOp::Eq => match &filter.value {
-            RecordsFilterValue::One(v) => text(value) == *v,
-            RecordsFilterValue::Many(_) => false,
-        },
-        RecordsFilterOp::In => {
-            let t = text(value);
-            list.iter().any(|v| *v == t)
+impl<'a> Key<'a> {
+    fn of(v: Field<'a>) -> Self {
+        match num(&v) {
+            Some(n) => Key::Num(n, v),
+            None => Key::Text(text(&v)),
         }
-        RecordsFilterOp::Between => list.len() == 2 && compare(value, &Field::Text(list[0])).is_ge() && compare(value, &Field::Text(list[1])).is_le(),
-        op => {
-            let Some(bound) = list.first().filter(|_| list.len() == 1) else { return false };
-            let c = compare(value, &Field::Text(bound));
-            match op {
-                RecordsFilterOp::Gt => c.is_gt(),
-                RecordsFilterOp::Gte => c.is_ge(),
-                RecordsFilterOp::Lt => c.is_lt(),
-                _ => c.is_le(),
+    }
+
+    /// A text key's text ("" for a number: [`Col::of`] only asks text keys).
+    fn text_ref(&self) -> &str {
+        match self {
+            Key::Num(..) => "",
+            Key::Text(t) => t,
+        }
+    }
+
+    fn text(&self) -> Cow<'_, str> {
+        match self {
+            Key::Num(_, f) => text(f),
+            Key::Text(t) => Cow::Borrowed(t),
+        }
+    }
+}
+
+/// Numbers when both parse, else text (UTF-16 code units, no locale).
+fn cmp_keys(a: &Key, b: &Key) -> Ordering {
+    if let (Key::Num(na, _), Key::Num(nb, _)) = (a, b) {
+        return na.partial_cmp(nb).unwrap_or(Ordering::Equal);
+    }
+    utf16_cmp(&a.text(), &b.text())
+}
+
+fn compare(a: &Field, b: &Field) -> Ordering {
+    cmp_keys(&Key::of(*a), &Key::of(*b))
+}
+
+/// VAPP-202: a condition with its bounds parsed once per query, not per row.
+struct Cond<'q> {
+    filter: &'q RecordsFilter,
+    bounds: Vec<Key<'q>>,
+}
+
+impl<'q> Cond<'q> {
+    fn new(filter: &'q RecordsFilter) -> Self {
+        let bounds = match (&filter.value, filter.op) {
+            (_, RecordsFilterOp::Eq | RecordsFilterOp::In) => Vec::new(),
+            (RecordsFilterValue::One(v), _) => vec![Key::of(Field::Text(v))],
+            (RecordsFilterValue::Many(vs), _) => vs.iter().map(|v| Key::of(Field::Text(v))).collect(),
+        };
+        Cond { filter, bounds }
+    }
+
+    fn holds(&self, row: &RecordRowRef) -> bool {
+        let value = field(row, &self.filter.field);
+        match self.filter.op {
+            RecordsFilterOp::Eq => match &self.filter.value {
+                RecordsFilterValue::One(v) => text(&value) == v.as_str(),
+                RecordsFilterValue::Many(_) => false,
+            },
+            RecordsFilterOp::In => {
+                let t = text(&value);
+                match &self.filter.value {
+                    RecordsFilterValue::One(v) => t == v.as_str(),
+                    RecordsFilterValue::Many(vs) => vs.iter().any(|v| t == v.as_str()),
+                }
+            }
+            RecordsFilterOp::Between => self.bounds.len() == 2 && {
+                let k = Key::of(value);
+                cmp_keys(&k, &self.bounds[0]).is_ge() && cmp_keys(&k, &self.bounds[1]).is_le()
+            },
+            op => {
+                let [bound] = self.bounds.as_slice() else { return false };
+                let c = cmp_keys(&Key::of(value), bound);
+                match op {
+                    RecordsFilterOp::Gt => c.is_gt(),
+                    RecordsFilterOp::Gte => c.is_ge(),
+                    RecordsFilterOp::Lt => c.is_lt(),
+                    _ => c.is_le(),
+                }
             }
         }
     }
@@ -959,10 +1021,10 @@ fn aggregate_of(agg: &RecordsAggregate, rows: &[&RecordRowRef]) -> Value {
                     best = Some(v);
                 }
             }
-            best.map_or(Value::Null, |b| num(b).map_or_else(|| Value::String(text(b)), number))
+            best.map_or(Value::Null, |b| num(b).map_or_else(|| Value::String(text(b).into_owned()), number))
         }
         RecordsAggregateOp::CountDistinct => {
-            let mut seen: Vec<String> = values.iter().map(text).filter(|t| !t.is_empty()).collect();
+            let mut seen: Vec<Cow<str>> = values.iter().map(text).filter(|t| !t.is_empty()).collect();
             seen.sort();
             seen.dedup();
             json!(seen.len())
@@ -1035,23 +1097,109 @@ impl<'q> Running<'q> {
     }
 }
 
-/// A group's column: `author` = the author's name (+ `authorId`), a bucket =
-/// the date's bucket key, any other field its value.
-fn group_columns(key: &RecordsGroupKey, row: &RecordRowRef, names: &HashMap<String, String>, cols: &mut Map<String, Value>) -> String {
+/// A group's part of the key: the author's id, a date's bucket key, any
+/// other field's text. VAPP-202: computed once per row, borrowed when it can be.
+fn group_part<'a>(key: &RecordsGroupKey, row: &RecordRowRef<'a>) -> Cow<'a, str> {
+    if key.field == "author" {
+        return Cow::Borrowed(row.author().unwrap_or(""));
+    }
+    let v = field(row, &key.field);
+    match key.bucket {
+        Some(bucket) => Cow::Owned(date_bucket(&text(&v), bucket).unwrap_or_default()),
+        None => text(&v),
+    }
+}
+
+/// A group's column (from its first row): `author` = the author's name (+
+/// `authorId`), a bucket = the date's bucket key, any other field its value.
+fn group_columns(key: &RecordsGroupKey, row: &RecordRowRef, names: &HashMap<String, String>, cols: &mut Map<String, Value>) {
     if key.field == "author" {
         let author = row.author();
         cols.insert("author".into(), json!(author.and_then(|a| names.get(a)).cloned().unwrap_or_default()));
         cols.insert("authorId".into(), json!(author));
-        return author.unwrap_or("").to_string();
+        return;
     }
     let v = field(row, &key.field);
     if let Some(bucket) = key.bucket {
-        let b = date_bucket(&text(&v), bucket);
-        cols.insert(key.field.clone(), json!(b));
-        return b.unwrap_or_default();
+        cols.insert(key.field.clone(), json!(date_bucket(&text(&v), bucket)));
+        return;
     }
     cols.insert(key.field.clone(), json_of(&v));
-    text(&v)
+}
+
+/// `s.slice(0, n)` borrowed (n chars).
+fn prefix_str(s: &str, n: usize) -> &str {
+    s.char_indices().nth(n).map_or(s, |(i, _)| &s[..i])
+}
+
+/// One sort column, read once per row: every value a number, every value
+/// text (ranked: the distinct texts sorted once, each row their index), or
+/// both (the generic comparison).
+enum Col<'a> {
+    Num(Vec<f64>),
+    Rank(Vec<u32>),
+    Mixed(Vec<Key<'a>>),
+}
+
+impl<'a> Col<'a> {
+    fn of(rows: &[&RecordRowRef<'a>], name: &str) -> Self {
+        let keys: Vec<Key<'a>> = rows.iter().map(|row| Key::of(field(row, name))).collect();
+        if keys.iter().all(|k| matches!(k, Key::Num(..))) {
+            return Col::Num(keys.iter().map(|k| if let Key::Num(n, _) = k { *n } else { 0.0 }).collect());
+        }
+        if !keys.iter().all(|k| matches!(k, Key::Text(_))) {
+            return Col::Mixed(keys);
+        }
+        let mut ranks: FxHashMap<&str, u32> = FxHashMap::default();
+        for k in &keys {
+            ranks.entry(k.text_ref()).or_insert(0);
+        }
+        let mut distinct: Vec<&str> = ranks.keys().copied().collect();
+        distinct.sort_unstable_by(|a, b| utf16_cmp(a, b));
+        for (i, t) in distinct.iter().enumerate() {
+            ranks.insert(t, i as u32);
+        }
+        Col::Rank(keys.iter().map(|k| ranks[k.text_ref()]).collect())
+    }
+
+    fn cmp(&self, a: usize, b: usize) -> Ordering {
+        match self {
+            Col::Num(v) => v[a].partial_cmp(&v[b]).unwrap_or(Ordering::Equal),
+            Col::Rank(v) => v[a].cmp(&v[b]),
+            Col::Mixed(v) => cmp_keys(&v[a], &v[b]),
+        }
+    }
+}
+
+/// VAPP-202: `rows` in the query's order (sort keys, ties by id), each
+/// row's keys read ONCE into columns instead of parsing and stringifying
+/// both sides of every comparison. Without a mixed column the order is
+/// total (the index breaks an id tie), so the unstable sort gives the
+/// stable one's result.
+fn sorted<'r, 'a>(rows: Vec<&'r RecordRowRef<'a>>, sort: &[RecordsSortKey]) -> Vec<&'r RecordRowRef<'a>> {
+    let cols: Vec<(Col<'a>, bool)> = sort.iter().map(|s| (Col::of(&rows, &s.field), s.order == RecordsOrder::Asc)).collect();
+    let ascii: Vec<bool> = rows.iter().map(|row| row.id.is_ascii()).collect();
+    let order = |a: usize, b: usize| {
+        for (col, asc) in &cols {
+            let c = col.cmp(a, b);
+            if c.is_ne() {
+                return if *asc { c } else { c.reverse() };
+            }
+        }
+        let (ia, ib) = (rows[a].id, rows[b].id);
+        if ascii[a] || ascii[b] {
+            ia.as_bytes().cmp(ib.as_bytes())
+        } else {
+            utf16_cmp(ia, ib)
+        }
+    };
+    let mut idx: Vec<usize> = (0..rows.len()).collect();
+    if cols.iter().any(|(c, _)| matches!(c, Col::Mixed(_))) {
+        idx.sort_by(|&a, &b| order(a, b));
+    } else {
+        idx.sort_unstable_by(|&a, &b| order(a, b).then(a.cmp(&b)));
+    }
+    idx.into_iter().map(|i| rows[i]).collect()
 }
 
 /// The value a records binding emits for `query` over `rows` (every row of
@@ -1062,6 +1210,9 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
     let kind = query.from.as_deref()?;
     let view = query.month.as_ref();
     let month_key: Option<String> = view.map(|v| v.key.clone().unwrap_or_else(|| prefix(ctx.now, 7)));
+    let where_: Vec<Cond> = query.where_.iter().map(Cond::new).collect();
+    let or: Vec<Vec<Cond>> = query.or.iter().map(|alt| alt.iter().map(Cond::new).collect()).collect();
+    let before_date = query.before.as_ref().map(|b| Key::of(Field::Text(&b.date)));
     let mut before: Vec<&RecordRowRef> = Vec::new();
     let mut matched: Vec<&RecordRowRef> = Vec::new();
     for row in rows {
@@ -1077,15 +1228,15 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
                 continue;
             }
         }
-        if !query.where_.iter().all(|f| holds(f, &field(row, &f.field))) {
+        if !where_.iter().all(|c| c.holds(row)) {
             continue;
         }
-        if !query.or.is_empty() && !query.or.iter().any(|alt| alt.iter().all(|f| holds(f, &field(row, &f.field)))) {
+        if !or.is_empty() && !or.iter().any(|alt| alt.iter().all(|c| c.holds(row))) {
             continue;
         }
-        if let Some(b) = &query.before {
+        if let (Some(b), Some(date)) = (&query.before, &before_date) {
             let t = text(&field(row, &b.field));
-            if !t.is_empty() && compare(&Field::Text(&t), &Field::Text(&b.date)).is_lt() {
+            if !t.is_empty() && cmp_keys(&Key::of(Field::Text(&t)), date).is_lt() {
                 before.push(row);
                 continue;
             }
@@ -1097,17 +1248,8 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
         }
         matched.push(row);
     }
-    let order = |a: &&RecordRowRef, b: &&RecordRowRef| {
-        for key in &query.sort {
-            let c = compare(&field(a, &key.field), &field(b, &key.field));
-            if c.is_ne() {
-                return if key.order == RecordsOrder::Asc { c } else { c.reverse() };
-            }
-        }
-        utf16_cmp(a.id, b.id)
-    };
-    matched.sort_by(order);
-    before.sort_by(order);
+    let matched = sorted(matched, &query.sort);
+    let before = sorted(before, &query.sort);
     let seeded = || {
         let mut r = Running::new(&query.running);
         for row in &before {
@@ -1146,7 +1288,8 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
         let mut days = month_days(key);
         let mut per_day: Vec<Vec<&RecordRowRef>> = vec![Vec::new(); days.len()];
         for row in &matched {
-            let date = prefix(&text(&data_field(row, &view.field)), 10);
+            let t = text(&data_field(row, &view.field));
+            let date = prefix_str(&t, 10);
             let Some(i) = days.iter().position(|d| d.date == date) else {
                 continue;
             };
@@ -1198,26 +1341,30 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
     }
     if !query.group.is_empty() {
         struct Group<'r, 'a> {
-            parts: Vec<String>,
+            parts: Vec<Cow<'a, str>>,
             rows: Vec<&'r RecordRowRef<'a>>,
             out: Map<String, Value>,
         }
         let mut groups: Vec<Group> = Vec::new();
-        let mut index: HashMap<Vec<String>, usize> = HashMap::new();
+        let mut index: FxHashMap<Vec<Cow<str>>, usize> = FxHashMap::default();
+        let mut parts: Vec<Cow<str>> = Vec::with_capacity(query.group.len());
         for row in &matched {
-            let mut cols = Map::new();
-            let parts: Vec<String> = query.group.iter().map(|key| group_columns(key, row, ctx.names, &mut cols)).collect();
-            match index.get(&parts) {
+            parts.clear();
+            parts.extend(query.group.iter().map(|key| group_part(key, row)));
+            match index.get(parts.as_slice()) {
                 Some(&i) => groups[i].rows.push(row),
                 None => {
+                    let mut cols = Map::new();
+                    for key in &query.group {
+                        group_columns(key, row, ctx.names, &mut cols);
+                    }
                     index.insert(parts.clone(), groups.len());
-                    groups.push(Group { parts, rows: vec![row], out: cols });
+                    groups.push(Group { parts: parts.clone(), rows: vec![row], out: cols });
                 }
             }
         }
         for g in &mut groups {
-            let rows = g.rows.clone();
-            summary(query, &rows, &mut g.out);
+            summary(query, &g.rows, &mut g.out);
         }
         let mut columns: Vec<&str> = Vec::new();
         for g in &query.group {

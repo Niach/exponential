@@ -30,6 +30,7 @@ and the Numbers page on ui.exponential.at rendered from the results.
 | `template-10k` | 10,000 template items in a plain column (maxTemplateItems), then the array replaced | `firstPaintMs`, `rebindMs`, `nodes` |
 | `overlay` | a bound Dialog opened and closed 50 times | `openMs`, `closeMs` |
 | `table-1k` | a Table over 1,000 bound rows, 20 scroll steps, the sort changed | `firstPaintMs`, `scrollStepMs`, `sortMs`, `renderedRows` |
+| `records-25k` | VAPP-202, eApps §15: the local records query (eui-core `host::query`, its TS twin) over 25,000 rows, five query shapes, 60 timed runs each; no surface, so only `core` and `react-chromium` run it (the manifest's `renderers`; every other runner skips it) | `<query>P50Ms`, `<query>P95Ms` (monthView, filterSort, groupBucket, groupRunning, betweenIn), `matched` |
 
 \* optional: a renderer without the counter leaves it out. Counters live
 behind a debug flag in each renderer (`SurfaceModel.benchCounters` in Swift

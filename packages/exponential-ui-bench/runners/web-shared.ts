@@ -26,6 +26,7 @@ import { chromium, type Page } from "playwright"
 import manifest from "../scenarios/manifest.json"
 import { generateItems, SCENARIOS } from "../src/scenarios"
 import { round, writeFragment, type Metrics } from "../src/results"
+import type { RecordsSpec, RecordsSteps } from "../src/records"
 
 /** The harness view's driver surface (`BenchSuiteApi` in both harnesses). */
 interface BenchSuiteApi {
@@ -49,6 +50,7 @@ interface BenchSuiteApi {
 declare global {
   interface Window {
     __xuiBenchSuite?: BenchSuiteApi
+    __xuiRecordsBench?: (spec: RecordsSpec, steps: RecordsSteps) => Record<string, number>
   }
 }
 
@@ -87,6 +89,15 @@ async function retainedHeapMb(page: Page): Promise<number> {
   }
 }
 
+/** VAPP-202: `src/records.ts` as one browser module setting `window.__xuiRecordsBench`. */
+async function bundleRecords(): Promise<string> {
+  const built = await Bun.build({ entrypoints: [new URL(`./records-page.ts`, import.meta.url).pathname], target: `browser`, format: `esm`, minify: true })
+  if (!built.success) throw new Error(`records bundle: ${built.logs.join(`\n`)}`)
+  return built.outputs[0]!.text()
+}
+
+const RECORDS_PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body><script type="module" src="/dist/records.js"></script></body></html>`
+
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"></head><body><div id="app"></div><script type="module" src="/dist/main.js"></script></body></html>`
 
 /** Run every wanted scenario through the harness and write the fragment (the runner's main). */
@@ -94,7 +105,10 @@ export async function runWebBench(runner: WebRunner, args = process.argv.slice(2
   const only = args.flatMap((a, i) => (a === `--scenario` ? [args[i + 1]] : []))
   const repeatAt = args.indexOf(`--repeat`)
   const repeats = repeatAt >= 0 ? Number(args[repeatAt + 1]) : 3
-  const ids = manifest.scenarios.map((s) => s.id).filter((id) => only.length === 0 || only.includes(id))
+  // VAPP-202: a scenario naming its renderers runs only on them.
+  const runs = (s: { renderers?: string[] }) => !s.renderers || s.renderers.includes(runner.renderer)
+  const ids = manifest.scenarios.filter(runs).map((s) => s.id).filter((id) => only.length === 0 || only.includes(id))
+  const recordsJs = ids.includes(`records-25k`) ? await bundleRecords() : ``
 
   const js = await runner.bundle()
   const server = Bun.serve({
@@ -102,6 +116,8 @@ export async function runWebBench(runner: WebRunner, args = process.argv.slice(2
     fetch(req) {
       const url = new URL(req.url)
       if (url.pathname === `/dist/main.js`) return new Response(js, { headers: { "content-type": `text/javascript` } })
+      if (url.pathname === `/dist/records.js`) return new Response(recordsJs, { headers: { "content-type": `text/javascript` } })
+      if (url.pathname === `/records`) return new Response(RECORDS_PAGE, { headers: { "content-type": `text/html` } })
       return new Response(PAGE, { headers: { "content-type": `text/html` } })
     },
   })
@@ -110,6 +126,7 @@ export async function runWebBench(runner: WebRunner, args = process.argv.slice(2
   /** Drive one scenario on a fresh page; the page-side script measures. */
   async function runOnce(id: string): Promise<Metrics> {
     const def = SCENARIOS.find((s) => s.id === id)!
+    if (id === `records-25k`) return recordsOnce(def)
     const page = await browser.newPage({ viewport: { width: def.viewport.width, height: def.viewport.height } })
   try {
       await page.goto(`http://localhost:${server.port}/?view=bench-suite&scenario=${id}`)
@@ -263,6 +280,19 @@ export async function runWebBench(runner: WebRunner, args = process.argv.slice(2
       )
       if (MEMORY_SCENARIOS.has(id)) metrics.memoryMb = await retainedHeapMb(page)
       return metrics
+    } finally {
+      await page.close()
+    }
+  }
+
+  /** VAPP-202: the TS records query in a bare page (no harness, no surface): the rows built, then `runRecordsQueries` times it. */
+  async function recordsOnce(def: (typeof SCENARIOS)[number]): Promise<Metrics> {
+    const page = await browser.newPage()
+    try {
+      await page.goto(`http://localhost:${server.port}/records`)
+      await page.waitForFunction(() => window.__xuiRecordsBench !== undefined, undefined, { timeout: 60_000 })
+      const spec = (def.data as { records: RecordsSpec }).records
+      return await page.evaluate(({ spec, steps }) => window.__xuiRecordsBench!(spec, steps), { spec, steps: def.steps as unknown as RecordsSteps })
     } finally {
       await page.close()
     }
