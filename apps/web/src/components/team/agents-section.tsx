@@ -1031,6 +1031,7 @@ function AgentTriggerRow({
         onClick={(e) => e.stopPropagation()}
       >
         <Switch
+          size="compact"
           checked={trigger.enabled}
           disabled={readOnly}
           onCheckedChange={onToggle}

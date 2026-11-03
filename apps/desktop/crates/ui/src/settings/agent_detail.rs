@@ -817,6 +817,7 @@ impl AgentDetailPane {
             let toggle_agent = agent_id.to_string();
             let toggle_trigger = trigger_id.clone();
             let switch = crate::controls::web_switch(("agent-detail-trigger-enabled", index))
+                .small()
                 .checked(enabled)
                 .disabled(self.trigger_writing)
                 .on_click(cx.listener(move |this, on: &bool, _, cx| {

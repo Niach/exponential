@@ -50,6 +50,7 @@ import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppSwitchColors
+import at.exponential.ui.primitives.DrawnSwitch
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassGroup
@@ -415,11 +416,14 @@ private fun RowLabelHint(hint: String?) {
 }
 
 /** The slot a [GlassSwitch] fills: a settings row's full size, a menu row's,
- *  or a 28dp pill's (the M3 switch scaled into it). */
+ *  or a 28dp pill's (the M3 switch scaled into it). [Compact] is the eUI
+ *  `Switch size=compact` (28×16, a 12dp thumb), drawn, not scaled: the
+ *  in-row switch a trigger row carries on every platform. */
 enum class GlassSwitchSize(internal val scale: Float, internal val width: Int, internal val height: Int) {
     Row(1f, 52, 32),
     Menu(0.8f, 44, 26),
     Pill(0.7f, 36, 22),
+    Compact(1f, 28, 16),
 }
 
 /**
@@ -435,6 +439,19 @@ fun GlassSwitch(
     enabled: Boolean = true,
     size: GlassSwitchSize = GlassSwitchSize.Row,
 ) {
+    if (size == GlassSwitchSize.Compact) {
+        DrawnSwitch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            modifier = modifier,
+            enabled = enabled,
+            colors = AppSwitchColors,
+            trackWidth = size.width.dp,
+            trackHeight = size.height.dp,
+            thumbSize = 12.dp,
+        )
+        return
+    }
     if (size == GlassSwitchSize.Row) {
         Switch(
             checked = checked,

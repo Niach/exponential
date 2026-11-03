@@ -730,7 +730,7 @@ struct AgentSettingsForm: View {
             GlassToggleRow(nil, isOn: Binding(
                 get: { trigger.enabled },
                 set: { onToggleTrigger(trigger, $0) }
-            ))
+            ), style: .compact)
             .disabled(!canEdit || draft.triggerBusy)
             .accessibilityLabel("Enabled: \(sentence)")
             .accessibilityIdentifier("trigger-enabled")

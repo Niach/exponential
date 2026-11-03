@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-compact-trigger-switches",
+    date: "2026-11-03",
+    title: "Smaller trigger switches",
+    summary: "An agent's trigger rows carry the compact switch, the same size on web, desktop, iOS and Android.",
+    body: r#"- **Trigger rows**: the on/off switch beside each trigger in an agent's settings is the compact switch on every platform, so it no longer outweighs the row on phones."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_194: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-phone-call-pill",
     date: "2026-11-03",
     title: "Keep a call going while you use the app",
