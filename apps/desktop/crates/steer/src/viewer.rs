@@ -83,6 +83,16 @@ pub const DEVICE_OFFLINE: &str = "device_offline";
 /// `INPUT_CHUNK_CHARS`, iOS `inputChunkUtf16`).
 pub const INPUT_CHUNK_UTF16: usize = 4096;
 
+/// #EXP-1678 (`fallback.startingRetry`): the NO FEED redial's backoff.
+pub const STARTING_RETRY_BASE_MS: u64 = 3_000;
+pub const STARTING_RETRY_MAX_MS: u64 = 30_000;
+
+/// TS `steerStartingRetryCapMs`: the cap of the n-th consecutive NO FEED
+/// redial; the wait is random in [cap/2, cap) ([`Backoff::next_delay_equal_jitter`]).
+pub fn starting_retry_cap_ms(retries: u32) -> u64 {
+    STARTING_RETRY_BASE_MS.saturating_mul(1u64.checked_shl(retries).unwrap_or(u64::MAX)).min(STARTING_RETRY_MAX_MS)
+}
+
 /// Timings the viewer loop runs on. Defaults are the production values
 /// (web/iOS/Android parity); tests shrink them.
 #[derive(Clone, Debug)]
@@ -116,8 +126,8 @@ impl Default for ViewerTimings {
     fn default() -> Self {
         Self {
             live_stale: enet_steer::STALE,
-            retry_base: Duration::from_secs(3),
-            retry_cap: Duration::from_secs(30),
+            retry_base: Duration::from_millis(STARTING_RETRY_BASE_MS),
+            retry_cap: Duration::from_millis(STARTING_RETRY_MAX_MS),
             liveness_tick: Duration::from_secs(5),
             offline_redial: enet_steer::STALE,
             lost_grace: enet_steer::LOST_GRACE,
@@ -588,8 +598,9 @@ type Class = &'static str;
 /// How one carrier leg failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum LegFailure {
-    /// eNet: nothing answered the join (no node, no endpoint, refused, no
-    /// `activity_reset` in time).
+    /// eNet: no feed (no node, no endpoint, a failed send, no
+    /// `activity_reset` in time); `refused` / `unauthorized` only when
+    /// EVERY endpoint answered `error` or `bye` (#EXP-1678).
     NoFeed(Class),
     /// The leg had a feed (or a socket) and lost it.
     Dropped(Class),
@@ -612,6 +623,9 @@ enum LegMsg {
     /// `activity_reset`.
     Frame { carrier: Carrier, gen: u64, text: String, path: Option<&'static str> },
     Failed { carrier: Carrier, gen: u64, failure: LegFailure },
+    /// The relay leg is AVAILABLE (this install holds the tree key): only
+    /// now is it a fallback (#EXP-1678).
+    RelayAvailable { gen: u64 },
 }
 
 /// What the loop asks of a leg.
@@ -877,13 +891,7 @@ impl Run {
                 }
                 CarrierAction::RedialEnetLater => {
                     self.enet_leg = None;
-                    // VAPP-169: under the device-offline copy (both carriers
-                    // failed, the row ended) eNet redials on the slow beat.
-                    let delay = if self.session_ended.load(Ordering::SeqCst) && self.relay_failed {
-                        self.timings.offline_redial
-                    } else {
-                        self.backoff.next_delay_equal_jitter()
-                    };
+                    let delay = self.redial_delay();
                     self.enet_redial_at = Some(Instant::now() + delay);
                 }
                 CarrierAction::Apply => apply = true,
@@ -892,6 +900,17 @@ impl Run {
         }
         self.sync_active(before);
         apply
+    }
+
+    /// The next eNet redial's wait: the `startingRetry` backoff (reset by a
+    /// feed, see [`Run::apply`]). VAPP-169: under the device-offline copy
+    /// (both carriers failed, the row ended) the slow beat.
+    fn redial_delay(&mut self) -> Duration {
+        if self.session_ended.load(Ordering::SeqCst) && self.relay_failed {
+            self.timings.offline_redial
+        } else {
+            self.backoff.next_delay_equal_jitter()
+        }
     }
 
     /// The active carrier changed: `Connected`, the lost clock, the flag.
@@ -945,7 +964,7 @@ impl Run {
 
     fn spawn_relay(&mut self) {
         self.relay_reopen_at = None;
-        self.stats.fallbacks += 1;
+        // `fallbacks` counts once the leg is available (`RelayAvailable`).
         let gen = self.next_gen();
         let (out, out_rx) = flume::unbounded();
         if let Some(previous) = self.relay_leg.replace(Leg { gen, out }) {
@@ -971,6 +990,12 @@ impl Run {
     /// One leg message. `Some(outcome)` = the active carrier said `bye`.
     fn leg_msg(&mut self, msg: LegMsg) -> Option<Option<String>> {
         match msg {
+            LegMsg::RelayAvailable { gen } => {
+                if self.current_gen(Carrier::Relay) == Some(gen) {
+                    self.stats.fallbacks += 1;
+                }
+                None
+            }
             LegMsg::Frame { carrier, gen, text, path } => {
                 if self.current_gen(carrier) != Some(gen) {
                     return None;
@@ -1009,6 +1034,8 @@ impl Run {
                 log::debug!("steer viewer: {carrier:?} leg of {} failed: {failure:?}", self.session_id);
                 self.stats.failed(failure.class());
                 let event = match (carrier, failure) {
+                    // #EXP-1678: every endpoint said no (see `join_over_enet`).
+                    (Carrier::Enet, LegFailure::NoFeed("refused" | "unauthorized")) => CarrierEvent::EnetRefused,
                     (Carrier::Enet, LegFailure::NoFeed(_)) => CarrierEvent::EnetNoFeed,
                     (Carrier::Enet, _) => CarrierEvent::EnetDropped,
                     // A relay that WAS the feed and goes away is a drop.
@@ -1031,6 +1058,12 @@ impl Run {
                     log::info!("steer viewer: eNet feed of {} dropped ({}); falling back", self.session_id, failure.class());
                 }
                 self.step(event);
+                if event == CarrierEvent::EnetRefused && self.carriers.active.is_none() && !self.carriers.relay_open {
+                    // #EXP-1678: no relay leg (it reaches the same device):
+                    // NO FEED at once, and no stall opening one later.
+                    self.stall_at = None;
+                    self.relay_failed = true;
+                }
                 self.no_feed();
                 None
             }
@@ -1052,6 +1085,12 @@ impl Run {
         }
         if !(self.enet_failed && self.relay_failed) {
             return;
+        }
+        // #EXP-1678 STARTING REDIAL: NO FEED always has an eNet redial due
+        // (a kick cuts it short).
+        if self.enet_leg.is_none() && self.enet_redial_at.is_none() {
+            let delay = self.redial_delay();
+            self.enet_redial_at = Some(Instant::now() + delay);
         }
         if self.session_ended.load(Ordering::SeqCst) {
             // VAPP-169: not terminal: the loop keeps redialing under it.
@@ -1226,7 +1265,16 @@ async fn relay_leg(
     msgs: flume::Sender<LegMsg>,
     out: flume::Receiver<LegOut>,
 ) {
-    match open_tunnel(source, &session_id).await {
+    let keys = match relay_keys(source.as_ref(), &session_id).await {
+        Ok(keys) => keys,
+        Err(failure) => {
+            log::debug!("steer viewer: no relay leg for {session_id}: {failure:?}");
+            let _ = msgs.send(LegMsg::Failed { carrier: Carrier::Relay, gen, failure });
+            return;
+        }
+    };
+    let _ = msgs.send(LegMsg::RelayAvailable { gen });
+    match open_tunnel(source, &session_id, keys).await {
         Ok(link) => {
             log::info!("steer viewer: relay tunnel open for {session_id}");
             let deadline = Instant::now() + timings.join_timeout;
@@ -1392,24 +1440,32 @@ async fn join_over_enet(
     let own = node.endpoint_id();
     let join = ClientFrame::join().to_json();
     let mut failure = "no_endpoint";
+    // #EXP-1678: the last endpoint that did NOT answer (send failed, timed
+    // out): `refused` / `unauthorized` only when every endpoint answered.
+    let mut unanswered: Option<Class> = None;
     for device in endpoints.iter().filter_map(|hex| crate::enet::parse_endpoint(hex)).filter(|id| *id != own) {
         let sub = enet_steer::subscribe(session_id, device);
         if let Err(err) = enet_steer::send_envelope(&node, device, session_id, &[join.clone()]).await {
             log::debug!("steer viewer: eNet join to {} failed: {err}", crate::enet::endpoint_hex(&device));
-            failure = if err.to_lowercase().contains("refused") || err.contains("not allowed") { "refused" } else { "send_failed" };
+            unanswered = Some("send_failed");
             continue;
         }
         let deadline = tokio::time::Instant::now() + join_timeout;
         loop {
             let Ok(Ok(frame)) = tokio::time::timeout_at(deadline, sub.frames.recv_async()).await else {
                 log::debug!("steer viewer: eNet join to {} unanswered", crate::enet::endpoint_hex(&device));
-                failure = "join_timeout";
+                unanswered = Some("join_timeout");
                 break;
             };
             match frame_tag(&frame).as_deref() {
                 Some("error") => {
                     log::debug!("steer viewer: {} refused the eNet join: {frame}", crate::enet::endpoint_hex(&device));
                     failure = if frame.contains(enet_steer::ERROR_UNAUTHORIZED) { "unauthorized" } else { "refused" };
+                    break;
+                }
+                Some("bye") => {
+                    log::debug!("steer viewer: {} said bye to the eNet join", crate::enet::endpoint_hex(&device));
+                    failure = "refused";
                     break;
                 }
                 Some("activity_reset") => {
@@ -1422,7 +1478,7 @@ async fn join_over_enet(
             }
         }
     }
-    Err(failure)
+    Err(unanswered.unwrap_or(failure))
 }
 
 /// A joined sealed relay tunnel (`steer-enet.json` `fallback`): the tunnel
@@ -1485,13 +1541,22 @@ impl RelayLink {
     }
 }
 
-/// The relay leg's AVAILABILITY and dial: this install's tree secret, then
-/// `steer.tunnelTicket`, the dial, the sealed `join`.
-async fn open_tunnel(source: Option<Arc<dyn EnetViewerSource>>, session_id: &str) -> Result<RelayLink, LegFailure> {
-    let source = source.ok_or(LegFailure::Unavailable("no_node"))?;
+/// The relay leg's AVAILABILITY on this install (before any network): a
+/// node and this install's tree secret.
+async fn relay_keys(source: Option<&Arc<dyn EnetViewerSource>>, session_id: &str) -> Result<TunnelKeys, LegFailure> {
+    source.ok_or(LegFailure::Unavailable("no_node"))?;
     let id = session_id.to_string();
     let keys = tokio::task::spawn_blocking(move || tunnel::resolve_keys(&id)).await.ok().flatten();
-    let keys = keys.ok_or(LegFailure::Unavailable("no_key"))?;
+    keys.ok_or(LegFailure::Unavailable("no_key"))
+}
+
+/// The relay leg's dial: `steer.tunnelTicket`, the dial, the sealed `join`.
+async fn open_tunnel(
+    source: Option<Arc<dyn EnetViewerSource>>,
+    session_id: &str,
+    keys: TunnelKeys,
+) -> Result<RelayLink, LegFailure> {
+    let source = source.ok_or(LegFailure::Unavailable("no_node"))?;
     let id = session_id.to_string();
     let ticket = tokio::task::spawn_blocking(move || source.tunnel_ticket(&id)).await;
     let url = match ticket {
@@ -1543,6 +1608,30 @@ mod tests {
                 other => panic!("unknown trigger {other}"),
             };
             assert_eq!(offline_redial(phase, trigger), case["redial"].as_bool().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    /// #EXP-1678: `fallback.startingRetry` + `startingRetryCases`.
+    #[test]
+    fn starting_retry_cases() {
+        let fixture: serde_json::Value =
+            serde_json::from_str(include_str!("../../../../../packages/domain-contract/fixtures/steer-enet.json")).unwrap();
+        let retry = &fixture["fallback"]["startingRetry"];
+        assert_eq!(retry["baseMs"], STARTING_RETRY_BASE_MS);
+        assert_eq!(retry["maxMs"], STARTING_RETRY_MAX_MS);
+        let timings = ViewerTimings::default();
+        for case in fixture["startingRetryCases"].as_array().unwrap() {
+            let retries = case["retries"].as_u64().unwrap() as u32;
+            let cap = case["capMs"].as_u64().unwrap();
+            assert_eq!(starting_retry_cap_ms(retries), cap, "retries {retries}");
+            // The viewer's backoff: the n-th delay lies in [cap/2, cap).
+            let mut backoff = Backoff::new(timings.retry_base, timings.retry_cap);
+            for _ in 0..retries {
+                backoff.next_delay_equal_jitter();
+            }
+            assert_eq!(backoff.bound(), Duration::from_millis(cap), "retries {retries}");
+            let delay = backoff.next_delay_equal_jitter();
+            assert!(delay >= Duration::from_millis(cap / 2) && delay < Duration::from_millis(cap), "retries {retries}");
         }
     }
 

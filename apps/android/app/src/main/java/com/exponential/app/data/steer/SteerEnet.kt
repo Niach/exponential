@@ -114,7 +114,7 @@ internal object EnetSteerSubscribers {
 }
 
 /** How a join probe of one endpoint ended. */
-internal enum class EnetJoin { Joined, NoSuchSession, Refused, Timeout }
+internal enum class EnetJoin { Joined, NoSuchSession, Refused, SendFailed, Timeout }
 
 /**
  * One viewer feed from the install at [endpoint] for [sessionId]. Applies
@@ -188,7 +188,8 @@ internal class EnetSteerSocket(
             throw err
         } catch (err: Throwable) {
             Log.w(TAG, "join send to ${endpoint.take(8)} failed: ${err.javaClass.simpleName}")
-            return EnetJoin.Refused
+            // #EXP-1678: not the device saying no: the relay may still reach it.
+            return EnetJoin.SendFailed
         }
         val deadline = nowMs() + timings.joinTimeoutMs
         while (true) {
@@ -198,7 +199,8 @@ internal class EnetSteerSocket(
                 inbox.onReceiveCatching { it.getOrNull() ?: "" }
                 onTimeout(left) { null }
             } ?: return EnetJoin.Timeout
-            if (text.isEmpty()) return EnetJoin.Refused
+            // The subscription closed under us: no answer from the device.
+            if (text.isEmpty()) return EnetJoin.SendFailed
             val frame = Json.parseToJsonElement(text).jsonObject
             when (frameTag(frame)) {
                 // Ended here, not only in the collector: it may not have run
@@ -338,6 +340,8 @@ internal class EnetSteerDialer(
         }
         if (endpoints.isNullOrEmpty()) return null
         lastFailure = "refused"
+        // #EXP-1678: `refused` only when every endpoint ANSWERED no.
+        var sendFailed = false
         for (endpoint in endpoints) {
             if (endpoint == peer.endpointId) continue
             val socket = EnetSteerSocket(peer, sessionId, endpoint, timings, nowMs, dispatcher)
@@ -359,8 +363,13 @@ internal class EnetSteerDialer(
                     return null
                 }
                 EnetJoin.NoSuchSession, EnetJoin.Refused -> socket.cancel()
+                EnetJoin.SendFailed -> {
+                    sendFailed = true
+                    socket.cancel()
+                }
             }
         }
+        if (sendFailed) lastFailure = "send_failed"
         return null
     }
 }

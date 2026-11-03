@@ -321,6 +321,10 @@ internal sealed interface TunnelOpen {
 /** The relay leg of a viewer, behind a seam so the carrier switch is testable without a relay. */
 internal fun interface SteerTunnelDialer {
     suspend fun open(sessionId: String): TunnelOpen
+
+    /** #EXP-1678: whether this install could seal for the leg at all (no
+     *  network); false = `no_key`, never counted as a fallback. */
+    suspend fun hasKey(sessionId: String): Boolean = true
 }
 
 /**
@@ -336,6 +340,14 @@ internal class RelayTunnelDialer(
     private val nowMs: () -> Long = System::currentTimeMillis,
     private val dispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) : SteerTunnelDialer {
+    override suspend fun hasKey(sessionId: String): Boolean = try {
+        sealer(sessionId) != null
+    } catch (err: CancellationException) {
+        throw err
+    } catch (_: Throwable) {
+        false
+    }
+
     override suspend fun open(sessionId: String): TunnelOpen {
         val seal = try {
             sealer(sessionId)

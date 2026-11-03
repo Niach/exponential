@@ -152,6 +152,19 @@ export const STEER_FALLBACK_STALL_MS = fixture.fallback.stallMs
 export const STEER_TUNNEL_MAX_DATA_BYTES = fixture.fallback.tunnelMaxDataBytes
 export const STEER_RELAY_RETRY_MS = fixture.fallback.relayRetryMs
 export const STEER_TUNNEL_ERROR_CODES = fixture.fallback.tunnelErrorCodes
+export const STEER_STARTING_RETRY = fixture.fallback.startingRetry
+
+/** #EXP-1678 (`startingRetryCases`): the cap of the n-th consecutive NO FEED
+ *  redial; the wait is a random delay in [cap/2, cap) (equal jitter). */
+export function steerStartingRetryCapMs(retries: number): number {
+  return Math.min(STEER_STARTING_RETRY.baseMs * 2 ** retries, STEER_STARTING_RETRY.maxMs)
+}
+
+/** #EXP-1678: the wait itself (`random` in [0, 1)). */
+export function steerStartingRetryDelayMs(retries: number, random: number = Math.random()): number {
+  const cap = steerStartingRetryCapMs(retries)
+  return cap / 2 + random * (cap / 2)
+}
 
 export type SteerCarrier = `enet` | `relay`
 export type SteerCarrierState = { active: `none` | SteerCarrier; relay: `closed` | `open` }
@@ -159,6 +172,7 @@ export type SteerCarrierEvent =
   | `start`
   | `stall`
   | `enetNoFeed`
+  | `enetRefused`
   | `enetReset`
   | `enetSynced`
   | `enetDropped`
@@ -202,6 +216,9 @@ export function steerCarrierStep(
     case `enetNoFeed`:
       if (active === `none` && relay === `closed`) return at(`none`, `open`, [`openRelay`, `redialEnetLater`])
       return at(active, relay, [`redialEnetLater`])
+    case `enetRefused`:
+      // #EXP-1678: the device itself said no; the relay reaches the same device.
+      return at(active, relay, active === `relay` ? [`redialEnetLater`] : [])
     case `enetReset`:
       return at(`enet`, relay, [`apply`])
     case `enetSynced`:

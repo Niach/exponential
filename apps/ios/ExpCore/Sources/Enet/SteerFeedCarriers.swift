@@ -24,7 +24,8 @@ public final class SteerFeedCarriers {
         case active(SteerCarrier.Active)
         /// Frames of the active carrier, in order.
         case frames([String])
-        /// The relay leg opened (connStats `fallbacks`).
+        /// An AVAILABLE relay leg opened (connStats `fallbacks`; #EXP-1678: a
+        /// `no_key` leg never counts).
         case fallback
         /// One carrier failed (connStats error class).
         case failure(String)
@@ -81,6 +82,8 @@ public final class SteerFeedCarriers {
     private var relayTask: Task<Void, Never>?
     private var relayJoinTimer: Task<Void, Never>?
     private var relayKnownUnavailable = false
+    /// #EXP-1678: the leg was `no_key` (no fallback to count).
+    private var relayNoKey = false
 
     public init(
         accountId: String,
@@ -168,11 +171,10 @@ public final class SteerFeedCarriers {
         case .dialEnet: dialEnet()
         case .armStall: armStall()
         case .openRelay:
-            onSignal(.fallback)
             openRelay()
         case .rejoinRelay:
-            onSignal(.fallback)
             if let relayLink {
+                onSignal(.fallback)
                 relayLink.rejoin()
                 armRelayJoinTimer(token: relayToken)
             } else if !relayDialing {
@@ -294,7 +296,8 @@ public final class SteerFeedCarriers {
             logger.info("eNet no feed \(reason.rawValue, privacy: .public)")
             lastNoFeed = reason
             onSignal(.failure(Self.errorClass(reason)))
-            handle(.enetNoFeed)
+            // #EXP-1678: the device refused every join: no relay leg (it reaches the same device).
+            handle(reason == .allRefused ? .enetRefused : .enetNoFeed)
         }
     }
 
@@ -348,6 +351,7 @@ public final class SteerFeedCarriers {
         case .noEndpoint: "no_endpoint"
         case .allRefused: "refused"
         case .timeout: "join_timeout"
+        case .sendFailed: "send_failed"
         }
     }
 
@@ -356,6 +360,8 @@ public final class SteerFeedCarriers {
     private func openRelay() {
         guard !finished, relayLink == nil, !relayDialing else { return }
         guard let tunnel, !relayKnownUnavailable else {
+            // #EXP-1678: a leg known unavailable for any reason but `no_key` was available.
+            if self.tunnel != nil, relayKnownUnavailable, !relayNoKey { onSignal(.fallback) }
             Task { @MainActor [weak self] in self?.handle(.relayUnavailable) }
             return
         }
@@ -375,6 +381,12 @@ public final class SteerFeedCarriers {
 
     private func relayOpened(_ opened: SteerTunnelOpen, token: Int) {
         relayDialing = false
+        // #EXP-1678: count the leg only once it is available (a key held here).
+        if case .unavailable("no_key") = opened {
+            relayNoKey = true
+        } else {
+            onSignal(.fallback)
+        }
         switch opened {
         case let .unavailable(errorClass):
             logger.info("relay unavailable \(errorClass, privacy: .public)")

@@ -12,6 +12,7 @@ import {
   steerConnAggregate,
   steerConnEventValid,
   steerViewErrorClass,
+  steerStartingRetryCapMs,
   type SteerConnRow,
   steerBatches,
   steerOfflineRedial,
@@ -72,6 +73,11 @@ describe(`sealed relay fallback + connection analytics (fixtures/steer-enet.json
         state: c.next as SteerCarrierState,
         actions: c.actions as SteerCarrierAction[],
       })
+    })
+  }
+  for (const c of fixture.startingRetryCases) {
+    test(`starting retry cap after ${c.retries}`, () => {
+      expect(steerStartingRetryCapMs(c.retries)).toBe(c.capMs)
     })
   }
   for (const c of fixture.connStats.validCases) {

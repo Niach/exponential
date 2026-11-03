@@ -66,6 +66,9 @@ pub enum CarrierEvent {
     Start,
     Stall,
     EnetNoFeed,
+    /// Every endpoint answered the join with `error`/`bye` (#EXP-1678): the
+    /// device said no, and the relay reaches the same device.
+    EnetRefused,
     /// The eNet feed's `activity_reset`.
     EnetReset,
     /// Every later eNet frame (synced, live, keepalive, bye).
@@ -106,6 +109,8 @@ pub fn carrier_step(state: CarrierState, event: CarrierEvent) -> (CarrierState, 
         E::Stall => at(active, relay_open, vec![]),
         E::EnetNoFeed if idle => at(None, true, vec![OpenRelay, RedialEnetLater]),
         E::EnetNoFeed => at(active, relay_open, vec![RedialEnetLater]),
+        E::EnetRefused if active == Some(Carrier::Relay) => at(active, relay_open, vec![RedialEnetLater]),
+        E::EnetRefused => at(active, relay_open, vec![]),
         E::EnetReset => at(Some(Carrier::Enet), relay_open, vec![Apply]),
         E::EnetSynced if active != Some(Carrier::Enet) => at(active, relay_open, vec![Drop]),
         E::EnetSynced if relay_open => at(active, false, vec![Apply, CloseRelay]),
@@ -345,6 +350,7 @@ mod tests {
             "start" => Start,
             "stall" => Stall,
             "enetNoFeed" => EnetNoFeed,
+            "enetRefused" => EnetRefused,
             "enetReset" => EnetReset,
             "enetSynced" => EnetSynced,
             "enetDropped" => EnetDropped,

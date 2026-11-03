@@ -217,8 +217,11 @@ internal class CarrierSteerSocket(
                 val socket = ev.socket
                 if (socket == null) {
                     enetFailed = true
-                    failure(enet.lastFailure ?: "no_endpoint")
-                    run(steerCarrierStep(state, SteerCarrierEvent.EnetNoFeed))
+                    val why = enet.lastFailure ?: "no_endpoint"
+                    failure(why)
+                    // #EXP-1678: the device itself said no: no relay leg to that same device.
+                    val event = if (why == "refused") SteerCarrierEvent.EnetRefused else SteerCarrierEvent.EnetNoFeed
+                    run(steerCarrierStep(state, event))
                 } else {
                     enetFailed = false
                     enetSocket = socket
@@ -397,12 +400,17 @@ internal class CarrierSteerSocket(
             return
         }
         if (relayDial != null || relaySocket != null) return
-        listener?.carrierFallback()
         Log.i(TAG, "[$sid] relay fallback opens")
         val gen = ++relayGen
         relayDial = scope.launch {
             val result = try {
-                dialer.open(sessionId)
+                // #EXP-1678: a leg with no key is no fallback (a `no_key` failure).
+                if (!dialer.hasKey(sessionId)) {
+                    TunnelOpen.Unavailable("no_key")
+                } else {
+                    listener?.carrierFallback()
+                    dialer.open(sessionId)
+                }
             } catch (err: CancellationException) {
                 throw err
             } catch (err: Throwable) {

@@ -12,6 +12,34 @@ internal const val STEER_FALLBACK_STALL_MS = 2_500L
 internal const val STEER_TUNNEL_MAX_DATA_BYTES = 1_572_864
 internal val STEER_RELAY_RETRY_MS = listOf(1_000L, 3_000L, 10_000L, 30_000L)
 internal val STEER_TUNNEL_ERROR_CODES = setOf("device_offline", "device_unsupported")
+/** #EXP-1678: the STARTING REDIAL backoff (`fallback.startingRetry`). */
+internal const val STEER_STARTING_RETRY_BASE_MS = 3_000L
+internal const val STEER_STARTING_RETRY_MAX_MS = 30_000L
+
+/** #EXP-1678 (`startingRetryCases`): the cap of the n-th consecutive NO FEED redial. */
+internal fun steerStartingRetryCapMs(
+    retries: Int,
+    baseMs: Long = STEER_STARTING_RETRY_BASE_MS,
+    maxMs: Long = STEER_STARTING_RETRY_MAX_MS,
+): Long {
+    var cap = baseMs
+    repeat(retries.coerceAtLeast(0)) {
+        if (cap >= maxMs) return maxMs
+        cap *= 2
+    }
+    return cap.coerceAtMost(maxMs)
+}
+
+/** #EXP-1678: the wait itself, equal jitter in [cap/2, cap). */
+internal fun steerStartingRetryDelayMs(
+    retries: Int,
+    baseMs: Long = STEER_STARTING_RETRY_BASE_MS,
+    maxMs: Long = STEER_STARTING_RETRY_MAX_MS,
+    random: Double = Math.random(),
+): Long {
+    val cap = steerStartingRetryCapMs(retries, baseMs, maxMs)
+    return cap / 2 + (random * (cap / 2)).toLong()
+}
 
 enum class SteerActiveCarrier(val wire: String) { None("none"), Enet("enet"), Relay("relay") }
 
@@ -26,6 +54,7 @@ enum class SteerCarrierEvent(val wire: String) {
     Start("start"),
     Stall("stall"),
     EnetNoFeed("enetNoFeed"),
+    EnetRefused("enetRefused"),
     EnetReset("enetReset"),
     EnetSynced("enetSynced"),
     EnetDropped("enetDropped"),
@@ -74,6 +103,9 @@ fun steerCarrierStep(state: SteerCarrierState, event: SteerCarrierEvent): SteerC
             } else {
                 at(active, relay, SteerCarrierAction.RedialEnetLater)
             }
+        // #EXP-1678: the device itself said no; the relay reaches the same device.
+        SteerCarrierEvent.EnetRefused ->
+            if (active == SteerActiveCarrier.Relay) at(active, relay, SteerCarrierAction.RedialEnetLater) else at(active, relay)
         SteerCarrierEvent.EnetReset -> at(enet, relay, SteerCarrierAction.Apply)
         SteerCarrierEvent.EnetSynced -> when {
             active != enet -> at(active, relay, SteerCarrierAction.Drop)

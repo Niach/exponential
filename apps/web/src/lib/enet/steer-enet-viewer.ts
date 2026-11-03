@@ -55,7 +55,7 @@ export type EnetSteerDeps = {
 }
 
 /** Why eNet had no feed (connStats `errorClasses`). */
-export type EnetNoFeed = `no_node` | `no_endpoint` | `refused` | `join_timeout`
+export type EnetNoFeed = `no_node` | `no_endpoint` | `refused` | `join_timeout` | `send_failed`
 
 /** The eNet feed went silent past a re-join (or a send never landed): the
  *  store redials silently, eNet again. */
@@ -69,7 +69,11 @@ const JOIN: SteerFrame = { t: `join`, channel: `activity` }
 let subscribers = 0
 const nextSubscriber = () => `s${++subscribers}`
 
-type Outcome = { kind: `joined`; frames: SteerFrame[] } | { kind: `refused` } | { kind: `timeout` }
+type Outcome =
+  | { kind: `joined`; frames: SteerFrame[] }
+  | { kind: `refused` }
+  | { kind: `sendFailed` }
+  | { kind: `timeout` }
 
 /** One eNet attempt for a dial; null = no feed on eNet (steer-feed.ts falls
  *  back to the sealed relay tunnel). */
@@ -83,6 +87,9 @@ export async function openEnetSteer(sessionId: string, deps: EnetSteerDeps): Pro
   if (!carrier) return noFeed(`no_node`)
   const endpoints = await withDeadline(deps.forSession(sessionId), joinTimeoutMs).catch(() => undefined)
   if (!endpoints || endpoints.length === 0) return noFeed(`no_endpoint`)
+  // #EXP-1678: `refused` only when EVERY endpoint answered no; a join that
+  // could not be sent is `send_failed` (the relay may still reach the device).
+  let sendFailed = false
   for (const { endpointId } of endpoints) {
     const sub = nextSubscriber()
     const release = carrier.allow(endpointId)
@@ -103,7 +110,7 @@ export async function openEnetSteer(sessionId: string, deps: EnetSteerDeps): Pro
         }
       }
     })
-    carrier.send(endpointId, encodeSteerEnvelope(sessionId, [JOIN]), sub).catch(() => settle({ kind: `refused` }))
+    carrier.send(endpointId, encodeSteerEnvelope(sessionId, [JOIN]), sub).catch(() => settle({ kind: `sendFailed` }))
     const timer = setTimeout(() => settle({ kind: `timeout` }), joinTimeoutMs)
     const result = await outcome
     clearTimeout(timer)
@@ -114,8 +121,9 @@ export async function openEnetSteer(sessionId: string, deps: EnetSteerDeps): Pro
     void carrier.send(endpointId, encodeSteerEnvelope(sessionId, [{ t: `leave` }]), sub).catch(() => {})
     release()
     if (result.kind === `timeout`) return noFeed(`join_timeout`)
+    if (result.kind === `sendFailed`) sendFailed = true
   }
-  return noFeed(`refused`)
+  return noFeed(sendFailed ? `send_failed` : `refused`)
 }
 
 /** The viewer-side rule: only the joined session, only from the joined endpoint. */

@@ -16,6 +16,23 @@ public enum SteerCarrier {
     public static let relayRetryMs = [1_000, 3_000, 10_000, 30_000]
     /// `fallback.tunnelErrorCodes`.
     public static let tunnelErrorCodes = ["device_offline", "device_unsupported"]
+    /// `fallback.startingRetry` (#EXP-1678): the NO FEED redial backoff.
+    public static let startingRetryBaseMs = 3_000
+    public static let startingRetryMaxMs = 30_000
+
+    /// #EXP-1678 (`startingRetryCases`): the cap of the n-th consecutive NO
+    /// FEED redial, min(base * 2^n, max).
+    public static func startingRetryCapMs(retries: Int) -> Int {
+        // Past 2^4 the cap is max already; clamping the shift keeps it from overflowing.
+        let shift = min(max(retries, 0), 20)
+        return min(startingRetryBaseMs << shift, startingRetryMaxMs)
+    }
+
+    /// #EXP-1678: the wait itself, equal jitter in [cap/2, cap); `random` in [0, 1).
+    public static func startingRetryDelayMs(retries: Int, random: Double = Double.random(in: 0 ..< 1)) -> Double {
+        let cap = Double(startingRetryCapMs(retries: retries))
+        return cap / 2 + random * (cap / 2)
+    }
 
     public enum Active: String, Equatable, Sendable { case none, enet, relay }
     public enum Relay: String, Equatable, Sendable { case closed, open }
@@ -31,7 +48,7 @@ public enum SteerCarrier {
     }
 
     public enum Event: String, Equatable, Sendable {
-        case start, stall, enetNoFeed, enetReset, enetSynced, enetDropped
+        case start, stall, enetNoFeed, enetRefused, enetReset, enetSynced, enetDropped
         case relayReset, relaySynced, relayDropped, relayUnavailable
     }
 
@@ -56,6 +73,9 @@ public enum SteerCarrier {
         case .enetNoFeed:
             if active == .none, relay == .closed { return at(.none, .open, [.openRelay, .redialEnetLater]) }
             return at(active, relay, [.redialEnetLater])
+        case .enetRefused:
+            // #EXP-1678: the device itself said no; the relay reaches the same device.
+            return at(active, relay, active == .relay ? [.redialEnetLater] : [])
         case .enetReset:
             return at(.enet, relay, [.apply])
         case .enetSynced:

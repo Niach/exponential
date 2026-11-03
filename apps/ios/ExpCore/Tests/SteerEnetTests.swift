@@ -168,9 +168,18 @@ final class SteerEnetTests: XCTestCase {
         let carrier = FakeCarrier(endpoints: ["a", "b", "c"])
         carrier.answer["a"] = [[#"{"t":"error","code":"no_such_session"}"#]]
         carrier.answer["b"] = [[#"{"t":"error","code":"unauthorized"}"#]]
-        carrier.unreachable = ["c"]
+        carrier.answer["c"] = [[#"{"t":"bye"}"#]]
         await assertNoFeed(carrier, .allRefused)
         XCTAssertEqual(carrier.joinedPeers, ["a", "b", "c"])
+    }
+
+    /// #EXP-1678: a join that could not be sent is `send_failed`, never `refused`.
+    func testAFailedJoinSendIsSendFailedNotRefused() async {
+        let carrier = FakeCarrier(endpoints: ["a", "b"])
+        carrier.answer["a"] = [[#"{"t":"error","code":"no_such_session"}"#]]
+        carrier.unreachable = ["b"]
+        await assertNoFeed(carrier, .sendFailed)
+        XCTAssertEqual(carrier.joinedPeers, ["a", "b"])
     }
 
     func testNoActivitySyncedInTimeIsNoFeed() async {

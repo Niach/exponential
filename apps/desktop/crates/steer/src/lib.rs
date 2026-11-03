@@ -274,8 +274,9 @@ impl Backoff {
         if nanos == 0 {
             return Duration::ZERO;
         }
+        // #EXP-1678 (`startingRetry`): a delay in [bound/2, bound).
         let half = nanos / 2;
-        Duration::from_nanos(half + self.rng.next() % (half + 1))
+        Duration::from_nanos(half + self.rng.next() % (nanos - half))
     }
 
     /// Sample the next delay (full jitter over the current bound), then

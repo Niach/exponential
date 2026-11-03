@@ -1039,6 +1039,9 @@ final class AgentSessionModel {
     /// Consecutive failed reconnect dials — indexes the backoff curve; reset
     /// on a successful (live) connection and on an explicit connect().
     private var reconnectAttempts = 0
+    /// #EXP-1678: consecutive NO FEED redials (`fallback.startingRetry`);
+    /// a feed resets it (`attachFeed`).
+    private var startingRetries = 0
     /// EXP-1487 LOST BANNER: when a feed that was joined dropped (nil = no
     /// drop pending), and how many redials since then failed. A successful
     /// join resets both (`attachFeed`).
@@ -1144,8 +1147,6 @@ final class AgentSessionModel {
     /// to their nominal times, coarse enough to be one task for the window
     /// instead of one per replayed frame.
     private static let replayWatchSeconds: Double = 0.1
-    /// Redial cadence while no device feeds a live row (the `starting` state).
-    private static let startingRetrySeconds: Double = 3
     /// Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
     /// exponential 3s→30s, mirroring the web viewer's starting retry — the
     /// jitter desyncs a herd of viewers all foregrounding at once.
@@ -2903,6 +2904,7 @@ final class AgentSessionModel {
         dropAt = nil
         failedRedialsSinceDrop = 0
         reconnectAttempts = 0
+        startingRetries = 0
         // After a reconnect the replayed transcript is the only copy of a sent
         // message — it must render, so no stale echo may swallow it. The feed
         // is NOT wiped here (EXP-249): the device's `activity_reset` opens the
@@ -3037,12 +3039,16 @@ final class AgentSessionModel {
         }
     }
 
-    /// Redial after ~3s while no device feeds the live row —
-    /// the phase stays `.starting` so the header doesn't flicker.
+    /// Redial while no device feeds the live row — the phase stays
+    /// `.starting` so the header doesn't flicker. #EXP-1678: equal-jitter
+    /// backoff 3s→30s (`SteerCarrier.startingRetryDelayMs`); a wakeup
+    /// (`kick` → `.wakeRetry`) cuts the wait short.
     private func scheduleStartingRetry() {
         retryTask?.cancel()
+        let delayMs = SteerCarrier.startingRetryDelayMs(retries: startingRetries)
+        startingRetries += 1
         retryTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.startingRetrySeconds))
+            try? await Task.sleep(for: .milliseconds(Int(delayMs)))
             guard let self, !self.stopped, !Task.isCancelled else { return }
             // A row that ended meanwhile still gets this one dial: the device
             // answers with its stored replay (then `bye {history}`), or no

@@ -163,8 +163,11 @@ internal fun steerEndDetail(outcome: String?): String? =
  * approval) no longer reads as a dead socket.
  */
 data class SteerTimings(
-    /** Redial cadence while no feed is up yet (the Starting state). */
-    val startingRetryMs: Long = 3_000,
+    /** Redial cadence while no feed is up yet (the Starting state): #EXP-1678
+     *  the BASE of the contract's equal-jitter backoff (`fallback.startingRetry`). */
+    val startingRetryMs: Long = STEER_STARTING_RETRY_BASE_MS,
+    /** #EXP-1678: the backoff's cap. */
+    val startingRetryMaxMs: Long = STEER_STARTING_RETRY_MAX_MS,
     /** Auto-reconnect backoff after an unexpected drop (EXP-243): jittered
      *  exponential 3s→30s, mirroring the web viewer's starting retry — the
      *  jitter desyncs a herd of viewers all foregrounding at once. */
@@ -359,6 +362,8 @@ class SteerConnection internal constructor(
     /** Consecutive failed reconnect dials — indexes the backoff curve; reset
      *  on a successful (live) connection and on an explicit connect(). */
     private var reconnectAttempts = 0
+    /** #EXP-1678: consecutive NO FEED redials (the starting backoff's n). */
+    private var startingRetries = 0
 
     /** EXP-1487: when a LIVE feed dropped (null = no drop in progress) and how
      *  many redials since then failed. While [steerShowConnectionLost] says
@@ -465,6 +470,7 @@ class SteerConnection internal constructor(
         if (closed) return
         connectJob?.cancel()
         reconnectAttempts = 0
+        startingRetries = 0
         clearDrop()
         openView()
         Log.i(TAG, "[$sid] connect(silent=$silent)")
@@ -509,7 +515,9 @@ class SteerConnection internal constructor(
                         // meanwhile gets one more dial, which replays its
                         // stored journal or lands on the device-offline line.
                         setPhase(AgentPhase.Starting, "no feed")
-                        delayOrWake(timings.startingRetryMs)
+                        delayOrWake(
+                            steerStartingRetryDelayMs(startingRetries++, timings.startingRetryMs, timings.startingRetryMaxMs),
+                        )
                         if (connectJob !== me) return@launch
                     }
                     is DialOutcome.Ended -> {
@@ -863,6 +871,7 @@ class SteerConnection internal constructor(
                     // EXP-1487: a successful join ends any drop.
                     clearDrop()
                     reconnectAttempts = 0
+                    startingRetries = 0
                     if (sessionIsOver()) {
                         // VAPP-43: the device replays an ENDED row's stored
                         // journal and then says `bye {outcome:"history"}`;
