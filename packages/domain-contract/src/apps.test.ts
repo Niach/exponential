@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { appMediaAllowed, editorBrief, editorTab, previewTemplate, previewTemplates, runAsOptions, slugify, sortApps, versionLabel } from "./apps"
+import { appMediaAllowed, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionRow } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
   test.each(fixture.slugifyCases)(`slugify %j`, (c) => {
@@ -8,6 +8,13 @@ describe(`apps (VAPP-110)`, () => {
   })
   test.each(fixture.versionLabelCases)(`versionLabel %j`, (c) => {
     expect(versionLabel(c.headVersion)).toBe(c.label)
+  })
+  test.each(fixture.publishCases.cases)(`publish (V1) $name`, (c) => {
+    expect(shownVersion(c.app, c.editing, c.viewing)).toBe(c.shown)
+    expect(canPublish(c.app)).toBe(c.canPublish)
+    expect(grantVersion(c.app)).toBe(c.grant)
+    expect(listPill(c.app)).toBe(c.pill)
+    expect(c.rows.map(([n]) => [n, versionRow(c.app, n as number)])).toEqual(c.rows)
   })
   test.each(fixture.sortAppsCases)(`sortApps %j`, (c) => {
     expect(sortApps(c.apps).map((a) => a.slug)).toEqual(c.order)

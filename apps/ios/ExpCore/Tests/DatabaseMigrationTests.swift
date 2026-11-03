@@ -140,7 +140,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills"]
+             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
+             "v93_apps_published"]
         )
     }
 
@@ -202,7 +203,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills"]
+             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
+             "v93_apps_published"]
         )
     }
 
@@ -736,7 +738,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills"]
+             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
+             "v93_apps_published"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -846,7 +849,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills"]
+             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
+             "v93_apps_published"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -3212,7 +3216,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "apps"),
             ["id", "team_id", "slug", "name", "icon", "color", "description", "package",
              "head_version", "created_by", "deleted_at", "created_at", "updated_at",
-             "granted_tools"]
+             "granted_tools", "published_version", "draft_package"]
         )
         XCTAssertEqual(
             try columnNames(pool, "app_versions"),
@@ -3259,7 +3263,8 @@ final class DatabaseMigrationTests: XCTestCase {
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, [])
+            // v82 resets nothing; the later v93 (eApps V1) resets the apps cursor.
+            XCTAssertEqual(reset, ["apps"])
         }
         for (wireValue, expected) in [
             (#"["exponential.issues.update","exponential.sessions.send"]"#, ["exponential.issues.update", "exponential.sessions.send"]),
@@ -3311,7 +3316,8 @@ final class DatabaseMigrationTests: XCTestCase {
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, [])
+            // eApps V1 (v93): the apps shape refetches for published_version + draft_package.
+            XCTAssertEqual(reset, ["apps"])
         }
         // A synced row round-trips, its jsonb `data` as text.
         let wire = Data(#"""
@@ -3888,6 +3894,63 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(agent.skillIds, ["s1"])
         try pool.write { db in try agent.save(db) }
         XCTAssertEqual(try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.skillIds }, ["s1"])
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // eApps V1 (#VAPP-210): v93 adds `apps.published_version` (existing rows
+    // = 0) + `apps.draft_package`, resetting ONLY the apps cursor so synced
+    // rows re-arrive carrying them; a wire row round-trips through the store.
+    func testAppsPublishedColumnsAdded() throws {
+        let pool = try makePool("vapp210-apps-published")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v92_skills")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "apps" ("id", "team_id", "slug", "name", "head_version", "created_at", "updated_at")
+                VALUES ('a0', 't1', 'old', 'Old', 2, 'x', 'x')
+                """)
+            for shape in ["apps", "app-versions"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "apps").contains("published_version"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v93_apps_published"))
+        XCTAssertTrue(try columnNames(pool, "apps").isSuperset(of: ["published_version", "draft_package"]))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["apps"])
+            let old = try AppEntity.fetchOne(db, key: "a0")
+            XCTAssertEqual(old?.publishedVersion, 0)
+            XCTAssertNil(old?.draftPackage)
+        }
+        let wire = Data(#"""
+            {"id":"a1","team_id":"t1","slug":"hours","name":"Hours","head_version":"5","published_version":"3",
+             "package":{"id":"hours","templates":{}},"draft_package":{"id":"hours","templates":{"main":{}}},
+             "created_at":"x","updated_at":"x"}
+            """#.utf8)
+        let row = try JSONDecoder().decode(AppEntity.self, from: wire)
+        XCTAssertEqual(row.publishedVersion, 3)
+        XCTAssertEqual(row.versions, Apps.Versions(headVersion: 5, publishedVersion: 3))
+        XCTAssertNotNil(row.draftPackage)
+        XCTAssertEqual(row.headPackage, row.draftPackage)
+        try pool.write { db in try row.save(db) }
+        let read = try pool.read { db in try AppEntity.fetchOne(db, key: "a1") }
+        XCTAssertEqual(read, row)
+        let published = try JSONDecoder().decode(AppEntity.self, from: Data(#"""
+            {"id":"a2","team_id":"t1","head_version":3,"published_version":3,"package":{"id":"x"},
+             "draft_package":null,"created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertNil(published.draftPackage)
+        XCTAssertEqual(published.headPackage, published.package)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

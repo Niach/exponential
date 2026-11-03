@@ -4,6 +4,7 @@ import { eq, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { appAccess, appRecords, appVersions, apps, devices, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
+import { grantVersion } from "@exp/domain-contract/apps"
 
 // Release train 2026-10-23 (VAPP-110 review): the apps router against the
 // REAL migrated Postgres. A deleted account leaves its apps behind (creator
@@ -22,7 +23,17 @@ if (!ready.ok) console.info(`[apps.real-db] skipped: ${ready.reason}`)
 const { appsRouter } = await import(`@/lib/trpc/apps`)
 
 /** VAPP-156: the head version a client saw (a grant names it). */
-const seen = async (appId: string) => (await db.select({ headVersion: apps.headVersion }).from(apps).where(eq(apps.id, appId)))[0]!.headVersion
+// eApps V1 (#VAPP-210): a new version that RUNS = the draft + its publish
+// by the same member (the grants follow the published package).
+const ship = async (who: string, input: { id: string; package: Record<string, unknown> }) => {
+  await caller(who).upsertPackage(input)
+  await caller(who).publish({ id: input.id })
+}
+const shipRestore = async (who: string, id: string, number: number) => {
+  await caller(who).restore({ id, number })
+  await caller(who).publish({ id })
+}
+const seen = async (appId: string) => grantVersion((await db.select({ headVersion: apps.headVersion, publishedVersion: apps.publishedVersion }).from(apps).where(eq(apps.id, appId)))[0]!)
 const id8 = () => crypto.randomUUID().slice(0, 8)
 const made = { teams: [] as string[], users: [] as string[] }
 
@@ -197,6 +208,37 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
       },
     },
   }
+
+  // eApps V1 (#VAPP-210, apps.json DRAFT VS PUBLISHED): a version write is
+  // a draft; members, the broker and the record policies run the published
+  // package until a Publish moves the pointer (an older number = a rollback).
+  it(`V1: upserts are drafts, publish moves the pointer, a rollback publishes an older version`, async () => {
+    const w = await world()
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
+    expect(created.app).toMatchObject({ headVersion: 1, publishedVersion: 1 })
+    const row = async () => (await db.select().from(apps).where(eq(apps.id, created.app.id)))[0]!
+    const draft = { ...RECORDS_PACKAGE, version: `1.1.0`, records: { ...RECORDS_PACKAGE.records, task: { schema: { type: `object`, properties: { title: { type: `string` } }, required: [`title`] } } } }
+    await caller(w.mate).upsertPackage({ id: created.app.id, package: draft })
+    expect(await row()).toMatchObject({ headVersion: 2, publishedVersion: 1, package: RECORDS_PACKAGE, draftPackage: draft })
+    // get() = the head; get({version: published}) = the published package.
+    expect((await caller(w.mate).get({ id: created.app.id })).package).toEqual(draft)
+    expect((await caller(w.mate).get({ id: created.app.id, version: 1 })).package).toEqual(RECORDS_PACKAGE)
+    // A draft's new kind takes records before it is published (an editor seeds it).
+    await caller(w.mate).records.upsert({ id: created.app.id, kind: `task`, data: { title: `seed` } })
+    // A read-only member cannot publish.
+    await db.insert(appAccess).values({ appId: created.app.id, teamId: w.teamId, userId: w.mate, level: `read` })
+    await expect(caller(w.mate).publish({ id: created.app.id })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await db.delete(appAccess).where(eq(appAccess.appId, created.app.id))
+    expect(await caller(w.mate).publish({ id: created.app.id })).toMatchObject({ published: 2, head: 2 })
+    expect(await row()).toMatchObject({ headVersion: 2, publishedVersion: 2, package: draft, draftPackage: null })
+    // Rollback: publish v1 again; the head (v2) stays the draft.
+    expect(await caller(w.owner).publish({ id: created.app.id, number: 1 })).toMatchObject({ published: 1, head: 2 })
+    expect(await row()).toMatchObject({ headVersion: 2, publishedVersion: 1, package: RECORDS_PACKAGE, draftPackage: draft })
+    await expect(caller(w.owner).publish({ id: created.app.id, number: 9 })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    // Nothing to publish on an empty draft app.
+    const empty = await caller(w.owner).create({ teamId: w.teamId })
+    await expect(caller(w.owner).publish({ id: empty.app.id })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
 
   it(`records: a write follows the kind's schema, patches by id, and leaves with the app`, async () => {
     const w = await world()
@@ -425,12 +467,12 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect((await caller(w.mate).update({ id: mine.app.id, description: `still mine to edit` })).app.description).toBe(`still mine to edit`)
     expect((await caller(w.owner).update({ id: mine.app.id, headVersion: await seen(mine.app.id), grantedTools: [`exponential.comments.create`] })).app.grantedTools).toEqual([`exponential.comments.create`])
     // An owner's version that drops an action drops its grant; re-declaring it later starts ungranted.
-    await caller(w.owner).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`]) })
+    await ship(w.owner, { id: created.app.id, package: declaring([`exponential.comments.create`]) })
     expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
-    await caller(w.owner).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`, `exponential.issues.update_status`]) })
+    await ship(w.owner, { id: created.app.id, package: declaring([`exponential.comments.create`, `exponential.issues.update_status`]) })
     expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([`exponential.comments.create`])
     // Release train 2026-10-25: a member's code never runs on an owner's grant: their push clears every grant.
-    await caller(w.mate).upsertPackage({ id: created.app.id, package: declaring([`exponential.comments.create`]) })
+    await ship(w.mate, { id: created.app.id, package: declaring([`exponential.comments.create`]) })
     expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([])
   })
 
@@ -441,15 +483,15 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: pkg })
     const grants = async () => (await caller(w.owner).get({ id: created.app.id })).app.grantedTools
     await caller(w.owner).update({ id: created.app.id, headVersion: await seen(created.app.id), grantedTools: granted })
-    await caller(w.owner).upsertPackage({ id: created.app.id, package: pkg })
+    await ship(w.owner, { id: created.app.id, package: pkg })
     expect(await grants()).toEqual(granted)
-    await caller(w.owner).restore({ id: created.app.id, number: 1 })
+    await shipRestore(w.owner, created.app.id, 1)
     expect(await grants()).toEqual(granted)
     // A member's restore of the very package the owner granted still clears them.
-    await caller(w.mate).restore({ id: created.app.id, number: 1 })
+    await shipRestore(w.mate, created.app.id, 1)
     expect(await grants()).toEqual([])
     await caller(w.owner).update({ id: created.app.id, headVersion: await seen(created.app.id), grantedTools: granted })
-    await caller(w.mate).upsertPackage({ id: created.app.id, package: pkg })
+    await ship(w.mate, { id: created.app.id, package: pkg })
     expect(await grants()).toEqual([])
   })
   // VAPP-156: a grant lands only on the version the owner saw. A member
@@ -460,7 +502,7 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     const pkg = { ...RECORDS_PACKAGE, functions: [`exponential.comments.create`] }
     const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: pkg })
     const sawVersion = await seen(created.app.id)
-    await caller(w.mate).upsertPackage({ id: created.app.id, package: pkg })
+    await ship(w.mate, { id: created.app.id, package: pkg })
     await expect(caller(w.owner).update({ id: created.app.id, headVersion: sawVersion, grantedTools: [`exponential.comments.create`] })).rejects.toMatchObject({ code: `CONFLICT` })
     expect((await caller(w.owner).get({ id: created.app.id })).app.grantedTools).toEqual([])
     await expect(caller(w.owner).update({ id: created.app.id, grantedTools: [`exponential.comments.create`] })).rejects.toMatchObject({ code: `BAD_REQUEST` })
@@ -485,10 +527,10 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     // A row written before the rule: an owner's new version drops the owner-only grant.
     const stale = [`exponential.comments.create`, `exponential.teams.update`, `exponential.people.add`]
     await db.update(apps).set({ grantedTools: stale }).where(eq(apps.id, created.app.id))
-    await caller(w.owner).upsertPackage({ id: created.app.id, package: pkg })
+    await ship(w.owner, { id: created.app.id, package: pkg })
     expect(await grants()).toEqual([`exponential.comments.create`])
     await db.update(apps).set({ grantedTools: stale }).where(eq(apps.id, created.app.id))
-    await caller(w.owner).restore({ id: created.app.id, number: 1 })
+    await shipRestore(w.owner, created.app.id, 1)
     expect(await grants()).toEqual([`exponential.comments.create`])
   })
 

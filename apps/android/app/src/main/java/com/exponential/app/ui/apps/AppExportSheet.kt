@@ -92,7 +92,7 @@ fun AppExportSheet(app: AppListEntry, records: List<AppRecordEntity>, onDismiss:
         primaryAction = SheetPrimaryAction(
             label = AppExport.Copy.EXPORT,
             onClick = ::export,
-            enabled = app.packageJson != null && !exporting,
+            enabled = app.headPackageJson != null && !exporting,
             loading = exporting,
             testTag = "app-export-confirm",
         ),
@@ -113,7 +113,8 @@ fun AppExportSheet(app: AppListEntry, records: List<AppRecordEntity>, onDismiss:
 
 /** The file for [app] under the cache's export dir (the latest export only). */
 private fun writeAppExport(context: Context, app: AppListEntry, records: List<AppRecordEntity>, includeRecords: Boolean): File {
-    val pkg = JsonValue.parse(app.packageJson ?: error("no version yet"))
+    // eApps V1: the export carries the head (the draft, else the published package).
+    val pkg = JsonValue.parse(app.headPackageJson ?: error("no version yet"))
     val file = AppExport.buildAppExport(
         app = AppExport.App(app.name, app.icon, app.color, app.description),
         pkg = pkg,

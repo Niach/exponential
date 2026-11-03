@@ -5,9 +5,10 @@ import { andClauses } from "@/lib/auth/shape-where"
 import { appShapeRules, hiddenAppsClause } from "@/lib/apps/records-shape"
 
 // VAPP-110: the team's APPS. Member-only, team-scoped, `deleted_at` is the
-// trash mirror (clients hide trashed rows). The HEAD version's `package`
-// rides along: the editor's live preview repaints from the synced row on
-// every upsert (the package is capped by contract `apps.packageMaxBytes`).
+// trash mirror (clients hide trashed rows). eApps V1 (#VAPP-210): the
+// PUBLISHED `package` and the head's `draft_package` (while ahead) ride
+// along: members run the first, the editor's live preview repaints from the
+// second on every upsert (each capped by contract `apps.packageMaxBytes`).
 export const APP_COLUMNS = [
   `id`,
   `team_id`,
@@ -18,6 +19,8 @@ export const APP_COLUMNS = [
   `description`,
   `package`,
   `head_version`,
+  `published_version`,
+  `draft_package`,
   `created_by`,
   `granted_tools`,
   `deleted_at`,

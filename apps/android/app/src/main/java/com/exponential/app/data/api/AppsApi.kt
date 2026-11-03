@@ -56,6 +56,10 @@ private data class AppRestoreInput(val id: String, val number: Int)
 @Serializable
 data class AppDiscardResult(val discarded: Boolean = false, val txid: Long? = null)
 
+/** eApps V1 (#VAPP-210) `apps.publish`: the published version and the head. */
+@Serializable
+data class AppPublishResult(val published: Int, val head: Int = 0, val txid: Long? = null)
+
 @Serializable
 data class AppRestoreResult(val version: Int, val restored: Int, val txid: Long? = null)
 
@@ -155,6 +159,17 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
             outputSerializer = TxResult.serializer(),
         )
     }
+
+    /** eApps V1 `apps.publish {id, number}`: members and the app's tools run
+     *  version [number] from now on (an older one = a rollback). */
+    suspend fun publish(accountId: String, appId: String, number: Int): AppPublishResult =
+        trpc.mutation(
+            accountId,
+            path = "apps.publish",
+            input = AppRestoreInput(appId, number),
+            inputSerializer = AppRestoreInput.serializer(),
+            outputSerializer = AppPublishResult.serializer(),
+        )
 
     /** Restore version [number] as the new head. */
     suspend fun restore(accountId: String, appId: String, number: Int): AppRestoreResult =

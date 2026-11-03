@@ -113,3 +113,20 @@ val MIGRATION_109_110: Migration = object : Migration(109, 110) {
         )
     }
 }
+
+/**
+ * v111 (eApps V1, #VAPP-210): `apps.published_version` (the version members
+ * run; 0 / null = never published) and `apps.draft_package` (the head's
+ * package while it is ahead). Only the apps shape refetches, so synced rows
+ * re-arrive carrying them.
+ */
+val MIGRATION_110_111: Migration = object : Migration(110, 111) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `apps` ADD COLUMN `published_version` INTEGER")
+        db.execSQL("ALTER TABLE `apps` ADD COLUMN `draft_package` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'apps'",
+        )
+    }
+}

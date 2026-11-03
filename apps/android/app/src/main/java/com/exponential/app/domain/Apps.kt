@@ -4,8 +4,8 @@ import java.text.Normalizer
 
 // VAPP-110: Exponential apps, the Android mirror of the pure reference
 // `packages/domain-contract/src/apps.ts` (fixtures/apps.json is the spec;
-// `AppsTest` replays its `slugifyCases`, `versionLabelCases` and
-// `sortAppsCases` and locks the copy below to the fixture byte for byte).
+// `AppsTest` replays its `slugifyCases`, `versionLabelCases`,
+// `sortAppsCases` and `publishCases` and locks the copy below to the fixture byte for byte).
 object Apps {
     object Copy {
         const val NAV = "Apps"
@@ -24,6 +24,12 @@ object Apps {
         const val RESTORE = "Restore"
         const val RESTORED = "Restored v{n} as v{m}"
         const val RESTORED_NOTE = "Restored v{n}"
+        // eApps V1 (#VAPP-210): Publish, the published row's badge, its toast
+        // and the server's refusal while nothing exists.
+        const val PUBLISH = "Publish"
+        const val PUBLISHED = "Published"
+        const val PUBLISHED_TOAST = "Published v{n}"
+        const val PUBLISH_NOTHING = "Nothing to publish yet"
         const val EMPTY = "No apps yet"
         const val CHAT_EMPTY = "Describe the app you want. The editor session builds it and the preview follows."
         const val PREVIEW_EMPTY = "No version yet"
@@ -86,6 +92,9 @@ object Apps {
         const val SETTINGS = "app-editor-settings"
         const val VERSION_PREVIEW = "app-version-preview"
         const val VERSION_RESTORE = "app-version-restore"
+        // eApps V1: the editor's Publish, a Versions row's Publish.
+        const val PUBLISH = "app-editor-publish"
+        const val VERSION_PUBLISH = "app-version-publish"
         // VAPP-178: the Data tab's body.
         const val DATA = "app-editor-data"
         // VAPP-179: the Preview toolbar (web ≥ md + desktop only; phones
@@ -148,6 +157,43 @@ object Apps {
         if (headVersion > 0) Copy.VERSION.replace("{n}", headVersion.toString()) else Copy.NO_VERSION
 
     fun viewing(number: Int): String = Copy.VIEWING.replace("{n}", number.toString())
+
+    fun publishedToast(number: Int): String = Copy.PUBLISHED_TOAST.replace("{n}", number.toString())
+
+    // eApps V1 draft vs published (#VAPP-210, fixture `publishCases`).
+
+    /** An app's two pointers. */
+    data class Versions(val headVersion: Int, val publishedVersion: Int)
+
+    /** A Versions row's trailing (TS `versionRow`). */
+    enum class VersionRowKind(val wire: String) { PUBLISHED("published"), HEAD("head"), VERSION("version") }
+
+    /** The version the editor's preview shows: an explicitly viewed one, else
+     *  nothing (no version), else the HEAD (the draft) while the viewer's own
+     *  editor session is live or nothing is published, else the PUBLISHED one. */
+    fun shownVersion(app: Versions, editing: Boolean, viewing: Int?): Int {
+        if (viewing != null) return viewing
+        if (app.headVersion == 0) return 0
+        return if (editing || app.publishedVersion == 0) app.headVersion else app.publishedVersion
+    }
+
+    /** Publish is offered while the head is not the published version. */
+    fun canPublish(app: Versions): Boolean = app.headVersion > 0 && app.headVersion != app.publishedVersion
+
+    /** The list's and the header's version pill: the PUBLISHED version. */
+    fun listPill(app: Versions): String = versionLabel(app.publishedVersion)
+
+    /** The version a grant is made on and checked against (`apps.update
+     *  {headVersion}` carries it): the published one, else the head. */
+    fun grantVersion(app: Versions): Int = if (app.publishedVersion > 0) app.publishedVersion else app.headVersion
+
+    /** A Versions row's trailing: the published badge, the head badge +
+     *  Publish, or Preview + Publish. */
+    fun versionRow(app: Versions, number: Int): VersionRowKind = when (number) {
+        app.publishedVersion -> VersionRowKind.PUBLISHED
+        app.headVersion -> VersionRowKind.HEAD
+        else -> VersionRowKind.VERSION
+    }
 
     fun restored(restored: Int, version: Int): String =
         Copy.RESTORED.replace("{n}", restored.toString()).replace("{m}", version.toString())

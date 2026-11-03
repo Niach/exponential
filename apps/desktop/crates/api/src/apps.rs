@@ -201,6 +201,23 @@ pub fn restore(trpc: &TrpcClient, id: &str, number: i64) -> Result<RestoreOutput
     trpc.mutation("apps.restore", &RestoreInput { id, number })
 }
 
+/// eApps V1 (#VAPP-210) `apps.publish` output.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PublishOutput {
+    #[serde(default, alias = "txid")]
+    pub tx_id: Option<i64>,
+    pub published: i64,
+    #[serde(default)]
+    pub head: i64,
+}
+
+/// eApps V1: `apps.publish {id, number}` = members and the app's tools run
+/// version `number` from now on (an older one = a rollback).
+pub fn publish(trpc: &TrpcClient, id: &str, number: i64) -> Result<PublishOutput, ApiError> {
+    trpc.mutation("apps.publish", &RestoreInput { id, number })
+}
+
 /// `apps.get {version}`: one version's package.
 pub fn get_version(trpc: &TrpcClient, id: &str, version: i64) -> Result<GetOutput, ApiError> {
     trpc.query_with_input("apps.get", &VersionInput { id, version })
