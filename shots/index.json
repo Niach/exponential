@@ -1028,6 +1028,13 @@
       }
     },
     "composer-skills-menu": {
+      "desktop": {
+        "file": "shots/composer-skills-menu/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 34958,
+        "sha256": "2f9fc77fad1a3e98f4c09f92c671ad5bb44b75737d4041fe42189616ebd8b214"
+      },
       "web": {
         "file": "shots/composer-skills-menu/web.webp",
         "width": 1800,
@@ -5843,6 +5850,13 @@
         "bytes": 29980,
         "sha256": "d5d78d0a75fe0f6480e02d4e6a29ea275dd4863e5a8711dea2b5d3bba949f16e"
       },
+      "desktop": {
+        "file": "shots/settings-skill/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 46902,
+        "sha256": "ccf00acdc176c6818e85d2a5ad0abdf9c5ed28310d8d21967518ccf899070d79"
+      },
       "web": {
         "file": "shots/settings-skill/web.webp",
         "width": 1800,
@@ -5865,6 +5879,13 @@
         "height": 1800,
         "bytes": 25232,
         "sha256": "785c18bc958a95e0a3eba66a63afb8f6c615417922a2ba2703338d3f4f4a2a76"
+      },
+      "desktop": {
+        "file": "shots/settings-skills/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 36326,
+        "sha256": "69112dee51a4d5f4a2228081542b2a25fd8358dd0a04d13aa03f7d1b305a5e39"
       },
       "web": {
         "file": "shots/settings-skills/web.webp",
@@ -5954,9 +5975,9 @@
       "desktop": {
         "file": "shots/settings-team-agent/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 38442,
-        "sha256": "8201ed9d9e66c2ae171b1f3aad7f117e52e90e9338a9b149bef6946ac9afa449"
+        "height": 1125,
+        "bytes": 40180,
+        "sha256": "9e1f8e2f706ace8f644f817809cea86711ad352bca10f06612a2a658d0c7fa5f"
       },
       "ios": {
         "file": "shots/settings-team-agent/ios.webp",

@@ -1187,6 +1187,10 @@ pub struct AgentDefRow {
     pub account: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    /// #EXP-1656: the team skills every run of this agent starts with
+    /// (jsonb `string[]`; `null` = none).
+    #[serde(default, deserialize_with = "tolerant_id_list")]
+    pub skill_ids: Vec<String>,
     #[serde(default)]
     pub owner_id: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
@@ -1269,6 +1273,28 @@ pub struct PromptRow {
     pub icon: Option<String>,
     #[serde(default, deserialize_with = "tolerant_opt_f64")]
     pub sort_order: Option<f64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+/// #EXP-1656: `skills` shape row: a team skill (Claude's SKILL.md), body-less
+/// (the body stays server-only, tRPC `skills.get`). Spec:
+/// `packages/domain-contract/fixtures/skills.json`.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct SkillRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub enabled_by_default: bool,
+    #[serde(default)]
+    pub created_by_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]

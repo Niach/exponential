@@ -70,6 +70,8 @@ mod notifications_prefs;
 pub(crate) mod voice_prefs;
 // NEW-6: Settings → Prompts (the list + one prompt's page).
 pub(crate) mod prompts;
+// #EXP-1660: Settings › Skills (the list + one skill's page).
+pub(crate) mod skills;
 mod board_detail;
 mod repositories;
 mod sessions;
@@ -165,6 +167,7 @@ use board_detail::BoardDetailPane;
 use notifications_prefs::NotificationsPrefsPane;
 use voice_prefs::VoicePrefsPane;
 use prompts::{PromptPage, PromptsPane};
+use skills::{SkillPage, SkillsPane};
 use repositories::RepositoriesPane;
 use sessions::SessionsPane;
 use storage::StoragePane;
@@ -250,6 +253,14 @@ pub(crate) enum SettingsSection {
     /// NEW-6: the prompt page in CREATE mode (web `settings/prompts/new`).
     /// Owner-only.
     NewPrompt,
+    /// #EXP-1660: the team's skill library (skills.json `list`) — the Agents
+    /// group's row after MCP. Member-visible; writes are owner-only.
+    Skills,
+    /// #EXP-1660: one skill's page (the payload is the skill id).
+    /// Member-visible, read-only for members.
+    Skill(String),
+    /// #EXP-1660: the skill page in CREATE mode. Owner-only.
+    NewSkill,
     LocalRepos,
     /// EXP-886: how long this machine keeps finished runs' transcripts and
     /// resume records (`sessionRetentionDays`). Never gated.
@@ -356,7 +367,11 @@ const NAV_GROUPS: &[NavGroup] = &[
     NavGroup {
         id: "agents",
         label: AGENTS_GROUP,
-        items: &[NavItem::leaf("mcp", mcp::SETTINGS_MCP.title, SettingsSection::Mcp)],
+        items: &[
+            NavItem::leaf("mcp", mcp::SETTINGS_MCP.title, SettingsSection::Mcp),
+            // #EXP-1660 (settings-nav.json): Skills right after MCP.
+            NavItem::leaf("skills", domain::skills::TITLE, SettingsSection::Skills),
+        ],
     },
     // VAPP-110: the per-app rows + New app are injected at render.
     NavGroup { id: "apps", label: APPS_GROUP, items: &[] },
@@ -459,6 +474,9 @@ fn section_icon(section: &SettingsSection) -> Icon {
         SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt => {
             Icon::from(registry::NAV_ACTIONS)
         }
+        SettingsSection::Skills | SettingsSection::Skill(_) | SettingsSection::NewSkill => {
+            Icon::from(registry::UI_DOCS)
+        }
         SettingsSection::LocalRepos => Icon::from(registry::SETTINGS_LOCAL_REPOS),
         SettingsSection::Sessions => Icon::from(registry::SETTINGS_SESSIONS),
         SettingsSection::Account => Icon::from(registry::SETTINGS_ACCOUNT),
@@ -481,7 +499,8 @@ fn section_visible(section: &SettingsSection, owner: bool) -> bool {
         | SettingsSection::ArchivedBoards
         | SettingsSection::Widget
         | SettingsSection::NewAgent
-        | SettingsSection::NewPrompt => owner,
+        | SettingsSection::NewPrompt
+        | SettingsSection::NewSkill => owner,
         _ => true,
     }
 }
@@ -598,6 +617,10 @@ fn nav_lit(item: &SettingsSection, effective: &SettingsSection) -> bool {
             effective,
             SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt
         ),
+        SettingsSection::Skills => matches!(
+            effective,
+            SettingsSection::Skills | SettingsSection::Skill(_) | SettingsSection::NewSkill
+        ),
         _ => item == effective,
     }
 }
@@ -671,6 +694,10 @@ pub struct SettingsView {
     /// create mode) — rebuilt on every switch so a draft never leaks into
     /// another prompt; a create keeps the same page as the new prompt's.
     prompt_page: Option<(String, Entity<PromptPage>)>,
+    /// #EXP-1660: the Skills list (live off the synced `skills` shape) and
+    /// the open skill page, keyed like `prompt_page`.
+    skills: Entity<SkillsPane>,
+    skill_page: Option<(String, Entity<SkillPage>)>,
     repositories: Entity<RepositoriesPane>,
     /// EXP-771 owner-only widget list (fetch-on-open server read —
     /// `widget_configs` is never synced).
@@ -735,6 +762,7 @@ impl SettingsView {
             cx.new(|cx| AgentDetailPane::new(nav.clone(), shared.clone(), window, cx));
         let repositories = cx.new(|cx| RepositoriesPane::new(nav.clone(), window, cx));
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
+        let skills = cx.new(|cx| SkillsPane::new(nav.clone(), cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
         let apps_index = cx.new(|cx| crate::apps_view::AppsIndexPane::new(nav.clone(), cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
@@ -766,6 +794,8 @@ impl SettingsView {
             cx.observe(&collections.agents, |_, _, cx| cx.notify()),
             // NEW-6: a deleted prompt drops its page back to the list.
             cx.observe(&collections.prompts, |_, _, cx| cx.notify()),
+            // #EXP-1660: … and a deleted skill its page.
+            cx.observe(&collections.skills, |_, _, cx| cx.notify()),
         ];
 
         Self {
@@ -784,6 +814,8 @@ impl SettingsView {
             apps_index,
             prompts,
             prompt_page: None,
+            skills,
+            skill_page: None,
             repositories,
             widget,
             mcp,
@@ -843,6 +875,40 @@ impl SettingsView {
                 settings_skeleton("prompt-page-skeleton", cx)
             }
             None => self.prompts.clone().into_any_element(),
+        }
+    }
+
+    /// #EXP-1660: one skill's page (the prompt page's rules: reuse the open
+    /// page, build one off the synced row, the skeleton while the shape
+    /// syncs, the list once the skill is gone).
+    fn skill_pane(
+        &mut self,
+        skill_id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::AnyElement {
+        if let Some((_, page)) = self.skill_page.as_ref() {
+            if page.read(cx).skill_id() == Some(skill_id) {
+                if page.read(cx).is_gone(cx) {
+                    self.skill_page = None;
+                    return self.skills.clone().into_any_element();
+                }
+                let page = page.clone();
+                self.skill_page = Some((skill_id.to_string(), page.clone()));
+                return page.into_any_element();
+            }
+        }
+        let collections = Store::global(cx).collections();
+        let row = collections.skills.read(cx).get(skill_id).map(api::skills::from_row);
+        match row {
+            Some(skill) => {
+                let team_id = skill.team_id.clone();
+                let page = cx.new(|cx| SkillPage::new(team_id, Some(skill), window, cx));
+                self.skill_page = Some((skill_id.to_string(), page.clone()));
+                page.into_any_element()
+            }
+            None if !collections.skills.read(cx).is_ready() => settings_skeleton("skill-page-skeleton", cx),
+            None => self.skills.clone().into_any_element(),
         }
     }
 
@@ -911,6 +977,7 @@ impl Render for SettingsView {
                 SettingsSection::NewAgent => self.new_agent = None,
                 // A fresh create page on every entry (web: a new route).
                 SettingsSection::NewPrompt => self.prompt_page = None,
+                SettingsSection::NewSkill => self.skill_page = None,
                 _ => {}
             }
             // EXP-771: one scroll region for header + pane, so a section
@@ -981,6 +1048,20 @@ impl Render for SettingsView {
                     .unwrap_or_else(|| div().into_any_element())
             }
             SettingsSection::Prompt(prompt_id) => self.prompt_pane(prompt_id, window, cx),
+            SettingsSection::Skills => self.skills.clone().into_any_element(),
+            SettingsSection::NewSkill => {
+                let team_id = active_team_id(&self.nav, cx).unwrap_or_default();
+                let key = format!("new:{team_id}");
+                if self.skill_page.as_ref().is_none_or(|(k, _)| *k != key) {
+                    let page = cx.new(|cx| SkillPage::new(team_id, None, window, cx));
+                    self.skill_page = Some((key, page));
+                }
+                self.skill_page
+                    .as_ref()
+                    .map(|(_, page)| page.clone().into_any_element())
+                    .unwrap_or_else(|| div().into_any_element())
+            }
+            SettingsSection::Skill(skill_id) => self.skill_pane(skill_id, window, cx),
             SettingsSection::Repositories => self.repositories.clone().into_any_element(),
             SettingsSection::Widget => self.widget.clone().into_any_element(),
             SettingsSection::Mcp => self.mcp.clone().into_any_element(),

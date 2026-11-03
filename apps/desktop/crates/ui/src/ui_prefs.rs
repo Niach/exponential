@@ -51,6 +51,12 @@ struct UiPrefs {
         deserialize_with = "lenient_widths"
     )]
     sidebar_widths: BTreeMap<String, f32>,
+    /// #EXP-1660: the "+" menu's Skills pick, per team (skills.json: the
+    /// saved pick, per team and per client, every change saved). An EMPTY
+    /// list is a real pick (defaults are not re-added); a missing team =
+    /// never picked (the Default skills seed).
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    skill_picks: BTreeMap<String, Vec<String>>,
 }
 
 /// EXP-1156: a hand-edited or future file must not cost the REST of the
@@ -149,6 +155,25 @@ pub(crate) fn set_sidebar_width(key: &str, width: Option<f32>) {
         if !apply_width(&mut prefs, key, width) {
             return;
         }
+    }
+    schedule_write();
+}
+
+/// #EXP-1660: the team's saved Skills pick, `None` = never picked.
+pub(crate) fn skill_pick(team_id: &str) -> Option<Vec<String>> {
+    prefs().lock().ok()?.skill_picks.get(team_id).cloned()
+}
+
+/// #EXP-1660: save the team's Skills pick (debounced like the widths).
+pub(crate) fn set_skill_pick(team_id: &str, ids: &[String]) {
+    {
+        let Ok(mut prefs) = prefs().lock() else {
+            return;
+        };
+        if prefs.skill_picks.get(team_id).map(Vec::as_slice) == Some(ids) {
+            return;
+        }
+        prefs.skill_picks.insert(team_id.to_string(), ids.to_vec());
     }
     schedule_write();
 }

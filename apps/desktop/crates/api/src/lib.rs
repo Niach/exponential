@@ -85,6 +85,8 @@ pub mod pins;
 pub mod prompts;
 pub mod pull_requests;
 pub mod relations;
+// #EXP-1660: the team skill library (`skills.*`).
+pub mod skills;
 pub mod boards;
 pub mod device_identity;
 pub mod device_store;

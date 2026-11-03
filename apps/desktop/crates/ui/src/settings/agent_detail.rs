@@ -347,6 +347,8 @@ impl AgentDetailPane {
             cx.observe(&shared, |_, _, cx| cx.notify()),
             cx.observe(&collections.agents, |_, _, cx| cx.notify()),
             cx.observe(&collections.devices, |_, _, cx| cx.notify()),
+            // #EXP-1660: the Skills row names the team's skills.
+            cx.observe(&collections.skills, |_, _, cx| cx.notify()),
             cx.subscribe(&name_input, |this, _, event: &InputEvent, cx| match event {
                 InputEvent::Blur | InputEvent::PressEnter { .. } => this.commit_rename(cx),
                 _ => {}
@@ -623,6 +625,68 @@ impl AgentDetailPane {
             cx,
         );
         crate::surface::glass_picker_row(field_label("device"), None, control, cx)
+    }
+
+    /// #EXP-1660 (skills.json `agentRow`): the Skills row — the agent's
+    /// default skills through the picker summary (`None` muted when empty),
+    /// opening THE skills multi picker for an owner (saved by
+    /// `agents.update {skillIds}`); members read it.
+    fn skills_row(&self, agent: &AgentDefRow, team_id: &str, cx: &App) -> gpui::Div {
+        let (rows, _) = queries::team_skills(cx, team_id);
+        let skills: Vec<crate::launch_options::SkillOption> =
+            rows.iter().map(crate::launch_options::SkillOption::from).collect();
+        // List order; an id whose skill is gone is not shown.
+        let picked: Vec<String> = skills
+            .iter()
+            .filter(|skill| agent.skill_ids.iter().any(|id| id == &skill.id))
+            .map(|skill| skill.id.clone())
+            .collect();
+        let names: Vec<&str> = skills
+            .iter()
+            .filter(|skill| picked.contains(&skill.id))
+            .map(|skill| skill.name.as_str())
+            .collect();
+        let value = domain::skills::agent_skills_value(&names);
+        let muted = names.is_empty();
+        let label = domain::skills::AGENT_ROW_LABEL;
+        if !is_owner(cx, team_id) {
+            let color = if muted { cx.theme().muted_foreground } else { cx.theme().foreground.opacity(0.7) };
+            let control = div().text_color(color).child(crate::surface::picker_value_label(value)).into_any_element();
+            return crate::surface::glass_picker_row(label, None, control, cx);
+        }
+        let mut trigger = trigger_editor::picker_trigger(
+            SharedString::from(format!("agent-detail-skills-{}", agent.id)),
+            value,
+            cx,
+        );
+        if muted {
+            trigger = trigger.text_color(cx.theme().muted_foreground);
+        }
+        let trigger = trigger.into_any_element();
+        let agent_id = agent.id.clone();
+        let control = crate::picker::deferred(move |window, cx| {
+            let agent_id = agent_id.clone();
+            crate::picker::skill_picker::skill_picker(
+                &skills,
+                picked.clone(),
+                trigger,
+                Rc::new(move |ids: Vec<String>, _window: &mut Window, cx: &mut App| {
+                    update_agent(
+                        cx,
+                        "change",
+                        "the agent's skills",
+                        api::agents::UpdateInput {
+                            skill_ids: Some(ids),
+                            ..api::agents::UpdateInput::new(agent_id.clone())
+                        },
+                    );
+                }),
+            )
+            .id(SharedString::from("agent-detail-skills-picker"))
+            .render(window, cx)
+        })
+        .into_any_element();
+        crate::surface::glass_picker_row(label, None, control, cx)
     }
 
     /// The Account row: THE account picker over the bound machine's logins
@@ -917,6 +981,8 @@ impl AgentDetailPane {
             self.device_row(agent, &devices, cx),
             self.account_row(agent, &devices, cx),
             model_row,
+            // #EXP-1660 (skills.json `agentRow.assistantAfter`): the last row.
+            self.skills_row(agent, &team_id, cx),
         ]);
         // Check in: THE Picker over the presets.
         let triggers = agent.trigger_list();
@@ -1038,6 +1104,8 @@ impl Render for AgentDetailPane {
             .child(crate::surface::glass_group_rows(vec![
                 identity_row,
                 self.device_row(&agent, &devices, cx),
+                // #EXP-1660 (skills.json `agentRow`): right under Device.
+                self.skills_row(&agent, &team_id, cx),
             ]))
             .child(crate::surface::glass_group_rows(runner_rows))
             .child(self.instructions_card(cx));
