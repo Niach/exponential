@@ -995,8 +995,8 @@
         "file": "shots/composer-menu/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 26688,
-        "sha256": "2164c0847252ba622a78f5891c5f5921dbd3afa8a7add39b033c64f92cfb4855"
+        "bytes": 26582,
+        "sha256": "f9c2198ae707dd1f8ff980b921fcb401508aa0d7d5db027c29f5202b13c33f84"
       },
       "desktop": {
         "file": "shots/composer-menu/desktop.webp",
@@ -5836,6 +5836,13 @@
       }
     },
     "settings-skill": {
+      "android": {
+        "file": "shots/settings-skill/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 29980,
+        "sha256": "d5d78d0a75fe0f6480e02d4e6a29ea275dd4863e5a8711dea2b5d3bba949f16e"
+      },
       "web": {
         "file": "shots/settings-skill/web.webp",
         "width": 1800,
@@ -5852,6 +5859,13 @@
       }
     },
     "settings-skills": {
+      "android": {
+        "file": "shots/settings-skills/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 25232,
+        "sha256": "785c18bc958a95e0a3eba66a63afb8f6c615417922a2ba2703338d3f4f4a2a76"
+      },
       "web": {
         "file": "shots/settings-skills/web.webp",
         "width": 1800,
@@ -5934,8 +5948,8 @@
         "file": "shots/settings-team-agent/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 33912,
-        "sha256": "1c7f4a430159d45777f02cde7ddd50a5b3be77ddbf53f9ad8ce639df89692602"
+        "bytes": 37078,
+        "sha256": "488c8727892ac8c632bec9608acad3bf10103b1af5a093b7d98ea5f15958f7bb"
       },
       "desktop": {
         "file": "shots/settings-team-agent/desktop.webp",
