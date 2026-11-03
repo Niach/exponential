@@ -471,26 +471,27 @@
         ]
       }
     },
+    "screens": [
+      {
+        "template": "pipeline",
+        "title": "Pipeline",
+        "icon": "square-kanban"
+      },
+      {
+        "template": "companies",
+        "title": "Companies",
+        "icon": "building-2"
+      },
+      {
+        "template": "contacts",
+        "title": "Contacts",
+        "icon": "users"
+      }
+    ],
     "templates": {
-      "crm": {
+      "companies": {
         "data": {
-          "tab": "pipeline",
-          "pipeline": {
-            "rows": [],
-            "count": 0,
-            "groups": [],
-            "totals": {}
-          },
-          "open": {
-            "rows": [],
-            "count": 0,
-            "sum": 0
-          },
           "companies": {
-            "rows": [],
-            "count": 0
-          },
-          "contacts": {
             "rows": [],
             "count": 0
           },
@@ -504,44 +505,12 @@
             "name": "",
             "domain": "",
             "stage": "lead"
-          },
-          "contactDraft": {
-            "open": false,
-            "name": "",
-            "email": "",
-            "company": ""
-          },
-          "dealDraft": {
-            "open": false,
-            "title": "",
-            "company": "",
-            "amount": 0,
-            "stage": "prospect",
-            "close": ""
-          },
-          "move": {
-            "open": false,
-            "deal": "",
-            "title": "",
-            "stage": "prospect"
           }
         },
         "bindings": [
           {
-            "path": "/pipeline",
-            "source": "records:deal?query=pipeline"
-          },
-          {
-            "path": "/open",
-            "source": "records:deal?query=openDeals"
-          },
-          {
             "path": "/companies",
             "source": "records:company?sort=name&order=asc&limit=500"
-          },
-          {
-            "path": "/contacts",
-            "source": "records:contact?sort=name&order=asc&limit=500"
           },
           {
             "path": "/companyDeals",
@@ -552,14 +521,10 @@
           {
             "id": "root",
             "component": "Page",
-            "title": "CRM",
+            "title": "Companies",
             "children": [
-              "stats",
-              "tabs",
-              "companyDialog",
-              "dealDialog",
-              "contactDialog",
-              "moveDialog"
+              "companiesPanel",
+              "companyDialog"
             ],
             "slots": {
               "trailing": "headerActions"
@@ -571,10 +536,26 @@
             "direction": "horizontal",
             "gap": "sm",
             "children": [
-              "newCompany",
-              "newContact",
-              "newDeal"
+              "newCompany"
             ]
+          },
+          {
+            "id": "toPipeline",
+            "component": "Button",
+            "label": "Pipeline",
+            "icon": "square-kanban",
+            "variant": "ghost",
+            "size": "sm",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "app.navigate",
+                  "args": {
+                    "screen": "pipeline"
+                  }
+                }
+              }
+            }
           },
           {
             "id": "newCompany",
@@ -589,279 +570,6 @@
                   "args": {
                     "path": "/companyDraft/open",
                     "value": true
-                  }
-                }
-              }
-            }
-          },
-          {
-            "id": "newContact",
-            "component": "Button",
-            "label": "Contact",
-            "icon": "ui-add",
-            "variant": "outline",
-            "on": {
-              "press": {
-                "functionCall": {
-                  "call": "set",
-                  "args": {
-                    "path": "/contactDraft/open",
-                    "value": true
-                  }
-                }
-              }
-            }
-          },
-          {
-            "id": "newDeal",
-            "component": "Button",
-            "label": "Deal",
-            "icon": "ui-add",
-            "on": {
-              "press": {
-                "functionCall": {
-                  "call": "set",
-                  "args": {
-                    "path": "/dealDraft/open",
-                    "value": true
-                  }
-                }
-              }
-            }
-          },
-          {
-            "id": "stats",
-            "component": "Grid",
-            "columns": {
-              "base": 2,
-              "md": 4
-            },
-            "gap": "sm",
-            "children": [
-              "statOpen",
-              "statOpenCount",
-              "statWon",
-              "statWinRate"
-            ]
-          },
-          {
-            "id": "statOpen",
-            "component": "StatTile",
-            "label": "Open pipeline",
-            "value": {
-              "call": "formatCurrency",
-              "args": {
-                "value": {
-                  "path": "/open/sum"
-                },
-                "currency": "EUR",
-                "decimals": 0,
-                "grouping": true
-              }
-            }
-          },
-          {
-            "id": "statOpenCount",
-            "component": "StatTile",
-            "label": "Open deals",
-            "value": {
-              "call": "formatNumber",
-              "args": {
-                "value": {
-                  "path": "/open/count"
-                },
-                "decimals": 0
-              }
-            }
-          },
-          {
-            "id": "statWon",
-            "component": "StatTile",
-            "label": "Won",
-            "tone": "success",
-            "value": {
-              "call": "formatCurrency",
-              "args": {
-                "value": {
-                  "call": "expr",
-                  "args": {
-                    "expr": "size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].amount, 0) : 0",
-                    "default": 0,
-                    "vars": {
-                      "p": {
-                        "path": "/pipeline"
-                      }
-                    }
-                  }
-                },
-                "currency": "EUR",
-                "decimals": 0,
-                "grouping": true
-              }
-            }
-          },
-          {
-            "id": "statWinRate",
-            "component": "StatTile",
-            "label": "Win rate",
-            "value": {
-              "call": "formatPercent",
-              "args": {
-                "decimals": 0,
-                "value": {
-                  "call": "expr",
-                  "args": {
-                    "expr": "(size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].n, 0) : 0) / max((size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].n, 0) : 0) + (size(p.groups.filter(g, g.stage == 'lost')) > 0 ? orElse(p.groups.filter(g, g.stage == 'lost')[0].n, 0) : 0), 1)",
-                    "default": 0,
-                    "vars": {
-                      "p": {
-                        "path": "/pipeline"
-                      }
-                    }
-                  }
-                }
-              }
-            }
-          },
-          {
-            "id": "tabs",
-            "component": "Tabs",
-            "value": {
-              "path": "/tab"
-            },
-            "tabs": [
-              {
-                "label": "Pipeline",
-                "value": "pipeline"
-              },
-              {
-                "label": "Companies",
-                "value": "companies"
-              },
-              {
-                "label": "Contacts",
-                "value": "contacts"
-              }
-            ],
-            "children": [
-              "pipelinePanel",
-              "companiesPanel",
-              "contactsPanel"
-            ]
-          },
-          {
-            "id": "pipelinePanel",
-            "component": "Stack",
-            "gap": "md",
-            "children": [
-              "stageTable",
-              "openSection"
-            ]
-          },
-          {
-            "id": "stageTable",
-            "component": "Table",
-            "density": "compact",
-            "rowKey": "stage",
-            "emptyText": "No deals yet",
-            "columns": [
-              {
-                "key": "stage",
-                "label": "Stage",
-                "type": "badge"
-              },
-              {
-                "key": "n",
-                "label": "Deals",
-                "type": "number",
-                "align": "end"
-              },
-              {
-                "key": "amount",
-                "label": "Value",
-                "type": "currency",
-                "currency": "EUR",
-                "decimals": 0,
-                "align": "end"
-              }
-            ],
-            "rows": {
-              "path": "/pipeline/groups"
-            }
-          },
-          {
-            "id": "openSection",
-            "component": "Section",
-            "title": "Open deals by close date",
-            "count": {
-              "path": "/open/count"
-            },
-            "children": [
-              "openList"
-            ]
-          },
-          {
-            "id": "openList",
-            "component": "List",
-            "divided": true,
-            "children": {
-              "componentId": "dealRow",
-              "path": "/open/rows",
-              "key": "id"
-            }
-          },
-          {
-            "id": "dealRow",
-            "component": "Row",
-            "title": {
-              "path": "title"
-            },
-            "subtitle": {
-              "path": "company"
-            },
-            "meta": {
-              "call": "expr",
-              "args": {
-                "expr": "c != null && c != '' ? 'closes ' + c : 'no close date'",
-                "default": "",
-                "vars": {
-                  "c": {
-                    "path": "close"
-                  }
-                }
-              }
-            },
-            "value": {
-              "call": "formatCurrency",
-              "args": {
-                "value": {
-                  "path": "amount"
-                },
-                "currency": "EUR",
-                "decimals": 0,
-                "grouping": true
-              }
-            },
-            "pressable": true,
-            "chevron": "right",
-            "on": {
-              "press": {
-                "functionCall": {
-                  "call": "set",
-                  "args": {
-                    "path": "/move",
-                    "value": {
-                      "open": true,
-                      "deal": {
-                        "path": "id"
-                      },
-                      "title": {
-                        "path": "title"
-                      },
-                      "stage": {
-                        "path": "stage"
-                      }
-                    }
                   }
                 }
               }
@@ -947,7 +655,10 @@
             },
             "children": [
               "companyDealList"
-            ]
+            ],
+            "slots": {
+              "trailing": "toPipeline"
+            }
           },
           {
             "id": "companyDealList",
@@ -977,38 +688,6 @@
                 "currency": "EUR",
                 "decimals": 0,
                 "grouping": true
-              }
-            }
-          },
-          {
-            "id": "contactsPanel",
-            "component": "List",
-            "divided": true,
-            "children": {
-              "componentId": "contactRow",
-              "path": "/contacts/rows",
-              "key": "id"
-            }
-          },
-          {
-            "id": "contactRow",
-            "component": "Row",
-            "title": {
-              "path": "name"
-            },
-            "subtitle": {
-              "path": "company"
-            },
-            "meta": {
-              "call": "expr",
-              "args": {
-                "expr": "orElse(e, '')",
-                "default": "",
-                "vars": {
-                  "e": {
-                    "path": "email"
-                  }
-                }
               }
             }
           },
@@ -1132,6 +811,99 @@
                 }
               }
             }
+          }
+        ]
+      },
+      "contacts": {
+        "data": {
+          "contacts": {
+            "rows": [],
+            "count": 0
+          },
+          "contactDraft": {
+            "open": false,
+            "name": "",
+            "email": "",
+            "company": ""
+          }
+        },
+        "bindings": [
+          {
+            "path": "/contacts",
+            "source": "records:contact?sort=name&order=asc&limit=500"
+          }
+        ],
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "Contacts",
+            "children": [
+              "contactsPanel",
+              "contactDialog"
+            ],
+            "slots": {
+              "trailing": "headerActions"
+            }
+          },
+          {
+            "id": "headerActions",
+            "component": "Stack",
+            "direction": "horizontal",
+            "gap": "sm",
+            "children": [
+              "newContact"
+            ]
+          },
+          {
+            "id": "newContact",
+            "component": "Button",
+            "label": "Contact",
+            "icon": "ui-add",
+            "variant": "outline",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/contactDraft/open",
+                    "value": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "contactsPanel",
+            "component": "List",
+            "divided": true,
+            "children": {
+              "componentId": "contactRow",
+              "path": "/contacts/rows",
+              "key": "id"
+            }
+          },
+          {
+            "id": "contactRow",
+            "component": "Row",
+            "title": {
+              "path": "name"
+            },
+            "subtitle": {
+              "path": "company"
+            },
+            "meta": {
+              "call": "expr",
+              "args": {
+                "expr": "orElse(e, '')",
+                "default": "",
+                "vars": {
+                  "e": {
+                    "path": "email"
+                  }
+                }
+              }
+            }
           },
           {
             "id": "contactDialog",
@@ -1222,6 +994,299 @@
                   "args": {
                     "path": "/contactDraft/open",
                     "value": false
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "pipeline": {
+        "data": {
+          "pipeline": {
+            "rows": [],
+            "count": 0,
+            "groups": [],
+            "totals": {}
+          },
+          "open": {
+            "rows": [],
+            "count": 0,
+            "sum": 0
+          },
+          "dealDraft": {
+            "open": false,
+            "title": "",
+            "company": "",
+            "amount": 0,
+            "stage": "prospect",
+            "close": ""
+          },
+          "move": {
+            "open": false,
+            "deal": "",
+            "title": "",
+            "stage": "prospect"
+          }
+        },
+        "bindings": [
+          {
+            "path": "/pipeline",
+            "source": "records:deal?query=pipeline"
+          },
+          {
+            "path": "/open",
+            "source": "records:deal?query=openDeals"
+          }
+        ],
+        "components": [
+          {
+            "id": "root",
+            "component": "Page",
+            "title": "Pipeline",
+            "children": [
+              "stats",
+              "pipelinePanel",
+              "dealDialog",
+              "moveDialog"
+            ],
+            "slots": {
+              "trailing": "headerActions"
+            }
+          },
+          {
+            "id": "headerActions",
+            "component": "Stack",
+            "direction": "horizontal",
+            "gap": "sm",
+            "children": [
+              "newDeal"
+            ]
+          },
+          {
+            "id": "newDeal",
+            "component": "Button",
+            "label": "Deal",
+            "icon": "ui-add",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/dealDraft/open",
+                    "value": true
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "stats",
+            "component": "Grid",
+            "columns": {
+              "base": 2,
+              "md": 4
+            },
+            "gap": "sm",
+            "children": [
+              "statOpen",
+              "statOpenCount",
+              "statWon",
+              "statWinRate"
+            ]
+          },
+          {
+            "id": "statOpen",
+            "component": "StatTile",
+            "label": "Open pipeline",
+            "value": {
+              "call": "formatCurrency",
+              "args": {
+                "value": {
+                  "path": "/open/sum"
+                },
+                "currency": "EUR",
+                "decimals": 0,
+                "grouping": true
+              }
+            }
+          },
+          {
+            "id": "statOpenCount",
+            "component": "StatTile",
+            "label": "Open deals",
+            "value": {
+              "call": "formatNumber",
+              "args": {
+                "value": {
+                  "path": "/open/count"
+                },
+                "decimals": 0
+              }
+            }
+          },
+          {
+            "id": "statWon",
+            "component": "StatTile",
+            "label": "Won",
+            "tone": "success",
+            "value": {
+              "call": "formatCurrency",
+              "args": {
+                "value": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].amount, 0) : 0",
+                    "default": 0,
+                    "vars": {
+                      "p": {
+                        "path": "/pipeline"
+                      }
+                    }
+                  }
+                },
+                "currency": "EUR",
+                "decimals": 0,
+                "grouping": true
+              }
+            }
+          },
+          {
+            "id": "statWinRate",
+            "component": "StatTile",
+            "label": "Win rate",
+            "value": {
+              "call": "formatPercent",
+              "args": {
+                "decimals": 0,
+                "value": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "(size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].n, 0) : 0) / max((size(p.groups.filter(g, g.stage == 'won')) > 0 ? orElse(p.groups.filter(g, g.stage == 'won')[0].n, 0) : 0) + (size(p.groups.filter(g, g.stage == 'lost')) > 0 ? orElse(p.groups.filter(g, g.stage == 'lost')[0].n, 0) : 0), 1)",
+                    "default": 0,
+                    "vars": {
+                      "p": {
+                        "path": "/pipeline"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "pipelinePanel",
+            "component": "Stack",
+            "gap": "md",
+            "children": [
+              "stageTable",
+              "openSection"
+            ]
+          },
+          {
+            "id": "stageTable",
+            "component": "Table",
+            "density": "compact",
+            "rowKey": "stage",
+            "emptyText": "No deals yet",
+            "columns": [
+              {
+                "key": "stage",
+                "label": "Stage",
+                "type": "badge"
+              },
+              {
+                "key": "n",
+                "label": "Deals",
+                "type": "number",
+                "align": "end"
+              },
+              {
+                "key": "amount",
+                "label": "Value",
+                "type": "currency",
+                "currency": "EUR",
+                "decimals": 0,
+                "align": "end"
+              }
+            ],
+            "rows": {
+              "path": "/pipeline/groups"
+            }
+          },
+          {
+            "id": "openSection",
+            "component": "Section",
+            "title": "Open deals by close date",
+            "count": {
+              "path": "/open/count"
+            },
+            "children": [
+              "openList"
+            ]
+          },
+          {
+            "id": "openList",
+            "component": "List",
+            "divided": true,
+            "children": {
+              "componentId": "dealRow",
+              "path": "/open/rows",
+              "key": "id"
+            }
+          },
+          {
+            "id": "dealRow",
+            "component": "Row",
+            "title": {
+              "path": "title"
+            },
+            "subtitle": {
+              "path": "company"
+            },
+            "meta": {
+              "call": "expr",
+              "args": {
+                "expr": "c != null && c != '' ? 'closes ' + c : 'no close date'",
+                "default": "",
+                "vars": {
+                  "c": {
+                    "path": "close"
+                  }
+                }
+              }
+            },
+            "value": {
+              "call": "formatCurrency",
+              "args": {
+                "value": {
+                  "path": "amount"
+                },
+                "currency": "EUR",
+                "decimals": 0,
+                "grouping": true
+              }
+            },
+            "pressable": true,
+            "chevron": "right",
+            "on": {
+              "press": {
+                "functionCall": {
+                  "call": "set",
+                  "args": {
+                    "path": "/move",
+                    "value": {
+                      "open": true,
+                      "deal": {
+                        "path": "id"
+                      },
+                      "title": {
+                        "path": "title"
+                      },
+                      "stage": {
+                        "path": "stage"
+                      }
+                    }
                   }
                 }
               }
@@ -2505,6 +2570,6 @@
   },
   "signature": {
     "alg": "ed25519",
-    "value": "od1x3hUzEYhaDQJVJNmvPl-NDnR4ITFdfl73QoyTzVq3khwY_awfzB7ez04MVisWmtFslM7Iu4LTzSBIrcE7DA"
+    "value": "Z-ddPMcDdoMhjSugiO1OGdQegcD7E5DErdQmRhZkJ5nAkqTXAHf_1O-t2Bk9r4fzA1tp1x8Wuw037Cw8jOgoBA"
   }
 }
