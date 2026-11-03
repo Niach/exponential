@@ -1,0 +1,3 @@
+- End-to-end encrypted chats open right away at launch
+- A floating pill keeps your call within reach while you use the app
+- Trigger rows use a compact switch, like the other apps

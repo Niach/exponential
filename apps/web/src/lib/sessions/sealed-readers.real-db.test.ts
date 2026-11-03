@@ -43,7 +43,7 @@ const { deriveSessionTitle } = await import(`@/lib/sessions/title`)
 const { composeSessionBrief } = await import(`@/lib/sessions/brief`)
 const { escalateCard, escalateTarget } = await import(`@/lib/sessions/escalate`)
 const { hidePrivateLinesInTx } = await import(`@/lib/sessions/private-lines`)
-const { dismissSuggestion, dismissReplies } = await import(`@/lib/sessions/suggestions`)
+const { dismissSuggestion, dismissReplies, SEALED_SUGGESTIONS_MESSAGE } = await import(`@/lib/sessions/suggestions`)
 const { askHiddenText, privateText } = await import(`@/lib/sessions/bus`)
 const { buildQuestionCard, postAskCard } = await import(`@/lib/sessions/plan`)
 const { PRIVATE_PR_LEAD, PRIVATE_REPLY_LEAD, PRIVATE_REPORT_LEAD } = await import(`@exp/domain-contract/chats`)
@@ -344,12 +344,12 @@ describe.skipIf(!ready.ok)(`EXP-1458: suggestions`, () => {
     const suggestions = await put(`suggestions`)
     await expect(dismissSuggestion(w.owner, { messageId: suggestions, itemId: `a` })).rejects.toMatchObject({
       code: `BAD_REQUEST`,
-      message: expect.stringContaining(`sealed`),
+      message: SEALED_SUGGESTIONS_MESSAGE,
     })
     const replies = await put(`replies`)
     await expect(dismissReplies(w.owner, replies)).rejects.toMatchObject({
       code: `BAD_REQUEST`,
-      message: expect.stringContaining(`sealed`),
+      message: SEALED_SUGGESTIONS_MESSAGE,
     })
   })
 })
