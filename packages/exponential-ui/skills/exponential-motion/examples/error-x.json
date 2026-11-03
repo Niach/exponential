@@ -1,0 +1,174 @@
+{
+  "size": [
+    64,
+    64
+  ],
+  "duration": 1200,
+  "fps": 60,
+  "layers": [
+    {
+      "type": "shape",
+      "id": "x",
+      "transform": {
+        "anchor": [
+          32,
+          32
+        ],
+        "position": [
+          32,
+          32
+        ]
+      },
+      "shapes": [
+        {
+          "type": "path",
+          "d": "M22 22 L42 42"
+        },
+        {
+          "type": "trim",
+          "start": 0,
+          "end": {
+            "keys": [
+              {
+                "t": 0,
+                "v": 0
+              },
+              {
+                "t": 400,
+                "v": 0,
+                "ease": "ease-out"
+              },
+              {
+                "t": 650,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "type": "stroke",
+          "color": "#ffffff",
+          "width": 5,
+          "cap": "round",
+          "join": "round"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "x2",
+      "transform": {
+        "anchor": [
+          32,
+          32
+        ],
+        "position": [
+          32,
+          32
+        ]
+      },
+      "shapes": [
+        {
+          "type": "path",
+          "d": "M42 22 L22 42"
+        },
+        {
+          "type": "trim",
+          "start": 0,
+          "end": {
+            "keys": [
+              {
+                "t": 0,
+                "v": 0
+              },
+              {
+                "t": 600,
+                "v": 0,
+                "ease": "ease-out"
+              },
+              {
+                "t": 850,
+                "v": 100
+              }
+            ]
+          }
+        },
+        {
+          "type": "stroke",
+          "color": "#ffffff",
+          "width": 5,
+          "cap": "round",
+          "join": "round"
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "circle",
+      "transform": {
+        "anchor": [
+          32,
+          32
+        ],
+        "position": [
+          32,
+          32
+        ],
+        "scale": {
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                0,
+                0
+              ],
+              "ease": [
+                0.34,
+                1.56,
+                0.64,
+                1
+              ]
+            },
+            {
+              "t": 450,
+              "v": [
+                100,
+                100
+              ]
+            }
+          ]
+        },
+        "opacity": {
+          "keys": [
+            {
+              "t": 0,
+              "v": 0,
+              "ease": "ease-out"
+            },
+            {
+              "t": 150,
+              "v": 100
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "ellipse",
+          "position": [
+            32,
+            32
+          ],
+          "size": [
+            56,
+            56
+          ]
+        },
+        {
+          "type": "fill",
+          "color": "$color.destructive"
+        }
+      ]
+    }
+  ]
+}

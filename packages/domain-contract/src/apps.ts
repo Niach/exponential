@@ -4,6 +4,7 @@
 
 import fixture from "../fixtures/apps.json" with { type: "json" }
 import contract from "../contract.json" with { type: "json" }
+import skillsFixture from "../fixtures/skills.json" with { type: "json" }
 
 export const APPS_COPY = fixture.copy
 export const APPS_PANES = fixture.panes
@@ -121,16 +122,29 @@ export function sortApps<T extends AppListLike>(apps: readonly T[]): T[] {
   return [...apps].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: `base` }))
 }
 
+/** VAPP-213: the built-in skills every app editor session runs with
+ *  (fixtures/skills.json `builtin.editorDelivery`), apps first. */
+export const EDITOR_SKILLS: readonly string[] = skillsFixture.builtin.editorDelivery
+
+/** The editor WORKFLOW: what an app is and the MCP calls that read, save
+ *  and publish it. ONE source: the editor brief below and the built-in
+ *  `exponential-apps` skill's SKILL.md (packages/exponential-ui/scripts/
+ *  generate-skills.ts) both print it. */
+export function editorWorkflow(slug: string): string {
+  return `An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "${slug}"}; learn the components, bindings, host functions and records with exponential_apps {op: "catalog"}; save every change as a new draft version with exponential_apps {op: "upsert", slug: "${slug}", package, note} (members keep running the published version); publish with exponential_apps {op: "publish", slug: "${slug}"} only when the person asks (they also have a Publish button). An app keeps its own data as RECORDS (declare the kinds in the manifest, bind records:<kind>, write with records.upsert); seed or inspect them with exponential_apps {op: "records_upsert" | "records_list", slug: "${slug}", kind, data}. An app may also EXPOSE MCP tools (exposes: declarative bindings over its records, exponential.<noun>.<op> operations or a team MCP server in upstreams) that a member's MCP client runs as that member; the catalog documents the format.`
+}
+
 /** The brief an app's EDITOR SESSION gets as the preface of its first
- *  message (every new or continued session): what the app is and the MCP
- *  calls that read and publish it. */
+ *  message (every new or continued session): what the app is, the MCP
+ *  calls that read and publish it, and the built-in skills it runs with. */
 export function editorBrief(app: { name: string; slug: string; headVersion: number; description?: string | null }): string {
   const lines = [
     `You are the editor session of the Exponential app "${app.name}" (slug \`${app.slug}\`, ${versionLabel(app.headVersion)}).${app.description?.trim() ? ` It is for: ${app.description.trim()}` : ``}`,
     ...(isDraftApp(app)
       ? [`It is a new DRAFT with a placeholder name: on your FIRST exponential_apps {op: "upsert"} also pass name, icon, color and description that fit what the person asks for. The slug follows the new name; use the slug the upsert returns from then on.`]
       : []),
-    `An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "${app.slug}"}; learn the components, bindings, host functions and records with exponential_apps {op: "catalog"}; save every change as a new draft version with exponential_apps {op: "upsert", slug: "${app.slug}", package, note} (members keep running the published version); publish with exponential_apps {op: "publish", slug: "${app.slug}"} only when the person asks (they also have a Publish button). An app keeps its own data as RECORDS (declare the kinds in the manifest, bind records:<kind>, write with records.upsert); seed or inspect them with exponential_apps {op: "records_upsert" | "records_list", slug: "${app.slug}", kind, data}. An app may also EXPOSE MCP tools (exposes: declarative bindings over its records, exponential.<noun>.<op> operations or a team MCP server in upstreams) that a member's MCP client runs as that member; the catalog documents the format. The person sees the live preview beside this chat, so keep replies to one or two lines and save drafts early.`,
+    `${editorWorkflow(app.slug)} The person sees the live preview beside this chat, so keep replies to one or two lines and save drafts early.`,
+    `This session runs with the built-in skills ${EDITOR_SKILLS.join(`, `)}: read ${EDITOR_SKILLS[0]} (its references and the three worked example apps) before your first upsert.`,
   ]
   return lines.join(`\n`)
 }

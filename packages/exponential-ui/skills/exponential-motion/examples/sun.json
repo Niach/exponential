@@ -1,0 +1,187 @@
+{
+  "size": [
+    120,
+    120
+  ],
+  "duration": 2000,
+  "fps": 60,
+  "layers": [
+    {
+      "type": "shape",
+      "id": "core",
+      "transform": {
+        "anchor": [
+          60,
+          60
+        ],
+        "position": [
+          60,
+          60
+        ],
+        "scale": {
+          "keys": [
+            {
+              "t": 0,
+              "v": [
+                100,
+                100
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 1000,
+              "v": [
+                94,
+                94
+              ],
+              "ease": "ease-in-out"
+            },
+            {
+              "t": 2000,
+              "v": [
+                100,
+                100
+              ]
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "ellipse",
+          "position": [
+            60,
+            60
+          ],
+          "size": [
+            40,
+            40
+          ]
+        },
+        {
+          "type": "gradient-fill",
+          "kind": "radial",
+          "start": [
+            60,
+            60
+          ],
+          "end": [
+            60,
+            80
+          ],
+          "stops": [
+            [
+              0,
+              "$color.warning"
+            ],
+            [
+              1,
+              "$color.accent"
+            ]
+          ]
+        }
+      ]
+    },
+    {
+      "type": "shape",
+      "id": "rays",
+      "transform": {
+        "anchor": [
+          60,
+          60
+        ],
+        "position": [
+          60,
+          60
+        ],
+        "rotation": {
+          "keys": [
+            {
+              "t": 0,
+              "v": 0
+            },
+            {
+              "t": 2000,
+              "v": 360
+            }
+          ]
+        }
+      },
+      "shapes": [
+        {
+          "type": "group",
+          "transform": {
+            "anchor": [
+              60,
+              60
+            ],
+            "position": [
+              60,
+              60
+            ],
+            "scale": {
+              "keys": [
+                {
+                  "t": 0,
+                  "v": [
+                    80,
+                    80
+                  ],
+                  "ease": "ease-in-out"
+                },
+                {
+                  "t": 1000,
+                  "v": [
+                    115,
+                    115
+                  ],
+                  "ease": "ease-in-out"
+                },
+                {
+                  "t": 2000,
+                  "v": [
+                    80,
+                    80
+                  ]
+                }
+              ]
+            }
+          },
+          "shapes": [
+            {
+              "type": "rect",
+              "position": [
+                60,
+                18
+              ],
+              "size": [
+                6,
+                16
+              ],
+              "radius": 3
+            },
+            {
+              "type": "repeater",
+              "copies": 8,
+              "transform": {
+                "anchor": [
+                  60,
+                  60
+                ],
+                "position": [
+                  60,
+                  60
+                ],
+                "rotation": 45
+              }
+            },
+            {
+              "type": "fill",
+              "color": "$color.warning"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,163 @@
+# Records: kinds, policies, queries, writes
+
+> Generated from packages/exponential-ui/docs/package-format.md (Records) and docs/spec/apps.md §3.4 (eUI 0.7.1) by packages/exponential-ui/scripts/generate-skills.ts — do not edit.
+
+## Records
+
+An app's own data. `records: {<kind>: {schema, title?, description?, policy?}}`
+declares every kind (VAPP-122: the kind pattern, the JSON Schema subset and
+the reserved row keys are in `catalog/host.json` `package.records`). The
+host provides the store; the format fixes what a surface sees and calls.
+
+**Policy** (eApps R3, `fixtures/record-policy.json`): who may read, create,
+update and delete a kind's records, one level per op:
+
+```jsonc
+"policy": { "read": "author", "create": "member", "update": "author", "delete": "owners" }
+```
+
+`member` = any member of the app's team; `author` = the record's author
+(`authorId ?? createdBy`) or a team owner; `owners` = team owners only (not
+even the author). `create` is `member` or `owners` (a new record has no
+author yet). An op left out keeps the default `member/member/author/author`.
+Over it sits the member's access level for the app, set by an owner:
+`none` (the app is hidden and syncs nothing), `read` (reads only, inputs
+disabled) or `write` (the default); it binds owners too. The host enforces
+it (Exponential: the server, and a `read` other than `member` filters the
+synced rows, so a private kind never reaches another member's device);
+`recordRefusal(policy, op, viewer, row?)` / `readableRows` are the rule,
+the refusal texts are the fixture's `copy`. Field-level privacy is out: use
+a separate kind with `read: owners`.
+
+**Read** = the binding source `records:<kind>[?query]`. The value is
+`{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?, groups?, totals?, before?}`
+(`authorId` = the row's author, `authorId ?? createdBy`):
+`count` = the matching rows before `limit`. The query (URL sugar of the
+structured query, below):
+
+| key | meaning |
+| --- | --- |
+| `mine=1` | only the viewer's rows (by author: `authorId`, else `createdBy`) |
+| `user=<id>` | only that user's rows (by author) |
+| `sort=<field\|createdAt\|updatedAt>` | default `createdAt` |
+| `order=asc\|desc` | default `desc` (newest first) |
+| `limit=<n>` | default 100, capped at 500 |
+| `sum=<field>` | `sum` = Σ of the field over the matches (before `limit`) |
+| `by=<dateField>&month=YYYY-MM` | the month view: that month's rows only, `month` = {key, label, prev, next, today, days (every day with its count and sum), labels/counts/sums}; no `month` = the month of now |
+| `app=<slug>` | another app's rows (the HOST decides which rows that is) |
+| `<field>=v` | a data field equals `v` (as text) |
+| `<field>.gt\|gte\|lt\|lte=v` | numbers when both parse, else text (code units) |
+| `<field>.in=a,b` | the field (as text) is one of the comma-separated values |
+| `<field>.between=lo,hi` | inclusive, numbers when both parse, else text |
+| `before=<date>` | the rows whose date (`by`'s field, else `createdAt`) is before it leave the rows and are totalled into `before` |
+| `q=<json>` | the JSON form below (the other params are ignored) |
+| `query=<name>` | one of the package's `queries` (below) |
+
+Ties sort by `id`. The reserved keys (`catalog/host.json`
+`package.records.query.reserved`) never filter a field. VAPP-189: ONE
+evaluator for every host. The params parse INTO the structured query
+`{from, app, mine, user, where: [{field, op, value}], sort: [{field, order}],
+limit, sum, month: {field, key} | null}` (`parseRecordsQuery(params, kind?)`,
+`parseRecordsSource(source)`), and `recordsValue(rows, query, {me, now,
+names})` evaluates it over the rows of any store
+(`@exponential_app/eui/host/query`, the Rust core's `host::query`, the FFI's
+`parse_records_query_json` / `parse_records_source_json` /
+`records_value_json` for the Swift and Compose SDKs);
+`fixtures/records-query.json` locks all of it.
+
+**The JSON form** (VAPP-190, `parseRecordsJson(json, kind?)` → `{query,
+issues}`; the FFI's `parse_records_json`): the same query written as JSON,
+plus groups, aggregates and running values. A problem (an issue with a JSON
+pointer) drops that part; the rest still runs.
+
+```jsonc
+{
+  "from": "entry",                                  // a source's own kind wins
+  "where": [
+    ["date", "between", "2026-10-01", "2026-10-31"], // eq gt gte lt lte in between, or = == > >= < <=
+    ["status", "in", ["open", "doing"]],
+    { "or": [[["owner", "eq", "u1"]], [["owner", "eq", "u2"], ["hours", ">", 1]]] }  // one per query
+  ],
+  "group": ["author", { "bucket": "date", "by": "day" }],   // any field; author; day week month quarter year
+  "aggregate": { "hours": ["sum", "hours"], "n": ["count"] }, // sum avg min max count countDistinct first last
+  "running": { "hours": "sum" },                    // sum count avg min max, cumulative
+  "before": "2026-10-01",                           // or {field, date}
+  "sort": [["date", "desc"]], "limit": 500,         // also mine, user, app, sum, month: {field, key?}
+}
+```
+
+- `groups`: one object per group: its columns (`author` = the author's name
+  plus `authorId`; a bucket = `2026-10-05`, `2026-W41` (ISO), `2026-10`,
+  `2026-Q4`, `2026`, null without a date that precise; any other field its
+  value), `count`, `sum` (with `sum`) and every aggregate. Ordered by the
+  `sort` keys that name a group column or an aggregate, then by the group
+  columns ascending.
+- `totals`: count, sum? and the aggregates over every match (with
+  `aggregate`).
+- `before`: the matches whose date field (a string `before` = the first
+  bucket's field, else the month view's, else `createdAt`) is before the
+  date leave the rows and the groups; `before` = their count, sum? and
+  aggregates, and they seed every running value (a balance carried over).
+- `running`: `{field: value}` on every group (in order), else on every row
+  (in the sort order), and on every day of the month view.
+- Aggregates: `count` without a field counts rows (with one, rows where it is
+  non-empty); `sum` / `avg` over the numbers (rounded to 1e-6; `avg` of none
+  = null); `min` / `max` compare like the ranges; `first` / `last` in the
+  sort order. The names `count`, `sum`, `running`, `rows` and a group
+  column's are taken.
+
+**Named queries:** `queries: {<name>: <JSON query>}` (names
+`^[a-z][A-Za-z0-9_]{0,31}$`, each must parse clean, `from` a declared kind).
+A template binding `records:<kind>?query=<name>&<params>` follows it: the router replaces it
+with `?q=<canonical JSON>` (`expandQuerySource`), every `${param}` in the
+query's strings filled from the binding's other params (unset = empty), so a
+`bind` action's params drive it (`{"where": [["date", "between",
+"${start}", "${end}"]]}`). A binding naming no package query is an install
+issue. The date maths (`src/dates.ts`, the Rust core's `dates`) is shared
+with the bind-time expressions.
+A template binding to `records:<kind>` names a declared kind (else an install
+issue). A package with a `sources` allowlist lists `records:<kind>` or
+`records:*`.
+
+**Write** = two host functions, listed in `functions` like any other (exact
+or `records.*`), never behind a consent card (the app's own rows):
+
+- `records.upsert {kind, data, id?}` → `{id}`: creates a record, or with `id`
+  shallow-patches that record's `data`. The host validates the result against
+  the kind's schema (`validateRecord`) BEFORE it stores anything; a refusal
+  fails the call (the host's toast).
+- `records.delete {id}`: deletes one record.
+
+Every write lands in every live `records:` binding of the package (on every
+peer, for a p2p store). `RecordStore` (`src/host/record-store.ts`) is the
+interface a host implements; `MemoryRecordStore` + `recordsHost(pkg, store)`
+are the reference (resolver + both functions); the evaluator reads the rows
+of whatever store the host has.
+
+Records have ONE spelling on every host: read `records:<kind>?q`, write
+`records.upsert` / `records.delete` / `records.batch` (Exponential's former
+`exp:records?kind=` and `harness.records.*` are gone).
+
+### 3.4 Permissions
+
+Layers, all intersected:
+
+1. **Team membership** ✅. Only members, unless a public link applies (§9.4).
+2. **Per-app member policy** `app_access` none/read/write. ✅ (#VAPP-199) applied everywhere: MCP, the records service (none = NOT_FOUND, read = writes FORBIDDEN), the apps router, the apps / app-versions / app-records shapes (none = the app and its rows never sync), the RLS scope (`eapps.write`), and the clients (`appAccess.mine`; the Data tab disables writes). 🟡 An app's own inputs are not yet disabled at read (#VAPP-200): the server refuses the press with a toast.
+3. **Per-kind policy** ✅ (R3, #VAPP-199, `packages/exponential-ui/fixtures/record-policy.json`, TS `host/record-policy.ts` + Rust `host::record_policy`, iOS/Android hand ports replaying the fixture):
+
+```jsonc
+"policy": {
+  "read":   "member",          // member | author | owners (owners = not even the author)
+  "create": "member",
+  "update": "author",          // the author or a team owner
+  "delete": "author"
+}
+```
+
+The defaults are `member/member/author/author`. This is the common case; it ships with `formatVersion 3`, and as eApps keeps no backwards compatibility (decided 2026-11-02) v2 packages are not read after that.
+
+The server enforces the policy (the records service on every read and write, the broker's reads, the import's creates; a row the member may not read is NOT_FOUND). The app-records shape enforces `read: author` / `read: owners` with a row filter for non-owners (`lib/apps/records-shape.ts`): a private kind never syncs to other members' devices. `create` is never `author`. Package tests take `role` and run under the policies. `role:<field>` levels wait for R6.
+
+4. **Field-level privacy is out.** Use a separate kind with `read: owners` (for example, salary next to a hiring candidate).
+5. **The Postgres scope** ✅ (#VAPP-193), a backstop under layers 1 to 3, not a replacement. Every server read and write of a record runs through ONE service (`apps/web/src/lib/apps/records-service.ts`), which checks layers 1 to 3, ownership and quota, then runs the record statements as the `NOLOGIN` role `eapps` scoped to one team and its apps (§12.2). Ownership and policy stay in the service, never in RLS.
