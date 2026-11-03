@@ -797,6 +797,14 @@ data class AppEntity(
     @Serializable(with = JsonAsStringSerializer::class) val packageJson: String? = null,
     @ColumnInfo(name = "head_version") @SerialName("head_version") @JsonNames("headVersion")
     @Serializable(with = PgIntSerializer::class) val headVersion: Int? = 0,
+    // eApps V1 (#VAPP-210): `package` above = the PUBLISHED version's package
+    // (null = never published); the published version's number (0 = never)
+    // and the HEAD's package while it is ahead (null when head = published,
+    // so `draftPackageJson ?: packageJson` is always the head).
+    @ColumnInfo(name = "published_version") @SerialName("published_version") @JsonNames("publishedVersion")
+    @Serializable(with = PgIntSerializer::class) val publishedVersion: Int? = 0,
+    @ColumnInfo(name = "draft_package") @SerialName("draft_package") @JsonNames("draftPackage")
+    @Serializable(with = JsonAsStringSerializer::class) val draftPackageJson: String? = null,
     // Release train 2026-10-23: apps.created_by is nullable server-side (migration 0186, ON DELETE SET NULL); Room keeps NOT NULL, "" means no creator.
     @ColumnInfo(name = "created_by") @SerialName("created_by") @JsonNames("createdBy")
     @Serializable(with = NullAsEmptyStringSerializer::class) val createdBy: String = "",

@@ -89,7 +89,8 @@ fun AppDataTab(
     viewModel: AppEditorViewModel,
     modifier: Modifier = Modifier,
 ) {
-    val manifest = remember(app.packageJson) { app.packageJson?.let { runCatching { JsonValue.parse(it) }.getOrNull() } }
+    // The head package's manifest (eApps V1: the draft, else the published one).
+    val manifest = remember(app.headPackageJson) { app.headPackageJson?.let { runCatching { JsonValue.parse(it) }.getOrNull() } }
     val rows = remember(records) { records.map(AppRecords::row) }
     val kinds = remember(manifest, rows) { AppRecords.dataKinds(manifest, rows.map { it.kind }) }
     var picked by rememberSaveable { mutableStateOf<String?>(null) }

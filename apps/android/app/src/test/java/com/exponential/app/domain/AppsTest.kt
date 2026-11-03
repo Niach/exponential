@@ -40,6 +40,29 @@ class AppsTest {
         }
     }
 
+    // eApps V1 (#VAPP-210): shownVersion, canPublish, grantVersion, listPill
+    // and versionRow replay `publishCases`.
+    @Test
+    fun `publishCases replay`() {
+        val cases = fixture["publishCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        for (case in cases) {
+            val name = case["name"]!!.jsonPrimitive.content
+            val raw = case["app"]!!.jsonObject
+            val app = Apps.Versions(raw["headVersion"]!!.jsonPrimitive.int, raw["publishedVersion"]!!.jsonPrimitive.int)
+            val viewing = case["viewing"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.int }
+            val editing = case["editing"]!!.jsonPrimitive.content.toBooleanStrict()
+            assertEquals(name, case["shown"]!!.jsonPrimitive.int, Apps.shownVersion(app, editing, viewing))
+            assertEquals(name, case["canPublish"]!!.jsonPrimitive.content.toBooleanStrict(), Apps.canPublish(app))
+            assertEquals(name, case["grant"]!!.jsonPrimitive.int, Apps.grantVersion(app))
+            assertEquals(name, case["pill"]!!.jsonPrimitive.content, Apps.listPill(app))
+            for (row in case["rows"]!!.jsonArray.map { it.jsonArray }) {
+                val number = row[0].jsonPrimitive.int
+                assertEquals("$name v$number", row[1].jsonPrimitive.content, Apps.versionRow(app, number).wire)
+            }
+        }
+    }
+
     @Test
     fun `editorTab replays the fixture`() {
         val tabs = fixture["editorTabs"]!!.jsonObject
@@ -90,6 +113,8 @@ class AppsTest {
             c("versions") to Apps.Copy.VERSIONS, c("head") to Apps.Copy.HEAD, c("noNote") to Apps.Copy.NO_NOTE,
             c("byAgent") to Apps.Copy.BY_AGENT, c("viewing") to Apps.Copy.VIEWING, c("restore") to Apps.Copy.RESTORE,
             c("restored") to Apps.Copy.RESTORED, c("restoredNote") to Apps.Copy.RESTORED_NOTE, c("empty") to Apps.Copy.EMPTY,
+            c("publish") to Apps.Copy.PUBLISH, c("published") to Apps.Copy.PUBLISHED,
+            c("publishedToast") to Apps.Copy.PUBLISHED_TOAST, c("publishNothing") to Apps.Copy.PUBLISH_NOTHING,
             c("chatEmpty") to Apps.Copy.CHAT_EMPTY, c("previewEmpty") to Apps.Copy.PREVIEW_EMPTY,
             c("composerPlaceholder") to Apps.Copy.COMPOSER_PLACEHOLDER, c("noDevice") to Apps.Copy.NO_DEVICE,
             c("namePlaceholder") to Apps.Copy.NAME_PLACEHOLDER, c("descriptionPlaceholder") to Apps.Copy.DESCRIPTION_PLACEHOLDER,
@@ -137,6 +162,7 @@ class AppsTest {
             "importApp" to Apps.TestIds.IMPORT_APP, "starter" to Apps.TestIds.STARTER,
             "menu" to Apps.TestIds.MENU, "settings" to Apps.TestIds.SETTINGS,
             "versionPreview" to Apps.TestIds.VERSION_PREVIEW, "versionRestore" to Apps.TestIds.VERSION_RESTORE,
+            "publish" to Apps.TestIds.PUBLISH, "versionPublish" to Apps.TestIds.VERSION_PUBLISH,
             "data" to Apps.TestIds.DATA,
             "previewToolbar" to Apps.TestIds.PREVIEW_TOOLBAR, "previewFrame" to Apps.TestIds.PREVIEW_FRAME,
             "previewTemplate" to Apps.TestIds.PREVIEW_TEMPLATE, "previewRunAs" to Apps.TestIds.PREVIEW_RUN_AS,
@@ -160,6 +186,7 @@ class AppsTest {
     @Test
     fun `the labels fill their slots`() {
         assertEquals("Viewing v3", Apps.viewing(3))
+        assertEquals("Published v4", Apps.publishedToast(4))
         assertEquals("Restored v2 as v5", Apps.restored(2, 5))
         assertEquals("Delete Team dashboard?", Apps.deleteTitle("Team dashboard"))
     }

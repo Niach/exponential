@@ -60,4 +60,20 @@ class AppEntityDecodeTest {
         assertEquals("""["exponential.issues.update"]""", app.grantedTools)
         assertEquals("[]", decode("""{ "id": "app-4" }""").grantedTools)
     }
+
+    @Test
+    fun `published_version and draft_package decode, absent = never published`() {
+        // eApps V1 (#VAPP-210): `package` = the published one, `draft_package`
+        // = the head's while it is ahead (both jsonb, kept as JSON text).
+        val app = decode(
+            """{ "id": "app-5", "head_version": "5", "published_version": "3",
+                 "package": {"id": "hours"}, "draft_package": {"id": "hours", "functions": []} }""",
+        )
+        assertEquals(3, app.publishedVersion)
+        assertEquals("""{"id":"hours"}""", app.packageJson)
+        assertEquals("""{"id":"hours","functions":[]}""", app.draftPackageJson)
+        val bare = decode("""{ "id": "app-6", "draft_package": null }""")
+        assertEquals(0, bare.publishedVersion)
+        assertEquals(null, bare.draftPackageJson)
+    }
 }

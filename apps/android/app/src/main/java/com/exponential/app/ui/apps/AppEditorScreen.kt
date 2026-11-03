@@ -117,10 +117,13 @@ import dev.chrisbanes.haze.rememberHazeState
 // (VAPP-178: Data = the app's records, `AppDataTab`), and ONE
 // pane. Chat = the member's EDITOR SESSION (the agent channel's rows + THE
 // composer; none yet = the empty chat whose first send opens it); Preview =
-// the head package's first template through the app host. Versions and
-// Settings open THE SAME bodies as the wide tabs, as sheets titled by the
-// item: a Versions row's Preview closes the sheet onto the Preview tab with
-// the viewing banner, Restore = a new head. Leaving the editor ENDS the live
+// `Apps.shownVersion`'s package's first template through the app host (eApps
+// V1, #VAPP-210: the head while my editor session is live or nothing is
+// published, else the published one). Versions and Settings open THE SAME
+// bodies as the wide tabs, as sheets titled by the item: a Versions row's
+// Preview closes the sheet onto the Preview tab with the viewing banner
+// (Publish, Restore = a new head, Current). Publish is the `…` menu's FIRST
+// item while `Apps.canPublish` and I may write the app. Leaving the editor ENDS the live
 // editor session; the next send continues it. VAPP-176: a DRAFT (no version
 // yet) opens on Chat with the starters and the composer focused; leaving an
 // empty draft discards it. The route keys the app by ID, so a draft's slug
@@ -153,6 +156,10 @@ fun AppEditorScreen(
     val deleting by viewModel.deleting.collectAsStateWithLifecycle()
     val toastLine by viewModel.toast.collectAsStateWithLifecycle()
     val records by viewModel.records.collectAsStateWithLifecycle()
+    val publishing by viewModel.publishing.collectAsStateWithLifecycle()
+    val myAccess by viewModel.myAccess.collectAsStateWithLifecycle()
+    // eApps R3: Publish needs write access to the app (null = write until known).
+    val canWrite = (myAccess ?: "write") == "write"
     var exportOpen by rememberSaveable { mutableStateOf(false) }
     var deleteOpen by rememberSaveable { mutableStateOf(false) }
     // VAPP-177: the `…` menu's sheet (`versions` / `settings`), null = none.
@@ -177,6 +184,7 @@ fun AppEditorScreen(
     }
     val entry = app
     val canManage = entry != null && (isOwner || (me != null && entry.createdBy == me))
+    val editing = root?.isEnded == false
     CompositionLocalProvider(LocalDetailHaze provides rememberHazeState()) {
         Scaffold(
             containerColor = Color.Transparent,
@@ -206,6 +214,8 @@ fun AppEditorScreen(
                     menu = if (entry != null) {
                         {
                             AppEditorMenu(
+                                canPublish = canWrite && Apps.canPublish(entry.versions),
+                                onPublish = { viewModel.publish(entry.headVersion) },
                                 versionCount = versions.size,
                                 canExport = entry.headVersion > 0,
                                 canDelete = canManage,
@@ -248,18 +258,33 @@ fun AppEditorScreen(
                     viewModel = viewModel,
                     onOpenSession = onOpenSession,
                 )
-                EditorTab.Preview -> AppPreviewPane(
-                    packageJson = if (viewing != null) viewing?.packageJson else entry.packageJson,
-                    viewing = viewing?.number,
-                    restoring = restoring,
-                    onRestore = viewModel::restore,
-                    onHead = viewModel::clearViewing,
-                    onOpenIssue = onOpenIssue,
-                    appId = viewModel.appId,
-                    teamId = entry.teamId,
-                    me = me,
-                    modifier = Modifier.padding(padding),
-                )
+                EditorTab.Preview -> {
+                    val shown = Apps.shownVersion(entry.versions, editing, viewing?.number)
+                    AppPreviewPane(
+                        packageJson = when (shown) {
+                            0 -> null
+                            entry.headVersion -> entry.headPackageJson
+                            entry.publishedVersion -> entry.packageJson
+                            else -> viewing?.packageJson
+                        },
+                        viewing = viewing?.number,
+                        // A grant is about the version it was made on (`grantVersion`):
+                        // any other previews asking for everything.
+                        grants = shown == Apps.grantVersion(entry.versions),
+                        canPublish = canWrite && viewing?.number != entry.publishedVersion,
+                        canRestore = canWrite && viewing?.number != entry.headVersion,
+                        publishing = publishing,
+                        onPublish = { viewing?.number?.let(viewModel::publish) },
+                        restoring = restoring,
+                        onRestore = viewModel::restore,
+                        onHead = viewModel::clearViewing,
+                        onOpenIssue = onOpenIssue,
+                        appId = viewModel.appId,
+                        teamId = entry.teamId,
+                        me = me,
+                        modifier = Modifier.padding(padding),
+                    )
+                }
                 EditorTab.Data -> AppDataTab(
                     app = entry,
                     records = records,
@@ -274,15 +299,16 @@ fun AppEditorScreen(
             Apps.EditorTabs.VERSIONS -> GlassSheet(title = Apps.Copy.MENU_VERSIONS, onDismiss = { sheet = null }) {
                 AppVersionsList(
                     versions = versions,
-                    head = entry.headVersion,
+                    pointers = entry.versions,
                     users = users,
-                    restoring = restoring,
+                    canWrite = canWrite,
+                    publishing = publishing,
                     onPreview = { number ->
                         viewModel.pick(number)
                         sheet = null
                         tab = EditorTab.Preview
                     },
-                    onRestore = viewModel::restoreVersion,
+                    onPublish = viewModel::publish,
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
@@ -335,11 +361,14 @@ fun AppEditorScreen(
     }
 }
 
-/** VAPP-177: the phone header's `…` (`editorTabs.menu`): Versions (the
- *  count as trailing meta), Settings, Export (a version exists), Delete app
- *  (destructive; the creator or an owner). */
+/** VAPP-177: the phone header's `…` (`editorTabs.menu`): eApps V1 Publish
+ *  first (`Apps.canPublish` + write access), Versions (the count as trailing
+ *  meta), Settings, Export (a version exists), Delete app (destructive; the
+ *  creator or an owner). */
 @Composable
 private fun AppEditorMenu(
+    canPublish: Boolean,
+    onPublish: () -> Unit,
     versionCount: Int,
     canExport: Boolean,
     canDelete: Boolean,
@@ -359,6 +388,17 @@ private fun AppEditorMenu(
             modifier = Modifier.padding(end = 8.dp).testTag(Apps.TestIds.MENU),
         )
         GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            if (canPublish) {
+                GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.uiSubmit, contentDescription = null) },
+                    text = { Text(Apps.Copy.PUBLISH) },
+                    onClick = {
+                        open = false
+                        onPublish()
+                    },
+                    modifier = Modifier.testTag(Apps.TestIds.PUBLISH),
+                )
+            }
             GlassMenuItem(
                 leadingIcon = { Icon(ExpIcons.uiHistory, contentDescription = null) },
                 text = {
@@ -410,12 +450,17 @@ private fun AppEditorMenu(
     }
 }
 
-/** THE preview frame: the viewing banner (Restore / Current), then the
- *  package's first template through the app host, or the empty state. */
+/** THE preview frame: the viewing banner (Publish / Restore / Current), then
+ *  the package's first template through the app host, or the empty state. */
 @Composable
 private fun AppPreviewPane(
     packageJson: String?,
     viewing: Int?,
+    grants: Boolean,
+    canPublish: Boolean,
+    canRestore: Boolean,
+    publishing: Int?,
+    onPublish: () -> Unit,
     restoring: Boolean,
     onRestore: () -> Unit,
     onHead: () -> Unit,
@@ -441,7 +486,12 @@ private fun AppPreviewPane(
                     .testTag(Apps.TestIds.VIEWING),
             ) {
                 Text(Apps.viewing(viewing), fontWeight = FontWeight.Medium, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                GlassPill(Apps.Copy.RESTORE, size = PillSize.Sm, primary = true, onClick = onRestore, enabled = !restoring, modifier = Modifier.testTag("app-restore"))
+                if (canPublish) {
+                    GlassPill(Apps.Copy.PUBLISH, size = PillSize.Sm, primary = true, onClick = onPublish, enabled = publishing == null, modifier = Modifier.testTag("app-viewing-publish"))
+                }
+                if (canRestore) {
+                    GlassPill(Apps.Copy.RESTORE, size = PillSize.Sm, onClick = onRestore, enabled = !restoring, modifier = Modifier.testTag("app-restore"))
+                }
                 GlassPill(Apps.Copy.HEAD, size = PillSize.Sm, onClick = onHead)
             }
         }
@@ -459,7 +509,7 @@ private fun AppPreviewPane(
             if (pkg != null) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Apps.Preview.PADDING.dp)) {
                     // A new package = a new host (the key): every synced upsert repaints.
-                    androidx.compose.runtime.key(pkg, viewing) { AppPackageSurface(pkg, onOpenIssue, appId, teamId, me, grants = viewing == null) }
+                    androidx.compose.runtime.key(pkg, viewing) { AppPackageSurface(pkg, onOpenIssue, appId, teamId, me, grants = grants) }
                 }
             } else {
                 EmptyState(
@@ -516,16 +566,18 @@ private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit
 }
 
 /** VERSIONS (VAPP-177): ONE grouped list, newest first: the `v{n}` pill +
- *  the note over a muted `who · when`; the head row carries `Current`, every
- *  other row a ghost Preview + an outlined Restore. */
+ *  the note over a muted `who · when`; eApps V1 (`Apps.versionRow`): the
+ *  published row carries `Published`, the head row ahead of it `Current` +
+ *  Publish, every other row a ghost Preview + Publish (write access only). */
 @Composable
 private fun AppVersionsList(
     versions: List<AppVersionEntity>,
-    head: Int,
+    pointers: Apps.Versions,
     users: Map<String, UserEntity>,
-    restoring: Boolean,
+    canWrite: Boolean,
+    publishing: Int?,
     onPreview: (Int) -> Unit,
-    onRestore: (Int) -> Unit,
+    onPublish: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.testTag(Apps.TestIds.VERSIONS)) {
@@ -569,26 +621,33 @@ private fun AppVersionsList(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                    if (number == head) {
-                        GlassPill(Apps.Copy.HEAD, size = PillSize.Sm)
+                    val kind = Apps.versionRow(pointers, number)
+                    if (kind == Apps.VersionRowKind.PUBLISHED) {
+                        GlassPill(Apps.Copy.PUBLISHED, size = PillSize.Sm)
                     } else {
-                        Text(
-                            Apps.Copy.PREVIEW,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = muted,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(GlassTokens.RowRadius))
-                                .clickable { onPreview(number) }
-                                .padding(horizontal = 8.dp, vertical = 6.dp)
-                                .testTag(Apps.TestIds.VERSION_PREVIEW),
-                        )
-                        GlassPill(
-                            Apps.Copy.RESTORE,
-                            size = PillSize.Sm,
-                            onClick = { onRestore(number) },
-                            enabled = !restoring,
-                            modifier = Modifier.testTag(Apps.TestIds.VERSION_RESTORE),
-                        )
+                        if (kind == Apps.VersionRowKind.HEAD) {
+                            GlassPill(Apps.Copy.HEAD, size = PillSize.Sm)
+                        } else {
+                            Text(
+                                Apps.Copy.PREVIEW,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = muted,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(GlassTokens.RowRadius))
+                                    .clickable { onPreview(number) }
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                                    .testTag(Apps.TestIds.VERSION_PREVIEW),
+                            )
+                        }
+                        if (canWrite) {
+                            GlassPill(
+                                Apps.Copy.PUBLISH,
+                                size = PillSize.Sm,
+                                onClick = { onPublish(number) },
+                                enabled = publishing == null,
+                                modifier = Modifier.testTag(Apps.TestIds.VERSION_PUBLISH),
+                            )
+                        }
                     }
                 }
             }
