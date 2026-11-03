@@ -13,6 +13,9 @@
 //!   launch that NAMES its account (the composer's pick, the last used login,
 //!   a trigger's account) keeps it unless that
 //!   login is WALLED; only an unpinned launch goes to the most headroom.
+//!   EXP-1669: a walled (or broken) launch login moves whatever the pin or
+//!   the rotation toggle say, to a login not provably broken when no
+//!   healthy one has room.
 //! * **At a wall** ([`pick_rotation_target`], driven by a host's
 //!   [`RotationTracker`] beat): a run whose `blocked.kind = rate_limit` is
 //!   moved to another profile with headroom on the window it hit — after a
@@ -270,6 +273,24 @@ pub fn pick_start_account(
         .map(|profile| profile.profile_id.clone())
 }
 
+/// EXP-1669: [`pick_start_account`]'s fallback for a launch whose own login
+/// is broken or spent: any signed-in login of `agent` not PROVABLY broken
+/// (health `ok` or `unknown`) and not spent, most headroom first.
+fn pick_open_account(
+    profiles: &[ProfileUsage],
+    agent: CodingAgent,
+    model: Option<&str>,
+    now_ms: i64,
+) -> Option<String> {
+    profiles
+        .iter()
+        .filter(|profile| {
+            profile.agent == agent && !profile.broken() && !profile.spent_for(model, now_ms)
+        })
+        .min_by_key(|profile| profile.headroom_key(model, now_ms))
+        .map(|profile| profile.profile_id.clone())
+}
+
 /// The profile a run of `agent` (on `model`) that hit `window_hit` on
 /// `current` should move to: never one that hit the SAME window inside its
 /// own reset, never one spent on ANY window the run would draw on (a
@@ -448,16 +469,22 @@ pub fn start_pick_from(
     let from = crate::agent_profiles::profile_id(account);
     // EXP-1532: a launch bound for a BROKEN login moves off it whatever the
     // pin or the rotation toggle say — keeping it only fails the start.
-    let own_broken = profiles
-        .iter()
-        .any(|profile| profile.profile_id == from && profile.broken());
-    if !auto_rotate && !own_broken {
+    // EXP-1669: so does one bound for a SPENT login (a window the run draws
+    // on at 100 % until its reset): started there it walls before its first
+    // word, and the rotation that would rescue it may be switched off.
+    let own_stuck = profiles.iter().any(|profile| {
+        profile.profile_id == from && (profile.broken() || profile.spent_for(model, now_ms))
+    });
+    if !auto_rotate && !own_stuck {
         return None;
     }
     let mut ordered: Vec<&ProfileUsage> = profiles.iter().collect();
     ordered.sort_by_key(|profile| profile.profile_id != from);
     let ordered: Vec<ProfileUsage> = ordered.into_iter().cloned().collect();
-    let to = pick_start_account(&ordered, agent, model, now_ms)?;
+    // EXP-1669: off a stuck login, a sibling whose health was merely never
+    // judged (`unknown`, not provably broken) with room left beats staying.
+    let to = pick_start_account(&ordered, agent, model, now_ms)
+        .or_else(|| own_stuck.then(|| pick_open_account(&ordered, agent, model, now_ms)).flatten())?;
     if to == from {
         return None;
     }
@@ -466,10 +493,10 @@ pub fn start_pick_from(
     // MAX_USAGE_PROFILES, an API-key login that is never monitored) is not
     // known to be walled: the launch keeps it rather than blaming a sign-in.
     let own = ordered.iter().find(|profile| profile.profile_id == from)?;
-    if pinned && !own_broken && !own.spent_for(model, now_ms) {
+    if pinned && !own_stuck {
         return None;
     }
-    let reason = if own_broken {
+    let reason = if own.broken() {
         format!("{} is signed out", own.name)
     } else if own.spent_for(model, now_ms) {
         let (key, window) = spent_window(own, model, now_ms);
@@ -1402,6 +1429,63 @@ mod tests {
         let pick = apply_start_pick(&mut account, true, &back, true, CodingAgent::Claude, None, NOW).unwrap();
         assert_eq!(pick.to, "home");
         assert_eq!(account.as_deref(), Some("home"));
+    }
+
+    /// EXP-1669 (2026-11-03, the macbook): the device's ACTIVE login sat at
+    /// 100 % weekly with two siblings at 40 % and 33 %, and the launch kept
+    /// it. A walled launch login moves to the most headroom pinned or not
+    /// (the composer's pick, the device default, the last used login),
+    /// rotation toggle on or off, and to a sibling whose health was never
+    /// judged when no healthy one has room. Nowhere open = it stays.
+    #[test]
+    fn a_walled_active_login_moves_whatever_the_pin_or_the_toggle() {
+        let weekly = |id: &str, percent: u8| ProfileUsage {
+            windows: UsageWindows {
+                session: None,
+                weekly: Some(Window { percent, resets_at: Some(NOW + 86_400_000) }),
+                model: BTreeMap::new(),
+            },
+            ..profile(id, 0, 0)
+        };
+        let profiles = vec![weekly("b4bc56c4", 100), weekly("15afe98b", 40), weekly("098c5a75", 33)];
+        for auto_rotate in [true, false] {
+            for named in [true, false] {
+                let mut account = Some("b4bc56c4".to_string());
+                let pick = apply_start_pick(&mut account, named, &profiles, auto_rotate, CodingAgent::Claude, None, NOW)
+                    .unwrap_or_else(|| panic!("walled launch kept (named {named}, rotate {auto_rotate})"));
+                assert_eq!(account.as_deref(), Some("098c5a75"));
+                assert_eq!((pick.from.as_str(), pick.to.as_str()), ("b4bc56c4", "098c5a75"));
+                assert!(
+                    pick.message.starts_with("Starting on 098c5a75@example.com — b4bc56c4@example.com hit its weekly limit"),
+                    "{}",
+                    pick.message
+                );
+            }
+        }
+        // The siblings never had their health judged: still better than a wall.
+        let unjudged: Vec<ProfileUsage> = profiles
+            .iter()
+            .cloned()
+            .map(|mut profile| {
+                if profile.profile_id != "b4bc56c4" {
+                    profile.health = Health::Unknown;
+                }
+                profile
+            })
+            .collect();
+        let pick = start_pick(&unjudged, true, CodingAgent::Claude, None, Some("b4bc56c4"), NOW).expect("moved");
+        assert_eq!(pick.to, "098c5a75");
+        // A provably broken sibling is never the way out.
+        let mut broken = unjudged.clone();
+        for profile in broken.iter_mut().filter(|profile| profile.profile_id != "b4bc56c4") {
+            profile.health = Health::NeedsRelogin;
+        }
+        assert_eq!(start_pick(&broken, true, CodingAgent::Claude, None, Some("b4bc56c4"), NOW), None);
+        // Every login walled: the launch keeps its own (its wall says why).
+        let all = vec![weekly("b4bc56c4", 100), weekly("15afe98b", 100)];
+        assert_eq!(start_pick(&all, false, CodingAgent::Claude, None, Some("b4bc56c4"), NOW), None);
+        // An OPEN login with the toggle off stays put, as before.
+        assert_eq!(start_pick(&profiles, false, CodingAgent::Claude, None, Some("15afe98b"), NOW), None);
     }
 
     /// EXP-1107 (owner decision): a launch that NAMES its account keeps it
