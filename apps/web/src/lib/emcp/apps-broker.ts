@@ -58,7 +58,8 @@ import { resolveForLaunch } from "@/lib/emcp/upstream/credentials"
 import { callUpstreamTool } from "@/lib/emcp/upstream/mcp-client"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { requestViaApp } from "@/lib/emcp/via-app"
-import { getAppRecord, queryAppRecords, upsertRecord } from "@/lib/apps/records-service"
+import { fillQueryTemplates } from "@exponential_app/eui/host/query"
+import { getAppRecord, queryIssuesText, readAppRecordRows, serverRecordsValue, teamMemberNames, upsertRecord } from "@/lib/apps/records-service"
 
 /** The endpoint's path (Settings › MCP shows it). */
 export const APPS_MCP_PATH = `/api/mcp/apps`
@@ -128,6 +129,8 @@ export interface BrokerApp {
   grantedTools: string[]
   upstreams: string[]
   level: Level
+  /** The package's named `queries` (#VAPP-216: a list run's `query`). */
+  queries?: Record<string, unknown>
 }
 
 /** One listed tool: its qualified name, its app and its binding. */
@@ -187,7 +190,7 @@ export async function brokerTools(
   const policies = await memberPolicies(userId, teamId)
   const listed: { app: BrokerApp; exposes: Expose[]; disabled: Set<string> }[] = []
   for (const row of rows) {
-    const pkg = (row.package ?? {}) as { exposes?: unknown; records?: Record<string, unknown>; upstreams?: unknown }
+    const pkg = (row.package ?? {}) as { exposes?: unknown; records?: Record<string, unknown>; upstreams?: unknown; queries?: unknown }
     if (!Array.isArray(pkg.exposes) || pkg.exposes.length === 0) continue
     const upstreams = Array.isArray(pkg.upstreams) ? pkg.upstreams.filter((u): u is string => typeof u === `string`) : []
     const exposes = pkg.exposes as Expose[]
@@ -197,7 +200,7 @@ export async function brokerTools(
     if (broken.has(null)) continue
     const level = effectiveAccess({ grant, appId: row.id, teamId: row.teamId, appDeleted: false, role: member?.role ?? null, policy: policies.get(row.id) ?? null })
     listed.push({
-      app: { id: row.id, slug: row.slug, name: row.name, icon: row.icon, color: row.color, teamId: row.teamId, grantedTools: row.grantedTools, upstreams, level },
+      app: { id: row.id, slug: row.slug, name: row.name, icon: row.icon, color: row.color, teamId: row.teamId, grantedTools: row.grantedTools, upstreams, level, queries: isPlainObject(pkg.queries) ? pkg.queries : undefined },
       exposes: exposes.filter((_, i) => !broken.has(i)),
       disabled: new Set(row.disabledTools),
     })
@@ -277,16 +280,51 @@ export interface BrokerContext {
   teamSlug: string
 }
 
+const isPlainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
+
+/** The keys of a records run that are not query keys. */
+const RUN_ONLY_KEYS = new Set([`op`, `kind`, `id`, `data`, `query`])
+
+/** A call's input as `${name}` template params (a named query's own
+ *  templates): strings as-is, numbers and booleans printed, the rest JSON. */
+const templateParams = (input: Record<string, unknown>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(input)
+      .filter(([, v]) => v !== undefined && v !== null)
+      .map(([k, v]) => [k, typeof v === `string` ? v : typeof v === `number` || typeof v === `boolean` ? String(v) : JSON.stringify(v)])
+  )
+
+/** #VAPP-216 (Q4): a records list run → the Q1 JSON query + the jsonb
+ *  containment prefilter. `query: "<name>"` starts from the package's named
+ *  query (its `${param}` templates filled from the call's input); every
+ *  other key of the run (resolved: `${input.x}`) is a query key and wins.
+ *  `where` as an object = containment (the server's prefilter, as before);
+ *  as a list = the query's conditions. */
+export function listQuery(tool: BrokerTool, input: Record<string, unknown>): { query: Record<string, unknown>; contains: Record<string, unknown> } | { code: string; error: string } {
+  const run = (tool.expose.run as RecordsRun).records as Record<string, unknown>
+  let query: Record<string, unknown> = {}
+  if (run.query !== undefined) {
+    const named = typeof run.query === `string` ? tool.app.queries?.[run.query] : undefined
+    if (!isPlainObject(named)) return { code: `toolError`, error: `the app has no query ${JSON.stringify(run.query)}` }
+    query = fillQueryTemplates(named, templateParams(input)) as Record<string, unknown>
+  }
+  const own = Object.fromEntries(Object.entries(run).filter(([key]) => !RUN_ONLY_KEYS.has(key)))
+  const resolved = resolveArgs(own, input) as Record<string, unknown>
+  let contains: Record<string, unknown> = {}
+  if (isPlainObject(resolved.where)) {
+    contains = resolved.where
+    delete resolved.where
+  }
+  query = { ...query, ...resolved }
+  if (query.from === undefined || query.from === null) query.from = run.kind
+  return { query, contains }
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 async function runRecords(ctx: BrokerContext, tool: BrokerTool, input: Record<string, unknown>): Promise<CallToolResult> {
   const run = (tool.expose.run as RecordsRun).records
-  const resolved = resolveArgs({ id: run.id, where: run.where, data: run.data, limit: run.limit }, input) as {
-    id?: unknown
-    where?: unknown
-    data?: unknown
-    limit?: unknown
-  }
+  const resolved = resolveArgs({ id: run.id, data: run.data }, input) as { id?: unknown; data?: unknown }
   // #VAPP-193: every read and write runs through the records service.
   const app = { id: tool.app.id, teamId: tool.app.teamId }
   if (run.op === `get`) {
@@ -295,9 +333,12 @@ async function runRecords(ctx: BrokerContext, tool: BrokerTool, input: Record<st
     return row ? answer(tool, { record: row }) : brokerError(tool, `toolError`, `record not found`)
   }
   if (run.op === `list`) {
-    const where = resolved.where && typeof resolved.where === `object` && !Array.isArray(resolved.where) ? (resolved.where as Record<string, unknown>) : {}
-    const rows = await queryAppRecords(app, run.kind, where, typeof resolved.limit === `number` ? resolved.limit : undefined, ctx.user.id)
-    return answer(tool, { records: rows, count: rows.length })
+    const built = listQuery(tool, input)
+    if (`error` in built) return brokerError(tool, built.code, built.error)
+    const { rows, truncated } = await readAppRecordRows(app, run.kind, built.contains, ctx.user.id)
+    const out = serverRecordsValue(rows, run.kind, built.query, { me: ctx.user.id, names: await teamMemberNames(app.teamId) })
+    if (out.value === null) return brokerError(tool, `invalidArguments`, `the query is invalid: ${queryIssuesText(out.issues)}`)
+    return answer(tool, truncated ? { ...out.value, truncated } : out.value)
   }
   // upsert: the records service's own validation, quota and patch merge.
   if (!resolved.data || typeof resolved.data !== `object` || Array.isArray(resolved.data)) return brokerError(tool, `invalidArguments`, `data is an object`)

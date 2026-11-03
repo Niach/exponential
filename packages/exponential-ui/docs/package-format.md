@@ -481,7 +481,17 @@ them (Exponential: the team's MCP servers, Settings › MCP).
 
 - `records: {op: list | get | upsert, kind, id?, where?, data?, limit?}` reads
   or writes the package's OWN records of a declared kind. A delete is
-  destructive and never exposed.
+  destructive and never exposed. A `list` gets the SAME query as a binding
+  (VAPP-216): any key of the JSON query form ("Records") rides on the run
+  (`where` as a list of conditions, `sort`, `limit`, `sum`, `month`, `group`,
+  `aggregate`, `running`, `before`, `mine`, `user`), or `query: "<name>"`
+  starts from one of the package's `queries` (its `${param}` templates
+  filled from the call's input; the run's own keys win). `where` as an
+  object = data containment (`{"date": "${input.day}"}`). The host reads the
+  caller's rows of the kind (its read policy first) and answers the records
+  value (`rows`, `count`, `sum?`, `groups?`, `totals?`, `before?`, `month?`);
+  `app` (another app) and another `from` are refused. Exponential caps the
+  rows read at 25,000 (`truncated: true` beyond).
 - `action` (+ `args`) calls a host function (`exponential.<noun>.<op>`). It
   reads when the last word of its name is list, get, show, catalog,
   activity or files; anything else writes.

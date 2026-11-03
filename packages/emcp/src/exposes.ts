@@ -19,9 +19,15 @@ export type RecordsRun = {
     op: `list` | `get` | `upsert`
     kind: string
     id?: unknown
-    where?: Record<string, unknown>
+    /** An object = jsonb containment; a list = the Q1 query's conditions. */
+    where?: Record<string, unknown> | unknown[]
     data?: Record<string, unknown>
     limit?: unknown
+    /** #VAPP-216: a list may name one of the package's `queries`, and may
+     *  carry any Q1 JSON query key (sort, sum, group, aggregate, running,
+     *  before, mine, user, month) beside `where` and `limit`. */
+    query?: string
+    [key: string]: unknown
   }
 }
 export type ActionRun = { action: string; args?: Record<string, unknown> }

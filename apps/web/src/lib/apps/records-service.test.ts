@@ -38,12 +38,12 @@ describe(`one records service`, () => {
 
   it(`every entry point calls the service`, () => {
     const router = read(`lib/trpc/apps.ts`)
-    for (const fn of [`listRecords(`, `upsertRecord(`, `deleteRecord(`, `importRecords(`, `commitRecordBatch(`]) expect(router).toContain(fn)
+    for (const fn of [`listRecords(`, `queryRecords(`, `upsertRecord(`, `deleteRecord(`, `importRecords(`, `commitRecordBatch(`]) expect(router).toContain(fn)
     const broker = read(`lib/emcp/apps-broker.ts`)
-    for (const fn of [`getAppRecord(`, `queryAppRecords(`, `upsertRecord(`]) expect(broker).toContain(fn)
+    for (const fn of [`getAppRecord(`, `readAppRecordRows(`, `upsertRecord(`]) expect(broker).toContain(fn)
     // The MCP apps noun's records ops run the tRPC router (and so the service).
     const tools = read(`lib/emcp/tools.ts`)
-    for (const op of [`apps.records.list(`, `apps.records.upsert(`, `apps.records.delete(`]) expect(tools).toContain(op)
+    for (const op of [`apps.records.list(`, `apps.records.query(`, `apps.records.upsert(`, `apps.records.delete(`]) expect(tools).toContain(op)
   })
 
   it(`every records statement in the service runs under the role`, () => {

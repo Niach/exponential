@@ -4125,11 +4125,22 @@ export function registerExponentialTools(
     `exponential_apps_records_list`,
     {
       annotations: READ_ONLY,
-      description: `List an app's records (its own data) newest first: id, kind, data, createdBy, authorId, createdAt. kind narrows.`,
-      inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), kind: z.string().max(32).optional(), ...pageInput }),
+      description: `List an app's records (its own data) newest first: id, kind, data, createdBy, authorId, createdAt. kind narrows. query = the app's JSON records query (its from or kind) (where, sort, group, aggregate, running, before, sum, limit; catalog): answers its value {rows, count, groups?, totals?…} as the app's bindings see it.`,
+      inputSchema: strictInput({
+        slug: appSlug,
+        teamId: uuidString.optional(),
+        kind: z.string().max(32).optional(),
+        query: z.record(z.string(), z.unknown()).optional(),
+        ...pageInput,
+      }),
     },
-    async ({ slug, teamId, kind, limit, offset }) => {
+    async ({ slug, teamId, kind, query, limit, offset }) => {
       try {
+        if (query) {
+          const of = kind ?? (typeof query.from === `string` ? query.from : undefined)
+          if (!of) return err(new Error(`a query needs its kind (kind or query.from)`))
+          return ok(await caller(user, request).apps.records.query({ slug, teamId: await appsTeam(teamId), kind: of, query }))
+        }
         const result = await caller(user, request).apps.records.list({ slug, teamId: await appsTeam(teamId), kind, limit, offset })
         return ok({ records: result.records })
       } catch (e) {

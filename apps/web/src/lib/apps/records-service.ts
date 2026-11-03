@@ -17,15 +17,16 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
 import { validateRecord, type RecordSchema } from "@exponential_app/eui"
 import { RECORD_POLICY_COPY, recordPolicy, recordRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
-import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
+import { parseRecordsJson, recordsValue, type RecordRow, type RecordsQueryIssue, type RecordsValue } from "@exponential_app/eui/host/query"
 import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_ON_BEHALF, recordAuthor, writeAsVerdict } from "@exp/domain-contract/app-records"
 import { db as defaultDb } from "@/db/connection"
-import { appAccess, appRecords, apps, teamMembers, type App } from "@/db/schema"
+import { appAccess, appRecords, apps, teamMembers, users, type App } from "@/db/schema"
 import { assertTeamMember } from "@/lib/auth/membership"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { packageBytes, recordKindSchema } from "@/lib/apps/package"
 import { generateTxId } from "@/lib/trpc"
+import { PLAN_LIMITS } from "@/lib/plan-limits"
 import type { Db, Tx } from "@/lib/sessions/tx"
 
 /** The role a records statement runs as (custom SQL: `eapps` + its policy). */
@@ -427,29 +428,105 @@ export async function getAppRecord(app: { id: string; teamId: string }, kind: st
   return row ?? null
 }
 
-/** The app's live records of a kind whose data CONTAINS `where` (jsonb `@>`,
- *  one bound parameter), newest first, `limit` clamped to the query caps. */
-export async function queryAppRecords(app: { id: string; teamId: string }, kind: string, where: Record<string, unknown>, limit: number | undefined, userId: string) {
-  const full = await loadApp(defaultDb, { id: app.id })
-  const viewer = await viewerOf(defaultDb, full, userId)
-  const asked = typeof limit === `number` && Number.isFinite(limit) ? Math.floor(limit) : RECORDS_QUERY.limitDefault
-  const capped = Math.min(Math.max(asked, 1), RECORDS_QUERY.limitMax)
-  return inRecordsScope({ teamId: app.teamId, appIds: [app.id] }, (tx) =>
-    tx
-      .select(BROKER_COLUMNS)
-      .from(appRecords)
-      .where(
-        and(
-          eq(appRecords.appId, app.id),
-          eq(appRecords.kind, kind),
-          isNull(appRecords.deletedAt),
-          Object.keys(where).length > 0 ? sql`${appRecords.data} @> ${JSON.stringify(where)}::jsonb` : undefined,
-          readPolicyWhere(full, viewer)
+// ── #VAPP-216 (Q4): the full structured query on the server ─────────────
+// Tools (the broker's `run.records` list, MCP `apps records_list` with
+// `query`) get the SAME query as the UI: the rows the caller may read (read
+// policy + RLS first, an optional jsonb containment prefilter) are handed to
+// the eUI evaluator (`@exponential_app/eui/host/query`) the web host runs.
+
+/** The server row read under one query: the Team plan's record quota (every
+ *  row a capped team can hold), newest first beyond it. */
+export const RECORDS_SERVER_READ_MAX = PLAN_LIMITS.team.appRecords
+
+/** The keys of a JSON query a tool may not set: the kind is the tool's, and
+ *  a tool reads only its own app. */
+const SERVER_QUERY_FIXED = [`from`, `app`]
+
+/** The app's live rows of `kind` the member may read, as the evaluator takes
+ *  them, capped at `RECORDS_SERVER_READ_MAX` (`truncated` = the cap cut). */
+export async function readAppRecordRows(
+  app: { id: string; teamId: string },
+  kind: string,
+  contains: Record<string, unknown>,
+  userId: string,
+  executor: Executor = defaultDb
+): Promise<{ rows: RecordRow[]; truncated: boolean }> {
+  const full = await loadApp(executor, { id: app.id })
+  const viewer = await viewerOf(executor, full, userId)
+  const read = await inRecordsScope(
+    { teamId: app.teamId, appIds: [app.id] },
+    (tx) =>
+      tx
+        .select(RECORD_COLUMNS)
+        .from(appRecords)
+        .where(
+          and(
+            eq(appRecords.appId, app.id),
+            eq(appRecords.kind, kind),
+            isNull(appRecords.deletedAt),
+            Object.keys(contains).length > 0 ? sql`${appRecords.data} @> ${JSON.stringify(contains)}::jsonb` : undefined,
+            readPolicyWhere(full, viewer)
+          )
         )
-      )
-      .orderBy(...newestFirst)
-      .limit(capped)
+        .orderBy(...newestFirst)
+        .limit(RECORDS_SERVER_READ_MAX + 1),
+    executor
   )
+  const rows = read.slice(0, RECORDS_SERVER_READ_MAX).map((r) => ({
+    id: r.id,
+    kind: r.kind,
+    data: (r.data ?? {}) as Record<string, unknown>,
+    createdBy: r.createdBy,
+    authorId: r.authorId,
+    createdAt: iso(r.createdAt),
+    updatedAt: iso(r.updatedAt),
+  }))
+  return { rows, truncated: read.length > RECORDS_SERVER_READ_MAX }
+}
+
+const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v ?? ``))
+
+/** The team's members by id → display name (the value's `author`). */
+export async function teamMemberNames(teamId: string, executor: Pick<Tx, `select`> = defaultDb): Promise<Record<string, string>> {
+  const rows = await executor
+    .select({ id: users.id, name: users.name })
+    .from(teamMembers)
+    .innerJoin(users, eq(users.id, teamMembers.userId))
+    .where(eq(teamMembers.teamId, teamId))
+  return Object.fromEntries(rows.map((r) => [r.id, r.name ?? ``]))
+}
+
+/** A JSON query over one kind's rows → the records value, or every problem
+ *  with the query (a tool refuses rather than run half a query). Pure: the
+ *  same `recordsValue` as the UI, the kind fixed, no other app. */
+export function serverRecordsValue(
+  rows: readonly RecordRow[],
+  kind: string,
+  json: Record<string, unknown>,
+  ctx: { me: string; names: Record<string, string>; now?: string }
+): { value: RecordsValue; issues: [] } | { value: null; issues: RecordsQueryIssue[] } {
+  const fixed = SERVER_QUERY_FIXED.filter((key) => json[key] !== undefined && json[key] !== null && !(key === `from` && json[key] === kind))
+  const { query, issues } = parseRecordsJson(json, kind)
+  const all = [...fixed.map((key) => ({ path: `/${key}`, message: key === `app` ? `a tool reads only its own app's records` : `the kind is the tool's (${kind})` })), ...issues]
+  if (all.length > 0) return { value: null, issues: all }
+  return { value: recordsValue(rows, query, { me: ctx.me, names: ctx.names, now: ctx.now })!, issues: [] }
+}
+
+/** The issues as one line (`/where/0: …; /limit: …`). */
+export const queryIssuesText = (issues: readonly RecordsQueryIssue[]) =>
+  issues
+    .slice(0, 10)
+    .map((i) => `${i.path || `/`}: ${i.message}`)
+    .join(`; `)
+
+/** tRPC `apps.records.query` (MCP `apps records_list` with `query`): the
+ *  full query over the app's rows of `kind` the member may read. */
+export async function queryRecords(userId: string, ref: AppRef, input: { kind: string; query: Record<string, unknown> }, executor: Executor = defaultDb) {
+  const app = await loadApp(executor, ref)
+  const { rows, truncated } = await readAppRecordRows(app, input.kind, {}, userId, executor)
+  const out = serverRecordsValue(rows, input.kind, input.query, { me: userId, names: await teamMemberNames(app.teamId, executor) })
+  if (out.value === null) throw new TRPCError({ code: `BAD_REQUEST`, message: `query is invalid: ${queryIssuesText(out.issues)}` })
+  return truncated ? { ...out.value, truncated } : out.value
 }
 
 // ── `.app.json` import ───────────────────────────────────────────────────
