@@ -42,3 +42,10 @@ export function hostZone(teamZone: string | null | undefined): (ms: number) => n
   const zone = resolveZone(teamZone)
   return zone ? (ms) => zoneOffset(zone, ms) : (ms) => -new Date(ms).getTimezoneOffset()
 }
+
+/** Dogfood G: the calendar day (`YYYY-MM-DD`) at an instant under a host
+ *  zone: the records month view's `today` and default month
+ *  (records-query.json `today`), the same day `today()` reads. */
+export function zoneDay(offset: (ms: number) => number, ms: number): string {
+  return new Date(ms + offset(ms) * 60_000).toISOString().slice(0, 10)
+}

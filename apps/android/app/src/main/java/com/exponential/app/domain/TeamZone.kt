@@ -36,4 +36,10 @@ object TeamZone {
 
     /** The host's zone: the team zone when it resolves, else the device's. */
     fun hostZoneId(teamZone: String?): ZoneId = resolveZone(teamZone)?.let(ZoneId::of) ?: ZoneId.systemDefault()
+
+    /** Dogfood G: the calendar day (`YYYY-MM-DD`) at an instant under an
+     *  offset (minutes east): the records month view's `today` and default
+     *  month (records-query.json `today`), the day `today()` reads. */
+    fun day(epochMs: Long, offsetMinutes: Int): String =
+        Instant.ofEpochMilli(epochMs + offsetMinutes * 60_000L).atZone(java.time.ZoneOffset.UTC).toLocalDate().toString()
 }

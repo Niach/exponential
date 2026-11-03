@@ -55,4 +55,12 @@ class TeamZoneTest {
         assertEquals(ZoneId.systemDefault(), TeamZone.hostZoneId(null))
         assertEquals(ZoneId.systemDefault(), TeamZone.hostZoneId("Mars/Olympus_Mons"))
     }
+
+    @Test
+    fun dayIsTheZonesCalendarDay() {
+        // Dogfood G: 2026-11-03T11:15Z is Nov 4 in Kiritimati (UTC+14).
+        val ms = 1_793_704_500_000L
+        assertEquals("2026-11-04", TeamZone.day(ms, TeamZone.zoneOffset("Pacific/Kiritimati", ms)))
+        assertEquals("2026-11-03", TeamZone.day(ms, 0))
+    }
 }

@@ -680,6 +680,8 @@ enum AppHostStore {
         pool: DatabasePool?, scope: RecordsScope, query: RecordsQuery, emit: @escaping (JSONValue?) -> Void
     ) -> (() -> Void)? {
         var last: String?
+        // Dogfood G: the month view's today + default month in the TEAM zone (the day today() reads).
+        let zone = TeamZone.hostTimeZone(AppHostStore.teamTimeZone(teamId: scope.teamId, pool: pool))
         let push = { (snapshot: RecordsSnapshot) in
             let rows = snapshot.rows.map { entity in
                 RecordRow(
@@ -694,7 +696,8 @@ enum AppHostStore {
             }
             // VAPP-214: the hosting app's computed fields (another app's rows carry none).
             let computed = query.app == nil ? RecordsQuery.computed(records: scope.records, kind: query.from) : [:]
-            let value = query.value(rows: rows, me: scope.me, now: Date(), names: snapshot.names, computed: computed)
+            let now = Date()
+            let value = query.value(rows: rows, me: scope.me, now: now, today: TeamZone.day(now, in: zone), names: snapshot.names, computed: computed)
             let json = value.json
             guard json != last else { return }
             last = json

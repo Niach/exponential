@@ -244,6 +244,21 @@ pub(crate) struct RecordsFeed {
     pub(crate) apps: Vec<AppLite>,
     /// user id → display name.
     pub(crate) names: HashMap<String, String>,
+    /// Dogfood G: the team's zone (`resolve_zone`; `None` = the machine's):
+    /// the month view's `today` and default month (records-query.json `today`).
+    pub(crate) zone: Option<String>,
+}
+
+/// Dogfood G: the calendar day at `now` in the feed's zone (the team's,
+/// else the machine's), the day `today()` reads.
+fn feed_today(feed: &RecordsFeed, now: &str) -> Option<String> {
+    let at = chrono::DateTime::parse_from_rfc3339(now).ok()?;
+    let ms = at.timestamp_millis() as f64;
+    let offset = match &feed.zone {
+        Some(zone) => domain::team_zone::resolve_zone(Some(zone)).map_or_else(|| local_offset_minutes(ms), |tz| domain::team_zone::zone_offset(&tz, ms)),
+        None => local_offset_minutes(ms),
+    };
+    Some((at.with_timezone(&chrono::Utc) + chrono::Duration::minutes(offset as i64)).format("%Y-%m-%d").to_string())
 }
 
 /// A store timestamp (RFC 3339 or the Postgres text form) → the web's
@@ -286,7 +301,8 @@ pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &eui_core::host::Rec
         .collect();
     // VAPP-214: the hosting app's computed fields (another app's rows carry none).
     let computed = if query.app.is_none() { eui_core::host::kind_computed(scope.and_then(|s| s.records.as_ref()), query.from.as_deref()) } else { None };
-    let ctx = eui_core::host::RecordsContext { me: feed.me.as_deref(), now, names: &feed.names, computed: computed.as_ref() };
+    let today = feed_today(feed, now);
+    let ctx = eui_core::host::RecordsContext { me: feed.me.as_deref(), now, today: today.as_deref(), names: &feed.names, computed: computed.as_ref() };
     eui_core::host::records_value(&rows, query, ctx).unwrap_or(Value::Null)
 }
 
@@ -626,8 +642,11 @@ fn refresh_records(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
         });
         me = Some(run_as.id.clone());
     }
+    // Dogfood G: the team zone the month view's `today` reads (as host_zone).
+    let team_id = feeds.borrow().records.scope.as_ref().and_then(|s| s.team_id.clone());
+    let zone = team_id.and_then(|id| domain::team_zone::resolve_zone_name(collections.teams.read(cx).get(id.as_str())?.time_zone.as_deref()));
     let mut f = feeds.borrow_mut();
-    let next = RecordsFeed { scope: f.records.scope.clone(), me, records, apps, names };
+    let next = RecordsFeed { scope: f.records.scope.clone(), me, records, apps, names, zone };
     if f.records != next {
         f.records = next;
         f.publish();
@@ -1454,7 +1473,24 @@ mod tests {
                 AppLite { id: "a3".into(), slug: "foreign".into(), team_id: Some("t2".into()) },
             ],
             names: HashMap::from([("u1".to_string(), "Danny".to_string())]),
+            zone: None,
         }
+    }
+
+    #[test]
+    fn the_month_view_reads_the_team_zone_s_day() {
+        // Dogfood G: 11:15 UTC on Nov 3 is already Nov 4 in Kiritimati (UTC+14).
+        let feed = RecordsFeed { zone: Some("Pacific/Kiritimati".into()), ..records_feed() };
+        let query = |s: &str| match query_of(&eui_core::host::parse_source(s).unwrap()) {
+            Some(Query::Records(q)) => q,
+            other => panic!("{other:?}"),
+        };
+        let v = records_feed_value(&feed, &query("records:entry?by=date"), "2026-11-03T11:15:00.000Z");
+        assert_eq!(v["month"]["today"], "2026-11-04");
+        let v = records_feed_value(&feed, &query("records:entry?by=date"), "2026-11-30T11:15:00.000Z");
+        assert_eq!(v["month"]["key"], "2026-12");
+        let utc = RecordsFeed { zone: Some("UTC".into()), ..records_feed() };
+        assert_eq!(records_feed_value(&utc, &query("records:entry?by=date"), "2026-11-03T11:15:00.000Z")["month"]["today"], "2026-11-03");
     }
 
     /// VAPP-122: the hosting app's rows, `app=` = another app of the SAME

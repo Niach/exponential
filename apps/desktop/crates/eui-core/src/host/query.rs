@@ -775,8 +775,11 @@ impl RecordRow {
 pub struct RecordsContext<'a> {
     /// The viewer's user id (`None` = signed out: `mine` matches nothing).
     pub me: Option<&'a str>,
-    /// ISO 8601 (UTC): the month view's default month and `today`.
+    /// ISO 8601 (UTC): the clock (computed fields).
     pub now: &'a str,
+    /// `YYYY-MM-DD`: the host's calendar day in the team zone (team-zone.json):
+    /// the month view's `today` and default month; `None` = `now`'s UTC day.
+    pub today: Option<&'a str>,
     /// user id → display name (`author`; "" when unknown).
     pub names: &'a HashMap<String, String>,
     /// VAPP-214 (Q3): the queried kind's computed fields (`records.<kind>.computed`:
@@ -1273,7 +1276,8 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
         return records_value(&rows, query, RecordsContext { computed: None, ..ctx });
     }
     let view = query.month.as_ref();
-    let month_key: Option<String> = view.map(|v| v.key.clone().unwrap_or_else(|| prefix(ctx.now, 7)));
+    let today: &str = ctx.today.filter(|t| is_day_text(t)).unwrap_or_else(|| prefix_str(ctx.now, 10));
+    let month_key: Option<String> = view.map(|v| v.key.clone().unwrap_or_else(|| prefix(today, 7)));
     let where_: Vec<Cond> = query.where_.iter().map(Cond::new).collect();
     let or: Vec<Vec<Cond>> = query.or.iter().map(|alt| alt.iter().map(Cond::new).collect()).collect();
     let before_date = query.before.as_ref().map(|b| Key::of(Field::Text(&b.date)));
@@ -1395,7 +1399,7 @@ pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsCo
                 "label": month_label(key),
                 "prev": shift_month(key, -1),
                 "next": shift_month(key, 1),
-                "today": prefix(ctx.now, 10),
+                "today": today,
                 "days": days_json,
                 "labels": labels,
                 "counts": counts,
@@ -1522,4 +1526,10 @@ mod tests {
         assert_eq!(month_label("2026-10"), "October 2026");
         assert_eq!(month_days("2028-02").len(), 29);
     }
+}
+
+/// `YYYY-MM-DD` digits and dashes (the context's `today`; TS `/^\d{4}-\d{2}-\d{2}$/`).
+fn is_day_text(t: &str) -> bool {
+    let b = t.as_bytes();
+    b.len() == 10 && b.iter().enumerate().all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() })
 }

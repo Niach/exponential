@@ -22,9 +22,10 @@ import { validateRecord, type RecordSchema } from "@exponential_app/eui"
 import { RECORD_POLICY_COPY, recordPolicy, recordRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
 import { kindComputed, parseRecordsJson, recordsValue, withComputed, type RecordRow, type RecordsQueryIssue, type RecordsValue } from "@exponential_app/eui/host/query"
 import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
+import { resolveZone, zoneDay, zoneOffset } from "@exp/domain-contract/team-zone"
 import { APP_RECORD_HISTORY, APP_RECORDS_ON_BEHALF, eventState, inverseWrite, recordAuthor, writeAsVerdict, type RecordEventOp, type RecordEventVia } from "@exp/domain-contract/app-records"
 import { db as defaultDb } from "@/db/connection"
-import { appAccess, appRecordEvents, appRecords, apps, teamMembers, users, type App } from "@/db/schema"
+import { appAccess, appRecordEvents, appRecords, apps, teamMembers, teams, users, type App } from "@/db/schema"
 import { assertTeamMember } from "@/lib/auth/membership"
 import { assertCanCreateAppRecord } from "@/lib/billing"
 import { packageBytes, recordKindSchema } from "@/lib/apps/package"
@@ -715,6 +716,15 @@ export async function teamMemberNames(teamId: string, executor: Pick<Tx, `select
   return Object.fromEntries(rows.map((r) => [r.id, r.name ?? ``]))
 }
 
+/** Dogfood G (records-query.json `today`): the team's calendar day in its
+ *  zone, the month view's `today` and default month on the server (no team
+ *  zone = UTC's day, the server has no device). */
+export async function teamToday(teamId: string, executor: Pick<Tx, `select`> = defaultDb, ms = Date.now()): Promise<string | undefined> {
+  const [team] = await executor.select({ timeZone: teams.timeZone }).from(teams).where(eq(teams.id, teamId)).limit(1)
+  const zone = resolveZone(team?.timeZone)
+  return zone ? zoneDay((at) => zoneOffset(zone, at), ms) : undefined
+}
+
 /** A JSON query over one kind's rows → the records value, or every problem
  *  with the query (a tool refuses rather than run half a query). Pure: the
  *  same `recordsValue` as the UI, the kind fixed, no other app. */
@@ -722,13 +732,13 @@ export function serverRecordsValue(
   rows: readonly RecordRow[],
   kind: string,
   json: Record<string, unknown>,
-  ctx: { me: string; names: Record<string, string>; now?: string }
+  ctx: { me: string; names: Record<string, string>; now?: string; today?: string }
 ): { value: RecordsValue; issues: [] } | { value: null; issues: RecordsQueryIssue[] } {
   const fixed = SERVER_QUERY_FIXED.filter((key) => json[key] !== undefined && json[key] !== null && !(key === `from` && json[key] === kind))
   const { query, issues } = parseRecordsJson(json, kind)
   const all = [...fixed.map((key) => ({ path: `/${key}`, message: key === `app` ? `a tool reads only its own app's records` : `the kind is the tool's (${kind})` })), ...issues]
   if (all.length > 0) return { value: null, issues: all }
-  return { value: recordsValue(rows, query, { me: ctx.me, names: ctx.names, now: ctx.now })!, issues: [] }
+  return { value: recordsValue(rows, query, { me: ctx.me, names: ctx.names, now: ctx.now, today: ctx.today })!, issues: [] }
 }
 
 /** The issues as one line (`/where/0: …; /limit: …`). */
@@ -743,7 +753,7 @@ export const queryIssuesText = (issues: readonly RecordsQueryIssue[]) =>
 export async function queryRecords(userId: string, ref: AppRef, input: { kind: string; query: Record<string, unknown> }, executor: Executor = defaultDb) {
   const app = await loadApp(executor, ref)
   const { rows, truncated } = await readAppRecordRows(app, input.kind, {}, userId, executor)
-  const out = serverRecordsValue(rows, input.kind, input.query, { me: userId, names: await teamMemberNames(app.teamId, executor) })
+  const out = serverRecordsValue(rows, input.kind, input.query, { me: userId, names: await teamMemberNames(app.teamId, executor), today: await teamToday(app.teamId, executor) })
   if (out.value === null) throw new TRPCError({ code: `BAD_REQUEST`, message: `query is invalid: ${queryIssuesText(out.issues)}` })
   return truncated ? { ...out.value, truncated } : out.value
 }
