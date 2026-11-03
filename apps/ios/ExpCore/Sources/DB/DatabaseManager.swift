@@ -3022,10 +3022,28 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
-        // v94 (#VAPP-201): `teams.time_zone` (the team time zone app hosts
+        // v94 (#VAPP-213): `skills.builtin` (a built-in skill, shipped with the
+        // server; existing rows = false). The skills cursor resets only when
+        // the column was added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v94_skill_builtin") { db in
+            guard try db.tableExists("skills") else { return }
+            guard try db.columns(in: "skills").contains(where: { $0.name == "builtin" }) == false else { return }
+            try db.alter(table: "skills") { t in
+                t.add(column: "builtin", .boolean).notNull().defaults(to: false)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'skills'
+                    """)
+            }
+        }
+
+        // v95 (#VAPP-201): `teams.time_zone` (the team time zone app hosts
         // read dates in; NULL = the device's). The teams cursor resets only
         // when the column was added, so synced rows re-arrive carrying it.
-        migrator.registerMigration("v94_team_time_zone") { db in
+        migrator.registerMigration("v95_team_time_zone") { db in
             guard try db.tableExists("teams") else { return }
             let existing = Set(try db.columns(in: "teams").map(\.name))
             guard !existing.contains("time_zone") else { return }

@@ -5905,15 +5905,15 @@
         "file": "shots/settings-skills/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 45772,
-        "sha256": "13fe05ea195baa6918d373adddb331e11edf91c364a703989617d6eaa52fe5fe"
+        "bytes": 67436,
+        "sha256": "7d4996e9d23ea8aff523bb64a278846581ccf717fbd4ee2ce267505a47c3b35e"
       },
       "web-mobile": {
         "file": "shots/settings-skills/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 28252,
-        "sha256": "d28b20aa94d4c4aa5056de1eef694fa96c9ec2f7e428eea1c460dfdc4aae2e69"
+        "bytes": 45716,
+        "sha256": "3643fb110e29511f8dba6482d9e87d82d73a390a2ef51cb93aa2dfe7c5b7e86d"
       }
     },
     "settings-statuses": {

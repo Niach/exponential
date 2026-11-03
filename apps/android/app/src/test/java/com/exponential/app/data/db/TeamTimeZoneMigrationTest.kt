@@ -8,7 +8,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * VAPP-201: v112 adds `teams.time_zone` (nullable, matching [TeamEntity]'s
+ * VAPP-201: v113 adds `teams.time_zone` (nullable, matching [TeamEntity]'s
  * Room schema) and refetches ONLY the teams shape, so synced rows re-arrive
  * carrying it.
  */
@@ -28,11 +28,11 @@ class TeamTimeZoneMigrationTest {
         } as SupportSQLiteDatabase
 
     @Test
-    fun `v112 adds teams time_zone and refetches only the teams shape`() {
-        assertEquals(111, MIGRATION_111_112.startVersion)
-        assertEquals(112, MIGRATION_111_112.endVersion)
+    fun `v113 adds teams time_zone and refetches only the teams shape`() {
+        assertEquals(112, MIGRATION_112_113.startVersion)
+        assertEquals(113, MIGRATION_112_113.endVersion)
         val statements = mutableListOf<String>()
-        MIGRATION_111_112.migrate(recording(statements))
+        MIGRATION_112_113.migrate(recording(statements))
         assertEquals(
             listOf(
                 "ALTER TABLE `teams` ADD COLUMN `time_zone` TEXT",

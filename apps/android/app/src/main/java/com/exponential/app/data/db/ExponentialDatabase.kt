@@ -62,9 +62,11 @@ import androidx.room.TypeConverters
     //      [MIGRATION_109_110]; only the agents shape refetches.
     // v111 (eApps V1, #VAPP-210): apps.published_version + draft_package,
     //      explicit [MIGRATION_110_111]; only the apps shape refetches.
-    // v112 (#VAPP-201): teams.time_zone (the team time zone), explicit
-    //      [MIGRATION_111_112]; only the teams shape refetches.
-    version = 112,
+    // v112 (#VAPP-213): skills.builtin, explicit [MIGRATION_111_112]; only the
+    //      skills shape refetches.
+    // v113 (#VAPP-201): teams.time_zone (the team time zone), explicit
+    //      [MIGRATION_112_113]; only the teams shape refetches.
+    version = 113,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

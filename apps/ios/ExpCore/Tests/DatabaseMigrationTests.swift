@@ -141,7 +141,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
-             "v93_apps_published", "v94_team_time_zone"]
+             "v93_apps_published", "v94_skill_builtin",
+             "v95_team_time_zone"]
         )
     }
 
@@ -204,7 +205,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
-             "v93_apps_published", "v94_team_time_zone"]
+             "v93_apps_published", "v94_skill_builtin",
+             "v95_team_time_zone"]
         )
     }
 
@@ -739,7 +741,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
-             "v93_apps_published", "v94_team_time_zone"]
+             "v93_apps_published", "v94_skill_builtin",
+             "v95_team_time_zone"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -850,7 +853,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
-             "v93_apps_published", "v94_team_time_zone"]
+             "v93_apps_published", "v94_skill_builtin",
+             "v95_team_time_zone"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1910,7 +1914,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try columnNames(pool, "skills"),
             ["id", "team_id", "name", "description", "enabled_by_default", "created_by_id",
-             "created_at", "updated_at"]
+             "created_at", "updated_at", "builtin"]
         )
         XCTAssertEqual(
             try columnNames(pool, "events"),
@@ -3885,6 +3889,9 @@ final class DatabaseMigrationTests: XCTestCase {
             """.utf8)
         let row = try JSONDecoder().decode(SkillEntity.self, from: wire)
         XCTAssertTrue(row.enabledByDefault)
+        // The entity carries every later column (v94 `builtin`, #VAPP-213):
+        // migrate to the head before saving the current shape of the row.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         try pool.write { db in try row.save(db) }
         let read = try pool.read { db in try SkillEntity.fetchOne(db, key: "s1") }
         XCTAssertEqual(read, row)
@@ -3954,19 +3961,19 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
-    // VAPP-201: v94 adds `teams.time_zone` (existing rows = NULL = the
-    // device's zone), resetting ONLY the teams cursor so synced rows
-    // re-arrive carrying it; a wire row round-trips through the store.
-    func testTeamTimeZoneColumnAdded() throws {
-        let pool = try makePool("vapp201-team-time-zone")
+    // #VAPP-213: v94 adds `skills.builtin` (existing rows = false), resetting
+    // ONLY the skills cursor so synced rows re-arrive carrying it; a built-in
+    // wire row round-trips through the store.
+    func testSkillBuiltinColumnAdded() throws {
+        let pool = try makePool("vapp213-skill-builtin")
         let migrator = DatabaseManager.makeMigrator()
         try migrator.migrate(pool, upTo: "v93_apps_published")
         try pool.write { db in
             try db.execute(sql: """
-                INSERT INTO "teams" ("id", "name", "slug", "created_at", "updated_at")
-                VALUES ('t0', 'Acme', 'acme', 'x', 'x')
+                INSERT INTO "skills" ("id", "team_id", "name", "created_at", "updated_at")
+                VALUES ('s0', 't', 'review-checklist', 'x', 'x')
                 """)
-            for shape in ["teams", "apps"] {
+            for shape in ["skills", "agents"] {
                 try db.execute(sql: """
                     INSERT INTO "electric_offsets"
                         ("shape", "handle", "offset", "needs_refetch", "is_live")
@@ -3976,25 +3983,27 @@ final class DatabaseMigrationTests: XCTestCase {
                     """, arguments: [shape])
             }
         }
-        XCTAssertFalse(try columnNames(pool, "teams").contains("time_zone"))
-        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v94_team_time_zone"))
-        XCTAssertTrue(try columnNames(pool, "teams").contains("time_zone"))
+        XCTAssertFalse(try columnNames(pool, "skills").contains("builtin"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v94_skill_builtin"))
+        XCTAssertTrue(try columnNames(pool, "skills").contains("builtin"))
         try pool.read { db in
             let reset = try String.fetchAll(
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, ["teams"])
-            XCTAssertNil(try TeamEntity.fetchOne(db, key: "t0")?.timeZone)
+            XCTAssertEqual(reset, ["skills"])
+            XCTAssertEqual(try SkillEntity.fetchOne(db, key: "s0")?.builtin, false)
         }
-        let wire = Data(#"""
-            {"id":"t1","name":"Acme","slug":"acme","icon_url":null,"yolo_mode":"f",
-             "time_zone":"Europe/Vienna","created_at":"x","updated_at":"x"}
-            """#.utf8)
-        let row = try JSONDecoder().decode(TeamEntity.self, from: wire)
-        XCTAssertEqual(row.timeZone, "Europe/Vienna")
+        let wire = Data("""
+            {"id":"s1","team_id":"t","name":"exponential-ui","description":"Build eUI apps",
+             "enabled_by_default":"f","builtin":"t","created_at":"x","updated_at":"x"}
+            """.utf8)
+        let row = try JSONDecoder().decode(SkillEntity.self, from: wire)
+        XCTAssertTrue(row.builtin)
+        XCTAssertFalse(row.enabledByDefault)
         try pool.write { db in try row.save(db) }
-        XCTAssertEqual(try pool.read { db in try TeamEntity.fetchOne(db, key: "t1") }, row)
+        let read = try pool.read { db in try SkillEntity.fetchOne(db, key: "s1") }
+        XCTAssertEqual(read, row)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
@@ -4046,4 +4055,49 @@ final class DatabaseMigrationTests: XCTestCase {
         let url = try DatabaseManager.fileURL(for: "acct")
         XCTAssertEqual(url.lastPathComponent, "exponential-acct-v5.sqlite")
     }
+
+    // VAPP-201: v95 adds `teams.time_zone` (existing rows = NULL = the
+    // device's zone), resetting ONLY the teams cursor so synced rows
+    // re-arrive carrying it; a wire row round-trips through the store.
+    func testTeamTimeZoneColumnAdded() throws {
+        let pool = try makePool("vapp201-team-time-zone")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v94_skill_builtin")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "teams" ("id", "name", "slug", "created_at", "updated_at")
+                VALUES ('t0', 'Acme', 'acme', 'x', 'x')
+                """)
+            for shape in ["teams", "apps"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try columnNames(pool, "teams").contains("time_zone"))
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v95_team_time_zone"))
+        XCTAssertTrue(try columnNames(pool, "teams").contains("time_zone"))
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["teams"])
+            XCTAssertNil(try TeamEntity.fetchOne(db, key: "t0")?.timeZone)
+        }
+        let wire = Data(#"""
+            {"id":"t1","name":"Acme","slug":"acme","icon_url":null,"yolo_mode":"f",
+             "time_zone":"Europe/Vienna","created_at":"x","updated_at":"x"}
+            """#.utf8)
+        let row = try JSONDecoder().decode(TeamEntity.self, from: wire)
+        XCTAssertEqual(row.timeZone, "Europe/Vienna")
+        try pool.write { db in try row.save(db) }
+        XCTAssertEqual(try pool.read { db in try TeamEntity.fetchOne(db, key: "t1") }, row)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
 }

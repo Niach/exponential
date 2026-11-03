@@ -3,6 +3,8 @@ import { useNavigate } from "@tanstack/react-router"
 import { TRPCClientError } from "@trpc/client"
 import {
   SKILLS,
+  canEditSkill,
+  skillPill,
   validateSkillForm,
   type SkillField,
 } from "@exp/domain-contract/skills"
@@ -160,7 +162,7 @@ export function SkillsListBand({
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-baseline gap-1.5">
                   <span className="min-w-0 truncate text-sm font-medium">{skill.name}</span>
-                  {skill.enabledByDefault && <Pill size="sm">{COPY.defaultPill}</Pill>}
+                  {skillPill(skill) && <Pill size="sm">{skillPill(skill)}</Pill>}
                 </div>
                 <div className="flex min-w-0 text-xs text-muted-foreground">
                   <span className="min-w-0 truncate" title={skill.description}>
@@ -168,7 +170,7 @@ export function SkillsListBand({
                   </span>
                 </div>
               </div>
-              {isOwner && (
+              {canEditSkill(skill, isOwner) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button
@@ -229,7 +231,7 @@ export function SkillSettingsPage({
         key={skill?.id ?? `new`}
         skill={skill}
         teamId={team.id}
-        readOnly={!isOwner}
+        readOnly={skill ? !canEditSkill(skill, isOwner) : !isOwner}
         onCreated={(skillId) =>
           void navigate({
             to: `/t/$teamSlug/settings/skills/$skillId`,
@@ -238,7 +240,7 @@ export function SkillSettingsPage({
           })
         }
       />
-      {skill && isOwner && (
+      {skill && canEditSkill(skill, isOwner) && (
         <div className="flex flex-wrap gap-2">
           <Button
             variant="destructive"

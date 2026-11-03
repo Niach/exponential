@@ -30,6 +30,12 @@ pub struct Skill {
     pub body: String,
     #[serde(default)]
     pub enabled_by_default: bool,
+    /// #VAPP-213: a built-in: read-only for everyone.
+    #[serde(default)]
+    pub builtin: bool,
+    /// #VAPP-213: a built-in's file paths (`get` only).
+    #[serde(default)]
+    pub files: Vec<String>,
     #[serde(default)]
     pub created_by_id: Option<String>,
     #[serde(default)]
@@ -139,6 +145,8 @@ pub fn from_row(row: &domain::rows::SkillRow) -> Skill {
         description: row.description.clone(),
         body: String::new(),
         enabled_by_default: row.enabled_by_default,
+        builtin: row.builtin,
+        files: Vec::new(),
         created_by_id: row.created_by_id.clone(),
         created_at: row.created_at.clone(),
         updated_at: row.updated_at.clone(),

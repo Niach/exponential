@@ -100,13 +100,14 @@ fn confirm_delete(skill_id: String, window: &mut Window, cx: &mut App) {
     native_dialog::open_alert(window, cx, alert);
 }
 
-/// One list row: glyph, name + the Default pill, the description caption
-/// and the owners' "…" menu (the MCP server row's layout).
+/// One list row: glyph, name + its pill (Default, or Built-in for a
+/// built-in: `domain::skills::skill_pill`), the description caption and the
+/// owners' "…" menu (the MCP server row's layout; never on a built-in).
 pub(crate) fn skill_row(
     id: &str,
     name: &str,
     description: &str,
-    default: bool,
+    pill: Option<&'static str>,
     owner: bool,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
@@ -120,10 +121,10 @@ pub(crate) fn skill_row(
             .font_weight(FontWeight::MEDIUM)
             .child(SharedString::from(name.to_string())),
     );
-    if default {
+    if let Some(pill) = pill {
         title = title.child(
             glass_pill(SharedString::from(format!("skill-default-{id}")), PillSize::Sm, PillMode::Readonly, cx)
-                .child(div().text_xs().child(spec::DEFAULT_PILL)),
+                .child(div().text_xs().child(pill)),
         );
     }
     crate::surface::flat_row()
@@ -210,7 +211,15 @@ impl Render for SkillsPane {
         for skill in skills {
             let open_id = skill.id.clone();
             list = list.child(crate::surface::list_row(
-                skill_row(&skill.id, &skill.name, &skill.description, skill.enabled_by_default, owner, cx).on_click(
+                skill_row(
+                    &skill.id,
+                    &skill.name,
+                    &skill.description,
+                    spec::skill_pill(skill.builtin, skill.enabled_by_default),
+                    spec::can_edit_skill(skill.builtin, owner),
+                    cx,
+                )
+                .on_click(
                     move |_: &ClickEvent, window, cx| {
                         open_skill_page(window, cx, open_id.clone());
                     },
@@ -251,6 +260,8 @@ pub struct SkillPage {
     touched: bool,
     /// The server's CONFLICT (the name is taken), under the name.
     name_taken: bool,
+    /// #VAPP-213: a built-in: read-only for everyone (`can_edit_skill`).
+    builtin: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -267,6 +278,7 @@ impl SkillPage {
         });
         let body = cx.new(|cx| crate::controls::web_textarea(14, 40, window, cx).placeholder(spec::BODY_PLACEHOLDER));
         let creating = skill.is_none();
+        let builtin = skill.as_ref().is_some_and(|skill| skill.builtin);
         let (skill_id, seed_name, seed_description, seed_default) = match &skill {
             Some(skill) => (Some(skill.id.clone()), skill.name.clone(), skill.description.clone(), skill.enabled_by_default),
             None => (None, String::new(), String::new(), false),
@@ -326,6 +338,7 @@ impl SkillPage {
             pending: crate::feedback::Pending::default(),
             touched: false,
             name_taken: false,
+            builtin,
             _subscriptions: subscriptions,
         };
         if !creating {
@@ -359,7 +372,7 @@ impl SkillPage {
     }
 
     fn read_only(&self, cx: &App) -> bool {
-        !super::is_owner(cx, &self.team_id)
+        !spec::can_edit_skill(self.builtin, super::is_owner(cx, &self.team_id))
     }
 
     /// The ONLY body path: synced rows exclude it.
