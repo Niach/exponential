@@ -200,6 +200,7 @@ pub struct Runtime {
     open_lock: Mutex<()>,
     // Dropped last (after `fns`, whose pointers point into them).
     _ggml: libloading::Library,
+    _ggml_base: libloading::Library,
     _library: libloading::Library,
 }
 
@@ -258,6 +259,7 @@ impl Runtime {
         let (library_name, ggml_name) = build.libraries();
         let library = open_library(&dir.join(library_name))?;
         let ggml = open_library(&dir.join(ggml_name))?;
+        let ggml_base = open_library(&dir.join(platform::GGML_BASE))?;
         let fns = Fns {
             set_gpu_backend: symbol!(library, "crispasr_set_gpu_backend"),
             open_explicit: symbol!(library, "crispasr_session_open_explicit"),
@@ -272,9 +274,9 @@ impl Runtime {
             last_synth_error: symbol!(library, "crispasr_session_last_synth_error"),
             dev_count: symbol!(ggml, "ggml_backend_dev_count"),
             dev_get: symbol!(ggml, "ggml_backend_dev_get"),
-            dev_type: symbol!(ggml, "ggml_backend_dev_type"),
-            dev_memory: symbol!(ggml, "ggml_backend_dev_memory"),
-            dev_description: symbol!(ggml, "ggml_backend_dev_description"),
+            dev_type: symbol!(ggml_base, "ggml_backend_dev_type"),
+            dev_memory: symbol!(ggml_base, "ggml_backend_dev_memory"),
+            dev_description: symbol!(ggml_base, "ggml_backend_dev_description"),
             transcribe_lang: symbol!(library, "crispasr_session_transcribe_lang"),
             result_n_segments: symbol!(library, "crispasr_session_result_n_segments"),
             result_segment_text: symbol!(library, "crispasr_session_result_segment_text"),
@@ -297,7 +299,7 @@ impl Runtime {
                 log_set(Some(log_warnings), std::ptr::null_mut());
             }
         }
-        Ok(Runtime { fns, build, open_lock: Mutex::new(()), _ggml: ggml, _library: library })
+        Ok(Runtime { fns, build, open_lock: Mutex::new(()), _ggml_base: ggml_base, _ggml: ggml, _library: library })
     }
 
     /// NEW-91: whether this build exports Qwen3-TTS's streaming entry point
@@ -786,6 +788,21 @@ mod tests {
         // qwen3_tts_context_params (v0.8.45): int, int, bool, float, uint64_t, int, bool.
         assert_eq!(std::mem::size_of::<super::Qwen3Params>(), 32);
         assert_eq!(std::mem::align_of::<super::Qwen3Params>(), 8);
+    }
+
+    /// Device pass 2026-11-03: every downloaded runtime keeps the ggml base
+    /// library the device getters are resolved from (Windows: never through
+    /// ggml.dll).
+    #[test]
+    fn every_runtime_keeps_the_ggml_base_library() {
+        use super::platform;
+        for artifacts in [platform::ARTIFACTS, platform::CPU_ARTIFACTS] {
+            if artifacts.is_empty() {
+                continue;
+            }
+            let kept: Vec<&str> = artifacts.iter().flat_map(|artifact| artifact.keep.iter().map(|(_, name)| *name)).collect();
+            assert!(kept.contains(&platform::GGML_BASE), "{kept:?}");
+        }
     }
 
     #[test]
