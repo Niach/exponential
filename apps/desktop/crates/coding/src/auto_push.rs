@@ -503,7 +503,7 @@ fn tree_and_parent(worktree: &Path, commit: &str) -> Option<(String, Option<Stri
     Some((tree, rev(worktree, &format!("{commit}^1"))))
 }
 
-fn push_wip_commit(target: &PushTarget, commit: &str) -> Result<(), String> {
+pub(crate) fn push_wip_commit(target: &PushTarget, commit: &str) -> Result<(), String> {
     let wip = wip_ref(&target.branch);
     git(
         &target.worktree,

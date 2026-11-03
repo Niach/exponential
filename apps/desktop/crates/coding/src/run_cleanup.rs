@@ -267,12 +267,13 @@ pub fn finish_worktree(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &s
 
 /// EXP-1542 (#FEED-169): [`finish_worktree`] for a session that MOVED to
 /// another device: its continuation there cuts from `origin/<branch>`, so
-/// the work (the WIP commit included) is pushed to the session's OWN
-/// branch first, a plain push (never forced), [`hand_off_head`]: a landed
-/// branch is never pushed back, a `HEAD` off the branch is parked. Only
-/// when the own push is refused does it fall back to
-/// `exp/leftover-<id8>`, which the new device tries next; any other push
-/// failure keeps the worktree.
+/// the work (the WIP commit included) is handed on under the session's OWN
+/// branch name first ([`hand_off_head`], [`push_session_branch`]: a branch
+/// origin already has gets it on `refs/exp-wip/<branch>`, never on the
+/// branch: #EXP-1622), a landed branch is never pushed back, a `HEAD` off
+/// the branch is parked. Only when origin's branch diverged does it fall
+/// back to `exp/leftover-<id8>`, which the new device tries next; any other
+/// push failure keeps the worktree.
 pub fn finish_moved_worktree(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str) -> FinishOutcome {
     finish_worktree_with(cleanup, live, session_id8, true)
 }
@@ -364,8 +365,12 @@ fn finish_locked(cleanup: &RunCleanup, live: &LiveHolders, session_id8: &str, pu
         }
     };
     // Everything is on a branch now: the uncommitted-work snapshot is spent.
-    if let Err(detail) = crate::auto_push::drop_wip(&own) {
-        log::info!("run finish {}: the WIP snapshot stays on origin: {detail}", cleanup.branch);
+    // #EXP-1622: a moved session's hand-off may have parked its work ON
+    // that ref for the next device: it stays.
+    if !push_own {
+        if let Err(detail) = crate::auto_push::drop_wip(&own) {
+            log::info!("run finish {}: the WIP snapshot stays on origin: {detail}", cleanup.branch);
+        }
     }
     // Everything worth keeping is on `origin` now; untracked debris goes
     // with the worktree (EXP-1536 A: refused when locked or changed since;
@@ -466,19 +471,59 @@ fn push_leftover(worktree: &Path, src: &str, name: &str) -> Result<String, Strin
     Err(format!("every leftover branch name is taken: {last}"))
 }
 
-/// EXP-1542 (#FEED-169): push `src` (`HEAD`, or the session branch's own
-/// ref) to `origin/<branch>`, the session's own branch: a plain push (never
-/// forced), so a diverged origin branch is refused, never overwritten. The
-/// failure detail is logged and returned.
+/// EXP-1542 (#FEED-169) / #EXP-1622: hand `src` (`HEAD`, or the session
+/// branch's own ref) on to the next device under the session's branch name.
+/// - origin has NO such branch (never pushed: no PR can exist): a plain
+///   push creates it, as before;
+/// - origin HAS it (it may carry an open PR, whose CI a device push would
+///   restart, with commits the agent never released): the branch is the
+///   agent's to push, so the work goes to `refs/exp-wip/<branch>` instead,
+///   which the next device's prepare fast-forwards onto
+///   ([`crate::auto_push::restore_wip`]); nothing to hand on when origin
+///   already has it all;
+/// - origin's branch diverged from `src`: refused, never overwritten (the
+///   caller parks a leftover).
+///
+/// The failure detail is logged and returned.
 fn push_session_branch(worktree: &Path, src: &str, branch: &str) -> Result<(), String> {
     validate_branch_arg(branch, "moved session branch").map_err(|err| err.detail)?;
-    let refspec = format!("{src}:refs/heads/{branch}");
-    run_git(Some(worktree), &["push", "--no-verify", "origin", &refspec], None, &format!("git push origin {branch}"))
-        .map(|_| ())
-        .map_err(|err| {
-            log::warn!("moved session: {branch} not pushed, parking on a leftover branch: {}", err.detail);
-            err.detail
-        })
+    let refused = |detail: String| {
+        log::warn!("moved session: {branch} not handed on, parking on a leftover branch: {detail}");
+        detail
+    };
+    let remote = format!("refs/remotes/origin/{branch}");
+    let on_origin = run_git(
+        Some(worktree),
+        &["fetch", "--quiet", "--no-tags", "origin", &format!("+refs/heads/{branch}:{remote}")],
+        None,
+        &format!("git fetch origin {branch}"),
+    )
+    .is_ok();
+    if !on_origin {
+        let refspec = format!("{src}:refs/heads/{branch}");
+        return run_git(Some(worktree), &["push", "--no-verify", "origin", &refspec], None, &format!("git push origin {branch}"))
+            .map(|_| ())
+            .map_err(|err| refused(err.detail));
+    }
+    let Some(commit) = rev_commit(worktree, src) else {
+        return Err(refused(format!("{src} unreadable")));
+    };
+    let ancestor = |a: &str, b: &str| {
+        run_git(Some(worktree), &["merge-base", "--is-ancestor", a, b], None, "git merge-base --is-ancestor").is_ok()
+    };
+    // Origin's branch already holds it all: nothing to hand on.
+    if ancestor(&commit, &remote) {
+        return Ok(());
+    }
+    if !ancestor(&remote, &commit) {
+        return Err(refused(format!("origin's {branch} diverged from {src}")));
+    }
+    let target = crate::auto_push::PushTarget {
+        worktree: worktree.to_path_buf(),
+        branch: branch.to_string(),
+        base_branch: None,
+    };
+    crate::auto_push::push_wip_commit(&target, &commit).map_err(refused)
 }
 
 /// What a moved session's hand-off did ([`hand_off_moved_branch`],
@@ -1143,6 +1188,41 @@ mod tests {
         mark_moved("sess-moved-1", Some("mv-1"));
         assert_eq!(take_moved("sess-moved-1"), Some(Some("mv-1".to_string())));
         assert_eq!(take_moved("sess-moved-1"), None);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// #EXP-1622: a moved session whose branch is on origin (an open PR's
+    /// head) never pushes it: its unreleased commits go to the hidden
+    /// `refs/exp-wip/<branch>`, origin's branch (and the PR's CI) stays as
+    /// the agent left it, and the next device's prepare fast-forwards onto
+    /// the parked work.
+    #[test]
+    fn a_moved_branch_with_a_pr_hands_off_on_the_wip_ref_never_the_branch() {
+        let (root, cleanup) = fixture("hand-off-wip-ref");
+        commit_in(&cleanup.worktree, "released.txt", "pushed by the agent\n");
+        git(&cleanup.worktree, &["push", "-q", "origin", "HEAD:refs/heads/exp/chat-1a2b3c4d"]);
+        commit_in(&cleanup.worktree, "local.txt", "not released\n");
+        std::fs::write(cleanup.worktree.join("README.md"), "edited\n").unwrap();
+        assert_eq!(hand_off_moved_branch(&cleanup, &LiveHolders::default(), "1a2b3c4d"), HandOff::Pushed);
+        assert_eq!(origin_log(&cleanup, "exp/chat-1a2b3c4d"), "add released.txt");
+        let wip = crate::auto_push::wip_ref("exp/chat-1a2b3c4d");
+        assert_eq!(origin_log(&cleanup, &wip), crate::wip_save::WIP_FINISH_COMMIT_MESSAGE);
+        assert!(!origin_has(&cleanup, "exp/leftover-1a2b3c4d"));
+
+        // The next device: a fresh clone cut from origin's branch.
+        let next = root.join("next");
+        git(&root, &["clone", "-q", origin_of(&cleanup).to_str().unwrap(), next.to_str().unwrap()]);
+        git(&next, &["checkout", "-q", "-b", "exp/chat-1a2b3c4d", "origin/exp/chat-1a2b3c4d"]);
+        assert_eq!(
+            crate::auto_push::restore_wip(&next, &next, "exp/chat-1a2b3c4d", None),
+            crate::auto_push::WipRestore::FastForwarded
+        );
+        assert!(next.join("local.txt").exists());
+        assert_eq!(std::fs::read_to_string(next.join("README.md")).unwrap(), "edited\n");
+
+        // A second hand-off with nothing new leaves origin's branch alone too.
+        assert_eq!(hand_off_moved_branch(&cleanup, &LiveHolders::default(), "1a2b3c4d"), HandOff::Pushed);
+        assert_eq!(origin_log(&cleanup, "exp/chat-1a2b3c4d"), "add released.txt");
         let _ = std::fs::remove_dir_all(&root);
     }
 
