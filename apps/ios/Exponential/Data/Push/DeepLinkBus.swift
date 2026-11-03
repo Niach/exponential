@@ -58,6 +58,10 @@ final class DeepLinkBus: @unchecked Sendable {
     // settings sheet for once its list holds it; set by the navigator as it
     // lands there, cleared by the page.
     var pendingDeviceSettingsRowId: String?
+    // VAPP-218: an app screen link (`AppLink.appScreen`, a tapped link or a
+    // universal link): the app's editor on its Preview tab showing that
+    // screen, under the account it was tapped / matched in.
+    var pendingAppScreen: AppScreenLink?
     // A web URL the app was opened with but cannot render (unknown host, issue
     // not synced/visible). MainNavigator presents it in an in-app Safari sheet —
     // NEVER hand it back to UIApplication.open: the app is entitled for the
@@ -140,6 +144,26 @@ final class DeepLinkBus: @unchecked Sendable {
         }
         guard let threadId = pendingThreadId else { return nil }
         return (threadId, pendingThreadAccountId ?? "", pendingThreadPage)
+    }
+
+    /// VAPP-218: what an app screen link names; `url` = the Safari sheet's
+    /// fallback when the app is not synced under the account.
+    struct AppScreenLink: Equatable {
+        let teamSlug: String
+        let appSlug: String
+        let request: Apps.ScreenRequest
+        let accountId: String
+        let url: URL
+    }
+
+    func navigateToAppScreen(_ link: AppScreenLink) {
+        pendingAppScreen = link
+    }
+
+    func consumeAppScreen() -> AppScreenLink? {
+        let link = pendingAppScreen
+        pendingAppScreen = nil
+        return link
     }
 
     func navigateToAgent(teamSlug: String, accountId: String) {

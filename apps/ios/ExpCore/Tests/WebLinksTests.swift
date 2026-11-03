@@ -87,6 +87,18 @@ final class WebLinksTests: XCTestCase {
         XCTAssertEqual(WebLinks.parse(other), .session(teamSlug: "acme", sessionId: "abc", guide: false))
     }
 
+    // VAPP-218: an app screen (the query = its params, the editor's own
+    // keys dropped); the app's editor alone stays unclaimed.
+    func testParseAppScreenUrlCarriesItsParams() {
+        let url = URL(string: "https://app.exponential.at/t/acme/apps/crm/deals?stage=won%20%26%20lost&tab=data#top")!
+        XCTAssertEqual(
+            WebLinks.parse(url),
+            .appScreen(teamSlug: "acme", appSlug: "crm", screen: "deals", params: ["stage": "won & lost"])
+        )
+        XCTAssertNil(WebLinks.parse(URL(string: "https://app.exponential.at/t/acme/apps/crm")!))
+        XCTAssertNil(WebLinks.parse(URL(string: "https://app.exponential.at/t/acme/apps/crm/deals/extra")!))
+    }
+
     func testTrailingSlashTolerated() {
         let url = URL(string: "https://app.exponential.at/t/acme/boards/web/issues/EXP-42/")!
         XCTAssertEqual(

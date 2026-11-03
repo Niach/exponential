@@ -299,6 +299,32 @@ fun BottomNavBar(
 
 private val TabGlyphSize = 20.dp
 
+/** One tab of [PhoneTabCapsule]: an icon over its label. */
+data class PhoneTabItem(val key: String, val label: String, val icon: ImageVector, val testTag: String)
+
+/**
+ * VAPP-218: THE phone tab bar's capsule (the styleguide `phone-tab-bar`, the
+ * same tabs, pill, lens and drag as [BottomNavBar]) over the caller's tabs:
+ * an app's screens under the surface inside the preview frame. No launcher,
+ * no board menu, no inset.
+ */
+@Composable
+fun PhoneTabCapsule(
+    items: List<PhoneTabItem>,
+    selected: String?,
+    onSelect: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    TabCapsule(
+        tabs = items.map { item -> PhoneTab(key = item.key, label = item.label, testTag = item.testTag, glyph = { TabIcon(item.icon) }) },
+        selected = selected,
+        onSelectTab = onSelect,
+        lensPreview = null,
+        lensPreviewOffset = 0.dp,
+        modifier = modifier,
+    )
+}
+
 @Composable
 private fun TabIcon(icon: ImageVector) {
     Icon(icon, null, modifier = Modifier.size(TabGlyphSize), tint = LocalContentColor.current)

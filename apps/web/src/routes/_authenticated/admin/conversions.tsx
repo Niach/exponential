@@ -28,6 +28,11 @@ type WindowDays = 7 | 30 | 90
 
 const WINDOWS: WindowDays[] = [7, 30, 90]
 
+// Spelled out from the tRPC client, not inferred through `Route`: TanStack
+// Router's loader-data inference via the route tree gives up (falls to `any`)
+// as the tree grows, so the page pins its own type.
+type LoaderData = { overview: Overview }
+
 export const Route = createFileRoute(`/_authenticated/admin/conversions`)({
   head: () => ({
     meta: [{ title: pageTitle(`Conversions`, `Admin`) }],
@@ -48,7 +53,7 @@ export const Route = createFileRoute(`/_authenticated/admin/conversions`)({
     const config = await getRuntimeConfig()
     if (!config.isCloud) throw redirect({ to: `/admin` })
   },
-  loader: async ({ deps }) => {
+  loader: async ({ deps }): Promise<LoaderData> => {
     const overview = await trpc.adminConversions.overview.query({
       days: deps.days,
     })
@@ -84,7 +89,7 @@ function dayRows(
 }
 
 function AdminConversions() {
-  const { overview } = Route.useLoaderData()
+  const { overview }: LoaderData = Route.useLoaderData()
   const days = Route.useSearch().days ?? 30
   const { funnel } = overview
 

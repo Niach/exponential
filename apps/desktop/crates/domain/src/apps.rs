@@ -1,7 +1,8 @@
 //! VAPP-110 — Exponential apps, the Rust twin of
 //! `packages/domain-contract/src/apps.ts` (iOS `Apps.swift`, Android
 //! `domain/Apps.kt`), byte-locked by `fixtures/apps.json` (`slugifyCases`,
-//! `versionLabelCases`, `sortAppsCases`, `editorTabCases`, `mediaPolicy.cases`). The copy, the
+//! `versionLabelCases`, `sortAppsCases`, `editorTabCases`, `mediaPolicy.cases`, `screenShellCases`,
+//! `screenPathCases`, `screenQueryCases`). The copy, the
 //! pane ratio and the preview frame come FROM the fixture ([`APPS`]); the
 //! caps from the contract (`apps`).
 
@@ -346,6 +347,82 @@ pub struct AppsSpec {
     pub preview: AppsPreview,
     pub test_ids: AppsTestIds,
     pub editor_tabs: AppsEditorTabs,
+    /// VAPP-218: the screens shell (`screens`).
+    pub screens: AppsScreens,
+}
+
+/// VAPP-218 (eApps U1): the screens contract (`screens.$comment`).
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsScreens {
+    /// The sidebar column's width (px) in the wide frame.
+    pub sidebar_width: f32,
+    /// The editor's own query keys, never screen params.
+    pub reserved: Vec<String>,
+}
+
+/// VAPP-218: the navigation the preview frame paints for a package's screens.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScreenShell {
+    /// The wide frame: `sidebar-rows` in a `sidebarWidth` column.
+    Sidebar,
+    /// A phone or the Phone frame: the `phone-tab-bar` under the surface.
+    Bar,
+}
+
+impl ScreenShell {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ScreenShell::Sidebar => "sidebar",
+            ScreenShell::Bar => "bar",
+        }
+    }
+}
+
+/// VAPP-218: none without screens, the bar on a phone (or the Phone frame),
+/// else the sidebar (web `screenShell`, `screenShellCases`).
+pub fn screen_shell(screen_count: usize, phone: bool) -> Option<ScreenShell> {
+    if screen_count == 0 {
+        return None;
+    }
+    Some(if phone { ScreenShell::Bar } else { ScreenShell::Sidebar })
+}
+
+/// VAPP-218: the web deep link to an app screen, `/t/<team>/apps/<app>/<screen>`
+/// then the params sorted by key (web `screenPath`, `screenPathCases`).
+pub fn screen_path(
+    team_slug: &str,
+    app_slug: &str,
+    screen: &str,
+    params: &std::collections::BTreeMap<String, String>,
+) -> String {
+    let path = format!(
+        "/t/{}/apps/{}/{}",
+        encode_uri_component(team_slug),
+        encode_uri_component(app_slug),
+        encode_uri_component(screen)
+    );
+    if params.is_empty() {
+        return path;
+    }
+    let query: Vec<String> = params
+        .iter()
+        .map(|(k, v)| format!("{}={}", encode_uri_component(k), encode_uri_component(v)))
+        .collect();
+    format!("{path}?{}", query.join("&"))
+}
+
+/// VAPP-218: a screen route's query → its params: every string key but the
+/// editor's own (`screens.reserved`), sorted (web `screenParamsFromQuery`,
+/// `screenQueryCases`).
+pub fn screen_params_from_query(
+    query: &serde_json::Map<String, serde_json::Value>,
+) -> std::collections::BTreeMap<String, String> {
+    query
+        .iter()
+        .filter(|(k, _)| !APPS.screens.reserved.iter().any(|r| r == *k))
+        .filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_string())))
+        .collect()
 }
 
 /// VAPP-177: the editor's tabs (web ≥ md and desktop: `wide`; phones:
@@ -1186,6 +1263,55 @@ mod tests {
             let order: Vec<&str> = rows.iter().map(|r| r.slug.as_str()).collect();
             let want: Vec<&str> = case["order"].as_array().unwrap().iter().filter_map(Value::as_str).collect();
             assert_eq!(order, want);
+        }
+    }
+
+    #[test]
+    fn screen_shell_replays_the_fixture() {
+        let all = cases("screenShellCases");
+        assert!(!all.is_empty());
+        for case in all {
+            let shell = screen_shell(case["screens"].as_u64().unwrap() as usize, case["phone"].as_bool().unwrap());
+            assert_eq!(shell.map(ScreenShell::as_str), case["shell"].as_str(), "{case}");
+        }
+        assert_eq!(APPS.screens.sidebar_width, 200.0);
+        assert_eq!(APPS.screens.reserved, vec!["tab".to_string(), "frame".to_string()]);
+    }
+
+    #[test]
+    fn screen_path_replays_the_fixture() {
+        let all = cases("screenPathCases");
+        assert!(!all.is_empty());
+        for case in all {
+            let params = case["params"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
+                .collect();
+            let path = screen_path(
+                case["teamSlug"].as_str().unwrap(),
+                case["appSlug"].as_str().unwrap(),
+                case["screen"].as_str().unwrap(),
+                &params,
+            );
+            assert_eq!(path, case["path"].as_str().unwrap(), "{case}");
+        }
+    }
+
+    #[test]
+    fn screen_params_from_query_replays_the_fixture() {
+        let all = cases("screenQueryCases");
+        assert!(!all.is_empty());
+        for case in all {
+            let params = screen_params_from_query(case["query"].as_object().unwrap());
+            let want: std::collections::BTreeMap<String, String> = case["params"]
+                .as_object()
+                .unwrap()
+                .iter()
+                .map(|(k, v)| (k.clone(), v.as_str().unwrap().to_string()))
+                .collect();
+            assert_eq!(params, want, "{case}");
         }
     }
 

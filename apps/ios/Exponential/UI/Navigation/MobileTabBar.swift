@@ -62,36 +62,13 @@ struct MobileTabBar: View {
         case lens(candidate: Chats.Shell.Tab, offset: CGFloat)
     }
 
-    // EXP-523: the selected pill SLIDES between tabs.
-    @Namespace private var tabPill
     @Environment(\.motion) private var motion
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    /// The press in progress (nil = none).
-    @State private var press: Press?
-    /// The lens: under the finger while pressed, settling after a lift.
-    @State private var lens: Lens?
-    /// The tab under the lens' centre while pressed.
-    @State private var candidate: Chats.Shell.Tab?
-    /// Every tab's frame in the strip's coordinate space.
-    @State private var tabFrames: [Chats.Shell.Tab: CGRect] = [:]
     /// The board menu: mounted through its collapse; `menuExpanded` drives
     /// the morph (false = the strip's frame, true = the menu's).
     @State private var menuMounted = false
     @State private var menuExpanded = false
-
-    private struct Press {
-        let pressed: Chats.Shell.Tab
-        var dragging = false
-    }
-
-    private struct Lens: Equatable {
-        var minX: CGFloat
-        var width: CGFloat
-        var scale: CGFloat
-    }
-
-    private static let space = "phone-tab-strip"
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -138,40 +115,27 @@ struct MobileTabBar: View {
         .padding(.bottom, 4)
     }
 
+    /// The specimen's lifted lens, if any.
+    private var specimenLens: (tab: Chats.Shell.Tab, offset: CGFloat)? {
+        if case let .lens(tab, offset) = specimen { return (tab, offset) }
+        return nil
+    }
+
     private var tabCapsule: some View {
-        TabStripLayout {
-            ForEach(Chats.Shell.tabs, id: \.self) { tab in
-                tabFace(tab)
-            }
-        }
-        .coordinateSpace(.named(Self.space))
-        .background(alignment: .topLeading) { lensView }
-        .onPreferenceChange(TabFramesKey.self) { frames in
-            MainActor.assumeIsolated { tabFrames = frames }
-        }
-        .contentShape(Rectangle())
-        .gesture(dragGesture)
-        .animation(motion.standard, value: selected)
-        .padding(MobileTabBarMetrics.pillPadding)
-        .frame(maxWidth: .infinity)
-        .tabBarGlass()
-        .onChange(of: tabFrames) { _, frames in
-            // The specimen's lens, once the tabs have been measured.
-            if case let .lens(tab, offset) = specimen, let frame = frames[tab] {
-                candidate = tab
-                lens = Lens(minX: frame.minX + offset, width: frame.width, scale: lensScale)
-            }
+        PhoneTabCapsule(
+            tabs: Chats.Shell.tabs,
+            selected: selected,
+            interactive: specimen == nil,
+            specimenLens: specimenLens,
+            label: label,
+            identifier: identifier,
+            onActivate: activate
+        ) { tab in
+            tabContent(tab)
         }
     }
 
     // MARK: - Tabs
-
-    private var lensScale: CGFloat { reduceMotion ? 1 : MobileTabBarMetrics.lensScale }
-
-    /// While pressed the candidate is lit; else the selected tab.
-    private func isLit(_ tab: Chats.Shell.Tab) -> Bool {
-        lens != nil && candidate != nil ? candidate == tab : selected == tab
-    }
 
     private func label(_ tab: Chats.Shell.Tab) -> String {
         switch tab {
@@ -193,10 +157,9 @@ struct MobileTabBar: View {
 
     private var showsCaret: Bool { onBoardView && board != nil }
 
-    private func tabFace(_ tab: Chats.Shell.Tab) -> some View {
-        let lit = isLit(tab)
-        let text = label(tab)
-        return VStack(spacing: 4) {
+    /// A tab's icon over its label (the capsule lights, pads and frames it).
+    private func tabContent(_ tab: Chats.Shell.Tab) -> some View {
+        VStack(spacing: 4) {
             tabIcon(tab)
                 .frame(height: 22)
                 .overlay(alignment: .topTrailing) {
@@ -210,7 +173,7 @@ struct MobileTabBar: View {
                     }
                 }
             HStack(spacing: MobileTabBarMetrics.caretGap) {
-                Text(text)
+                Text(label(tab))
                     .font(.system(size: MobileTabBarMetrics.labelSize, weight: .medium))
                     .lineLimit(1)
                     .truncationMode(.tail)
@@ -221,32 +184,6 @@ struct MobileTabBar: View {
                 }
             }
         }
-        .foregroundStyle(.white.opacity(lit ? 1 : TextOpacity.secondary))
-        .padding(.horizontal, MobileTabBarMetrics.tabPaddingX)
-        .frame(minWidth: MobileTabBarMetrics.tabMinWidth, maxWidth: .infinity)
-        .frame(height: MobileTabBarMetrics.tabHeight)
-        .background {
-            // Only the SELECTED tab renders the pill, carrying the shared
-            // geometry id — that is what makes it travel. A press lifts it
-            // (the lens takes over).
-            if selected == tab && lens == nil {
-                Capsule()
-                    .fill(GlassTokens.fillActive)
-                    .matchedGeometryEffect(id: "tab-pill", in: tabPill)
-            }
-        }
-        .background(GeometryReader { proxy in
-            Color.clear.preference(
-                key: TabFramesKey.self,
-                value: [tab: proxy.frame(in: .named(Self.space))]
-            )
-        })
-        .contentShape(Capsule())
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(text)
-        .accessibilityAddTraits(selected == tab ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction { activate(tab) }
-        .accessibilityIdentifier(identifier(tab))
     }
 
     @ViewBuilder
@@ -269,117 +206,6 @@ struct MobileTabBar: View {
             AppIcon(AppIcons.navThreads, size: AppIcon.Size.large)
         case .apps:
             AppIcon(AppIcons.navApps, size: AppIcon.Size.large)
-        }
-    }
-
-    // MARK: - Drag lens
-
-    @ViewBuilder
-    private var lensView: some View {
-        if let lens {
-            LensFace()
-                .frame(width: lens.width, height: MobileTabBarMetrics.tabHeight)
-                .scaleEffect(lens.scale)
-                .offset(x: lens.minX)
-                .allowsHitTesting(false)
-        }
-    }
-
-    private var dragGesture: some Gesture {
-        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
-            .onChanged { value in
-                if press == nil {
-                    guard specimen == nil, let pressed = tab(at: value.startLocation.x),
-                          let frame = tabFrames[pressed] else { return }
-                    press = Press(pressed: pressed)
-                    candidate = pressed
-                    // The press lifts the selection under the finger.
-                    withAnimation(motion.fast) {
-                        lens = Lens(minX: frame.minX, width: frame.width, scale: lensScale)
-                    }
-                }
-                guard var current = press else { return }
-                if !current.dragging {
-                    let moved = hypot(value.translation.width, value.translation.height)
-                    guard moved >= MobileTabBarMetrics.dragSlop else { return }
-                    current.dragging = true
-                    press = current
-                }
-                let next = candidateAt(value.location.x)
-                candidate = next.tab
-                // The lens moves WITH the finger: no animation while dragging.
-                var still = Transaction()
-                still.disablesAnimations = true
-                withTransaction(still) {
-                    lens = Lens(minX: next.minX, width: next.width, scale: lensScale)
-                }
-            }
-            .onEnded { value in
-                guard let current = press else { return }
-                press = nil
-                guard current.dragging else {
-                    // A plain tap selects at once.
-                    settle(on: current.pressed)
-                    activate(current.pressed)
-                    return
-                }
-                let height = MobileTabBarMetrics.tabHeight
-                let y = value.location.y
-                let off = y < 0 ? -y : (y > height ? y - height : 0)
-                let target = candidateAt(value.location.x).tab
-                if off > MobileTabBarMetrics.cancelDistance || target == nil {
-                    // A lift far off the bar cancels: back to the selected tab.
-                    settle(on: selected)
-                } else if let target {
-                    settle(on: target)
-                    activate(target)
-                }
-            }
-    }
-
-    /// The tab whose frame holds `x`, else the nearest one.
-    private func tab(at x: CGFloat) -> Chats.Shell.Tab? {
-        if let hit = tabFrames.first(where: { $0.value.minX <= x && x <= $0.value.maxX }) {
-            return hit.key
-        }
-        return tabFrames.min { lhs, rhs in
-            distance(x, lhs.value) < distance(x, rhs.value)
-        }?.key
-    }
-
-    private func distance(_ x: CGFloat, _ frame: CGRect) -> CGFloat {
-        min(abs(x - frame.minX), abs(x - frame.maxX))
-    }
-
-    /// The candidate under a finger at `x` and the lens frame centred on the
-    /// finger (clamped to the bar).
-    private func candidateAt(_ x: CGFloat) -> (tab: Chats.Shell.Tab?, minX: CGFloat, width: CGFloat) {
-        let lower = tabFrames.values.map(\.minX).min() ?? 0
-        let upper = tabFrames.values.map(\.maxX).max() ?? 0
-        let clamped = min(max(x, lower), upper)
-        let tab = tab(at: clamped)
-        let width = tab.flatMap { tabFrames[$0]?.width } ?? MobileTabBarMetrics.tabMinWidth
-        let minX = min(max(clamped - width / 2, lower), upper - width)
-        return (tab, minX, width)
-    }
-
-    /// The lens settles over `tab` at standard / decelerate, then leaves the
-    /// selected pill in charge.
-    private func settle(on tab: Chats.Shell.Tab?) {
-        candidate = nil
-        guard let tab, let frame = tabFrames[tab] else {
-            lens = nil
-            return
-        }
-        let target = Lens(minX: frame.minX, width: frame.width, scale: 1)
-        if let animation = motion.decelerate(DesignTokens.Motion.Duration.standard) {
-            withAnimation(animation) {
-                lens = target
-            } completion: {
-                if press == nil { lens = nil }
-            }
-        } else {
-            lens = nil
         }
     }
 
@@ -558,6 +384,261 @@ struct MobileTabBar: View {
     }
 }
 
+/// THE phone-tab-bar's TAB CAPSULE (the styleguide `phone-tab-bar`), over
+/// any tabs: each tab its face (an icon over its label) on the glass
+/// capsule, the selected one on the glass-active pill that SLIDES between
+/// tabs (EXP-523), the drag LENS (`shell.bar.drag`), the widths
+/// (`MobileTabBarMetrics.tabWidths`). `MobileTabBar` wears it beside the
+/// launcher; VAPP-218 the app editor's preview wears it alone for a
+/// package's screens (apps.json `screens`, the BAR).
+struct PhoneTabCapsule<Tab: Hashable, Face: View>: View {
+    let tabs: [Tab]
+    /// The lit tab (nil = none).
+    var selected: Tab?
+    /// False = a static picture (the styleguide): no press, no drag.
+    var interactive = true
+    /// Styleguide only: the lens lifted over `tab`, `offset` pt off its centre.
+    var specimenLens: (tab: Tab, offset: CGFloat)?
+    let label: (Tab) -> String
+    let identifier: (Tab) -> String
+    /// A tap, a lift, a VoiceOver activation.
+    let onActivate: (Tab) -> Void
+    /// The tab's icon over its label (lit, padded and framed here).
+    let face: (Tab) -> Face
+
+    init(
+        tabs: [Tab],
+        selected: Tab?,
+        interactive: Bool = true,
+        specimenLens: (tab: Tab, offset: CGFloat)? = nil,
+        label: @escaping (Tab) -> String,
+        identifier: @escaping (Tab) -> String,
+        onActivate: @escaping (Tab) -> Void,
+        @ViewBuilder face: @escaping (Tab) -> Face
+    ) {
+        self.tabs = tabs
+        self.selected = selected
+        self.interactive = interactive
+        self.specimenLens = specimenLens
+        self.label = label
+        self.identifier = identifier
+        self.onActivate = onActivate
+        self.face = face
+    }
+
+    @Namespace private var tabPill
+    @Environment(\.motion) private var motion
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// The press in progress (nil = none).
+    @State private var press: Press?
+    /// The lens: under the finger while pressed, settling after a lift.
+    @State private var lens: Lens?
+    /// The tab (index) under the lens' centre while pressed.
+    @State private var candidate: Int?
+    /// Every tab's frame (by index) in the capsule's coordinate space.
+    @State private var tabFrames: [Int: CGRect] = [:]
+
+    private struct Press {
+        let pressed: Int
+        var dragging = false
+    }
+
+    private struct Lens: Equatable {
+        var minX: CGFloat
+        var width: CGFloat
+        var scale: CGFloat
+    }
+
+    private static var space: String { "phone-tab-strip" }
+
+    private var selectedIndex: Int? { selected.flatMap { tabs.firstIndex(of: $0) } }
+
+    var body: some View {
+        TabStripLayout {
+            ForEach(tabs.indices, id: \.self) { index in
+                tabFace(index)
+            }
+        }
+        .coordinateSpace(.named(Self.space))
+        .background(alignment: .topLeading) { lensView }
+        .onPreferenceChange(TabFramesKey.self) { frames in
+            MainActor.assumeIsolated { tabFrames = frames }
+        }
+        .contentShape(Rectangle())
+        .gesture(dragGesture)
+        .animation(motion.standard, value: selectedIndex)
+        .padding(MobileTabBarMetrics.pillPadding)
+        .frame(maxWidth: .infinity)
+        .tabBarGlass()
+        .onChange(of: tabFrames) { _, frames in
+            // The specimen's lens, once the tabs have been measured.
+            if let specimenLens, let index = tabs.firstIndex(of: specimenLens.tab), let frame = frames[index] {
+                candidate = index
+                lens = Lens(minX: frame.minX + specimenLens.offset, width: frame.width, scale: lensScale)
+            }
+        }
+    }
+
+    // MARK: - Tabs
+
+    private var lensScale: CGFloat { reduceMotion ? 1 : MobileTabBarMetrics.lensScale }
+
+    /// While pressed the candidate is lit; else the selected tab.
+    private func isLit(_ index: Int) -> Bool {
+        lens != nil && candidate != nil ? candidate == index : selectedIndex == index
+    }
+
+    private func tabFace(_ index: Int) -> some View {
+        let tab = tabs[index]
+        let lit = isLit(index)
+        let isSelected = selectedIndex == index
+        return face(tab)
+            .foregroundStyle(.white.opacity(lit ? 1 : TextOpacity.secondary))
+            .padding(.horizontal, MobileTabBarMetrics.tabPaddingX)
+            .frame(minWidth: MobileTabBarMetrics.tabMinWidth, maxWidth: .infinity)
+            .frame(height: MobileTabBarMetrics.tabHeight)
+            .background {
+                // Only the SELECTED tab renders the pill, carrying the shared
+                // geometry id — that is what makes it travel. A press lifts it
+                // (the lens takes over).
+                if isSelected && lens == nil {
+                    Capsule()
+                        .fill(GlassTokens.fillActive)
+                        .matchedGeometryEffect(id: "tab-pill", in: tabPill)
+                }
+            }
+            .background(GeometryReader { proxy in
+                Color.clear.preference(
+                    key: TabFramesKey.self,
+                    value: [index: proxy.frame(in: .named(Self.space))]
+                )
+            })
+            .contentShape(Capsule())
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label(tab))
+            .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
+            .accessibilityAction { onActivate(tab) }
+            .accessibilityIdentifier(identifier(tab))
+    }
+
+    // MARK: - Drag lens
+
+    @ViewBuilder
+    private var lensView: some View {
+        if let lens {
+            LensFace()
+                .frame(width: lens.width, height: MobileTabBarMetrics.tabHeight)
+                .scaleEffect(lens.scale)
+                .offset(x: lens.minX)
+                .allowsHitTesting(false)
+        }
+    }
+
+    private var dragGesture: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .named(Self.space))
+            .onChanged { value in
+                if press == nil {
+                    guard interactive, let pressed = tab(at: value.startLocation.x),
+                          let frame = tabFrames[pressed] else { return }
+                    press = Press(pressed: pressed)
+                    candidate = pressed
+                    // The press lifts the selection under the finger.
+                    withAnimation(motion.fast) {
+                        lens = Lens(minX: frame.minX, width: frame.width, scale: lensScale)
+                    }
+                }
+                guard var current = press else { return }
+                if !current.dragging {
+                    let moved = hypot(value.translation.width, value.translation.height)
+                    guard moved >= MobileTabBarMetrics.dragSlop else { return }
+                    current.dragging = true
+                    press = current
+                }
+                let next = candidateAt(value.location.x)
+                candidate = next.tab
+                // The lens moves WITH the finger: no animation while dragging.
+                var still = Transaction()
+                still.disablesAnimations = true
+                withTransaction(still) {
+                    lens = Lens(minX: next.minX, width: next.width, scale: lensScale)
+                }
+            }
+            .onEnded { value in
+                guard let current = press else { return }
+                press = nil
+                guard current.dragging else {
+                    // A plain tap selects at once.
+                    settle(on: current.pressed)
+                    activate(current.pressed)
+                    return
+                }
+                let height = MobileTabBarMetrics.tabHeight
+                let y = value.location.y
+                let off = y < 0 ? -y : (y > height ? y - height : 0)
+                let target = candidateAt(value.location.x).tab
+                if off > MobileTabBarMetrics.cancelDistance || target == nil {
+                    // A lift far off the bar cancels: back to the selected tab.
+                    settle(on: selectedIndex)
+                } else if let target {
+                    settle(on: target)
+                    activate(target)
+                }
+            }
+    }
+
+    private func activate(_ index: Int) {
+        guard tabs.indices.contains(index) else { return }
+        onActivate(tabs[index])
+    }
+
+    /// The tab whose frame holds `x`, else the nearest one.
+    private func tab(at x: CGFloat) -> Int? {
+        if let hit = tabFrames.first(where: { $0.value.minX <= x && x <= $0.value.maxX }) {
+            return hit.key
+        }
+        return tabFrames.min { lhs, rhs in
+            distance(x, lhs.value) < distance(x, rhs.value)
+        }?.key
+    }
+
+    private func distance(_ x: CGFloat, _ frame: CGRect) -> CGFloat {
+        min(abs(x - frame.minX), abs(x - frame.maxX))
+    }
+
+    /// The candidate under a finger at `x` and the lens frame centred on the
+    /// finger (clamped to the bar).
+    private func candidateAt(_ x: CGFloat) -> (tab: Int?, minX: CGFloat, width: CGFloat) {
+        let lower = tabFrames.values.map(\.minX).min() ?? 0
+        let upper = tabFrames.values.map(\.maxX).max() ?? 0
+        let clamped = min(max(x, lower), upper)
+        let tab = tab(at: clamped)
+        let width = tab.flatMap { tabFrames[$0]?.width } ?? MobileTabBarMetrics.tabMinWidth
+        let minX = min(max(clamped - width / 2, lower), upper - width)
+        return (tab, minX, width)
+    }
+
+    /// The lens settles over `tab` at standard / decelerate, then leaves the
+    /// selected pill in charge.
+    private func settle(on tab: Int?) {
+        candidate = nil
+        guard let tab, let frame = tabFrames[tab] else {
+            lens = nil
+            return
+        }
+        let target = Lens(minX: frame.minX, width: frame.width, scale: 1)
+        if let animation = motion.decelerate(DesignTokens.Motion.Duration.standard) {
+            withAnimation(animation) {
+                lens = target
+            } completion: {
+                if press == nil { lens = nil }
+            }
+        } else {
+            lens = nil
+        }
+    }
+}
+
 /// The drag lens: iOS 26 = the interactive Liquid Glass; before it the
 /// glass-active pill.
 private struct LensFace: View {
@@ -574,10 +655,10 @@ private struct LensFace: View {
     }
 }
 
-/// The tabs' frames in the strip's coordinate space.
+/// The tabs' frames (by index) in the capsule's coordinate space.
 private struct TabFramesKey: PreferenceKey {
-    static let defaultValue: [Chats.Shell.Tab: CGRect] = [:]
-    static func reduce(value: inout [Chats.Shell.Tab: CGRect], nextValue: () -> [Chats.Shell.Tab: CGRect]) {
+    static let defaultValue: [Int: CGRect] = [:]
+    static func reduce(value: inout [Int: CGRect], nextValue: () -> [Int: CGRect]) {
         value.merge(nextValue()) { $1 }
     }
 }

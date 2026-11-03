@@ -11,6 +11,9 @@ public enum AppLink: Equatable, Sendable {
     case session(teamSlug: String, sessionId: String)
     /// EXP-1284: a thread on this instance.
     case thread(teamSlug: String, threadId: String)
+    /// VAPP-218: one screen of a team app (`/t/<team>/apps/<app>/<screen>`),
+    /// its query = the screen's params: the app's editor on its Preview tab.
+    case appScreen(teamSlug: String, appSlug: String, screen: String, params: [String: String])
     /// Another page on this instance, the path as written (query + hash kept).
     case app(path: String)
     /// Open as given (another origin, `mailto:`).
@@ -90,6 +93,37 @@ public enum AppLink: Equatable, Sendable {
         if parts.count == 4, parts[0] == "t", parts[2] == "threads" {
             return .thread(teamSlug: parts[1], threadId: parts[3])
         }
+        if parts.count == 5, parts[0] == "t", parts[2] == "apps" {
+            return .appScreen(teamSlug: parts[1], appSlug: parts[3], screen: parts[4], params: screenQueryParams(written))
+        }
         return .app(path: written)
+    }
+
+    /// VAPP-218: a path's query as screen params (the TS `screenQueryParams`):
+    /// from the first `?` to the next `#`, `k=v` pairs split on `&` then the
+    /// first `=` (none = the value ''), each side percent-decoded (a bad
+    /// escape kept as written, no '+' rewriting), empty keys and the
+    /// editor's own (`Apps.ScreenSpec.reserved`) dropped, the last repeat
+    /// winning. Split on the UTF-8 bytes: the separators are ASCII, so every
+    /// cut falls on a scalar boundary.
+    static func screenQueryParams(_ path: String) -> [String: String] {
+        let bytes = Array(path.utf8)
+        guard let question = bytes.firstIndex(of: UInt8(ascii: "?")) else { return [:] }
+        let start = question + 1
+        let end = bytes[start...].firstIndex(of: UInt8(ascii: "#")) ?? bytes.endIndex
+        var found: [String: String] = [:]
+        for pair in bytes[start..<end].split(separator: UInt8(ascii: "&"), omittingEmptySubsequences: false) {
+            let equals = pair.firstIndex(of: UInt8(ascii: "="))
+            let rawKey = equals.map { pair[pair.startIndex..<$0] } ?? pair
+            let key = decoded(String(decoding: rawKey, as: UTF8.self))
+            if key.isEmpty || Apps.ScreenSpec.reserved.contains(key) { continue }
+            found[key] = equals.map { decoded(String(decoding: pair[pair.index(after: $0)...], as: UTF8.self)) } ?? ""
+        }
+        return found
+    }
+
+    /// `decodeURIComponent`, a bad escape kept as written.
+    private static func decoded(_ text: String) -> String {
+        text.removingPercentEncoding ?? text
     }
 }

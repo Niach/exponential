@@ -14,6 +14,7 @@ import {
   previewTemplate,
   previewTemplates,
   runAsOptions,
+  screenPath,
   shownVersion,
   versionLabel,
   versionRow,
@@ -53,7 +54,8 @@ import type { SyncedAppVersion, User } from "@/db/schema"
 import { AppPreview, type AppRunAs } from "@/components/apps/app-preview"
 import { AppSettingsTab } from "@/components/apps/app-settings-tab"
 import { AppDataTab } from "@/components/apps/app-data-tab"
-import type { AppAccessLevel } from "@exponential_app/eui/host"
+import { packageScreens, type AppAccessLevel } from "@exponential_app/eui/host"
+import type { ScreenRequest } from "@/lib/app-screens"
 import { SessionComposer } from "@/components/session-composer"
 import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
@@ -220,6 +222,7 @@ export function AppEditor({
   canGrant,
   requestedTab,
   requestedFrame = null,
+  requestedScreen = null,
 }: {
   app: AppListEntry
   teamId: string
@@ -234,6 +237,9 @@ export function AppEditor({
   requestedTab: string | null
   /** VAPP-179: the route's `?frame=` (read once; screenshots open on Phone). */
   requestedFrame?: PreviewFrame | null
+  /** VAPP-218: the route's `/$screen?<params>` = the preview's shown screen
+   *  (live: a tap or `app.navigate` REPLACES the route with `screenPath`). */
+  requestedScreen?: ScreenRequest | null
 }) {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
@@ -266,6 +272,14 @@ export function AppEditor({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile])
+
+  // VAPP-218: a screen link while the editor is open shows the Preview tab.
+  const requestedScreenName = requestedScreen?.screen ?? null
+  useEffect(() => {
+    if (requestedScreenName === null) return
+    setSheet(null)
+    setTab(`preview`)
+  }, [requestedScreenName])
 
   const { users, members } = useTeamUsers(teamId)
   // VAPP-187: the viewer's team role (the Data tab's ownership rule).
@@ -562,7 +576,9 @@ export function AppEditor({
   // VAPP-179 (wide only): Desktop | Phone at the start; the template Select at
   // the end only when the SHOWN package has more than one template.
   const shownPackage = shown === 0 ? null : shown === head ? headPackage : shown === app.publishedVersion ? publishedPackage : viewingPackage
-  const templates = previewTemplates(shownPackage as { templates?: Record<string, unknown> } | null)
+  // VAPP-218: with screens the Select is hidden (the screens ARE the picker).
+  const hasScreens = shownPackage ? packageScreens(shownPackage).length > 0 : false
+  const templates = hasScreens ? [] : previewTemplates(shownPackage as { templates?: Record<string, unknown> } | null)
   const shownTemplate = previewTemplate(shownPackage as { templates?: Record<string, unknown> } | null, pickedTemplate)
   const toolbar = isMobile ? null : (
     <div className="flex shrink-0 items-center gap-3" data-testid={APPS_TEST_IDS.previewToolbar}>
@@ -605,6 +621,11 @@ export function AppEditor({
     </div>
   )
 
+  // VAPP-218: a screen request REPLACES the route (history replace, not push).
+  const openScreen = (request: ScreenRequest) => {
+    void navigate({ href: screenPath(teamSlug, app.slug, request.screen, request.params), replace: true })
+  }
+
   const preview = (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4">
       {toolbar}
@@ -630,7 +651,7 @@ export function AppEditor({
         </div>
       )}
       {/* A grant is about the version it was made on (`grantVersion`): any other previews asking for everything. */}
-      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} appId={app.id} teamId={teamId} me={me} grantedTools={shown === grantVersion(app) ? (app.row?.grantedTools ?? []) : []} runAs={isMobile ? null : runAs} readOnly={((isMobile ? null : runAs)?.access ?? access) === `read`} migrateFrom={shown !== app.publishedVersion && app.publishedVersion > 0 ? ((app.row?.package as { version?: string } | null)?.version ?? null) : null} />
+      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} phone={isMobile} screen={requestedScreen} onScreen={openScreen} appId={app.id} teamId={teamId} me={me} grantedTools={shown === grantVersion(app) ? (app.row?.grantedTools ?? []) : []} runAs={isMobile ? null : runAs} readOnly={((isMobile ? null : runAs)?.access ?? access) === `read`} migrateFrom={shown !== app.publishedVersion && app.publishedVersion > 0 ? ((app.row?.package as { version?: string } | null)?.version ?? null) : null} />
     </div>
   )
 

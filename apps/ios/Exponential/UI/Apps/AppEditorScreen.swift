@@ -47,6 +47,9 @@ import SwiftUI
 /// Leaving an EMPTY draft (no editor session) calls `apps.discardDraft`.
 struct AppEditorScreen: View {
     let appId: String
+    /// VAPP-218: an app screen link's screen: the editor opens on its
+    /// Preview tab showing it (nil = the usual landing).
+    var screen: Apps.ScreenRequest? = nil
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -84,6 +87,12 @@ struct AppEditorScreen: View {
     /// VAPP-235: the app's queued record writes (`outboxPendingLabel`; nil
     /// = none): the header's `ui-offline` glyph.
     @State private var outboxLabel: String?
+    /// VAPP-218 (apps.json `screens`): the screen the preview is asked for
+    /// (nil = the package's first): a link's, a bar tap's (its own params)
+    /// or the package's `app.navigate`; kept in memory across repaints.
+    @State private var screenRequest: Apps.ScreenRequest?
+    /// The link's screen is applied once (a pop back here keeps the tab).
+    @State private var screenLinkApplied = false
 
     /// The phones' tabs (`editorTabs.phone`).
     enum Tab: Hashable, CaseIterable {
@@ -135,6 +144,11 @@ struct AppEditorScreen: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Apps.TestIds.editor)
         .onAppear {
+            if !screenLinkApplied, let screen {
+                screenLinkApplied = true
+                screenRequest = screen
+                tab = .preview
+            }
             model.bind(accountId: accountId, appId: appId, userId: deps.auth.userId, db: deps.db)
             model.loadAccess(accountId: accountId, appId: appId, trpc: deps.trpc)
         }
@@ -454,7 +468,7 @@ struct AppEditorScreen: View {
                 }
                 // A grant is about the version it was made on (`grantVersion`):
                 // any other previews asking for everything.
-                AppPreview(packageJSON: shownPackage(app), appId: app.id, teamId: app.teamId, grants: number == Apps.grantVersion(app.versions), readOnly: access == "read", migrateFrom: migrateFrom(app, shown: number))
+                AppPreview(packageJSON: shownPackage(app), appId: app.id, teamId: app.teamId, grants: number == Apps.grantVersion(app.versions), readOnly: access == "read", migrateFrom: migrateFrom(app, shown: number), screen: $screenRequest)
             }
             .padding(16)
         }

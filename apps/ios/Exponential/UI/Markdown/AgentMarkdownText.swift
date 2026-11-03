@@ -372,6 +372,17 @@ struct AgentMarkdownText: View {
                     deps.deepLinkBus.openExternal(url)
                 }
             }
+        case let .appScreen(teamSlug, appSlug, screen, params):
+            // VAPP-218: the app's editor on its Preview tab, that screen shown.
+            return {
+                deps.deepLinkBus.navigateToAppScreen(DeepLinkBus.AppScreenLink(
+                    teamSlug: teamSlug,
+                    appSlug: appSlug,
+                    request: Apps.ScreenRequest(screen: screen, params: params),
+                    accountId: accountId,
+                    url: url
+                ))
+            }
         case .app:
             // The one other page the app renders natively (EXP-825); every
             // other instance page goes to the Safari sheet for the same

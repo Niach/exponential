@@ -2730,6 +2730,17 @@ pub(crate) fn open_link_href(url: &str) {
     }
 }
 
+/// The synced team a link's slug names (case-insensitive).
+fn team_id_by_slug(team_slug: &str, cx: &App) -> Option<String> {
+    sync::Store::global(cx)
+        .collections()
+        .teams
+        .read(cx)
+        .iter()
+        .find(|team| team.slug.as_deref().is_some_and(|slug| slug.eq_ignore_ascii_case(team_slug)))
+        .map(|team| team.id.clone())
+}
+
 /// EXP-1188: open a link from AGENT prose (narration, the thread, the Guide)
 /// per `domain::app_link`: a run or issue on THIS instance opens in the app,
 /// another instance page opens in the browser at its absolute URL, anything
@@ -2770,18 +2781,24 @@ pub(crate) fn open_agent_link(href: &str, window: &mut Window, cx: &mut App) {
                 session_id: thread_id,
             },
         ),
+        // VAPP-218: the app's editor, Preview tab, on that screen (the
+        // browser when this instance has no such app).
+        AppLink::AppScreen { team_slug, app_slug, screen, params } => {
+            let team_id = team_id_by_slug(&team_slug, cx);
+            match crate::apps_view::find_app(&app_slug, team_id.as_deref(), cx).filter(|_| team_id.is_some()) {
+                Some(app) => {
+                    let params = params.into_iter().map(|(k, v)| (k, serde_json::Value::String(v))).collect();
+                    crate::app_screen::open_app_screen(window, cx, app.id, screen, params);
+                }
+                None => {
+                    if let Some(url) = instance_url() {
+                        open_link_href(&url);
+                    }
+                }
+            }
+        }
         AppLink::Issue { team_slug, identifier, .. } => {
-            let team_id = sync::Store::global(cx)
-                .collections()
-                .teams
-                .read(cx)
-                .iter()
-                .find(|team| {
-                    team.slug
-                        .as_deref()
-                        .is_some_and(|slug| slug.eq_ignore_ascii_case(&team_slug))
-                })
-                .map(|team| team.id.clone());
+            let team_id = team_id_by_slug(&team_slug, cx);
             let issue_id = team_id.as_deref().and_then(|team_id| {
                 crate::description_editor::issue_id_by_identifier(team_id, &identifier, cx)
             });

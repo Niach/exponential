@@ -10,11 +10,19 @@ import {
 } from "./-shared"
 import { pageTitle } from "@/lib/page-title"
 
+// Spelled out from the tRPC client, not inferred through `Route`: TanStack
+// Router's loader-data inference via the route tree gives up (falls to `any`)
+// as the tree grows, so the page pins its own type.
+type LoaderData = {
+  overview: Awaited<ReturnType<typeof trpc.admin.overview.query>>
+  platforms: Awaited<ReturnType<typeof trpc.admin.platforms.query>>
+}
+
 export const Route = createFileRoute(`/_authenticated/admin/`)({
   head: () => ({
     meta: [{ title: pageTitle(`Overview`, `Admin`) }],
   }),
-  loader: async () => {
+  loader: async (): Promise<LoaderData> => {
     const [overview, platforms] = await Promise.all([
       trpc.admin.overview.query(),
       trpc.admin.platforms.query(),
@@ -30,7 +38,7 @@ function pct(part: number, whole: number): string {
 }
 
 function AdminOverview() {
-  const { overview, platforms } = Route.useLoaderData()
+  const { overview, platforms }: LoaderData = Route.useLoaderData()
   const { totals } = overview
   const signupTotal = overview.signupsByDay.reduce((s, r) => s + r.count, 0)
   const wsTotal = overview.teamsByDay.reduce((s, r) => s + r.count, 0)

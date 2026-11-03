@@ -56,6 +56,7 @@ import at.exponential.ui.host.HostPolicy
 import at.exponential.ui.host.MediaOptions
 import at.exponential.ui.host.MediaRule
 import at.exponential.ui.host.PickedFile
+import at.exponential.ui.host.NavigateTarget
 import at.exponential.ui.host.RecordRow
 import at.exponential.ui.host.RecordMigrations
 import at.exponential.ui.host.RecordsQuery
@@ -525,6 +526,8 @@ fun rememberAppHost(
     upstreams: AppUpstreamAnswers? = null,
     /** eApps R8 (apps.json `migrationCases`): a draft preview's published `version`; the hosting app's rows read through the package's migrations (copies, nothing written). */
     migrateFrom: String? = null,
+    /** VAPP-218: `app.navigate` opens a screen (the preview's shell); null = no shell, refused. Kept stable by the caller. */
+    navigate: ((NavigateTarget) -> Boolean)? = null,
 ): ExponentialHost {
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -546,7 +549,7 @@ fun rememberAppHost(
             if (request.multiple) pickMany.launch(types) else pickOne.launch(types)
         }
     }
-    val host = remember(packages, consent, themeId, links, appId, teamId, me, grants, readOnly, upstreams, migrateFrom) {
+    val host = remember(packages, consent, themeId, links, appId, teamId, me, grants, readOnly, upstreams, migrateFrom, navigate) {
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
         val db = accountDatabaseFlow(auth, deps.databaseHolder())
@@ -940,6 +943,7 @@ fun rememberAppHost(
                 me = me,
                 zone = zone,
                 onActionFailed = { failure -> toaster.failedAction("save", "the record", failure.message) },
+                navigate = navigate,
             ),
             scope,
         )

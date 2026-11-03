@@ -258,6 +258,7 @@ class AppsTest {
             "automations" to Apps.TestIds.AUTOMATIONS, "automationRow" to Apps.TestIds.AUTOMATION_ROW,
             "webhooks" to Apps.TestIds.WEBHOOKS, "webhookRow" to Apps.TestIds.WEBHOOK_ROW,
             "webhookSecret" to Apps.TestIds.WEBHOOK_SECRET,
+            "previewScreens" to Apps.TestIds.PREVIEW_SCREENS,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)
@@ -291,6 +292,35 @@ class AppsTest {
             val shown = case["shown"]!!.jsonPrimitive.let { if (it is JsonNull) null else it.content }
             assertEquals(case["list"]!!.jsonArray.map { it.jsonPrimitive.content }, Apps.previewTemplates(templates))
             assertEquals(shown, Apps.previewTemplate(templates, picked))
+        }
+    }
+
+    // VAPP-218: the screens contract.
+    @Test
+    fun `screens replay the fixture`() {
+        val screens = fixture["screens"]!!.jsonObject
+        assertEquals(screens["sidebarWidth"]!!.jsonPrimitive.int, Apps.Screens.SIDEBAR_WIDTH)
+        assertEquals(screens["reserved"]!!.jsonArray.map { it.jsonPrimitive.content }, Apps.Screens.RESERVED)
+        fun strings(o: JsonObject) = o.mapValues { it.value.jsonPrimitive.content }
+        val shells = fixture["screenShellCases"]!!.jsonArray.map { it.jsonObject }
+        assert(shells.isNotEmpty())
+        for (case in shells) {
+            val want = case["shell"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+            val got = Apps.screenShell(case["screens"]!!.jsonPrimitive.int, case["phone"]!!.jsonPrimitive.content.toBooleanStrict())
+            assertEquals(case.toString(), want, got?.wire)
+        }
+        val paths = fixture["screenPathCases"]!!.jsonArray.map { it.jsonObject }
+        assert(paths.isNotEmpty())
+        for (case in paths) {
+            fun s(key: String) = case[key]!!.jsonPrimitive.content
+            assertEquals(case.toString(), s("path"), Apps.screenPath(s("teamSlug"), s("appSlug"), s("screen"), strings(case["params"]!!.jsonObject)))
+        }
+        val queries = fixture["screenQueryCases"]!!.jsonArray.map { it.jsonObject }
+        assert(queries.isNotEmpty())
+        for (case in queries) {
+            val got = Apps.screenParamsFromQuery(strings(case["query"]!!.jsonObject))
+            assertEquals(case.toString(), strings(case["params"]!!.jsonObject), got)
+            assertEquals(case.toString(), strings(case["params"]!!.jsonObject).keys.toList(), got.keys.toList())
         }
     }
 

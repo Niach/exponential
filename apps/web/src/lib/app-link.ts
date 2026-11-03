@@ -11,9 +11,12 @@ export type AppLink =
   | { kind: `issue`; teamSlug: string; boardSlug: string; identifier: string }
   | { kind: `session`; teamSlug: string; sessionId: string }
   | { kind: `thread`; teamSlug: string; threadId: string }
+  | { kind: `appScreen`; teamSlug: string; appSlug: string; screen: string; params: Record<string, string> }
   | { kind: `app`; path: string }
   | { kind: `external`; url: string }
   | { kind: `ignore` }
+
+const SCREEN_RESERVED: readonly string[] = [`tab`, `frame`]
 
 // Two labels at least (or `localhost`): a browser punycodes the placeholder
 // `https://…` into the one-label host `xn--rvg`.
@@ -25,6 +28,24 @@ function decodeSegment(segment: string): string {
   } catch {
     return segment
   }
+}
+
+/** VAPP-218: a path's query as screen params: `k=v` pairs split on `&`
+ *  then the first `=`, each side percent-decoded (a bad escape kept), empty
+ *  keys dropped, the last repeat wins, the editor's own keys dropped. */
+function screenQueryParams(path: string): Record<string, string> {
+  const q = path.indexOf(`?`)
+  if (q === -1) return {}
+  const h = path.indexOf(`#`, q)
+  const query = path.slice(q + 1, h === -1 ? undefined : h)
+  const found: Record<string, string> = {}
+  for (const pair of query.split(`&`)) {
+    const eq = pair.indexOf(`=`)
+    const key = decodeSegment(eq === -1 ? pair : pair.slice(0, eq))
+    if (!key || SCREEN_RESERVED.includes(key)) continue
+    found[key] = eq === -1 ? `` : decodeSegment(pair.slice(eq + 1))
+  }
+  return Object.fromEntries(Object.keys(found).sort().map((k) => [k, found[k]!]))
 }
 
 /** An in-app path (query + hash kept for `app`, dropped for the routes). */
@@ -43,6 +64,9 @@ function classifyPath(path: string): AppLink {
     // EXP-1284: a thread (its `?child=` is dropped like every route query).
     if (kind === `threads` && a && segments.length === 4)
       return { kind: `thread`, teamSlug: team, threadId: a }
+    // VAPP-218: an app screen, its query = the screen's params.
+    if (kind === `apps` && a && b && segments.length === 5)
+      return { kind: `appScreen`, teamSlug: team, appSlug: a, screen: b, params: screenQueryParams(path) }
   }
   return { kind: `app`, path }
 }

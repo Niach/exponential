@@ -37,6 +37,12 @@ class AppLinkTest {
             "issue" -> AppLink.Issue(s("teamSlug"), s("boardSlug"), s("identifier"))
             "session" -> AppLink.Session(s("teamSlug"), s("sessionId"))
             "thread" -> AppLink.Thread(s("teamSlug"), s("threadId"))
+            "appScreen" -> AppLink.AppScreen(
+                s("teamSlug"),
+                s("appSlug"),
+                s("screen"),
+                link.getValue("params").jsonObject.mapValues { it.value.jsonPrimitive.content },
+            )
             "app" -> AppLink.App(s("path"))
             "external" -> AppLink.External(s("url"))
             "ignore" -> AppLink.Ignore

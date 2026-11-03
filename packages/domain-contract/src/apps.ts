@@ -304,3 +304,34 @@ export function withUploadedUrl(list: unknown, fileName: string, url: string): u
   })
   return hit ? next : null
 }
+
+/** VAPP-218 (U1): the screens contract (`screens.$comment`). */
+export const APPS_SCREENS = fixture.screens
+
+/** Which navigation the preview frame paints for a package's screens:
+ *  none without screens, the phone bottom bar on a phone (or the Phone
+ *  frame), else the sidebar (`screenShellCases`). */
+export function screenShell(screenCount: number, phone: boolean): `sidebar` | `bar` | null {
+  if (screenCount <= 0) return null
+  return phone ? `bar` : `sidebar`
+}
+
+/** The web deep link to an app screen: `/t/<team>/apps/<app>/<screen>`,
+ *  then the params sorted by key (`screenPathCases`). */
+export function screenPath(teamSlug: string, appSlug: string, screen: string, params: Record<string, string> = {}): string {
+  const path = `/t/${encodeURIComponent(teamSlug)}/apps/${encodeURIComponent(appSlug)}/${encodeURIComponent(screen)}`
+  const keys = Object.keys(params).sort()
+  if (!keys.length) return path
+  return `${path}?${keys.map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(params[k]!)}`).join(`&`)}`
+}
+
+/** A screen route's query → its params: every string key but the editor's
+ *  own (`screens.reserved`), sorted (`screenQueryCases`). */
+export function screenParamsFromQuery(query: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {}
+  for (const k of Object.keys(query).sort()) {
+    const v = query[k]
+    if (!(APPS_SCREENS.reserved as string[]).includes(k) && typeof v === `string`) out[k] = v
+  }
+  return out
+}

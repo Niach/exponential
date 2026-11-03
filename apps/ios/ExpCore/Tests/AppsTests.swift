@@ -120,6 +120,7 @@ final class AppsTests: XCTestCase {
             "automations": Apps.TestIds.automations, "automationRow": Apps.TestIds.automationRow,
             "webhooks": Apps.TestIds.webhooks, "webhookRow": Apps.TestIds.webhookRow,
             "webhookSecret": Apps.TestIds.webhookSecret,
+            "previewScreens": Apps.TestIds.previewScreens,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])
@@ -323,6 +324,41 @@ final class AppsTests: XCTestCase {
         }
         XCTAssertEqual(Apps.previewTemplates(packageJSON: "not json"), [])
         XCTAssertNil(Apps.previewTemplate(packageJSON: "not json"))
+    }
+
+    // MARK: - VAPP-218 screens (`screens`, `screenShellCases`, `screenPathCases`, `screenQueryCases`)
+
+    func testScreensConstantsMatchTheFixture() throws {
+        let screens = try XCTUnwrap(try fixture()["screens"] as? [String: Any])
+        XCTAssertEqual(screens["sidebarWidth"] as? Double, Apps.ScreenSpec.sidebarWidth)
+        XCTAssertEqual(screens["reserved"] as? [String], Apps.ScreenSpec.reserved)
+    }
+
+    func testScreenShellCases() throws {
+        for item in try cases("screenShellCases") {
+            let count = try XCTUnwrap(item["screens"] as? Int)
+            let phone = try XCTUnwrap(item["phone"] as? Bool)
+            XCTAssertEqual(Apps.screenShell(screenCount: count, phone: phone)?.rawValue, item["shell"] as? String, "\(count) phone=\(phone)")
+        }
+    }
+
+    func testScreenPathCases() throws {
+        for item in try cases("screenPathCases") {
+            let path = try XCTUnwrap(item["path"] as? String)
+            XCTAssertEqual(Apps.screenPath(
+                teamSlug: try XCTUnwrap(item["teamSlug"] as? String),
+                appSlug: try XCTUnwrap(item["appSlug"] as? String),
+                screen: try XCTUnwrap(item["screen"] as? String),
+                params: try XCTUnwrap(item["params"] as? [String: String])
+            ), path, path)
+        }
+    }
+
+    func testScreenQueryCases() throws {
+        for item in try cases("screenQueryCases") {
+            let query = try XCTUnwrap(item["query"] as? [String: Any])
+            XCTAssertEqual(Apps.screenParamsFromQuery(query), try XCTUnwrap(item["params"] as? [String: String]), "\(query)")
+        }
     }
 
     // MARK: - VAPP-157 the media rule (`mediaPolicy.cases`)

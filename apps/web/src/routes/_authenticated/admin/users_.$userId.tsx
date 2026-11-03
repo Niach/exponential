@@ -25,8 +25,15 @@ import {
 } from "./-shared"
 import { pageTitle } from "@/lib/page-title"
 
+// Spelled out from the tRPC client, not inferred through `Route`: TanStack
+// Router's loader-data inference via the route tree gives up (falls to `any`)
+// as the tree grows, so the page pins its own type.
+type LoaderData = {
+  detail: Awaited<ReturnType<typeof trpc.admin.getUserDetail.query>>
+}
+
 export const Route = createFileRoute(`/_authenticated/admin/users_/$userId`)({
-  loader: async ({ params }) => {
+  loader: async ({ params }): Promise<LoaderData> => {
     const detail = await trpc.admin.getUserDetail.query({
       userId: params.userId,
     })
@@ -46,7 +53,7 @@ export const Route = createFileRoute(`/_authenticated/admin/users_/$userId`)({
 function AdminUserDetail() {
   const router = useRouter()
   const navigate = useNavigate()
-  const { detail } = Route.useLoaderData()
+  const { detail }: LoaderData = Route.useLoaderData()
   const { data: session } = useSession()
   const isSelf = session?.user?.id === detail.user.id
   const [busy, setBusy] = useState(false)

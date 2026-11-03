@@ -25,6 +25,8 @@ import com.exponential.app.data.push.DeepLinkBus
 import com.exponential.app.data.push.PushDeepLinks
 import com.exponential.app.data.share.ShareIntentParser
 import com.exponential.app.domain.WebLinks
+import com.exponential.app.domain.AppLink
+import com.exponential.app.domain.classifyAppLink
 import com.exponential.app.navigation.AppNavHost
 import com.exponential.app.ui.theme.ExponentialTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -137,6 +139,22 @@ class MainActivity : ComponentActivity() {
         // identifier → local issue id) happens in AppNavHost, which already
         // parks targets until auth/sync are ready.
         if (data.scheme == "https" || data.scheme == "http") {
+            // VAPP-218: an app screen (`/t/{team}/apps/{app}/{screen}?<params>`)
+            // classifies through the in-app link rule (app-link.json
+            // `appScreen`), which reads the raw query as the screen's params.
+            val origin = "${data.scheme}://${data.encodedAuthority}"
+            val screenLink = classifyAppLink(data.toString(), origin)
+            if (screenLink is AppLink.AppScreen) {
+                deepLinkBus.openAppScreen(
+                    uri = data,
+                    host = data.host ?: return,
+                    teamSlug = screenLink.teamSlug,
+                    appSlug = screenLink.appSlug,
+                    screen = screenLink.screen,
+                    params = screenLink.params,
+                )
+                return
+            }
             when (val parsed = WebLinks.parsePath(data.path)) {
                 is WebLinks.Parsed.IssueRef -> deepLinkBus.openWebIssueRef(
                     uri = data,

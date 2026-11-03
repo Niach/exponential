@@ -1,5 +1,6 @@
 import { useCallback, type MouseEvent } from "react"
 import { useNavigate } from "@tanstack/react-router"
+import { screenPath } from "@exp/domain-contract/apps"
 import { classifyAppLink, isRoutedAppPath } from "@/lib/app-link"
 
 /** EXP-1188: the click handler for a container of agent prose. A link into
@@ -55,6 +56,10 @@ export function useAppLinkClick() {
             to: `/t/$teamSlug/threads/$threadId`,
             params: { teamSlug: link.teamSlug, threadId: link.threadId },
           })
+          return
+        case `appScreen`:
+          // VAPP-218: the app's editor, Preview tab, on that screen.
+          void navigate({ href: screenPath(link.teamSlug, link.appSlug, link.screen, link.params) })
           return
         case `app`:
           void navigate({ href: link.path })

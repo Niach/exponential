@@ -299,7 +299,8 @@
     "automationRow": "app-automation-row",
     "webhooks": "app-settings-webhooks",
     "webhookRow": "app-webhook-row",
-    "webhookSecret": "app-webhook-secret"
+    "webhookSecret": "app-webhook-secret",
+    "previewScreens": "app-editor-preview-screens"
   },
   "slugifyCases": [
     {
@@ -1310,5 +1311,101 @@
         "expected": null
       }
     ]
-  }
+  },
+  "screens": {
+    "$comment": "VAPP-218 (eApps U1, spec docs/spec/apps.md §5.1; the eUI half = @exponential_app/eui src/host/screens.ts, fixtures/host-router.json `screens` + `navigate`): a package's `screens` are painted BY THE HOST inside THE PREVIEW FRAME with EXISTING navigation components only (no new component): `screenShell(screenCount, phone)` = null when the package declares no screens (the frame shows the picked template as before), `bar` when `phone` (the device is a phone, web < md, OR the preview's Phone frame), else `sidebar`. SIDEBAR (wide frame): the styleguide `sidebar-rows` compact rows (the screen's eUI icon by name, unknown/none = `ui-icon-placeholder`, + its title; the shown screen = the active row) in a column `sidebarWidth` px wide at the frame's start, a hairline, then the surface; testId `previewScreens`. BAR (phone frame, phones): the styleguide `phone-tab-bar` under the surface inside the frame, one item per screen (icon + title, the shown one selected); testId `previewScreens`. A tap opens that screen with its own params. WHICH SCREEN: eUI `resolveScreen(pkg, requested, params)` (the requested one, else the first; its params then the request's); `app.navigate` (`HostOptions.navigate`) replaces the request (screen + params); a repaint (a new head, Versions › Preview) keeps it when the next package has that screen, else the first. The surface opens the screen's template with `applyTemplate` data `{params}` (eUI `screenData`). With screens the toolbar's template Select (`previewTemplate`) is hidden: the screens ARE the picker. DEEP LINKS: web route `/t/$teamSlug/apps/$appSlug/$screen` (the editor, Preview tab: phones open the Preview tab too) whose query is the params: `screenPath(teamSlug, appSlug, screen, params)` = the path, `encodeURIComponent` per segment, then `?` + the params sorted by key as `k=v` pairs (encodeURIComponent both), none = no `?`; `screenParamsFromQuery(query)` = every key but `reserved` (the editor's own `tab`, `frame`). On web a navigate REPLACES the route with `screenPath` (history replace, not push); natives keep it in memory. Natives: app-link.json `appScreen` (a tapped link, a universal / app link) opens the app's editor on its Preview tab showing that screen. Locked ×4 by `screenShellCases`, `screenPathCases`, `screenQueryCases` (web lib apps.ts, desktop domain::apps, iOS ExpCore Apps.swift, Android domain/Apps.kt).",
+    "sidebarWidth": 200,
+    "reserved": [
+      "tab",
+      "frame"
+    ]
+  },
+  "screenShellCases": [
+    {
+      "$why": "no screens: the template as before",
+      "screens": 0,
+      "phone": false,
+      "shell": null
+    },
+    {
+      "screens": 0,
+      "phone": true,
+      "shell": null
+    },
+    {
+      "$why": "the wide frame: the sidebar",
+      "screens": 3,
+      "phone": false,
+      "shell": "sidebar"
+    },
+    {
+      "$why": "a phone or the Phone frame: the bottom bar",
+      "screens": 3,
+      "phone": true,
+      "shell": "bar"
+    },
+    {
+      "$why": "one screen still draws its nav",
+      "screens": 1,
+      "phone": false,
+      "shell": "sidebar"
+    }
+  ],
+  "screenPathCases": [
+    {
+      "teamSlug": "acme",
+      "appSlug": "crm",
+      "screen": "pipeline",
+      "params": {},
+      "path": "/t/acme/apps/crm/pipeline"
+    },
+    {
+      "$why": "params sorted, encoded",
+      "teamSlug": "acme",
+      "appSlug": "crm",
+      "screen": "deals",
+      "params": {
+        "stage": "won & lost",
+        "company": "Ünï"
+      },
+      "path": "/t/acme/apps/crm/deals?company=%C3%9Cn%C3%AF&stage=won%20%26%20lost"
+    },
+    {
+      "$why": "segments are encoded",
+      "teamSlug": "a b",
+      "appSlug": "crm",
+      "screen": "x/y",
+      "params": {
+        "q": ""
+      },
+      "path": "/t/a%20b/apps/crm/x%2Fy?q="
+    }
+  ],
+  "screenQueryCases": [
+    {
+      "query": {},
+      "params": {}
+    },
+    {
+      "$why": "the editor's own keys are no params",
+      "query": {
+        "tab": "preview",
+        "frame": "phone",
+        "stage": "won"
+      },
+      "params": {
+        "stage": "won"
+      }
+    },
+    {
+      "query": {
+        "company": "Acme",
+        "q": ""
+      },
+      "params": {
+        "company": "Acme",
+        "q": ""
+      }
+    }
+  ]
 }

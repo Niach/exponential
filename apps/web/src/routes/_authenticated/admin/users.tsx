@@ -56,6 +56,11 @@ function compareUsers(a: AdminUser, b: AdminUser, key: SortKey): number {
   }
 }
 
+// Spelled out from the tRPC client, not inferred through `Route`: TanStack
+// Router's loader-data inference via the route tree gives up (falls to `any`)
+// as the tree grows, so the page pins its own type.
+type LoaderData = { users: AdminUser[] }
+
 export const Route = createFileRoute(`/_authenticated/admin/users`)({
   head: () => ({
     meta: [{ title: pageTitle(`Users`, `Admin`) }],
@@ -71,7 +76,7 @@ export const Route = createFileRoute(`/_authenticated/admin/users`)({
         ? (search.dir as SortDir)
         : undefined,
   }),
-  loader: async () => {
+  loader: async (): Promise<LoaderData> => {
     const users = await trpc.admin.listUsers.query()
     return { users }
   },
@@ -134,7 +139,7 @@ function GithubStatus({ user }: { user: AdminUser }) {
 
 function AdminUsers() {
   const router = useRouter()
-  const { users } = Route.useLoaderData()
+  const { users }: LoaderData = Route.useLoaderData()
   const { data: session } = useSession()
   const currentUserId = session?.user?.id
   const [search, setSearch] = useState(``)

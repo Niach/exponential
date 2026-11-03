@@ -17,6 +17,15 @@ pub enum AppLink {
     Session { team_slug: String, session_id: String },
     /// EXP-1284: a thread on THIS instance — open it in the app.
     Thread { team_slug: String, thread_id: String },
+    /// VAPP-218: an app screen on THIS instance — open the app's editor on
+    /// its Preview tab showing `screen` with `params` (the query, minus the
+    /// editor's own keys apps.json `screens.reserved`).
+    AppScreen {
+        team_slug: String,
+        app_slug: String,
+        screen: String,
+        params: std::collections::BTreeMap<String, String>,
+    },
     /// Another page on THIS instance: the path as written (query + hash
     /// kept), resolved against the instance origin by the caller.
     App { path: String },
@@ -119,8 +128,65 @@ fn in_app(path: &str) -> AppLink {
             team_slug: team.clone(),
             thread_id: id.clone(),
         },
+        [t, team, apps, app, screen] if t == "t" && apps == "apps" => AppLink::AppScreen {
+            team_slug: team.clone(),
+            app_slug: app.clone(),
+            screen: screen.clone(),
+            params: screen_query_params(path),
+        },
         _ => AppLink::App { path: path.to_string() },
     }
+}
+
+/// VAPP-218: the editor's own query keys, never screen params (apps.json
+/// `screens.reserved`).
+const SCREEN_RESERVED: [&str; 2] = ["tab", "frame"];
+
+/// A path's query as screen params: `k=v` pairs split on `&` then the first
+/// `=`, each side percent-decoded, empty keys dropped, the last repeat wins,
+/// the editor's own keys dropped (sorted by key: a `BTreeMap`).
+fn screen_query_params(path: &str) -> std::collections::BTreeMap<String, String> {
+    let mut found = std::collections::BTreeMap::new();
+    let Some(q) = path.find('?') else {
+        return found;
+    };
+    let rest = &path[q + 1..];
+    let query = &rest[..rest.find('#').unwrap_or(rest.len())];
+    for pair in query.split('&') {
+        let (key, value) = match pair.split_once('=') {
+            Some((key, value)) => (strict_decode(key), strict_decode(value)),
+            None => (strict_decode(pair), String::new()),
+        };
+        if key.is_empty() || SCREEN_RESERVED.contains(&key.as_str()) {
+            continue;
+        }
+        found.insert(key, value);
+    }
+    found
+}
+
+/// VAPP-218: `decodeURIComponent`, or the text as written when any escape is
+/// malformed or the bytes are not UTF-8 (the TS reference keeps it whole).
+fn strict_decode(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let hex = |b: u8| (b as char).to_digit(16);
+            match (bytes.get(index + 1).copied().and_then(hex), bytes.get(index + 2).copied().and_then(hex)) {
+                (Some(high), Some(low)) => {
+                    out.push((high * 16 + low) as u8);
+                    index += 3;
+                }
+                _ => return text.to_string(),
+            }
+        } else {
+            out.push(bytes[index]);
+            index += 1;
+        }
+    }
+    String::from_utf8(out).unwrap_or_else(|_| text.to_string())
 }
 
 /// `%XX` → byte; a malformed escape stays literal; invalid UTF-8 is lossy.
@@ -164,6 +230,9 @@ mod tests {
         identifier: Option<String>,
         session_id: Option<String>,
         thread_id: Option<String>,
+        app_slug: Option<String>,
+        screen: Option<String>,
+        params: Option<std::collections::BTreeMap<String, String>>,
     }
 
     impl FixtureLink {
@@ -181,6 +250,12 @@ mod tests {
                 "thread" => AppLink::Thread {
                     team_slug: self.team_slug.unwrap(),
                     thread_id: self.thread_id.unwrap(),
+                },
+                "appScreen" => AppLink::AppScreen {
+                    team_slug: self.team_slug.unwrap(),
+                    app_slug: self.app_slug.unwrap(),
+                    screen: self.screen.unwrap(),
+                    params: self.params.unwrap(),
                 },
                 "app" => AppLink::App { path: self.path.unwrap() },
                 "external" => AppLink::External { url: self.url.unwrap() },

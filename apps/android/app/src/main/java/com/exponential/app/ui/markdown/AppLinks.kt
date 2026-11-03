@@ -24,7 +24,7 @@ import java.net.URI
  * EXP-1188: links in agent prose (narration, Guide, thread) that point at THIS
  * instance open in the app. [origin] = the active account's instance origin
  * (`https://host[:port]`, no trailing slash); [onOpen] navigates an
- * [AppLink.Issue] / [AppLink.Session] and opens an [AppLink.App] page or a
+ * [AppLink.Issue] / [AppLink.Session] / [AppLink.AppScreen] and opens an [AppLink.App] page or a
  * web [AppLink.External] in the in-app browser, given the link's ABSOLUTE url.
  */
 class AppLinkHandler(
@@ -52,7 +52,7 @@ internal fun appLinkAnnotation(
 ): LinkAnnotation? {
     if (handler == null) return LinkAnnotation.Url(url = href, styles = styles)
     return when (val link = classifyAppLink(href, handler.origin)) {
-        is AppLink.Issue, is AppLink.Session, is AppLink.Thread -> {
+        is AppLink.Issue, is AppLink.Session, is AppLink.Thread, is AppLink.AppScreen -> {
             val url = absoluteUrl(href, handler.origin)
             LinkAnnotation.Clickable(
                 tag = url,
@@ -149,6 +149,15 @@ fun rememberAppLinkHandler(): AppLinkHandler? {
                         identifier = link.identifier,
                     )
                 }
+                // VAPP-218: an app screen = the app's editor, Preview tab, that screen.
+                is AppLink.AppScreen -> bus.openAppScreen(
+                    uri = Uri.parse(url),
+                    host = host,
+                    teamSlug = link.teamSlug,
+                    appSlug = link.appSlug,
+                    screen = link.screen,
+                    params = link.params,
+                )
                 // The one other page the app renders natively (EXP-825),
                 // matching iOS; every other page + source = a Custom Tab.
                 is AppLink.App ->

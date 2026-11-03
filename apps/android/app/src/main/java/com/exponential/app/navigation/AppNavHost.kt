@@ -312,6 +312,28 @@ fun AppNavHost() {
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
                 }
+            // VAPP-218: an app screen link (a tapped in-app link or a verified
+            // App Link): the app's editor on its Preview tab showing that
+            // screen, resolved like the issue link (Custom Tab on a miss).
+            is DeepLinkBus.Target.AppScreen ->
+                when (val resolution = webLinkResolver.resolveApp(target)) {
+                    is WebLinkResolver.Resolution.Found -> {
+                        val teamSwitch = viewModel.planTeamSwitch(
+                            resolution.accountId,
+                            webLinkResolver.teamOfApp(resolution.id, resolution.accountId),
+                        )
+                        guarded {
+                            if (teamSwitch != null) {
+                                viewModel.applyTeamSwitch(teamSwitch)
+                            } else if (resolution.accountId != state.activeAccountId) {
+                                viewModel.switchAccount(resolution.accountId)
+                            }
+                            navController.navigate(Routes.appScreen(resolution.id, target.screen, target.params))
+                        }
+                    }
+                    WebLinkResolver.Resolution.NotFound ->
+                        CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
+                }
             // A claimed-but-unrenderable https link (MainActivity's null
             // parse): straight to the Custom Tab, which never re-triggers
             // App Links.
@@ -822,7 +844,16 @@ private fun AuthenticatedNav(
                 onOpenApp = { id -> navController.navigate(Routes.app(id)) },
             )
         }
-        composable(Routes.APP_PATTERN) {
+        composable(
+            Routes.APP_PATTERN,
+            arguments = Routes.APP_ARGS.map { name ->
+                navArgument(name) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }
+            },
+        ) {
             AppEditorScreen(
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },

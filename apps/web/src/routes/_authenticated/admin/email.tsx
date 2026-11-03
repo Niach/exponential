@@ -71,6 +71,19 @@ function isAutoBlocked(row: BounceRow): boolean {
   return row.kind === `complaint` || row.bounceType === `Permanent`
 }
 
+// Spelled out from the tRPC client, not inferred through `Route`: TanStack
+// Router's loader-data inference via the route tree gives up (falls to `any`)
+// as the tree grows, so the page pins its own type.
+// The search callbacks of `Route.useNavigate()` lose their `prev` type the
+// same way, so the search shape is named too.
+type LoaderData = { bounces: BounceRow[]; deliveries: DeliveryRow[] }
+type EmailSearch = {
+  tab?: `bounces`
+  kind?: DeliveryKind
+  status?: DeliveryStatus
+  q?: string
+}
+
 export const Route = createFileRoute(`/_authenticated/admin/email`)({
   head: () => ({
     meta: [{ title: pageTitle(`Email health`, `Admin`) }],
@@ -81,12 +94,7 @@ export const Route = createFileRoute(`/_authenticated/admin/email`)({
   // the inbox ?tab= pattern.
   validateSearch: (
     search: Record<string, unknown>
-  ): {
-    tab?: `bounces`
-    kind?: DeliveryKind
-    status?: DeliveryStatus
-    q?: string
-  } => ({
+  ): EmailSearch => ({
     tab: search.tab === `bounces` ? `bounces` : undefined,
     kind: DELIVERY_KINDS.includes(search.kind as DeliveryKind)
       ? (search.kind as DeliveryKind)
@@ -104,7 +112,7 @@ export const Route = createFileRoute(`/_authenticated/admin/email`)({
     status: search.status,
     q: search.q,
   }),
-  loader: async ({ deps }) => {
+  loader: async ({ deps }): Promise<LoaderData> => {
     const [bounces, deliveries] = await Promise.all([
       trpc.admin.listEmailBounces.query(),
       trpc.admin.listEmailDeliveries.query({ ...deps, limit: PAGE_SIZE }),
@@ -128,7 +136,7 @@ function EmailError() {
 // (EXP-461); the bounce section is the suppression worklist (EXP-227).
 function AdminEmail() {
   const router = useRouter()
-  const { bounces, deliveries } = Route.useLoaderData()
+  const { bounces, deliveries }: LoaderData = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
   const [busy, setBusy] = useState<string | null>(null)
@@ -158,7 +166,7 @@ function AdminEmail() {
   const commitSearch = (value: string) => {
     const q = value.trim() || undefined
     if (q === search.q) return
-    void navigate({ search: (prev) => ({ ...prev, q }) })
+    void navigate({ search: (prev: EmailSearch) => ({ ...prev, q }) })
   }
 
   const loadMore = async () => {
@@ -211,7 +219,7 @@ function AdminEmail() {
         value={search.tab ?? `sent`}
         onValueChange={(value) =>
           void navigate({
-            search: (prev) => ({
+            search: (prev: EmailSearch) => ({
               ...prev,
               tab: value === `bounces` ? `bounces` : undefined,
             }),
@@ -240,12 +248,12 @@ function AdminEmail() {
                 value={search.kind ?? null}
                 onChange={(value) =>
                   void navigate({
-                    search: (prev) => ({ ...prev, kind: value as DeliveryKind }),
+                    search: (prev: EmailSearch) => ({ ...prev, kind: value as DeliveryKind }),
                   })
                 }
                 noneLabel="All kinds"
                 onNone={() =>
-                  void navigate({ search: (prev) => ({ ...prev, kind: undefined }) })
+                  void navigate({ search: (prev: EmailSearch) => ({ ...prev, kind: undefined }) })
                 }
                 triggerVariant="field"
                 triggerLabel="All kinds"
@@ -259,12 +267,12 @@ function AdminEmail() {
                 value={search.status ?? null}
                 onChange={(value) =>
                   void navigate({
-                    search: (prev) => ({ ...prev, status: value as DeliveryStatus }),
+                    search: (prev: EmailSearch) => ({ ...prev, status: value as DeliveryStatus }),
                   })
                 }
                 noneLabel="All statuses"
                 onNone={() =>
-                  void navigate({ search: (prev) => ({ ...prev, status: undefined }) })
+                  void navigate({ search: (prev: EmailSearch) => ({ ...prev, status: undefined }) })
                 }
                 triggerVariant="field"
                 triggerLabel="All statuses"

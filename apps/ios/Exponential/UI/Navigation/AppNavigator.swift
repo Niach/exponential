@@ -22,8 +22,10 @@ enum AppRoute: Hashable {
     /// VAPP-110: the team's Apps (fixtures/apps.json) — #EXP-1384: the
     /// Apps TAB's root (a link to it switches the tab).
     case apps(accountId: String)
-    /// VAPP-110: one app's editor (`appId` = its row id).
-    case app(accountId: String, appId: String)
+    /// VAPP-110: one app's editor (`appId` = its row id). VAPP-218:
+    /// `screen` (an app screen link) opens it on its Preview tab showing
+    /// that screen.
+    case app(accountId: String, appId: String, screen: Apps.ScreenRequest? = nil)
     /// The Inbox page (EXP-1373: pushed from the Chats header's inbox
     /// circle, notifications only — My issues and Drafts moved to the board).
     case myWork
@@ -389,6 +391,20 @@ struct AppNavigator: View {
                 return
             }
             deps.deepLinkBus.navigateToSessionLink(sessionId, account: holder, db: deps.db)
+        case let .appScreen(teamSlug, appSlug, screen, params):
+            // VAPP-218: the app's editor on its Preview tab showing that
+            // screen, under a signed-in account on the link's host.
+            guard let account = accountsOnHost(of: url).first else {
+                deps.deepLinkBus.openExternal(url)
+                return
+            }
+            deps.deepLinkBus.navigateToAppScreen(DeepLinkBus.AppScreenLink(
+                teamSlug: teamSlug,
+                appSlug: appSlug,
+                request: Apps.ScreenRequest(screen: screen, params: params),
+                accountId: account.id,
+                url: url
+            ))
         case nil:
             // Shouldn't happen (the AASA claims only the parsed shapes), but
             // never swallow a link the user tapped.
@@ -698,6 +714,12 @@ struct MainNavigator: View {
                 navigate({ openAgentFromLink() }, dropped: { _ = deps.deepLinkBus.consumeAgent() })
             }
         }
+        // VAPP-218: an app screen link (a tapped link, a universal link).
+        .onChange(of: deps.deepLinkBus.pendingAppScreen) { _, link in
+            if link != nil {
+                navigate({ openAppScreenFromLink() }, dropped: { _ = deps.deepLinkBus.consumeAppScreen() })
+            }
+        }
         // A team was deleted in-app (EXP-43): back to the landing tab (Home)
         // so no pushed view (team settings, server detail) still targets it.
         .onReceive(NotificationCenter.default.publisher(for: .teamDeleted)) { _ in
@@ -733,6 +755,7 @@ struct MainNavigator: View {
             if deps.deepLinkBus.pendingInbox { openInboxFromPush() }
             if deps.deepLinkBus.pendingAgentTeamSlug != nil { openAgentFromLink() }
             if deps.deepLinkBus.pendingDeviceRowId != nil { openDeviceFromLink() }
+            if deps.deepLinkBus.pendingAppScreen != nil { openAppScreenFromLink() }
         }
         .safeAreaInset(edge: .top, spacing: 0) {
             syncBanner
@@ -1112,8 +1135,8 @@ extension MainNavigator {
         case let .apps(accountId):
             AppsListScreen()
                 .environment(\.accountId, accountId)
-        case let .app(accountId, appId):
-            AppEditorScreen(appId: appId)
+        case let .app(accountId, appId, screen):
+            AppEditorScreen(appId: appId, screen: screen)
                 .id(appId)
                 .environment(\.accountId, accountId)
         case .myWork:
@@ -1575,6 +1598,47 @@ extension MainNavigator {
             applyTeam(team.id)
         }
         landOnRoot(of: .agent)
+    }
+
+    /// VAPP-218 (apps.json `screens`): an app screen link lands on the Apps
+    /// tab with the app's editor pushed, on its Preview tab showing that
+    /// screen. Another signed-in account switches first and leaves the link
+    /// PENDING (the rebuilt navigator's cold-launch `.task` drains it); the
+    /// linked team becomes the active one; an app not synced here = the
+    /// Safari sheet.
+    private func openAppScreenFromLink() {
+        let bus = deps.deepLinkBus
+        guard let link = bus.pendingAppScreen else { return }
+        if !link.accountId.isEmpty, link.accountId != deps.auth.activeAccountId {
+            deps.auth.switchAccount(id: link.accountId)
+            return
+        }
+        _ = bus.consumeAppScreen()
+        guard let pool = try? deps.db.pool(forAccountId: link.accountId) else {
+            bus.openExternal(link.url)
+            return
+        }
+        let app = (try? pool.read { db -> AppEntity? in
+            guard let teamId = try String.fetchOne(
+                db,
+                sql: #"SELECT "id" FROM "teams" WHERE "slug" = ? LIMIT 1"#,
+                arguments: [link.teamSlug]
+            ) else { return nil }
+            return try AppEntity
+                .filter(Column("team_id") == teamId)
+                .filter(Column("slug") == link.appSlug)
+                .filter(Column("deleted_at") == nil)
+                .fetchOne(db)
+        }) ?? nil
+        guard let app else {
+            bus.openExternal(link.url)
+            return
+        }
+        if app.teamId != teamState.activeTeamId, teamState.teams.contains(where: { $0.id == app.teamId }) {
+            applyTeam(app.teamId)
+        }
+        landOnRoot(of: .apps)
+        path.append(.app(accountId: link.accountId, appId: app.id, screen: link.request))
     }
 
     /// EXP-1373 (chats.json `shell`): the phone shows ONE active team; a

@@ -70,6 +70,20 @@ class DeepLinkBus @Inject constructor() {
             val sessionPath: Boolean = false,
         ) : Target
 
+        // VAPP-218: an app screen (app-link.json `appScreen`), a tapped
+        // in-app link or a verified https App Link: the app (team slug + app
+        // slug, resolved against the account matching `host`) opens its
+        // editor on the Preview tab showing [screen] with [params]; `uri` =
+        // the Custom Tab fallback.
+        data class AppScreen(
+            val uri: android.net.Uri,
+            val host: String,
+            val teamSlug: String,
+            val appSlug: String,
+            val screen: String,
+            val params: Map<String, String>,
+        ) : Target
+
         // A verified https App Link the manifest claims but the app cannot
         // render (its pathPattern `/t/.*/agent` also matches nested paths
         // such as `/t/x/boards/b/issues/APP-1/agent`): AppNavHost hands it
@@ -152,6 +166,17 @@ class DeepLinkBus @Inject constructor() {
         sessionPath: Boolean = false,
     ) {
         _target.value = Target.WebThreadRef(uri, host, teamSlug, threadId, sessionPath)
+    }
+
+    fun openAppScreen(
+        uri: android.net.Uri,
+        host: String,
+        teamSlug: String,
+        appSlug: String,
+        screen: String,
+        params: Map<String, String>,
+    ) {
+        _target.value = Target.AppScreen(uri, host, teamSlug, appSlug, screen, params)
     }
 
     fun openWebUrl(uri: android.net.Uri) {

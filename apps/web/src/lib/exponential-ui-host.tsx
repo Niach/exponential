@@ -508,6 +508,9 @@ export interface AppHostOptions {
   navigate: (href: string) => void
   /** harness.openDevice; defaults to a toast with the device's name. */
   openDevice?: (id: string) => void
+  /** VAPP-218: `app.navigate` opens one of the package's screens (the
+   *  preview's shell); unset = the host refuses it. */
+  navigateScreen?: HostOptions[`navigate`]
   transport?: Transport
   packages?: readonly AppPackage[]
   /** The instance origin the media rule compares against (default: the
@@ -687,6 +690,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
     // synced team), else the device's.
     zone: (ms) => teamZoneOffset(scope.teamId, ms),
     onActionFailed: ({ message }) => void failedAction(`save`, `the record`, undefined, { description: message }),
+    navigate: options.navigateScreen,
     extensions: [appExtensionCatalog],
     packages: options.packages ?? [],
     sources: {

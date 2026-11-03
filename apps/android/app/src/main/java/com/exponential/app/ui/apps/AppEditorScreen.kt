@@ -63,6 +63,10 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import at.exponential.ui.host.HostSurface
+import at.exponential.ui.host.NavigateTarget
+import at.exponential.ui.host.Screens
+import com.exponential.app.ui.components.PhoneTabCapsule
+import com.exponential.app.ui.components.PhoneTabItem
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.primitives.EmptyStateSize
 import com.exponential.app.data.db.AppVersionEntity
@@ -165,6 +169,7 @@ fun AppEditorScreen(
     val records by viewModel.records.collectAsStateWithLifecycle()
     val publishing by viewModel.publishing.collectAsStateWithLifecycle()
     val myAccess by viewModel.myAccess.collectAsStateWithLifecycle()
+    val screenRequest by viewModel.screen.collectAsStateWithLifecycle()
     // eApps R3: Publish needs write access to the app (null = write until known).
     val canWrite = (myAccess ?: "write") == "write"
     var exportOpen by rememberSaveable { mutableStateOf(false) }
@@ -296,6 +301,8 @@ fun AppEditorScreen(
                         readOnly = access == "read",
                         // eApps R8 (apps.json `migrationCases`): a draft preview reads migrated copies.
                         migrateFrom = if (entry.publishedVersion > 0 && shown != entry.publishedVersion) entry.packageJson?.let { runCatching { JsonValue.parse(it)["version"]?.string }.getOrNull() } else null,
+                        screen = screenRequest,
+                        onScreen = viewModel::requestScreen,
                         modifier = Modifier.padding(padding),
                     )
                 }
@@ -485,6 +492,8 @@ private fun AppPreviewPane(
     me: String?,
     readOnly: Boolean,
     migrateFrom: String? = null,
+    screen: AppEditorViewModel.ScreenRequest,
+    onScreen: (screen: String, params: Map<String, String>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -524,9 +533,10 @@ private fun AppPreviewPane(
         ) {
             val pkg = packageJson
             if (pkg != null) {
-                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Apps.Preview.PADDING.dp)) {
-                    // A new package = a new host (the key): every synced upsert repaints.
-                    androidx.compose.runtime.key(pkg, viewing, migrateFrom) { AppPackageSurface(pkg, onOpenIssue, onOpenTeamSettings, appId, teamId, me, grants = grants, readOnly = readOnly, migrateFrom = migrateFrom) }
+                // A new package = a new host (the key): every synced upsert
+                // repaints; the screen request outlives it (VAPP-218).
+                androidx.compose.runtime.key(pkg, viewing, migrateFrom) {
+                    AppPackageSurface(pkg, onOpenIssue, onOpenTeamSettings, appId, teamId, me, grants = grants, readOnly = readOnly, migrateFrom = migrateFrom, screen = screen, onScreen = onScreen)
                 }
             } else {
                 EmptyState(
@@ -540,15 +550,40 @@ private fun AppPreviewPane(
     }
 }
 
-/** One package's default template (`Apps.previewTemplate`) on the app host (`applyTemplate`). */
+/** One package on the app host (`applyTemplate`): its default template
+ *  (`Apps.previewTemplate`), or with `screens` (VAPP-218) the resolved
+ *  screen's template with `{params}`, the phone tab bar under it (phones
+ *  always take `Apps.screenShell`'s bar). */
 @Composable
-private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, onOpenTeamSettings: (teamId: String, section: String) -> Unit, appId: String, teamId: String?, me: String?, grants: Boolean, readOnly: Boolean, migrateFrom: String? = null) {
+private fun AppPackageSurface(
+    packageJson: String,
+    onOpenIssue: (String) -> Unit,
+    onOpenTeamSettings: (teamId: String, section: String) -> Unit,
+    appId: String,
+    teamId: String?,
+    me: String?,
+    grants: Boolean,
+    readOnly: Boolean,
+    migrateFrom: String? = null,
+    screen: AppEditorViewModel.ScreenRequest,
+    onScreen: (screen: String, params: Map<String, String>) -> Unit,
+) {
     val parsed = remember(packageJson) { runCatching { JsonValue.parse(packageJson) }.getOrNull() }
     val packageId = parsed?.get("id")?.string
-    val templateId = parsed?.get("templates")?.obj?.keys?.let { Apps.previewTemplate(it) }
+    val screens = remember(parsed) { parsed?.let(Screens::list).orEmpty() }
+    val resolved = remember(parsed, screen) { parsed?.let { Screens.resolve(it, screen.screen, screen.params) } }
+    val shell = Apps.screenShell(screens.size, phone = true)
+    val templateId = resolved?.screen ?: parsed?.get("templates")?.obj?.keys?.let { Apps.previewTemplate(it) }
     val consent = remember { AppConsentGate() }
     // #VAPP-230: the upstream reads' answers (the "Connect <server>" banners).
     val upstreams = remember { AppUpstreamAnswers() }
+    val latestScreen by rememberUpdatedState(onScreen)
+    val navigateToScreen: (NavigateTarget) -> Boolean = remember {
+        { target ->
+            latestScreen(target.screen, target.params)
+            true
+        }
+    }
     val host = rememberAppHost(
         packages = listOf(packageJson),
         consent = consent,
@@ -561,32 +596,75 @@ private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit
         readOnly = readOnly,
         upstreams = upstreams,
         migrateFrom = migrateFrom,
+        // VAPP-218: `app.navigate` replaces the request (screen + params).
+        navigate = if (screens.isEmpty()) null else navigateToScreen,
     )
-    LaunchedEffect(host, packageId, templateId) {
+    // A new screen = a fresh surface (the template change's rule).
+    var applied by remember(host) { mutableStateOf(false) }
+    LaunchedEffect(host, packageId, templateId, resolved) {
         if (packageId != null && templateId != null) {
+            if (applied) {
+                host.receive(
+                    JsonValue.Obj(
+                        mapOf(
+                            "version" to JsonValue.Str("v0.9"),
+                            "deleteSurface" to JsonValue.Obj(mapOf("surfaceId" to JsonValue.Str(Apps.Preview.SURFACE_ID))),
+                        ),
+                    ),
+                )
+            }
             host.receive(
                 JsonValue.Obj(
                     mapOf(
                         "version" to JsonValue.Str("v0.9"),
                         "applyTemplate" to JsonValue.Obj(
-                            mapOf(
-                                "surfaceId" to JsonValue.Str(Apps.Preview.SURFACE_ID),
-                                "templateId" to JsonValue.Str(templateId),
-                                "packageId" to JsonValue.Str(packageId),
-                            ),
+                            buildMap {
+                                put("surfaceId", JsonValue.Str(Apps.Preview.SURFACE_ID))
+                                put("templateId", JsonValue.Str(templateId))
+                                put("packageId", JsonValue.Str(packageId))
+                                if (resolved != null) put("data", resolved.data)
+                            },
                         ),
                     ),
                 ),
             )
+            applied = true
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        AppHostBanner(
-            host,
-            upstreams = upstreams,
-            onConnect = teamId?.let { team -> { onOpenTeamSettings(team, com.exponential.app.domain.SettingsNav.MCP) } },
-        )
-        HostSurface(host, Apps.Preview.SURFACE_ID, Modifier.fillMaxWidth())
+    Column(Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(Apps.Preview.PADDING.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            AppHostBanner(
+                host,
+                upstreams = upstreams,
+                onConnect = teamId?.let { team -> { onOpenTeamSettings(team, com.exponential.app.domain.SettingsNav.MCP) } },
+            )
+            HostSurface(host, Apps.Preview.SURFACE_ID, Modifier.fillMaxWidth())
+        }
+        if (shell == Apps.ScreenShell.Bar) {
+            PhoneTabCapsule(
+                items = screens.map { s ->
+                    PhoneTabItem(
+                        key = s.screen,
+                        label = s.title,
+                        icon = s.icon?.let { ExpIcons.byConcept(it) ?: ExpIcons.byName(it) } ?: ExpIcons.uiIconPlaceholder,
+                        testTag = "${Apps.TestIds.PREVIEW_SCREENS}-${s.screen}",
+                    )
+                },
+                selected = resolved?.screen,
+                onSelect = { latestScreen(it, emptyMap()) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+                    .testTag(Apps.TestIds.PREVIEW_SCREENS),
+            )
+        }
     }
     AppConsentCard(consent)
 }

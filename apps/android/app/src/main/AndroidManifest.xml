@@ -96,7 +96,7 @@
                  /.well-known/assetlinks.json with this build's signing cert (env
                  ANDROID_APP_LINK_FINGERPRINTS on the web app — Play App Signing
                  key for store installs). Only the shapes the app can render
-                 are claimed: issue detail, the Agent page, threads + invites; unresolvable links fall back
+                 are claimed: issue detail, the Agent page, threads, app screens + invites; unresolvable links fall back
                  to a Custom Tab in AppNavHost. -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
@@ -111,6 +111,8 @@
                 <data android:pathPattern="/t/.*/agent" />
                 <data android:pathPattern="/t/.*/threads/.*" />
                 <data android:pathPattern="/t/.*/sessions/.*" />
+                <!-- VAPP-218: an app screen (`/t/{team}/apps/{app}/{screen}`). -->
+                <data android:pathPattern="/t/.*/apps/.*/.*" />
                 <data android:pathPrefix="/invite/" />
             </intent-filter>
 

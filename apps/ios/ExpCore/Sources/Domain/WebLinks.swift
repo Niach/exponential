@@ -84,6 +84,9 @@ public enum WebLinks {
         /// EXP-1291: a session — the PR body footer links its ROOT with
         /// `?view=guide` (the thread on its Guide).
         case session(teamSlug: String, sessionId: String, guide: Bool)
+        /// VAPP-218: one screen of a team app, its query = the screen's
+        /// params (`AppLink.appScreen`'s rule).
+        case appScreen(teamSlug: String, appSlug: String, screen: String, params: [String: String])
     }
 
     /// Parse `{base}/t/{team}/boards/{board}/issues/{identifier}` plus
@@ -120,6 +123,14 @@ public enum WebLinks {
             let view = URLComponents(url: url, resolvingAgainstBaseURL: false)?
                 .queryItems?.first { $0.name == "view" }?.value
             return .session(teamSlug: parts[1], sessionId: parts[3], guide: view == "guide")
+        }
+        // VAPP-218: `/t/{team}/apps/{app}/{screen}`, exact length (the
+        // app's editor alone stays unclaimed).
+        if parts.count == 5, parts[0] == "t", parts[2] == "apps" {
+            return .appScreen(
+                teamSlug: parts[1], appSlug: parts[3], screen: parts[4],
+                params: AppLink.screenQueryParams(url.absoluteString)
+            )
         }
         return nil
     }
