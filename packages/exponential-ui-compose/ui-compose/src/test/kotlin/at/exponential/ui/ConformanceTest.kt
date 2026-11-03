@@ -47,6 +47,7 @@ import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.OverlayPresentation
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.SurfaceOptions
+import at.exponential.ui.model.SurfaceSettings
 import at.exponential.ui.model.toRect
 import at.exponential.ui.theme.Mode
 import at.exponential.ui.theme.ThemeHandle
@@ -377,6 +378,37 @@ class ConformanceTest {
     }
 
     /** The exact taffy frames reach the painter's model (`FfiFrame.toRect`), in pre-order. */
+    /**
+     * VAPP-200 `read-only.json`: the case built through THIS painter's
+     * settings (`SurfaceSettings.readOnly` → the core): with it, every
+     * `disabled` and `inert` id builds disabled and every `live` id enabled;
+     * without it, the `disabled` ids build enabled.
+     */
+    private fun readOnlySuite(): List<Case> = list(json("read-only.json"), "cases").map { c ->
+        case(s(c, "name")) {
+            fun built(readOnly: Boolean): Map<String, Boolean> {
+                val m = SurfaceModel("read-only", SurfaceOptions(theme = null, mode = Mode.Light, settings = SurfaceSettings(readOnly = readOnly)), RecordingHost(), CoroutineScope(Dispatchers.Unconfined), noShaper)
+                m.fixedMeasure = true
+                val outcome = m.setNested(c["node"]!!.json)
+                if (outcome.issuesJson != "[]") error("issues ${outcome.issuesJson}")
+                c["data"]?.obj?.forEach { (k, v) -> m.setData("/$k", v) }
+                m.surface.setViewport(600f, 0f, null)
+                m.surface.layoutFixed(null, true)
+                return m.surface.nodes().filter { it.part == null && it.owner == null }.associate { n ->
+                    n.id to (JsonValue.parse(n.propsJson)["disabled"] == JsonValue.Bool(true))
+                }
+            }
+            val on = built(true)
+            val off = built(false)
+            val ids = { key: String -> list(c, key).mapNotNull { it.string } }
+            val bad = ids("disabled").filter { it in on && on[it] != true }.map { "$it not disabled" } +
+                ids("inert").filter { on[it] != true }.map { "$it not disabled" } +
+                ids("live").filter { on[it] != false }.map { "$it not live" } +
+                ids("disabled").filter { off[it] == true }.map { "$it disabled without readOnly" }
+            if (bad.isEmpty()) null else bad.joinToString("; ")
+        }
+    }
+
     private fun layoutSuite(): List<Case> {
         val fx = json("layout-geometry.json")
         return fx["cases"]!!.obj!!.map { (name, c) ->
@@ -563,6 +595,7 @@ class ConformanceTest {
         "virtual-list" -> Round2Suites.virtualList().map(::Case)
         "animations" -> Round2Suites.animations().map(::Case)
         "pointer" -> Round2Suites.pointer().map(::Case)
+        "read-only" -> readOnlySuite()
         else -> error("the runner does not know the suite $id: add it")
     }
 

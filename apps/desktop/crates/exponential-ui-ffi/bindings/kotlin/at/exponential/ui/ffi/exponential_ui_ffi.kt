@@ -8287,6 +8287,12 @@ data class FfiSettings (
      * so `settings()` returns it; without either, instants format in UTC.
      */
     var `timeZone`: kotlin.String? = null 
+    , 
+    /**
+     * VAPP-200: the viewer may read, not write (an app at app access
+     * `read`): every writing control paints disabled (`fixtures/read-only.json`).
+     */
+    var `readOnly`: kotlin.Boolean = false 
     
 ){
     
@@ -8320,6 +8326,7 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterOptionalString.read(buf),
             FfiConverterUInt.read(buf),
             FfiConverterOptionalString.read(buf),
+            FfiConverterBoolean.read(buf),
         )
     }
 
@@ -8340,7 +8347,8 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterFloat.allocationSize(value.`insetLeft`) +
             FfiConverterOptionalString.allocationSize(value.`today`) +
             FfiConverterUInt.allocationSize(value.`hoverCloseMs`) +
-            FfiConverterOptionalString.allocationSize(value.`timeZone`)
+            FfiConverterOptionalString.allocationSize(value.`timeZone`) +
+            FfiConverterBoolean.allocationSize(value.`readOnly`)
     )
 
     override fun write(value: FfiSettings, buf: ByteBuffer) {
@@ -8361,6 +8369,7 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterOptionalString.write(value.`today`, buf)
             FfiConverterUInt.write(value.`hoverCloseMs`, buf)
             FfiConverterOptionalString.write(value.`timeZone`, buf)
+            FfiConverterBoolean.write(value.`readOnly`, buf)
     }
 }
 

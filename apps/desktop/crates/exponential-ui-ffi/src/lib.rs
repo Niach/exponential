@@ -478,6 +478,10 @@ pub struct FfiSettings {
     /// so `settings()` returns it; without either, instants format in UTC.
     #[uniffi(default = None)]
     pub time_zone: Option<String>,
+    /// VAPP-200: the viewer may read, not write (an app at app access
+    /// `read`): every writing control paints disabled (`fixtures/read-only.json`).
+    #[uniffi(default = false)]
+    pub read_only: bool,
 }
 
 /// One event for the host: `kind` = `action | openUrl | functionCall |
@@ -705,6 +709,7 @@ fn settings_of(f: &FfiSettings) -> Result<SurfaceSettings, UiError> {
         insets: Insets { top: f.inset_top, right: f.inset_right, bottom: f.inset_bottom, left: f.inset_left },
         today: f.today.clone(),
         hover_close_ms: f.hover_close_ms,
+        read_only: f.read_only,
     })
 }
 
@@ -728,6 +733,7 @@ fn settings_out(s: &SurfaceSettings, time_zone: Option<String>) -> FfiSettings {
         today: s.today.clone(),
         hover_close_ms: s.hover_close_ms,
         time_zone,
+        read_only: s.read_only,
     }
 }
 

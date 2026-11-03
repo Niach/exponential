@@ -317,6 +317,9 @@ export interface SurfaceSettings {
   contrast?: `normal` | `high` | `system`
   /** The theme id (a built-in or one the host loaded). */
   theme?: string
+  /** VAPP-200: the viewer may read, not write (an app at access `read`):
+   *  every writing control paints disabled (`readOnlyTree`). Default off. */
+  readOnly?: boolean
 }
 
 /** Round 1 (catalog/a11y.json `commands`): what a host may ask of a live

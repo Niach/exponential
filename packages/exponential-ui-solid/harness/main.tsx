@@ -347,6 +347,8 @@ interface MountOptions {
   theme?: string
   /** `$control.hairline` override (a Resizable handle's thickness). */
   hairline?: number
+  /** VAPP-200: a read-only surface. */
+  readOnly?: boolean
 }
 interface VListCase {
   extents: number[]
@@ -383,7 +385,7 @@ function Mount(): JSX.Element {
       window.__xuiHandle = () => handle
       const base = options.theme ?? `neutral`
       const theme = options.hairline === undefined ? base : ({ $schema: THEME_SCHEMA_ID, id: `hairline`, name: `Hairline`, extends: base, tokens: { control: { hairline: options.hairline } } } as never)
-      remount(() => <ExponentialSurface id="m" root={root} templates={templates} data={options.data} theme={theme} mode="light" width={options.width ?? `100%`} direction={options.dir} handleRef={(h) => (handle = h)} host={{ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, context: e.context }) }} />)
+      remount(() => <ExponentialSurface id="m" root={root} templates={templates} data={options.data} theme={theme} mode="light" width={options.width ?? `100%`} direction={options.dir} readOnly={options.readOnly} handleRef={(h) => (handle = h)} host={{ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, context: e.context }) }} />)
       await frames(3)
     }
     window.__xuiVList = async (c) => {
