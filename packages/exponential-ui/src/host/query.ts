@@ -15,6 +15,7 @@
 
 import { evaluateExpression, expressionNames, parseExpression, parseTimestamp, type ExprNode } from "../cel"
 import { DATE_BUCKETS, dateBucket, daysInMonth, weekdayOf, type DateBucket } from "../dates"
+import { RECORD_TRANSITIONS_ROW_KEY, transitionsFrom, type RecordTransitions } from "./record-transitions"
 import { canonicalJson } from "./signature"
 import { parseSource, sourceWithParams, type ParsedSource } from "./sources"
 
@@ -197,6 +198,11 @@ export interface RecordsContext {
   /** eApps R5: identifier → the issue summary an `issue` ref expands to
    *  (`{id, identifier, title, status}`); an identifier missing here reads null. */
   issues?: Record<string, Record<string, unknown>>
+  /** eApps R6 (VAPP-222): the queried kind's transitions (`kindTransitions`):
+   *  every row carries `transitions`, the next states the viewer may take. */
+  transitions?: RecordTransitions | null
+  /** eApps R6: the viewer's team role (`owner` takes every edge); unset = a member. */
+  role?: string | null
 }
 
 /** A problem with a JSON query, a JSON pointer into it. */
@@ -821,6 +827,7 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
     rows: matched.slice(0, query.limit).map((row) => {
       const value = valueRow(row, ctx.names)
       for (const e of expand) value[e.name] = expandedRef(e.target, row.data[e.name], byId, ctx)
+      if (ctx.transitions) value[RECORD_TRANSITIONS_ROW_KEY] = transitionsFrom(ctx.transitions, row.data, { id: ctx.me, role: ctx.role ?? null }, row)
       if (rowRunning) {
         rowRunning.add(row)
         value.running = rowRunning.read()

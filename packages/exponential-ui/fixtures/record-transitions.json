@@ -1,0 +1,891 @@
+{
+  "$comment": "eApps R6 (VAPP-222, docs/spec/apps.md §3.3/§3.4): a kind's state machine on ONE enum field, `records.<kind>.transitions: {field, from: {state: [next…]}, initial?: [state…], who?: {\"a->b\" | state: level}}`. TS reference src/host/record-transitions.ts, Rust twin eui-core `host::record_transitions`, the Swift and Compose SDKs over the FFI (`transition_refusal_json`, `transitions_from_json`, `validate_record_transitions_json`); the Exponential server enforces it in the records service (every create, patch and batch write). Inputs hand-written, `expected` filled by scripts/generate-host.ts. VALIDATE (`validateCases`: validateRecordTransitions(kind, at, kindName), at = `/records/<kindName>`): issues under `<at>/transitions`: an unknown key; `field` a declared string field with an `enum` (its values are the STATES); every `from` key, every next state and every `initial` entry a state; `initial` a non-empty list; a `who` key is a declared edge `a->b` or a state (`b` = every edge into it); its level `member`, `author`, `owners` or `role:<field>` where `<field>` is a `member` ref of the kind (R5 `refs`); a kind with transitions declares no field or computed field `transitions` (its rows carry the next states there). Keys in code-unit order. REFUSAL (`refusalCases`: transitionRefusal(kindTransitions(kind), before, after, viewer, row)): `before` = the stored data (null = a create), `after` = the data as it would be stored (an update = the patch merged), `viewer` = {id, role}, `row` = the record's ownership (the author = `authorId ?? createdBy`). A state is a non-empty string at `field` (else none). Unchanged = null (any write that does not move the state passes). No state before (a create, or a record without one): the new state is none or an INITIAL state (`initial`, else every `from` state no edge enters, else every `from` state; code-unit order) else BAD_REQUEST `<field>: a new record starts in <initial, comma-separated>`. A cleared state or an edge `from[a]` does not list = BAD_REQUEST `<field>: <a> → <b|(none)> is not a declared transition`. Then the edge's level (`who[\"a->b\"]`, else `who[b]`, else member): member = anyone; a team owner takes every edge; `owners` = FORBIDDEN `Only team owners can move <field> to <b>`; `author` = the record's author else FORBIDDEN `Only the record's author or a team owner can move <field> to <b>`; `role:<f>` = the member `before[f]` names (before the write: a mover never names themselves in the same write) else FORBIDDEN `Only the record's <f> or a team owner can move <field> to <b>`; an unknown level = FORBIDDEN `Nobody can move <field> to <b>`. FROM (`fromCases`: transitionsFrom(kindTransitions(kind), record, viewer?, row)): the next states of the record's state in the declared order (no state = the initial states), only those the viewer may take when a viewer is given; no transitions = []. The records query (records-query.json VAPP-222 cases) writes them into every row of the kind as `transitions` for the context's viewer (`me` + `role`).",
+  "kind": {
+    "schema": {
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "requested",
+            "approved",
+            "rejected",
+            "paid"
+          ]
+        },
+        "approver": {
+          "type": "string"
+        },
+        "amount": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "title"
+      ]
+    },
+    "refs": {
+      "approver": "member"
+    },
+    "transitions": {
+      "field": "status",
+      "initial": [
+        "requested"
+      ],
+      "from": {
+        "requested": [
+          "approved",
+          "rejected"
+        ],
+        "approved": [
+          "paid"
+        ],
+        "rejected": [
+          "requested"
+        ]
+      },
+      "who": {
+        "requested->approved": "role:approver",
+        "requested->rejected": "role:approver",
+        "paid": "owners",
+        "rejected->requested": "author"
+      }
+    }
+  },
+  "validateCases": [
+    {
+      "name": "the spec's approval flow is valid",
+      "kindName": "expense",
+      "kind": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "title": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "requested",
+                "approved",
+                "rejected",
+                "paid"
+              ]
+            },
+            "approver": {
+              "type": "string"
+            },
+            "amount": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "title"
+          ]
+        },
+        "refs": {
+          "approver": "member"
+        },
+        "transitions": {
+          "field": "status",
+          "initial": [
+            "requested"
+          ],
+          "from": {
+            "requested": [
+              "approved",
+              "rejected"
+            ],
+            "approved": [
+              "paid"
+            ],
+            "rejected": [
+              "requested"
+            ]
+          },
+          "who": {
+            "requested->approved": "role:approver",
+            "requested->rejected": "role:approver",
+            "paid": "owners",
+            "rejected->requested": "author"
+          }
+        }
+      },
+      "expected": []
+    },
+    {
+      "name": "every check fires",
+      "kindName": "expense",
+      "kind": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "a",
+                "b"
+              ]
+            },
+            "note": {
+              "type": "string"
+            },
+            "transitions": {
+              "type": "string"
+            }
+          }
+        },
+        "refs": {
+          "note": "issue"
+        },
+        "transitions": {
+          "field": "status",
+          "from": {
+            "a": [
+              "b",
+              "z"
+            ],
+            "x": [
+              "a"
+            ],
+            "b": "a"
+          },
+          "initial": [],
+          "who": {
+            "a->a": "owners",
+            "b": "boss",
+            "q": "member",
+            "a->b": "role:note",
+            "x->a": "role:ghost"
+          },
+          "extra": 1
+        }
+      },
+      "expected": [
+        {
+          "path": "/records/expense/transitions/extra",
+          "message": "unknown key extra"
+        },
+        {
+          "path": "/records/expense/transitions/from/a/1",
+          "message": "z is not a state of status"
+        },
+        {
+          "path": "/records/expense/transitions/from/b",
+          "message": "the next states are a list"
+        },
+        {
+          "path": "/records/expense/transitions/from/x",
+          "message": "x is not a state of status"
+        },
+        {
+          "path": "/records/expense/transitions/initial",
+          "message": "initial is a non-empty list of states"
+        },
+        {
+          "path": "/records/expense/transitions/who/a->a",
+          "message": "a → a is not a declared transition"
+        },
+        {
+          "path": "/records/expense/transitions/who/a->b",
+          "message": "role:note: note is not a member ref of expense"
+        },
+        {
+          "path": "/records/expense/transitions/who/b",
+          "message": "a level is member, author, owners or role:<field>"
+        },
+        {
+          "path": "/records/expense/transitions/who/q",
+          "message": "q is not a state of status"
+        },
+        {
+          "path": "/records/expense/transitions/who/x->a",
+          "message": "role:ghost: ghost is not a member ref of expense"
+        },
+        {
+          "path": "/records/expense/transitions",
+          "message": "a kind with transitions declares no field transitions (its rows carry the next states there)"
+        }
+      ]
+    },
+    {
+      "name": "the field must be an enum",
+      "kindName": "t",
+      "kind": {
+        "schema": {
+          "type": "object",
+          "properties": {
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "transitions": {
+          "field": "status",
+          "from": {}
+        }
+      },
+      "expected": [
+        {
+          "path": "/records/t/transitions/field",
+          "message": "status is not an enum field"
+        }
+      ]
+    },
+    {
+      "name": "the field must be declared; transitions an object",
+      "kindName": "t",
+      "kind": {
+        "schema": {
+          "type": "object",
+          "properties": {}
+        },
+        "transitions": {
+          "field": "state",
+          "from": []
+        }
+      },
+      "expected": [
+        {
+          "path": "/records/t/transitions/field",
+          "message": "state is not a declared field"
+        },
+        {
+          "path": "/records/t/transitions/from",
+          "message": "from is {state: [next state…]}"
+        }
+      ]
+    },
+    {
+      "name": "transitions is an object",
+      "kindName": "t",
+      "kind": {
+        "schema": {
+          "type": "object",
+          "properties": {}
+        },
+        "transitions": "status"
+      },
+      "expected": [
+        {
+          "path": "/records/t/transitions",
+          "message": "transitions is {field, from, initial?, who?}"
+        }
+      ]
+    },
+    {
+      "name": "no transitions = no issues",
+      "kindName": "t",
+      "kind": {
+        "schema": {
+          "type": "object",
+          "properties": {}
+        }
+      },
+      "expected": []
+    }
+  ],
+  "refusalCases": [
+    {
+      "name": "a create in an initial state",
+      "before": null,
+      "after": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u1",
+        "role": "member"
+      },
+      "expected": null
+    },
+    {
+      "name": "a create without a state",
+      "before": null,
+      "after": {
+        "title": "x"
+      },
+      "viewer": {
+        "id": "u1",
+        "role": "member"
+      },
+      "expected": null
+    },
+    {
+      "name": "a create in a later state is refused",
+      "before": null,
+      "after": {
+        "title": "Laptop",
+        "status": "approved",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u1",
+        "role": "member"
+      },
+      "expected": {
+        "code": "BAD_REQUEST",
+        "message": "status: a new record starts in requested"
+      }
+    },
+    {
+      "name": "a write that keeps the state passes (anyone)",
+      "before": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop 2",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u2",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": null
+    },
+    {
+      "name": "the approver takes requested → approved",
+      "before": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop",
+        "status": "approved",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u2",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": null
+    },
+    {
+      "name": "the author is not the approver",
+      "before": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop",
+        "status": "approved",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u1",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": {
+        "code": "FORBIDDEN",
+        "message": "Only the record's approver or a team owner can move status to approved"
+      }
+    },
+    {
+      "name": "naming yourself approver in the same write does not help (before counts)",
+      "before": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop",
+        "status": "approved",
+        "approver": "u1"
+      },
+      "viewer": {
+        "id": "u1",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": {
+        "code": "FORBIDDEN",
+        "message": "Only the record's approver or a team owner can move status to approved"
+      }
+    },
+    {
+      "name": "an owner takes every edge",
+      "before": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop",
+        "status": "rejected",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "o1",
+        "role": "owner"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": null
+    },
+    {
+      "name": "an undeclared edge is BAD_REQUEST, even for an owner",
+      "before": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop",
+        "status": "paid",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "o1",
+        "role": "owner"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": {
+        "code": "BAD_REQUEST",
+        "message": "status: requested → paid is not a declared transition"
+      }
+    },
+    {
+      "name": "clearing the state is an undeclared edge",
+      "before": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop",
+        "status": null,
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "o1",
+        "role": "owner"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": {
+        "code": "BAD_REQUEST",
+        "message": "status: requested → (none) is not a declared transition"
+      }
+    },
+    {
+      "name": "a terminal state has no edges",
+      "before": {
+        "title": "Laptop",
+        "status": "paid",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop",
+        "status": "approved",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "o1",
+        "role": "owner"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": {
+        "code": "BAD_REQUEST",
+        "message": "status: paid → approved is not a declared transition"
+      }
+    },
+    {
+      "name": "paid = owners (a target level)",
+      "before": {
+        "title": "Laptop",
+        "status": "approved",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop",
+        "status": "paid",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u2",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": {
+        "code": "FORBIDDEN",
+        "message": "Only team owners can move status to paid"
+      }
+    },
+    {
+      "name": "rejected → requested = the author",
+      "before": {
+        "title": "Laptop",
+        "status": "rejected",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u1",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": null
+    },
+    {
+      "name": "rejected → requested: not the author",
+      "before": {
+        "title": "Laptop",
+        "status": "rejected",
+        "approver": "u2"
+      },
+      "after": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u2",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": {
+        "code": "FORBIDDEN",
+        "message": "Only the record's author or a team owner can move status to requested"
+      }
+    },
+    {
+      "name": "no approver named: only an owner",
+      "before": {
+        "title": "x",
+        "status": "requested"
+      },
+      "after": {
+        "title": "x",
+        "status": "approved"
+      },
+      "viewer": {
+        "id": "u2",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": {
+        "code": "FORBIDDEN",
+        "message": "Only the record's approver or a team owner can move status to approved"
+      }
+    },
+    {
+      "name": "a record without a state yet moves into an initial one only",
+      "before": {
+        "title": "x"
+      },
+      "after": {
+        "title": "x",
+        "status": "approved"
+      },
+      "viewer": {
+        "id": "o1",
+        "role": "owner"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": {
+        "code": "BAD_REQUEST",
+        "message": "status: a new record starts in requested"
+      }
+    },
+    {
+      "name": "explicit initial states",
+      "transitions": {
+        "field": "status",
+        "initial": [
+          "approved",
+          "requested"
+        ],
+        "from": {
+          "requested": [
+            "approved"
+          ]
+        }
+      },
+      "before": null,
+      "after": {
+        "status": "paid"
+      },
+      "viewer": {
+        "id": "o1",
+        "role": "owner"
+      },
+      "expected": {
+        "code": "BAD_REQUEST",
+        "message": "status: a new record starts in approved, requested"
+      }
+    },
+    {
+      "name": "the default initial states: every from state no edge enters",
+      "transitions": {
+        "field": "status",
+        "from": {
+          "requested": [
+            "approved"
+          ],
+          "approved": [
+            "paid"
+          ]
+        }
+      },
+      "before": null,
+      "after": {
+        "status": "approved"
+      },
+      "viewer": {
+        "id": "o1",
+        "role": "owner"
+      },
+      "expected": {
+        "code": "BAD_REQUEST",
+        "message": "status: a new record starts in requested"
+      }
+    },
+    {
+      "name": "a cycle without sources: every from state is initial",
+      "transitions": {
+        "field": "status",
+        "from": {
+          "b": [
+            "a"
+          ],
+          "a": [
+            "b"
+          ]
+        }
+      },
+      "before": null,
+      "after": {
+        "status": "c"
+      },
+      "viewer": {
+        "id": "o1",
+        "role": "owner"
+      },
+      "expected": {
+        "code": "BAD_REQUEST",
+        "message": "status: a new record starts in a, b"
+      }
+    },
+    {
+      "name": "an unknown level refuses everyone but owners",
+      "transitions": {
+        "field": "status",
+        "from": {
+          "a": [
+            "b"
+          ]
+        },
+        "who": {
+          "b": "boss"
+        }
+      },
+      "before": {
+        "status": "a"
+      },
+      "after": {
+        "status": "b"
+      },
+      "viewer": {
+        "id": "u1",
+        "role": "member"
+      },
+      "expected": {
+        "code": "FORBIDDEN",
+        "message": "Nobody can move status to b"
+      }
+    },
+    {
+      "name": "no transitions = null",
+      "transitions": null,
+      "before": {
+        "status": "a"
+      },
+      "after": {
+        "status": "z"
+      },
+      "viewer": {
+        "id": "u1",
+        "role": "member"
+      },
+      "expected": null
+    }
+  ],
+  "fromCases": [
+    {
+      "name": "every next state without a viewer",
+      "record": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "expected": [
+        "approved",
+        "rejected"
+      ]
+    },
+    {
+      "name": "the approver's choices",
+      "record": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u2",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": [
+        "approved",
+        "rejected"
+      ]
+    },
+    {
+      "name": "the author's: none from requested",
+      "record": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u1",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": []
+    },
+    {
+      "name": "an owner's: all",
+      "record": {
+        "title": "Laptop",
+        "status": "approved",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "o1",
+        "role": "owner"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": [
+        "paid"
+      ]
+    },
+    {
+      "name": "a member at approved: none (paid = owners)",
+      "record": {
+        "title": "Laptop",
+        "status": "approved",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "u2",
+        "role": "member"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": []
+    },
+    {
+      "name": "a new record: the initial states",
+      "record": null,
+      "viewer": {
+        "id": "u1",
+        "role": "member"
+      },
+      "expected": [
+        "requested"
+      ]
+    },
+    {
+      "name": "a terminal state: none",
+      "record": {
+        "title": "Laptop",
+        "status": "paid",
+        "approver": "u2"
+      },
+      "viewer": {
+        "id": "o1",
+        "role": "owner"
+      },
+      "row": {
+        "authorId": "u1",
+        "createdBy": "u1"
+      },
+      "expected": []
+    },
+    {
+      "name": "no transitions: none",
+      "transitions": null,
+      "record": {
+        "title": "Laptop",
+        "status": "requested",
+        "approver": "u2"
+      },
+      "expected": []
+    }
+  ]
+}

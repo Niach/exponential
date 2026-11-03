@@ -35,9 +35,12 @@ class RecordsQuery private constructor(
      * VAPP-219 (R5): [refs] = the queried kind's refs ([refs] in the
      * companion), what `expand` follows; [issues] = identifier → the issue
      * summary `{id, identifier, title, status}` an `issue` ref inlines
-     * (members resolve through [names]).
+     * (members resolve through [names]). VAPP-222 (R6): [transitions] =
+     * the queried kind's state machine ([transitions] in the companion):
+     * every row carries `transitions`, the next states the viewer ([me],
+     * [role]) may take.
      */
-    fun value(rows: List<RecordRow>, me: String?, now: String, names: Map<String, String> = emptyMap(), computed: Map<String, String> = emptyMap(), today: String? = null, refs: JsonValue = JsonValue.Null, issues: Map<String, JsonValue> = emptyMap()): JsonValue {
+    fun value(rows: List<RecordRow>, me: String?, now: String, names: Map<String, String> = emptyMap(), computed: Map<String, String> = emptyMap(), today: String? = null, refs: JsonValue = JsonValue.Null, issues: Map<String, JsonValue> = emptyMap(), transitions: JsonValue = JsonValue.Null, role: String? = null): JsonValue {
         val rowsJson = JsonValue.Arr(rows.map { it.toJson() }).json
         val context = JsonValue.Obj(
             mapOf(
@@ -48,6 +51,8 @@ class RecordsQuery private constructor(
                 "computed" to JsonValue.Obj(computed.mapValues { JsonValue.Str(it.value) }),
                 "refs" to refs,
                 "issues" to JsonValue.Obj(issues),
+                "transitions" to transitions,
+                "role" to (role?.let { JsonValue.Str(it) } ?: JsonValue.Null),
             ),
         ).json
         val out = runCatching { at.exponential.ui.ffi.recordsValueJson(rowsJson, json, context) }.getOrNull() ?: return JsonValue.Null
@@ -61,6 +66,9 @@ class RecordsQuery private constructor(
     override fun toString(): String = json
 
     companion object {
+        /** VAPP-222 (R6): a package's state machine of [kind] (`records.<kind>.transitions`); what a host passes as `transitions`. */
+        fun transitions(records: JsonValue?, kind: String?): JsonValue = kind?.let { records?.get(it)?.get("transitions") }?.takeIf { it.obj != null } ?: JsonValue.Null
+
         /** VAPP-219 (R5): a package's refs of [kind] (`records.<kind>.refs`); what a host passes as `refs` (Null = none). */
         fun refs(records: JsonValue?, kind: String?): JsonValue = kind?.let { records?.get(it)?.get("refs") }?.takeIf { it.obj != null } ?: JsonValue.Null
 

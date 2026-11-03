@@ -1212,6 +1212,32 @@ fn dotlottie_machine_reads_the_first() {
     assert_eq!(motion_read_dotlottie_machine(eui_motion::dotlottie::write("x", &anim, &[], &[])).unwrap(), "");
 }
 
+/// eApps R6 (VAPP-222): `fixtures/record-transitions.json` through the free
+/// functions, exactly as the Swift (`RecordTransitionsTests`) and Compose
+/// (`RecordTransitionsTest`) suites replay it.
+#[test]
+fn the_record_transitions_fixture_replays_through_the_free_functions() {
+    let f = fixture("record-transitions.json");
+    let kind_of = |c: &Value| match c.get("transitions") {
+        Some(t) => json!({ "transitions": t }),
+        None => f["kind"].clone(),
+    };
+    let opt = |v: Option<&Value>| v.filter(|v| !v.is_null()).map(Value::to_string);
+    for c in f["validateCases"].as_array().unwrap() {
+        let name = c["kindName"].as_str().unwrap();
+        let got = validate_record_transitions_json(c["kind"].to_string(), format!("/records/{name}"), name.into()).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&got).unwrap(), c["expected"], "validate: {}", c["name"]);
+    }
+    for c in f["refusalCases"].as_array().unwrap() {
+        let got = transition_refusal_json(kind_of(c).to_string(), opt(c.get("before")), c["after"].to_string(), c["viewer"].to_string(), opt(c.get("row"))).unwrap();
+        assert_eq!(got.map_or(Value::Null, |g| serde_json::from_str(&g).unwrap()), c["expected"], "refusal: {}", c["name"]);
+    }
+    for c in f["fromCases"].as_array().unwrap() {
+        let got = transitions_from_json(kind_of(c).to_string(), opt(c.get("record")), opt(c.get("viewer")), opt(c.get("row"))).unwrap();
+        assert_eq!(serde_json::from_str::<Value>(&got).unwrap(), c["expected"], "from: {}", c["name"]);
+    }
+}
+
 /// VAPP-189: `fixtures/records-query.json` through the free functions (VAPP-190:
 /// + `parse_records_json`, `date_bucket`),
 /// exactly as the Swift (`RecordsQueryTests`) and Compose (`RecordsQueryTest`)
@@ -1243,7 +1269,7 @@ fn the_records_query_fixture_replays_through_the_free_functions() {
             Some(json) => canon(&parse_records_json(json.to_string(), c["kind"].as_str().map(str::to_string)).unwrap())["query"].to_string(),
             None => parse_records_query_json(c["params"].to_string(), c["kind"].as_str().map(str::to_string)).unwrap(),
         };
-        let ctx = json!({"me": c["me"], "now": c["now"], "today": c.get("today"), "names": c["names"], "computed": c.get("computed"), "refs": c.get("refs"), "issues": c.get("issues")});
+        let ctx = json!({"me": c["me"], "now": c["now"], "today": c.get("today"), "names": c["names"], "computed": c.get("computed"), "refs": c.get("refs"), "issues": c.get("issues"), "transitions": c.get("transitions"), "role": c.get("role")});
         let got = records_value_json(c["rows"].to_string(), query, ctx.to_string()).unwrap();
         assert!(eui_core::json::equal(&canon(&got), &c["expected"]), "value: {}\n got {got}", c["name"]);
     }

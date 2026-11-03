@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-222 (eApps R6): transitions: `records.<kind>.transitions` (a state machine on one enum field, `who` per edge: member / author / owners / `role:<field>`), checked at install; `transitionRefusal`, `transitionsFrom`, `validateRecordTransitions`, `kindTransitions`; a kind's rows carry `transitions` (the viewer's legal next states; `RecordsContext.transitions` + `role`).
+
 ## 0.10.0 (2026-11-03)
 
 - VAPP-219 (eApps R5): record refs + expand: a kind's `refs` (`records.<kind>.refs`) name the kind a field points to, and a query's `expand` resolves them into the rows.

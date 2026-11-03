@@ -818,6 +818,11 @@ pub struct RecordsContext<'a> {
     pub refs: Option<&'a Value>,
     /// eApps R5: identifier → the issue summary an `issue` ref expands to.
     pub issues: Option<&'a Map<String, Value>>,
+    /// eApps R6 (VAPP-222): the queried kind's transitions: every row carries
+    /// `transitions`, the next states the viewer may take.
+    pub transitions: Option<&'a super::record_transitions::RecordTransitions>,
+    /// eApps R6: the viewer's team role (`owner` takes every edge); `None` = a member.
+    pub role: Option<&'a str>,
 }
 
 /// eApps R5 (VAPP-219): a package's refs of `kind` (`records.<kind>.refs`,
@@ -1432,6 +1437,12 @@ fn records_value_in(all: &[RecordRowRef], rows: &[RecordRowRef], query: &Records
             let mut obj = value_row(row, ctx.names);
             for (name, target) in &expand {
                 obj.insert((*name).to_string(), expanded_ref(target, row.data.get(*name), &by_id, &ctx));
+            }
+            if let Some(t) = ctx.transitions {
+                let viewer = super::record_transitions::TransitionViewer { id: ctx.me, role: ctx.role };
+                let ownership = json!({"authorId": row.author_id, "createdBy": row.created_by});
+                let next = super::record_transitions::transitions_from(Some(t), Some(row.data), Some(&viewer), Some(&ownership));
+                obj.insert(super::record_transitions::RECORD_TRANSITIONS_ROW_KEY.into(), json!(next));
             }
             if let Some(r) = row_running.as_mut() {
                 r.add(row);

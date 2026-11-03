@@ -7753,7 +7753,7 @@ public func qrMatrixJson(value: String, level: String) -> String  {
 /**
  * VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
  * the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
- * `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?}` (VAPP-214: the queried kind's computed fields);
+ * `query_json` = a parsed query, `context_json` = `{me, now, today?, names, computed?, refs?, issues?, transitions?, role?}` (VAPP-214: the queried kind's computed fields; VAPP-219: its refs and the issue summaries `expand` inlines);
  * the value JSON, `null` without a kind.
  */
 public func recordsValueJson(rowsJson: String, queryJson: String, contextJson: String)throws  -> String  {
@@ -8009,6 +8009,40 @@ public func tokenizeCodeJson(code: String, language: String) -> String  {
 })
 }
 /**
+ * eApps R6 (VAPP-222, `record-transitions.json` `refusalCases`): why a
+ * write of a kind (`kind_json` = its definition, `transitions` inside) may
+ * not move its state: `before_json` = the stored data (none = a create),
+ * `after_json` = the data as it would be stored, `viewer_json` = `{id, role}`,
+ * `row_json` = the record's `{authorId, createdBy}`; `{code, message}` JSON
+ * or none (it may).
+ */
+public func transitionRefusalJson(kindJson: String, beforeJson: String?, afterJson: String, viewerJson: String, rowJson: String?)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_transition_refusal_json(
+        FfiConverterString.lower(kindJson),
+        FfiConverterOptionString.lower(beforeJson),
+        FfiConverterString.lower(afterJson),
+        FfiConverterString.lower(viewerJson),
+        FfiConverterOptionString.lower(rowJson),$0
+    )
+})
+}
+/**
+ * eApps R6 (`fromCases`): the next states a record may move to (JSON list;
+ * `record_json` none = a new record: the initial states), only those the
+ * viewer (`{id, role}`, none = anyone) may take.
+ */
+public func transitionsFromJson(kindJson: String, recordJson: String?, viewerJson: String?, rowJson: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_transitions_from_json(
+        FfiConverterString.lower(kindJson),
+        FfiConverterOptionString.lower(recordJson),
+        FfiConverterOptionString.lower(viewerJson),
+        FfiConverterOptionString.lower(rowJson),$0
+    )
+})
+}
+/**
  * A package's issues `[{path, message}]` JSON (`catalog_ids` default: the
  * three built-in catalogs).
  */
@@ -8029,6 +8063,19 @@ public func validateRecordJson(schemaJson: String, dataJson: String)throws  -> S
     uniffi_exponential_ui_ffi_fn_func_validate_record_json(
         FfiConverterString.lower(schemaJson),
         FfiConverterString.lower(dataJson),$0
+    )
+})
+}
+/**
+ * eApps R6 (`validateCases`): the issues of a kind's `transitions`
+ * (`[{path, message}]` under `<at>/transitions`).
+ */
+public func validateRecordTransitionsJson(kindJson: String, at: String, kindName: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_validate_record_transitions_json(
+        FfiConverterString.lower(kindJson),
+        FfiConverterString.lower(at),
+        FfiConverterString.lower(kindName),$0
     )
 })
 }
@@ -8297,7 +8344,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_qr_matrix_json() != 21220) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_records_value_json() != 38896) {
+    if (uniffi_exponential_ui_ffi_checksum_func_records_value_json() != 38136) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_reduce_nested_json() != 7405) {
@@ -8357,10 +8404,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_tokenize_code_json() != 16111) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_transition_refusal_json() != 50941) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_transitions_from_json() != 49075) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_validate_package_json() != 13412) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_validate_record_json() != 49853) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_validate_record_transitions_json() != 42224) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_validate_style_json() != 34628) {

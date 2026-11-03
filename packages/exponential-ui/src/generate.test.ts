@@ -13,7 +13,7 @@ const pkgRoot = join(import.meta.dir, `..`)
 describe(`generated outputs (VAPP-85)`, () => {
   const files = render()
 
-  test(`renders the fifty-three outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix, EXP-1586 the zoom maths, VAPP-189 the records query, VAPP-160 the comment-free style)`, () => {
+  test(`renders the fifty-four outputs (round 2 adds seven fixtures, round 3 the tree guides, round 4 its contract, EXP-1324 the text shimmer, VAPP-106 the runtime/descriptions split, NEW-77 the voice wave, VAPP-161 the package format, VAPP-162 the QR matrix, EXP-1586 the zoom maths, VAPP-189 the records query, VAPP-160 the comment-free style, VAPP-222 the record transitions)`, () => {
     expect(Object.keys(files).sort()).toEqual([
       `../../apps/desktop/crates/eui-core/src/generated/catalog.rs`,
       `../../apps/desktop/crates/eui-core/src/generated/descriptions.rs`,
@@ -40,6 +40,7 @@ describe(`generated outputs (VAPP-85)`, () => {
       `fixtures/kitchen-sink.expanded.json`,
       `fixtures/prompt-budget.json`,
       `fixtures/qr-code.json`,
+      `fixtures/record-transitions.json`,
       `fixtures/records-query.json`,
       `fixtures/resizable.json`,
       `fixtures/round4-contract.json`,

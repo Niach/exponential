@@ -68,7 +68,7 @@ reaches (neither the root nor a list's row template) is not checked.
 
 ## Records
 
-An app's own data. `records: {<kind>: {schema, title?, description?, policy?, computed?, refs?}}`
+An app's own data. `records: {<kind>: {schema, title?, description?, policy?, computed?, refs?, transitions?}}`
 declares every kind (VAPP-122: the kind pattern, the JSON Schema subset and
 the reserved row keys are in `catalog/host.json` `package.records`). The
 host provides the store; the format fixes what a surface sees and calls.
@@ -161,6 +161,42 @@ of that kind in the app, no such issue or member in the team) refuses the
 write (Exponential: BAD_REQUEST naming the field). A read follows a ref with
 `expand` (below); deleting the target never cascades: the ref dangles and
 an expanded one reads null.
+
+**Transitions** (eApps R6, VAPP-222; `fixtures/record-transitions.json`): a
+state machine on ONE enum field:
+
+```jsonc
+"transitions": {
+  "field": "status",                       // a string field with an enum: its values are the states
+  "initial": ["requested"],                // optional; default = every from state no edge enters
+  "from": { "requested": ["approved", "rejected"], "approved": ["paid"] },
+  "who": { "requested->approved": "role:approver", "paid": "owners" }
+}
+```
+
+A write that moves the field along an edge `from` does not list is refused
+(Exponential: BAD_REQUEST `status: requested → paid is not a declared
+transition`; clearing the state is an edge too), and a create must start in
+an initial state. `who` names an edge (`a->b`) or a target state (`b`: every
+edge into it; the edge wins); its level is `member` (the default), `author`
+(the record's author or a team owner), `owners`, or `role:<field>`: the
+member a `member` ref of the record names BEFORE the write (or a team owner);
+a mover the level excludes is refused (FORBIDDEN `Only the record's approver
+or a team owner can move status to approved`). A write that leaves the state
+as it is always passes the machine (the policy still applies). At install,
+issues at `/records/<kind>/transitions…`: the field is a declared enum field,
+every state is one of its values, a `who` key is a declared edge or a state,
+a level is one of the above (a `role:` field a `member` ref of the kind).
+Every row of such a kind carries `transitions`: the next states the viewer
+may take (no state yet = the initial states), so a template offers only
+those (a `Select` over `row.transitions`); a kind with transitions declares
+no field of that name. The rule is `transitionRefusal` / `transitionsFrom` /
+`validateRecordTransitions` (Rust `transition_refusal` / `transitions_from`,
+the FFI's `*_json`, the SDKs' `RecordTransitions`); the records value takes
+the kind's machine and the viewer's role (`recordsValue(rows, query, {…,
+transitions: kindTransitions(kind), role})`). Exponential's server enforces
+it on every create, patch, batch write and restore (an owner may restore any
+state).
 
 **Read** = the binding source `records:<kind>[?query]`. The value is
 `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?, groups?, totals?, before?}`

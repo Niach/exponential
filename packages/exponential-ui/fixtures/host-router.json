@@ -1582,6 +1582,67 @@
           ]
         }
       }
+    },
+    "acme.expenses": {
+      "formatVersion": 3,
+      "id": "acme.expenses",
+      "name": "CRM",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "deals": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Text",
+              "text": "Deals"
+            }
+          ],
+          "bindings": []
+        }
+      },
+      "functions": [
+        "records.*"
+      ],
+      "records": {
+        "expense": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "requested",
+                  "approved",
+                  "paid"
+                ]
+              },
+              "approver": {
+                "type": "string"
+              }
+            }
+          },
+          "refs": {
+            "approver": "member"
+          },
+          "transitions": {
+            "field": "status",
+            "from": {
+              "requested": [
+                "approved"
+              ],
+              "approved": [
+                "paid",
+                "gone"
+              ]
+            },
+            "who": {
+              "requested->approved": "role:approver",
+              "paid": "owners"
+            }
+          }
+        }
+      }
     }
   },
   "flows": [
@@ -3339,6 +3400,15 @@
         {
           "path": "/queries/open/expand/0",
           "message": "title is not a ref of deal"
+        }
+      ]
+    },
+    {
+      "package": "acme.expenses",
+      "expected": [
+        {
+          "path": "/records/expense/transitions/from/approved/1",
+          "message": "gone is not a state of status"
         }
       ]
     }

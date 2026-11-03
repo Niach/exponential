@@ -549,7 +549,10 @@ fun rememberAppHost(
             val issueRefs = expanded.filter { refs[it]?.string == "issue" }
             val memberRefs = expanded.filter { refs[it]?.string == "member" }
             val refIssues: Flow<List<IssueEntity>> = if (issueRefs.isEmpty()) flowOf(emptyList()) else teamRows { d, t -> d.issueDao().observeByTeamForApps(t) }
-            return combine(rows, entries, users, refIssues) { records, pending, people, teamIssueRows ->
+            // VAPP-222 (R6): the hosting app's state machine + my team role (an owner takes every edge).
+            val transitions = if (query.app == null) RecordsQuery.transitions(packageRecords, query.from) else JsonValue.Null
+            val role: Flow<String?> = if (transitions == JsonValue.Null) flowOf(null) else teamRows { d, t -> d.teamMemberDao().observeByTeam(t) }.map { rows -> rows.firstOrNull { it.userId == me }?.role }
+            return combine(rows, entries, users, refIssues, role) { records, pending, people, teamIssueRows, myRole ->
                 val synced = records.map(AppRecords::row)
                 // VAPP-235: acked entries the shape reflects (or past the grace) leave.
                 val account = auth.activeAccountId.value
@@ -577,7 +580,7 @@ fun rememberAppHost(
                 }
                 // Dogfood G: the month view's today + default month in the TEAM zone (the day today() reads).
                 val nowMs = System.currentTimeMillis()
-                query.value(mapped, me, AppRecords.isoNow(nowMs), names, computed, today = TeamZone.day(nowMs, zone.offsetMinutes(nowMs.toDouble())), refs = refs, issues = issueSummaries)
+                query.value(mapped, me, AppRecords.isoNow(nowMs), names, computed, today = TeamZone.day(nowMs, zone.offsetMinutes(nowMs.toDouble())), refs = refs, issues = issueSummaries, transitions = transitions, role = myRole)
             }
         }
 

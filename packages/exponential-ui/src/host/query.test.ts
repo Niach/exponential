@@ -22,6 +22,7 @@ import {
   recordsValue,
   shiftMonth,
 } from "."
+import { kindTransitions } from "./record-transitions"
 import type { RecordRefTarget, RecordRow, RecordsQuery } from "."
 import { DATE_BUCKETS, dateBucket, type DateBucket } from "../dates"
 
@@ -67,8 +68,9 @@ describe(`records query (VAPP-189)`, () => {
     const kind = (c as { kind?: string }).kind
     const query = json !== undefined ? parseRecordsJson(json, kind).query : parseRecordsQuery((c as unknown as { params: Record<string, string> }).params, kind)
     const computed = (c as { computed?: Record<string, string> }).computed
-    const { refs, issues } = c as { refs?: Record<string, RecordRefTarget>; issues?: Record<string, Record<string, unknown>> }
-    expect(recordsValue(c.rows as RecordRow[], query, { me: c.me, now: c.now, today: (c as { today?: string }).today, names: c.names as Record<string, string>, computed, refs, issues })).toEqual(c.expected as never)
+    const { refs, issues, role } = c as { refs?: Record<string, RecordRefTarget>; issues?: Record<string, Record<string, unknown>>; role?: string }
+    const transitions = (c as { transitions?: unknown }).transitions ? kindTransitions({ transitions: (c as { transitions?: unknown }).transitions }) : undefined
+    expect(recordsValue(c.rows as RecordRow[], query, { me: c.me, now: c.now, today: (c as { today?: string }).today, names: c.names as Record<string, string>, computed, refs, issues, transitions, role })).toEqual(c.expected as never)
   })
   test(`shiftMonth crosses years both ways`, () => {
     expect(shiftMonth(`2026-01`, -1)).toBe(`2025-12`)
