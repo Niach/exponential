@@ -382,7 +382,7 @@ fn widget_snippet(public_key: &str, origin: &str) -> String {
   // Exponential feedback widget. Full docs — init options, identify,
   // setCustomData, setTheme (dark/light/auto), setLocale (en/de/auto), setLauncherHidden, labels,
   // headless submit:
-  // https://exponential.at/docs/widget/
+  // https://exponential.at/docs/using/widget/
   (function (w, d, u) {{
     if (w.ExponentialWidget) return;
     var q = [], api = {{ q: q }};

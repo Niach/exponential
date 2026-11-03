@@ -71,7 +71,7 @@ pub(crate) const TITLE: &str = "Getting started";
 pub(crate) const DOCS_LABEL: &str = "Docs";
 /// The Docs button's icon concept.
 pub(crate) const DOCS_ICON: &str = "ui-docs";
-pub(crate) const DOCS_URL: &str = "https://exponential.at/docs/getting-started/";
+pub(crate) const DOCS_URL: &str = "https://exponential.at/docs/get-started/";
 /// The progress meter's width.
 pub(crate) const METER_W: f32 = 160.;
 /// The small label trailing the expanded next row.

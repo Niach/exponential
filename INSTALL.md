@@ -89,7 +89,7 @@ The headless `exponential` CLI installs against a self-hosted instance with `cur
 
 ## 6. Optional subsystems
 
-All configured by appending vars to `.env` (the whole file reaches the web container) and re-running `docker compose up -d`. Full reference: [`.env.example`](https://github.com/Niach/exponential/blob/master/.env.example) at the repo root; deeper walkthroughs: [self-host docs](https://exponential.at/docs/self-host/).
+All configured by appending vars to `.env` (the whole file reaches the web container) and re-running `docker compose up -d`. Full reference: [`.env.example`](https://github.com/Niach/exponential/blob/master/.env.example) at the repo root; deeper walkthroughs: [self-host docs](https://exponential.at/docs/get-started/self-host/).
 
 - **Email** (password reset, invites, notification digest, widget reporter magic links): `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASS` + `EMAIL_FROM`, or Amazon SES via `AWS_SES_REGION` + AWS credentials. Without a transport, email features are silently off; everything else works.
 - **Sign-in providers**: `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`/`GOOGLE_LOGIN_ENABLED=true`; Sign in with Apple via `APPLE_CLIENT_ID` (an Apple *Services ID*) + `APPLE_PRIVATE_KEY`/`APPLE_KEY_ID`/`APPLE_TEAM_ID` + `APPLE_LOGIN_ENABLED=true`; or any OIDC IdP via `OIDC_PROVIDERS` (JSON array: Authentik, Keycloak, Zitadel, …).

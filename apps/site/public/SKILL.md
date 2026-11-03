@@ -204,7 +204,7 @@ visible under Devices -> My devices in the web app), `update`.
 `--device <label|id>` (start it on another of your devices instead);
 `run` also takes `--team <team-id>` and `--prompt <text>` (appended to the
 prompt's body in the session's first message). Full
-reference: https://exponential.at/docs/cli/
+reference: https://exponential.at/docs/build/cli/
 
 ## Integrating the feedback widget for a user
 
@@ -268,13 +268,13 @@ When a user asks to add Exponential feedback collection to their site:
 
 Each submission becomes an issue on the widget's board with an annotated
 screenshot, reporter metadata, and page context, atomically. Full widget
-API: https://exponential.at/docs/widget/
+API: https://exponential.at/docs/using/widget/
 
 ## More resources
 
 - Docs index: https://exponential.at/docs/ (getting started, issues and
   boards, coding agents, prompts, CLI and daemon, feedback and reporters,
   widget, MCP, apps, self-host)
-- MCP guide with per-client setup: https://exponential.at/docs/mcp/
-- Self-hosting runbook: https://exponential.at/docs/self-host/
+- MCP guide with per-client setup: https://exponential.at/docs/build/mcp/
+- Self-hosting runbook: https://exponential.at/docs/get-started/self-host/
 - Machine-readable site map: https://exponential.at/llms.txt

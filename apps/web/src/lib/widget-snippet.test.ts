@@ -26,7 +26,7 @@ describe(`buildWidgetSnippet`, () => {
     // Coding agents pasting the snippet should be pointed at the full API
     // docs instead of guessing from the stub.
     const snippet = buildWidgetSnippet(`expw_abc123`, `https://example.com`)
-    expect(snippet).toContain(`https://exponential.at/docs/widget/`)
+    expect(snippet).toContain(`https://exponential.at/docs/using/widget/`)
   })
 })
 
