@@ -327,7 +327,7 @@
             "dark": "#c4b5fd"
           },
           "orange": {
-            "light": "#ea580c",
+            "light": "#c2410c",
             "dark": "#fb923c"
           }
         }
@@ -723,7 +723,7 @@
             "dark": "#a78bfa"
           },
           "orange": {
-            "light": "#fb923c",
+            "light": "#ea580c",
             "dark": "#f97316"
           }
         }

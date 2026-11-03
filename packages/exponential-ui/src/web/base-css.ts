@@ -40,6 +40,16 @@ const REDUCED_EXTRA = `.xui-surface [data-xui-shimmer]{animation:none !important
 const ROUND2_CSS = `${ANIMATION_NAMES.map(keyframesCss).join(`\n`)}
 :is(${RTL_MIRRORED_ICONS.map((n) => `svg[data-icon="${n}"]`).join(`,`)}):dir(rtl){scale:-1 1}`
 
+/** EXP-1673: a surface with `data-xui-overlays="inline"` (a static render)
+ *  paints its open overlays in place below the trigger: no backdrop, no
+ *  fixed or popper positioning, no motion. Unlayered, over the recipes. */
+const INLINE_OVERLAYS_CSS = [
+  `[data-xui-overlays="inline"] :is(.xui-Dialog-overlay,.xui-Drawer-overlay){display:none}`,
+  `[data-xui-overlays="inline"] :is(.xui-Dialog-content,.xui-Drawer-content){position:relative;inset:auto;transform:none;max-height:none;width:100%;animation:none}`,
+  `[data-xui-overlays="inline"] [data-radix-popper-content-wrapper]{position:static !important;transform:none !important;min-width:0 !important}`,
+  `[data-xui-overlays="inline"] :is(.xui-Popover-content,.xui-Tooltip-content,.xui-Menu-content){animation:none}`,
+].join(`\n`)
+
 export const BASE_CSS = `${ANIMATION_PROPERTIES_CSS}
 @layer xui-base{
 ${ROUND2_CSS}
@@ -495,4 +505,5 @@ ${SHIMMER_CSS}
 }
 @media (prefers-reduced-motion: reduce){@layer xui-base{.xui-surface *,.xui-surface *::before,.xui-surface *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important;scroll-behavior:auto !important}${REDUCED_EXTRA}}}
 .xui-surface[data-xui-motion="reduce"] *,.xui-surface[data-xui-motion="reduce"] *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}
-${REDUCED_EXTRA.replace(/\.xui-surface /g, `.xui-surface[data-xui-motion="reduce"] `)}`
+${REDUCED_EXTRA.replace(/\.xui-surface /g, `.xui-surface[data-xui-motion="reduce"] `)}
+${INLINE_OVERLAYS_CSS}`

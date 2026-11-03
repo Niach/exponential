@@ -50,6 +50,9 @@
   background: var(--eui-ground-dark, transparent);
   overflow: hidden;
 }
+:root[data-theme="light"] .eui-theme-stage {
+  background: var(--eui-ground-light, transparent);
+}
 
 /* Token values: a swatch per mode beside the value. */
 .eui-token-table code {

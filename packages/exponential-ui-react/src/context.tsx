@@ -35,6 +35,8 @@ export interface SurfaceContextValue {
   portal: HTMLElement | null
   /** The toast layer (above dialogs). */
   toastLayer: HTMLElement | null
+  /** EXP-1673: overlays paint OPEN in place, no portal (a static render). */
+  inlineOverlays: boolean
   /** The direction of the node being painted (round 2 §2: `direction` on
    *  ANY node, inherited; the surface's at the root). */
   direction: `ltr` | `rtl`

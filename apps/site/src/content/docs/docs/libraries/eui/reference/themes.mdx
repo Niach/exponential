@@ -10,7 +10,7 @@ import ThemeTokens from "../../../../../../components/eui/reference/ThemeTokens.
 
 export const tokenCount = Object.values(themesDoc.tokens).reduce((total, rows) => total + rows.length, 0)
 
-eUI ships {themesDoc.themes.length} built-in themes: {themesDoc.themes.map((t) => t.id).join(`, `)}. Each one below paints the same surface (the demo fixture, [`fixtures/demo-surface.json`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/fixtures/demo-surface.json)), rendered at build time in the dark mode.
+eUI ships {themesDoc.themes.length} built-in themes: {themesDoc.themes.map((t) => t.id).join(`, `)}. Each one below paints the same surface (the demo fixture, [`fixtures/demo-surface.json`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/fixtures/demo-surface.json)), in the site's light or dark mode.
 
 <ThemeGallery />
 

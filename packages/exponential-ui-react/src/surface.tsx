@@ -95,6 +95,11 @@ export interface ExponentialSurfaceProps {
   states?: readonly string[]
   /** Geometry mode: leaves become fixed boxes of the returned size. */
   measure?: (node: UiNode) => { w: number; h: number } | null
+  /** EXP-1673: a static render (docs, galleries, server markup): every
+   *  overlay paints OPEN in place of its portal, below its trigger, with no
+   *  focus trap or scroll lock. Dialog, Drawer and Popover still follow
+   *  `open`; Tooltip, Menu and Toast always show. */
+  inlineOverlays?: boolean
   /** Default: the locale's direction (`textDirection`). */
   direction?: `ltr` | `rtl`
   /** The surface width; default = the host's box. */
@@ -347,6 +352,7 @@ export function ExponentialSurface({
   extensions: extensionsProp = EMPTY,
   states = EMPTY as unknown as readonly string[],
   measure,
+  inlineOverlays = false,
   direction: directionProp,
   width,
   viewportHeight,
@@ -541,6 +547,7 @@ export function ExponentialSurface({
       measure,
       portal,
       toastLayer,
+      inlineOverlays,
       direction,
       functions,
       openUrl,
@@ -556,7 +563,7 @@ export function ExponentialSurface({
       announce,
       subscribe,
     }, live),
-    [surfaceId, compiled, theme, hostValue, extensions, extensionDefs, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, reducedMotion, hover, announce, subscribe]
+    [surfaceId, compiled, theme, hostValue, extensions, extensionDefs, setData, templateNode, budget, states, measure, portal, toastLayer, inlineOverlays, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, reducedMotion, hover, announce, subscribe]
   )
 
   const nodeEl = useCallback((id: string): HTMLElement | null => rootEl?.querySelector<HTMLElement>(`[data-xui-id="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(id) : id.replace(/"/g, `\\"`)}"]`) ?? null, [rootEl])
@@ -627,6 +634,7 @@ export function ExponentialSurface({
       data-xui-theme={theme.id}
       data-xui-density={density === `default` ? undefined : density}
       data-xui-motion={reducedMotion ? `reduce` : undefined}
+      data-xui-overlays={inlineOverlays ? `inline` : undefined}
       data-xq={xq || undefined}
       dir={direction}
       style={width === undefined ? style : { width, ...style }}

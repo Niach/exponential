@@ -7,11 +7,11 @@
   "modes": {
     "light": {
       "color": {
-        "primary": "#ea580c",
+        "primary": "#c2410c",
         "primaryForeground": "#ffffff",
         "accent": "#ffedd5",
         "accentForeground": "#7c2d12",
-        "ring": "#fb923c",
+        "ring": "#ea580c",
         "chart1": "#ea580c",
         "chart2": "#f59e0b",
         "chart3": "#b91c1c",

@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- EXP-1673: the `orange` theme passes WCAG AA in light mode: `primary` #ea580c → #c2410c (white text 3.56 → 5.18:1), `ring` #fb923c → #ea580c; regenerated for every platform.
+- EXP-1673 (React): `ExponentialSurface` `inlineOverlays`: a static render (docs, galleries, server markup) paints its open overlays in place below the trigger, no portal, focus trap or scroll lock (`data-xui-overlays="inline"`, base CSS).
+
 ## 0.8.0 (2026-11-03)
 
 - VAPP-200: `SurfaceSettings.readOnly` (catalog/host.json `surface.settings`): a read-only surface (an app at app access `read`) paints every WRITING control as if its author had written `disabled: true`: a node whose `on.<event>` calls `records.*` or `actions.*` (a writing Form disables its fields and buttons), a form field with no action of its own; a field whose actions are all pure or host calls (`bind`, `set`) stays live. Pure `readOnlyTree` / `readOnlyTemplates` / `readOnlyDisables` / `readOnlyDisabledIds`; fixture `read-only.json`, new conformance suite `read-only` (every renderer replays it).

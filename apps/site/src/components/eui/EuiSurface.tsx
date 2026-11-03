@@ -35,9 +35,11 @@ export interface EuiSurfaceProps {
   theme?: string
   /** Extra icons for the surface (build-time surfaces only: components do not serialize into an island). */
   icons?: IconMap
+  /** Open overlays paint in place (build-time specimens: a portal renders nothing). */
+  inlineOverlays?: boolean
 }
 
-export default function EuiSurface({ id, tree, data, theme = `exponential`, icons }: EuiSurfaceProps) {
+export default function EuiSurface({ id, tree, data, theme = `exponential`, icons, inlineOverlays }: EuiSurfaceProps) {
   const surface = useSurface({ surfaceId: id, initial: tree, data })
   const mode = useSiteMode()
   const { setData } = surface
@@ -56,5 +58,5 @@ export default function EuiSurface({ id, tree, data, theme = `exponential`, icon
   useEffect(() => {
     document.dispatchEvent(new Event(`exp:surface-mounted`))
   }, [])
-  return <ExponentialSurface id={`xui-${id}`} surface={surface} theme={theme} mode={mode} host={host} />
+  return <ExponentialSurface id={`xui-${id}`} surface={surface} theme={theme} mode={mode} host={host} inlineOverlays={inlineOverlays} />
 }
