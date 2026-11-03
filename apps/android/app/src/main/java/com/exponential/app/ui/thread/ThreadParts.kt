@@ -160,9 +160,6 @@ internal object ThreadUiCopy {
     const val PRIVATE = "Private"
 
     fun unlink(identifier: String) = "Unlink $identifier"
-
-    /** An agent channel's composer: `Message <name>`. */
-    fun messageAgent(name: String) = "Message $name"
 }
 
 /** A tab of the strip as its saveable page key. */

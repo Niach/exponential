@@ -219,8 +219,8 @@ fun ThreadScreen(
     } else {
         null
     }
-    val placeholder = agent?.let { ThreadUiCopy.messageAgent(it.name) }
-        ?: view?.composer?.placeholder
+    // EXP-1649: an agent's conversation reads the same placeholder as web.
+    val placeholder = view?.composer?.placeholder
         ?: SessionTree.ThreadCopy.PLACEHOLDER
 
     // EXP-1307: the Guide's ONE PR behind the header `…`.
