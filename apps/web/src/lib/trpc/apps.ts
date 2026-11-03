@@ -19,7 +19,7 @@ import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
 import { APP_EXPORT_COPY, APP_EXPORT_LIMITS, parseAppImportShape, type ImportIssue, type ParsedAppImport } from "@exp/domain-contract/app-export"
 import { ACTION_LIMITS, validateRecord, verifyPackageFile, type AppPackage } from "@exponential_app/eui"
-import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecords, loadApp, teamMemberIds, upsertRecord } from "@/lib/apps/records-service"
+import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecords, loadApp, queryRecords, teamMemberIds, upsertRecord } from "@/lib/apps/records-service"
 import { RECORD_POLICY_COPY } from "@exponential_app/eui/host"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { importAuthor } from "@exp/domain-contract/app-records"
@@ -616,6 +616,12 @@ export const appsRouter = router({
         )
       )
       .query(({ ctx, input }) => listRecords(ctx.session.user.id, input, input, ctx.db)),
+
+    /** #VAPP-216 (Q4): the full structured query (the JSON form, the same
+     *  evaluator as the UI) over the kind's rows the member may read. */
+    query: authedProcedure
+      .input(appRefSchema.and(z.object({ kind: kindSchema, query: z.record(z.string(), z.unknown()) })))
+      .query(({ ctx, input }) => queryRecords(ctx.session.user.id, input, input, ctx.db)),
 
     /** Create a record, or (with `id`) patch that record's data (shallow).
      *  VAPP-188: `author` = an on-behalf write (owners only): the create's

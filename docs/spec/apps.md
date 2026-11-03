@@ -99,7 +99,7 @@ This is `exposes` over `/api/mcp/apps`, with one OAuth flow (✅ #VAPP-180–185
 
 Needs:
 
-- the same query power as the UI (C15: the broker's `records list` only does containment + limit today);
+- the same query power as the UI ✅ (C15, #VAPP-216: a tool's `records` list and `records_list` run the Q1 query through the UI's evaluator);
 - on-behalf rules (C2);
 - descriptions frozen per version ✅.
 
@@ -171,7 +171,7 @@ Needs: C2, C13.
 | C12 | CSV/xlsx export of a kind or the current query | ❌ **out of scope** (decided 2026-11-01): records leave through `.app.json` and MCP | — |
 | C13 | Spreadsheet import (agent path + mapping dialog) | 🟡 `.app.json` import only (#VAPP-121) | 🆕 X2 |
 | C14 | Package export/import, signed | ✅ | #VAPP-121, #VAPP-161 |
-| C15 | Broker `records` with the full query | 🟡 containment + limit | 🆕 Q4 |
+| C15 | Broker `records` with the full query | ✅ Q4 (#VAPP-216) | |
 | C16 | `exposes` (records / action / upstream) | ✅ | #VAPP-180, #VAPP-181 |
 | C17 | `upstream:` read bindings in templates | 🟡 only `harness.mcp`, which always asks | 🆕 M1 |
 | C17b | Device-routed upstreams (stdio, LAN-only) | ❌ | 🆕 M2 |
@@ -557,7 +557,7 @@ The UI form is the `handoff` action: "Ask agent to follow up" in the Admin conso
 | Revocation cascades | ✅ | #VAPP-184 |
 | Settings › MCP merged ×4 | ✅ | #VAPP-185 |
 | "via <app>" | 🟡 comments only | #VAPP-186 |
-| Broker `records` = full query | 🟡 | 🆕 Q4 |
+| Broker `records` = full query | ✅ | Q4 #VAPP-216: `run.records` list + `records_list` `query` run the Q1 evaluator (`@exponential_app/eui/host/query`) over the caller's readable rows (read policy + RLS first, ≤ 25,000 rows read); `records-query.json` replays through the broker |
 | http upstreams | ✅ | |
 | stdio / LAN upstreams | ❌ 🆕 M2: route the call to a member's online device over eNet; the device runs it through the `emcp` client and answers. If the device is offline: `upstreamFailed` "runs on <device>, offline". |
 | eMCP local hub + codemode | in review | #EXP-1507 |
@@ -767,7 +767,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **Q1 ★** ✅ #VAPP-190 The structured query: group-by on any field + time buckets, all aggregates, `before`/running sums, `in/between/or`. Fixture `records-query.json` ×4 (TS, Rust, Swift, Kotlin). `search` and a cursor stay open. (C5, C6)
 - **Q2 ★** ✅ #VAPP-191 Expressions: mul/div/round/min/max, array aggregates, date maths in the team timezone, the string form. (C7)
 - **Q3** Computed fields. (C11)
-- **Q4** The broker's `records` run uses the Q1 evaluator: tools get the same query as the UI. (C15)
+- **Q4** ✅ #VAPP-216 The broker's `records` run uses the Q1 evaluator: tools get the same query as the UI. A list run carries any JSON query key (`where` as a list, `sort`, `group`, `aggregate`, `running`, `before`, `sum`, `mine`, `user`, `month`, `limit`) or names a package query (`query: "<name>"`, its `${param}`s filled from the call's input); MCP `apps records_list` takes `query` too. The server reads the caller's rows of the kind (read policy + RLS, an object `where` = the jsonb containment prefilter, capped at 25,000 = the Team plan quota, `truncated` beyond), then runs `recordsValue`; the answer is the binding's value (`rows`, `count`, `groups?`, `totals?`…) with the usual `_meta`. `app` and another `from` are refused. Q3's computed fields reach tools once the evaluator has them. (C15)
 - **E1** ✅ #VAPP-194 Typed effects: pure bindings vs all-or-nothing actions with `require` (§4.5). Before A1.
 - **E2** ✅ #VAPP-195 Optional types (`T?`) in the checker + a fallback on every binding (§4.2). With or before Q3.
 
