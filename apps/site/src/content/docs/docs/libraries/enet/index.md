@@ -20,9 +20,9 @@ The binding crates are `exponential-net-ffi` (UniFFI) and `exponential-net-wasm`
 
 ## In Exponential
 
-Session content is sealed end to end. Each session tree has its own key, wrapped for every install allowed to read it; messages, cards, titles and previews are sealed on the device that writes them, and the server stores and syncs only ciphertext plus the metadata it needs for routing and wake-ups.
+Session content is end-to-end encrypted. Each session tree has its own key, wrapped for every install allowed to read it; messages, cards, titles and previews are encrypted on the device that writes them, and the server stores and syncs only ciphertext plus the metadata it needs for routing and wake-ups.
 
-Watching and steering a coding session goes over eNet's chat channel, straight from your phone or browser to the device running it. The steer relay carries no session content: it keeps device presence, remote control and voice calls. Agents on different devices message each other over eNet too, and pushes are sealed to the phone that opens them.
+Watching and steering a coding session goes over eNet's chat channel, straight from your phone or browser to the device running it. The steer relay carries no session content: it keeps device presence, remote control and voice calls. Agents on different devices message each other over eNet too, and pushes are encrypted to the phone that opens them.
 
 Keys for a new install of yours arrive automatically from any online device that holds them. That protects against a database leak and a passive server; someone who controls the server and signs in as you can still get them. MCP clients without a device gateway, like a hosted chat app, see metadata only.
 
@@ -34,11 +34,11 @@ Every device has a key, peers dial each other by that key, and QUIC connections 
 
 | Channel | What | State |
 |---|---|---|
-| **Chat** | Reliable, ordered, acknowledged messages between devices: steering, sealed delivery, agent to agent | in the app |
+| **Chat** | Reliable, ordered, acknowledged messages between devices: steering, encrypted delivery, agent to agent | in the app |
 | **Files** | Content-addressed transfers (iroh-blobs), verified on arrival | built |
 | **Records** | Signed records synced between peers over gossip, last writer wins | built |
 | **Calls** | Audio frames over QUIC datagrams, for calling your agent with [eTalk](/docs/libraries/etalk/) | in the app |
-| **Push** | Notifications sealed to the receiving device; the push relay forwards bytes it can't read | in the app |
+| **Push** | Notifications encrypted to the receiving device; the push relay forwards bytes it can't read | in the app |
 
 ## In the browser
 

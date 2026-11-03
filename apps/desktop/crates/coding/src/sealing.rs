@@ -540,7 +540,7 @@ impl std::fmt::Display for SealError {
             SealError::NoKey(why) => write!(f, "no tree key: {why}"),
             SealError::NoHolder => write!(
                 f,
-                "this chat is sealed and this device's key holder is not running (signed out, offline or not registered when the session started); restart the app or daemon while signed in and online, then send again"
+                "this chat is end-to-end encrypted and this device's key holder is not running (signed out, offline or not registered when the session started); restart the app or daemon while signed in and online, then send again"
             ),
             SealError::Invalid(why) => write!(f, "{why}"),
         }
@@ -726,7 +726,7 @@ pub fn open_body_text_waiting(root_id: &str, body: &str, wait: Duration, step: D
 }
 
 /// The placeholder an agent reads for content this install cannot open.
-pub const LOCKED_TEXT: &str = "[sealed content this device cannot open yet]";
+pub const LOCKED_TEXT: &str = "[encrypted content this device cannot open yet]";
 
 /// A message row with its body and card opened (the agent-facing copy).
 /// Content this install cannot open reads [`LOCKED_TEXT`]; a locked card

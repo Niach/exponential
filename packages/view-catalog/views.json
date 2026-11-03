@@ -6820,7 +6820,7 @@
       "id": "sealed-locked",
       "group": "coding",
       "title": "Locked content",
-      "blurb": "Sealed session content this install cannot open yet (EXP-1459, sealed-content.json `placeholder`): in a transcript THE glass pill with the lock (\"Waiting for the key\" until a holder wraps the tree key, \"Can't be opened here\" when it never opens), in the chats list the preview italic muted.",
+      "blurb": "End-to-end encrypted session content this install cannot open yet (EXP-1459, sealed-content.json `placeholder`): in a transcript THE glass pill with the lock (\"Waiting for the key\" until a holder wraps the tree key, \"Can't be opened here\" when it never opens), in the chats list the preview italic muted.",
       "order": 53,
       "web": {
         "route": "/t/$teamSlug/agent?dev=sealed-locked",

@@ -309,7 +309,7 @@ impl SealingTransform {
         let root = self.root_for(target).unwrap_or(tree_root);
         let opened = open_card_value(&root, card);
         if opened.0 != OpenStatus::Opened {
-            return Err(refused("an answer", &format!("the sealed card could not be opened on this device ({})", opened.0.as_str())));
+            return Err(refused("an answer", &format!("the encrypted card could not be opened on this device ({})", opened.0.as_str())));
         }
         let answered = answered_card(&opened.1, answer)?;
         let sealed = match self.seal_card(&root, &answered) {
@@ -779,7 +779,7 @@ fn no_holder(root: &str, what: &str, or: &str) -> String {
 /// The agent-facing error of content refused unsealed (logged).
 fn refused(what: &str, err: &dyn std::fmt::Display) -> String {
     log::warn!("gateway: {what} not sent: it could not be sealed: {err}");
-    format!("{what} was not sent: it could not be sealed ({err}). Nothing left this device; try again in a moment.")
+    format!("{what} was not sent: it could not be encrypted ({err}). Nothing left this device; try again in a moment.")
 }
 
 /// Why a session's root is unknown: no key holder at all, or a lookup miss.
@@ -1957,7 +1957,7 @@ mod tests {
         // sent in clear (EXP-1472).
         let sends = calls_of(&server, SEND_TOOL).len();
         let out = call(&grant, SEND_TOOL, json!({ "agentId": "a1", "text": "never in clear" }));
-        assert!(out["error"].as_str().is_some_and(|e| e.contains("could not be sealed")), "{out}");
+        assert!(out["error"].as_str().is_some_and(|e| e.contains("could not be encrypted")), "{out}");
         assert_eq!(calls_of(&server, SEND_TOOL).len(), sends);
         assert!(server.calls.lock().unwrap().iter().any(|(t, url)| t == "trpc:sessions.sendTarget" && url.as_str().unwrap_or_default().contains("a1")));
         codemode::revoke("s-own");

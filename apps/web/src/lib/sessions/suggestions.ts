@@ -34,7 +34,7 @@ import {
 // like answering a card (`assertCanSteer` on the card's session).
 
 const sealedRefused = () =>
-  new TRPCError({ code: `BAD_REQUEST`, message: `This card is sealed: the server cannot act on its items` })
+  new TRPCError({ code: `BAD_REQUEST`, message: `This card is end-to-end encrypted: the server cannot act on its items` })
 
 /** The card message + its session, steer-gated. */
 async function loadSuggestionCard(userId: string, messageId: string) {

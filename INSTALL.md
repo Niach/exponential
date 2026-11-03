@@ -41,7 +41,7 @@ Recommended: a vault key for the OAuth tokens and MCP server credentials the app
 sed -i "s|^VAULT_KEY=$|VAULT_KEY=k1:$(openssl rand -base64 32)|" .env
 ```
 
-To rotate, set a new `VAULT_KEY` (another kid, e.g. `k2:…`) and move the old one into `VAULT_KEYS_RETIRED` (comma-separated); the daily sweep re-seals every value and nobody reconnects. A malformed value stops the server at boot.
+To rotate, set a new `VAULT_KEY` (another kid, e.g. `k2:…`) and move the old one into `VAULT_KEYS_RETIRED` (comma-separated); the daily sweep re-encrypts every value and nobody reconnects. A malformed value stops the server at boot.
 
 Then set the S3 block (`S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION`) to your provider's values. Create the bucket up front, or grant the key bucket-create permission and the app creates it at first use.
 
@@ -129,7 +129,7 @@ The reverse floor matters too: native clients updated from the stores or the des
 
 ## Backup and restore
 
-Session content is sealed on the clients: the database holds ciphertext for message bodies, cards, titles and previews, and only the members' devices hold the keys. A backup restores what the clients can open again; it never makes that content readable on the server. MCP call audit rows (`mcp_calls`) are kept 90 days and purged by a daily sweep.
+Session content is end-to-end encrypted on the clients: the database holds ciphertext for message bodies, cards, titles and previews, and only the members' devices hold the keys. A backup restores what the clients can open again; it never makes that content readable on the server. MCP call audit rows (`mcp_calls`) are kept 90 days and purged by a daily sweep.
 
 Three named volumes (`postgres_data`, `caddy_data`, `caddy_config`) plus your
 external S3 bucket hold all state; `.env` holds the secrets that make them
