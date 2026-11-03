@@ -66,10 +66,7 @@ pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
     // (Escape and a scrim press still close it). The chrome is fixed at open
     // time, so a token picks it; the paste-link dialog keeps its header.
     let chromeless = token.is_some();
-    // The landing card (disc, title, team card, Accept) needs 384: at 340
-    // Accept invite was cut off. `hug()` measures the scroll pane as 0.
-    let height = if chromeless { 384. } else { 340. };
-    let mut spec = DialogSpec::new(TITLE, size(px(416.), px(height)));
+    let mut spec = DialogSpec::new(TITLE, size(px(416.), px(340.)));
     if chromeless {
         spec = spec.chromeless();
     }
@@ -576,6 +573,27 @@ impl JoinTeamView {
     }
 }
 
+impl JoinTeamView {
+    /// EXP-1651: the resolved landing card's height (disc, title, team card,
+    /// Accept invite), set once.
+    fn pin_landing_height(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let target = px(LANDING_H);
+        if self.fitted == Some(target) {
+            return;
+        }
+        let Some(current) = crate::native_dialog::dialog_size(window, cx) else {
+            return;
+        };
+        self.fitted = Some(target);
+        if (target - current.height).abs() > px(1.) {
+            native_dialog::resize_dialog_keeping_top(window, cx, size(current.width, target));
+        }
+    }
+}
+
+/// The resolved landing card's content height (EXP-1651).
+const LANDING_H: f32 = 300.;
+
 /// The dialog's floor: the paste field and the footer.
 const DIALOG_MIN_H: f32 = 200.;
 
@@ -722,9 +740,14 @@ impl Render for JoinTeamView {
         // EXP-369: the form scrolls, the buttons stay pinned at the bottom
         // edge (see [`DialogContent::self_scrolling`] in [`open`]). P9: the
         // window follows the form's height (both boxes report at prepaint).
-        self.fit_window(window, cx);
-        // EXP-1651: the landing carries its own full-width action, no footer.
+        // EXP-1651: the landing carries its own full-width action, no footer,
+        // and a fixed height (the fit measured it short and cut Accept off).
         let resolved = landing.is_some();
+        if resolved {
+            self.pin_landing_height(window, cx);
+        } else {
+            self.fit_window(window, cx);
+        }
         let form = landing.unwrap_or(form);
         let view_id = cx.entity_id();
         let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());

@@ -1559,7 +1559,9 @@ class StyleguideScreenshotsTest {
                     flow.settle()
                     flow.screenshot("sg_invite-accept")
                     Espresso.pressBack()
-                    flow.waitFor(hasTestTag("team-setup-join"), NAV_TIMEOUT)
+                    // Back lands on a wizard step (not always the team page); every
+                    // step carries the Sign out escape hatch the starter block uses.
+                    flow.waitFor(hasText("Sign out"), NAV_TIMEOUT)
                     flow.settle()
                 }
 
