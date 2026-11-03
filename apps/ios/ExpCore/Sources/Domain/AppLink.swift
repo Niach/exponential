@@ -99,11 +99,16 @@ public enum AppLink: Equatable, Sendable {
         return .app(path: written)
     }
 
+    /// VAPP-218: the editor's own query keys, never a screen param
+    /// (`Apps.ScreenSpec.reserved` reads this; kept here so AppLink compiles
+    /// without `Apps` in the Share Extension).
+    public static let reservedScreenKeys = ["tab", "frame"]
+
     /// VAPP-218: a path's query as screen params (the TS `screenQueryParams`):
     /// from the first `?` to the next `#`, `k=v` pairs split on `&` then the
     /// first `=` (none = the value ''), each side percent-decoded (a bad
     /// escape kept as written, no '+' rewriting), empty keys and the
-    /// editor's own (`Apps.ScreenSpec.reserved`) dropped, the last repeat
+    /// editor's own (`reservedScreenKeys`) dropped, the last repeat
     /// winning. Split on the UTF-8 bytes: the separators are ASCII, so every
     /// cut falls on a scalar boundary.
     static func screenQueryParams(_ path: String) -> [String: String] {
@@ -116,7 +121,7 @@ public enum AppLink: Equatable, Sendable {
             let equals = pair.firstIndex(of: UInt8(ascii: "="))
             let rawKey = equals.map { pair[pair.startIndex..<$0] } ?? pair
             let key = decoded(String(decoding: rawKey, as: UTF8.self))
-            if key.isEmpty || Apps.ScreenSpec.reserved.contains(key) { continue }
+            if key.isEmpty || reservedScreenKeys.contains(key) { continue }
             found[key] = equals.map { decoded(String(decoding: pair[pair.index(after: $0)...], as: UTF8.self)) } ?? ""
         }
         return found

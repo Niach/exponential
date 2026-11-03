@@ -682,7 +682,7 @@ public enum Apps {
     /// editor's own query keys (never screen params).
     public enum ScreenSpec {
         public static let sidebarWidth: Double = 200
-        public static let reserved = ["tab", "frame"]
+        public static let reserved = AppLink.reservedScreenKeys
     }
 
     /// Which navigation the preview frame paints for a package's screens.
