@@ -110,10 +110,11 @@ public enum AppRecords {
 
     /// An imported record's author (TS `importAuthor`, `importCases`):
     /// absent, the importer or a stranger = the importer; another member =
-    /// them when the importer is an owner, else nil (the import is refused).
+    /// them when the importer is an owner, else the importer too (VAPP-192:
+    /// a member importing a teammate's export keeps the rows as their own).
     public static func importAuthor(importer: String, role: String?, author: String?, members: [String]) -> String? {
         guard let author, author != importer, members.contains(author) else { return importer }
-        return role == "owner" ? author : nil
+        return role == "owner" ? author : importer
     }
 
     /// The `by` cell (TS `recordByline`, `dataTab.bylineCases`): the

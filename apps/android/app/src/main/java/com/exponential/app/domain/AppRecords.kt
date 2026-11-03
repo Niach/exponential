@@ -74,10 +74,11 @@ object AppRecords {
 
     /** An imported record's author (`importCases`): absent, the importer or a
      *  stranger to the team = the importer; another member = them when the
-     *  importer is an owner, else null (the import is refused). */
+     *  importer is an owner, else the importer too (VAPP-192: a member
+     *  importing a teammate's export keeps the rows as their own). */
     fun importAuthor(importer: String, role: String?, author: String?, members: List<String>): String? {
         if (author == null || author == importer || author !in members) return importer
-        return if (role == "owner") author else null
+        return if (role == "owner") author else importer
     }
 
     /** JavaScript's `Number(text)` for a decimal literal (whitespace trimmed,

@@ -58,7 +58,7 @@ class AppExportTest {
             val input = case["input"]!!
             val app = input["app"]!!
             val records = input["records"]?.array.orEmpty().map {
-                AppExport.Record(it["id"]!!.string!!, it["kind"]!!.string!!, it["data"]!!, it["createdAt"]!!.string!!)
+                AppExport.Record(it["id"]!!.string!!, it["kind"]!!.string!!, it["data"]!!, it["createdAt"]!!.string!!, it["authorId"]?.string ?: it["createdBy"]?.string)
             }
             val file = AppExport.buildAppExport(
                 app = AppExport.App(

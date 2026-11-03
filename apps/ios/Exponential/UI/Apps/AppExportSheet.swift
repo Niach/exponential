@@ -80,7 +80,7 @@ struct AppExportSheet: View {
                 package: package,
                 records: records.map { row in
                     let data = (try? JSONSerialization.jsonObject(with: Data(row.data.utf8))).flatMap(CardJSON.init(any:))
-                    return AppExport.Record(id: row.id, kind: row.kind, data: data ?? .object([:]), createdAt: row.createdAt)
+                    return AppExport.Record(id: row.id, kind: row.kind, data: data ?? .object([:]), createdAt: row.createdAt, author: row.authorId ?? row.createdBy)
                 },
                 includeRecords: includeRecords
             )

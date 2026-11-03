@@ -39,7 +39,7 @@ export function AppExportDialog({ app, onOpenChange }: { app: AppListEntry | nul
       const file = buildAppExport({
         app,
         package: pkg,
-        records: (records ?? []).map((r) => ({ id: r.id, kind: r.kind, data: r.data as Record<string, unknown>, createdAt: r.createdAt })),
+        records: (records ?? []).map((r) => ({ id: r.id, kind: r.kind, data: r.data as Record<string, unknown>, createdAt: r.createdAt, createdBy: r.createdBy, authorId: r.authorId })),
         includeRecords,
       })
       downloadText(appExportFileName(app.slug), appExportText(file))

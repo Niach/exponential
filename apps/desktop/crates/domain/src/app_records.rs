@@ -140,10 +140,11 @@ pub fn write_as_verdict(viewer: Option<&str>, role: Option<&str>, author: Option
 
 /// An imported record's author (`importCases`): absent, the importer or a
 /// stranger to the team = the importer; another member = them when the
-/// importer is an owner, else `None` (the import is refused).
+/// importer is an owner, else the importer too (VAPP-192: a member importing
+/// a teammate's export keeps the rows as their own; never `None` now).
 pub fn import_author<'a>(importer: &'a str, role: Option<&str>, author: Option<&'a str>, members: &[&str]) -> Option<&'a str> {
     match author {
-        Some(author) if author != importer && members.contains(&author) => (role == Some("owner")).then_some(author),
+        Some(author) if author != importer && members.contains(&author) => Some(if role == Some("owner") { author } else { importer }),
         _ => Some(importer),
     }
 }

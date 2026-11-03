@@ -373,12 +373,13 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
       { kind: `entry`, data: { date: `2026-10-07`, hours: 3 } },
     ]
     const text = JSON.stringify(file)
-    // A member may not import rows for another member.
+    // VAPP-192: a member importing another member's rows (a teammate's
+    // export) keeps them as their own; nothing is refused.
     const forOwner = JSON.stringify({ ...file, records: [{ kind: `entry`, data: { date: `2026-10-05`, hours: 1 }, author: w.owner }] })
-    expect((await caller(w.mate).validateImport({ teamId: w.teamId, text: forOwner })).issues).toEqual([
-      { path: `/records/0/author`, message: `Only a team owner can write for another member` },
-    ])
-    await expect(caller(w.mate).import({ teamId: w.teamId, text: forOwner })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect((await caller(w.mate).validateImport({ teamId: w.teamId, text: forOwner })).issues).toEqual([])
+    const asMine = await caller(w.mate).import({ teamId: w.teamId, text: forOwner })
+    const [kept] = await db.select().from(appRecords).where(eq(appRecords.appId, asMine.app.id))
+    expect(kept).toMatchObject({ createdBy: w.mate, authorId: w.mate })
     // An owner keeps a member's author; a stranger and none = the importer.
     expect((await caller(w.owner).validateImport({ teamId: w.teamId, text })).issues).toEqual([])
     const imported = await caller(w.owner).import({ teamId: w.teamId, text })
