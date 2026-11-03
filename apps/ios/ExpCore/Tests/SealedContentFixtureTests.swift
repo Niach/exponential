@@ -191,6 +191,52 @@ final class SealedContentFixtureTests: XCTestCase {
         XCTAssertEqual(message.status, .noKey)
     }
 
+    /// `coldStart`: the secrets the last run kept (the keychain) open the
+    /// first render, before any holder or registration; a key arriving later
+    /// re-opens the locked row (the ring's version moves).
+    func testEveryColdStartCaseOpensOnTheFirstRenderFromTheStore() throws {
+        let crypto = try crypto()
+        let f = try Self.fixture()
+        let coldStart = try XCTUnwrap(f["coldStart"] as? [String: Any])
+        let cases = try XCTUnwrap(coldStart["cases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let name = try XCTUnwrap(c["name"] as? String)
+            XCTAssertEqual(c["holder"] as? String, "none", name)
+            var persisted: [UInt32: Data] = [:]
+            for (epoch, secret) in try XCTUnwrap(c["persisted"] as? [String: Any]) {
+                persisted[try XCTUnwrap(UInt32(epoch))] = try Self.hex(secret)
+            }
+            let stored = persisted
+            let ring = SealedKeyRing(persistence: TreeKeyPersistence(
+                load: { stored.isEmpty ? [:] : ["r1": stored] },
+                save: { _, _, _ in },
+                removeAll: {}
+            ))
+            let opener = SealedOpener(crypto: crypto, ring: ring)
+            let body = try XCTUnwrap(c["body"] as? String)
+            let first = opener.body(body, rootId: "r1")
+            if c["firstFrame"] as? String == "opened" {
+                XCTAssertEqual(first.text, c["text"] as? String, name)
+            } else {
+                XCTAssertEqual(first.status, .noKey, name)
+            }
+            let version = ring.version
+            if let arrives = c["arrives"] as? [String: Any] {
+                for (epoch, secret) in arrives {
+                    ring.add([("r1", try XCTUnwrap(UInt32(epoch)), try Self.hex(secret))])
+                }
+                XCTAssertNotEqual(ring.version, version, name)
+            }
+            let after = opener.body(body, rootId: "r1")
+            if c["after"] as? String == "opened" {
+                XCTAssertEqual(after.text, c["text"] as? String, name)
+            } else {
+                XCTAssertEqual(after.status, .noKey, name)
+            }
+        }
+    }
+
     /// An escalated `ask` mirror's `sealedCard` opens under the MIRROR's tree
     /// key and stands in for an origin card this install can't open.
     func testEscalatedAskMirrorOpensUnderItsOwnTree() throws {

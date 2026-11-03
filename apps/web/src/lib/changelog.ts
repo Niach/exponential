@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-sealed-open-at-launch`,
+    date: `2026-11-03`,
+    title: `Encrypted chats open at launch`,
+    summary: `End-to-end encrypted messages open the moment the app starts, offline too, instead of waiting for the key.`,
+    body: `- **Encrypted chats**: the keys this device already holds open its end-to-end encrypted messages on the first screen after a launch, before it reconnects; a key that arrives later opens the waiting messages right away.`,
+  },
+  {
     id: `2026-11-03-inbox-keeps-sidebar`,
     date: `2026-11-03`,
     title: `The Inbox keeps the sidebar`,
