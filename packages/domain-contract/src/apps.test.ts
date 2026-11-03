@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
 import { appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
+import { screenParamsFromQuery, screenPath, screenShell } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
   test.each(fixture.slugifyCases)(`slugify %j`, (c) => {
@@ -62,3 +63,7 @@ describe(`appFiles (VAPP-221)`, () => {
   test.each(APP_FILES.targetCases)(`appUploadTarget $$why`, (c) => expect(appUploadTarget(c.components as never, c.name)).toBe(c.expected))
   test.each(APP_FILES.urlCases)(`withUploadedUrl $$why`, (c) => expect(withUploadedUrl(c.list, c.fileName, c.url)).toEqual(c.expected))
 })
+// VAPP-218: the screens contract.
+test.each(fixture.screenShellCases)(`screenShell %j`, (c) => expect(screenShell(c.screens, c.phone)).toBe(c.shell as never))
+test.each(fixture.screenPathCases)(`screenPath %j`, (c) => expect(screenPath(c.teamSlug, c.appSlug, c.screen, c.params as Record<string, string>)).toBe(c.path))
+test.each(fixture.screenQueryCases)(`screenParamsFromQuery %j`, (c) => expect(screenParamsFromQuery(c.query)).toEqual(c.params))

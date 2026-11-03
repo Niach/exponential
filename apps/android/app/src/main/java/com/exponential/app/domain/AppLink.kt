@@ -17,6 +17,10 @@ sealed interface AppLink {
     /** EXP-1284: a thread on this instance. */
     data class Thread(val teamSlug: String, val threadId: String) : AppLink
 
+    /** VAPP-218: an app screen, `/t/{team}/apps/{app}/{screen}?<params>`:
+     *  the app's editor on its Preview tab showing that screen. */
+    data class AppScreen(val teamSlug: String, val appSlug: String, val screen: String, val params: Map<String, String>) : AppLink
+
     /** Any other page on this instance, the path as written (query + hash kept). */
     data class App(val path: String) : AppLink
 
@@ -84,7 +88,62 @@ private fun inAppLink(path: String): AppLink {
     if (segments.size == 4 && segments[0] == "t" && segments[2] == "threads") {
         return AppLink.Thread(teamSlug = segments[1], threadId = segments[3])
     }
+    // VAPP-218: an app screen, its query = the screen's params.
+    if (segments.size == 5 && segments[0] == "t" && segments[2] == "apps") {
+        return AppLink.AppScreen(teamSlug = segments[1], appSlug = segments[3], screen = segments[4], params = screenQueryParams(path))
+    }
     return AppLink.App(path)
+}
+
+/** VAPP-218: a path's query as screen params: `k=v` pairs split on `&` then
+ *  the first `=`, each side percent-decoded (a bad escape kept, no `+`
+ *  rewriting), empty keys dropped, the last repeat wins, the editor's own
+ *  keys ([Apps.Screens.RESERVED]) dropped; sorted by key. */
+internal fun screenQueryParams(path: String): Map<String, String> {
+    val q = path.indexOf('?')
+    if (q < 0) return emptyMap()
+    val h = path.indexOf('#', q)
+    val query = if (h < 0) path.substring(q + 1) else path.substring(q + 1, h)
+    val found = HashMap<String, String>()
+    for (pair in query.split('&')) {
+        val eq = pair.indexOf('=')
+        val key = strictDecode(if (eq < 0) pair else pair.substring(0, eq))
+        if (key.isEmpty() || key in Apps.Screens.RESERVED) continue
+        found[key] = if (eq < 0) "" else strictDecode(pair.substring(eq + 1))
+    }
+    return found.toSortedMap()
+}
+
+/** VAPP-218: `decodeURIComponent` or the text as written (a bad escape or
+ *  invalid UTF-8 keeps the WHOLE text, like the TS reference). */
+private fun strictDecode(text: String): String {
+    if ('%' !in text) return text
+    val out = ByteArrayOutputStream()
+    var i = 0
+    while (i < text.length) {
+        val c = text[i]
+        if (c == '%') {
+            if (i + 2 >= text.length) return text
+            val hi = Character.digit(text[i + 1], 16)
+            val lo = Character.digit(text[i + 2], 16)
+            if (hi < 0 || lo < 0) return text
+            out.write(hi * 16 + lo)
+            i += 3
+            continue
+        }
+        val cp = text.codePointAt(i)
+        out.write(String(Character.toChars(cp)).toByteArray(Charsets.UTF_8))
+        i += Character.charCount(cp)
+    }
+    val bytes = out.toByteArray()
+    return try {
+        java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+            .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+            .decode(java.nio.ByteBuffer.wrap(bytes)).toString()
+    } catch (_: java.nio.charset.CharacterCodingException) {
+        text
+    }
 }
 
 /** Percent-decodes UTF-8 bytes; a malformed escape stays literal. */

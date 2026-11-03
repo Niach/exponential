@@ -51,6 +51,18 @@ class WebLinkResolver @Inject constructor(
             }
         }
 
+    /** VAPP-218: a `/t/{team}/apps/{app}/{screen}` link → the synced app's id
+     *  (its team's slug + the app's slug). */
+    suspend fun resolveApp(target: DeepLinkBus.Target.AppScreen): Resolution =
+        poll(target.host) { db ->
+            val team = db.teamDao().observeBySlug(target.teamSlug).first() ?: return@poll null
+            db.appDao().observeByTeam(team.id).first().firstOrNull { it.slug == target.appSlug }?.let { it.id to true }
+        }
+
+    suspend fun teamOfApp(id: String, accountId: String? = null): String? = activeDb(accountId) { db ->
+        db.appDao().observeById(id).first()?.teamId?.takeIf { it.isNotEmpty() }
+    }
+
     /** EXP-1291: whether the in-app session [sessionId] is a synced ROOT on
      *  the ACTIVE account; null when the row is not synced (yet). */
     suspend fun isLocalRoot(sessionId: String): Boolean? {

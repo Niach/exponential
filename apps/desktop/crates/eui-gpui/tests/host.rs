@@ -563,3 +563,61 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
     let codes: Vec<String> = sent_errors(&t).into_iter().map(|(c, _)| c).collect();
     assert_eq!(codes.iter().filter(|c| *c == "ACTION_FAILED").count(), 3);
 }
+
+#[gpui::test]
+fn app_navigate_reaches_the_shell_or_is_refused(cx: &mut TestAppContext) {
+    // VAPP-218 (U1): `app.navigate` is always allowed, checked against the
+    // surface's package screens, then handed to `HostOptions::navigate`;
+    // a refusal is FUNCTION_DENIED (the TS host's `navigate`).
+    init(cx);
+    let pkg = fixture("host-router.json")["packages"]["acme.screens"].clone();
+    let pkg_id = pkg["id"].as_str().unwrap().to_string();
+    let seen = Rc::new(RefCell::new(Vec::<eui_gpui::runtime::HostNavigate>::new()));
+    let s = seen.clone();
+    let t = MemoryTransport::new();
+    let host = host_with(
+        cx,
+        HostOptions {
+            transport: Some(Box::new(t.clone())),
+            packages: vec![pkg.clone()],
+            policy: HostPolicy { functions: Some(FunctionPolicy { deny: Some(vec!["*".into()]), ..Default::default() }), ..Default::default() },
+            navigate: Some(Rc::new(move |n: &eui_gpui::runtime::HostNavigate, _: &mut App| {
+                s.borrow_mut().push(n.clone());
+                n.screen != "deals"
+            })),
+            ..Default::default()
+        },
+    );
+    let issues = host.read_with(cx, |h, _| format!("{:?}", h.issues()));
+    assert_eq!(issues, "[]", "the screens package installs");
+    host.update(cx, |h, cx| h.connect(cx));
+    t.feed([json!({"version": "v0.9", "applyTemplate": {"surfaceId": "s", "packageId": pkg_id, "templateId": "pipeline"}})]);
+    cx.run_until_parked();
+    let call = |args: Value, cx: &mut TestAppContext| {
+        let task = host.update(cx, |h, cx| h.call_function(FunctionCallEvent { surface_id: "s".into(), component_id: "b".into(), name: "app.navigate".into(), args }, cx));
+        outcome(task, cx)
+    };
+
+    // A screen of the package: allowed even under a deny-all policy.
+    let out = call(json!({"screen": "companies", "params": {"q": "acme"}}), cx);
+    assert_eq!((out.decision, out.error), (FunctionDecision::Allow, None));
+    let got = seen.borrow().last().cloned().unwrap();
+    assert_eq!((got.surface_id.as_str(), got.package_id.as_str(), got.screen.as_str()), ("s", pkg_id.as_str(), "companies"));
+    assert_eq!(Value::Object(got.params), json!({"q": "acme"}));
+
+    // Not a screen: refused before the shell sees it.
+    let before = seen.borrow().len();
+    let out = call(json!({"screen": "nope"}), cx);
+    assert_eq!(out.decision, FunctionDecision::Deny);
+    assert_eq!(seen.borrow().len(), before);
+    assert!(sent_errors(&t).contains(&("FUNCTION_DENIED".into(), "navigate: nope is not a screen".into())));
+
+    // The shell declining is a refusal too.
+    let out = call(json!({"screen": "deals"}), cx);
+    assert_eq!(out.error.as_deref(), Some("navigate: deals was not opened"));
+
+    // Without a shell every navigate is refused.
+    host.update(cx, |h, _| h.set_navigate(None));
+    let out = call(json!({"screen": "companies"}), cx);
+    assert_eq!(out.error.as_deref(), Some("navigate: this host has no screens"));
+}

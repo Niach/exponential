@@ -31,6 +31,15 @@
 //! `app:<slug>:<tab>` on that tab (`app:<slug>:preview:phone` = the
 //! Phone frame). VAPP-129's floating layout is gone.
 //!
+//! VAPP-218 (apps.json `screens`): a package with `screens` gets its
+//! navigation painted BY THE HOST in the frame (`screen_shell`): the
+//! sidebar-rows compact rows in a `sidebarWidth` column + a hairline (the
+//! Desktop frame), or the phone tab bar under the surface (the Phone
+//! frame); the shown screen = `resolve_screen` of the request (a row/tab
+//! tap = that screen with its own params, `app.navigate` = screen + params,
+//! a tapped `appScreen` link = [`open_app_screen`]); the template picker is
+//! hidden then. The request stays in memory (no route).
+//!
 //! LIFETIME: entering starts nothing; leaving (a navigation off the screen,
 //! the window closing) ENDS the member's live editor session
 //! (`sessions.end` on the root); the next send continues it.
@@ -55,11 +64,14 @@ use gpui_component::{
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::rc::Rc;
+
+use eui_core::host::{package_screens, resolve_screen, screen_data, ResolvedScreen};
 use sync::Store;
 
 use domain::apps::{
-    editor_tab, is_draft, preview_template, preview_templates, version_label, version_row, viewing_label, EditorTab, PreviewFrame,
-    VersionRowKind,
+    editor_tab, is_draft, preview_template, preview_templates, screen_shell, version_label, version_row, viewing_label, EditorTab,
+    PreviewFrame, ScreenShell, VersionRowKind,
     APPS,
 };
 use domain::rows::AppVersionRow;
@@ -95,6 +107,37 @@ pub(crate) fn open_app_tab(window: &Window, cx: &mut App, app: String, tab: Edit
     } else {
         crate::navigation::navigate(window, cx, screen);
     }
+}
+
+/// VAPP-218: the screen (+ params) the next editor of an app opens its
+/// Preview on (a tapped `appScreen` link), consumed like [`AppTabRequest`].
+#[derive(Default)]
+struct AppScreenRequest(Option<(String, String, serde_json::Map<String, Value>)>);
+
+impl gpui::Global for AppScreenRequest {}
+
+/// VAPP-218 (app-link.json `appScreen`): open `app`'s editor (id or slug)
+/// on its Preview tab showing `screen` with `params`.
+pub(crate) fn open_app_screen(
+    window: &Window,
+    cx: &mut App,
+    app: String,
+    screen: String,
+    params: serde_json::Map<String, Value>,
+) {
+    cx.set_global(AppScreenRequest(Some((app.clone(), screen, params))));
+    open_app_tab(window, cx, app, EditorTab::Preview, false);
+}
+
+/// The pending screen request for the editor `shows` answers for, consumed.
+fn take_screen_request(shows: impl Fn(&str) -> bool, cx: &mut App) -> Option<(String, serde_json::Map<String, Value>)> {
+    let request = cx.try_global::<AppScreenRequest>()?.0.as_ref()?;
+    if !shows(&request.0) {
+        return None;
+    }
+    let (_, screen, params) = request.clone();
+    cx.set_global(AppScreenRequest(None));
+    Some((screen, params))
 }
 
 /// The pending tab request for the editor `shows` answers for, consumed.
@@ -175,6 +218,27 @@ pub(crate) fn apply_template_message(pkg: &Value, picked: Option<&str>) -> Optio
     }))
 }
 
+/// VAPP-218: the `applyTemplate` of a resolved screen: its template with
+/// the data `{params}` (eUI `screenData`).
+pub(crate) fn apply_screen_message(pkg: &Value, screen: &ResolvedScreen) -> Value {
+    json!({
+        "version": "v0.9",
+        "applyTemplate": {
+            "surfaceId": APPS.preview.surface_id,
+            "templateId": screen.screen,
+            "packageId": pkg.get("id").cloned().unwrap_or(Value::Null),
+            "data": screen_data(screen),
+        }
+    })
+}
+
+/// VAPP-218: a screen's eUI icon by name, unknown or none = the
+/// placeholder.
+fn screen_icon(name: Option<&str>) -> crate::icons::ExpIcon {
+    name.and_then(|name| registry::concept_by_name(name).or_else(|| registry::icon_by_name(name)))
+        .unwrap_or(registry::UI_ICON_PLACEHOLDER)
+}
+
 /// The preview's live host: the package it renders (its JSON = the key a
 /// new version replaces it on) and the host itself.
 struct Preview {
@@ -219,6 +283,10 @@ pub struct AppScreenView {
     /// VAPP-179: the picked template (`None` = the default; an id the shown
     /// package lacks falls back to it).
     picked_template: Option<String>,
+    /// VAPP-218: the requested screen (`None` = the first) and its params;
+    /// `resolve_screen` falls back to the first when the package lacks it.
+    screen: Option<String>,
+    screen_params: serde_json::Map<String, Value>,
     /// VAPP-198: Run as (`None` = me) and the app's non-Full access levels
     /// (`appAccess.levels`, owners) for that app.
     run_as: Option<String>,
@@ -257,6 +325,10 @@ impl AppScreenView {
                 this.tab = tab;
                 cx.notify();
             }
+            // VAPP-218: a tapped `appScreen` link while this editor is open.
+            if let Some((screen, params)) = take_screen_request(|app| this.shows(app), cx) {
+                this.request_screen(screen, params, cx);
+            }
         }));
         // Leaving ends the live editor session: the screens panel drops this
         // view on a navigation off it, the window drops it on close.
@@ -283,6 +355,8 @@ impl AppScreenView {
             data: None,
             frame: PreviewFrame::default_frame(),
             picked_template: None,
+            screen: None,
+            screen_params: serde_json::Map::new(),
             run_as: None,
             access_levels: None,
             _subscriptions: subscriptions,
@@ -297,7 +371,25 @@ impl AppScreenView {
         if let Some(frame) = dev_frame(|app| this.shows(app)) {
             this.frame = frame;
         }
+        if let Some((screen, params)) = take_screen_request(|app| this.shows(app), cx) {
+            this.request_screen(screen, params, cx);
+        }
         this
+    }
+
+    /// VAPP-218: open `screen` with `params` (a row/tab tap = no params, an
+    /// `app.navigate`, a link); a new screen = a fresh host.
+    fn request_screen(&mut self, screen: String, params: serde_json::Map<String, Value>, cx: &mut gpui::Context<Self>) {
+        self.screen = Some(screen);
+        self.screen_params = params;
+        self.sync_preview(cx);
+        cx.notify();
+    }
+
+    /// VAPP-218: the screen the preview shows for `pkg` (`None` = the
+    /// package declares no screens).
+    fn resolved_screen(&self, pkg: &Value) -> Option<ResolvedScreen> {
+        resolve_screen(pkg, self.screen.as_deref(), Some(&Value::Object(self.screen_params.clone())))
     }
 
     fn set_frame(&mut self, frame: PreviewFrame, cx: &mut gpui::Context<Self>) {
@@ -507,7 +599,12 @@ impl AppScreenView {
         // The key carries the grants flag: only the version the grants were
         // made on reads them (`grantVersion`).
         // VAPP-179: and the template shown (a pick = a fresh host).
-        let template = preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default();
+        // VAPP-218: with screens, the resolved screen and its params instead.
+        let resolved = pkg.as_ref().and_then(|pkg| self.resolved_screen(pkg));
+        let template = match &resolved {
+            Some(screen) => format!("{}{}", screen.screen, Value::Object(screen.params.clone())),
+            None => preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default(),
+        };
         let run_as = pkg.as_ref().and_then(|pkg| self.run_as(pkg, cx));
         // VAPP-200: at app access `read` (the Run as member's, else mine)
         // the app's own writing controls paint disabled.
@@ -543,7 +640,21 @@ impl AppScreenView {
             migrate_from: migrate_from.clone().filter(|_| pkg.get("migrations").is_some_and(|m| m.as_array().is_some_and(|l| !l.is_empty()))).map(|from| (from, serde_json::json!({ "migrations": pkg["migrations"].clone() }))),
         });
         let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), scope, cx);
-        if let Some(message) = apply_template_message(&pkg, self.picked_template.as_deref()) {
+        // VAPP-218: `app.navigate` replaces the request; deferred, since
+        // the new screen replaces the host that is running the call.
+        let view = cx.entity().downgrade();
+        let navigate: eui_gpui::runtime::NavigateHook = Rc::new(move |target: &eui_gpui::runtime::HostNavigate, cx: &mut App| {
+            let Some(view) = view.upgrade() else { return false };
+            let (screen, params) = (target.screen.clone(), target.params.clone());
+            cx.defer(move |cx| view.update(cx, |this, cx| this.request_screen(screen, params, cx)));
+            true
+        });
+        ide.host.update(cx, |host, _| host.set_navigate(Some(navigate)));
+        let message = match &resolved {
+            Some(screen) => Some(apply_screen_message(&pkg, screen)),
+            None => apply_template_message(&pkg, self.picked_template.as_deref()),
+        };
+        if let Some(message) = message {
             ide.host.update(cx, |host, cx| {
                 host.receive(&message, cx);
             });
@@ -790,7 +901,9 @@ impl AppScreenView {
             .collect();
         let pkg = self.shown_package(cx);
         let templates = preview_templates(pkg.as_ref());
-        let picker = (templates.len() > 1).then(|| {
+        // VAPP-218: with screens the screens ARE the picker.
+        let has_screens = pkg.as_ref().is_some_and(|pkg| !package_screens(pkg).is_empty());
+        let picker = (templates.len() > 1 && !has_screens).then(|| {
             let current = preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default();
             let view = cx.entity().downgrade();
             Button::new(SharedString::from(APPS.test_ids.preview_template.clone()))
@@ -862,6 +975,68 @@ impl AppScreenView {
             .child(div().flex_1())
             .children(picker)
             .into_any_element()
+    }
+
+    /// VAPP-218 (apps.json `screens`): the shell of the shown package's
+    /// screens (`screen_shell`: the Phone frame = the bar), testId
+    /// `previewScreens`: the sidebar-rows compact rows in a `sidebarWidth`
+    /// column, or the phone tab bar; the shown screen active. `None` = no
+    /// screens (or nothing painted yet).
+    fn render_screens(&self, preview_empty: bool, cx: &mut gpui::Context<Self>) -> Option<(ScreenShell, AnyElement)> {
+        if preview_empty {
+            return None;
+        }
+        let pkg = self.shown_package(cx)?;
+        let screens: Vec<(String, String, Option<String>)> = package_screens(&pkg)
+            .into_iter()
+            .map(|s| {
+                let text = |key: &str| s.get(key).and_then(Value::as_str).map(str::to_string);
+                (text("template").unwrap_or_default(), text("title").unwrap_or_default(), text("icon"))
+            })
+            .collect();
+        let shell = screen_shell(screens.len(), self.frame == PreviewFrame::Phone)?;
+        let shown = self.resolved_screen(&pkg).map(|r| r.screen).unwrap_or_default();
+        let id = SharedString::from("previewScreens");
+        let nav = match shell {
+            ScreenShell::Sidebar => v_flex()
+                .id(id)
+                .w(px(APPS.screens.sidebar_width))
+                .flex_shrink_0()
+                .h_full()
+                .p_2()
+                .gap_1()
+                .children(screens.into_iter().map(|(template, title, icon)| {
+                    let lead = Icon::new(screen_icon(icon.as_deref()))
+                        .with_size(gpui_component::Size::Medium)
+                        .flex_shrink_0()
+                        .into_any_element();
+                    let active = template == shown;
+                    crate::sidebar::rail_row_lead(SharedString::from(format!("preview-screen-{template}")), lead, title, active, None, cx)
+                        .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
+                            this.request_screen(template.clone(), serde_json::Map::new(), cx)
+                        }))
+                }))
+                .into_any_element(),
+            ScreenShell::Bar => h_flex()
+                .id(id)
+                .flex_shrink_0()
+                .w_full()
+                .justify_center()
+                .p_2()
+                .child(crate::styleguide::entries::phone_tab_bar::capsule().children(screens.into_iter().map(
+                    |(template, title, icon)| {
+                        let selected = template == shown;
+                        crate::styleguide::entries::phone_tab_bar::screen_tab(screen_icon(icon.as_deref()), title, selected, cx)
+                            .id(SharedString::from(format!("preview-screen-{template}")))
+                            .cursor_pointer()
+                            .on_click(cx.listener(move |this, _: &gpui::ClickEvent, _, cx| {
+                                this.request_screen(template.clone(), serde_json::Map::new(), cx)
+                            }))
+                    },
+                )))
+                .into_any_element(),
+        };
+        Some((shell, nav))
     }
 
     fn render_preview(&self, cx: &mut gpui::Context<Self>) -> AnyElement {
@@ -1010,17 +1185,25 @@ impl AppScreenView {
             .rounded(px(APPS.preview.radius))
             .border_1()
             .border_color(theme.border)
-            .bg(theme.background)
-            .map(|frame| {
-                if preview_empty {
-                    return frame.child(frame_body);
-                }
-                frame.child(crate::scroll_pane::v_scroll_pane(
-                    "app-preview-scroll",
-                    &self.preview_scroll,
-                    div().w_full().p(px(APPS.preview.padding)).child(frame_body),
-                ))
-            });
+            .bg(theme.background);
+        let content = if preview_empty {
+            frame_body
+        } else {
+            crate::scroll_pane::v_scroll_pane(
+                "app-preview-scroll",
+                &self.preview_scroll,
+                div().w_full().p(px(APPS.preview.padding)).child(frame_body),
+            )
+            .into_any_element()
+        };
+        // VAPP-218: the package's screens, painted by the host in the frame.
+        let frame = match self.render_screens(preview_empty, cx) {
+            Some((ScreenShell::Sidebar, nav)) => frame.flex_row().child(nav).child(div().w(px(1.)).h_full().flex_shrink_0().bg(theme.border)).child(
+                div().flex_1().min_w_0().h_full().min_h_0().flex().flex_col().child(content),
+            ),
+            Some((ScreenShell::Bar, nav)) => frame.child(content).child(nav),
+            None => frame.child(content),
+        };
         v_flex()
             .size_full()
             .min_h_0()
@@ -1304,6 +1487,24 @@ mod tests {
         assert_eq!(id(None), "dashboard");
         assert_eq!(id(Some("week")), "week");
         assert_eq!(id(Some("missing")), "dashboard");
+    }
+
+    /// VAPP-218: a screen opens its template with `{params}`; a request
+    /// the package lacks falls back to the first screen; icons by eUI name.
+    #[test]
+    fn the_preview_applies_the_requested_screen() {
+        let pkg: Value = serde_json::from_str(include_str!("../../../../../samples/apps/crm.app.json")).unwrap();
+        let params = json!({"q": "acme"});
+        let screen = resolve_screen(&pkg, Some("companies"), Some(&params)).unwrap();
+        let message = apply_screen_message(&pkg, &screen);
+        assert_eq!(message["applyTemplate"]["templateId"], "companies");
+        assert_eq!(message["applyTemplate"]["data"], json!({"params": {"q": "acme"}}));
+        assert_eq!(resolve_screen(&pkg, Some("gone"), None).unwrap().screen, "pipeline");
+        assert_eq!(screen_shell(package_screens(&pkg).len(), true), Some(ScreenShell::Bar));
+        // `ui-icon-placeholder` = CircleDashed (ExpIcon has no PartialEq).
+        assert!(matches!(screen_icon(None), crate::icons::ExpIcon::CircleDashed));
+        assert!(matches!(screen_icon(Some("no-such-icon")), crate::icons::ExpIcon::CircleDashed));
+        assert!(!matches!(screen_icon(Some("users")), crate::icons::ExpIcon::CircleDashed));
     }
 
     #[test]

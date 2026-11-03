@@ -251,9 +251,33 @@ class AppEditorViewModel @Inject constructor(
         emit(runCatching { accessApi.appAccessMine(accountId, appId).level }.getOrNull())
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** VAPP-177: a requested tab (`editorTabs.search`; none today on
-     *  Android's route) → the phone's tab and the `…` menu's sheet over it. */
+    /** VAPP-177: a requested tab (`editorTabs.search`; VAPP-218: an
+     *  `appScreen` link asks for `preview`) → the phone's tab and the `…`
+     *  menu's sheet over it. */
     val initialTab: Apps.EditorTabPick = Apps.editorTab(savedStateHandle.get<String>(Apps.EditorTabs.SEARCH), phone = true)
+
+    /** VAPP-218 (apps.json `screens`): the requested screen + params (an
+     *  `appScreen` link, a tab tap, `app.navigate`); null screen = the
+     *  package's first. `Screens.resolve` picks what shows; kept in memory. */
+    data class ScreenRequest(val screen: String?, val params: Map<String, String>)
+
+    private val _screen = MutableStateFlow(
+        ScreenRequest(
+            screen = savedStateHandle.get<String>("screen")?.takeIf { it.isNotEmpty() },
+            params = savedStateHandle.get<String>("params")?.let { raw ->
+                runCatching {
+                    kotlinx.serialization.json.Json.parseToJsonElement(raw).let { it as kotlinx.serialization.json.JsonObject }
+                        .mapNotNull { (k, v) -> (v as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.let { k to it.content } }
+                        .toMap()
+                }.getOrNull()
+            }.orEmpty(),
+        ),
+    )
+    val screen: StateFlow<ScreenRequest> = _screen
+
+    fun requestScreen(screen: String, params: Map<String, String> = emptyMap()) {
+        _screen.value = ScreenRequest(screen, params)
+    }
 
     /** VAPP-122: the viewer (`records:<kind>?mine=1`; null = signed out). */
     val me: StateFlow<String?> = auth.userId

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { APPS_COPY, APPS_EDITOR_TABS, APPS_PREVIEW } from "@exp/domain-contract/apps"
+import { useMemo } from "react"
+import { createFileRoute, redirect, useNavigate, useParams, useSearch } from "@tanstack/react-router"
+import { APPS_COPY, APPS_EDITOR_TABS, APPS_PREVIEW, screenPath } from "@exp/domain-contract/apps"
 import { conceptIcon, EmptyState, SkeletonRows } from "@exp/ui"
 import { AppEditor } from "@/components/apps/app-editor"
 import { useApp, useApps } from "@/hooks/use-apps"
@@ -8,6 +9,7 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
+import { routeScreenParams, type ScreenRequest } from "@/lib/app-screens"
 
 // VAPP-110: one app's EDITOR (fixtures/apps.json): chat beside the live
 // preview, versions. `$appSlug` = the app's slug in the team. VAPP-176: a
@@ -16,6 +18,9 @@ import { pageTitle, usePageTitle } from "@/lib/page-title"
 // the editor session mid-turn). VAPP-177: `?tab=<id>` opens that tab (phones:
 // versions/settings = the menu's sheet over Chat; `editorTab`). VAPP-179:
 // `?frame=desktop|phone` opens the preview in that frame (screenshots).
+// VAPP-218: the child route `$appSlug/$screen` (its query = the screen's
+// params, apps.json `screens`) opens the Preview tab on that screen; this
+// page stays the one editor for both, so a screen change never remounts it.
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const SYNC_GRACE_MS = 4_000
@@ -43,6 +48,14 @@ export const Route = createFileRoute(`/t/$teamSlug/apps/$appSlug`)({
 function AppEditorPage() {
   const { teamSlug, appSlug } = Route.useParams()
   const { tab: requestedTab, frame: requestedFrame } = Route.useSearch()
+  // VAPP-218: the screen route's `$screen` + its query (the child's own match).
+  const { screen } = useParams({ strict: false }) as { screen?: string }
+  const search = useSearch({ strict: false }) as Record<string, unknown>
+  const paramsKey = screen ? JSON.stringify(routeScreenParams(search)) : ``
+  const requestedScreen = useMemo<ScreenRequest | null>(
+    () => (screen ? { screen, params: JSON.parse(paramsKey) as Record<string, string> } : null),
+    [screen, paramsKey]
+  )
   const { data: session } = useSession()
   const team = useTeamBySlug(teamSlug)
   const permissions = useTeamPermissions(team)
@@ -54,9 +67,10 @@ function AppEditorPage() {
   if (app) lastId.current = app.id
   useEffect(() => {
     if (app && app.slug !== appSlug) {
-      void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug }, replace: true })
+      if (requestedScreen) void navigate({ href: screenPath(teamSlug, app.slug, requestedScreen.screen, requestedScreen.params), replace: true })
+      else void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug }, replace: true })
     }
-  }, [app, appSlug, teamSlug, navigate])
+  }, [app, appSlug, teamSlug, navigate, requestedScreen])
   usePageTitle(app ? pageTitle(app.name, APPS_COPY.title) : undefined)
 
   const [graceOver, setGraceOver] = useState(false)
@@ -91,8 +105,9 @@ function AppEditorPage() {
       isMember={permissions.isMember}
       canManage={permissions.isOwner || app.createdBy === (session?.user?.id ?? null)}
       canGrant={permissions.isOwner}
-      requestedTab={requestedTab ?? null}
+      requestedTab={screen ? `preview` : (requestedTab ?? null)}
       requestedFrame={requestedFrame ?? null}
+      requestedScreen={requestedScreen}
     />
   )
 }

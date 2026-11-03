@@ -11,6 +11,16 @@ import ExponentialUI
 /// in a frame `preview.radius` / `preview.padding` on the theme's ground. A
 /// new package = a new host (the identity), so every synced upsert repaints;
 /// no package yet = the page-size empty state in the frame.
+///
+/// VAPP-218 (apps.json `screens`): a package that declares SCREENS paints
+/// them as the phone BAR (`Apps.screenShell`: phones are always `phone`)
+/// under the surface inside the frame: THE phone-tab-bar capsule
+/// (`PhoneTabCapsule`), one tab per screen (its eUI icon, none / unknown =
+/// `ui-icon-placeholder`, and its title), the shown one selected. The shown
+/// screen = eUI `Screens.resolve` of `screen` (the requested one, else the
+/// first); a tab tap requests that screen with its own params, the
+/// package's `app.navigate` the call's screen + params (in memory). A new
+/// screen = a fresh surface opening its template with `{params}`.
 struct AppPreview: View {
     /// The package's JSON text; nil = no version yet.
     let packageJSON: String?
@@ -30,20 +40,49 @@ struct AppPreview: View {
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Apps.Preview.radius)
-        ScrollView {
-            Group {
-                if let packageJSON {
-                    AppPackageSurface(packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants, readOnly: readOnly, migrateFrom: migrateFrom)
-                        .id("\(grants):\(readOnly):\(migrateFrom ?? ""):\(packageJSON)")
-                } else {
-                    EmptyState(title: Apps.Copy.previewEmpty, icon: AppIcons.navApps, size: .page)
-                        .frame(maxWidth: .infinity, minHeight: 192)
+        let screens = AppPreviewScreens(packageJSON: packageJSON, request: screen.wrappedValue)
+        VStack(spacing: 0) {
+            ScrollView {
+                Group {
+                    if let packageJSON {
+                        AppPackageSurface(
+                            packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants, readOnly: readOnly,
+                            migrateFrom: migrateFrom, shown: screens.shown,
+                            onNavigate: { request in screen.wrappedValue = request }
+                        )
+                        .id("\(grants):\(readOnly):\(migrateFrom ?? ""):\(screens.shownKey):\(packageJSON)")
+                    } else {
+                        EmptyState(title: Apps.Copy.previewEmpty, icon: AppIcons.navApps, size: .page)
+                            .frame(maxWidth: .infinity, minHeight: 192)
+                    }
                 }
+                .padding(Apps.Preview.padding)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
             }
-            .padding(Apps.Preview.padding)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
+            .scrollContentBackground(.hidden)
+            if Apps.screenShell(screenCount: screens.tabs.count, phone: true) == .bar {
+                PhoneTabCapsule(
+                    tabs: screens.tabs.map(\.screen),
+                    selected: screens.shown?.screen,
+                    label: { screens.title($0) },
+                    identifier: { "\(Apps.TestIds.previewScreens)-\($0)" },
+                    onActivate: { tapped in screen.wrappedValue = Apps.ScreenRequest(screen: tapped) }
+                ) { tab in
+                    VStack(spacing: 4) {
+                        AppIcon(screens.icon(tab), size: AppIcon.Size.large)
+                            .frame(height: 22)
+                        Text(screens.title(tab))
+                            .font(.system(size: MobileTabBarMetrics.labelSize, weight: .medium))
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .padding(.horizontal, Apps.Preview.padding)
+                .padding(.bottom, Apps.Preview.padding)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier(Apps.TestIds.previewScreens)
+            }
         }
-        .scrollContentBackground(.hidden)
         .background(GlassTokens.backgroundTop, in: shape)
         .clipShape(shape)
         .overlay(shape.strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
@@ -52,9 +91,50 @@ struct AppPreview: View {
     }
 }
 
-/// The live surface of one package: its own host, the first template
-/// applied once, closed when it leaves. Without the painter linked: nothing
-/// (the frame stays).
+/// VAPP-218: a package's screens (eUI `Screens.list`) and the one shown
+/// for a request (`Screens.resolve`); none without the painter linked.
+private struct AppPreviewScreens {
+    struct Tab {
+        let screen: String
+        let title: String
+        let icon: String?
+    }
+
+    private(set) var tabs: [Tab] = []
+    /// The shown screen with its params (nil = no screens: the first template).
+    private(set) var shown: Apps.ScreenRequest?
+
+    init(packageJSON: String?, request: Apps.ScreenRequest?) {
+        #if canImport(ExponentialUI)
+        guard let packageJSON else { return }
+        let pkg = JSONValue.parse(packageJSON)
+        tabs = Screens.list(pkg).map { Tab(screen: $0.screen, title: $0.title, icon: $0.icon) }
+        guard !tabs.isEmpty else { return }
+        shown = Screens.resolve(pkg, screen: request?.screen, params: request?.params)
+            .map { Apps.ScreenRequest(screen: $0.screen, params: $0.params) }
+        #endif
+    }
+
+    /// The surface's identity part: a new screen (or params) = a fresh surface.
+    var shownKey: String {
+        guard let shown else { return "" }
+        let params = shown.params.keys.sorted().map { "\($0)=\(shown.params[$0] ?? "")" }.joined(separator: "&")
+        return "\(shown.screen)?\(params)"
+    }
+
+    func title(_ screen: String) -> String {
+        tabs.first { $0.screen == screen }?.title ?? screen
+    }
+
+    /// The screen's eUI icon by name; none / unknown = `ui-icon-placeholder`.
+    func icon(_ screen: String) -> String {
+        tabs.first { $0.screen == screen }?.icon.flatMap(AppIcons.conceptOrName) ?? AppIcons.uiIconPlaceholder
+    }
+}
+
+/// The live surface of one package: its own host, the first template (or
+/// VAPP-218 the shown screen's, with its `{params}`) applied once, closed
+/// when it leaves. Without the painter linked: nothing (the frame stays).
 private struct AppPackageSurface: View {
     let packageJSON: String
     let appId: String?
@@ -62,6 +142,10 @@ private struct AppPackageSurface: View {
     let grants: Bool
     let readOnly: Bool
     let migrateFrom: String?
+    /// VAPP-218: the shown screen (nil = no screens).
+    let shown: Apps.ScreenRequest?
+    /// VAPP-218: the package's `app.navigate` (the request it names).
+    let onNavigate: (Apps.ScreenRequest) -> Void
 
     #if canImport(ExponentialUI)
     @Environment(AppDependencies.self) private var deps
@@ -134,11 +218,22 @@ private struct AppPackageSurface: View {
             grants: grants,
             readOnly: readOnly,
             migrateFrom: migrateFrom,
+            navigate: { [onNavigate] target in
+                onNavigate(Apps.ScreenRequest(screen: target.screen, params: target.params))
+                return true
+            },
             onOpenIssue: { [pushRoute, accountId] issueId in
                 pushRoute(.issue(accountId: accountId, id: issueId))
             }
         )
-        if let templateId = Apps.previewTemplate(packageJSON: packageJSON) {
+        if let shown {
+            // `Screens.Resolved.data`: the template opens with `{params}`.
+            let params: [String: JSONValue] = shown.params.mapValues { .string($0) }
+            host.apply(
+                surfaceId: Apps.Preview.surfaceId, packageId: packageId, templateId: shown.screen,
+                data: .object(["params": .object(params)])
+            )
+        } else if let templateId = Apps.previewTemplate(packageJSON: packageJSON) {
             host.apply(surfaceId: Apps.Preview.surfaceId, packageId: packageId, templateId: templateId)
         }
         appHost = host

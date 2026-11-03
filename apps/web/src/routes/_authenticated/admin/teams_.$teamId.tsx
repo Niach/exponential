@@ -28,10 +28,17 @@ import {
 } from "./-shared"
 import { pageTitle } from "@/lib/page-title"
 
+// Spelled out from the tRPC client, not inferred through `Route`: TanStack
+// Router's loader-data inference via the route tree gives up (falls to `any`)
+// as the tree grows, so the page pins its own type.
+type LoaderData = {
+  detail: Awaited<ReturnType<typeof trpc.admin.getTeamDetail.query>>
+}
+
 export const Route = createFileRoute(
   `/_authenticated/admin/teams_/$teamId`
 )({
-  loader: async ({ params }) => {
+  loader: async ({ params }): Promise<LoaderData> => {
     const detail = await trpc.admin.getTeamDetail.query({
       teamId: params.teamId,
     })
@@ -50,7 +57,7 @@ type CompChoice = `none` | `team` | `unlimited`
 function AdminTeamDetail() {
   const router = useRouter()
   const navigate = useNavigate()
-  const { detail } = Route.useLoaderData()
+  const { detail }: LoaderData = Route.useLoaderData()
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [pendingComp, setPendingComp] = useState<CompChoice | null>(null)

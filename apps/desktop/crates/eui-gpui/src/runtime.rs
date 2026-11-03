@@ -18,8 +18,8 @@ use std::sync::Arc;
 
 use eui_core::host::{
     action_message, available_extensions, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source, source_with_params,
-    action_call_name, run_action, ActionContext, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
-    FUNCTION_NOT_FOUND, RECORDS_BATCH_FUNCTION, RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
+    action_call_name, navigate_target, run_action, ActionContext, FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, ACTION_FAILED, FUNCTION_DENIED,
+    FUNCTION_NOT_FOUND, NAVIGATE_FUNCTION, RECORDS_BATCH_FUNCTION, RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
 use eui_core::measure::TextStyle;
 use eui_core::surface::PlacedNode;
@@ -62,6 +62,21 @@ pub type OpenUrlHandler = Rc<dyn Fn(&str, &mut App)>;
 pub type ZoneFn = Arc<dyn Fn(f64) -> i32 + Send + Sync>;
 /// VAPP-194: a package action that landed nothing (the host's toast).
 pub type ActionFailedHook = Rc<dyn Fn(&ActionFailure, &mut App)>;
+
+/// VAPP-218 (U1): what [`HostOptions::navigate`] receives (the TS
+/// `navigate` option's target): the surface, its package, the screen and
+/// its string params, checked by `eui_core::host::navigate_target`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HostNavigate {
+    pub surface_id: String,
+    pub package_id: String,
+    pub screen: String,
+    pub params: serde_json::Map<String, Value>,
+}
+
+/// VAPP-218: the host's shell opening a package screen; `true` when it
+/// navigated.
+pub type NavigateHook = Rc<dyn Fn(&HostNavigate, &mut App) -> bool>;
 
 /// VAPP-194: why a package action landed nothing (`onActionFailed`).
 #[derive(Debug, Clone, PartialEq)]
@@ -181,6 +196,11 @@ pub struct HostOptions {
     /// VAPP-200: every surface is read-only (the viewer's app access is
     /// `read`): its writing controls paint disabled.
     pub read_only: bool,
+    /// VAPP-218 (U1): open one of the surface's package screens
+    /// (`app.navigate`, a press or an action's call step, checked by
+    /// `navigate_target`). `None` = the host draws no screens, so a
+    /// navigate is refused.
+    pub navigate: Option<NavigateHook>,
 }
 
 impl HostOptions {
@@ -221,6 +241,7 @@ impl Default for HostOptions {
             zone: None,
             on_action_failed: None,
             read_only: false,
+            navigate: None,
         }
     }
 }
@@ -291,6 +312,7 @@ pub struct ExponentialHost {
     now: Option<Rc<dyn Fn() -> f64>>,
     zone: Option<ZoneFn>,
     on_action_failed: Option<ActionFailedHook>,
+    navigate: Option<NavigateHook>,
     issues: Vec<HostIssue>,
     status: TransportStatus,
     status_detail: Option<String>,
@@ -342,6 +364,7 @@ impl ExponentialHost {
             now: options.now,
             zone: options.zone,
             on_action_failed: options.on_action_failed,
+            navigate: options.navigate,
             issues: Vec::new(),
             status: TransportStatus::Closed,
             status_detail: None,
@@ -784,6 +807,9 @@ impl ExponentialHost {
             let bound = self.bind(&call.surface_id, &call.args, cx);
             return Task::ready(FunctionOutcome::of(if bound { FunctionDecision::Allow } else { FunctionDecision::Deny }));
         }
+        if call.name == NAVIGATE_FUNCTION {
+            return Task::ready(self.navigate(&call, cx));
+        }
         if let Some(action) = action_call_name(&call.name).map(str::to_string) {
             return self.run_package_action(call, action, cx);
         }
@@ -800,6 +826,10 @@ impl ExponentialHost {
     /// The policy gate and the consent hook: `Allow`, or the refusal (sent
     /// as FUNCTION_NOT_FOUND / FUNCTION_DENIED).
     fn gate(&mut self, call: &FunctionCallInfo, cx: &mut Context<Self>) -> Task<FunctionOutcome> {
+        // VAPP-218: navigate is always allowed (checked when it runs).
+        if call.name == NAVIGATE_FUNCTION {
+            return Task::ready(FunctionOutcome::of(FunctionDecision::Allow));
+        }
         let denied = error_message(FUNCTION_DENIED, &call.surface_id, &format!("{} was not allowed", call.name), None);
         match self.decide(&call.surface_id, &call.name) {
             FunctionDecision::NotFound => {
@@ -825,6 +855,40 @@ impl ExponentialHost {
                 })
             }
             FunctionDecision::Allow => Task::ready(FunctionOutcome::of(FunctionDecision::Allow)),
+        }
+    }
+
+    /// VAPP-218 (U1): set (or clear) the shell's navigate hook after the
+    /// host exists ([`HostOptions::navigate`]).
+    pub fn set_navigate(&mut self, navigate: Option<NavigateHook>) {
+        self.navigate = navigate;
+    }
+
+    /// VAPP-218: `app.navigate {screen, params?}` → the host's shell, when
+    /// the surface's package has that screen. A refusal = FUNCTION_DENIED.
+    pub fn navigate(&mut self, call: &FunctionCallInfo, cx: &mut App) -> FunctionOutcome {
+        let package_id = self.package_id_of(&call.surface_id).map(str::to_string);
+        let pkg = package_id.as_deref().and_then(|id| self.router.package(id));
+        let target = match pkg {
+            Some(pkg) => navigate_target(pkg, &call.args),
+            None => Err("navigate: the surface has no package".to_string()),
+        };
+        let refuse = |host: &mut Self, message: String| {
+            host.send(error_message(FUNCTION_DENIED, &call.surface_id, &message, None));
+            FunctionOutcome { decision: FunctionDecision::Deny, result: None, error: Some(message) }
+        };
+        let target = match target {
+            Ok(target) => target,
+            Err(message) => return refuse(self, message),
+        };
+        let Some(hook) = self.navigate.clone() else {
+            return refuse(self, "navigate: this host has no screens".into());
+        };
+        let request = HostNavigate { surface_id: call.surface_id.clone(), package_id: package_id.unwrap_or_default(), screen: target.screen, params: target.params };
+        if hook(&request, cx) {
+            FunctionOutcome::of(FunctionDecision::Allow)
+        } else {
+            refuse(self, format!("navigate: {} was not opened", request.screen))
         }
     }
 
@@ -984,6 +1048,9 @@ fn effective_urls(policy: &HostPolicy) -> UrlPolicy {
 }
 
 async fn run_function(this: WeakEntity<ExponentialHost>, call: FunctionCallInfo, cx: &mut gpui::AsyncApp) -> FunctionOutcome {
+    if call.name == NAVIGATE_FUNCTION {
+        return this.update(cx, |host, cx| host.navigate(&call, cx)).unwrap_or(FunctionOutcome::of(FunctionDecision::Deny));
+    }
     let task = this.update(cx, |host, cx| host.functions.get(&call.name).cloned().map(|f| f(call.args.clone(), &call, cx)));
     match task {
         Ok(Some(task)) => match task.await {

@@ -186,6 +186,8 @@ public enum Apps {
         public static let webhooks = "app-settings-webhooks"
         public static let webhookRow = "app-webhook-row"
         public static let webhookSecret = "app-webhook-secret"
+        // VAPP-218: the preview's screens navigation (the bar on phones).
+        public static let previewScreens = "app-editor-preview-screens"
     }
 
     /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and
@@ -672,6 +674,69 @@ public enum Apps {
         let list = previewTemplates(packageJSON: packageJSON)
         if let picked, list.contains(picked) { return picked }
         return list.first
+    }
+
+    // MARK: - VAPP-218 screens (fixture `screens`, TS `screenShell` …)
+
+    /// The fixture's `screens` constants: the sidebar column's width and the
+    /// editor's own query keys (never screen params).
+    public enum ScreenSpec {
+        public static let sidebarWidth: Double = 200
+        public static let reserved = ["tab", "frame"]
+    }
+
+    /// Which navigation the preview frame paints for a package's screens.
+    public enum ScreenShell: String, Equatable, Sendable {
+        case sidebar, bar
+    }
+
+    /// A requested screen (a deep link, a tab tap, an `app.navigate`): the
+    /// eUI `resolveScreen` turns it into the one shown.
+    public struct ScreenRequest: Hashable, Sendable {
+        public let screen: String
+        public let params: [String: String]
+
+        public init(screen: String, params: [String: String] = [:]) {
+            self.screen = screen
+            self.params = params
+        }
+    }
+
+    /// TS `screenShell` (`screenShellCases`): none without screens, the
+    /// phone bottom bar on a phone (or the Phone frame), else the sidebar.
+    public static func screenShell(screenCount: Int, phone: Bool) -> ScreenShell? {
+        if screenCount <= 0 { return nil }
+        return phone ? .bar : .sidebar
+    }
+
+    /// TS `screenPath` (`screenPathCases`): `/t/<team>/apps/<app>/<screen>`
+    /// (`encodeURIComponent` per segment), then the params sorted by key as
+    /// `k=v` pairs; none = no `?`.
+    public static func screenPath(teamSlug: String, appSlug: String, screen: String, params: [String: String] = [:]) -> String {
+        let path = "/t/\(encodeURIComponent(teamSlug))/apps/\(encodeURIComponent(appSlug))/\(encodeURIComponent(screen))"
+        let keys = params.keys.sorted()
+        if keys.isEmpty { return path }
+        let query = keys.map { "\(encodeURIComponent($0))=\(encodeURIComponent(params[$0] ?? ""))" }
+        return path + "?" + query.joined(separator: "&")
+    }
+
+    /// TS `screenParamsFromQuery` (`screenQueryCases`): every string value
+    /// but the editor's own keys (`ScreenSpec.reserved`).
+    public static func screenParamsFromQuery(_ query: [String: Any]) -> [String: String] {
+        var out: [String: String] = [:]
+        for (key, value) in query where !ScreenSpec.reserved.contains(key) {
+            if let text = value as? String { out[key] = text }
+        }
+        return out
+    }
+
+    /// JS `encodeURIComponent`'s unreserved set.
+    private static let uriComponentAllowed = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
+    )
+
+    static func encodeURIComponent(_ value: String) -> String {
+        value.addingPercentEncoding(withAllowedCharacters: uriComponentAllowed) ?? value
     }
 }
 

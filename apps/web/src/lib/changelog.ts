@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-app-screens`,
+    date: `2026-11-03`,
+    title: `Apps with several screens`,
+    summary: `An app can have several screens: the preview shows them in a sidebar, or a tab bar on phones, and a link can open any screen.`,
+    body: `- **Screens**: an app can list up to five screens; the editor's preview shows them as a sidebar on wide frames and as the bottom tab bar on phones and in the Phone frame.
+- **Links to a screen**: a link like /t/team/apps/crm/deals?stage=won opens the app's editor on that screen, on the web and in the apps.
+- **Navigation from the app**: buttons and actions in an app can open another of its screens, with parameters.`,
+  },
+  {
     id: `2026-11-03-spreadsheet-import`,
     date: `2026-11-03`,
     title: `Import spreadsheets into apps`,

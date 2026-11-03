@@ -2026,7 +2026,7 @@ mod tests {
     /// as, at access `read` or with no app nothing does.
     #[test]
     fn app_uploads_follow_the_scope() {
-        let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false, records: None };
+        let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false, records: None, migrate_from: None };
         assert_eq!(app_uploads(Some(&scope)).map(|u| u.app_id.clone()).as_deref(), Some("a1"));
         assert!(app_uploads(None).is_none());
         assert!(app_uploads(Some(&HostScope { read_only: true, ..scope.clone() })).is_none());

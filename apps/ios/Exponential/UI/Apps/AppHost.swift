@@ -428,6 +428,7 @@ final class ExpAppHost {
         grants: Bool = true,
         readOnly: Bool = false,
         migrateFrom: String? = nil,
+        navigate: ((NavigateTarget) -> Bool)? = nil,
         onOpenIssue: @escaping (String) -> Void
     ) {
         self.consent = consent
@@ -644,7 +645,10 @@ final class ExpAppHost {
                     FeedbackStates.Errors.title(verb: "save", thing: "the record"),
                     description: failure.message
                 )
-            }
+            },
+            // VAPP-218: `app.navigate` opens one of the package's screens
+            // (the preview's screens shell; nil = refused).
+            navigate: navigate
         ))
         uploads?.host = host
     }
@@ -689,15 +693,18 @@ final class ExpAppHost {
         }
     }
 
-    /// Paint `templateId` of `packageId` into `surfaceId` (`applyTemplate`).
-    func apply(surfaceId: String, packageId: String, templateId: String) {
+    /// Paint `templateId` of `packageId` into `surfaceId` (`applyTemplate`);
+    /// VAPP-218: `data` = a screen's `{params}` (`Screens.Resolved.data`).
+    func apply(surfaceId: String, packageId: String, templateId: String, data: JSONValue? = nil) {
+        var apply: [String: JSONValue] = [
+            "surfaceId": .string(surfaceId),
+            "templateId": .string(templateId),
+            "packageId": .string(packageId),
+        ]
+        if let data { apply["data"] = data }
         let message: JSONValue = .object([
             "version": .string("v0.9"),
-            "applyTemplate": .object([
-                "surfaceId": .string(surfaceId),
-                "templateId": .string(templateId),
-                "packageId": .string(packageId),
-            ]),
+            "applyTemplate": .object(apply),
         ])
         host.receive(message)
     }

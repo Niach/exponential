@@ -57,10 +57,13 @@ pub(crate) fn board_glyph(icon: &str, color: &str, size: f32) -> AnyElement {
     crate::icons::app_icon(Some(icon), Some(color)).with_size(px(size)).into_any_element()
 }
 
+fn look_color(look: Look, cx: &App) -> gpui::Hsla {
+    if look == Look::Rest { cx.theme().muted_foreground } else { cx.theme().foreground }
+}
+
 fn tab(tab: Tab, look: Look, caret: bool, cx: &App) -> AnyElement {
-    let bar = &CHATS.shell.bar;
     let tabs = &CHATS.copy.tabs;
-    let color = if look == Look::Rest { cx.theme().muted_foreground } else { cx.theme().foreground };
+    let color = look_color(look, cx);
     let concept = |icon| Icon::new(icon).with_size(px(20.)).text_color(color).into_any_element();
     let (board, board_icon, board_color) = BOARDS[0];
     let (label, glyph): (String, AnyElement) = match tab {
@@ -70,6 +73,23 @@ fn tab(tab: Tab, look: Look, caret: bool, cx: &App) -> AnyElement {
         Tab::Team => (TEAM.to_string(), crate::user_avatar::team_avatar(TEAM, 20.)),
     };
     let glyph = div().relative().child(glyph).when_dot(tab == Tab::Chats);
+    tab_cell(glyph.into_any_element(), label, caret, look, cx).into_any_element()
+}
+
+/// VAPP-218 (apps.json `screens`): one tab of THIS bar for an app screen in
+/// the preview's Phone frame: its icon over its title, `selected` on the
+/// glass-active pill.
+pub(crate) fn screen_tab(icon: crate::icons::ExpIcon, label: String, selected: bool, cx: &App) -> Div {
+    let look = if selected { Look::Selected } else { Look::Rest };
+    let glyph = Icon::new(icon).with_size(px(20.)).text_color(look_color(look, cx)).into_any_element();
+    tab_cell(glyph, label, false, look, cx)
+}
+
+/// One tab cell: the glyph over its label (+ the board caret), `look` = at
+/// rest, the selected pill, or under the drag lens.
+fn tab_cell(glyph: AnyElement, label: String, caret: bool, look: Look, cx: &App) -> Div {
+    let bar = &CHATS.shell.bar;
+    let color = look_color(look, cx);
     let mut line = h_flex()
         .items_center()
         .gap(px(2.))
@@ -105,7 +125,7 @@ fn tab(tab: Tab, look: Look, caret: bool, cx: &App) -> AnyElement {
         }
         Look::Rest => {}
     }
-    cell.child(glyph).child(line).into_any_element()
+    cell.child(glyph).child(line)
 }
 
 trait PhoneExt {

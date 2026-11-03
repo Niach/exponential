@@ -39,6 +39,13 @@ final class AppLinkTests: XCTestCase {
                 teamSlug: try XCTUnwrap(raw["teamSlug"] as? String),
                 threadId: try XCTUnwrap(raw["threadId"] as? String)
             )
+        case "appScreen":
+            return .appScreen(
+                teamSlug: try XCTUnwrap(raw["teamSlug"] as? String),
+                appSlug: try XCTUnwrap(raw["appSlug"] as? String),
+                screen: try XCTUnwrap(raw["screen"] as? String),
+                params: try XCTUnwrap(raw["params"] as? [String: String])
+            )
         case "app":
             return .app(path: try XCTUnwrap(raw["path"] as? String))
         case "external":
@@ -62,6 +69,14 @@ final class AppLinkTests: XCTestCase {
             let link = try expected(try XCTUnwrap(object["link"] as? [String: Any]))
             XCTAssertEqual(AppLink.classify(href, origin: origin), link, name)
         }
+    }
+
+    // VAPP-218: the screen params' query rule beyond the fixture's cases.
+    func testAppScreenQueryKeepsBadEscapesAndPlus() {
+        XCTAssertEqual(
+            AppLink.classify("/t/acme/apps/crm/deals?a=%zz&b=x+y&=skip&c=1=2", origin: "https://app.exponential.at"),
+            .appScreen(teamSlug: "acme", appSlug: "crm", screen: "deals", params: ["a": "%zz", "b": "x+y", "c": "1=2"])
+        )
     }
 
     func testOriginTrailingSlashIsTolerated() {

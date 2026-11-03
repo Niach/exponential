@@ -7,7 +7,7 @@ import java.text.Normalizer
 // VAPP-110: Exponential apps, the Android mirror of the pure reference
 // `packages/domain-contract/src/apps.ts` (fixtures/apps.json is the spec;
 // `AppsTest` replays its `slugifyCases`, `versionLabelCases`,
-// `sortAppsCases`, `publishCases` and `automationRowCases` and locks the copy below to the fixture byte for byte).
+// `sortAppsCases`, `publishCases`, `automationRowCases` and the VAPP-218 `screen*Cases` and locks the copy below to the fixture byte for byte).
 object Apps {
     object Copy {
         const val NAV = "Apps"
@@ -146,6 +146,8 @@ object Apps {
         const val WEBHOOKS = "app-settings-webhooks"
         const val WEBHOOK_ROW = "app-webhook-row"
         const val WEBHOOK_SECRET = "app-webhook-secret"
+        // VAPP-218: the preview frame's screens nav (sidebar or bar).
+        const val PREVIEW_SCREENS = "app-editor-preview-screens"
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,
@@ -462,5 +464,45 @@ object Apps {
             JsonValue.Obj(LinkedHashMap(entry.v).apply { put("url", JsonValue.Str(url)) })
         }
         return if (hit) JsonValue.Arr(next) else null
+    }
+
+    /** VAPP-218 (eApps U1, fixture `screens`): a package's screens, painted by
+     *  the host inside the preview frame with the existing navigation only. */
+    object Screens {
+        const val SIDEBAR_WIDTH = 200
+        val RESERVED = listOf("tab", "frame")
+    }
+
+    enum class ScreenShell(val wire: String) { Sidebar("sidebar"), Bar("bar") }
+
+    /** Which navigation the preview frame paints (`screenShellCases`): none
+     *  without screens, the phone bottom bar on a phone, else the sidebar. */
+    fun screenShell(screenCount: Int, phone: Boolean): ScreenShell? = when {
+        screenCount <= 0 -> null
+        phone -> ScreenShell.Bar
+        else -> ScreenShell.Sidebar
+    }
+
+    /** The web deep link to an app screen (`screenPathCases`):
+     *  `/t/<team>/apps/<app>/<screen>`, then the params sorted by key, each
+     *  part `encodeURIComponent`-encoded. */
+    fun screenPath(teamSlug: String, appSlug: String, screen: String, params: Map<String, String> = emptyMap()): String {
+        val path = "/t/${encodeUriComponent(teamSlug)}/apps/${encodeUriComponent(appSlug)}/${encodeUriComponent(screen)}"
+        if (params.isEmpty()) return path
+        return path + "?" + params.keys.sorted().joinToString("&") { "${encodeUriComponent(it)}=${encodeUriComponent(params.getValue(it))}" }
+    }
+
+    /** A screen route's query → its params: every key but [Screens.RESERVED],
+     *  sorted (`screenQueryCases`). */
+    fun screenParamsFromQuery(query: Map<String, String>): Map<String, String> =
+        query.keys.sorted().filter { it !in Screens.RESERVED }.associateWith { query.getValue(it) }
+
+    /** JS `encodeURIComponent`: UTF-8 bytes, all but `A-Z a-z 0-9 - _ . ! ~ * ' ( )` as `%XX`. */
+    private fun encodeUriComponent(value: String): String = buildString {
+        for (byte in value.toByteArray(Charsets.UTF_8)) {
+            val c = (byte.toInt() and 0xff).toChar()
+            if (c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' || c in "-_.!~*'()") append(c)
+            else append('%').append("%02X".format(byte.toInt() and 0xff))
+        }
     }
 }
