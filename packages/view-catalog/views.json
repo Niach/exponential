@@ -2089,7 +2089,7 @@
       "id": "settings-skill",
       "group": "settings",
       "title": "Settings · Skill",
-      "blurb": "#EXP-1659: one skill's page, built like the prompt page: the mono name and the description in one group, the SKILL.md body in the mono editor, the On by default switch, Save and Delete skill for owners; members read it.",
+      "blurb": "#EXP-1659: one skill's page, built like the prompt page: the mono name and the description in one group, the SKILL.md body in the mono editor, the Pre-select in new sessions switch, Save and Delete skill for owners; members read it.",
       "order": 31,
       "web": {
         "route": "/t/$teamSlug/settings/skills/$skillId",

@@ -234,6 +234,9 @@ pub fn parse_timestamp(text: &str) -> Option<f64> {
 
 /// An instant as `YYYY-MM-DDTHH:MM:SS.sssZ` (JS `toISOString`), years 0..9999.
 pub fn format_timestamp(ms: f64) -> R<String> {
+    if !(ms >= MIN_DAY as f64 * DAY_MS && ms < (MAX_DAY + 1) as f64 * DAY_MS) {
+        return Err("date out of range".into());
+    }
     let day = (ms / DAY_MS).floor();
     let tod = (ms - day * DAY_MS) as i64;
     let d = day_from_number(day as i64);
@@ -243,7 +246,17 @@ pub fn format_timestamp(ms: f64) -> R<String> {
     Ok(format!("{}T{:02}:{:02}:{:02}.{:03}Z", format_day(d), tod / 3_600_000, (tod / 60_000) % 60, (tod / 1000) % 60, tod % 1000))
 }
 
+/// The days a date may be: 0000-01-01 ..= 9999-12-31 (checked BEFORE the
+/// calendar maths, so a huge day never overflows it).
+const MIN_DAY: i64 = -719_528;
+const MAX_DAY: i64 = 2_932_896;
+/// The most calendar steps (days) any `dateAdd` can take and stay in range.
+const MAX_CALENDAR_STEPS: f64 = 4_000_000.0;
+
 fn day_text(day: i64) -> R<String> {
+    if !(MIN_DAY..=MAX_DAY).contains(&day) {
+        return Err("date out of range".into());
+    }
     let d = day_from_number(day);
     if d.y < 0 || d.y > 9999 {
         return Err("date out of range".into());
@@ -364,11 +377,17 @@ fn date_add(args: &[Value], env: &Env) -> R<Value> {
             if unit_ms(unit).is_some() {
                 return Err(format!("unit {unit} needs a timestamp"));
             }
+            if !(n.abs() <= MAX_CALENDAR_STEPS) {
+                return Err("date out of range".into());
+            }
             day_text(add_calendar(day, n as i64, unit))?
         }
         Temporal::Ts(ms) => match unit_ms(unit) {
             Some(u) => format_timestamp(num(ms + n * u)?)?,
             None => {
+                if !(n.abs() <= MAX_CALENDAR_STEPS) {
+                    return Err("date out of range".into());
+                }
                 let wall = to_local(env, ms);
                 let day = floor_day(wall);
                 let tod = wall - day as f64 * DAY_MS;

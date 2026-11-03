@@ -628,7 +628,7 @@ impl Render for SkillPage {
             cx,
         );
 
-        // On by default: THE toggle row, no subtitle.
+        // Pre-select in new sessions: THE toggle row, no subtitle.
         let switch = crate::controls::web_switch("skill-enabled-by-default")
             .checked(self.enabled_by_default)
             .disabled(read_only)

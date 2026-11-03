@@ -22,7 +22,7 @@ pub const DESCRIPTION_LABEL: &str = "Description";
 pub const DESCRIPTION_PLACEHOLDER: &str = "What the skill does and when to use it";
 pub const BODY_LABEL: &str = "Instructions";
 pub const BODY_PLACEHOLDER: &str = "The SKILL.md body, in markdown";
-pub const DEFAULT_LABEL: &str = "On by default";
+pub const DEFAULT_LABEL: &str = "Pre-select in new sessions";
 pub const DELETE_LABEL: &str = "Delete skill";
 pub const SAVE: &str = "Save";
 

@@ -1016,15 +1016,15 @@
         "file": "shots/composer-menu/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 37158,
-        "sha256": "9116d5f2420dde05b82d59cb3a614d2d513579f89c2df4d74b7ebdc191822226"
+        "bytes": 37450,
+        "sha256": "676a17db493db33ecf4edd7fe2454d76261ed5e63f108da7af3e8425c97e6bc0"
       },
       "web-mobile": {
         "file": "shots/composer-menu/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 20882,
-        "sha256": "9bc52e946317c5c1a28bbc0c4440d8e5499ce5d83b9e8950795ad3d04756d24a"
+        "bytes": 21768,
+        "sha256": "08767374aea78d49671be67684e2fc82a17725c2384f427d7098bcc7e3fc87ce"
       }
     },
     "composer-skills-menu": {
@@ -1034,6 +1034,20 @@
         "height": 1125,
         "bytes": 34958,
         "sha256": "2f9fc77fad1a3e98f4c09f92c671ad5bb44b75737d4041fe42189616ebd8b214"
+      },
+      "web": {
+        "file": "shots/composer-skills-menu/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 51972,
+        "sha256": "c95b6b182c1b03d4170aacbab3ef23a2c684f9038e814403487b4b7f15d00807"
+      },
+      "web-mobile": {
+        "file": "shots/composer-skills-menu/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 24970,
+        "sha256": "a850a2641717747d8d79402662417dc923004dd1e14cb694ad9c65dadcf481d2"
       }
     },
     "composer-slash-menu": {
@@ -5835,6 +5849,20 @@
         "height": 1125,
         "bytes": 46902,
         "sha256": "ccf00acdc176c6818e85d2a5ad0abdf9c5ed28310d8d21967518ccf899070d79"
+      },
+      "web": {
+        "file": "shots/settings-skill/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 59154,
+        "sha256": "3b45b7f4f962da60d3f5e4d4d844434edec67a19c5080506740a89ecb9884ae7"
+      },
+      "web-mobile": {
+        "file": "shots/settings-skill/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 46976,
+        "sha256": "95138c318e4d275d2df0a02644d63bee24bd3ae2548a28b74e9d3c878f66cef9"
       }
     },
     "settings-skills": {
@@ -5844,6 +5872,20 @@
         "height": 1125,
         "bytes": 36326,
         "sha256": "69112dee51a4d5f4a2228081542b2a25fd8358dd0a04d13aa03f7d1b305a5e39"
+      },
+      "web": {
+        "file": "shots/settings-skills/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 45772,
+        "sha256": "13fe05ea195baa6918d373adddb331e11edf91c364a703989617d6eaa52fe5fe"
+      },
+      "web-mobile": {
+        "file": "shots/settings-skills/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 28252,
+        "sha256": "d28b20aa94d4c4aa5056de1eef694fa96c9ec2f7e428eea1c460dfdc4aae2e69"
       }
     },
     "settings-statuses": {
@@ -5934,15 +5976,15 @@
         "file": "shots/settings-team-agent/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 47030,
-        "sha256": "dd05bd892fa3d5fac5654fdce6e8e6db67e228d5b9a5f76ee2818a3f6563429e"
+        "bytes": 49220,
+        "sha256": "b3cb2114c0468651a4fc46070cf079c4d75fd690cdf6f2f287a8da5e5c85b0b3"
       },
       "web-mobile": {
         "file": "shots/settings-team-agent/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 33638,
-        "sha256": "fb82d23f76d2ac5b89ab415e4765f671ee261a120011408bbf684106687b528d"
+        "bytes": 36318,
+        "sha256": "e841569347ff6909261457bff6d933a2cdf95d43a157461fcafcbf14df493d50"
       }
     },
     "settings-tools": {
