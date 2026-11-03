@@ -4,7 +4,8 @@ import pushFixture from "@exp/domain-contract/fixtures/push-seal.json"
 import fixture from "@exp/domain-contract/fixtures/sealed-content.json"
 import { b64urlEncode, openBody, pushPublicKey, unwrapTreeKey } from "@exp/domain-contract/sealed-content"
 import { deriveInstallSecret } from "./install-key"
-import { KeyHolder, MISSING_RETRY_MS, type PendingPair, type SessionKeysApi } from "./key-holder"
+import { CachedKeys, KeyHolder, MISSING_RETRY_MS, type PendingPair, type SessionKeysApi } from "./key-holder"
+import { currentKeyHolder, currentKeySource, keyVersion, setCachedKeys, setCurrentKeyHolder } from "./current-key-holder"
 import { memoryTreeKeyStore } from "./tree-key-store"
 
 // EXP-1459: the browser key holder against fixtures/sealed-content.json
@@ -135,4 +136,42 @@ describe(`KeyHolder`, () => {
     await new Promise((r) => setTimeout(r, 0))
     expect(api.mine).toHaveBeenCalledTimes(2)
   })
+})
+
+// fixtures/sealed-content.json `coldStart`: the keys cached on the last run
+// open content on the first render, before the install is resolved (no
+// network), and a key landing later re-opens the locked row.
+describe(`cold start`, () => {
+  for (const c of fixture.coldStart.cases) {
+    it(c.name, async () => {
+      expect(c.holder).toBe(`none`)
+      const store = memoryTreeKeyStore()
+      for (const [epoch, secret] of Object.entries(c.persisted)) {
+        await store.put(`u1`, { rootId: ROOT, epoch: Number(epoch), secret: hex(secret as string) })
+      }
+      expect(currentKeyHolder()).toBeUndefined()
+      const cache = await CachedKeys.load(`u1`, store)
+      const before = keyVersion()
+      setCachedKeys(cache)
+      expect(keyVersion()).not.toBe(before)
+      const first = openBody(c.body, currentKeySource()?.keysFor(ROOT) ?? new Map())
+      expect(first.status).toBe(c.firstFrame)
+      if (c.firstFrame === `opened`) expect(first.text).toBe(c.text)
+      // The key arrives (the holder's first pass): the holder takes over.
+      const offline = fakeApi({
+        mine: async () => (c.arrives ? [{ rootId: ROOT, epoch: 1, wrapped: fixture.wrap.wrapped }] : []),
+      })
+      const holder = new KeyHolder(`u1`, INSTALL, hex(fixture.install.secret), { api: offline, store })
+      await holder.loadCache()
+      setCurrentKeyHolder(holder)
+      setCachedKeys(undefined)
+      await holder.refresh()
+      const after = openBody(c.body, currentKeySource()?.keysFor(ROOT) ?? new Map())
+      expect(after.status).toBe(c.after)
+      if (c.after === `opened`) expect(after.text).toBe(c.text)
+      setCurrentKeyHolder(undefined)
+      holder.stop()
+      cache.clear()
+    })
+  }
 })

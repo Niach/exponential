@@ -8,10 +8,18 @@
 import { useEffect, useSyncExternalStore } from "react"
 import { b64urlEncode, pushPublicKey, type TreeKeys } from "@exp/domain-contract/sealed-content"
 import { trpc } from "@/lib/trpc-client"
-import { currentKeyHolder, emitKeyChange, setCurrentKeyHolder, subscribeKeyChange } from "./current-key-holder"
+import {
+  currentKeyHolder,
+  currentKeySource,
+  emitKeyChange,
+  keyVersion,
+  setCachedKeys,
+  setCurrentKeyHolder,
+  subscribeKeyChange,
+} from "./current-key-holder"
 import { loadIdentity } from "./identity-store"
 import { deriveInstallSecret } from "./install-key"
-import { KeyHolder, PENDING_INTERVAL_MS, type SessionKeysApi } from "./key-holder"
+import { CachedKeys, KeyHolder, PENDING_INTERVAL_MS, type SessionKeysApi } from "./key-holder"
 import { indexedDbTreeKeyStore } from "./tree-key-store"
 
 /** How often a tab without an install yet looks again (the node's tab may
@@ -71,6 +79,13 @@ export function useKeyHolder(userId: string | undefined) {
     let stopped = false
     let retry: ReturnType<typeof setTimeout> | undefined
     let own: KeyHolder | undefined
+    let cache: CachedKeys | undefined
+    // Cold start: the cached keys open content now, never after the network.
+    void CachedKeys.load(userId, indexedDbTreeKeyStore).then((loaded) => {
+      if (stopped || currentKeyHolder()) return loaded.clear()
+      cache = loaded
+      if (loaded.size > 0) setCachedKeys(loaded)
+    })
     const attempt = async () => {
       const found = await resolveInstall(userId).catch(() => undefined)
       if (stopped) return
@@ -80,14 +95,24 @@ export function useKeyHolder(userId: string | undefined) {
       }
       own = new KeyHolder(userId, found.installId, found.secret, { api, store: indexedDbTreeKeyStore })
       own.subscribe(emitKeyChange)
+      // The holder takes over only once it holds the cache: no locked flash.
+      await own.loadCache()
+      if (stopped) return
       setCurrentKeyHolder(own)
-      await own.start().catch(() => {})
+      dropCache()
+      await own.refresh().catch(() => {})
       if (!stopped) syncLeaderLoop()
+    }
+    const dropCache = () => {
+      setCachedKeys(undefined)
+      cache?.clear()
+      cache = undefined
     }
     void attempt()
     return () => {
       stopped = true
       clearTimeout(retry)
+      dropCache()
       if (own && currentKeyHolder() === own) {
         setCurrentKeyHolder(undefined)
         syncLeaderLoop()
@@ -103,7 +128,7 @@ const EMPTY: TreeKeys = new Map()
 export function useTreeKeys(rootId: string | null | undefined): TreeKeys {
   return useSyncExternalStore(
     subscribeKeyChange,
-    () => (rootId ? (currentKeyHolder()?.keysFor(rootId) ?? EMPTY) : EMPTY),
+    () => (rootId ? (currentKeySource()?.keysFor(rootId) ?? EMPTY) : EMPTY),
     () => EMPTY
   )
 }
@@ -112,7 +137,7 @@ export function useTreeKeys(rootId: string | null | undefined): TreeKeys {
 export function useKeyVersion(): number {
   return useSyncExternalStore(
     subscribeKeyChange,
-    () => currentKeyHolder()?.version ?? -1,
+    keyVersion,
     () => -1
   )
 }

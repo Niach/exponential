@@ -19,7 +19,7 @@ import {
   type OpenStatus,
   type TreeKeys,
 } from "@exp/domain-contract/sealed-content"
-import { currentKeyHolder } from "./current-key-holder"
+import { currentKeySource } from "./current-key-holder"
 import type { KeyHolder } from "./key-holder"
 
 type Card = Record<string, unknown>
@@ -117,7 +117,7 @@ export function openDigestMessages<M extends { body: string; card: Card | null }
   sessionId: string,
   messages: M[],
   rootOf: (sessionId: string) => string,
-  source: KeySource | undefined = currentKeyHolder()
+  source: KeySource | undefined = currentKeySource()
 ): Array<M & { locked: LockedReason | null }> {
   if (messages.length === 0) return []
   const rootId = rootOf(sessionId)

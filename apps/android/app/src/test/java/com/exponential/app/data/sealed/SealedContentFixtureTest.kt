@@ -129,6 +129,56 @@ class SealedContentFixtureTest {
         assertEquals("after rotation", SealedFfi.openBody(envelope, both).text)
     }
 
+    /**
+     * `coldStart`: the keys the last run stored (here the SECOND account's)
+     * open the row on the first frame, before any holder or registration; a
+     * key arriving later re-opens the locked row.
+     */
+    @Test
+    fun everyColdStartCaseOpensOnTheFirstFrameFromTheVault() {
+        val slots = object : com.exponential.app.data.enet.IdentitySlots {
+            val map = mutableMapOf<String, String>()
+            override fun get(key: String) = map[key]
+            override fun put(key: String, value: String): Boolean {
+                map[key] = value
+                return true
+            }
+            override fun remove(key: String) {
+                map.remove(key)
+            }
+        }
+        val sealer = object : com.exponential.app.data.push.SecretSealer {
+            override fun seal(plain: ByteArray) = plain.map { (it.toInt() xor 0x5a).toByte() }.toByteArray()
+            override fun open(blob: ByteArray) = seal(blob)
+        }
+        for (case in fixture.obj("coldStart")["cases"]!!.jsonArray.map { it.jsonObject }) {
+            val name = case.str("name")
+            assertEquals(name, "none", case.str("holder"))
+            SealedKeys.drop(SealedKeys.keys.value.keys)
+            SealedContent.clearCache()
+            val vault = TreeKeyVault(slots, sealer)
+            slots.map.clear()
+            val persisted = case.obj("persisted").entries.associate { (e, s) -> e.toInt() to s.jsonPrimitive.content.hexBytes() }
+            if (persisted.isNotEmpty()) assertTrue(name, vault.put("acct-b", mapOf(root to persisted)))
+            val row = MessageEntity(id = "m1", rootId = root, body = case.str("body"))
+
+            SealedKeys.preload(TreeKeyVault(slots, sealer), listOf("acct-a", "acct-b"))
+            val first = SealedContent.message(row).body
+            when (case.str("firstFrame")) {
+                "opened" -> assertEquals(name, case.str("text"), first)
+                else -> assertTrue(name, SealedContent.isSealedBody(first))
+            }
+            (case["arrives"] as? JsonObject)?.let { arrives ->
+                SealedKeys.merge(mapOf(root to arrives.entries.associate { (e, s) -> e.toInt() to s.jsonPrimitive.content.hexBytes() }))
+            }
+            val after = SealedContent.message(row).body
+            when (case.str("after")) {
+                "opened" -> assertEquals(name, case.str("text"), after)
+                else -> assertTrue(name, SealedContent.isSealedBody(after))
+            }
+        }
+    }
+
     @Test
     fun theOpenerOpensRowsItHoldsKeysForAndLeavesTheRestSealed() {
         val body = fixture.obj("body")

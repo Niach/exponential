@@ -205,6 +205,10 @@ class EnetNodeManager @Inject constructor(
     private suspend fun reconcile(): Boolean {
         val wanted = accounts.filterKeys { id -> synchronized(suppressed) { id !in suppressed } }
         for (gone in nodes.keys - wanted.keys) stopQuietly(gone)
+        // Cold start (sealed-content.json `coldStart`): EVERY account's cached
+        // tree keys open its content now, before any registration (network)
+        // of this pass, not after the accounts before it registered.
+        SealedKeys.preload(treeKeys.vault, wanted.keys - nodes.keys)
         var failed = false
         for ((accountId, userId) in wanted) {
             try {
@@ -256,8 +260,6 @@ class EnetNodeManager @Inject constructor(
 
     private fun newNode(accountId: String, userId: String): InstallNode? {
         val identity = identities.vault.identity(accountId) ?: return null
-        // The keys this account already holds open content before the node is up.
-        SealedKeys.merge(treeKeys.vault.all(accountId))
         return InstallNode(
             userId = userId,
             identity = identity,

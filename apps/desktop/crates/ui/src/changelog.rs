@@ -46,6 +46,16 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-sealed-open-at-launch",
+    date: "2026-11-03",
+    title: "Encrypted chats open at launch",
+    summary: "End-to-end encrypted messages open the moment the app starts, offline too, instead of waiting for the key.",
+    body: r#"- **Encrypted chats**: the keys this device already holds open its end-to-end encrypted messages on the first screen after a launch, before it reconnects; a key that arrives later opens the waiting messages right away."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_192: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-inbox-keeps-sidebar",
     date: "2026-11-03",
     title: "The Inbox keeps the sidebar",

@@ -434,6 +434,9 @@ impl InstallNode {
         // #FEED-184: a key holder is coming; sessions launched before it
         // runs still seal (they wait for it) instead of going out in clear.
         coding::sealing::expect_service(true);
+        // The keys this install already holds open its sealed rows now,
+        // not once it registered (the holder takes this same keyring).
+        coding::sealing::preload(keyring_path(&inner.spec));
         runtime.spawn(run(Arc::clone(&inner)));
         InstallNode { inner }
     }
@@ -522,6 +525,7 @@ impl InstallNode {
         if let Some(holder) = lock(&self.inner.holder).take() {
             holder.stop();
         }
+        coding::sealing::unload(&keyring_path(&self.inner.spec));
         self.inner.holder_wake.notify_one();
         self.inner.wake.notify_one();
     }
@@ -703,15 +707,20 @@ fn start_holder(inner: &Arc<Inner>, identity: &Identity) {
     }
     let Some(install_id) = lock(&inner.install_id).clone() else { return };
     let Some(api) = Arc::clone(&inner.registry).keys() else { return };
-    let path = inner.spec.identity_path.with_file_name(match inner.spec.kind {
-        InstallKind::Desktop => "seal-keys",
-        InstallKind::Daemon => "cli-seal-keys",
-    });
-    let holder = KeyHolder::new(install_id, &PushKeypair::derive(identity), api, coding::sealing::Keyring::load(path));
+    let keyring = coding::sealing::preload(keyring_path(&inner.spec));
+    let holder = KeyHolder::new(install_id, &PushKeypair::derive(identity), api, keyring);
     coding::sealing::install(Arc::new(holder.clone()));
     holder.spawn(&tokio::runtime::Handle::current(), Arc::clone(&inner.holder_wake));
     *lock(&inner.holder) = Some(holder);
     log::info!("enet: key holder running");
+}
+
+/// The install's persisted keyring, beside its identity.
+fn keyring_path(spec: &InstallSpec) -> std::path::PathBuf {
+    spec.identity_path.with_file_name(match spec.kind {
+        InstallKind::Desktop => "seal-keys",
+        InstallKind::Daemon => "cli-seal-keys",
+    })
 }
 
 /// #EXP-1483: the key holder's view of a device's installs (the MCP

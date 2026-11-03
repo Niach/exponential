@@ -1251,5 +1251,43 @@
       },
       "wire": "refused"
     }
-  ]
+  ],
+  "coldStart": {
+    "$comment": "COLD START (addendum 2026-11-03, Danny's 'Waiting for the key' on every launch): an install's UNWRAPPED tree secrets persist in its secure store (desktop/CLI: the 0600 keyring beside the eNet identity; iOS: the Keychain; Android: the Keystore-sealed vault; web: IndexedDB under a non-extractable AES-GCM key), never on the server, and are loaded into the reader BEFORE the first sealed row renders. Loading is NEVER gated on the network: not on the install's registration, the eNet node, the key holder or `sessionKeys.mine`; the holder, once it runs, uses that SAME key set. A row shown locked (`noKey`) re-opens by itself the moment its key arrives (no sync change, no send needed). A key still missing at launch is fetched by the holder's first pass (a full `mine`), not on send. Each case: `persisted` (epoch -> tree secret hex the previous run stored, for the tree `tree`), `holder` (`none` = no key holder runs yet: offline, unregistered), `arrives` (a secret that lands AFTER the first frame, or null), the `body` shown, `firstFrame` = the status of the first render, `after` = the status once `arrives` landed (same as firstFrame when nothing arrives).",
+    "cases": [
+      {
+        "name": "persisted key opens on the first frame, offline",
+        "persisted": {
+          "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+        },
+        "holder": "none",
+        "arrives": null,
+        "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+        "firstFrame": "opened",
+        "text": "Ship it — grüße ✓!",
+        "after": "opened"
+      },
+      {
+        "name": "no persisted key waits for the key",
+        "persisted": {},
+        "holder": "none",
+        "arrives": null,
+        "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+        "firstFrame": "noKey",
+        "after": "noKey"
+      },
+      {
+        "name": "a key arriving later re-opens the locked row",
+        "persisted": {},
+        "holder": "none",
+        "arrives": {
+          "1": "202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f"
+        },
+        "body": "exp-sealed:v1:1:AYsCOx8lBRJ8LRTDp3GD6_0qIFYbGL2LLz7KMCv4ZNw79u6Or0A27_5T2Yk8R8VUm_tezSyH7hoTYUIe7d8Wqv7CMvNs7OEffg",
+        "firstFrame": "noKey",
+        "after": "opened",
+        "text": "Ship it — grüße ✓!"
+      }
+    ]
+  }
 }
