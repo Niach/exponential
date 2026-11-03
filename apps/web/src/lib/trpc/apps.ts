@@ -22,7 +22,7 @@ import { ACTION_LIMITS, validateRecord, verifyPackageFile, type AppPackage } fro
 import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecords, loadApp, teamMemberIds, upsertRecord } from "@/lib/apps/records-service"
 import { RECORD_POLICY_COPY } from "@exponential_app/eui/host"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
-import { APP_RECORDS_ON_BEHALF, importAuthor } from "@exp/domain-contract/app-records"
+import { importAuthor } from "@exp/domain-contract/app-records"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
 import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
@@ -185,14 +185,10 @@ export async function checkAppImport(
       for (const issue of validateRecord(schema, record.data)) issues.push({ path: `/records/${i}/data${issue.path === `/` ? `` : issue.path}`, message: issue.message })
       const bytes = packageBytes(record.data)
       if (bytes > APP_RECORD_MAX_BYTES) issues.push({ path: `/records/${i}/data`, message: `is ${bytes} bytes; the cap is ${APP_RECORD_MAX_BYTES}` })
-      // VAPP-188: a record's `author` resolves against the importing team
-      // (app-records.json `onBehalf.importCases`): a stranger = the
-      // importer, another member = owners only.
-      if (importer) {
-        const author = importAuthor(importer.userId, importer.role, record.author, importer.members)
-        if (author === null) issues.push({ path: `/records/${i}/author`, message: APP_RECORDS_ON_BEHALF.refusal })
-        else record.author = author
-      }
+      // VAPP-188/192: a record's `author` resolves against the importing
+      // team (app-records.json `onBehalf.importCases`): a stranger = the
+      // importer; another member = them for an owner, else the importer.
+      if (importer) record.author = importAuthor(importer.userId, importer.role, record.author, importer.members)
     })
   }
   return issues.length > 0 ? { issues, file: null } : { issues: [], file }

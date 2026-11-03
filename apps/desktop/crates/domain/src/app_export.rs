@@ -105,6 +105,8 @@ pub struct ExportRecord {
     pub data: Value,
     /// ISO timestamp (`2026-10-05T18:00:00Z`, or Postgres' `+00` form).
     pub created_at: String,
+    /// VAPP-192: whose record it is (`authorId ?? createdBy`), if anyone's.
+    pub author: Option<String>,
 }
 
 /// Days since 1970-01-01 of a civil date (Howard Hinnant's algorithm).
@@ -172,8 +174,9 @@ fn by_created_then_id(a: &ExportRecord, b: &ExportRecord) -> Ordering {
 }
 
 /// The file for an app: its identity, the head package and, when switched
-/// on, every record as `{kind, data}` oldest first (createdAt, then id).
-/// Never ids, authors, times or grants.
+/// on, every record as `{kind, data, author}` oldest first (createdAt, then
+/// id; VAPP-192: `author` left out when the row has none). Never ids, times
+/// or grants.
 pub fn build_app_export(app: &ExportApp, package: &Value, records: &[ExportRecord], include_records: bool) -> Value {
     let mut identity = Map::new();
     identity.insert("name".into(), Value::String(app.name.clone()));
@@ -189,7 +192,10 @@ pub fn build_app_export(app: &ExportApp, package: &Value, records: &[ExportRecor
         sorted.sort_by(|a, b| by_created_then_id(a, b));
         let rows = sorted
             .into_iter()
-            .map(|r| serde_json::json!({ "kind": r.kind, "data": r.data }))
+            .map(|r| match &r.author {
+                Some(author) => serde_json::json!({ "kind": r.kind, "data": r.data, "author": author }),
+                None => serde_json::json!({ "kind": r.kind, "data": r.data }),
+            })
             .collect();
         file.insert("records".into(), Value::Array(rows));
     }
@@ -251,6 +257,7 @@ mod tests {
                     kind: r["kind"].as_str().unwrap().to_string(),
                     data: r["data"].clone(),
                     created_at: r["createdAt"].as_str().unwrap().to_string(),
+                    author: r["authorId"].as_str().or_else(|| r["createdBy"].as_str()).map(str::to_string),
                 })
                 .collect();
             let slug = input["app"]["slug"].as_str().unwrap();
@@ -266,7 +273,7 @@ mod tests {
 
     #[test]
     fn postgres_timestamps_sort_like_iso() {
-        let rec = |id: &str, at: &str| ExportRecord { id: id.into(), kind: "k".into(), data: Value::Null, created_at: at.into() };
+        let rec = |id: &str, at: &str| ExportRecord { id: id.into(), kind: "k".into(), data: Value::Null, created_at: at.into(), author: None };
         let a = rec("b", "2026-10-05 18:00:00.5+00");
         let b = rec("a", "2026-10-05T19:00:00Z");
         assert_eq!(by_created_then_id(&a, &b), Ordering::Less);

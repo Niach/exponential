@@ -60,12 +60,15 @@ public enum AppExport {
         public let kind: String
         public let data: CardJSON
         public let createdAt: String
+        /// VAPP-192: whose record it is (`authorId ?? createdBy`), if anyone's.
+        public let author: String?
 
-        public init(id: String, kind: String, data: CardJSON, createdAt: String) {
+        public init(id: String, kind: String, data: CardJSON, createdAt: String, author: String? = nil) {
             self.id = id
             self.kind = kind
             self.data = data
             self.createdAt = createdAt
+            self.author = author
         }
     }
 
@@ -75,9 +78,10 @@ public enum AppExport {
     }
 
     /// The file for an app: its identity, the head package and, when switched
-    /// on, every record as `{kind, data}` oldest first (createdAt, then id).
-    /// Never ids, authors, times or grants; no `records` key when there are
-    /// none or the switch is off.
+    /// on, every record as `{kind, data, author}` oldest first (createdAt,
+    /// then id; VAPP-192: `author` left out when the row has none). Never
+    /// ids, times or grants; no `records` key when there are none or the
+    /// switch is off.
     public static func build(
         name: String,
         icon: String?,
@@ -103,7 +107,11 @@ public enum AppExport {
                 let ta = at(a), tb = at(b)
                 return ta != tb ? ta < tb : a.id < b.id
             }
-            file["records"] = .array(sorted.map { .object(["kind": .string($0.kind), "data": $0.data]) })
+            file["records"] = .array(sorted.map { record in
+                var row: [String: CardJSON] = ["kind": .string(record.kind), "data": record.data]
+                if let author = record.author { row["author"] = .string(author) }
+                return .object(row)
+            })
         }
         return .object(file)
     }

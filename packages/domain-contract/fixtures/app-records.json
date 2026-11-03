@@ -1162,7 +1162,7 @@
     ]
   },
   "onBehalf": {
-    "$comment": "VAPP-188: who may set a record's `author` to someone else. `author` absent/null = the writer (no on-behalf write). The writer themself = always fine (a member writes as themself). Anyone else = a team OWNER only (`forbidden` otherwise: FORBIDDEN `refusal`), and the author must be a MEMBER of the record's team (`notMember`: BAD_REQUEST `notMember`; checked after the role, so a non-owner never learns who is a member). `role` null = the viewer is not a member: `forbidden`. On an UPDATE the row's change rule (`ownership`) runs first; `author` then REASSIGNS the row (owners only, the same verdict). `created_by` never changes, `updated_by` = the real writer. IMPORT (`importAuthor`, `importCases`; the `.app.json` record's optional `author`, app-export.json): absent, the importer, or not a member of the importing team = the IMPORTER (a file from another team keeps its rows, as the importer's); another member = that member when the importer is an OWNER, else the import is refused (`forbidden`: the import step lists `/records/<i>/author: refusal`).",
+    "$comment": "VAPP-188: who may set a record's `author` to someone else. `author` absent/null = the writer (no on-behalf write). The writer themself = always fine (a member writes as themself). Anyone else = a team OWNER only (`forbidden` otherwise: FORBIDDEN `refusal`), and the author must be a MEMBER of the record's team (`notMember`: BAD_REQUEST `notMember`; checked after the role, so a non-owner never learns who is a member). `role` null = the viewer is not a member: `forbidden`. On an UPDATE the row's change rule (`ownership`) runs first; `author` then REASSIGNS the row (owners only, the same verdict). `created_by` never changes, `updated_by` = the real writer. IMPORT (`importAuthor`, `importCases`; the `.app.json` record's optional `author`, app-export.json): absent, the importer, or not a member of the importing team = the IMPORTER (a file from another team keeps its rows, as the importer's); another member = that member when the importer is an OWNER, else the IMPORTER too (VAPP-192: exports now carry every record's author, so a member importing a teammate's export keeps the rows as their own instead of being refused).",
     "refusal": "Only a team owner can write for another member",
     "notMember": "The author must be a member of the team",
     "writeAsCases": [
@@ -1325,7 +1325,7 @@
         "expected": "u1"
       },
       {
-        "name": "a member may not import for another member",
+        "name": "a member importing another member's record keeps it as their own",
         "importer": "u1",
         "role": "member",
         "author": "u2",
@@ -1334,7 +1334,7 @@
           "u2",
           "u3"
         ],
-        "expected": null
+        "expected": "u1"
       }
     ]
   }

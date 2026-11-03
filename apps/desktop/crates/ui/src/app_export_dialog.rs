@@ -45,6 +45,7 @@ fn app_records(app_id: &str, cx: &App) -> Vec<ExportRecord> {
             kind: record.kind.clone(),
             data: record.data.clone(),
             created_at: record.created_at.clone().unwrap_or_default(),
+            author: record.author_id.clone().or_else(|| record.created_by.clone()),
         })
         .collect()
 }
@@ -194,8 +195,8 @@ mod tests {
         }))
         .unwrap();
         let records = vec![
-            ExportRecord { id: "r2".into(), kind: "todo".into(), data: json!({"t": 2}), created_at: "2026-10-05 18:00:00+00".into() },
-            ExportRecord { id: "r1".into(), kind: "todo".into(), data: json!({"t": 1}), created_at: "2026-10-05T17:00:00Z".into() },
+            ExportRecord { id: "r2".into(), kind: "todo".into(), data: json!({"t": 2}), created_at: "2026-10-05 18:00:00+00".into(), author: None },
+            ExportRecord { id: "r1".into(), kind: "todo".into(), data: json!({"t": 1}), created_at: "2026-10-05T17:00:00Z".into(), author: None },
         ];
         let text = export_text(&row, &records, true).unwrap();
         let file: serde_json::Value = serde_json::from_str(&text).unwrap();
