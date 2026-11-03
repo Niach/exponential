@@ -72,3 +72,26 @@ export function agentSkillsValue(names: readonly string[]): string {
   if (names.length <= 2) return names.join(`, `)
   return `${names.slice(0, 2).join(`, `)} +${names.length - 2}`
 }
+
+/** #VAPP-213: the built-in skills (`builtin`): their names, the ones every
+ *  app editor session runs with, and the pill a built-in row shows. */
+export const BUILTIN_SKILLS = fixture.builtin
+
+/** The list row's pill (`pillCases`): Built-in for a built-in (never
+ *  Default), Default while a team skill is pre-selected, else none. */
+export function skillPill(skill: { builtin: boolean; enabledByDefault: boolean }): string | null {
+  if (skill.builtin) return fixture.builtin.pill
+  return skill.enabledByDefault ? fixture.list.defaultPill : null
+}
+
+/** Whether the skill page is editable (`editCases`): owners, never on a built-in. */
+export function canEditSkill(skill: { builtin: boolean }, owner: boolean): boolean {
+  return owner && !skill.builtin
+}
+
+/** A built-in's file path (`filePathCases`): relative, `/`-separated, no
+ *  empty, `.` or `..` segment, no backslash, never SKILL.md itself. */
+export function isSkillFilePath(path: string): boolean {
+  if (!path || path === `SKILL.md` || path.includes(`\\`) || path.includes(`\u0000`)) return false
+  return path.split(`/`).every((segment) => segment !== `` && segment !== `.` && segment !== `..`)
+}
