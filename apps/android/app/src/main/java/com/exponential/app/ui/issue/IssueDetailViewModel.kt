@@ -22,7 +22,6 @@ import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.AttachmentEntity
 import com.exponential.app.data.db.PullRequestEntity
-import com.exponential.app.domain.MergeFailure
 import com.exponential.app.data.db.SessionEntity
 import com.exponential.app.data.db.SessionIssueEntity
 import com.exponential.app.data.db.DatabaseHolder
@@ -534,19 +533,9 @@ class IssueDetailViewModel @AssistedInject constructor(
     // ── Steer: remote start + live session (masterplan §5b/§5c) ──────────────
 
     // EXP-1291: the issue's pull requests (`pull_requests` ⋈
-    // `pull_request_issues`, newest first) — the PR rows under the description.
+    // `pull_request_issues`, newest first) — the `…` menu's Close PR target.
     val pullRequests: StateFlow<List<PullRequestEntity>> =
         dbFlow.scopedQuery(emptyList<PullRequestEntity>()) { it.pullRequestDao().observeByIssue(issueId) }
-            .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
-
-    /** EXP-1291: the team's pull requests — the open-stack walk behind a
-     *  PR row's `Merge stack` ([com.exponential.app.ui.work.PullRequestStack]). */
-    val teamPullRequests: StateFlow<List<PullRequestEntity>> =
-        combine(dbFlow, _board) { db, board -> db to board }
-            .flatMapLatest { (db, board) ->
-                if (db == null || board == null) flowOf(emptyList())
-                else db.pullRequestDao().observeByTeam(board.teamId)
-            }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** How many issues each pull request links (the merge confirm's batch line). */
@@ -556,39 +545,8 @@ class IssueDetailViewModel @AssistedInject constructor(
         }.map { rows -> rows.groupingBy { it.pullRequestId }.eachCount() }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
-    /** The PR a merge / close is in flight for (its row's pill spins). */
+    /** The PR a close is in flight for (a second tap no-ops). */
     private val _prBusyId = MutableStateFlow<String?>(null)
-    val prBusyId: StateFlow<String?> = _prBusyId
-
-    /**
-     * EXP-1291: `pullRequests.merge` — [stack] = merge THROUGH [pr] (a native
-     * stack lands every open PR beneath it). A refusal toasts `Couldn't merge
-     * the pull request` (or the stack) with Retry, and the server posts it
-     * into the thread (EXP-1391). Success needs nothing: the PR row's synced
-     * state flips.
-     */
-    fun mergePullRequest(pr: PullRequestEntity, stack: Boolean = false) {
-        if (_prBusyId.value != null) return
-        viewModelScope.launch {
-            val accountId = auth.activeAccountId.value ?: return@launch
-            _prBusyId.value = pr.id
-            val thing = if (stack) "the stack" else "the pull request"
-            val retry = { mergePullRequest(pr, stack) }
-            try {
-                val result = pullRequestsApi.merge(accountId, pr.id, stack = if (stack) true else null)
-                val refusal = result.error
-                if (!result.merged && result.queued != true && !refusal.isNullOrBlank()) {
-                    _mutationError.value = FailedAction("merge", thing, refusal, retry = retry)
-                }
-            } catch (t: Throwable) {
-                if (t is CancellationException) throw t
-                val failure = if (stack) MergeFailure.fromStack(t) else MergeFailure.from(t, "")
-                _mutationError.value = FailedAction("merge", thing, failure.message.ifBlank { null }, retry = retry)
-            } finally {
-                _prBusyId.value = null
-            }
-        }
-    }
 
     /** EXP-1154/EXP-1291: Close PR without merging (`pullRequests.close`). */
     fun closePullRequest(pr: PullRequestEntity) {

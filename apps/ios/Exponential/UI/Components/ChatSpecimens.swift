@@ -363,11 +363,13 @@ struct PhonePageHeaderSpecimens: View {
         .accessibilityIdentifier("phone-page-header-specimen")
     }
 
+    /// EXP-1647: each header sits straight on the page (web-mobile/Android
+    /// draw no band): a bar-tall frame, no clip, the stack's own background
+    /// cleared.
     private func header(_ title: String, unread: Bool, pushed: Bool = false) -> some View {
         PageHeaderFrame(title: title, pushed: pushed)
             .environment(\.inboxUnread, unread)
-            .frame(height: 120)
-            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .frame(height: 64)
     }
 }
 
@@ -386,10 +388,23 @@ private struct PageHeaderFrame: View {
     }
 
     private func page(_ title: String, pushed: Bool) -> some View {
-        ZStack {
-            AppBackground()
+        Color.clear
+            .modifier(ClearNavigationBackground())
+            .pageHeader(title, pushed: pushed)
+    }
+}
+
+/// The specimen's stacks paint nothing of their own: the styleguide page's
+/// background shows through (no band per header).
+private struct ClearNavigationBackground: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(iOS 18.0, *) {
+            content
+                .containerBackground(.clear, for: .navigation)
+                .toolbarBackgroundVisibility(.hidden, for: .navigationBar)
+        } else {
+            content.toolbarBackground(.hidden, for: .navigationBar)
         }
-        .pageHeader(title, pushed: pushed)
     }
 }
 

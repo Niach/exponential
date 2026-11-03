@@ -5,18 +5,18 @@ import SwiftUI
 /// The top property chip box (EXP-240) — one glass box of wrapping capsule
 /// chips replacing the old properties/times/labels sections: Status, Priority,
 /// Assignee (hidden on solo teams, EXP-50), Due date (only when set), Estimate
-/// (EXP-630: only while the team's scale is on), one chip per assigned label
-/// (a labelled "Label" chip while there are none), a "+" chip and the board
-/// chip. Polish round order ×4: status · priority · assignee · labels · due
+/// (EXP-630: only while the team's scale is on), ONE labels chip (web's
+/// label-picker trigger: tag glyph + dots + names, "Label" while none) and
+/// the board chip. Polish round order ×4: status · priority · assignee · labels · due
 /// date · estimate · board. A chip opens its per-property sheet;
-/// the box background (and "+") opens the combined Properties sheet.
-/// Non-moderators see it dimmed and inert, with the "+" chip hidden.
+/// the box background opens the combined Properties sheet.
+/// Non-moderators see it dimmed and inert.
 ///
 /// EXP-1170: the New issue page wears the SAME box over its draft (a
 /// `Subject` instead of an issue row): no estimate (the draft passes
 /// `issueEstimationNone`), a due-date chip even while unset, a board chip
 /// iff the team has more than one board (the face always passes its board),
-/// and "+" adds a label (there is no Properties sheet behind a draft).
+/// and no Properties sheet behind the box.
 struct IssuePropertyChipsBox: View {
     /// The values the chips read — an issue row's, or a draft's.
     struct Subject {
@@ -71,9 +71,9 @@ struct IssuePropertyChipsBox: View {
     /// draft has no Properties sheet to set it from.
     var showsUnsetDueDate: Bool = false
     /// The box's dead space opens Properties too; the draft page turns it
-    /// off (its "+" only adds a label).
+    /// off.
     var backgroundOpensProperties: Bool = true
-    /// Polish round P46: labels and "+" before the due date, the board chip
+    /// Polish round P46: labels before the due date, the board chip
     /// last — the web/desktop order, now the default on the face too.
     var labelsBeforeDueDate: Bool = true
 
@@ -169,27 +169,27 @@ struct IssuePropertyChipsBox: View {
         .disabled(!isModerator)
     }
 
-    /// The assigned labels' chips, then "+"; with none assigned, ONE labelled
-    /// "Label" chip instead (P45: web/desktop's empty label chip, never a
-    /// bare "+").
-    @ViewBuilder
+    /// EXP-1647: ONE labels chip, web's `LabelPicker` trigger ×4: the tag
+    /// glyph, then up to three overlapping colour dots and the names joined
+    /// by ", " — or "Label" while none are assigned. A tap opens the label
+    /// picker; there is no "+" chip.
     private var labelChips: some View {
-        if assignedLabels.isEmpty {
-            chip(target: .labels, label: Self.unsetLabelsLabel) {
-                AppIcon(AppIcons.settingsLabels, size: GlassPillTokens.glyphSm)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-        }
-        ForEach(assignedLabels, id: \.id) { label in
-            GlassPill(
-                label.name,
-                mode: .action { onTapProperty(.labels) },
-                dot: Color(hex: label.color) ?? .gray
-            )
-        }
-        if isModerator, !assignedLabels.isEmpty {
-            GlassPill("", mode: .action { onOpenProperties() }) {
-                AppIcon(AppIcons.uiAdd, size: GlassPillTokens.glyphSm, weight: .medium)
+        chip(
+            target: .labels,
+            label: assignedLabels.isEmpty
+                ? Self.unsetLabelsLabel
+                : assignedLabels.map(\.name).joined(separator: ", ")
+        ) {
+            AppIcon(AppIcons.settingsLabels, size: 12)
+            if !assignedLabels.isEmpty {
+                HStack(spacing: -2) {
+                    ForEach(assignedLabels.prefix(3), id: \.id) { label in
+                        Circle()
+                            .fill(Color(hex: label.color) ?? .gray)
+                            .frame(width: 8, height: 8)
+                            .overlay(Circle().strokeBorder(DesignTokens.Palette.background, lineWidth: 1))
+                    }
+                }
             }
         }
     }

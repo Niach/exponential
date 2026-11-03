@@ -319,10 +319,8 @@ struct IssueFaceView: View {
                     onOpen: openRelated
                 )
 
-                // PR rows (EXP-156; EXP-1295: `pull_request_issues` →
-                // `pull_requests`), each opening its PR on GitHub. Renders
-                // nothing while the issue has none.
-                AgentPrCard(pullRequests: vm.pullRequests)
+                // EXP-1647: no PR row on the issue page (web EXP-1293: a
+                // pull request is the thread Guide's).
 
                 // Widget/agent submission metadata (EXP-496):
                 // expandable card, default collapsed; renders nothing

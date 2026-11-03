@@ -60,9 +60,6 @@ final class IssueDetailViewModel {
     /// EXP-1295: the threads (root sessions) holding the issue, newest
     /// activity first — the page's `Threads` row.
     var threads: [IssueThreadLink] = []
-    /// EXP-1295: the issue's pull requests (`pull_request_issues` →
-    /// `pull_requests`), newest first — the page's PR rows.
-    var pullRequests: [PullRequestEntity] = []
     /// The canonical issue when this one is marked a duplicate — resolves the
     /// "Duplicate of {IDENTIFIER}" banner (masterplan §5e).
     var duplicateOf: IssueEntity?
@@ -323,18 +320,6 @@ final class IssueDetailViewModel {
             do {
                 for try await threads in threadsObs.removeDuplicates().values(in: pool) {
                     self?.threads = threads
-                }
-            } catch {}
-        })
-
-        // EXP-1295: the issue's pull requests, off `pull_request_issues`.
-        let pullRequestsObs = ValueObservation.tracking { db in
-            try SessionQueries.pullRequests(db: db, issueId: issueId)
-        }
-        observationTasks.append(Task { [weak self] in
-            do {
-                for try await pullRequests in pullRequestsObs.removeDuplicates().values(in: pool) {
-                    self?.pullRequests = pullRequests
                 }
             } catch {}
         })

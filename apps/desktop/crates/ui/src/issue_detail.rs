@@ -85,9 +85,6 @@ pub(crate) const DETAIL_COLUMN_W: f32 = crate::work_header::WORK_COLUMN_W;
 /// description slot's inset compensation, see `wysiwyg::mod`.
 pub(crate) use crate::wysiwyg::WYSIWYG_BLOCK_PADDING_X;
 
-/// The PR row's own horizontal padding (its hover fill's overhang).
-const PR_ROW_PX: f32 = 8.;
-
 pub(crate) fn centered_column(column: gpui::Div) -> gpui::Div {
     div()
         .w_full()
@@ -1197,129 +1194,6 @@ impl IssueDetailView {
     /// re-renders off the view's `attachments`, `issues` and `comments`
     /// observers, so an upload, a delete, an (un)embed or another client's
     /// change lands without any refetch.
-    /// EXP-525: the web `PrRow` (`issue-coding-rows.tsx`). EXP-1294: ONE row
-    /// per pull request that closes the issue (`pull_request_issues`):
-    /// state badge · `PR #N` · head branch · [Merge PR while open] · the
-    /// GitHub link · chevron. A click opens the session that opened the PR
-    /// (its Guide), else GitHub. `None` = no pull request.
-    fn render_pr_rows(&self, issue: &Issue, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
-        let pulls = crate::session_data::pull_requests_of_issue(&issue.id, cx);
-        if pulls.is_empty() {
-            return None;
-        }
-        let rows: Vec<gpui::AnyElement> = pulls
-            .iter()
-            .map(|pull| self.render_pr_row(pull, cx))
-            .collect();
-        // The hairline spans the content box exactly.
-        Some(
-            div()
-                .w_full()
-                .px(px(WORK_GUTTER))
-                .children(rows.into_iter().map(|row| {
-                    div()
-                        .w_full()
-                        .border_t_1()
-                        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                        .child(row)
-                }))
-                .into_any_element(),
-        )
-    }
-
-    fn render_pr_row(
-        &self,
-        pull: &domain::rows::PullRequestRow,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let state = pull.state.clone().unwrap_or_else(|| "open".to_string());
-        let state_chip = pr_state_chip(&state, cx);
-        let merge = pull
-            .is_open()
-            .then(|| {
-                crate::work_header::merge_pill(
-                    gpui::ElementId::Name(format!("issue-pr-merge-{}", pull.id).into()),
-                    &pull.id,
-                    false,
-                    crate::work_header::header_action_size(true),
-                    cx,
-                )
-            });
-        let github = crate::work_header::github_button(
-            gpui::ElementId::Name(format!("issue-pr-github-{}", pull.id).into()),
-            pull.url.as_deref(),
-            cx,
-        );
-        let theme = cx.theme();
-        let muted = theme.muted_foreground;
-        let root_id = pull.root_session_id.clone();
-        let url = pull.url.clone();
-        let label = match pull.number {
-            Some(number) => format!("PR #{number}"),
-            None => "PR".to_string(),
-        };
-        h_flex()
-            .id(gpui::ElementId::Name(format!("issue-pr-row-{}", pull.id).into()))
-            .min_w_0()
-            .items_center()
-            .gap_2()
-            // EXP-1191: the glyph on the content edge, the hover fill
-            // hanging outside it by the row's own padding.
-            .mx(px(-PR_ROW_PX))
-            .px(px(PR_ROW_PX))
-            .py_2()
-            .text_sm()
-            .cursor_pointer()
-            .hover(|style| style.bg(theme.list_hover))
-            .rounded(px(theme::tokens::radius::SM))
-            .on_click(move |_, window, cx| match root_id.clone() {
-                // EXP-1294: the PR's report is the Guide of the session
-                // that opened it.
-                Some(session_id) => navigate(window, cx, Screen::Thread { session_id }),
-                None => {
-                    if let Some(url) = url.as_deref() {
-                        if let Err(error) = api::opener::open_in_browser(url) {
-                            log::warn!("[ui] issue detail: open PR link failed: {error}");
-                        }
-                    }
-                }
-            })
-            .child(
-                Icon::from(ExpIcon::GitPullRequest)
-                    .small()
-                    .flex_shrink_0()
-                    .text_color(muted),
-            )
-            .child(state_chip)
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .child(SharedString::from(label)),
-            )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .whitespace_nowrap()
-                    .text_ellipsis()
-                    .text_xs()
-                    .text_color(muted)
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .children(pull.head.clone().map(SharedString::from)),
-            )
-            .children(merge)
-            .children(github)
-            .child(
-                Icon::from(ExpIcon::ChevronRight)
-                    .small()
-                    .flex_shrink_0()
-                    .text_color(muted),
-            )
-            .into_any_element()
-    }
-
     fn render_files_section(
         &mut self,
         issue: &Issue,
@@ -1984,8 +1858,8 @@ impl IssueDetailView {
             // EXP-297: the files rail sits under the description and above
             // the timeline — inline images stay in the description itself.
             .child(self.render_files_section(issue, cx))
-            // EXP-525: the web `PrRow`s — one per pull request.
-            .children(self.render_pr_rows(issue, cx))
+            // EXP-1647: NO pull-request row on the issue page (web EXP-1293
+            // `issue-coding-rows.tsx`: a pull request is the Guide's).
             // EXP-496: widget/agent submission metadata, right above the
             // timeline (web mounts it after the PR row, before the timeline).
             .child(self.render_widget_submission_card(issue, cx));

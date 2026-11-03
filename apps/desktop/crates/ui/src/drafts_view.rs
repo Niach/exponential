@@ -5,7 +5,7 @@
 //! leaves the rail up and lends no list to what it opens. Clicking a row
 //! REOPENS its New issue page seeded from the row
 //! ([`crate::issue_draft_screen::open_existing`], EXP-1170);
-//! the row's hover-revealed ✕ deletes it outright (there is nothing
+//! its context menu's Discard deletes it outright (there is nothing
 //! destructive to confirm — a draft is by definition unfiled, and the whole
 //! feature exists so nothing has to be confirmed).
 //!
@@ -14,26 +14,19 @@
 //! longer resolves — so a draft on a trashed board is hidden, not broken.
 
 use gpui::{
-    div, ClickEvent, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
+    div, prelude::FluentBuilder as _, px, ClickEvent, Entity, InteractiveElement as _, IntoElement, ParentElement, Render,
     ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
-use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex,
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
-};
+use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 use sync::Store;
 
+use crate::controls::PointerContextMenuExt as _;
 use crate::scroll_pane::page_scaffold_with;
 use crate::icons::registry;
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 
-/// The page column's cap — the list pages' width (`max-w-3xl`): these rows are a
-/// title and a board, not a table.
-const DRAFTS_COLUMN_W: f32 = 768.;
-
-/// The hover group the row's ✕ hides in (the rail's pinned-row recipe).
-const DRAFT_ROW_GROUP: &str = "draft-row";
+/// The page column's cap — the web Drafts page's `md:max-w-5xl` (EXP-1647).
+const DRAFTS_COLUMN_W: f32 = 1024.;
 
 pub struct DraftsView {
     #[allow(dead_code)] // held for the team-switch re-render subscription
@@ -63,7 +56,7 @@ impl DraftsView {
 
     /// One draft row: the resolved status glyph, the title (or a muted
     /// [`domain::issue_draft::UNTITLED`]), the board it would be filed onto,
-    /// when it was last touched, and the hover-revealed delete.
+    /// when it was last touched; Discard in its context menu.
     fn draft_row(
         &self,
         index: usize,
@@ -96,48 +89,22 @@ impl DraftsView {
             .map(SharedString::from)
             .unwrap_or_else(|| domain::issue_draft::UNTITLED.into());
 
-        let mut meta = h_flex()
-            .min_w_0()
-            .items_center()
-            .gap_1p5()
-            .text_xs()
-            .text_color(muted);
-        if let Some(board) = &board {
-            meta = meta
-                .child(
-                    crate::icons::board_icon(board)
-                        .xsmall()
-                        .flex_shrink_0()
-                        .text_color(muted),
-                )
-                .child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .child(SharedString::from(board.name.clone())),
-                );
-        }
-        if let Some(updated_at) = draft.updated_at.as_deref() {
-            let relative = crate::inbox::relative_time(updated_at);
-            if !relative.is_empty() {
-                meta = meta
-                    .child(div().flex_shrink_0().child("·"))
-                    .child(div().flex_shrink_0().child(SharedString::from(relative)));
-            }
-        }
+        let untitled = title_color == muted;
 
         let open_id = draft.id.clone();
         let delete_id = draft.id.clone();
+        // EXP-1647: the web `ListRow` (`flex items-center gap-3 p-3`), ONE
+        // line — status glyph, title, then the board and the age
+        // right-aligned. No buttons on the row: Discard lives in its context
+        // menu, like the web's.
         crate::surface::flat_row()
             .id(("draft-row", index))
-            .group(DRAFT_ROW_GROUP)
             .flex()
             .w_full()
             .min_w_0()
             .items_center()
-            .gap_2p5()
-            .px_3()
-            .py_2p5()
+            .gap_3()
+            .p_3()
             .cursor_pointer()
             .hover(move |style| style.bg(row_hover))
             .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
@@ -152,46 +119,52 @@ impl DraftsView {
                 };
                 crate::issue_draft_screen::open_existing(window, cx, &draft);
             }))
+            .pointer_context_menu(move |menu, _, _| {
+                let delete_id = delete_id.clone();
+                menu.min_w(px(220.)).item(crate::controls::danger_pointer_menu_item(
+                    registry::UI_DELETE,
+                    "Discard draft",
+                    move |_, cx| crate::drafts::delete_draft(delete_id.clone(), cx),
+                ))
+            })
             .child(
                 div()
                     .flex_shrink_0()
-                    .child(crate::icons::resolved_status_icon(&status, cx).xsmall()),
+                    .child(crate::icons::resolved_status_icon(&status, cx).with_size(px(16.))),
             )
             .child(
-                v_flex()
+                div()
                     .flex_1()
                     .min_w_0()
-                    .gap_0p5()
-                    .child(
-                        div()
-                            .w_full()
-                            .min_w_0()
-                            .truncate()
-                            .text_sm()
-                            .text_color(title_color)
-                            .child(title),
-                    )
-                    .child(meta),
+                    .truncate()
+                    .text_sm()
+                    .text_color(title_color)
+                    .when(untitled, |title| title.italic())
+                    .child(title),
             )
-            .child(
-                div()
-                    .invisible()
-                    .group_hover(DRAFT_ROW_GROUP, |style| style.visible())
+            .children(board.map(|board| {
+                h_flex()
                     .flex_shrink_0()
-                    .child(
-                        Button::new(("draft-row-delete", index))
-                            .ghost()
-                            .cursor_pointer()
-                            .xsmall()
-                            .icon(Icon::from(registry::UI_DELETE))
-                            .tooltip("Delete draft")
-                            .on_click(move |_, _window, cx| {
-                                // The row underneath reopens the draft — a
-                                // delete must not do both.
-                                cx.stop_propagation();
-                                crate::drafts::delete_draft(delete_id.clone(), cx);
-                            }),
-                    ),
+                    .items_center()
+                    .gap_1p5()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(crate::icons::board_icon(&board).with_size(px(12.)))
+                    .child(SharedString::from(board.name.clone()))
+            }))
+            .children(
+                draft
+                    .updated_at
+                    .as_deref()
+                    .map(crate::inbox::relative_time)
+                    .filter(|relative| !relative.is_empty())
+                    .map(|relative| {
+                        div()
+                            .flex_shrink_0()
+                            .text_xs()
+                            .text_color(muted)
+                            .child(SharedString::from(relative))
+                    }),
             )
             .into_any_element()
     }

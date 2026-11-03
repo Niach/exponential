@@ -64,26 +64,6 @@ pub(crate) fn header_action_size(in_tray: bool) -> PillSize {
     }
 }
 
-/// EXP-916 — the ONE way out to GitHub: a ghost glyph in the right cluster,
-/// present exactly while the subject HAS a pull request. `None` otherwise —
-/// an empty link is worse than no link. Callers name the element so two
-/// clusters can carry it at once.
-pub(crate) fn github_button(
-    id: impl Into<gpui::ElementId>,
-    pr_url: Option<&str>,
-    cx: &mut App,
-) -> Option<AnyElement> {
-    let url = pr_url.map(str::trim).filter(|url| !url.is_empty())?.to_string();
-    Some(
-        crate::controls::ghost_icon_button(id, Icon::new(registry::UI_GITHUB), cx)
-            .tooltip(domain::contract::DIFF_UI_OPEN_ON_GITHUB)
-            .on_click(move |_, _, cx| {
-                crate::settings::open_url(cx, url.clone());
-            })
-            .into_any_element(),
-    )
-}
-
 // ---------------------------------------------------------------------------
 // Merge
 // ---------------------------------------------------------------------------
@@ -93,18 +73,7 @@ pub(crate) fn github_button(
 /// Electric echo settles) through [`crate::pr_merge::two_click`]. EXP-1294:
 /// it merges ONE pull request (`pullRequests.merge`); a member of an open
 /// stack asks its one confirm first (EXP-1248). A refusal is the error toast.
-pub(crate) fn merge_pill(
-    id: impl Into<gpui::ElementId>,
-    pull_request_id: &str,
-    primary: bool,
-    // EXP-926: the placement's size, never the pill's own opinion.
-    size: PillSize,
-    cx: &mut App,
-) -> AnyElement {
-    merge_pill_with_checks(id, pull_request_id, primary, size, None, cx)
-}
-
-/// #EXP-1611 — [`merge_pill`] over the PR's `checks_state` (pr-checks.json
+/// #EXP-1611 — over the PR's `checks_state` (pr-checks.json
 /// MERGE PILL, `domain::pr_checks::merge_pill`): none / success = the pill
 /// as ever; pending = THE spinner in place of the glyph, still enabled, the
 /// same confirms; failure = the PLAIN pill, the `ci-failed` glyph in the
@@ -776,11 +745,12 @@ mod tests {
                             .gap_1()
                             .child(probe(
                                 self.0.merge.clone(),
-                                merge_pill(
+                                merge_pill_with_checks(
                                     "header-merge-pr",
                                     "pr-1",
                                     true,
                                     header_action_size(true),
+                                    None,
                                     cx,
                                 ),
                             ))
@@ -874,7 +844,7 @@ mod tests {
                     .gap_1()
                     .child(probe(
                         self.0.merge.clone(),
-                        merge_pill("session-merge", "pr-1", true, header_action_size(false), cx),
+                        merge_pill_with_checks("session-merge", "pr-1", true, header_action_size(false), None, cx),
                     ))
                     .child(probe(
                         self.0.stop.clone(),

@@ -5,6 +5,8 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
@@ -678,7 +680,9 @@ class StyleguideScreenshotsTest {
         step("search") {
             openBoardRoot()
             composeRule.onNode(hasTestTag(Chats.TestIds.SEARCH_BUTTON)).performClick()
-            flow.waitFor(hasText("Search"), NAV_TIMEOUT)
+            // EXP-1649: no "Search" title any more (web-mobile's header):
+            // the field itself is the gate.
+            flow.waitFor(hasSetTextAction(), NAV_TIMEOUT)
             composeRule.onNode(hasSetTextAction()).performTextInput(SEARCH_QUERY)
             Espresso.closeSoftKeyboard()
             flow.waitFor(hasText(SEARCH_RESULT_TITLE, substring = true), SYNC_TIMEOUT)
@@ -689,7 +693,7 @@ class StyleguideScreenshotsTest {
             flow.settle()
         }
 
-        // --- APP-14's issue page (the seed's real open PR), the way into
+        // --- APP-14's issue page (its thread opened the seed's real PR), the way into
         // its thread's Stories tab below. EXP-1553: `sg_pr-row` is the
         // capture-only PR row specimen now (with the thread cards).
         step("thread-stories") {
@@ -697,8 +701,9 @@ class StyleguideScreenshotsTest {
             composeRule.onNode(hasTestTag("issue-list"))
                 .performScrollToNode(hasTestTag(GUIDE_ISSUE_ROW))
             composeRule.onNode(hasTestTag(GUIDE_ISSUE_ROW)).performClick()
-            flow.waitFor(hasTestTag("issue-pr-row"), SYNC_TIMEOUT)
-            composeRule.onAllNodes(hasTestTag("issue-pr-row")).onFirst().performScrollTo()
+            // EXP-1647: the issue page draws no PR row (web EXP-1293); its
+            // thread chip is the gate.
+            flow.waitFor(hasTestTag("issue-thread-chip"), SYNC_TIMEOUT)
             flow.settle()
 
             // --- sg_thread-stories (stories.json STORIES TAB): APP-14's thread
@@ -720,7 +725,7 @@ class StyleguideScreenshotsTest {
                 // Thread → the issue page.
                 Espresso.pressBack()
                 flow.waitForGone(hasTestTag("thread-tabs"), NAV_TIMEOUT)
-                flow.waitFor(hasTestTag("issue-pr-row"), NAV_TIMEOUT)
+                flow.waitFor(hasTestTag("issue-thread-chip"), NAV_TIMEOUT)
                 flow.settle()
             }
 
@@ -2039,7 +2044,10 @@ class StyleguideScreenshotsTest {
         val devices = Chats.Copy.HEADERS.getValue("devices")
         val row = hasTestTag(SettingsNav.ROW_TEST_ID) and
             (hasText(devices) or hasAnyDescendant(hasText(devices)))
-        composeRule.onAllNodes(row).onFirst().performScrollTo().performClick()
+        // The row can sit under the floating tab bar once scrolled to (the
+        // Apps row pushed it down): click through semantics, not a touch.
+        composeRule.onAllNodes(row).onFirst().performScrollTo()
+            .performSemanticsAction(SemanticsActions.OnClick)
         flow.waitFor(hasTestTag(SettingsNav.PAGE_TEST_ID), NAV_TIMEOUT)
     }
 }

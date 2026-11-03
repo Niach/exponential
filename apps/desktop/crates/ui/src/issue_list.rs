@@ -59,11 +59,12 @@ use crate::navigation::{nav_for_window, resolved_screen, Navigation, Screen};
 use crate::issue_header::toggle_label;
 use crate::queries::{self, BoardData};
 
-/// Compact row height (§4.4: ~28px vs web's ~40px desktop row).
-const ROW_HEIGHT: f32 = 28.;
-/// The list's base left padding (`px_3`) — EXP-980's tree gutters are
-/// measured off it, exactly like the session rows' `ROW_PAD`.
-pub(crate) const ROW_PAD: f32 = 12.;
+/// Row height — the web row's `h-10` (EXP-1647: same px as the web).
+const ROW_HEIGHT: f32 = 40.;
+/// The list's horizontal padding — the web row's `md:px-6`. EXP-980's tree
+/// gutters are measured off it (web `base = 44 + GUIDE_INSET` = this + the
+/// 20px select cell + 5).
+pub(crate) const ROW_PAD: f32 = 24.;
 /// The list stacks its rows with no gap, so the connector bridges nothing.
 const ROW_GAP: f32 = 0.;
 /// EXP-998: the gutters start under the PRIORITY glyph, not at the row's
@@ -79,8 +80,9 @@ pub(crate) const SELECT_CELL_W: f32 = 20.;
 /// row's 24px priority cell centres its 14px glyph 5px in, so a row whose
 /// next glyph starts flush (the chat row's lead disc) leaves these 5px.
 pub(crate) const SELECT_CELL_GAP: f32 = 5.;
-/// Group header height (web py-1.5 + text-sm, compacted).
-const HEADER_HEIGHT: f32 = 28.;
+/// Group header height — the web band's `py-1.5` + `text-sm` line (20px)
+/// + its 1px bottom border (EXP-1647).
+const HEADER_HEIGHT: f32 = 33.;
 /// The row's hover group (web `group/row`) — reveals the bulk-select
 /// checkbox. Reused per row: gpui resolves `group_hover` against the
 /// innermost enclosing group with the name.
@@ -643,7 +645,7 @@ impl IssueListView {
             .group(ROW_GROUP)
             .h(px(ROW_HEIGHT))
             .w_full()
-            .px_3()
+            .px(px(ROW_PAD))
             // EXP-980: a sub-issue indents by one gutter level per depth and
             // paints EXP-965's elbow in the band its parent's glyph sits in.
             // The connector layer is absolute, so the row must be relative.
@@ -2856,7 +2858,8 @@ fn list_skeleton(cx: &App) -> impl IntoElement {
     let header = h_flex()
         .h(px(HEADER_HEIGHT))
         .w_full()
-        .px_3()
+        .pl_3()
+        .pr_6()
         .gap_2()
         .items_center()
         .border_b_1()
@@ -2870,7 +2873,7 @@ fn list_skeleton(cx: &App) -> impl IntoElement {
             h_flex()
                 .h(px(ROW_HEIGHT))
                 .w_full()
-                .px_3()
+                .px(px(ROW_PAD))
                 .gap_3()
                 .items_center()
                 .border_b_1()
@@ -2929,20 +2932,21 @@ pub(crate) fn issue_group_band(
     match density {
         BandDensity::List => band
             .h(px(HEADER_HEIGHT))
-            .px_3()
+            // Web `md:pl-3 md:pr-6` (EXP-1647).
+            .pl_3()
+            .pr_6()
             .bg(status_header_tint(&status.tint))
             .border_b_1()
             .border_color(cx.theme().border.opacity(0.5))
             .child(
-                // EXP-698 round 5: a BARE chevron in its 24px box.
-                div()
-                    .size(px(24.))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .child(Icon::new(chevron).xsmall().text_color(muted)),
+                // EXP-698 round 5: a BARE chevron — the web's `size-3`.
+                Icon::new(chevron)
+                    .with_size(px(12.))
+                    .flex_shrink_0()
+                    .text_color(muted),
             )
-            .child(resolved_status_icon(status, cx).xsmall())
+            // Web `StatusGlyph … size-3.5`.
+            .child(resolved_status_icon(status, cx).with_size(px(14.)))
             .child(
                 div()
                     .text_sm()
