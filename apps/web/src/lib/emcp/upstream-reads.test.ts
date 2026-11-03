@@ -3,13 +3,27 @@
 // read-only check, the 60 s cache per member.
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-const servers = vi.hoisted(() => ({ rows: [{ id: `s1`, transport: `http` }] as { id: string; transport: string }[] }))
+type Row = { id: string; transport: string; device?: { id: string; ownerId: string; label: string; steerDeviceId: string } | null }
+const servers = vi.hoisted(() => ({ rows: [{ id: `s1`, transport: `http` }] as Row[] }))
+const device = vi.hoisted(() => ({ calls: [] as unknown[], out: { result: { structuredContent: { temp: 21 } } } as Record<string, unknown> }))
 const launch = vi.hoisted(() => ({ url: `https://crm.example/mcp` as string | null }))
 const calls = vi.hoisted(() => ({ n: 0, annotations: { readOnlyHint: true } as Record<string, unknown> | null, result: { structuredContent: { mrr: 1200 } } as Record<string, unknown> }))
 
-vi.mock(`@/db/connection`, () => ({
-  db: { select: () => ({ from: () => ({ where: () => ({ limit: async () => servers.rows }) }) }) },
-}))
+vi.mock(`@/db/connection`, () => ({ db: {} }))
+// #VAPP-239: the row with its device; the device call itself is stubbed.
+vi.mock(`@/lib/emcp/upstream/device-call`, async () => {
+  const { upstreamRoute } = await import(`@exp/emcp/upstream`)
+  return {
+    loadRoutedServer: async (teamId: string, name: string) =>
+      servers.rows[0] ? { ...servers.rows[0], name, teamId, device: servers.rows[0].device ?? null } : null,
+    routeServer: (server: { name: string; transport: string; device: { id: string; ownerId: string; label: string } | null }, caller: string) =>
+      upstreamRoute(server, caller),
+    callOnDevice: async (input: unknown) => {
+      device.calls.push(input)
+      return device.out
+    },
+  }
+})
 vi.mock(`@/lib/emcp/upstream/credentials`, () => ({
   resolveForLaunch: async () => ({ servers: launch.url ? [{ url: launch.url, headers: [{ name: `authorization`, value: `Bearer t` }] }] : [] }),
 }))
@@ -34,6 +48,8 @@ beforeEach(() => {
   calls.n = 0
   calls.annotations = { readOnlyHint: true }
   calls.result = { structuredContent: { mrr: 1200 } }
+  device.calls = []
+  device.out = { result: { structuredContent: { temp: 21 } } }
 })
 
 describe(`readUpstreamBinding`, () => {
@@ -90,5 +106,26 @@ describe(`readUpstreamBinding`, () => {
     expect(await readUpstreamBinding(`u1`, app, `upstream:crm/mrr`)).toMatchObject({ ok: false, error: `upstreamFailed` })
     calls.result = { structuredContent: { mrr: 1 } }
     expect(await readUpstreamBinding(`u1`, app, `upstream:crm/mrr`)).toMatchObject({ ok: true, value: { mrr: 1 } })
+  })
+
+  it(`#VAPP-239: a device-routed server reads on its owner's device, cached like http`, async () => {
+    servers.rows = [{ id: `s1`, transport: `stdio`, device: { id: `d1`, ownerId: `u1`, label: `homelab`, steerDeviceId: `dev-1` } }]
+    const out = await readUpstreamBinding(`u1`, app, `upstream:crm/temp?room=kitchen`, 0)
+    expect(out).toMatchObject({ ok: true, value: { temp: 21 }, meta: { "at.exponential/device": `homelab`, "at.exponential/via": `upstream` } })
+    expect(device.calls).toEqual([expect.objectContaining({ userId: `u1`, tool: `temp`, args: { room: `kitchen` }, veto: { kind: `read`, sources: [`upstream:crm/*`] } })])
+    await readUpstreamBinding(`u1`, app, `upstream:crm/temp?room=kitchen`, 30_000)
+    expect(device.calls).toHaveLength(1)
+    expect(calls.n).toBe(0)
+  })
+
+  it(`#VAPP-239: another member's device is refused; an offline one carries its label`, async () => {
+    servers.rows = [{ id: `s1`, transport: `http`, device: { id: `d1`, ownerId: `u1`, label: `homelab`, steerDeviceId: `dev-1` } }]
+    expect(await readUpstreamBinding(`u2`, app, `upstream:crm/temp`)).toMatchObject({ ok: false, error: `deviceNotOwned`, message: `crm runs on homelab: only its owner's calls reach it` })
+    expect(device.calls).toHaveLength(0)
+    device.out = { error: `upstreamFailed`, message: `crm runs on homelab, offline`, offline: `homelab` }
+    expect(await readUpstreamBinding(`u1`, app, `upstream:crm/temp`)).toEqual({ ok: false, error: `upstreamFailed`, server: `crm`, message: `crm runs on homelab, offline`, offline: `homelab` })
+    // An error is never cached.
+    await readUpstreamBinding(`u1`, app, `upstream:crm/temp`)
+    expect(device.calls).toHaveLength(2)
   })
 })

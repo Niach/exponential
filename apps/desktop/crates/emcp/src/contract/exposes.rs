@@ -33,6 +33,8 @@ pub const META_APP: &str = "at.exponential/app";
 pub const META_TOOL: &str = "at.exponential/tool";
 pub const META_VIA: &str = "at.exponential/via";
 pub const META_UPSTREAM: &str = "at.exponential/upstream";
+/// VAPP-239: the device a device-routed upstream ran on (its label).
+pub const META_DEVICE: &str = "at.exponential/device";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ToolAccess {

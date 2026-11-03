@@ -276,6 +276,63 @@ fn upstream_binding_cases() {
     }
 }
 
+#[test]
+fn upstream_device_cases() {
+    let d = &fixture::upstream()["device"];
+    assert_eq!(d["ttlSeconds"].as_u64(), Some(upstream::DEVICE_CALL_TTL_SECONDS));
+    assert_eq!(d["answerTimeoutMs"].as_u64(), Some(upstream::DEVICE_ANSWER_TIMEOUT_MS));
+    assert_eq!(d["maxAnswerBytes"].as_u64(), Some(upstream::DEVICE_MAX_ANSWER_BYTES as u64));
+    assert_eq!(d["errors"]["notOwner"], upstream::ERROR_DEVICE_NOT_OWNED);
+    for key in ["noDevice", "offline", "noAnswer"] {
+        assert_eq!(d["errors"][key], upstream::ERROR_FAILED);
+    }
+    assert_eq!(d["copy"]["noDevice"], upstream::COPY_NO_DEVICE);
+    assert_eq!(d["copy"]["notOwner"], upstream::COPY_NOT_OWNER);
+    assert_eq!(d["copy"]["offline"], upstream::COPY_OFFLINE);
+    assert_eq!(d["copy"]["noAnswer"], upstream::COPY_NO_ANSWER);
+    for case in d["routeCases"].as_array().unwrap() {
+        let server: upstream::RoutedServer = serde_json::from_value(case["server"].clone()).unwrap();
+        let got = match upstream::upstream_route(&server, s(&case["caller"])) {
+            upstream::UpstreamRoute::Server => serde_json::json!({"route": "server"}),
+            upstream::UpstreamRoute::Device { device_id } => serde_json::json!({"route": "device", "deviceId": device_id}),
+            upstream::UpstreamRoute::Refused { error, message } => serde_json::json!({"error": error, "message": message}),
+        };
+        assert_eq!(got, case["expected"], "{}", case["name"]);
+    }
+    for case in d["answerCases"].as_array().unwrap() {
+        let reason = if case["relay"]["delivered"] == true { None } else { case["relay"]["reason"].as_str() };
+        let answer: Option<upstream::DeviceAnswer> = serde_json::from_value(case["answer"].clone()).unwrap_or(None);
+        let got = match upstream::device_call_outcome(s(&case["server"]), s(&case["device"]), reason, answer.as_ref()) {
+            upstream::DeviceCallOutcome::Result(result) => serde_json::json!({"result": result}),
+            upstream::DeviceCallOutcome::Error { error, message, offline: None } => serde_json::json!({"error": error, "message": message}),
+            upstream::DeviceCallOutcome::Error { error, message, offline: Some(device) } => {
+                serde_json::json!({"error": error, "message": message, "offline": device})
+            }
+        };
+        assert_eq!(got, case["expected"], "{}", case["name"]);
+    }
+    for case in d["claimCases"].as_array().unwrap() {
+        let (call, claim) = (&case["call"], &case["claim"]);
+        let got = upstream::device_call_claimable(
+            s(&call["userId"]),
+            s(&call["deviceId"]),
+            call["expiresInSeconds"].as_i64().unwrap() * 1000,
+            call["claimed"] == true,
+            s(&claim["userId"]),
+            s(&claim["deviceId"]),
+        );
+        assert_eq!(Value::Bool(got), case["expected"], "{}", case["name"]);
+    }
+    for case in d["bannerCases"].as_array().unwrap() {
+        let answers: Vec<upstream::UpstreamReadAnswer> = serde_json::from_value(case["answers"].clone()).unwrap();
+        let got = serde_json::to_value(upstream::upstream_host_banners(&answers)).unwrap();
+        assert_eq!(got, case["expected"], "{}", case["name"]);
+    }
+    for case in d["urlCases"].as_array().unwrap() {
+        assert_eq!(Value::Bool(upstream::mcp_url_allowed(s(&case["url"]))), case["expected"], "{}", case["name"]);
+    }
+}
+
 // ---------------------------------------------------------------- exposes
 
 fn context(value: &Value) -> ExposeContext {
@@ -325,6 +382,7 @@ fn exposes_constants_match() {
     assert_eq!(f["provenance"]["tool"], exposes::META_TOOL);
     assert_eq!(f["provenance"]["via"], exposes::META_VIA);
     assert_eq!(f["provenance"]["upstream"], exposes::META_UPSTREAM);
+    assert_eq!(f["provenance"]["device"], exposes::META_DEVICE);
 }
 
 #[test]
@@ -425,6 +483,7 @@ fn every_case_list_is_replayed() {
             &fixture::upstream()["binding"],
             &["parseCases", "declareCases", "readCases", "cacheKeyCases", "valueCases", "bannerCases"],
         ),
+        (&fixture::upstream()["device"], &["routeCases", "answerCases", "claimCases", "bannerCases", "urlCases"]),
         (
             fixture::exposes(),
             &[

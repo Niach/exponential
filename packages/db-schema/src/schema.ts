@@ -3184,6 +3184,15 @@ export const mcpServers = pgTable(
     createdById: text(`created_by_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
+    // VAPP-239 (eApps M2, @exp/emcp upstream.json `device`): the member's
+    // device (desktop app or CLI daemon) this server RUNS ON for app calls:
+    // a stdio command, or an http URL only that device's network reaches.
+    // Set by the device's owner only (`mcpServers.setDevice`); only that
+    // owner's calls (or an automation they sponsor) route there over the
+    // relay's control socket. NULL = the server broker calls it (http).
+    deviceId: uuid(`device_id`).references(() => devices.id, {
+      onDelete: `set null`,
+    }),
     ...timestamps,
   },
   (table) => [
@@ -3236,6 +3245,44 @@ export const mcpCredentials = pgTable(
     unique().on(table.serverId, table.userId),
     index(`idx_mcp_credentials_user`).on(table.userId),
   ]
+)
+
+// VAPP-239 (eApps M2): ONE app call routed to a member's device (@exp/emcp
+// upstream.json `device`). The relay carries only `id`; the device CLAIMS the
+// row over its own authenticated API (`mcpServers.claimDeviceCall`: the
+// member's own row on that device, unexpired, once), which resolves the
+// credential at claim time, so no secret is ever stored here. `veto` = the
+// read/call check the device runs on the tool's live annotations,
+// `reply_public` = the X25519 key (base64url) the device seals its answer to
+// (its secret lives only in the awaiting request). Pruned by the watchdog.
+// Server-only, never synced.
+export const mcpDeviceCalls = pgTable(
+  `mcp_device_calls`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    userId: text(`user_id`)
+      .notNull()
+      .references(() => users.id, { onDelete: `cascade` }),
+    serverId: uuid(`server_id`)
+      .notNull()
+      .references(() => mcpServers.id, { onDelete: `cascade` }),
+    deviceId: uuid(`device_id`)
+      .notNull()
+      .references(() => devices.id, { onDelete: `cascade` }),
+    tool: varchar({ length: 128 }).notNull(),
+    args: jsonb().$type<Record<string, unknown>>().notNull(),
+    veto: jsonb().$type<{ kind: `read`; sources: string[] } | { kind: `call`; access: string }>().notNull(),
+    replyPublic: varchar(`reply_public`, { length: 43 }).notNull(),
+    expiresAt: timestamp(`expires_at`, { withTimezone: true }).notNull(),
+    claimedAt: timestamp(`claimed_at`, { withTimezone: true }),
+    createdAt: timestamp(`created_at`, { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [index(`idx_mcp_device_calls_expires`).on(table.expiresAt)]
 )
 
 // The RFC 7591 dynamic-registration cache: one client per (issuer,
@@ -4199,6 +4246,7 @@ export type PullRequestIssue = InferSelectModel<typeof pullRequestIssues>
 export type PullRequestCheck = InferSelectModel<typeof pullRequestChecks>
 export type Repository = InferSelectModel<typeof repositories>
 export type McpServer = InferSelectModel<typeof mcpServers>
+export type McpDeviceCall = InferSelectModel<typeof mcpDeviceCalls>
 export type McpCredential = InferSelectModel<typeof mcpCredentials>
 export type McpOauthClient = InferSelectModel<typeof mcpOauthClients>
 export type McpOauthFlow = InferSelectModel<typeof mcpOauthFlows>

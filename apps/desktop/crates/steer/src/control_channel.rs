@@ -40,6 +40,10 @@
 //!    this socket (`tunnel_open` / `tunnel_data` / `tunnel_close`); each is
 //!    served by [`crate::tunnel::serve`] like an eNet viewer, its envelopes
 //!    sealed to the session's tree key and queued back up this socket.
+//! 6b. VAPP-239: `upstream_call {callId}` = an app call the server routed to
+//!    a team MCP server on THIS device: claimed over tRPC, run through
+//!    `emcp::device_call`, answered `upstream_answer {callId, sealed}`
+//!    ([`crate::upstream_call`]).
 //! 7. keepalive (EXP-414): a [`PING_INTERVAL`] outbound ping plus a
 //!    [`LIVENESS_TIMEOUT`] inbound-silence watchdog — the socket would
 //!    otherwise idle silently forever and a NAT-killed path would leave the
@@ -101,6 +105,11 @@ pub trait ControlApi: Send + Sync + 'static {
     /// `steer.mintTicket({kind:"control"})` → dial URL, or `Ok(None)` when
     /// the instance reports disabled.
     fn mint_control(&self) -> Result<Option<String>, ApiError>;
+    /// VAPP-239: claim a routed upstream call (`mcpServers.claimDeviceCall`).
+    /// The default claims nothing (a host without the API).
+    fn claim_upstream_call(&self, _call_id: &str, _device_id: &str) -> Result<serde_json::Value, ApiError> {
+        Err(ApiError::Http { status: 404, message: "no such call".to_string() })
+    }
 }
 
 /// Production [`ControlApi`] over the account's tRPC client.
@@ -115,6 +124,10 @@ impl ControlApi for TrpcControlApi {
         Ok(api::steer::mint_control_ticket(&self.0)?
             .into_ticket()
             .map(|ticket| ticket.url))
+    }
+
+    fn claim_upstream_call(&self, call_id: &str, device_id: &str) -> Result<serde_json::Value, ApiError> {
+        api::mcp_servers::claim_device_call(&self.0, call_id, device_id)
     }
 }
 
@@ -321,6 +334,7 @@ async fn run_control_loop(
             match connect_and_listen(
                 &url,
                 &device,
+                &control_api,
                 &on_check_in,
                 &on_call_ring,
                 &stop_rx,
@@ -353,6 +367,7 @@ enum ConnectionOutcome {
 async fn connect_and_listen(
     url: &str,
     device: &DeviceIdentity,
+    control_api: &Arc<dyn ControlApi>,
     on_check_in: &CheckInFn,
     on_call_ring: &CallRingFn,
     stop_rx: &flume::Receiver<()>,
@@ -431,6 +446,15 @@ async fn connect_and_listen(
                     last_rx = Instant::now();
                 }
                 match msg {
+                    // VAPP-239: an app call routed to this device's upstream
+                    // (`crate::upstream_call`): claimed, run and answered sealed
+                    // off the socket loop.
+                    Some(Ok(Message::Text(text))) if text.contains("\"upstream_call\"") => {
+                        match crate::upstream_call::UpstreamCallFrame::parse(&text) {
+                            Some(call) => crate::upstream_call::spawn(call.call_id, device.device_id.clone(), control_api.clone(), out_tx.clone()),
+                            None => log::debug!("steer control: malformed upstream_call ignored"),
+                        }
+                    }
                     Some(Ok(Message::Text(text))) if text.contains("\"tunnel_") => {
                         match crate::tunnel::TunnelFrame::parse(&text) {
                             Some(frame) => tunnel_frame(frame, &mut tunnels, &out_tx),

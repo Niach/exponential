@@ -60,6 +60,8 @@ export interface WatchdogRun {
   /** #VAPP-220: app automation schedules run this tick. */
   automations: number
   hookNoncesPruned: number
+  /** #VAPP-239: device-routed upstream calls past their life. */
+  deviceCallsPruned: number
   /** EXP-1610: PRs whose CI check sat queued too long, flagged once. */
   checksQueued: number
   checksSwept: number
@@ -611,6 +613,11 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     // #VAPP-237: webhook nonces past the replay window.
     hookNoncesPruned: await import(`@/lib/apps/webhooks`).then((m) => m.pruneHookNonces(now)).catch((err) => {
       console.error(`[watchdog] hook nonces failed`, err)
+      return 0
+    }),
+    // #VAPP-239: device-routed upstream calls a crashed request left behind.
+    deviceCallsPruned: await import(`@/lib/emcp/upstream/device-call`).then((m) => m.pruneDeviceCalls(now)).catch((err) => {
+      console.error(`[watchdog] device calls failed`, err)
       return 0
     }),
     // EXP-1610: a CI check queued past contract prChecks.queuedFlagMinutes

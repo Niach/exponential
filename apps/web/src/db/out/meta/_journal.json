@@ -1737,6 +1737,13 @@
       "when": 1793721741511,
       "tag": "0247_app_hooks",
       "breakpoints": true
+    },
+    {
+      "idx": 248,
+      "version": "7",
+      "when": 1793723654911,
+      "tag": "0248_mcp_device_calls",
+      "breakpoints": true
     }
   ]
 }

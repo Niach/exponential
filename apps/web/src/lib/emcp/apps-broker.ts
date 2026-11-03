@@ -47,9 +47,9 @@ import {
   type RecordsRun,
   type UpstreamRun,
 } from "@exp/emcp/exposes"
-import { UPSTREAM_ERRORS } from "@exp/emcp/upstream"
+import { UPSTREAM_DEVICE, UPSTREAM_ERRORS } from "@exp/emcp/upstream"
 import { db } from "@/db/connection"
-import { appAccess, apps, mcpGrants, mcpServers, teamMembers, teams } from "@/db/schema"
+import { appAccess, apps, mcpGrants, teamMembers, teams } from "@/db/schema"
 import type { EmcpCaller, ServeOptions, ToolProvider } from "@/lib/emcp/gate"
 import { resolveMcpToolGates } from "@/lib/emcp/gates"
 import { jsonResponse } from "@/lib/emcp/helpers"
@@ -57,6 +57,7 @@ import { buildMcpAccess } from "@/lib/emcp/scope"
 import { createExponentialMcpServer, type McpUser } from "@/lib/emcp/server"
 import { resolveForLaunch } from "@/lib/emcp/upstream/credentials"
 import { callUpstreamTool } from "@/lib/emcp/upstream/mcp-client"
+import { callOnDevice, loadRoutedServer, routeServer } from "@/lib/emcp/upstream/device-call"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 import { requestViaApp } from "@/lib/emcp/via-app"
 import { fillQueryTemplates } from "@exponential_app/eui/host/query"
@@ -76,6 +77,8 @@ export const BROKER_ERRORS: Record<string, CallOutcome> = {
   [UPSTREAM_ERRORS.missing]: { upstreamError: true },
   [UPSTREAM_ERRORS.disconnected]: { upstreamError: true },
   [UPSTREAM_ERRORS.failed]: { upstreamError: true },
+  // #VAPP-239: another member's device is never spent.
+  [UPSTREAM_DEVICE.errors.notOwner]: { denied: true },
   toolError: { error: true },
   // #VAPP-236: an agent hand-off's refusals.
   rateLimited: { denied: true },
@@ -407,15 +410,26 @@ function connectUrl(ctx: BrokerContext): string {
 async function runUpstream(ctx: BrokerContext, tool: BrokerTool, input: Record<string, unknown>): Promise<CallToolResult> {
   const run = tool.expose.run as UpstreamRun
   const args = (resolveArgs(run.args ?? {}, input) ?? {}) as Record<string, unknown>
-  const [server] = tool.app.upstreams.includes(run.upstream)
-    ? await db
-        .select({ id: mcpServers.id, transport: mcpServers.transport })
-        .from(mcpServers)
-        .where(and(eq(mcpServers.teamId, ctx.teamId), eq(mcpServers.name, run.upstream)))
-        .limit(1)
-    : []
+  const server = tool.app.upstreams.includes(run.upstream) ? await loadRoutedServer(ctx.teamId, run.upstream) : null
   if (!server) return brokerError(tool, UPSTREAM_ERRORS.missing, `the team has no MCP server ${run.upstream} (an owner adds it under Settings › MCP: ${connectUrl(ctx)})`)
-  if (server.transport !== `http`) return brokerError(tool, UPSTREAM_ERRORS.failed, `${run.upstream} runs on a device (stdio); the server reaches only http servers`)
+  // #VAPP-239 (M2): a device-routed server runs on its owner's device.
+  const route = routeServer(server, ctx.user.id)
+  if (`error` in route) return brokerError(tool, route.error, route.message)
+  if (route.route === `device`) {
+    const out = await callOnDevice({
+      userId: ctx.user.id,
+      server: server as typeof server & { device: NonNullable<typeof server.device> },
+      tool: run.tool,
+      args,
+      veto: { kind: `call`, access: tool.expose.access },
+    })
+    if (`result` in out) {
+      const result = withProvenance(tool, out.result as CallToolResult)
+      result._meta = { ...(result._meta ?? {}), [PROVENANCE_KEYS.device]: server.device!.label }
+      return result
+    }
+    return brokerError(tool, out.error, out.error === UPSTREAM_ERRORS.disconnected ? `${out.message}: ${connectUrl(ctx)}` : out.message)
+  }
   const launch = await resolveForLaunch(db, { userId: ctx.user.id, teamIds: [ctx.teamId], serverIds: [server.id] })
   const entry = launch.servers[0]
   if (!entry?.url) {

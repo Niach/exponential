@@ -49,6 +49,9 @@ log = "0.4"
 # in-memory blob store is enough until blobs carry anything.
 enet-core = { path = "../enet-core" }
 data-encoding = "2"
+# VAPP-239: device-routed upstream calls run through the eMCP client
+# (`emcp::device_call`); api already depends on it.
+emcp = { path = "../emcp" }
 # NEW-55: the call host's audio: Opus in pure Rust (a port of libopus 1.6,
 # BSD-3), so no cmake on any runner. NEW-88: behind `etalk-codec`, whose
 # `libopus` feature (forwarded below) swaps in the system libopus.

@@ -660,6 +660,13 @@ viewer's own connection, cached 60 s) and writes its answer at the path:
 when `sources` names it exactly (`upstream:crm/mrr`). A viewer without a
 connection keeps the path's template data and sees "Connect <server>".
 
+An upstream only a member's machine reaches (a stdio command, a LAN Home
+Assistant) is a team server that names that member's device (Exponential:
+Settings › MCP). The package does not change: calls and reads by that member
+(or automations they sponsor) run on their device; anyone else's are refused
+(`deviceNotOwned`), and while the device is offline the path keeps its
+template data and the host shows "<server> runs on <device>, offline".
+
 ```jsonc
 "upstreams": ["crm"],
 "exposes": [

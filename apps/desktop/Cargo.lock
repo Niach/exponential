@@ -10288,6 +10288,7 @@ dependencies = [
  "data-encoding",
  "domain",
  "eagent",
+ "emcp",
  "enet-core",
  "etalk",
  "etalk-codec",

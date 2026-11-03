@@ -392,6 +392,20 @@ pub struct McpTestResult {
     pub error: Option<String>,
 }
 
+/// VAPP-239 (eApps M2): `mcpServers.claimDeviceCall` — this device's half of
+/// an app call the server routed here. `device_id` = the steer device id.
+/// The answer (`emcp::device_call::ClaimedCall`) carries the member's
+/// resolved credential: never log it. NOT_FOUND for every miss.
+pub fn claim_device_call(trpc: &TrpcClient, call_id: &str, device_id: &str) -> Result<serde_json::Value, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        call_id: &'a str,
+        device_id: &'a str,
+    }
+    trpc.mutation("mcpServers.claimDeviceCall", &Input { call_id, device_id })
+}
+
 /// `mcpServers.test`.
 pub fn test(trpc: &TrpcClient, server_id: &str) -> Result<McpTestResult, ApiError> {
     trpc.mutation("mcpServers.test", &ServerInput { server_id })

@@ -3,7 +3,6 @@
 // connection (@exp/emcp upstream.json `binding`: its `$comment` is the spec).
 // One read = one tool of one of the app's own upstreams; nothing chains. A
 // good answer is cached 60 s per (member, server, tool, args); errors are not.
-import { and, eq } from "drizzle-orm"
 import { PROVENANCE_KEYS } from "@exp/emcp/exposes"
 import {
   UPSTREAM_BINDING,
@@ -16,9 +15,10 @@ import {
 } from "@exp/emcp/upstream"
 import { sourceAllowed } from "@exponential_app/eui/host"
 import { db } from "@/db/connection"
-import { mcpServers, type App } from "@/db/schema"
+import type { App } from "@/db/schema"
 import { resolveForLaunch } from "@/lib/emcp/upstream/credentials"
 import { callUpstreamTool } from "@/lib/emcp/upstream/mcp-client"
+import { callOnDevice, loadRoutedServer, routeServer } from "@/lib/emcp/upstream/device-call"
 
 /** What a host gets back: the answer + the provenance of an ok one. */
 export type UpstreamRead = (UpstreamReadAnswer & { message?: string }) & { meta?: Record<string, string> }
@@ -77,30 +77,43 @@ export async function readUpstreamBinding(
   if (!binding) return refusal(UPSTREAM_BINDING.errors.invalid, ``, `not an upstream:<server>/<tool> source`)
   const pkg = permittingPackage(app, source, binding.server)
   if (!pkg) return refusal(UPSTREAM_BINDING.errors.notDeclared, binding.server, `the app does not declare ${binding.server} in its upstreams and sources`)
-  const [server] = await db
-    .select({ id: mcpServers.id, transport: mcpServers.transport })
-    .from(mcpServers)
-    .where(and(eq(mcpServers.teamId, app.teamId), eq(mcpServers.name, binding.server)))
-    .limit(1)
+  const server = await loadRoutedServer(app.teamId, binding.server)
   if (!server) return refusal(UPSTREAM_ERRORS.missing, binding.server, `the team has no MCP server ${binding.server}`)
-  if (server.transport !== `http`) return refusal(UPSTREAM_ERRORS.failed, binding.server, `${binding.server} runs on a device (stdio); the server reaches only http servers`)
-  const meta = {
+  // #VAPP-239 (M2): a device-routed server reads on its owner's device.
+  const route = routeServer(server, userId)
+  if (`error` in route) return refusal(route.error, binding.server, route.message)
+  const meta: Record<string, string> = {
     [PROVENANCE_KEYS.app]: app.slug,
     [PROVENANCE_KEYS.tool]: `${binding.server}/${binding.tool}`,
     [PROVENANCE_KEYS.via]: `upstream`,
     [PROVENANCE_KEYS.upstream]: binding.server,
+    ...(server.device && route.route === `device` ? { [PROVENANCE_KEYS.device]: server.device.label } : {}),
   }
   const key = upstreamCacheKey(userId, server.id, binding.tool, binding.args)
   const hit = cache.get(key)
   if (hit && now - hit.at < UPSTREAM_BINDING.cacheSeconds * 1000) return { ok: true, value: hit.value, meta }
   const pending = inFlight.get(key)
   if (pending) return pending
+  const sources = strings(pkg.sources)
   const run = (async (): Promise<UpstreamRead> => {
+    if (route.route === `device`) {
+      const out = await callOnDevice({
+        userId,
+        server: server as typeof server & { device: NonNullable<typeof server.device> },
+        tool: binding.tool,
+        args: binding.args,
+        veto: { kind: `read`, sources },
+      })
+      if (`error` in out) return { ...refusal(out.error, binding.server, out.message), ...(out.offline ? { offline: out.offline } : {}) }
+      const value = upstreamBindingValue(out.result)
+      if (`error` in value) return refusal(value.error, binding.server, `${binding.server}'s ${binding.tool} answered an error`)
+      remember(key, value.value, now)
+      return { ok: true, value: value.value, meta }
+    }
     const launch = await resolveForLaunch(db, { userId, teamIds: [app.teamId], serverIds: [server.id] })
     const entry = launch.servers[0]
     if (!entry?.url) return refusal(UPSTREAM_ERRORS.disconnected, binding.server, `connect your ${binding.server} account first`)
     const headers = Object.fromEntries(entry.headers.map((h) => [h.name, h.value]))
-    const sources = strings(pkg.sources)
     const called = await callUpstreamTool(entry.url, headers, binding.tool, binding.args, (annotations) => upstreamReadError(binding, annotations, sources))
     if (!called.ok) {
       if (called.reason === `vetoed`) return refusal(called.error, binding.server, `${binding.server}'s ${binding.tool} is not a read-only tool`)

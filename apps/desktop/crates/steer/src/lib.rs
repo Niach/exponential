@@ -91,6 +91,7 @@ pub mod tool_output;
 pub mod tool_group_summary;
 pub mod trace;
 pub mod tunnel;
+pub mod upstream_call;
 pub mod viewer;
 /// VAPP-167: the daemon proxies a CLI's viewer over its local socket.
 #[cfg(unix)]

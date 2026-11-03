@@ -33,6 +33,24 @@ impl std::fmt::Debug for Upstream {
     }
 }
 
+/// VAPP-239: one stdio MCP server, a command the device spawns with its env
+/// RESOLVED (the member's secret among it). Env VALUES are secrets: `Debug`
+/// prints names only.
+#[derive(Clone, PartialEq, Eq)]
+pub struct StdioUpstream {
+    pub name: String,
+    pub command: String,
+    pub args: Vec<String>,
+    pub env: Vec<(String, String)>,
+}
+
+impl std::fmt::Debug for StdioUpstream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let names: Vec<&str> = self.env.iter().map(|(name, _)| name.as_str()).collect();
+        write!(f, "StdioUpstream({}: {} {:?}, env {names:?})", self.name, self.command, self.args)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClientError {
     /// A non-2xx status (401 = the credential was refused).
@@ -141,6 +159,8 @@ pub struct Client {
     peer: Peer<RoleClient>,
     // Keeps the service task alive while any clone lives.
     _service: Arc<RunningService<RoleClient, ClientConfig>>,
+    // VAPP-239: a stdio server's process, killed when the last clone drops.
+    _child: Option<Arc<std::sync::Mutex<tokio::process::Child>>>,
 }
 
 impl Client {
@@ -189,6 +209,31 @@ impl Client {
         Self::start(&upstream.name, client_name, move || StreamableHttpClientTransport::with_client(http, config), timeout)
     }
 
+    /// VAPP-239: spawn a stdio server (`command args`, its env added to the
+    /// device's own, stderr discarded) and do the handshake over its
+    /// stdin/stdout. The process dies with the last clone.
+    pub fn spawn(upstream: &StdioUpstream, client_name: &str, timeout: Duration) -> Result<Client, ClientError> {
+        let spec = upstream.clone();
+        let spawned = block_on(async move {
+            let mut command = tokio::process::Command::new(&spec.command);
+            command
+                .args(&spec.args)
+                .envs(spec.env.iter().map(|(name, value)| (name.as_str(), value.as_str())))
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true);
+            let mut child = command.spawn().map_err(|err| ClientError::Transport(format!("{}: could not start {} ({err})", spec.name, spec.command)))?;
+            let stdin = child.stdin.take().ok_or_else(|| ClientError::Transport(format!("{}: no stdin", spec.name)))?;
+            let stdout = child.stdout.take().ok_or_else(|| ClientError::Transport(format!("{}: no stdout", spec.name)))?;
+            Ok::<_, ClientError>((child, stdout, stdin))
+        })?;
+        let (child, stdout, stdin) = spawned;
+        let mut client = Self::start(&upstream.name, client_name, move || (stdout, stdin), timeout)?;
+        client._child = Some(Arc::new(std::sync::Mutex::new(child)));
+        Ok(client)
+    }
+
     /// The handshake over any rmcp client transport (the OAuth one). The
     /// transport is made on emcp's runtime: rmcp spawns its worker there.
     pub(crate) fn start<T, E, A>(
@@ -218,7 +263,7 @@ impl Client {
             })
             .await
         })?;
-        Ok(Client { name, peer: service.peer().clone(), _service: Arc::new(service) })
+        Ok(Client { name, peer: service.peer().clone(), _service: Arc::new(service), _child: None })
     }
 
     pub fn name(&self) -> &str {
