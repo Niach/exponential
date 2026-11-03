@@ -547,7 +547,7 @@ impl McpServerDialogView {
     }
 }
 
-impl Render for McpServerDialogView {
+impl McpServerDialogView {
     /// VAPP-239 (settings-mcp.json `runsOnLabel`): THE device picker over the
     /// owner's own desktop apps and CLI daemons, first item `runsOnServer` =
     /// no device (the server broker calls it).
@@ -609,7 +609,9 @@ impl Render for McpServerDialogView {
         .into_any_element();
         surface::glass_picker_row(copy.runs_on_label, None, control, cx)
     }
+}
 
+impl Render for McpServerDialogView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let draft = self.draft(cx);
         let http = draft.is_http();
