@@ -1255,10 +1255,14 @@ const TYPEAHEAD_GAP: f32 = 4.;
 /// The caret line of a plain textarea (the comment composer, the run
 /// composer, the classic block editor) in window coordinates: the field's
 /// `origin` plus the shaped width of the caret's line up to the caret, one
-/// line height per row down, inside the field's 8px padding.
+/// line height per row down, inside the field's 8px padding. EXP-1649: the
+/// left edge is the TOKEN's `#` (`token_start`, on the caret's line), web's
+/// `textareaCaretAnchor(field, text, issueRef.start)`, not the caret after
+/// it.
 pub(crate) fn textarea_caret_anchor(
     state: &gpui_component::input::TextareaState,
     origin: gpui::Point<Pixels>,
+    token_start: usize,
     window: &Window,
 ) -> CaretAnchor {
     let value = state.value().to_string();
@@ -1267,7 +1271,12 @@ pub(crate) fn textarea_caret_anchor(
     let line_height = state.line_height().unwrap_or(px(20.));
     let scroll = state.scroll_offset();
     let line_start = value[..cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let line_text = value[line_start..cursor].to_string();
+    let at = if (line_start..=cursor).contains(&token_start) && value.is_char_boundary(token_start) {
+        token_start
+    } else {
+        cursor
+    };
+    let line_text = value[line_start..at].to_string();
     let text_style = window.text_style();
     let font_size = text_style.font_size.to_pixels(window.rem_size());
     let caret_x = if line_text.is_empty() {

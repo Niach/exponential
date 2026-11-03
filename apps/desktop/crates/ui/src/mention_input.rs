@@ -264,7 +264,7 @@ impl MentionInput {
             return;
         };
         let origin = self.bounds.get().origin;
-        let anchor = search_list::textarea_caret_anchor(self.input.read(cx), origin, window);
+        let anchor = search_list::textarea_caret_anchor(self.input.read(cx), origin, prefill.start, window);
         // EXP-1649: the popover is this view's (relative) root's child, so it
         // rides the root's CURRENT position, not the one it opened at.
         let typeahead = OpenIssueTypeahead::open(

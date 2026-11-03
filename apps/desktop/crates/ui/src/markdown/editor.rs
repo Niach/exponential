@@ -1696,7 +1696,7 @@ impl MarkdownEditor {
         }) else {
             return;
         };
-        let anchor = textarea_caret_anchor(input.read(cx), bounds.get().origin, window);
+        let anchor = textarea_caret_anchor(input.read(cx), bounds.get().origin, prefill.start, window);
         let open = OpenIssueTypeahead::open(team_id, prefill, anchor, window, cx, {
             move |this: &mut Self, event, token, window, cx| {
                 this.on_typeahead_event(block_id, event, token, window, cx)
