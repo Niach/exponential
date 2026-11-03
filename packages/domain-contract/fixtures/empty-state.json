@@ -31,6 +31,7 @@
     "mcp-servers": { "size": "list", "icon": "settings-mcp", "title": "No MCP servers yet" },
     "mcp-clients": { "size": "list", "icon": "settings-mcp", "title": "No MCP clients yet" },
     "mcp-activity": { "size": "list", "icon": "ui-history", "title": "No MCP calls yet" },
+    "skills": { "size": "list", "icon": "ui-docs", "title": "No skills yet" },
     "builtin-tools-no-match": { "size": "list", "icon": "ui-empty-search", "title": "No tools match" },
     "widgets": { "size": "list", "icon": "settings-widget", "title": "No widgets yet" },
     "labels": { "size": "list", "icon": "settings-labels", "title": "No labels yet" },
