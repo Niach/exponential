@@ -93,6 +93,7 @@ public enum Apps {
             public static let update = "When a {kind} is updated"
             public static let delete = "When a {kind} is deleted"
             public static let event = "On {event}"
+            public static let webhook = "On webhook {name}"
             public static let paused = "Paused"
             public static let failed = "Failed"
             public static let ok = "OK"
@@ -371,6 +372,8 @@ public enum Apps {
         /// `op` = create | update | delete.
         case record(kind: String, op: String)
         case event(String)
+        /// #VAPP-237: a webhook delivery (the hook name).
+        case webhook(String)
     }
 
     /// One row of the Settings tab's Automations group (TS `AutomationRowInput`).
@@ -423,6 +426,8 @@ public enum Apps {
             trigger = template.replacingOccurrences(of: "{kind}", with: kind)
         case let .event(event):
             trigger = Strings.event.replacingOccurrences(of: "{event}", with: event)
+        case let .webhook(name):
+            trigger = Strings.webhook.replacingOccurrences(of: "{name}", with: name)
         }
         let status: AutomationStatus
         if let paused = row.paused, !paused.isEmpty {

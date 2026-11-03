@@ -59,6 +59,7 @@ export interface WatchdogRun {
   recordsMigrated: number
   /** #VAPP-220: app automation schedules run this tick. */
   automations: number
+  hookNoncesPruned: number
   /** EXP-1610: PRs whose CI check sat queued too long, flagged once. */
   checksQueued: number
   checksSwept: number
@@ -605,6 +606,11 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     // Loaded lazily: the executor pulls in the broker and the MCP server.
     automations: await import(`@/lib/apps/automations`).then((m) => m.fireScheduledAutomations(now)).catch((err) => {
       console.error(`[watchdog] automations failed`, err)
+      return 0
+    }),
+    // #VAPP-237: webhook nonces past the replay window.
+    hookNoncesPruned: await import(`@/lib/apps/webhooks`).then((m) => m.pruneHookNonces(now)).catch((err) => {
+      console.error(`[watchdog] hook nonces failed`, err)
       return 0
     }),
     // EXP-1610: a CI check queued past contract prChecks.queuedFlagMinutes

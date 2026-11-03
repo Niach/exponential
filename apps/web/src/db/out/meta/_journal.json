@@ -1730,6 +1730,13 @@
       "when": 1793715915348,
       "tag": "0246_record_migrations",
       "breakpoints": true
+    },
+    {
+      "idx": 247,
+      "version": "7",
+      "when": 1793721741511,
+      "tag": "0247_app_hooks",
+      "breakpoints": true
     }
   ]
 }

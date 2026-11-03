@@ -149,6 +149,7 @@ import { Route as TTeamSlugSettingsBoardsArchivedRouteImport } from './routes/t/
 import { Route as TTeamSlugSettingsBoardsBoardIdRouteImport } from './routes/t/$teamSlug/settings/boards/$boardId'
 import { Route as TTeamSlugSettingsAgentsNewRouteImport } from './routes/t/$teamSlug/settings/agents/new'
 import { Route as TTeamSlugSettingsAgentsAgentIdRouteImport } from './routes/t/$teamSlug/settings/agents/$agentId'
+import { Route as ApiAppsHooksAppIdNameRouteImport } from './routes/api/apps/hooks/$appId/$name'
 import { Route as Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRouteImport } from './routes/[.well-known]/oauth-protected-resource_/api/mcp/apps'
 import { Route as TTeamSlugSessionsSessionIdPlanMessageIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId_.plan.$messageId'
 import { Route as TTeamSlugBoardsBoardSlugIssuesIssueIdentifierRouteImport } from './routes/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier'
@@ -901,6 +902,11 @@ const TTeamSlugSettingsAgentsAgentIdRoute =
     path: '/agents/$agentId',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
+const ApiAppsHooksAppIdNameRoute = ApiAppsHooksAppIdNameRouteImport.update({
+  id: '/api/apps/hooks/$appId/$name',
+  path: '/api/apps/hooks/$appId/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute =
   Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRouteImport.update({
     id: '/.well-known/oauth-protected-resource_/api/mcp/apps',
@@ -1046,6 +1052,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
   '/t/$teamSlug/threads/': typeof TTeamSlugThreadsIndexRoute
   '/.well-known/oauth-protected-resource/api/mcp/apps': typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
+  '/api/apps/hooks/$appId/$name': typeof ApiAppsHooksAppIdNameRoute
   '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
   '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
@@ -1187,6 +1194,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsIndexRoute
   '/t/$teamSlug/threads': typeof TTeamSlugThreadsIndexRoute
   '/.well-known/oauth-protected-resource/api/mcp/apps': typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
+  '/api/apps/hooks/$appId/$name': typeof ApiAppsHooksAppIdNameRoute
   '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
   '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
@@ -1333,6 +1341,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/': typeof TTeamSlugSettingsIndexRoute
   '/t/$teamSlug/threads/': typeof TTeamSlugThreadsIndexRoute
   '/.well-known/oauth-protected-resource_/api/mcp/apps': typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
+  '/api/apps/hooks/$appId/$name': typeof ApiAppsHooksAppIdNameRoute
   '/t/$teamSlug/settings/agents/$agentId': typeof TTeamSlugSettingsAgentsAgentIdRoute
   '/t/$teamSlug/settings/agents/new': typeof TTeamSlugSettingsAgentsNewRoute
   '/t/$teamSlug/settings/boards/$boardId': typeof TTeamSlugSettingsBoardsBoardIdRoute
@@ -1479,6 +1488,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/'
     | '/t/$teamSlug/threads/'
     | '/.well-known/oauth-protected-resource/api/mcp/apps'
+    | '/api/apps/hooks/$appId/$name'
     | '/t/$teamSlug/settings/agents/$agentId'
     | '/t/$teamSlug/settings/agents/new'
     | '/t/$teamSlug/settings/boards/$boardId'
@@ -1620,6 +1630,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings'
     | '/t/$teamSlug/threads'
     | '/.well-known/oauth-protected-resource/api/mcp/apps'
+    | '/api/apps/hooks/$appId/$name'
     | '/t/$teamSlug/settings/agents/$agentId'
     | '/t/$teamSlug/settings/agents/new'
     | '/t/$teamSlug/settings/boards/$boardId'
@@ -1765,6 +1776,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/'
     | '/t/$teamSlug/threads/'
     | '/.well-known/oauth-protected-resource_/api/mcp/apps'
+    | '/api/apps/hooks/$appId/$name'
     | '/t/$teamSlug/settings/agents/$agentId'
     | '/t/$teamSlug/settings/agents/new'
     | '/t/$teamSlug/settings/boards/$boardId'
@@ -1867,6 +1879,7 @@ export interface RootRouteChildren {
   ApiSessionsSessionIdFilesRoute: typeof ApiSessionsSessionIdFilesRoute
   ApiTeamsTeamIdSessionFilesRoute: typeof ApiTeamsTeamIdSessionFilesRoute
   Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute: typeof Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute
+  ApiAppsHooksAppIdNameRoute: typeof ApiAppsHooksAppIdNameRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -2851,6 +2864,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TTeamSlugSettingsAgentsAgentIdRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
+    '/api/apps/hooks/$appId/$name': {
+      id: '/api/apps/hooks/$appId/$name'
+      path: '/api/apps/hooks/$appId/$name'
+      fullPath: '/api/apps/hooks/$appId/$name'
+      preLoaderRoute: typeof ApiAppsHooksAppIdNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/.well-known/oauth-protected-resource_/api/mcp/apps': {
       id: '/.well-known/oauth-protected-resource_/api/mcp/apps'
       path: '/.well-known/oauth-protected-resource/api/mcp/apps'
@@ -3133,6 +3153,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiTeamsTeamIdSessionFilesRoute: ApiTeamsTeamIdSessionFilesRoute,
   Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute:
     Char91DotwellKnownChar93OauthProtectedResourceApiMcpAppsRoute,
+  ApiAppsHooksAppIdNameRoute: ApiAppsHooksAppIdNameRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

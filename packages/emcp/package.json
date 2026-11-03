@@ -21,6 +21,7 @@
     "./upstream": "./src/upstream.ts",
     "./hub": "./src/hub.ts",
     "./automations": "./src/automations.ts",
+    "./webhooks": "./src/webhooks.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "devDependencies": {

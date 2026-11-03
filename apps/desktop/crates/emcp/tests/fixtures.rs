@@ -610,6 +610,8 @@ fn automations_match_cases() {
         let trigger = &case["trigger"];
         let fired = if trigger.get("record").is_some() {
             FiredBy::Record { kind: s(&trigger["record"]["kind"]), op: s(&trigger["record"]["op"]) }
+        } else if trigger.get("webhook").is_some() {
+            FiredBy::Webhook(s(&trigger["webhook"]))
         } else {
             FiredBy::Event(s(&trigger["event"]))
         };

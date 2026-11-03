@@ -121,6 +121,8 @@ pub struct AppsAutomationsCopy {
     pub delete: String,
     /// `On {event}`.
     pub event: String,
+    /// #VAPP-237: `On webhook {name}`.
+    pub webhook: String,
     pub paused: String,
     pub failed: String,
     pub ok: String,
@@ -566,13 +568,20 @@ pub struct AutomationRecord {
     pub op: String,
 }
 
-/// #VAPP-220: an automation's `on` (`{schedule}` | `{record}` | `{event}`).
+/// #VAPP-237: a webhook automation's trigger.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AutomationWebhook {
+    pub name: String,
+}
+
+/// #VAPP-220: an automation's `on` (`{schedule}` | `{record}` | `{event}` | `{webhook}`).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AutomationOn {
     Schedule(AutomationSchedule),
     Record(AutomationRecord),
     Event(String),
+    Webhook(AutomationWebhook),
 }
 
 /// #VAPP-220: an automation's state on its Settings row.
@@ -622,6 +631,7 @@ pub fn automation_row(on: &AutomationOn, paused: Option<&str>, last_status: Opti
             text.replace("{kind}", &r.kind)
         }
         AutomationOn::Event(event) => copy.event.replace("{event}", event),
+        AutomationOn::Webhook(hook) => copy.webhook.replace("{name}", &hook.name),
     };
     let status = if paused.is_some_and(|p| !p.is_empty()) {
         AutomationStatus::Paused

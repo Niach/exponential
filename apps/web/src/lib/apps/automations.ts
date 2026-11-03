@@ -34,7 +34,7 @@ import { recordMcpCalls } from "@/lib/emcp/audit"
 import { notifyAutomationPaused } from "@/lib/integrations/notifications"
 import { appBaseUrl } from "@/lib/notification-email-policy"
 
-type AutomationApp = Pick<App, `id` | `slug` | `name` | `icon` | `color` | `teamId` | `package` | `grantedTools` | `publishedBy` | `createdBy` | `automationState`>
+export type AutomationApp = Pick<App, `id` | `slug` | `name` | `icon` | `color` | `teamId` | `package` | `grantedTools` | `publishedBy` | `createdBy` | `automationState`>
 
 const APP_COLUMNS = {
   id: apps.id,
@@ -90,7 +90,7 @@ async function patchState(appId: string, name: string, patch: Record<string, unk
     .where(eq(apps.id, appId))
 }
 
-async function audit(app: AutomationApp, automation: Automation, userId: string | null, status: CallStatus, error: string | null, startedAt: number, input: unknown) {
+export async function auditAutomation(app: AutomationApp, automation: Automation, userId: string | null, status: CallStatus, error: string | null, startedAt: number, input: unknown) {
   if (!userId) return
   await recordMcpCalls([
     {
@@ -133,13 +133,13 @@ export async function runAutomation(app: AutomationApp, automation: Automation, 
   const startedAt = Date.now()
   const fallbackUser = app.publishedBy ?? app.createdBy
   if (!rateAllows(await runsLastMinute(app.id))) {
-    await audit(app, automation, fallbackUser, `denied`, `rateLimited`, startedAt, input)
+    await auditAutomation(app, automation, fallbackUser, `denied`, `rateLimited`, startedAt, input)
     return `denied`
   }
   const sponsor = await sponsorOf(app, automation)
   const state = app.automationState?.[automation.name]
   if (`paused` in sponsor) {
-    await audit(app, automation, fallbackUser, `denied`, sponsor.paused, startedAt, input)
+    await auditAutomation(app, automation, fallbackUser, `denied`, sponsor.paused, startedAt, input)
     if (state?.paused !== sponsor.paused) {
       await patchState(app.id, automation.name, { paused: sponsor.paused, pausedAt: new Date().toISOString() })
       await notifyPaused(app, automation.name, sponsor.paused)
@@ -183,7 +183,7 @@ export async function runAutomation(app: AutomationApp, automation: Automation, 
     status = `failed`
     error = `toolError`
   }
-  await audit(app, automation, sponsor.userId, status, error, startedAt, input)
+  await auditAutomation(app, automation, sponsor.userId, status, error, startedAt, input)
   return status
 }
 
@@ -196,7 +196,7 @@ async function notifyPaused(app: AutomationApp, name: string, reason: SponsorSta
   await notifyAutomationPaused({ teamId: app.teamId, ownerIds: await owners(app.teamId), appName: app.name, appSlug: app.slug, automation: name, reason })
 }
 
-async function loadAutomationApp(appId: string): Promise<AutomationApp | null> {
+export async function loadAutomationApp(appId: string): Promise<AutomationApp | null> {
   const [row] = await db
     .select(APP_COLUMNS)
     .from(apps)

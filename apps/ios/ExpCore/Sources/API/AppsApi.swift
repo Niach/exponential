@@ -337,10 +337,15 @@ public struct AppAutomationWire: Decodable, Sendable, Equatable {
         let op: String?
     }
 
+    private struct Webhook: Decodable {
+        let name: String?
+    }
+
     private struct Trigger: Decodable {
         let schedule: Schedule?
         let record: Record?
         let event: String?
+        let webhook: Webhook?
     }
 
     private enum CodingKeys: String, CodingKey { case name, on, tool, paused, lastStatus }
@@ -356,6 +361,8 @@ public struct AppAutomationWire: Decodable, Sendable, Equatable {
             on = .schedule(cron: schedule.cron ?? "", tz: schedule.tz)
         } else if let record = trigger?.record {
             on = .record(kind: record.kind ?? "", op: record.op ?? "create")
+        } else if let webhook = trigger?.webhook {
+            on = .webhook(webhook.name ?? "")
         } else {
             on = .event(trigger?.event ?? "")
         }

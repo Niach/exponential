@@ -72,7 +72,8 @@ final class AppsTests: XCTestCase {
             "title": Apps.Copy.Automations.title, "schedule": Apps.Copy.Automations.schedule,
             "scheduleZone": Apps.Copy.Automations.scheduleZone, "create": Apps.Copy.Automations.create,
             "update": Apps.Copy.Automations.update, "delete": Apps.Copy.Automations.delete,
-            "event": Apps.Copy.Automations.event, "paused": Apps.Copy.Automations.paused,
+            "event": Apps.Copy.Automations.event, "webhook": Apps.Copy.Automations.webhook,
+            "paused": Apps.Copy.Automations.paused,
             "failed": Apps.Copy.Automations.failed, "ok": Apps.Copy.Automations.ok,
             "never": Apps.Copy.Automations.never,
         ])
@@ -208,6 +209,8 @@ final class AppsTests: XCTestCase {
                 trigger = .schedule(cron: try XCTUnwrap(schedule["cron"] as? String), tz: schedule["tz"] as? String)
             } else if let record = on["record"] as? [String: Any] {
                 trigger = .record(kind: try XCTUnwrap(record["kind"] as? String), op: try XCTUnwrap(record["op"] as? String))
+            } else if let webhook = on["webhook"] as? [String: Any] {
+                trigger = .webhook(try XCTUnwrap(webhook["name"] as? String))
             } else {
                 trigger = .event(try XCTUnwrap(on["event"] as? String))
             }
