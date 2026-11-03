@@ -637,13 +637,16 @@ final class ExpAppHost {
     /// data: the binding's default); every answer feeds the banners.
     static func upstream(
         source: BindingSource,
-        emit: @escaping @MainActor (JSONValue?) -> Void,
+        emit: @escaping (JSONValue?) -> Void,
         appId: String?,
         accountId: String,
         api: AppsApi,
         answers: AppUpstreamAnswers
     ) -> (() -> Void)? {
         guard let appId else { return nil }
+        // The SDK hands a plain (non-Sendable) emit; the read loop runs on the
+        // main actor, where the host calls it anyway.
+        let send = UpstreamEmit(call: emit)
         let id = answers.nextId()
         let uri = source.uri
         let reads = Task { @MainActor in
@@ -653,7 +656,7 @@ final class ExpAppHost {
                     guard !Task.isCancelled else { return }
                     answers.set(id, answer)
                     if case let .ok(value) = answer {
-                        emit(JSONValue.parse(value.compactString))
+                        send.call(JSONValue.parse(value.compactString))
                     }
                 } catch {
                     // Offline or refused: the binding keeps its default.
@@ -1144,3 +1147,10 @@ enum AppHostMcp {
 }
 
 #endif
+
+/// #VAPP-230: the binding's emit, carried into the main-actor read loop of
+/// an `upstream:` source (the SDK's emit is not Sendable; it is only ever
+/// called on the main actor).
+private struct UpstreamEmit: @unchecked Sendable {
+    let call: (JSONValue?) -> Void
+}
