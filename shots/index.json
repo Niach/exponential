@@ -651,8 +651,8 @@
         "file": "shots/call-controls/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 24638,
-        "sha256": "f8794e569c19a4c2664851aefe43b7eb6736d060d0d9b9e368cb1380ccb0d734"
+        "bytes": 30356,
+        "sha256": "b2848d96b138c41ad49a50457389460161dd3fb06e0a4a6743add81584156f1e"
       },
       "desktop": {
         "file": "shots/call-controls/desktop.webp",
@@ -684,6 +684,13 @@
       }
     },
     "call-pill": {
+      "android": {
+        "file": "shots/call-pill/android.webp",
+        "width": 810,
+        "height": 1800,
+        "bytes": 24838,
+        "sha256": "e68fa3239a0ae030f41945bab8b07ed990d3577285a26768a80f86c45aa05f8c"
+      },
       "desktop": {
         "file": "shots/call-pill/desktop.webp",
         "width": 1800,
@@ -6606,8 +6613,8 @@
         "file": "shots/voice-call/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 13400,
-        "sha256": "2c71d9f76b36777496d248202e53c81e752dd09840e8c05ea467e71c96790f8b"
+        "bytes": 13596,
+        "sha256": "ba2fbadca49eb945afb260feff4748ef5a6cc11553b61288aa5fe5f2349b2703"
       },
       "desktop": {
         "file": "shots/voice-call/desktop.webp",
