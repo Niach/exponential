@@ -46,6 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-inbox-keeps-sidebar",
+    date: "2026-11-03",
+    title: "The Inbox keeps the sidebar",
+    summary: "On the web, opening the Inbox no longer folds the sidebar into icons: the notifications sit beside it, like in the desktop app.",
+    body: r#"- **Full sidebar**: the Inbox keeps the whole sidebar; its list is a column inside the page, with the selected notification to its right.
+- **Resizable**: drag the list's right edge to make it wider or narrower."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_191: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-e2e-encrypted-wording",
     date: "2026-11-03",
     title: "End-to-end encrypted, in plain words",

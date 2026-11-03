@@ -796,6 +796,7 @@
         }
       },
       "notes": {
+        "web": "#EXP-1672: the desktop's layout — the main menu never folds into the icon rail; the notifications are the content card's second sidebar (resizable), the selection to their right.",
         "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or session opens beside the list without re-sliding it.",
         "web-mobile": "Thread 58cb32df (chats.json): pushed from the Chats header's inbox circle: a back header with Mark all read and the active team's stream, no segments and no tab bar (My issues and Drafts are board chips)."
       }

@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-inbox-keeps-sidebar`,
+    date: `2026-11-03`,
+    title: `The Inbox keeps the sidebar`,
+    summary: `On the web, opening the Inbox no longer folds the sidebar into icons: the notifications sit beside it, like in the desktop app.`,
+    body: `- **Full sidebar**: the Inbox keeps the whole sidebar; its list is a column inside the page, with the selected notification to its right.
+- **Resizable**: drag the list's right edge to make it wider or narrower.`,
+  },
+  {
     id: `2026-11-03-e2e-encrypted-wording`,
     date: `2026-11-03`,
     title: `End-to-end encrypted, in plain words`,
