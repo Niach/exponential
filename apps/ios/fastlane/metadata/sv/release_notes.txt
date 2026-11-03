@@ -38,3 +38,5 @@
 - Teamfärdigheter: välj i +-menyn färdigheterna en session körs med
 - Appar har en Data-flik som följer varje typs postregel
 - En app läser ett saknat fält som tomt i stället för att vyn misslyckas
+- Ändringar i en app är utkast tills någon trycker Publicera
+- Ägare väljer teamets tidszon; appar läser datum i den

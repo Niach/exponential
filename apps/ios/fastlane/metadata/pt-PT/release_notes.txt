@@ -38,3 +38,5 @@
 - Competências da equipa: escolha no menu + as de uma sessão
 - As apps têm um separador Dados que segue a regra de registos de cada tipo
 - Uma app lê um campo em falta como vazio em vez de falhar a vista
+- As alterações a uma app são rascunhos até alguém premir Publicar
+- Os proprietários definem o fuso horário da equipa; as apps leem as datas nele

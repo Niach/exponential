@@ -38,3 +38,5 @@
 - Abilități de echipă: alege din meniul + abilitățile unei sesiuni
 - Aplicațiile au o filă Date care urmează regula înregistrărilor fiecărui tip
 - O aplicație citește un câmp lipsă ca gol în loc să eșueze vizualizarea
+- Modificările unei aplicații sunt ciorne până când cineva apasă Publică
+- Proprietarii setează fusul orar al echipei; aplicațiile citesc datele în el

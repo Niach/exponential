@@ -38,3 +38,5 @@
 - Teamfærdigheder: vælg i +-menuen de færdigheder, en session kører med
 - Apps har en Data-fane, der følger hver types postregel
 - En app læser et manglende felt i en post som tomt i stedet for at fejle visningen
+- Ændringer i en app er kladder, indtil nogen trykker Udgiv
+- Ejere vælger teamets tidszone; apps læser datoer i den

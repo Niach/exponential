@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.8.0 (2026-11-03)
+
 - VAPP-200: `<ExponentialSurface readOnly>` (and `HostSurface`): every writing control paints disabled (`readOnlyTree` over the root and the lifted templates). Conformance suite `read-only`.
 
 ## 0.7.1 (2026-11-03)

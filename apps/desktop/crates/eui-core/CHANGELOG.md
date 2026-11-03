@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.8.0 (2026-11-03)
+
 - VAPP-200: `SurfaceSettings::read_only` + `Surface::set_read_only`: the build disables every writing control (`read_only::disables`, `read_only_tree`, `disabled_ids`); conformance suite `read-only` (`fixtures/read-only.json`). The FFI's `FfiSettings` gains `read_only` (default false).
 
 ## 0.7.1 (2026-11-03)

@@ -1,0 +1,4 @@
+- App edits are drafts until someone presses Publish; publishing an older version rolls back
+- Owners set the team's time zone, and apps read today and dates in it
+- Read-only members see an app's inputs disabled
+- Apps that name a missing component are refused when saved, with the path to fix
