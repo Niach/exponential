@@ -387,6 +387,14 @@ pub fn validate_package_effects(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
                             if !actions.contains_key(action) {
                                 issues.push(issue(format!("{hat}/functionCall/call"), format!("action {action} names no package action")));
                             }
+                            // VAPP-204: a press's args are the action's params.
+                            if let Some(def) = actions.get(action).and_then(Value::as_object) {
+                                press_arg_issues(action, def, fc.get("args"), &format!("{hat}/functionCall/args"), &mut issues);
+                            }
+                        }
+                        // VAPP-204: a bind's source is one the package may follow.
+                        if call == "bind" {
+                            bind_source_issues(pkg, fc.get("args"), &format!("{hat}/functionCall/args"), &mut issues);
                         }
                         for (fk, fv) in fc {
                             if fk != "call" {
@@ -399,6 +407,75 @@ pub fn validate_package_effects(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
         }
     }
     issues
+}
+
+/// VAPP-204: a press's `actions.<name>` args against the action's params:
+/// every key a param (unless the schema allows additional properties),
+/// every required param given, a literal scalar of the param's type (a
+/// dynamic value is checked when it runs).
+fn press_arg_issues(name: &str, action: &Map<String, Value>, args: Option<&Value>, at: &str, issues: &mut Vec<PackageIssue>) {
+    if args.is_some_and(|a| !a.is_object()) {
+        issues.push(issue(at, format!("args is an object of action {name}'s params")));
+        return;
+    }
+    let empty = Map::new();
+    let schema = action.get("params").and_then(Value::as_object).unwrap_or(&empty);
+    let props = schema.get("properties").and_then(Value::as_object).unwrap_or(&empty);
+    let required: Vec<&str> = schema.get("required").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
+    let given = args.and_then(Value::as_object).unwrap_or(&empty);
+    let mut keys: Vec<&String> = given.keys().collect();
+    keys.sort();
+    for key in keys {
+        let here = format!("{at}/{}", escape(key));
+        let Some(prop) = props.get(key) else {
+            if schema.get("additionalProperties") != Some(&Value::Bool(true)) {
+                issues.push(issue(here, format!("{key} is not a param of action {name}")));
+            }
+            continue;
+        };
+        let v = &given[key];
+        if !(v.is_string() || v.is_number() || v.is_boolean()) {
+            continue;
+        }
+        let want = if required.contains(&key.as_str()) { schema_type(Some(prop)) } else { optional_type(schema_type(Some(prop))) };
+        let t = literal_type(v);
+        if !fits(&want, &t) {
+            issues.push(issue(here, format!("{key} is {}, got {}", type_display(&want), type_display(&t))));
+        }
+    }
+    for field in required {
+        if !given.contains_key(field) {
+            issues.push(issue(at, format!("{field} is required by action {name}")));
+        }
+    }
+}
+
+/// VAPP-204: a `bind` press's literal source, checked like a template
+/// binding: a scheme:name URI, in the package's `sources`, a declared kind
+/// and a package query.
+fn bind_source_issues(pkg: &Map<String, Value>, args: Option<&Value>, at: &str, issues: &mut Vec<PackageIssue>) {
+    let Some(source) = args.and_then(|a| a.get("source")).and_then(Value::as_str) else { return };
+    let here = format!("{at}/source");
+    let Some(parsed) = super::sources::parse_source(source) else {
+        issues.push(issue(here, "source is a scheme:name URI"));
+        return;
+    };
+    if let Some(list) = pkg.get("sources").and_then(Value::as_array).filter(|l| l.iter().all(Value::is_string)) {
+        let allowed: Vec<String> = list.iter().filter_map(Value::as_str).map(str::to_string).collect();
+        if !super::package::source_allowed(Some(&allowed), source) {
+            issues.push(issue(&here, format!("source {source} is not in the package's sources")));
+        }
+    }
+    if parsed.scheme == super::record_store::RECORDS_SCHEME {
+        if !pkg.get("records").and_then(Value::as_object).is_some_and(|r| r.contains_key(&parsed.name)) {
+            issues.push(issue(&here, format!("records:{} names no declared kind", parsed.name)));
+        }
+        if let Some(query) = parsed.params.get("query") {
+            if !pkg.get("queries").and_then(Value::as_object).is_some_and(|q| q.contains_key(query)) {
+                issues.push(issue(&here, format!("query {query} names no package query")));
+            }
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

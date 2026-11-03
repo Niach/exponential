@@ -843,7 +843,7 @@ Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI 
 
 1. **V1 draft vs published** (§2.3): every editor (or agent) upsert is live for every member immediately; one bad edit breaks the app for the team. This is the biggest gap for real teams.
 2. ✅ **#VAPP-203**: install reduces every template as the renderer will (unknown components, missing/mistyped props, child ids naming nothing), issues at `/templates/<id>/components/<i>…` (TS + Rust twins, `host-router.json` `acme.badcomponents`). It found two real bugs: the built-in Devices template bound non-bindable `IconDisc`/`LiveDot` props (now bindable) and a desktop test package's `chevron: "always"`.
-3. **#VAPP-204**: the checker trusts several values that may be missing (they fall to `default` at runtime instead of failing install).
+3. ✅ **#VAPP-204**: the checker no longer trusts values that may be missing. A records value's `sum`/`month`/`groups`/`totals`/`before` follow the binding's query (left out = `T?`), every list index is `T?` and reads null past the end at run time, a map's field is `dyn?`, a row template's relative paths are typed by the list's records rows (a typo like `hourz` fails install at the var's path), `has(x)` hints `x != null`, and a press's `actions.<name>` args and a `bind`'s literal source are checked at install (TS + Rust twins; `expressions.json`, `actions.json`). The three sample apps still install unchanged.
 4. **#VAPP-201**: the team time zone (members in different zones bucket dates differently).
 5. **#VAPP-200**: an app's own inputs are not disabled at access `read`.
 

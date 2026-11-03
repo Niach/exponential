@@ -788,7 +788,7 @@ class Parser {
         this.next()
         const arg = this.expr()
         this.expect(`)`)
-        if (arg.k !== `field`) fail(`at ${t.at}: has needs a field: has(a.b)`)
+        if (arg.k !== `field`) fail(`at ${t.at}: has needs a field: has(a.b)${arg.k === `id` ? `; for a name write ${arg.name} != null` : ``}`)
         return { k: `has`, of: arg as Extract<ExprNode, { k: `field` }>, at: t.at }
       }
       if (this.isOp(`(`)) {
@@ -881,7 +881,7 @@ class Evaluator {
         if (Array.isArray(of)) {
           if (typeof index !== `number`) return fail(`a list index is a number, got ${typeName(index)}`)
           if (!Number.isInteger(index)) fail(`a list index is a whole number, got ${numText(index)}`)
-          if (index < 0 || index >= of.length) fail(`index ${numText(index)} out of range`)
+          // VAPP-204: an index past either end is null, like a missing field.
           return of[index] ?? null
         }
         if (isMap(of)) {
@@ -1135,7 +1135,9 @@ class Checker {
         const raw = this.tc(field.of, scope)
         const of = requiredType(raw)
         let t: ExprType
-        if (of === `dyn` || of === `map` || of === `null`) t = `dyn`
+        // VAPP-204: a field of a map may be missing (`dyn?`).
+        if (of === `map`) t = optionalType(`dyn`)
+        else if (of === `dyn` || of === `null`) t = `dyn`
         else if (isRow(of)) {
           if (!Object.prototype.hasOwnProperty.call(of, field.name)) return fail(`unknown field ${field.name}`)
           t = of[field.name]!
@@ -1150,7 +1152,8 @@ class Checker {
         const wrap = (t: ExprType) => (isOptional(raw) ? optionalType(t) : t)
         if (Array.isArray(of)) {
           if (!loose(index) && index !== `number`) fail(`a list index is a number, got ${typeDisplay(index)}`)
-          return wrap(of[0]!)
+          // VAPP-204: an index may be past the end (null).
+          return optionalType(of[0]!)
         }
         if (isRow(of) || of === `map`) {
           if (!loose(index) && !isTextual(index)) fail(`a map key is a string, got ${typeDisplay(index)}`)
@@ -1159,7 +1162,7 @@ class Checker {
             if (!Object.prototype.hasOwnProperty.call(of, key)) fail(`unknown field ${key}`)
             return wrap(of[key]!)
           }
-          return wrap(`dyn`)
+          return optionalType(`dyn`)
         }
         if (loose(of)) return wrap(`dyn`)
         return fail(`cannot index ${typeDisplay(of)}`)
