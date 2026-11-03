@@ -305,7 +305,14 @@ jobs:
       - name: Paint check
         run: |
           bun run apps/site/scripts/serve.ts 4391 &
-          bun run apps/site/scripts/paint-check.ts http://localhost:4391
+          bun run apps/site/scripts/paint-check.ts http://localhost:4391 /tmp/site-shots
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: site-shots
+          path: /tmp/site-shots
+          retention-days: 14
+          if-no-files-found: ignore
 
   # The eUI rewrite-gap list must classify every view in the catalog exactly
   # once. views.json lives outside the eui path filter, so this runs on every

@@ -88,6 +88,27 @@ for (const theme of [`dark`, `light`] as const) {
   await ctx.close()
 }
 
+// 5. Pictures of the key pages (CI uploads them; mint captures nothing).
+const PAGES = [`/`, `/ui/`, `/motion/`, `/apps/`, `/docs/`, `/docs/using/sessions/`, `/docs/eapps/`, `/docs/libraries/motion/reference/`, `/pricing/`, `/blog/`]
+if (shots) {
+  for (const path of PAGES) {
+    for (const theme of [`dark`, `light`] as const) {
+      for (const [form, viewport] of [[`web`, { width: 1280, height: 900 }], [`web-mobile`, { width: 390, height: 844 }]] as const) {
+        const ctx = await browser.newContext({ viewport, colorScheme: theme, deviceScaleFactor: form === `web` ? 1 : 2 })
+        await ctx.addInitScript((t) => localStorage.setItem(`starlight-theme`, t), theme)
+        const page = await ctx.newPage()
+        const res = await page.goto(`${base}${path}`, { waitUntil: `networkidle` })
+        if (res?.status() === 200) {
+          await page.waitForTimeout(1500)
+          const name = path === `/` ? `home` : path.replace(/^\/|\/$/g, ``).replace(/\//g, `-`)
+          await page.screenshot({ path: `${shots}/${form}-${name}-${theme}.png`, fullPage: form === `web` })
+        }
+        await ctx.close()
+      }
+    }
+  }
+}
+
 await browser.close()
 if (problems.length) {
   console.error(problems.join(`\n`))
