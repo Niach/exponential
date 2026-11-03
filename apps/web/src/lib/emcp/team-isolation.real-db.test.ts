@@ -411,6 +411,7 @@ const CASES: Record<string, Case> = {
   [`apps.list unfiltered`]: r(`apps.list`, () => ({ op: `list` })),
   [`apps.get`]: r(`apps.get`, (w) => ({ op: `get`, slug: w.b.appSlug, teamId: w.b.teamId })),
   [`apps.upsert`]: wr(`apps.upsert`, (w) => ({ op: `upsert`, slug: w.b.appSlug, teamId: w.b.teamId, package: { root: { id: `r`, component: `Text`, props: { text: `x` } } } })),
+  [`apps.publish`]: wr(`apps.publish`, (w) => ({ op: `publish`, slug: w.b.appSlug, teamId: w.b.teamId })),
   [`apps.delete`]: wr(`apps.delete`, (w) => ({ op: `delete`, slug: w.b.appSlug, teamId: w.b.teamId })),
   [`apps.catalog`]: r(`apps.catalog`, () => ({ op: `catalog` })),
   [`apps.records_list`]: r(`apps.records_list`, (w) => ({ op: `records_list`, slug: w.b.appSlug, teamId: w.b.teamId })),
