@@ -4,12 +4,15 @@ import { Button, GlassGroup, Pill, Switch } from "@exp/ui"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { APP_MCP_COPY } from "@/lib/emcp/copy"
+import { APPS_COPY, APPS_TEST_IDS, automationRow } from "@exp/domain-contract/apps"
 
 // #VAPP-183: an app's MCP side on its settings page (web + desktop, the
 // draft `web-editor-settings`): ACCOUNTS = the upstreams the app's tools
 // call, each with the viewer's own connection and Connect; MCP TOOLS = the
 // exposed tools with their Read/Write level and an owner's switch (a tool
-// switched off is never listed on /api/mcp/apps).
+// switched off is never listed on /api/mcp/apps). #VAPP-220: AUTOMATIONS =
+// the published package's automations, each with its trigger and last-run
+// state (apps.json `automationRowCases`), read-only for everyone.
 
 type AppTools = Awaited<ReturnType<typeof trpc.appAccess.appTools.query>>
 
@@ -28,7 +31,7 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
     }
   }, [appId, headVersion])
 
-  if (!data || (data.tools.length === 0 && data.upstreams.length === 0)) return null
+  if (!data || (data.tools.length === 0 && data.upstreams.length === 0 && data.automations.length === 0)) return null
 
   const connect = async (serverId: string, auth: string | null) => {
     if (auth !== `oauth`) {
@@ -104,6 +107,28 @@ export function AppMcpSections({ appId, teamSlug, headVersion }: { appId: string
                 />
               </div>
             ))}
+          </GlassGroup>
+        </div>
+      )}
+
+      {data.automations.length > 0 && (
+        <div className="space-y-1" data-testid={APPS_TEST_IDS.automations}>
+          <h2 className="px-1 text-sm font-medium">{APPS_COPY.automations.title}</h2>
+          <GlassGroup>
+            {data.automations.map((a) => {
+              const row = automationRow(a)
+              return (
+                <div key={a.name} className="flex items-center gap-3 px-4 py-3" data-testid={`${APPS_TEST_IDS.automationRow}-${a.name}`}>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate font-mono text-sm">{a.name}</div>
+                    <div className="truncate text-xs text-muted-foreground">{row.trigger}</div>
+                  </div>
+                  <Pill size="sm" className="shrink-0">
+                    {row.label}
+                  </Pill>
+                </div>
+              )
+            })}
           </GlassGroup>
         </div>
       )}

@@ -63,6 +63,46 @@ class AppsTest {
         }
     }
 
+    // #VAPP-220: automationRow replays `automationRowCases` and locks `copy.automations`.
+    @Test
+    fun `automationRowCases replay`() {
+        val copy = fixture["copy"]!!.jsonObject["automations"]!!.jsonObject
+        val expectedCopy = mapOf(
+            "title" to Apps.AutomationsCopy.TITLE, "schedule" to Apps.AutomationsCopy.SCHEDULE,
+            "scheduleZone" to Apps.AutomationsCopy.SCHEDULE_ZONE, "create" to Apps.AutomationsCopy.CREATE,
+            "update" to Apps.AutomationsCopy.UPDATE, "delete" to Apps.AutomationsCopy.DELETE,
+            "event" to Apps.AutomationsCopy.EVENT, "paused" to Apps.AutomationsCopy.PAUSED,
+            "failed" to Apps.AutomationsCopy.FAILED, "ok" to Apps.AutomationsCopy.OK, "never" to Apps.AutomationsCopy.NEVER,
+        )
+        assertEquals(copy.keys, expectedCopy.keys)
+        for ((key, value) in expectedCopy) assertEquals(key, copy[key]!!.jsonPrimitive.content, value)
+
+        val cases = fixture["automationRowCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        fun opt(obj: JsonObject, key: String) = obj[key]?.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+        for (case in cases) {
+            val name = case["name"]!!.jsonPrimitive.content
+            val row = case["row"]!!.jsonObject
+            val on = row["on"]!!.jsonObject
+            val trigger = when {
+                "schedule" in on -> on["schedule"]!!.jsonObject.let {
+                    Apps.AutomationTrigger.Schedule(it["cron"]!!.jsonPrimitive.content, opt(it, "tz"))
+                }
+                "record" in on -> on["record"]!!.jsonObject.let {
+                    Apps.AutomationTrigger.Record(it["kind"]!!.jsonPrimitive.content, it["op"]!!.jsonPrimitive.content)
+                }
+                else -> Apps.AutomationTrigger.Event(on["event"]!!.jsonPrimitive.content)
+            }
+            val got = Apps.automationRow(
+                Apps.AutomationRowInput(row["name"]!!.jsonPrimitive.content, trigger, opt(row, "paused"), opt(row, "lastStatus")),
+            )
+            val expected = case["expected"]!!.jsonObject
+            assertEquals(name, expected["trigger"]!!.jsonPrimitive.content, got.trigger)
+            assertEquals(name, expected["status"]!!.jsonPrimitive.content, got.status.wire)
+            assertEquals(name, expected["label"]!!.jsonPrimitive.content, got.label)
+        }
+    }
+
     @Test
     fun `editorTab replays the fixture`() {
         val tabs = fixture["editorTabs"]!!.jsonObject
@@ -166,6 +206,7 @@ class AppsTest {
             "data" to Apps.TestIds.DATA,
             "previewToolbar" to Apps.TestIds.PREVIEW_TOOLBAR, "previewFrame" to Apps.TestIds.PREVIEW_FRAME,
             "previewTemplate" to Apps.TestIds.PREVIEW_TEMPLATE, "previewRunAs" to Apps.TestIds.PREVIEW_RUN_AS,
+            "automations" to Apps.TestIds.AUTOMATIONS, "automationRow" to Apps.TestIds.AUTOMATION_ROW,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)

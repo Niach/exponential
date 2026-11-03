@@ -4,7 +4,8 @@
 //! Verified against `apps/web/src/lib/trpc/app-access.ts`:
 //! - `appTools {appId}` (query, any member) → `{canToggle, tools:[{name,
 //!   title, access, via, enabled}], upstreams:[{name, serverId|null,
-//!   auth|null, state|null}]}`;
+//!   auth|null, state|null}], automations:[{name, on, tool, paused|null,
+//!   lastRunAt, lastStatus|null, lastError, lastFailureAt}]}` (#VAPP-220);
 //! - `setToolEnabled {appId, tool, enabled}` (mutation, owners) →
 //!   `{ok: true}`;
 //! - VAPP-185 (Settings › MCP › Access): `list {teamId}` (query) →
@@ -50,6 +51,39 @@ pub struct AppUpstream {
     pub state: Option<String>,
 }
 
+/// #VAPP-220: one automation the PUBLISHED package declares, with its last
+/// run (`apps/web/src/lib/apps/automations.ts` `AutomationRow`).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppAutomation {
+    pub name: String,
+    /// `{schedule:{cron,tz?}}` | `{record:{kind,op}}` | `{event}`; kept raw
+    /// so a trigger kind this build does not know never fails the response
+    /// (read it with [`AppAutomation::trigger`]).
+    #[serde(default)]
+    pub on: serde_json::Value,
+    #[serde(default)]
+    pub tool: String,
+    /// Why it does not run (the sponsor is gone or read-only), else `None`.
+    #[serde(default)]
+    pub paused: Option<String>,
+    #[serde(default)]
+    pub last_run_at: Option<String>,
+    #[serde(default)]
+    pub last_status: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+    #[serde(default)]
+    pub last_failure_at: Option<String>,
+}
+
+impl AppAutomation {
+    /// The typed trigger, `None` for a shape this build does not know.
+    pub fn trigger(&self) -> Option<domain::apps::AutomationOn> {
+        serde_json::from_value(self.on.clone()).ok()
+    }
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppToolsOut {
@@ -60,6 +94,9 @@ pub struct AppToolsOut {
     pub tools: Vec<AppTool>,
     #[serde(default)]
     pub upstreams: Vec<AppUpstream>,
+    /// #VAPP-220 (absent on an older server).
+    #[serde(default)]
+    pub automations: Vec<AppAutomation>,
 }
 
 /// `appAccess.appTools` — query.
@@ -225,9 +262,24 @@ mod tests {
         assert_eq!(out.upstreams[0].server_id.as_deref(), Some("s-1"));
         assert_eq!(out.upstreams[0].state.as_deref(), Some("reconnect"));
         assert_eq!(out.upstreams[1].server_id, None);
+        // An older server sends no automations.
+        assert!(out.automations.is_empty());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.contains("GET /api/trpc/appAccess.appTools?input="), "query: {request}");
         assert!(request.contains("%22appId%22"), "encoded input: {request}");
+    }
+
+    #[test]
+    fn app_tools_decodes_automations() {
+        let out: AppToolsOut = serde_json::from_str(
+            r#"{"canToggle":false,"tools":[],"upstreams":[],"automations":[{"name":"tick","on":{"schedule":{"cron":"0 9 * * *","tz":"Europe/Vienna"}},"tool":"log","paused":null,"lastRunAt":"2026-11-03T08:00:00.000Z","lastStatus":"ok","lastError":null,"lastFailureAt":null},{"name":"odd","on":{"webhook":"x"},"tool":"log","paused":"sponsorGone","lastRunAt":null,"lastStatus":null,"lastError":null,"lastFailureAt":null}]}"#,
+        )
+        .unwrap();
+        assert_eq!(out.automations.len(), 2);
+        assert_eq!(out.automations[0].last_status.as_deref(), Some("ok"));
+        assert!(matches!(out.automations[0].trigger(), Some(domain::apps::AutomationOn::Schedule(_))));
+        assert_eq!(out.automations[1].trigger(), None);
+        assert_eq!(out.automations[1].paused.as_deref(), Some("sponsorGone"));
     }
 
     #[test]

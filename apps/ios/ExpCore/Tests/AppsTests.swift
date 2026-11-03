@@ -6,7 +6,7 @@ import XCTest
 // packages/domain-contract/fixtures/apps.json (TS `apps.test.ts`, desktop
 // `domain::apps`, Android `AppsTest`): the copy, the
 // panes, the preview frame and the test ids are pinned; `slugifyCases`,
-// `versionLabelCases`, `sortAppsCases` and `templateCases` replay. The caps pin to
+// `versionLabelCases`, `sortAppsCases`, `templateCases` and `automationRowCases` replay. The caps pin to
 // `contract.json` `apps`. The `exp:` source derivations pin to the web host.
 final class AppsTests: XCTestCase {
     private func repoFile(_ path: String) throws -> [String: Any] {
@@ -67,6 +67,14 @@ final class AppsTests: XCTestCase {
             "chat": Apps.Copy.Tabs.chat, "preview": Apps.Copy.Tabs.preview, "data": Apps.Copy.Tabs.data,
             "versions": Apps.Copy.Tabs.versions, "settings": Apps.Copy.Tabs.settings,
         ])
+        XCTAssertEqual(copy["automations"] as? [String: String], [
+            "title": Apps.Copy.Automations.title, "schedule": Apps.Copy.Automations.schedule,
+            "scheduleZone": Apps.Copy.Automations.scheduleZone, "create": Apps.Copy.Automations.create,
+            "update": Apps.Copy.Automations.update, "delete": Apps.Copy.Automations.delete,
+            "event": Apps.Copy.Automations.event, "paused": Apps.Copy.Automations.paused,
+            "failed": Apps.Copy.Automations.failed, "ok": Apps.Copy.Automations.ok,
+            "never": Apps.Copy.Automations.never,
+        ])
         XCTAssertEqual(Apps.Copy.viewing(2), "Viewing v2")
         XCTAssertEqual(Apps.Copy.restored(1, as: 4), "Restored v1 as v4")
         XCTAssertEqual(Apps.Copy.publishedToast(3), "Published v3")
@@ -100,6 +108,7 @@ final class AppsTests: XCTestCase {
             "data": Apps.TestIds.data,
             "previewToolbar": Apps.TestIds.previewToolbar, "previewFrame": Apps.TestIds.previewFrame,
             "previewTemplate": Apps.TestIds.previewTemplate, "previewRunAs": Apps.TestIds.previewRunAs,
+            "automations": Apps.TestIds.automations, "automationRow": Apps.TestIds.automationRow,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])
@@ -169,6 +178,37 @@ final class AppsTests: XCTestCase {
                 let number = try XCTUnwrap(row[0] as? Int)
                 XCTAssertEqual(Apps.versionRow(app, number: number).rawValue, row[1] as? String, "\(name) v\(number)")
             }
+        }
+    }
+
+    // #VAPP-220: `automationRow` replays `automationRowCases`.
+    func testAutomationRowCases() throws {
+        let block = try XCTUnwrap(try fixture()["automationRowCases"] as? [String: Any])
+        let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let name = item["name"] as? String ?? ""
+            let raw = try XCTUnwrap(item["row"] as? [String: Any])
+            let on = try XCTUnwrap(raw["on"] as? [String: Any])
+            let trigger: Apps.AutomationTrigger
+            if let schedule = on["schedule"] as? [String: Any] {
+                trigger = .schedule(cron: try XCTUnwrap(schedule["cron"] as? String), tz: schedule["tz"] as? String)
+            } else if let record = on["record"] as? [String: Any] {
+                trigger = .record(kind: try XCTUnwrap(record["kind"] as? String), op: try XCTUnwrap(record["op"] as? String))
+            } else {
+                trigger = .event(try XCTUnwrap(on["event"] as? String))
+            }
+            let row = Apps.AutomationRowInput(
+                name: try XCTUnwrap(raw["name"] as? String),
+                on: trigger,
+                paused: raw["paused"] as? String,
+                lastStatus: raw["lastStatus"] as? String
+            )
+            let expected = try XCTUnwrap(item["expected"] as? [String: Any])
+            let result = Apps.automationRow(row)
+            XCTAssertEqual(result.trigger, expected["trigger"] as? String, name)
+            XCTAssertEqual(result.status.rawValue, expected["status"] as? String, name)
+            XCTAssertEqual(result.label, expected["label"] as? String, name)
         }
     }
 

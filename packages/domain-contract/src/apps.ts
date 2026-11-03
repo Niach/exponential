@@ -210,3 +210,28 @@ export function runAsOptions(members: readonly { userId: string; name?: string |
   if (others.length === 0) return null
   return [{ value: ``, label: fixture.copy.runAs.me }, ...others]
 }
+
+/** #VAPP-220 (`automationRowCases`): one row of the Settings tab's
+ *  Automations group, from tRPC `appAccess.appTools` `automations`. */
+export interface AutomationRowInput {
+  name: string
+  on: { schedule: { cron: string; tz?: string } } | { record: { kind: string; op: `create` | `update` | `delete` } } | { event: string }
+  paused: string | null
+  lastStatus: string | null
+}
+
+export type AutomationStatus = `paused` | `failed` | `ok` | `never`
+
+export function automationRow(row: AutomationRowInput): { trigger: string; status: AutomationStatus; label: string } {
+  const copy = fixture.copy.automations
+  const fill = (text: string, values: Record<string, string>) => text.replace(/\{(\w+)\}/g, (_, key: string) => values[key] ?? ``)
+  const on = row.on
+  const trigger =
+    `schedule` in on
+      ? fill(on.schedule.tz ? copy.scheduleZone : copy.schedule, { cron: on.schedule.cron, tz: on.schedule.tz ?? `` })
+      : `record` in on
+        ? fill(copy[on.record.op], { kind: on.record.kind })
+        : fill(copy.event, { event: on.event })
+  const status: AutomationStatus = row.paused ? `paused` : row.lastStatus === null ? `never` : row.lastStatus !== `ok` ? `failed` : `ok`
+  return { trigger, status, label: copy[status] }
+}

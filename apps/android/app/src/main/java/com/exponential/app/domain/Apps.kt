@@ -5,7 +5,7 @@ import java.text.Normalizer
 // VAPP-110: Exponential apps, the Android mirror of the pure reference
 // `packages/domain-contract/src/apps.ts` (fixtures/apps.json is the spec;
 // `AppsTest` replays its `slugifyCases`, `versionLabelCases`,
-// `sortAppsCases` and `publishCases` and locks the copy below to the fixture byte for byte).
+// `sortAppsCases`, `publishCases` and `automationRowCases` and locks the copy below to the fixture byte for byte).
 object Apps {
     object Copy {
         const val NAV = "Apps"
@@ -65,6 +65,21 @@ object Apps {
         const val RECORDS_NONE = "No records"
     }
 
+    /** #VAPP-220: the Settings tab's Automations group (`copy.automations`). */
+    object AutomationsCopy {
+        const val TITLE = "Automations"
+        const val SCHEDULE = "Schedule {cron}"
+        const val SCHEDULE_ZONE = "Schedule {cron} ({tz})"
+        const val CREATE = "When a {kind} is created"
+        const val UPDATE = "When a {kind} is updated"
+        const val DELETE = "When a {kind} is deleted"
+        const val EVENT = "On {event}"
+        const val PAUSED = "Paused"
+        const val FAILED = "Failed"
+        const val OK = "OK"
+        const val NEVER = "Not run yet"
+    }
+
     object Preview {
         const val RADIUS = 12
         const val PADDING = 16
@@ -104,6 +119,9 @@ object Apps {
         const val PREVIEW_TEMPLATE = "app-preview-template"
         // VAPP-198: Run as (in the toolbar: web ≥ md + desktop only).
         const val PREVIEW_RUN_AS = "app-preview-run-as"
+        // #VAPP-220: the Settings tab's Automations group + one of its rows.
+        const val AUTOMATIONS = "app-settings-automations"
+        const val AUTOMATION_ROW = "app-automation-row"
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,
@@ -193,6 +211,60 @@ object Apps {
         app.publishedVersion -> VersionRowKind.PUBLISHED
         app.headVersion -> VersionRowKind.HEAD
         else -> VersionRowKind.VERSION
+    }
+
+    // #VAPP-220 (fixture `automationRowCases`): one row of the Settings tab's
+    // Automations group, from tRPC `appAccess.appTools` `automations`.
+
+    /** An automation's trigger (`on`). */
+    sealed interface AutomationTrigger {
+        data class Schedule(val cron: String, val tz: String? = null) : AutomationTrigger
+        data class Record(val kind: String, val op: String) : AutomationTrigger
+        data class Event(val event: String) : AutomationTrigger
+    }
+
+    data class AutomationRowInput(
+        val name: String,
+        val on: AutomationTrigger,
+        val paused: String?,
+        val lastStatus: String?,
+    )
+
+    enum class AutomationStatus(val wire: String) { PAUSED("paused"), FAILED("failed"), OK("ok"), NEVER("never") }
+
+    data class AutomationRow(val trigger: String, val status: AutomationStatus, val label: String)
+
+    /** trigger = the filled `copy.automations` line; status = paused when the
+     *  row names a pause, else never without a last run, else failed when the
+     *  last run is not `ok`, else ok; label = the status's copy. */
+    fun automationRow(row: AutomationRowInput): AutomationRow {
+        val trigger = when (val on = row.on) {
+            is AutomationTrigger.Schedule ->
+                if (!on.tz.isNullOrEmpty()) {
+                    AutomationsCopy.SCHEDULE_ZONE.replace("{cron}", on.cron).replace("{tz}", on.tz)
+                } else {
+                    AutomationsCopy.SCHEDULE.replace("{cron}", on.cron)
+                }
+            is AutomationTrigger.Record -> when (on.op) {
+                "create" -> AutomationsCopy.CREATE
+                "update" -> AutomationsCopy.UPDATE
+                else -> AutomationsCopy.DELETE
+            }.replace("{kind}", on.kind)
+            is AutomationTrigger.Event -> AutomationsCopy.EVENT.replace("{event}", on.event)
+        }
+        val status = when {
+            !row.paused.isNullOrEmpty() -> AutomationStatus.PAUSED
+            row.lastStatus == null -> AutomationStatus.NEVER
+            row.lastStatus != "ok" -> AutomationStatus.FAILED
+            else -> AutomationStatus.OK
+        }
+        val label = when (status) {
+            AutomationStatus.PAUSED -> AutomationsCopy.PAUSED
+            AutomationStatus.FAILED -> AutomationsCopy.FAILED
+            AutomationStatus.OK -> AutomationsCopy.OK
+            AutomationStatus.NEVER -> AutomationsCopy.NEVER
+        }
+        return AutomationRow(trigger, status, label)
     }
 
     fun restored(restored: Int, version: Int): String =

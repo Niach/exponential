@@ -44,6 +44,7 @@ import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IconPicker
 import com.exponential.app.ui.components.OptionGroup
+import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.DesignTokens
@@ -73,6 +74,7 @@ internal fun AppSettingsBody(
 ) {
     val granted by viewModel.grantedTools.collectAsStateWithLifecycle()
     val grantBusy by viewModel.grantBusy.collectAsStateWithLifecycle()
+    val automations by viewModel.automations.collectAsStateWithLifecycle()
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val focus = LocalFocusManager.current
     // Seeded per APP, never on a resync of the same one.
@@ -225,6 +227,49 @@ internal fun AppSettingsBody(
             }
         }
         Spacer(Modifier.height(16.dp))
+
+        // ── Automations (#VAPP-220) ──────────────────────────────────────
+        // Everyone reads it, nothing to switch: name, trigger, status pill.
+        if (automations.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(Apps.TestIds.AUTOMATIONS)) {
+            Text(
+                Apps.AutomationsCopy.TITLE,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            OptionGroup {
+                automations.forEachIndexed { index, automation ->
+                    if (index > 0) GroupDivider()
+                    val row = Apps.automationRow(automation)
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag(Apps.TestIds.AUTOMATION_ROW)
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                automation.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                row.trigger,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = muted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        GlassPill(row.label, size = PillSize.Sm)
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
 
         // ── Export + Delete app ──────────────────────────────────────────
         Row(

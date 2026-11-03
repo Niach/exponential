@@ -273,6 +273,23 @@ class AppEditorViewModel @Inject constructor(
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** #VAPP-220: the PUBLISHED package's automations (`appAccess.appTools`),
+     *  refetched when the published version moves; empty = no group. */
+    val automations: StateFlow<List<Apps.AutomationRowInput>> =
+        app.map { it?.publishedVersion }.distinctUntilChanged().flatMapLatest { published ->
+            kotlinx.coroutines.flow.flow {
+                val accountId = auth.activeAccountId.value
+                if (published == null || accountId == null) {
+                    emit(emptyList())
+                    return@flow
+                }
+                emit(
+                    runCatching { accessApi.appTools(accountId, appId).automations.mapNotNull { it.toRowInput() } }
+                        .getOrElse { if (it is CancellationException) throw it else emptyList() },
+                )
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     /** VAPP-121: the app's synced records (Export's switch + rows). */
     val records: StateFlow<List<AppRecordEntity>> =
         dbFlow.scopedQuery(emptyList<AppRecordEntity>()) { it.appRecordDao().observeByApp(appId) }

@@ -185,6 +185,61 @@ pub(crate) fn tools_group(
     Some(titled("app-settings-mcp-tools", APP_MCP_COPY.tools, rows))
 }
 
+/// #VAPP-220: the Automations group (`app-settings-automations`), `None`
+/// when the published package declares none: one row per automation = its
+/// name over the trigger (muted), the status as a read-only Pill (the MCP
+/// tools' Read/Write look). Nothing to switch.
+pub(crate) fn automations_group(data: &AppToolsOut, cx: &mut gpui::Context<AppDetailPane>) -> Option<gpui::Stateful<gpui::Div>> {
+    use gpui::prelude::FluentBuilder as _;
+    use gpui::InteractiveElement as _;
+    if data.automations.is_empty() {
+        return None;
+    }
+    let apps = &*domain::apps::APPS;
+    let muted = cx.theme().muted_foreground;
+    let rows = data
+        .automations
+        .iter()
+        .map(|automation| {
+            // A trigger kind this build does not know: no trigger line, the
+            // status from the paused/last-run fields alone.
+            let on = automation.trigger();
+            let unknown = domain::apps::AutomationOn::Event(String::new());
+            let view =
+                domain::apps::automation_row(on.as_ref().unwrap_or(&unknown), automation.paused.as_deref(), automation.last_status.as_deref());
+            let (trigger, label) = (if on.is_some() { view.trigger } else { String::new() }, view.label);
+            crate::surface::glass_row_shell()
+                .justify_between()
+                .gap_3()
+                .child(
+                    v_flex()
+                        .id(SharedString::from(format!("{}-{}", apps.test_ids.automation_row, automation.name)))
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().text_sm().truncate().child(automation.name.clone()))
+                        .when(!trigger.is_empty(), |col| col.child(div().text_xs().text_color(muted).truncate().child(trigger))),
+                )
+                .child(
+                    crate::surface::glass_pill(
+                        SharedString::from(format!("app-automation-status-{}", automation.name)),
+                        crate::surface::PillSize::Sm,
+                        crate::surface::PillMode::Readonly,
+                        cx,
+                    )
+                    .flex_shrink_0()
+                    .child(label),
+                )
+        })
+        .collect();
+    Some(
+        v_flex()
+            .id(SharedString::from(apps.test_ids.automations.clone()))
+            .gap_1()
+            .child(div().px_1().text_sm().font_weight(FontWeight::MEDIUM).child(apps.copy.automations.title.clone()))
+            .child(crate::surface::glass_group_rows(rows)),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -220,7 +275,7 @@ mod tests {
     #[test]
     fn a_switch_flips_one_tool() {
         let tool = |name: &str| AppTool { name: name.into(), title: name.into(), access: "read".into(), via: None, enabled: true };
-        let data = AppToolsOut { can_toggle: true, tools: vec![tool("a"), tool("b")], upstreams: vec![] };
+        let data = AppToolsOut { can_toggle: true, tools: vec![tool("a"), tool("b")], upstreams: vec![], automations: vec![] };
         let next = with_tool_enabled(&data, "b", false);
         assert!(next.tools[0].enabled);
         assert!(!next.tools[1].enabled);
