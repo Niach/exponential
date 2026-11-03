@@ -294,7 +294,7 @@ jobs:
   site:
     needs: changes
     if: needs.changes.outputs.site == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04 # Playwright has no chromium for ubuntu26.04 (ubuntu-latest); unpin with EXP-1395
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
