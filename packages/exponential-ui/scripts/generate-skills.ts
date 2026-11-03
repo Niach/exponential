@@ -118,6 +118,7 @@ function appsSkill(): Files {
     [section(format, `Versions`), section(format, `The package`), section(format, `The package file`), demote(section(spec, `2.3 Versions and channels`), 0)].join(`\n`)
   )
   ref(`references/records.md`, `Records: kinds, policies, queries, writes`, `${formatPath} (Records) and docs/spec/apps.md §3.4`, [section(format, `Records`), section(spec, `3.4 Permissions`)].join(`\n`))
+  ref(`references/import.md`, `Importing a spreadsheet (CSV, TSV, xlsx) into records`, `docs/spec/apps.md §10`, section(spec, `10. Import and export`))
   ref(`references/expressions.md`, `Expressions (CEL), functions and optional values`, `${formatPath} (Expressions)`, section(format, `Expressions`))
   ref(`references/actions.md`, `Actions: all-or-nothing writes, require`, `${formatPath} (Actions)`, section(format, `Actions`))
   ref(`references/tests.md`, `Package tests`, `${formatPath} (Tests)`, section(format, `Tests`))
@@ -175,6 +176,7 @@ function appsSkill(): Files {
       `- A field not in \`required\` may be missing: guard it (\`has(r.f)\`, \`orElse(r.f, d)\`), else the upsert is refused at that path. Every \`{call: "expr"}\` has a \`default\`.`,
       `- Writes that must land together are one action; check inputs with \`require\` steps.`,
       `- Add a test for every expression, query and action: a failing test refuses the upsert as \`/tests/<i>\`.`,
+      `- A spreadsheet to import: \`references/import.md\` (map, dry run, ask, then write in batches).`,
       `- Save a draft early and often; publish only when the person asks.`,
     ].join(`\n`),
     `## References (read on demand)`,
