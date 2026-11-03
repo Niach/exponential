@@ -202,8 +202,8 @@ exponential run "Release train" --prompt "version 1.4.0"
           <DocsSection id="remote" num="04" label="Other devices">
             <h2>Other devices</h2>
             <p>
-              The CLI can drive every device you own, not just the one
-              it&apos;s on. <code>exponential devices</code> lists them with
+              The CLI on one machine can drive every device you
+              own. <code>exponential devices</code> lists them with
               their online state, agents and running sessions. Add{` `}
               <code>--device</code> to <code>code</code> or <code>run</code>{` `}
               and the session starts on that machine, the way the Agent page
@@ -293,12 +293,12 @@ exponential daemon install
               team agent&apos;s own conversation never ends.
             </p>
             <p>
-              Sessions belong to you, not to the box — the agent runs under
+              Sessions belong to you: the agent runs under
               your account, with your own agent subscription and your own
               GitHub access. A machine with no coding agent ready registers
               as offline until it has one; the daemon notices without a
               restart. A start aimed at a machine that is offline is refused
-              on the spot rather than queued.
+              on the spot.
             </p>
             <h3>Running it from a phone</h3>
             <p>
@@ -358,8 +358,8 @@ exponential update
               place. It also restarts an idle service-managed daemon onto the
               new build. If your instance has stopped supporting the version
               you&apos;re on, every command says so and points here — and a
-              daemon that gets locked out this way updates itself right away
-              rather than waiting for its next scheduled check.
+              daemon that gets locked out this way updates itself right away,
+              ahead of its next scheduled check.
             </p>
             <p>
               You rarely need it, though: automatic updates are on unless you

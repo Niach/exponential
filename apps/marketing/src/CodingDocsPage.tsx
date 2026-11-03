@@ -133,7 +133,7 @@ export function CodingDocsPage() {
             <p>
               Each machine reports, read-only, which account every installed
               agent CLI is signed in to and how much of its rate-limit window
-              is spent — never the credential itself. A machine can hold more
+              is spent; the credential itself stays on the machine. A machine can hold more
               than one Claude or Codex login, and a session picks the{` `}
               <strong>Account</strong> it uses.
             </p>
@@ -303,7 +303,7 @@ export function CodingDocsPage() {
               repository.
             </p>
             <p>
-              Which branch a session starts from is resolved, never assumed: a{` `}
+              Which branch a session starts from is resolved in order: a{` `}
               board&apos;s own <strong>Branch</strong> pin wins, then the
               team&apos;s per-repository default-branch override, then
               GitHub&apos;s. A start whose issues would resolve to different
@@ -472,9 +472,9 @@ export function CodingDocsPage() {
               can&apos;t read. A new install of yours gets the keys from any of
               your devices that is online, without an approval step. This
               protects your sessions against a database leak and a passive
-              server, not against someone who controls the server and signs
-              in as you. A client connected straight to the MCP endpoint, like
-              ChatGPT, sees a session&apos;s metadata, not its text.
+              server. It does not cover someone who controls the server and
+              signs in as you. A client connected straight to the MCP endpoint, like
+              ChatGPT, sees only a session&apos;s metadata.
             </p>
 
             <h3>The Dock</h3>
@@ -585,12 +585,12 @@ export function CodingDocsPage() {
               words.
             </p>
             <p>
-              The transcript keeps the <strong>whole session</strong>, not the
-              last few hundred events. Each client shows the newest 100
+              The transcript keeps the <strong>whole session</strong>, from
+              the first event to the last. Each client shows the newest 100
               messages, and <strong>Load earlier</strong> above them brings
               the next 100; past what your client already holds, it fetches
               the next page from the machine that ran the session — the full
-              transcript lives on <em>that</em> machine, never on our servers.
+              transcript lives only on <em>that</em> machine.
               Past transcripts stay there for as long as that machine&apos;s
               {` `}<strong>Settings → This device → Sessions</strong>{` `}
               (<strong>Keep session history</strong>) allows (Unlimited by
@@ -598,13 +598,13 @@ export function CodingDocsPage() {
               each under its header.
             </p>
             <p>
-              A session whose host machine goes offline is paused rather than
-              spinning: a card says the device is offline, and the agent picks
+              A session whose host machine goes offline is paused: a card
+              says the device is offline, and the agent picks
               up where it left off when the machine comes back, as it does
               when the desktop app or the daemon restarts. One that hits its
               agent&apos;s usage limit is marked{` `}
-              <strong>Rate limited</strong> with the time it resets, instead
-              of going quiet — the session stays live and steerable, it simply
+              <strong>Rate limited</strong> with the time it resets. The
+              session stays live and steerable, it simply
               cannot make a call until then, unless you switch its account.
               You can see how much is left on any machine under its row on the{` `}
               <strong>Devices</strong> page.
@@ -773,7 +773,7 @@ export function CodingDocsPage() {
 
             <p>
               The editor itself is <strong>view-only</strong> by design:
-              changes arrive as pull requests, not local commits. The{` `}
+              changes arrive as pull requests. The{` `}
               <strong>Files</strong> rail browses the trunk, and{` `}
               <strong>Source Control</strong> walks the commit history and
               renders any commit&apos;s diff side-by-side. It holds the two

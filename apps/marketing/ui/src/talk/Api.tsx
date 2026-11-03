@@ -174,7 +174,7 @@ export default function Api({ path }: PageProps) {
               [<code key="f">voiceDeviceId</code>, `one of your desktops, or null`, `null`],
               [<code key="f">agentId</code>, `an agent of one of your teams, or null`, `null`],
               [<code key="f">pttShortcut</code>, <>a <a href="/talk/guides/push-to-talk/">key binding</a> (empty = push to talk off)</>, `""`],
-              [<code key="f">wakeWord</code>, `boolean, stored, not used yet`, `false`],
+              [<code key="f">wakeWord</code>, `boolean, stored; reserved for a later release`, `false`],
               [<code key="f">wakePhrase</code>, `one line, ≤ 64 chars (empty = Hey {agent})`, `""`],
               [<code key="f">language</code>, <><code>en</code> | <code>de</code></>, <code key="d">en</code>],
               [<code key="f">voiceFile</code>, `one line, ≤ 512 chars`, `""`],

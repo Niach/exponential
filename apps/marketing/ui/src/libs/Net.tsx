@@ -57,8 +57,8 @@ export default function Net({ path }: PageProps) {
           </p>
           <p>
             Keys for a new install of yours arrive automatically from any online device that holds them. That protects
-            against a database leak and a passive server, not against someone who controls the server and signs in as
-            you. MCP clients without a device gateway, like a hosted chat app, see metadata only.
+            against a database leak and a passive server. It does not cover someone who controls the server and
+            signs in as you. MCP clients without a device gateway, like a hosted chat app, see metadata only.
           </p>
         </DocsSection>
         <DocsSection id="how" num="03" label="How it connects">

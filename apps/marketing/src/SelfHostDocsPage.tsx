@@ -29,7 +29,7 @@ const SECTIONS: DocsSectionType[] = [
    about instead of guessing. */
 const AGENT_PROMPT = `Install Exponential (a self-hosted issue tracker) on this machine.
 
-Fetch https://raw.githubusercontent.com/Niach/exponential/master/INSTALL.md and follow it end-to-end: download the two selfhost files, fill in .env, bring the stack up with Docker Compose, and verify /api/health responds. Ask me for the decisions the runbook marks [decision] instead of guessing: which S3-compatible storage to use (and its credentials), and whether to go live on a domain.`
+Fetch https://raw.githubusercontent.com/Niach/exponential/master/INSTALL.md and follow it end-to-end: download the two selfhost files, fill in .env, bring the stack up with Docker Compose, and verify /api/health responds. Ask me for every decision the runbook marks [decision]: which S3-compatible storage to use (and its credentials), and whether to go live on a domain.`
 
 function CopyPromptButton() {
   const [copied, setCopied] = useState(false)
@@ -183,7 +183,7 @@ APP_URL=https://issues.example.com
             <p>
               All native clients (iOS, Android, macOS, Windows, Linux) work
               with self-hosted instances: on first launch, enter your instance
-              URL instead of <code>app.exponential.at</code> and sign in. The
+              URL (the default is <code>app.exponential.at</code>) and sign in. The
               headless <code>exponential</code> CLI installs against your
               instance with the same one-liner, the instance riding{` `}
               <code>EXP_INSTANCE</code>:
@@ -304,8 +304,8 @@ S3_BUCKET=exponential-attachments
             </p>
             <DocsCallout kind="note" title="Server behind NAT?">
               If GitHub can&apos;t reach your webhook URL, set{` `}
-              <code>GITHUB_POLLING=true</code> instead. The server polls for PR
-              merges rather than waiting for webhooks.
+              <code>GITHUB_POLLING=true</code> instead. The server then polls
+              GitHub for PR merges.
             </DocsCallout>
 
             <h3>3. Wire the env vars</h3>
@@ -361,7 +361,7 @@ GITHUB_APP_CLIENT_SECRET=<oauth client secret>
               <em>&quot;The GitHub App lost access to this repository. Re-grant
               it on GitHub.&quot;</em> and a <em>Re-grant</em> link;
               coding-session token minting fails with a
-              clear message instead of handing out a broken token.
+              clear message and hands out no token.
             </DocsCallout>
           </DocsSection>
 
@@ -515,7 +515,7 @@ docker run -d \\
               Set <code>TRUST_PROXY=true</code> on the relay process whenever a
               proxy fronts it. The relay rate-limits WebSocket upgrades per
               client IP, and without this flag every connection keys to one
-              shared bucket instead of the real address from{` `}
+              shared bucket; with it, each keys to the real address from{` `}
               <code>X-Forwarded-For</code>. Leave it off when the relay is
               exposed directly. Forwarded headers from unknown peers are
               forgeable.
@@ -580,8 +580,7 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
               link emailed to them, so without SMTP or SES your replies to
               reporters never reach them (the reports themselves still land
               as issues). Password reset, address verification, emailed
-              invites, and the notification digest are equally inert. They
-              fail silently rather than erroring.
+              invites, and the notification digest are equally inert. They fail silently.
             </DocsCallout>
           </DocsSection>
 
@@ -867,8 +866,7 @@ EMAIL_FROM="Exponential <noreply@yourcompany.com>"
                 Minimum client version, one var per platform —{` `}
                 <code>_ANDROID</code>, <code>_IOS</code>,{` `}
                 <code>_DESKTOP</code>, <code>_CLI</code>. A client below the
-                floor gets HTTP <code>426</code> and a blocking update screen
-                instead of mystery failures. Always the{` `}
+                floor gets HTTP <code>426</code> and a blocking update screen, so the cause is obvious. Always the{` `}
                 <strong>marketing version</strong> (never an Android
                 versionCode or an iOS build number). Unset ⇒ the gate is off.
                 The shipped <code>selfhost/.env.example</code> sets all four
@@ -951,7 +949,7 @@ docker compose pull && docker compose up -d
               If you want more than the community around the repo, add{` `}
               <strong>Enterprise Support</strong>: SLA, priority support,
               deployment help, and custom development, on one annual invoice.
-              It&apos;s an add-on, never a requirement.{` `}
+              It&apos;s an optional add-on.{` `}
               <a href="/contact/">Contact sales</a> or email{` `}
               <a href="mailto:support@exponential.at">support@exponential.at</a>
               . Need SSO, SLA, or DPA? That conversation starts there too.

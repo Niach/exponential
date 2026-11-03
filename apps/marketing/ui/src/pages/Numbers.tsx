@@ -212,8 +212,8 @@ bun run --filter @exponential_app/eui-bench machine               # the id resul
             in its renderer's job and ratchets every fragment against{` `}
             <a href={benchLink(`budgets.json`)}>budgets.json</a>: a metric worse than its budget fails the build; a
             count that got better fails too, until its budget is lowered in the same change; a timing far under its budget
-            prints a warning asking to lower it. A machine without budgets is reported, never gated: after a green run,
-            record it from the artifacts.
+            prints a warning asking to lower it. A machine without budgets is only reported: after a green run,
+            record its budgets from the artifacts.
           </p>
           <DocsCode>{`bun run --filter @exponential_app/eui-bench ratchet .bench/*.json           # the verdicts
 bun run --filter @exponential_app/eui-bench ratchet .bench/*.json --write   # timings × headroom, counts exact`}</DocsCode>

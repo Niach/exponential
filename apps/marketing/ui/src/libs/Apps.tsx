@@ -148,9 +148,9 @@ export default function Apps(_: PageProps) {
           <div className="home-hero-text">
             <div className="section-eyebrow">eApps</div>
             <h1 className="home-title">
-              Apps are data,
+              Apps are
               <br />
-              <em>never code.</em>
+              <em>plain data.</em>
             </h1>
             <p className="home-sub">Ask an agent for an app. It writes one package, and eUI paints it on web, desktop, iOS and Android.</p>
             <div className="home-cta">
@@ -185,7 +185,7 @@ export default function Apps(_: PageProps) {
       <section className="home-section" id="package">
         <div className="shell">
           <div className="section-eyebrow">What an app is</div>
-          <h2 className="section-title">One package. Data, never code.</h2>
+          <h2 className="section-title">One declarative package.</h2>
           <div className="ea-parts">
             {PARTS.map((p) => (
               <div key={p.key} className="ea-part glass-card">

@@ -10,6 +10,7 @@
     "gen:ui": "bun run ui/scripts/guide-sources.ts && bun run ui/scripts/shot-index.ts",
     "test": "bun run gen:ui && bun test ./ui/src",
     "check:guides": "bun run ./ui/guides/check.ts all",
+    "check:copy": "bun run scripts/check-copy.ts",
     "screenshots:ui": "bun run ui/scripts/screenshots.ts",
     "screenshots:store": "bun scripts/store/render-store-screenshots.tsx",
     "screenshots:pop-sidecars": "bun scripts/store/pop-sidecars.ts",

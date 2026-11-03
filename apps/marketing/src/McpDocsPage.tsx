@@ -260,7 +260,7 @@ openclaw mcp login exponential
             <h3>Interactive views (MCP Apps)</h3>
             <p>
               Clients that render MCP Apps show three tools as Exponential
-              views instead of JSON: <code>exponential_issues</code> op show (the
+              views: <code>exponential_issues</code> op show (the
               issue list, grouped by status; a row opens the issue),{` `}
               <code>exponential_notifications</code> op list (your inbox) and
               {` `}<code>exponential_devices</code> op list (your machines and
@@ -297,8 +297,7 @@ npx mcp-remote ${LINKS.app.mcp}
             <DocsCallout kind="note" title="The same tools for every caller">
               Every client sees all 22. An op that only makes sense inside an
               agent session the launcher started (show, the self ops) or
-              on the cloud (report_bug) answers with a message saying so
-              instead of hiding.
+              on the cloud (report_bug) answers with a message saying so.
             </DocsCallout>
             {TOOL_GROUPS.map((group) => (
               <div key={group.heading}>
@@ -379,8 +378,7 @@ npx mcp-remote ${LINKS.app.mcp}
               device that writes them, and the server stores only ciphertext.
               Agents running on your devices read them through the app; a
               client connected straight to <code>/api/mcp</code> (ChatGPT,
-              claude.ai) sees a session&apos;s metadata (who, when, state), not
-              its text.
+              claude.ai) sees only a session&apos;s metadata (who, when, state).
             </DocsCallout>
           </DocsSection>
 

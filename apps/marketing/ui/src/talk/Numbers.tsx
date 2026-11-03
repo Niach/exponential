@@ -82,7 +82,7 @@ export default function TalkNumbers({ path }: PageProps) {
 
         <DocsSection id="targets" num="04" label="Targets">
           <h2>Targets</h2>
-          <p>What we aim for. Targets, not measurements.</p>
+          <p>What we aim for; the Today column shows where we are.</p>
           <DocsTable
             head={[``, `Target`, `Today`]}
             rows={[

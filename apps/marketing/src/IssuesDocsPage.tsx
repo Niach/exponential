@@ -240,7 +240,7 @@ export function IssuesDocsPage() {
               An emoji picker sits on the toolbar and the comment composer,
               and typing <code>:</code> opens the same catalog as a
               typeahead, with your recents first. Emoji are inserted as plain
-              unicode, never as a <code>:shortcode:</code>, so they read the
+              unicode characters, so they read the
               same everywhere the markdown ends up.
             </p>
             <DocsCallout kind="note" title="Deliberately not supported">
@@ -359,7 +359,7 @@ export function IssuesDocsPage() {
               comment carries the agent&apos;s own name instead.
             </p>
             <p>
-              Comments carry <strong>attachments</strong>, not just markdown:{` `}
+              Comments carry markdown and <strong>attachments</strong>:{` `}
               <strong>Add image</strong> and <strong>Attach files</strong> in
               the composer upload on send, images render as previews under the
               comment body and other files as chips, and editing a comment
@@ -397,7 +397,7 @@ export function IssuesDocsPage() {
             </p>
             <h3>The daily email digest</h3>
             <p>
-              Email is push-first, never a firehose: there are no per-event
+              Email stays quiet: there are no per-event
               notification emails. Notifications still unread bundle into{` `}
               <strong>one digest a day</strong>, sent at a local hour you
               choose (08:00 by default). Read them in the app and no email ever
@@ -444,8 +444,8 @@ export function IssuesDocsPage() {
               it. The repository&apos;s
               own default is tagged, and picking it clears the pin. Without a
               board pin, the team&apos;s per-repository default-branch
-              override applies, and without that, GitHub&apos;s default —
-              resolved live, never assumed.
+              override applies, and without that, GitHub&apos;s default,
+              looked up live.
             </p>
             <h3>How status moves</h3>
             <p>

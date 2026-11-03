@@ -48,7 +48,7 @@ export function Post() {
         <p>
           Any issue identifier in a message, a comment or a tool result is a chip: status glyph, identifier, title.
           Hover shows the assignee, status, priority and labels from data the client already has; a click opens the
-          issue in the nearest view that shows it. Tool results return references by kind and id, not URLs, and
+          issue in the nearest view that shows it. Tool results return references by kind and id, and
           each client resolves them from its own rows.
         </p>
         <Shot view="thread" platform="web" caption="Issue chips in the tab strip, in the agent's text and in a child's report." />
@@ -115,7 +115,7 @@ export function Post() {
         <h2>Four decisions</h2>
         <ul>
           <li><strong>One API for people and agents.</strong> The MCP tools are the product's own operations; the session identity rides on every call.</li>
-          <li><strong>Results carry ids, not markup.</strong> Clients resolve references from local state and draw them in their own idiom.</li>
+          <li><strong>Results carry ids.</strong> Clients resolve references from local state and draw them in their own idiom.</li>
           <li><strong>Render by kind.</strong> A comment is a comment, a surface is painted natively, everything else is a trace line.</li>
           <li><strong>Messages are the only wake-up.</strong> A session runs when a message arrives and sleeps otherwise.</li>
         </ul>

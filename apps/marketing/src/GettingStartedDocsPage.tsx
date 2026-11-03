@@ -152,8 +152,7 @@ export function GettingStartedDocsPage() {
             <h2>Connect GitHub</h2>
             <p>
               Repositories connect through the{` `}
-              <strong>Exponential GitHub App</strong>, not personal access
-              tokens: the server mints short-lived, per-repo installation
+              <strong>Exponential GitHub App</strong>: the server mints short-lived, per-repo installation
               tokens whenever one is needed. There is one guided page,{` `}
               <strong>Connect GitHub</strong>, reached from{` `}
               <strong>Connect GitHub</strong> in{` `}

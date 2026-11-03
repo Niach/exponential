@@ -169,7 +169,7 @@ export function HomePage() {
             <motion.div className={`aw-copy`} {...sectionReveal}>
               <h2 className={`section-title`}>Generative UI</h2>
               <p className={`section-sub`}>
-                Agents answer with an interface, not a wall of text. One A2UI message, painted natively on every platform by
+                Agents answer with an interface you can click and fill in. One A2UI message, painted natively on every platform by
                 eUI, our open framework.
               </p>
               <a className={`btn btn-ghost`} href={`/ui/`}>
@@ -192,7 +192,7 @@ export function HomePage() {
             <motion.div className={`aw-copy`} {...sectionReveal}>
               <h2 className={`section-title`}>Apps, built by asking</h2>
               <p className={`section-sub`}>
-                Describe a tool and an agent writes it: one package, data, never code. Your team opens it on every
+                Describe a tool and an agent writes it as one package of screens, records and bindings. Your team opens it on every
                 platform, and its tools reach your agents over MCP.
               </p>
               <ul className={`hx-parts`} aria-label={`What an app package holds`}>

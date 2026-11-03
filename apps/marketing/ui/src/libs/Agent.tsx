@@ -78,8 +78,8 @@ export default function Agent({ path }: PageProps) {
         <DocsSection id="install" num="04" label="Install">
           <h2>Install</h2>
           <p>
-            A git dependency on a release tag, never from crates.io: the contract is compiled in from the repo&apos;s
-            fixtures. Pin the tag, never a branch.
+            A git dependency on a release tag of the Exponential repo: the contract is compiled in from the repo&apos;s
+            fixtures. Pin a release tag.
           </p>
           <DocsCode language="toml">{`[dependencies]
 eagent = { git = "https://github.com/Niach/exponential", tag = "eagent-v0.1.0" }`}</DocsCode>

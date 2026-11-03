@@ -41,7 +41,7 @@ export default function Core({ path }: PageProps) {
         <DocsSection id="status" num="01" label="Status">
           <h2>Status</h2>
           <p>
-            Built, not released. One contract generates the Rust crate <code>ecore</code> and its TypeScript, Swift and
+            Built. One contract generates the Rust crate <code>ecore</code> and its TypeScript, Swift and
             Kotlin twins, and one fixture replays on all four. No release tag is cut yet.
           </p>
           <DocsTable

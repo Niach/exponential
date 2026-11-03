@@ -109,7 +109,7 @@ export function FeedbackDocsPage() {
               Team comments never reach the reporter unless you flip the
               toggle. Reporter comments can be removed by any member but
               edited by nobody, and whatever a reporter writes is shown as
-              plain text, never rendered as markdown. Agents and scripts do
+              plain text, exactly as typed. Agents and scripts do
               the same over MCP: <code>exponential_comments</code> with{` `}
               <code>op: &quot;create&quot;</code> and{` `}
               <code>audience: &quot;reporter&quot;</code> (their comment reads{` `}

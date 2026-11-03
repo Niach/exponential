@@ -166,8 +166,8 @@ export function AppsDocsPage() {
               desktop, iOS and Android.
             </p>
             <p>
-              An app is <strong>data, never code</strong>: one declarative
-              package (a manifest, eUI templates, bindings, record kinds, a
+              An app is <strong>one declarative package of data</strong>{` `}
+              (a manifest, eUI templates, bindings, record kinds, a
               function allowlist, <code>exposes</code> and{` `}
               <code>upstreams</code>), stored per team and versioned. The same
               eUI renderers paint it on every platform. Three things run an
@@ -273,7 +273,7 @@ export function AppsDocsPage() {
                 <code>version</code>, the eUI <code>catalogId</code> it targets,{` `}
                 <code>icon</code>, <code>description</code>,{` `}
                 <code>formatVersion</code> (required, <code>3</code>: a client
-                refuses any other version instead of showing a broken screen).
+                renders only this version and refuses any other).
               </li>
               <li>
                 <strong>templates</strong>: screens, each a flat list of eUI
@@ -389,7 +389,7 @@ export function AppsDocsPage() {
               then counts as that member&apos;s, and the Data tab reads
               &ldquo;Ana for Ben&rdquo;. <code>mine</code>,{` `}
               <code>user</code> and grouping by <code>author</code> follow the
-              author, not the writer.
+              member the record counts for.
             </p>
 
             <h3>Queries</h3>
@@ -414,13 +414,13 @@ export function AppsDocsPage() {
               <code>isoWeek</code> and <code>formatDuration</code>. There are no
               loops and no user functions, every formula ends within fixed
               limits, and each one is type-checked against the kind&apos;s
-              fields when the app is saved, so a typo is an error in the editor,
-              not on someone&apos;s screen. A field that may be empty has to be
+              fields when the app is saved, so a typo shows up as an error in the
+              editor before anyone opens the screen. A field that may be empty has to be
               handled (<code>has()</code>, a null check or{` `}
               <code>orElse</code>), and every formula carries a{` `}
               <code>default</code> it shows when it fails, so a screen never
               shows a blank or an error. Working days, holidays or targets
-              are an app&apos;s own records, never a platform rule.
+              live in an app&apos;s own records, where the team edits them.
             </p>
             <DocsCode language="json">{EXPR}</DocsCode>
 
@@ -445,7 +445,7 @@ export function AppsDocsPage() {
 
             <h3>Safe by design</h3>
             <p>
-              An app is data, never code: nothing in it runs on the server, and
+              An app is declarative data: nothing in it runs on the server, and
               there is no sandbox to escape. When the server reads or writes
               records for an app, it does so under a database role that can
               only see that team&apos;s and that app&apos;s records, with a
@@ -573,7 +573,7 @@ export function AppsDocsPage() {
               <strong>one trigger runs one binding</strong>, the same kinds
               as <code>exposes</code>. No chains, no branches, no loops;
               anything that needs judgement is handed to an agent, with the
-              app&apos;s data passed as data, never as instructions.
+              app&apos;s data passed along as plain data for it to read.
             </p>
             <DocsCode language="json">{TRIGGERS}</DocsCode>
             <p>
@@ -597,8 +597,7 @@ export function AppsDocsPage() {
               with no tools granted.
             </p>
             <p>
-              Records leave through the file and through MCP, not as a
-              spreadsheet: an agent reads them with an exposed tool or{` `}
+              Records leave through the file and through MCP: an agent reads them with an exposed tool or{` `}
               <code>records_list</code> and writes whatever file you need.
             </p>
           </DocsSection>

@@ -116,8 +116,8 @@ export default function ConceptsPage({ path }: PageProps) {
             show. The app decides <em>how</em> it looks and what it is allowed to do.
           </p>
           <p>
-            <a href={LINKS.a2ui}>A2UI</a> is the open protocol for this. The agent sends UI as <strong>data</strong>,
-            never as code: components from a catalog both sides agree on, a data model, and the actions it wants
+            <a href={LINKS.a2ui}>A2UI</a> is the open protocol for this. The agent sends UI as <strong>data</strong>:
+            components from a catalog both sides agree on, a data model, and the actions it wants
             back. A client renders that with its own components. eUI is a set of A2UI clients: one
             catalog, a TypeScript reference and a Rust core, and native renderers for React, Solid, web
             components, SwiftUI, Jetpack Compose and gpui. It speaks A2UI v0.9 (the pinned v0.9.1 spec, vendored byte for byte).
@@ -148,7 +148,7 @@ export default function ConceptsPage({ path }: PageProps) {
             Components arrive as a <strong>flat list</strong> that references children by id, so a model can stream
             them in any order and patch one without resending the tree. The renderer rebuilds the tree, maps A2UI
             basic components onto the core catalog, expands macros and paints. A component it does not know becomes
-            a visible placeholder and a reported issue, never a crash.
+            a visible placeholder and a reported issue, and the rest of the surface keeps painting.
           </p>
         </DocsSection>
 
@@ -156,7 +156,7 @@ export default function ConceptsPage({ path }: PageProps) {
           <h2>Data model</h2>
           <p>
             Every surface has one JSON data model. A prop marked bindable can take <code>{`{"path": "/summary"}`}</code>{` `}
-            instead of a literal, and it follows the model: after an <code>updateDataModel</code>, every node
+            as its value, and it follows the model: after an <code>updateDataModel</code>, every node
             bound to that path shows the new value. Inputs bind both ways, so what the user types lands at the same path.
           </p>
           <p>
@@ -254,7 +254,7 @@ export default function ConceptsPage({ path }: PageProps) {
         <DocsSection id="themes" num="07" label="Themes">
           <h2>Themes</h2>
           <p>
-            A <strong>theme</strong> is data, never code: one JSON file of <strong>tokens</strong> (colours per
+            A <strong>theme</strong> is one JSON file of <strong>tokens</strong> (colours per
             mode, radius, spacing, type, control heights, shadows, motion) and <strong>recipes</strong> (per
             component part, a style for each combination of variant and state). Every renderer loads it at
             runtime, so a theme can come from a URL, an app or a server.
@@ -274,7 +274,7 @@ export default function ConceptsPage({ path }: PageProps) {
           <h2>Extensions</h2>
           <p>
             An <strong>extension</strong> adds components. It is an extension catalog (its own id, extending the
-            core, never shadowing a core name) plus, for each native component, a <strong>painter per
+            core with names of its own) plus, for each native component, a <strong>painter per
             platform</strong> registered with the renderer. A macro component needs no painter at all: it expands
             into core components everywhere.
           </p>
@@ -335,7 +335,7 @@ export default function ConceptsPage({ path }: PageProps) {
           </p>
           <p>
             Since 0.3.0 a package can also offer <strong>MCP tools</strong>. <code>exposes</code> lists them as
-            declarative bindings, never code: each one reads or writes the app&apos;s own records, calls a host
+            declarative bindings: each one reads or writes the app&apos;s own records, calls a host
             function, or calls a tool on one of the MCP servers named in <code>upstreams</code>, which the host
             provides. A host&apos;s MCP broker lists them as <code>&lt;app&gt;__&lt;name&gt;</code> and runs them as the
             calling person, so no device has to be online. <code>validatePackage</code> checks them against the eMCP

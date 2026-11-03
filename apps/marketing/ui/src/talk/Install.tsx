@@ -27,7 +27,7 @@ export default function Install({ path }: PageProps) {
           <h2>Settings → Assistant → Voice</h2>
           <p>
             eTalk is part of the Exponential desktop app. There is nothing else to install. Open Settings → Assistant → Voice on the web, the
-            desktop app or your phone. The settings are yours, not your team&apos;s.
+            desktop app or your phone. The settings are personal to your account.
           </p>
           <DocShot view="settings-assistant" platform="desktop" caption="Settings → Assistant in the desktop app: its Voice block on your desktop." />
           <DocsTable
@@ -71,8 +71,8 @@ export default function Install({ path }: PageProps) {
             ]}
           />
           <p>
-            Speech out needs a GPU with at least 4 GB that passes a speed test on one sentence. Without one, replies are shown,
-            not spoken. A GPU that fails the test is tried again after 30 days or a driver change.
+            Speech out needs a GPU with at least 4 GB that passes a speed test on one sentence. Without one, replies appear
+            as text only. A GPU that fails the test is tried again after 30 days or a driver change.
           </p>
           <p>
             Speech in also runs on the CPU, slower and without words while you speak. On Windows the CPU path needs the Visual C++

@@ -103,7 +103,7 @@ export function Post() {
         <p>
           The risks are plain: a tree is only as good as the app's labels, canvas apps and games stay pixels,
           multi-seat is poorly exercised by toolkits, X clients through Xwayland see one seat, and a compositor is
-          years of edge cases, which argues for a library such as Smithay rather than a blank page.
+          years of edge cases, which argues for starting from a library such as Smithay.
         </p>
         <ConceptFigure id="tree" still="compositor-tree" caption="The tree an agent addresses: a native window gives pixels plus the tree its toolkit offers, a painted window continues to its components.">
           <CompositorTree />
@@ -114,8 +114,7 @@ export function Post() {
         <h2>Watching an agent work <StatusChip status="planned" /></h2>
         <p>
           Background work needs a window into it, or it is a trust exercise. The draft below is the watch view for
-          one task: the live window as a per-window capture, the agent's cursor drawn by the viewer rather than by
-          the operating system, the target outlined before the click lands, and under it the steps with how each
+          one task: the live window as a per-window capture, the agent's cursor drawn as an overlay by the viewer, the target outlined before the click lands, and under it the steps with how each
           was done. Which windows an agent may capture or drive is a per-window grant; the game in the tree above
           is watch-only.
         </p>

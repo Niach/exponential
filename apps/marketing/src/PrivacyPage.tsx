@@ -77,7 +77,7 @@ export function PrivacyPage() {
               <strong>Push notification tokens.</strong> If you enable push
               notifications on Android or iOS, a Firebase Cloud Messaging device
               token is stored to deliver them. The token identifies the app
-              install, not your physical device identity.
+              install only and carries no hardware identifier of your device.
             </li>
             <li style={listItem}>
               <strong>GitHub integration data.</strong> If you connect the

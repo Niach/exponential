@@ -131,8 +131,7 @@ export default function Pilot({ path }: PageProps) {
         <DocsSection id="packages" num="07" label="Packages">
           <h2>Packages</h2>
           <p>
-            Two crates in the Exponential repo, taken as a git dependency on an <code>epilot-v&lt;version&gt;</code> tag, never
-            from crates.io: the rules are compiled in from the repo&apos;s fixtures, which only a checkout carries. Desktop
+            Two crates in the Exponential repo, taken as a git dependency on an <code>epilot-v&lt;version&gt;</code> tag: the rules are compiled in from the repo&apos;s fixtures, which only a checkout carries. Desktop
             only, so there are no Swift, Kotlin or npm packages.
           </p>
           <DocsTable

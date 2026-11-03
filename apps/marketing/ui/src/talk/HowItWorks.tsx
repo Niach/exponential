@@ -53,7 +53,7 @@ export default function HowItWorks({ path }: PageProps) {
           <p>
             Beta. Qwen3-TTS reads the agent&apos;s replies in English or German, in your voice: give it an 8–15 s clip and what it
             says, or leave it empty for a built-in voice. No training, no upload. It needs a GPU with at least 4 GB; without one,
-            replies are shown, not spoken.
+            replies appear as text only.
           </p>
         </DocsSection>
         <DocsSection id="ptt" num="04" label="Push to talk">
@@ -74,7 +74,7 @@ export default function HowItWorks({ path }: PageProps) {
         <DocsSection id="wake" num="06" label="Wake word">
           <h2>Wake word</h2>
           <p>
-            Beta. Say the wake phrase on your voice device instead of holding push to talk; a red dot shows while the microphone
+            Beta. Say the wake phrase on your voice device to start talking hands-free; a red dot shows while the microphone
             listens. A phrase with a model of its own is heard by an openWakeWord detector, any other phrase by the speech
             recogniser.
           </p>

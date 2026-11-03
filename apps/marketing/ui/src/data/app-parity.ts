@@ -31,7 +31,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "section-header",
     "title": "Group band",
-    "blurb": "The Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. Counts are optional and off by default (the catalog `Section.count`). Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all. `loading` spins a 12px glyph at the band's trailing edge while a list REFETCHES (the first load is a skeleton or a spinner, never this); it replaces a Refresh button, which only a list over an external source (GitHub, the local disk or git) keeps.",
+    "blurb": "The Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. Counts are optional and off by default (the catalog `Section.count`). Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all. `loading` spins a 12px glyph at the band's trailing edge while a list REFETCHES (the first load shows a skeleton or a spinner); it replaces a Refresh button, which only a list over an external source (GitHub, the local disk or git) keeps.",
     "components": [
       "Section"
     ],
@@ -98,7 +98,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "group",
     "title": "Group container",
-    "blurb": "THE settings shell, one per platform — borderless: radius 12, the row fill, a hairline BETWEEN every pair of children, overflow hidden. The fill is the edge, never an outer stroke, and never a card inside a card: inside an overlay that already is a surface (the composer's ⋯ popover, a bottom sheet) the group goes BARE — dividers only, no fill, no radius — so the host's edge is the only edge. Every grouped settings list on every platform draws this; the second specimen is the bare form. Its picker rows are `Picker triggerVariant=\"row\"`, never a Combobox (the Combobox engine is internal to Picker).",
+    "blurb": "THE settings shell, one per platform — borderless: radius 12, the row fill, a hairline BETWEEN every pair of children, overflow hidden. The fill alone is the edge (no outer stroke). Inside an overlay that already is a surface (the composer's ⋯ popover, a bottom sheet) the group goes BARE — dividers only, no fill, no radius — so the host's edge is the only edge. Every grouped settings list on every platform draws this; the second specimen is the bare form. Its picker rows are `Picker triggerVariant=\"row\"` (the Combobox engine is internal to Picker).",
     "components": [
       "Group"
     ],
@@ -129,7 +129,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "property-row",
     "title": "Property row",
-    "blurb": "THE phone properties sheet row (issue detail + create form, ×3 phones), the list row's VALUE variant (was PropertyRow; the catalog `Row` with a `value`): the label left and muted, the value right and readable with its glyph riding beside it as one trailing unit, 44px, the WHOLE row the target (a Button, so it can be a picker's trigger), no chevron. Rows stack inside a `GlassGroup`. A set-valued property (Labels) shows the picks joined by \", \" in the team's order and opens the shared picker sheet, never a cloud of toggle chips; nothing picked reads \"None\".",
+    "blurb": "THE phone properties sheet row (issue detail + create form, ×3 phones), the list row's VALUE variant (was PropertyRow; the catalog `Row` with a `value`): the label left and muted, the value right and readable with its glyph riding beside it as one trailing unit, 44px, the WHOLE row the target (a Button, so it can be a picker's trigger), no chevron. Rows stack inside a `GlassGroup`. A set-valued property (Labels) shows the picks joined by \", \" in the team's order and opens the shared picker sheet; nothing picked reads \"None\".",
     "components": [
       "Row"
     ],
@@ -159,7 +159,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "row",
     "title": "Glass row",
-    "blurb": "The GAPPED card item (the catalog `Row surface: card`): radius 10, row fill, its own hairline border, padding 12. It is kept for REAL CARDS only (a transcript's tool output, a diff) — never a settings list: the settings ladder is a `GlassSectionHeader` band over `SETTINGS_LIST_CLASS` + the flat list row below.",
+    "blurb": "The GAPPED card item (the catalog `Row surface: card`): radius 10, row fill, its own hairline border, padding 12. It is kept for REAL CARDS only (a transcript's tool output, a diff); the settings ladder is a `GlassSectionHeader` band over `SETTINGS_LIST_CLASS` + the flat list row below.",
     "components": [
       "Row"
     ],
@@ -189,7 +189,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "list-row",
     "title": "List row",
-    "blurb": "The flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards. It has a second density: `compact` is the 28px one-line row the narrow column runs at (the sidebar's pinned and draft arms, the compact inbox) — the same 14px type, 8px of side padding, 8px to the glyph — and `SidebarMenuButton density=\"compact\"` is its exact twin, so a nav entry and a list row sitting in the same 17rem slot are the same height.",
+    "blurb": "The flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as one table. It has a second density: `compact` is the 28px one-line row the narrow column runs at (the sidebar's pinned and draft arms, the compact inbox) — the same 14px type, 8px of side padding, 8px to the glyph — and `SidebarMenuButton density=\"compact\"` is its exact twin, so a nav entry and a list row sitting in the same 17rem slot are the same height.",
     "components": [
       "Row",
       "Section"
@@ -256,7 +256,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "tree-guides",
     "title": "Tree guides",
-    "blurb": "The connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of sessions read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform. In the catalog the guides are a PART of `Row` (its `depth`, inside a `Section tree`), filled by the core's post-expansion pass and never authored on their own.",
+    "blurb": "The connector every NESTED list draws from a row to its parent. A row used to hang under its parent by left padding alone, so three levels of sessions read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform. In the catalog the guides are a PART of `Row` (its `depth`, inside a `Section tree`), filled by the core's post-expansion pass and never authored on their own.",
     "components": [
       "Row"
     ],
@@ -321,7 +321,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "picker-row",
     "title": "Picker row",
-    "blurb": "Label left, value right-aligned at 70% foreground, a 14px chevron at 50%. The whole row is the target, never just the value.",
+    "blurb": "Label left, value right-aligned at 70% foreground, a 14px chevron at 50%. The whole row is the target.",
     "components": [
       "Row"
     ],
@@ -444,7 +444,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "segmented",
     "title": "Segmented control",
-    "blurb": "The standalone capsule: 36 tall, padding 3, the section fill under a section stroke. Segments share the embedded row's geometry, and that second form is a prop rather than a second component, so the settings strips and the free-floating ones are one control. Eight strips wired their own Tabs + TabsList + N triggers by hand before, and drifted in padding and in whether a segment carried a glyph; the class recipe still lives in tabs.tsx, which other surfaces read directly.",
+    "blurb": "The standalone capsule: 36 tall, padding 3, the section fill under a section stroke. Segments share the embedded row's geometry, and that second form is a prop on the same component, so the settings strips and the free-floating ones are one control. Eight strips wired their own Tabs + TabsList + N triggers by hand before, and drifted in padding and in whether a segment carried a glyph; the class recipe still lives in tabs.tsx, which other surfaces read directly.",
     "components": [
       "Segmented"
     ],
@@ -816,7 +816,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "sheet",
     "title": "Sheet shell",
-    "blurb": "Top radius 24 over the page's bottom gradient, a card hairline, a 36×4 grabber. Header gutter 20, content gutter 16. Dismissal is the grabber drag or the backdrop — the header's trailing slot holds an optional ACTION, never a Cancel — and the bottom carries exactly one primary.",
+    "blurb": "Top radius 24 over the page's bottom gradient, a card hairline, a 36×4 grabber. Header gutter 20, content gutter 16. Dismissal is the grabber drag or the backdrop, so the header's trailing slot holds only an optional ACTION, and the bottom carries exactly one primary.",
     "components": [
       "Drawer"
     ],
@@ -845,7 +845,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "composer",
     "title": "Composer",
-    "blurb": "ONE composer for comments, steering and reporter replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. The `inline` arm is the steer card — the round submit rides the field's own row instead of a tool row under it. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it. It lives in @exp/ui: the card owns CHROME AND LAYOUT only, and every caller keeps its own field, upload and send.",
+    "blurb": "ONE composer for comments, steering and reporter replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. The `inline` arm is the steer card — the round submit rides on the field's own row. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it. It lives in @exp/ui: the card owns CHROME AND LAYOUT only, and every caller keeps its own field, upload and send.",
     "components": [
       "Composer"
     ],
@@ -944,7 +944,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "Separator",
         "file": "packages/ui/src/separator.tsx",
-        "note": "Inside a group the same hairline comes from GlassGroup's divide-y, not from a Separator element."
+        "note": "Inside a group the same hairline comes from GlassGroup's divide-y."
       },
       "desktop": {
         "status": "ok",
@@ -1085,7 +1085,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "empty-state",
     "title": "Empty state",
-    "blurb": "ONE empty state, two sizes (copy ×4 = `empty-state.json`). `page` = a whole screen with nothing: the 48px icon disc, a semibold title, an optional muted sentence that teaches the next step and an optional actions row, centred on at most 28rem, 48px vertical padding. `list` = inside a section, a sidebar or a picker: a bare 20px muted glyph over ONE muted line, 24px vertical padding, never a description or a button (the band's trailing pill is the call to action). A title is at most four words (`No <noun> yet`, `No <noun>`, `All caught up`) and never explains. A first load is a skeleton or a spinner, a refetch the band's `loading` glyph, and no list over synced or server data carries a Refresh button. `EmptyCta` (next entry) is the dashed box that STARTS a list.",
+    "blurb": "ONE empty state, two sizes (copy ×4 = `empty-state.json`). `page` = a whole screen with nothing: the 48px icon disc, a semibold title, an optional muted sentence that teaches the next step and an optional actions row, centred on at most 28rem, 48px vertical padding. `list` = inside a section, a sidebar or a picker: a bare 20px muted glyph over ONE muted line, 24px vertical padding, and nothing else (the band's trailing pill is the call to action). A title is at most four words (`No <noun> yet`, `No <noun>`, `All caught up`) and never explains. A first load is a skeleton or a spinner, a refetch the band's `loading` glyph, and no list over synced or server data carries a Refresh button. `EmptyCta` (next entry) is the dashed box that STARTS a list.",
     "components": [
       "EmptyState"
     ],
@@ -1207,7 +1207,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "feedback-pending",
     "title": "Pending button",
-    "blurb": "A button that started something refuses presses at once, then after 150 ms swaps its icon slot for the spinner and its label for the progressive word (Starting), never narrower than it was. The catalog's `Button loading` + `pendingLabel`.",
+    "blurb": "A button that started something refuses presses at once, then after 150 ms swaps its icon slot for the spinner and its label for the progressive word (Starting), keeping at least its old width. The catalog's `Button loading` + `pendingLabel`.",
     "components": [
       "Button"
     ],
@@ -1305,13 +1305,13 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "Dialog / DialogContent",
         "file": "packages/ui/src/dialog.tsx",
-        "note": "a confirm or a choice is the Prompt entry, never this shell"
+        "note": "a confirm or a choice uses the Prompt entry"
       },
       "desktop": {
         "status": "ok",
         "symbol": "native_dialog::DialogShell",
         "file": "apps/desktop/crates/ui/src/native_dialog.rs",
-        "note": "every IDE dialog is a real OS window, not an in-window overlay"
+        "note": "every IDE dialog opens as a real OS window"
       },
       "ios": {
         "status": "n/a",
@@ -1326,7 +1326,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "prompt",
     "title": "Prompt",
-    "blurb": "THE confirm and choice prompt: every \"Delete X?\", merge confirm and multi-answer choice on the web is this one card, the same on every width, its wording read from the contract fixture `prompts.json` (web mirror `apps/web/src/lib/prompts.ts`, the same strings on iOS and Android). A centred card over the dimmed scrim, no ✕ (scrim tap and Esc are its cancel path); ONE question as the title; a body line only for a fact the title cannot carry (what is deleted, a name, a count, a consequence for other people), never a restatement of the buttons; an optional content slot between the text and the row (the blocked-start graph, an input); ONE row of the 32px `md` Pill capsules; only when that row cannot fit do the pills stack, one per line at their own width, trailing-aligned, in reverse display order: the default on top, Cancel below it, a quiet destructive answer last (iOS `GlassAlertLayout.stacked`); never a two-row hybrid. Roles: `cancel` = the plain pill that only dismisses; `primary` = the safe/expected answer, the accent pill at the trailing edge; `default` = a plain pill that does something; `destructive` = the answer of a plain \"Delete X?\" confirm, the plain pill with a destructive label and tinted border next to Cancel (no primary, Cancel takes focus); `quietDestructive` = destructive TEXT set apart on the leading edge when a safe primary exists too. No solid red blocks, no full-width buttons; initial focus and Enter never land on a destructive answer; a busy answer keeps its label and shows the pill's spinner while the row and the dismiss paths lock. The natives draw the same card (GlassAlert); the IDE asks in native alert windows with the same words, roles and focus (`AlertSpec::from_prompt`).",
+    "blurb": "THE confirm and choice prompt: every \"Delete X?\", merge confirm and multi-answer choice on the web is this one card, the same on every width, its wording read from the contract fixture `prompts.json` (web mirror `apps/web/src/lib/prompts.ts`, the same strings on iOS and Android). A centred card over the dimmed scrim, no ✕ (scrim tap and Esc are its cancel path); ONE question as the title; a body line only for a fact the title cannot carry (what is deleted, a name, a count, a consequence for other people) that the buttons do not already say; an optional content slot between the text and the row (the blocked-start graph, an input); ONE row of the 32px `md` Pill capsules; only when that row cannot fit do the pills stack, one per line at their own width, trailing-aligned, in reverse display order: the default on top, Cancel below it, a quiet destructive answer last (iOS `GlassAlertLayout.stacked`); never a two-row hybrid. Roles: `cancel` = the plain pill that only dismisses; `primary` = the safe/expected answer, the accent pill at the trailing edge; `default` = a plain pill that does something; `destructive` = the answer of a plain \"Delete X?\" confirm, the plain pill with a destructive label and tinted border next to Cancel (no primary, Cancel takes focus); `quietDestructive` = destructive TEXT set apart on the leading edge when a safe primary exists too. No solid red blocks, no full-width buttons; initial focus and Enter never land on a destructive answer; a busy answer keeps its label and shows the pill's spinner while the row and the dismiss paths lock. The natives draw the same card (GlassAlert); the IDE asks in native alert windows with the same words, roles and focus (`AlertSpec::from_prompt`).",
     "components": [
       "Dialog"
     ],
@@ -1357,7 +1357,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "picker-surface",
     "title": "Picker surface",
-    "blurb": "The searchable SURFACE every Picker opens (Picker = the only public picker; its Combobox engine is internal): a popover on a pointer, the bottom sheet on a phone. Selection speaks ONE language: SINGLE marks the picked row with a trailing ui-check, MULTI by the row's own highlight wash (data-picked), and a bulk edit over rows that disagree marks the row mixed; never a checkbox, never a circle pair. `value` is the identity and `keywords` the search text, so two boards may share a name; `noneLabel` renders a row that reports null. Single closes on pick, multi stays open. PickerItem is the row shape; the trigger comes in four `triggerVariant`s, pill | field | row | inline (row = the form ladder's picker row, the catalog `Row chevron: selector`). PickerMenuRows draws the same rows inside a Menu.",
+    "blurb": "The searchable SURFACE every Picker opens (Picker = the only public picker; its Combobox engine is internal): a popover on a pointer, the bottom sheet on a phone. Selection speaks ONE language: SINGLE marks the picked row with a trailing ui-check, MULTI by the row's own highlight wash (data-picked), and a bulk edit over rows that disagree marks the row mixed; those three marks are the whole vocabulary. `value` is the identity and `keywords` the search text, so two boards may share a name; `noneLabel` renders a row that reports null. Single closes on pick, multi stays open. PickerItem is the row shape; the trigger comes in four `triggerVariant`s, pill | field | row | inline (row = the form ladder's picker row, the catalog `Row chevron: selector`). PickerMenuRows draws the same rows inside a Menu.",
     "components": [
       "Select",
       "Row"
@@ -1392,7 +1392,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "search-field",
     "title": "Search field",
-    "blurb": "The ONE \"filter this list\" field: the text field with the search glyph INSIDE it and a ghost clear that appears only once there is something to clear — and puts the caret back in the field, so typing continues. Eight of them existed at five heights, most a bare Input re-dressed by hand and none with either affordance, while both natives had drawn exactly this for years. Two rungs: md is the stock 36 field, sm the 28 one dense columns use — the Changes file tree's filter, a sidebar filter. It is an Input, not a new box: every chrome decision still comes from there.",
+    "blurb": "The ONE \"filter this list\" field: the text field with the search glyph INSIDE it and a ghost clear that appears only once there is something to clear — and puts the caret back in the field, so typing continues. Eight of them existed at five heights, most a bare Input re-dressed by hand and none with either affordance, while both natives had drawn exactly this for years. Two rungs: md is the stock 36 field, sm the 28 one dense columns use — the Changes file tree's filter, a sidebar filter. It is an Input underneath: every chrome decision still comes from there.",
     "components": [
       "Input"
     ],
@@ -1423,7 +1423,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "date-picker",
     "title": "Date picker",
-    "blurb": "The ONE date picker. Popover + Calendar was inlined three times — the properties panel, the editor chips, the mobile tray — and each copy converted between a Date and the wire's YYYY-MM-DD its own way, two of them through new Date(value), which the spec parses as UTC and which therefore shows the PREVIOUS day west of Greenwich. This one speaks the wire format on both sides and converts in exactly one place. A due date is a DATE, never an instant (REV2-49), so there is no time arm; the trigger is a Pill showing the short form, and Clear is a row under the grid rather than a second control beside it.",
+    "blurb": "The ONE date picker. Popover + Calendar was inlined three times — the properties panel, the editor chips, the mobile tray — and each copy converted between a Date and the wire's YYYY-MM-DD its own way, two of them through new Date(value), which the spec parses as UTC and which therefore shows the PREVIOUS day west of Greenwich. This one speaks the wire format on both sides and converts in exactly one place. A due date is a calendar DATE with no time of day (REV2-49), so there is no time arm; the trigger is a Pill showing the short form, and Clear is a row under the grid.",
     "components": [
       "DatePicker"
     ],
@@ -1456,7 +1456,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "alert",
     "title": "Alert",
-    "blurb": "The inline banner: a message that belongs to the page it interrupts, not a toast that flies past and not a dialog that blocks. Two variants only — the neutral card fill for a notice, and the destructive tint for a failure — and the leading glyph earns its own column only when one is passed. The admin console carried two byte-identical copies of the destructive recipe before this existed.",
+    "blurb": "The inline banner: a message that belongs to the page it interrupts and stays in place on it. Two variants only — the neutral card fill for a notice, and the destructive tint for a failure — and the leading glyph earns its own column only when one is passed. The admin console carried two byte-identical copies of the destructive recipe before this existed.",
     "components": [
       "Alert"
     ],
@@ -1485,7 +1485,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "context-ring",
     "title": "Context ring",
-    "blurb": "How full the agent's context window is, as a 16px radial where the context pill used to be — and the trigger of the usage overlay the session already had. The arc is a stroked circle rotated a quarter turn, the track the same circle at 20% opacity, and the tone is the session's, not the ring's: the app maps its own thresholds onto normal / warning / danger and passes one in. A session nothing has measured renders NOTHING unless `showEmpty` says the session has other usage worth opening.",
+    "blurb": "How full the agent's context window is, as a 16px radial where the context pill used to be — and the trigger of the usage overlay the session already had. The arc is a stroked circle rotated a quarter turn, the track the same circle at 20% opacity, and the tone comes from the session: the app maps its own thresholds onto normal / warning / danger and passes one in. A session nothing has measured renders NOTHING unless `showEmpty` says the session has other usage worth opening.",
     "components": [
       "Ring"
     ],
@@ -1551,7 +1551,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "list-empty",
     "title": "In-list empty line",
-    "blurb": "This IS `EmptyState size=\"list\"` without a glyph — one muted centred line inside a list that filtered down to nothing, the line `CommandEmpty` draws. A search that matched nothing needs a different query, not a next step, so it never teaches.",
+    "blurb": "This IS `EmptyState size=\"list\"` without a glyph — one muted centred line inside a list that filtered down to nothing, the line `CommandEmpty` draws. A search that matched nothing needs a different query, so it never teaches.",
     "components": [
       "EmptyState"
     ],
@@ -1585,7 +1585,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "picker",
     "title": "Picker",
-    "blurb": "THE picker primitive: one surface per platform (a popover at the trigger on a pointer, a bottom sheet of plain rows on a phone), single or multi, optional search. Presentation belongs to the primitive, never to the caller — a row is a glyph or a dot, a label and a muted second line, and it is never a card. The selection language is the whole point: a single pick wears a trailing check, a MULTI pick reads as the row's own highlight, never a leading circle, so the picker that links a relation and the picker that batches issues finally look like one thing. The trigger is the caller's (four shapes: pill, field, row, inline); the surface, the search field and the keys are the primitive's.",
+    "blurb": "THE picker primitive: one surface per platform (a popover at the trigger on a pointer, a bottom sheet of plain rows on a phone), single or multi, optional search. Presentation belongs to the primitive: a row is a glyph or a dot, a label and a muted second line, and it is never a card. The selection language is the whole point: a single pick wears a trailing check, a MULTI pick reads as the row's own highlight, so the picker that links a relation and the picker that batches issues finally look like one thing. The trigger is the caller's (four shapes: pill, field, row, inline); the surface, the search field and the keys are the primitive's.",
     "components": [
       "Select"
     ],

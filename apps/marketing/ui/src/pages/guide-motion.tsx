@@ -231,8 +231,8 @@ export const MOTION_SECTIONS: Section[] = [
           state, a small explainer. One engine (<code>eui-motion</code>, Rust) loads the animation and samples every
           frame into a flat display list; each renderer paints that list and nothing else, so React, Solid, the web
           component, SwiftUI, Compose and gpui show the same picture. The web renderers share one Canvas2D painter and
-          load the engine as WebAssembly on the first Motion they paint (about 200 KB gzipped, never in your initial
-          bundle; bundlers emit it as a hashed asset).
+          load the engine as WebAssembly on the first Motion they paint (about 200 KB gzipped,
+          a separate hashed asset that bundlers keep out of your initial bundle).
         </p>
         <LiveExample />
         <DocsCode language="json">{JSON.stringify({ component: `Motion`, props: SPINNER }, null, 2)}</DocsCode>
@@ -363,12 +363,12 @@ export const MOTION_SECTIONS: Section[] = [
           rows={[
             [`autoplay, loop, plays, direction, speed`, `Plays when visible; repeats, plays n times, reverses or alternates; scales time.`],
             [`segment, marker`, `Plays only [from, to] ms, or a named marker's segment.`],
-            [`progress (bindable)`, `Scrubs to 0–1 instead of playing: bind it to drive the animation from data.`],
+            [`progress (bindable)`, `Scrubs to a point from 0 to 1: bind it to drive the animation from data.`],
             [`play (bindable)`, `false freezes the clock where it is.`],
             [`poster`, `The still frame (ms) shown before playing, off-screen and under reduced motion.`],
             [`Frame rate`, `At most 60 fps (the display's rate when lower).`],
             [`Visibility`, `Paused off-screen and while the window is hidden; at most 8 Motions animate per surface (tree order), the rest show their poster.`],
-            [`Reduced motion`, `The poster, never ticking.`],
+            [`Reduced motion`, `Shows the still poster frame.`],
           ]}
         />
         <p>

@@ -61,8 +61,8 @@ export function PricingPage() {
               Exponential is fully open source under Apache-2.0. Self-hosting
               is free for everyone, at any size, forever. If you want an SLA,
               priority support, deployment help, or custom development on top,
-              Enterprise Support is available as an optional add-on, never a
-              requirement. <a href="/contact/">Talk to us</a>.
+              Enterprise Support is available as an optional
+              add-on. <a href="/contact/">Talk to us</a>.
             </p>
             <p className="plan-footnote">
               📱 Mobile push is cloud-only. The store apps are built against

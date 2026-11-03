@@ -20,7 +20,7 @@ export const LIBRARIES: readonly Library[] = [
   { name: `eTalk`, href: `/talk/`, desc: `Speech in and out for agents: push to talk, spoken replies and calls on your own GPU.`, status: `in-progress`, label: `0.2.3 beta` },
   { name: `ePilot`, href: `/pilot/`, desc: `Computer use: the agent plans, acts on the real screen, and looks again.`, status: `shipped`, label: `0.1.0` },
   { name: `eNet`, href: `/net/`, desc: `Peer to peer and end-to-end encrypted tunnels between every client, on iroh.`, status: `shipped`, label: `0.1.0` },
-  { name: `eApps`, href: `/apps/`, desc: `The app package format: templates, bindings, records and MCP tools as data, never code.`, status: `in-progress`, label: `in eUI` },
+  { name: `eApps`, href: `/apps/`, desc: `The app package format: templates, bindings, records and MCP tools in one declarative package.`, status: `in-progress`, label: `in eUI` },
   { name: `eMCP`, href: `/mcp/`, desc: `MCP for devices: a loopback server for your tools, a client with OAuth and a vault.`, status: `shipped`, label: `0.1.0` },
   { name: `eAgent`, href: `/agent/`, desc: `Runs your own Claude Code or Codex over ACP: one local account, no server.`, status: `in-progress`, label: `0.1.0` },
   { name: `eCore`, href: `/core/`, desc: `The plain types the modules share: ids, grants, verdicts, errors and the event envelope.`, status: `in-progress`, label: `built` },

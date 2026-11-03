@@ -714,8 +714,8 @@ ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.7
       body: (
         <>
           <p>
-            An app is data, never code: templates (components, initial data, bindings), the functions it may call
-            and a theme, in one JSON package. This one shows a greeting that follows a weather source and can toast:
+            An app is one JSON package of data: templates (components, initial data, bindings), the functions it may call
+            and a theme. This one shows a greeting that follows a weather source and can toast:
           </p>
           <GuideFile path="react/src/hello.app.json" />
           <p>
@@ -879,7 +879,7 @@ ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.7
             component that downloads code. The expression language is a closed operator set over the data model; the
             client functions are the catalog's built-ins plus whatever the host registers by name. Themes are data
             too: colours as hex, fonts by family (system or host-supplied), recipes as style objects. Extensions and
-            painter overrides are host code you compile in, never something a surface can send.
+            painter overrides are host code you compile in; a surface can only use what the host compiled.
           </p>
           <p>
             Every renderer replays the same fixtures, so what a surface can and cannot do is identical on React,
@@ -928,8 +928,8 @@ ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.7
           <DocsCallout kind="warn" title="Private hosts and DNS">
             The private-host rule is on the literal address after URL normalization (<code>2130706433</code> and{` `}
             <code>0x7f.1</code> are loopback too). It never resolves a name: a public name that resolves to a private
-            address is your network's job (egress rules, a filtering resolver). Opt in by name, never with{` `}
-            <code>["*"]</code> outside a dev setup.
+            address is your network's job (egress rules, a filtering resolver). Opt in by name, and keep{` `}
+            <code>["*"]</code> for dev setups.
           </DocsCallout>
         </>
       ),

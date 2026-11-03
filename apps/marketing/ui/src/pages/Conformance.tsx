@@ -234,7 +234,7 @@ export default function ConformancePage({ path }: PageProps) {
               [<strong key="s">Frame dumps</strong>, `Every placed part of every case (fixture × theme × mode × width × direction): frame, text, line count.`],
               [<strong key="s">Comparison</strong>, `Frames within a pixel tolerance; a text may wrap one line more or less. Unexplained divergences are origins: the fix list.`],
               [<strong key="s">Known divergences</strong>, <span key="k"><code>conformance-known.json</code>: per cause, which side is right and who fixes it; the ratchet only goes down.</span>],
-              [<strong key="s">Pixel step</strong>, `The web surface beside a real gpui window: pixel ratio and SSIM. Reported, never gating.`],
+              [<strong key="s">Pixel step</strong>, `The web surface beside a real gpui window: pixel ratio and SSIM. Informational: reported in the run, outside the gate.`],
             ]}
           />
           <DocsCode>{`bun run --filter @exponential_app/eui conformance -- --only kitchen-sink/playful/dark/390/ltr`}</DocsCode>

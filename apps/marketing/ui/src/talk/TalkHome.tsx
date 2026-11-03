@@ -14,7 +14,7 @@ const PARTS: { part: string; what: string; status: Status; label: string }[] = [
   { part: `Push to talk`, what: `Hold a shortcut on your desktop. Silero VAD and Parakeet through CrispASR`, status: `in-progress`, label: `beta` },
   { part: `Spoken replies`, what: `English and German. Qwen3-TTS, cloned from a clip of your voice`, status: `in-progress`, label: `beta` },
   { part: `Call your agent`, what: `From your phone, the web or the desktop app`, status: `in-progress`, label: `beta` },
-  { part: `Wake word`, what: `“Hey Triage”, instead of holding the shortcut`, status: `in-progress`, label: `beta` },
+  { part: `Wake word`, what: `Say “Hey Triage” to talk hands-free`, status: `in-progress`, label: `beta` },
 ]
 
 export default function TalkHome(_: PageProps) {

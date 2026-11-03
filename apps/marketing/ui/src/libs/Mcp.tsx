@@ -64,14 +64,12 @@ export default function Mcp({ path }: PageProps) {
         <DocsSection id="install" num="02" label="Install">
           <h2>Install</h2>
           <p>
-            One crate in the Exponential repo, taken as a git dependency on an <code>emcp-v&lt;version&gt;</code> tag, never
-            from crates.io: the contract is compiled in from the repo&apos;s fixtures, which only a checkout carries. Pin the
-            tag, never a branch; a tag is never moved.
+            One crate in the Exponential repo, taken as a git dependency on an <code>emcp-v&lt;version&gt;</code> tag: the contract is compiled in from the repo&apos;s fixtures, which only a checkout carries. Pin the tag; a tag is never moved.
           </p>
           <DocsCode language="toml">{`[dependencies]
 emcp = { git = "https://github.com/Niach/exponential", tag = "emcp-v0.1.0" }`}</DocsCode>
           <p>
-            Everything is blocking from your side: the SDK runs on eMCP&apos;s own threads, never under your executor.
+            Everything is blocking from your side: the SDK runs on eMCP&apos;s own threads, so any executor (or none) works.
           </p>
         </DocsSection>
         <DocsSection id="server" num="03" label="Serve tools">
@@ -79,7 +77,7 @@ emcp = { git = "https://github.com/Niach/exponential", tag = "emcp-v0.1.0" }`}</
           <p>
             Implement <code>ToolProvider</code> and serve it. The server listens on <code>127.0.0.1</code>, answers plain
             JSON, and admits each session with its own bearer token: an unknown or revoked token is refused before any tool
-            runs. A refusal the agent should read is content in the result, never a protocol error.
+            runs. A refusal the agent should read comes back as content in the result, where the agent sees it.
           </p>
           <DocsCode language="rust">{`use std::sync::Arc;
 use emcp::{Caller, Server, ServerInfo, ToolProvider};
