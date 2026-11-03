@@ -103,6 +103,8 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON repositories FOR EA
 -- NEW-2: agent definitions and prompts.
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON agents FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON prompts FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+-- #EXP-1656: team skills.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON skills FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- VAPP-110: apps (rename, a new head version, trash).
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON apps FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 -- VAPP-122: an app's records; the app's trash mirror is bookkeeping.

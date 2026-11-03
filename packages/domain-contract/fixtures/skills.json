@@ -1,0 +1,158 @@
+{
+  "$comment": "#EXP-1655 / #EXP-1656 (owner Danny 2026-11-03): TEAM SKILLS ×4, Claude's SKILL.md as a team library. A skill = a `name` (Claude's skill-name rule: `limits.namePattern`, at most `limits.nameMax` chars), a `description` (REQUIRED: it is what makes the agent load the skill; at most `limits.descriptionMax` chars) and a markdown `body` (the SKILL.md body, at most `limits.bodyMaxBytes` UTF-8 bytes), plus `enabledByDefault`. NO files, NO versions, NO history and NO events in v1 (uniform with prompts and MCP servers). DATA: the `skills` table, unique (team, name); synced through the member-only `skills` shape WITHOUT `body` (tRPC `skills.get` is the only body read; the device running a session fetches its picks with `skills.resolveForLaunch`, keyed by X-Exp-Session-Id). PERMISSIONS (`permissions`): team OWNERS create, edit and delete (Settings › Skills, desktop + web); members read; PHONES (iOS, Android) read the list and pick, never create or edit. THE PICK: `sessions.skill_ids` (server-only) = the skills a session runs with, set by `sessions.send {skillIds}` (at most `limits.perSession`, every id in the session's team) or `sessions.configure {skillIds}`; a child started without `skillIds` inherits its parent's; an agent's runs (its conversation sessions, its trigger firings, the roots its tree starts) start with `agents.skill_ids`. SETTINGS › SKILLS (`list`): the settings-nav row `skills` (label `title`, team group, right after Prompts), every platform. The page = one glass group of rows sorted by name (`sortSkills`), a row = the skill's `name` + the Default pill (`list.defaultPill`, only while `enabledByDefault`) + caption = its `description` (one line, truncated at the end); owners also get `list.newButton` above the group and a row opens the SKILL PAGE; members' rows open it read-only. Empty = `list.empty` through THE EmptyState. SKILL PAGE (`page.fields` top to bottom, the prompt page's layout and controls, existing components only): `name` (mono single-line input, placeholder), `description` (multi-line input, placeholder), `body` (THE markdown editor of the prompt page, placeholder), `enabledByDefault` (a Switch, label + no subtitle), then `delete` (owners, confirms with `page.deleteConfirm` through THE Prompt). Save = `skills.create` / `skills.update`; `validateSkillForm(form)` replays `validationCases` (errors keyed by field, in field order; [] = valid): name blank after trim → errors.nameRequired, over nameMax → errors.nameTooLong, not matching namePattern → errors.nameInvalid; description blank → errors.descriptionRequired, over descriptionMax → errors.descriptionTooLong; body blank → errors.bodyRequired, over bodyMaxBytes UTF-8 bytes → errors.bodyTooLong; a server CONFLICT (the name is taken) reads errors.nameTaken inline. THE + MENU (`menuRow`, composer-menu.json gains it in the clients' PRs): the submenu row `skills` right after `mcp-servers`, surface launch, `when` temporary + `skills` (the team has a skill); its submenu = THE search list (search-list.json) of multi picker rows over the team's skills (sorted like the list; row = name, caption = description), value = the number picked (`menuValue`, none at zero, `menuValueCases`). PRESELECT (`preselectSkillIds(skills, saved)`, `preselectCases`, exactly the MCP servers' rule): the team's saved pick (per team, per client, every change saved) clamped to skills that still exist, else the `enabledByDefault` skills; list order either way. A send carries `skillIds` only while the pick is non-empty. AGENT PAGE (`agentRow`): agent-settings.json's page gains ONE row `skills` right after Instructions (the Assistant's page, which has none: the last row of `runs-on`): label `agentRow.label`, value = `agentSkillsValue(count)` (`agentValueCases`: the count with the menu's words, `agentRow.none` muted at zero), opening THE same multi picker; owners edit (saved by `agents.update {skillIds}`), members read. `limits` are the server's (packages/db-schema domain.ts SKILL_*). Sorting is by name in code-point order (names are [a-z0-9-], so it is the same everywhere). In the cases a string written {repeat, times} = that string repeated `times` times. TS reference src/skills.ts; the clients mirror it in their UI PRs (#EXP-1659..1661).",
+  "title": "Skills",
+  "limits": {
+    "nameMax": 64,
+    "namePattern": "^[a-z0-9-]+$",
+    "descriptionMax": 1024,
+    "bodyMaxBytes": 65536,
+    "perSession": 20
+  },
+  "permissions": {
+    "owner": { "read": true, "write": true, "pick": true },
+    "member": { "read": true, "write": false, "pick": true },
+    "phone": { "read": true, "write": false, "pick": true }
+  },
+  "navRow": { "id": "skills", "label": "Skills", "group": "team", "after": "prompts" },
+  "list": {
+    "newButton": "New skill",
+    "defaultPill": "Default",
+    "empty": { "title": "No skills yet", "ownerAction": "New skill" },
+    "testIds": { "page": "settings-skills-page", "list": "settings-skills-list", "row": "settings-skills-row" }
+  },
+  "page": {
+    "fields": [
+      { "id": "name", "label": "Name", "placeholder": "review-checklist" },
+      { "id": "description", "label": "Description", "placeholder": "What the skill does and when to use it" },
+      { "id": "body", "label": "Instructions", "placeholder": "The SKILL.md body, in markdown" },
+      { "id": "enabledByDefault", "label": "On by default" },
+      { "id": "delete", "label": "Delete skill", "ownerOnly": true }
+    ],
+    "save": "Save",
+    "deleteConfirm": {
+      "title": "Delete this skill?",
+      "body": "Sessions that picked it run without it from their next start.",
+      "confirm": "Delete",
+      "cancel": "Cancel"
+    },
+    "errors": {
+      "nameRequired": "Name is required",
+      "nameTooLong": "Name is too long",
+      "nameInvalid": "Use lowercase letters, numbers and hyphens",
+      "nameTaken": "A skill with this name already exists",
+      "descriptionRequired": "Description is required",
+      "descriptionTooLong": "Description is too long",
+      "bodyRequired": "Instructions are required",
+      "bodyTooLong": "Instructions are too long"
+    }
+  },
+  "menuRow": {
+    "id": "skills",
+    "kind": "submenu",
+    "label": "Skills",
+    "icon": "ui-docs",
+    "surfaces": ["launch"],
+    "when": ["temporary", "skills"],
+    "after": "mcp-servers",
+    "condition": "the team has at least one skill"
+  },
+  "agentRow": {
+    "id": "skills",
+    "label": "Skills",
+    "after": "instructions",
+    "none": "None"
+  },
+  "menuValue": { "one": "1", "other": "{n}" },
+  "agentValue": { "one": "1 skill", "other": "{n} skills" },
+  "menuValueCases": [
+    { "name": "nothing picked: no value", "count": 0, "expected": null },
+    { "name": "one", "count": 1, "expected": "1" },
+    { "name": "three", "count": 3, "expected": "3" }
+  ],
+  "agentValueCases": [
+    { "name": "none reads None", "count": 0, "expected": "None" },
+    { "name": "one", "count": 1, "expected": "1 skill" },
+    { "name": "several", "count": 4, "expected": "4 skills" }
+  ],
+  "sortCases": [
+    {
+      "name": "by name",
+      "names": ["triage", "api-style", "review-checklist"],
+      "expected": ["api-style", "review-checklist", "triage"]
+    }
+  ],
+  "preselectCases": [
+    {
+      "name": "no saved pick: the enabled-by-default skills, list order",
+      "skills": [
+        { "id": "s-a", "name": "api-style", "enabledByDefault": true },
+        { "id": "s-r", "name": "review-checklist", "enabledByDefault": false },
+        { "id": "s-t", "name": "triage", "enabledByDefault": true }
+      ],
+      "saved": null,
+      "expected": ["s-a", "s-t"]
+    },
+    {
+      "name": "a saved pick wins, clamped to skills that still exist",
+      "skills": [
+        { "id": "s-a", "name": "api-style", "enabledByDefault": true },
+        { "id": "s-r", "name": "review-checklist", "enabledByDefault": false }
+      ],
+      "saved": ["s-r", "s-gone"],
+      "expected": ["s-r"]
+    },
+    {
+      "name": "an empty saved pick stays empty (defaults are not re-added)",
+      "skills": [{ "id": "s-a", "name": "api-style", "enabledByDefault": true }],
+      "saved": [],
+      "expected": []
+    },
+    {
+      "name": "no skills: nothing",
+      "skills": [],
+      "saved": null,
+      "expected": []
+    }
+  ],
+  "validationCases": [
+    {
+      "name": "valid",
+      "form": { "name": "review-checklist", "description": "Review a PR against the team checklist.", "body": "# Review\n\n1. Tests" },
+      "expected": []
+    },
+    {
+      "name": "everything blank",
+      "form": { "name": "  ", "description": "", "body": " \n" },
+      "expected": [
+        { "field": "name", "message": "Name is required" },
+        { "field": "description", "message": "Description is required" },
+        { "field": "body", "message": "Instructions are required" }
+      ]
+    },
+    {
+      "name": "uppercase and spaces are not a skill name",
+      "form": { "name": "Review PR", "description": "x", "body": "x" },
+      "expected": [{ "field": "name", "message": "Use lowercase letters, numbers and hyphens" }]
+    },
+    {
+      "name": "a 65-char name is too long",
+      "form": { "name": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "description": "x", "body": "x" },
+      "expected": [{ "field": "name", "message": "Name is too long" }]
+    },
+    {
+      "name": "a description over 1024 chars",
+      "form": { "name": "a", "description": { "repeat": "d", "times": 1025 }, "body": "x" },
+      "expected": [{ "field": "description", "message": "Description is too long" }]
+    },
+    {
+      "name": "the body counts UTF-8 bytes, not chars",
+      "form": { "name": "a", "description": "x", "body": { "repeat": "é", "times": 32769 } },
+      "expected": [{ "field": "body", "message": "Instructions are too long" }]
+    },
+    {
+      "name": "exactly the byte limit is fine",
+      "form": { "name": "a", "description": "x", "body": { "repeat": "é", "times": 32768 } },
+      "expected": []
+    }
+  ]
+}

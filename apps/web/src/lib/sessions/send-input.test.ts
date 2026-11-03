@@ -91,6 +91,7 @@ describe(`sessionsConfigureInputSchema (EXP-1334)`, () => {
       { ultracode: false },
       { computerUse: true },
       { mcpServerIds: [] },
+      { skillIds: [] },
     ]) {
       expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, ...option }).success).toBe(true)
     }
@@ -144,5 +145,15 @@ describe(`sessionsSendInputSchema — name and issues`, () => {
       sessionsSendInputSchema.safeParse({ parentId: SESSION, text: `go`, issueIds: [ISSUE] }).success
     ).toBe(true)
     expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, issueIds: [ISSUE] }).success).toBe(true)
+  })
+})
+
+describe(`skillIds (#EXP-1656)`, () => {
+  const ids = (n: number) => Array.from({ length: n }, (_, i) => `00000000-0000-4000-8000-${String(i).padStart(12, `0`)}`)
+  it(`a pick alone configures a session, at most 20, uuids only`, () => {
+    expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, skillIds: ids(20) }).success).toBe(true)
+    expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, skillIds: ids(21) }).success).toBe(false)
+    expect(sessionsSendInputSchema.safeParse({ sessionId: SESSION, skillIds: [`review`] }).success).toBe(false)
+    expect(sessionsConfigureInputSchema.safeParse({ sessionId: SESSION, skillIds: ids(21) }).success).toBe(false)
   })
 })

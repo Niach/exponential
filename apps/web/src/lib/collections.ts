@@ -10,6 +10,7 @@ import {
   selectSyncedAgentSchema,
   selectEventSchema,
   selectSyncedPromptSchema,
+  selectSyncedSkillSchema,
   selectAppSchema,
   selectSyncedAppVersionSchema,
   selectSyncedAppRecordSchema,
@@ -177,6 +178,17 @@ export const promptCollection = createCollection(
     id: `prompts`,
     shapeOptions: shapeOptions(`/api/shapes/prompts`),
     schema: selectSyncedPromptSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// #EXP-1656: the team's skills (Settings › Skills, the + menu pick); the
+// body stays server-side (tRPC `skills.get`).
+export const skillCollection = createCollection(
+  electricCollectionOptions({
+    id: `skills`,
+    shapeOptions: shapeOptions(`/api/shapes/skills`),
+    schema: selectSyncedSkillSchema,
     getKey: (item) => item.id,
   })
 )

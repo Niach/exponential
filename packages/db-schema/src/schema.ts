@@ -2060,6 +2060,10 @@ export const sessions = pgTable(
     // SERVER-ONLY (EXP-1140): the team MCP servers this session picked —
     // the only ids `mcpServers.resolveForLaunch` hands credentials for.
     mcpServerIds: jsonb(`mcp_server_ids`).$type<string[]>(),
+    // SERVER-ONLY (#EXP-1656): the team skills this session picked (+ menu,
+    // an agent's defaults, or inherited from the parent) — the only ids
+    // `skills.resolveForLaunch` hands bodies for.
+    skillIds: jsonb(`skill_ids`).$type<string[]>(),
     // SERVER-ONLY (NEW-1): the sessions this one WATCHES. The bus delivers
     // every transition of a watched session here exactly as to its parent,
     // until the watched session ends (`sessions.send({wakeOn})`; a root
@@ -2231,6 +2235,12 @@ export const agents = pgTable(
     cli: varchar({ length: 16 }),
     account: varchar({ length: 64 }),
     model: varchar({ length: 64 }),
+    // #EXP-1656: the team skills every run of this agent starts with (its
+    // conversation and trigger sessions; children inherit). SYNCED.
+    skillIds: jsonb(`skill_ids`)
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     ownerId: text(`owner_id`)
       .notNull()
       .references(() => users.id, { onDelete: `cascade` }),
@@ -2304,6 +2314,35 @@ export const prompts = pgTable(
   (table) => [
     unique().on(table.teamId, table.name),
     index(`idx_prompts_team`).on(table.teamId),
+  ]
+)
+
+// #EXP-1656: team SKILLS (Claude's SKILL.md: a name, a description that
+// triggers it, a markdown body; no files, no history in v1). Picked per
+// session (+ menu, `sessions.skill_ids`) or per agent (`agents.skill_ids`);
+// `enabled_by_default` preselects the pick. Synced MINUS `body` (tRPC
+// `skills.get`; the running device fetches `skills.resolveForLaunch`);
+// owner-written, member-read. Spec: domain-contract fixtures/skills.json.
+export const skills = pgTable(
+  `skills`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // ^[a-z0-9-]+$, ≤ 64 (Claude's skill-name rule; enforced in the router).
+    name: varchar({ length: 64 }).notNull(),
+    description: varchar({ length: 1024 }).notNull(),
+    body: text().notNull(),
+    enabledByDefault: boolean(`enabled_by_default`).notNull().default(false),
+    createdById: text(`created_by_id`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    ...timestamps,
+  },
+  (table) => [
+    unique().on(table.teamId, table.name),
+    index(`idx_skills_team`).on(table.teamId),
   ]
 )
 
@@ -3829,9 +3868,11 @@ export const selectSessionSchema = createSelectSchema(sessions, {
   status: sessionStatusSchema,
   guide: z.custom<GuideEntry[]>((value) => value === null || Array.isArray(value)),
   mcpServerIds: z.array(z.string()).nullable(),
+  skillIds: z.array(z.string()).nullable(),
 })
 export const selectSyncedSessionSchema = selectSessionSchema.omit({
   mcpServerIds: true,
+  skillIds: true,
   wakeOn: true,
   // EXP-1374: the stuck rule's clock, server-only.
   lastActivityAt: true,
@@ -3844,6 +3885,7 @@ export const selectSyncedSessionSchema = selectSessionSchema.omit({
 export const selectAgentSchema = createSelectSchema(agents, {
   triggers: z.custom<AgentTrigger[]>((value) => Array.isArray(value)),
   triggerState: z.custom<AgentTriggerState>((value) => value !== null && typeof value === `object`),
+  skillIds: z.custom<string[]>((value) => Array.isArray(value)),
 })
 export const selectSyncedAgentSchema = selectAgentSchema.omit({
   instructions: true,
@@ -3864,6 +3906,9 @@ export const selectSyncedConversationSchema = selectConversationSchema.omit({
   ownerId: true,
 })
 export const selectSyncedPromptSchema = selectPromptSchema.omit({ body: true })
+// #EXP-1656
+export const selectSkillSchema = createSelectSchema(skills)
+export const selectSyncedSkillSchema = selectSkillSchema.omit({ body: true })
 // VAPP-110: apps (the head package rides along) and their versions (the
 // package stays server-side).
 export const selectAppSchema = createSelectSchema(apps, {
@@ -4014,7 +4059,9 @@ export type Agent = InferSelectModel<typeof agents>
 export type SyncedAgent = Omit<Agent, `instructions` | `triggerState`>
 export type Event = InferSelectModel<typeof events>
 export type Prompt = InferSelectModel<typeof prompts>
+export type Skill = InferSelectModel<typeof skills>
 export type SyncedPrompt = Omit<Prompt, `body`>
+export type SyncedSkill = Omit<Skill, `body`>
 // VAPP-110
 export type App = InferSelectModel<typeof apps>
 export type AppVersion = InferSelectModel<typeof appVersions>

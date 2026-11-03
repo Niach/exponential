@@ -1457,6 +1457,14 @@ export type SessionAnswerInput = z.infer<typeof sessionAnswerSchema>
  * answers the target's open card; `wakeOn` watches sessions; a new root
  * started from inside a session is watched by the caller.
  */
+// #EXP-1656: team skills (fixtures/skills.json `limits`): Claude's
+// skill-name rule, the description that triggers it, the SKILL.md body.
+export const SKILL_NAME_MAX = 64
+export const SKILL_NAME_PATTERN = /^[a-z0-9-]+$/
+export const SKILL_DESCRIPTION_MAX = 1024
+export const SKILL_BODY_MAX = 64 * 1024
+export const SKILLS_PER_SESSION_MAX = 20
+
 export const sessionsSendInputSchema = z
   .object({
     teamId: sendUuid.optional(),
@@ -1480,6 +1488,9 @@ export const sessionsSendInputSchema = z
     computerUse: z.boolean().optional(),
     ultracode: z.boolean().optional(),
     mcpServerIds: z.array(sendUuid).max(20).optional(),
+    // #EXP-1656: the team skills the session runs with (fixtures/skills.json
+    // limits.perSession); a child without one inherits its parent's.
+    skillIds: z.array(sendUuid).max(SKILLS_PER_SESSION_MAX).optional(),
     // The message.
     // EXP-1458: plaintext, or a body envelope sealed to the target tree
     // (`exp-sealed:v1:…`, fixtures/sealed-content.json): the server stores
@@ -1578,7 +1589,8 @@ export const sessionsSendInputSchema = z
         input.planMode === undefined &&
         input.computerUse === undefined &&
         input.ultracode === undefined &&
-        input.mcpServerIds === undefined
+        input.mcpServerIds === undefined &&
+        input.skillIds === undefined
       )
         issue(`a message needs text, attachments, issues, an answer, an account, a runner pick or a device`)
       return
@@ -1619,6 +1631,7 @@ export const sessionsConfigureInputSchema = z
     ultracode: z.boolean().optional(),
     computerUse: z.boolean().optional(),
     mcpServerIds: z.array(sendUuid).max(20).optional(),
+    skillIds: z.array(sendUuid).max(SKILLS_PER_SESSION_MAX).optional(),
   })
   .refine(
     (input) =>
@@ -1627,7 +1640,8 @@ export const sessionsConfigureInputSchema = z
       input.effort !== undefined ||
       input.ultracode !== undefined ||
       input.computerUse !== undefined ||
-      input.mcpServerIds !== undefined,
+      input.mcpServerIds !== undefined ||
+      input.skillIds !== undefined,
     `nothing to configure`
   )
 export type SessionsConfigureInput = z.infer<typeof sessionsConfigureInputSchema>

@@ -28,6 +28,7 @@ import {
   type Session,
 } from "@/db/schema"
 import { generateTxId } from "@/lib/trpc"
+import { assertSkillsInTeam } from "@/lib/skills-guard"
 import { uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import { startDiskWarning } from "@/lib/device-disk"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
@@ -274,6 +275,12 @@ async function assertMcpServersInTeam(tx: Tx, teamId: string, ids: string[] | un
     throw new TRPCError({ code: `BAD_REQUEST`, message: `Unknown MCP server for this team` })
   }
   return unique
+}
+
+/** #EXP-1656: an agent's default skills (null = none). */
+async function agentSkillIds(tx: Tx, agentId: string): Promise<string[] | null> {
+  const [row] = await tx.select({ skillIds: agents.skillIds }).from(agents).where(eq(agents.id, agentId)).limit(1)
+  return row?.skillIds?.length ? row.skillIds : null
 }
 
 /**
@@ -1251,13 +1258,16 @@ async function messageSession(
         input.mcpServerIds === undefined
           ? undefined
           : await assertMcpServersInTeam(tx, target.teamId, input.mcpServerIds)
-      if (switching || Object.keys(picks).length > 0 || mcpServerIds !== undefined) {
+      const skillIds =
+        input.skillIds === undefined ? undefined : await assertSkillsInTeam(tx, target.teamId, input.skillIds)
+      if (switching || Object.keys(picks).length > 0 || mcpServerIds !== undefined || skillIds !== undefined) {
         await tx
           .update(sessions)
           .set({
             ...(switching ? { account: input.account } : {}),
             ...picks,
             ...(mcpServerIds !== undefined ? { mcpServerIds } : {}),
+            ...(skillIds !== undefined ? { skillIds } : {}),
             updatedAt: new Date(),
           })
           .where(eq(sessions.id, target.id))
@@ -1503,6 +1513,9 @@ async function reviveRoot(
       ...(input.mcpServerIds !== undefined
         ? { mcpServerIds: await assertMcpServersInTeam(tx, root.teamId, input.mcpServerIds) }
         : {}),
+      ...(input.skillIds !== undefined
+        ? { skillIds: await assertSkillsInTeam(tx, root.teamId, input.skillIds) }
+        : {}),
       updatedAt: now,
     })
     .where(and(eq(sessions.id, root.id), eq(sessions.status, `ended`)))
@@ -1597,6 +1610,10 @@ async function continueSession(
       input.mcpServerIds !== undefined
         ? await assertMcpServersInTeam(tx, root.teamId, input.mcpServerIds)
         : ended.mcpServerIds,
+    skillIds:
+      input.skillIds !== undefined
+        ? await assertSkillsInTeam(tx, root.teamId, input.skillIds)
+        : ended.skillIds,
     repositoryId: ended.repositoryId ?? root.repositoryId,
     status: `queued`,
     shared: root.shared,
@@ -1679,6 +1696,8 @@ async function startChild(
     }
     const mcpServerIds =
       (await assertMcpServersInTeam(tx, parent.teamId, input.mcpServerIds)) ?? parent.mcpServerIds
+    // #EXP-1656: a child without its own pick inherits its parent's skills.
+    const skillIds = (await assertSkillsInTeam(tx, parent.teamId, input.skillIds)) ?? parent.skillIds
     const id = crypto.randomUUID()
     const child = await insertSession(tx, {
       id,
@@ -1697,6 +1716,7 @@ async function startChild(
         : {}),
       ...(input.sealedName ? { sealedTitle: input.sealedName } : {}),
       mcpServerIds,
+      skillIds,
       repositoryId: parent.repositoryId ?? root.repositoryId,
       status: `queued`,
       // One visibility per tree: a child inherits its root's.
@@ -1784,6 +1804,10 @@ async function startRoot(
     if (input.issueIds) await assertIssuesInTeam(tx, teamId, input.issueIds)
     if (input.repositoryId) await assertRepositoryInTeam(tx, teamId, input.repositoryId)
     const mcpServerIds = await assertMcpServersInTeam(tx, teamId, input.mcpServerIds)
+    // #EXP-1656: the pick, else (a root an agent tree starts) the agent's.
+    const skillIds =
+      (await assertSkillsInTeam(tx, teamId, input.skillIds)) ??
+      (startedByAgentId ? await agentSkillIds(tx, startedByAgentId) : null)
 
     // NEW-2: a prompt run: the body plus what was typed is the first
     // message; the prompt names the session unless a name was passed.
@@ -1820,6 +1844,7 @@ async function startRoot(
       // NEW-1: the root WORKS: the composer's picks are its own.
       ...runnerFields(input),
       mcpServerIds,
+      skillIds,
       repositoryId,
       status: `queued`,
       shared: device.shared,

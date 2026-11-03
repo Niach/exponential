@@ -17,6 +17,8 @@ export const AGENT_COLUMNS = [
   `cli`,
   `account`,
   `model`,
+  // #EXP-1656: the skills every run of the agent starts with.
+  `skill_ids`,
   `owner_id`,
   `sort_order`,
   // S-3: assistant | agent. An Assistant LISTS for its owner only (the
