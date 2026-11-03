@@ -327,6 +327,10 @@ public enum AppRecords {
             public static let author = "Author"
             /// VAPP-188: an on-behalf row's `by` (`{writer} for {author}`).
             public static let byFor = "{writer} for {author}"
+            /// VAPP-221: a cell holding one attachment.
+            public static let file = "1 file"
+            /// VAPP-221: a cell holding `{n}` attachments.
+            public static let files = "{n} files"
 
             public static func kindOption(_ kind: String, count: Int) -> String {
                 kindOption
@@ -440,16 +444,58 @@ public enum AppRecords {
             }
     }
 
-    /// One cell's text (TS `cellText`, `cellCases`): null / missing = "",
-    /// a boolean = Yes / No, a number as written (`3`, never `3.0`), a list
-    /// = its items joined `, `, an object = its JSON.
+    /// VAPP-221: an attachment ref (eUI `RECORD_ATTACHMENT_REF`):
+    /// `/api/attachments/<lowercase uuid>`, nothing after it.
+    static func isAttachmentRef(_ value: CardJSON) -> Bool {
+        let prefix = "/api/attachments/"
+        guard case let .string(s) = value, s.hasPrefix(prefix) else { return false }
+        let id = Array(s.utf8.dropFirst(prefix.utf8.count))
+        guard id.count == 36 else { return false }
+        for (i, c) in id.enumerated() {
+            if [8, 13, 18, 23].contains(i) {
+                if c != UInt8(ascii: "-") { return false }
+            } else if !((UInt8(ascii: "0")...UInt8(ascii: "9")).contains(c) || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(c)) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// VAPP-221: a field holding files (`format: "attachment"` on a string or
+    /// a list's string items): no form field, the app's FileUpload writes it
+    /// (TS `isAttachmentField`). `field` = the schema's `properties.<name>`.
+    public static func isAttachmentField(_ field: CardJSON?) -> Bool {
+        let object = field?.objectValue ?? [:]
+        if stringValue(object["type"]) == "array" {
+            let items = object["items"]?.objectValue ?? [:]
+            return stringValue(items["type"]) == "string" && stringValue(items["format"]) == "attachment"
+        }
+        return stringValue(object["type"]) == "string" && stringValue(object["format"]) == "attachment"
+    }
+
+    /// One cell's text (TS `cellText`, `cellCases`): VAPP-221 files read as
+    /// a count (`1 file`, `{n} files`: a ref, or a non-empty list of refs
+    /// only), else the value as written (`plainText`).
     public static func cellText(_ value: CardJSON?) -> String {
+        if let value, isAttachmentRef(value) { return DataTab.Copy.file }
+        if case let .array(items)? = value, !items.isEmpty, items.allSatisfy(isAttachmentRef) {
+            return items.count == 1
+                ? DataTab.Copy.file
+                : DataTab.Copy.files.replacingOccurrences(of: "{n}", with: String(items.count))
+        }
+        return plainText(value)
+    }
+
+    /// A value as written (a form input's text; a cell without files):
+    /// null / missing = "", a boolean = Yes / No, a number as written (`3`,
+    /// never `3.0`), a list = its items joined `, `, an object = its JSON.
+    private static func plainText(_ value: CardJSON?) -> String {
         switch value {
         case nil, .null?: return ""
         case let .bool(b)?: return b ? DataTab.Copy.yes : DataTab.Copy.no
         case let .number(n)?: return numberText(n)
         case let .string(s)?: return s
-        case let .array(items)?: return items.map { cellText($0) }.joined(separator: ", ")
+        case let .array(items)?: return items.map { plainText($0) }.joined(separator: ", ")
         case let v?: return v.compactString
         }
     }
@@ -489,11 +535,12 @@ public enum AppRecords {
         return nil
     }
 
-    /// The form's fields, in column order (TS `formFields`, `formCases`).
+    /// The form's fields, in column order (TS `formFields`, `formCases`);
+    /// VAPP-221: an attachment field gets none.
     public static func formFields(_ schema: CardJSON) -> [DataFormField] {
         let props = properties(schema)
         let required = requiredNames(schema)
-        return dataColumns(schema).map { name in
+        return dataColumns(schema).filter { !isAttachmentField(props[$0]) }.map { name in
             let field = props[name]?.objectValue ?? [:]
             let isRequired = required.contains(name)
             switch stringValue(field["type"]) {
@@ -538,7 +585,7 @@ public enum AppRecords {
         switch value {
         case nil, .null?: return .text("")
         case let .array(items)? where control == .list:
-            return .text(items.map { cellText($0) }.joined(separator: ", "))
+            return .text(items.map { plainText($0) }.joined(separator: ", "))
         default: return .text(text(value))
         }
     }

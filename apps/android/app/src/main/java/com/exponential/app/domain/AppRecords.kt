@@ -199,6 +199,8 @@ object AppRecords {
         const val LIST_HINT = "Comma-separated"
         const val AUTHOR = "Author"
         const val BY_FOR = "{writer} for {author}"
+        const val FILE = "1 file"
+        const val FILES = "{n} files"
     }
 
     /** Fixture `dataTab.columns` (the WIDE table's widths, px; phones do not use them). */
@@ -257,14 +259,41 @@ object AppRecords {
             if (a.updatedAt == b.updatedAt) a.id.compareTo(b.id) else b.updatedAt.compareTo(a.updatedAt)
         }
 
-    /** One cell's text (`cellCases`): null/missing = "", a boolean Yes/No, a
-     *  number as written (`3`, never `3.0`), a list joined `, `, an object its JSON. */
-    fun cellText(value: JsonValue?): String = when (value) {
+    /** VAPP-221: an attachment ref (eUI `RECORD_ATTACHMENT_REF`). */
+    private val ATTACHMENT_REF = Regex("^/api/attachments/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    private fun isAttachmentRef(value: JsonValue?): Boolean = value is JsonValue.Str && ATTACHMENT_REF.matches(value.v)
+
+    /** VAPP-221: a field holding files (`format: "attachment"` on a string or
+     *  a list's string items): no form field, the app's FileUpload writes it. */
+    fun isAttachmentField(field: JsonValue?): Boolean {
+        if (field == null) return false
+        return if (field["type"]?.string == "array") {
+            val items = field["items"]
+            items?.get("type")?.string == "string" && items?.get("format")?.string == "attachment"
+        } else {
+            field["type"]?.string == "string" && field["format"]?.string == "attachment"
+        }
+    }
+
+    /** One cell's text (`cellCases`): files as a count (VAPP-221: a ref, or a
+     *  non-empty list of refs only), else [plainText]. */
+    fun cellText(value: JsonValue?): String {
+        if (isAttachmentRef(value)) return DataCopy.FILE
+        if (value is JsonValue.Arr && value.v.isNotEmpty() && value.v.all(::isAttachmentRef)) {
+            return if (value.v.size == 1) DataCopy.FILE else DataCopy.FILES.replace("{n}", value.v.size.toString())
+        }
+        return plainText(value)
+    }
+
+    /** A value as written (a form input's text; a cell without files):
+     *  null/missing = "", a boolean Yes/No, a number as written (`3`, never
+     *  `3.0`), a list joined `, `, an object its JSON. */
+    private fun plainText(value: JsonValue?): String = when (value) {
         null, JsonValue.Null -> ""
         is JsonValue.Bool -> if (value.v) DataCopy.YES else DataCopy.NO
         is JsonValue.Num -> value.displayText
         is JsonValue.Str -> value.v
-        is JsonValue.Arr -> value.v.joinToString(", ") { cellText(it) }
+        is JsonValue.Arr -> value.v.joinToString(", ") { plainText(it) }
         is JsonValue.Obj -> value.orderedJson
     }
 
@@ -324,11 +353,12 @@ object AppRecords {
         val itemType: String? = null,
     )
 
-    /** The form's fields, in column order (`formCases`). */
+    /** The form's fields, in column order (`formCases`); VAPP-221: an
+     *  attachment field gets none. */
     fun formFields(schema: JsonValue?): List<FormField> {
         val required = (schema?.get("required")?.array ?: emptyList()).mapNotNull { it.string }
         val properties = schema?.get("properties")?.obj ?: emptyMap()
-        return dataColumns(schema).map { name ->
+        return dataColumns(schema).filter { !isAttachmentField(properties[it]) }.map { name ->
             val field = properties[name]
             val isRequired = name in required
             val type = field?.get("type")?.string
@@ -348,7 +378,7 @@ object AppRecords {
     fun formInput(control: String, value: JsonValue?): Any {
         if (control == Controls.SWITCH) return value == JsonValue.Bool(true)
         if (value == null || value == JsonValue.Null) return ""
-        if (control == Controls.LIST && value is JsonValue.Arr) return value.v.joinToString(", ") { cellText(it) }
+        if (control == Controls.LIST && value is JsonValue.Arr) return value.v.joinToString(", ") { plainText(it) }
         return if (value is JsonValue.Str) value.v else value.displayText
     }
 

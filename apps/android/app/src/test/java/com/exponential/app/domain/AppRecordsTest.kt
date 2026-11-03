@@ -145,6 +145,7 @@ class AppRecordsTest {
             "none" to AppRecords.DataCopy.NONE, "optional" to AppRecords.DataCopy.OPTIONAL,
             "listHint" to AppRecords.DataCopy.LIST_HINT,
             "author" to AppRecords.DataCopy.AUTHOR, "byFor" to AppRecords.DataCopy.BY_FOR,
+            "file" to AppRecords.DataCopy.FILE, "files" to AppRecords.DataCopy.FILES,
         )
         assertEquals(copy.obj!!.keys, expected.keys)
         for ((key, value) in expected) assertEquals(key, copy[key]!!.string, value)

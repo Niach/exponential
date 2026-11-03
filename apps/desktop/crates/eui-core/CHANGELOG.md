@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-221: `Surface::components()`, a read-only getter of the flat components (hosts find a FileUpload's bound `files` path).
+
 ## 0.11.0 (2026-11-03)
 
 - VAPP-233 (eApps R8): `host::record_migrations` (`migrate_record`, `range_holds`, `validate_migrations`, `kind_changes`, `migration_refusal`).

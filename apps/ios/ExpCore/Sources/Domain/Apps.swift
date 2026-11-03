@@ -276,6 +276,82 @@ public enum Apps {
         value.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}")))
     }
 
+    // MARK: - VAPP-221 the app hosts' FileUpload uploads (fixture `appFiles`)
+
+    /// The fixture's `uploadPath` (`{appId}` = the app), `partName` and the
+    /// failed-action toast's `failedVerb` / `failedThing` (`AppsTests`
+    /// locks them): every picked file POSTs to the upload path as one
+    /// multipart part; the answer's `url` lands in the FileUpload's bound list.
+    public enum Files {
+        public static let uploadPath = "/api/apps/{appId}/files"
+        public static let partName = "file"
+        public static let failedVerb = "upload"
+        public static let failedThing = "the file"
+    }
+
+    /// The upload url path of an app (TS `appUploadPath`: `uploadPath` with
+    /// the id as JS `encodeURIComponent`).
+    public static func appUploadPath(_ appId: String) -> String {
+        var allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+        allowed.insert(charactersIn: "-_.!~*'()")
+        let encoded = appId.addingPercentEncoding(withAllowedCharacters: allowed) ?? appId
+        return Files.uploadPath.replacingOccurrences(of: "{appId}", with: encoded)
+    }
+
+    /// The absolute `files` path of the FIRST FileUpload (component order)
+    /// named `name` (its `name`, else its id); nil when it has no absolute
+    /// `{path}` binding (TS `appUploadTarget`, `targetCases`).
+    public static func appUploadTarget(_ components: [CardJSON], name: String) -> String? {
+        let upload = components.first { component in
+            guard let object = component.objectValue, object["component"] == .string("FileUpload") else { return false }
+            let named: CardJSON? = {
+                if case .string? = object["name"] { return object["name"] }
+                return object["id"]
+            }()
+            return named == .string(name)
+        }
+        guard case let .string(path)? = upload?.objectValue?["files"]?.objectValue?["path"], path.hasPrefix("/") else {
+            return nil
+        }
+        return path
+    }
+
+    /// `list` with `url` on every object entry named `fileName`; nil =
+    /// nothing to write (no list, no such entry) (TS `withUploadedUrl`,
+    /// `urlCases`).
+    public static func withUploadedUrl(_ list: CardJSON?, fileName: String, url: String) -> [CardJSON]? {
+        guard case let .array(entries)? = list else { return nil }
+        var hit = false
+        let next: [CardJSON] = entries.map { entry in
+            guard case var .object(object) = entry, object["name"] == .string(fileName) else { return entry }
+            hit = true
+            object["url"] = .string(url)
+            return .object(object)
+        }
+        return hit ? next : nil
+    }
+
+    /// The value at a JSON pointer (`/a/0/b`, RFC 6901 `~1` / `~0`) of
+    /// `root`; nil = nothing there. "" = the root.
+    public static func valueAt(pointer: String, in root: CardJSON) -> CardJSON? {
+        if pointer.isEmpty { return root }
+        guard pointer.hasPrefix("/") else { return nil }
+        var current: CardJSON? = root
+        for raw in pointer.dropFirst().split(separator: "/", omittingEmptySubsequences: false) {
+            let token = raw.replacingOccurrences(of: "~1", with: "/").replacingOccurrences(of: "~0", with: "~")
+            switch current {
+            case let .object(object)?:
+                current = object[token]
+            case let .array(items)?:
+                guard let index = Int(token), index >= 0, index < items.count else { return nil }
+                current = items[index]
+            default:
+                return nil
+            }
+        }
+        return current
+    }
+
     // MARK: - The model
 
     /// VAPP-176: a DRAFT = an app with no version yet (New app's

@@ -1196,6 +1196,48 @@ pub(crate) fn dev_open_consent(cx: &mut App) {
 /// origin (`media_origin`; empty = relative attachments only).
 pub(crate) struct IdePlugin {
     pub(crate) media_origin: String,
+    /// VAPP-221: the app whose FileUploads upload (an app surface, not
+    /// under Run as, not at access `read`); `None` = nothing uploads.
+    pub(crate) uploads: Option<Rc<AppUploads>>,
+}
+
+/// VAPP-221 (apps.json `appFiles`): where a FileUpload's files go: the app,
+/// and the host whose surface gets each answer's `url` (set once the host
+/// entity exists).
+pub(crate) struct AppUploads {
+    pub(crate) app_id: String,
+    pub(crate) host: RefCell<Option<gpui::WeakEntity<ExponentialHost>>>,
+}
+
+/// VAPP-221: the app uploads of `scope`: an app in scope, not under Run
+/// as, not at app access `read`.
+pub(crate) fn app_uploads(scope: Option<&HostScope>) -> Option<Rc<AppUploads>> {
+    scope
+        .filter(|s| s.run_as.is_none() && !s.read_only)
+        .map(|s| Rc::new(AppUploads { app_id: s.app_id.clone(), host: RefCell::new(None) }))
+}
+
+/// VAPP-221: write `url` into the bound `files` list of FileUpload `name`
+/// of surface `surface_id` (`appUploadTarget` + `withUploadedUrl`; no
+/// absolute binding or no such entry = nothing written).
+fn write_uploaded_url(
+    host: &gpui::WeakEntity<ExponentialHost>,
+    surface_id: &str,
+    name: &str,
+    file_name: &str,
+    url: &str,
+    cx: &mut App,
+) {
+    let Some(view) = host.upgrade().and_then(|host| host.read(cx).surface(surface_id)) else { return };
+    view.update(cx, |view, cx| {
+        let components: Vec<Value> =
+            view.surface().components().iter().filter_map(|c| serde_json::to_value(c).ok()).collect();
+        let Some(path) = domain::apps::app_upload_target(&components, name) else { return };
+        let Some(next) = domain::apps::with_uploaded_url(view.surface().get_data(&path), file_name, url) else { return };
+        if let Err(err) = view.set_data(&path, Some(Value::Array(next)), cx) {
+            log::warn!("[exponential-ui host] upload url not written at {path}: {err}");
+        }
+    });
 }
 
 pub(crate) fn icon_path(name: &str) -> Option<SharedString> {
@@ -1217,6 +1259,50 @@ impl HostPlugin for IdePlugin {
     /// audio or video, or this instance's own attachment); deny-only.
     fn media_allowed(&self, src: &str) -> bool {
         domain::apps::app_media_allowed(src, &self.media_origin)
+    }
+
+    /// VAPP-221 (apps.json `appFiles`): each picked file, one at a time in
+    /// the picked order, POSTs to the app's upload route as the viewer; the
+    /// answer's `url` lands in the FileUpload's bound `files` list. A
+    /// refusal or a network error = the failed-action toast (the file stays
+    /// listed without a url).
+    fn on_upload(&self, event: &eui_gpui::host::UploadEvent, cx: &mut App) {
+        let Some(uploads) = self.uploads.clone() else { return };
+        let Some(host) = uploads.host.borrow().clone() else { return };
+        let files = &domain::apps::APP_FILES;
+        let Some(transport) = crate::queries::http_attachment_transport(cx) else {
+            crate::action_error::failed_action(&files.failed_verb, &files.failed_thing, None, cx);
+            return;
+        };
+        // The field's name, else the FileUpload's id (`appUploadTarget`).
+        let name = if event.name.is_empty() { event.component_id.clone() } else { event.name.clone() };
+        let surface_id = event.surface_id.clone();
+        let paths = event.paths.clone();
+        cx.spawn(async move |cx| {
+            for path in paths {
+                // The name the surface's `upload` event lists the file under.
+                let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+                let (transport, app_id, upload_name) = (transport.clone(), uploads.app_id.clone(), file_name.clone());
+                let result = cx
+                    .background_executor()
+                    .spawn(async move {
+                        let bytes = std::fs::read(&path)?;
+                        let content_type = crate::markdown::image_paste::content_type_for_path(&path);
+                        let filename = if upload_name.is_empty() { "file" } else { upload_name.as_str() };
+                        transport.upload_app_file(&app_id, filename, content_type, &bytes)
+                    })
+                    .await;
+                let _ = cx.update(|cx| match result {
+                    Ok(uploaded) => write_uploaded_url(&host, &surface_id, &name, &file_name, &uploaded.url, cx),
+                    Err(err) => {
+                        log::warn!("[exponential-ui host] app file upload failed: {err}");
+                        let files = &domain::apps::APP_FILES;
+                        crate::action_error::failed_action(&files.failed_verb, &files.failed_thing, Some(err.to_string()), cx);
+                    }
+                });
+            }
+        })
+        .detach();
     }
 }
 
@@ -1822,6 +1908,7 @@ impl IdeHost {
             .map(|a| a.instance_url);
         let allow_private = instance.as_deref().map(own_private_hosts);
         let media_origin = instance.as_deref().map(instance_origin).unwrap_or_default();
+        let uploads = app_uploads(scope.as_ref());
         let mut functions: HashMap<String, HostFunction> = HashMap::new();
         functions.insert("harness.toast".into(), toast_fn());
         functions.insert("harness.openIssue".into(), open_issue_fn());
@@ -1892,7 +1979,7 @@ impl IdeHost {
                 .and_then(eui_core::themes::builtin_theme)
                 .or_else(|| eui_core::themes::builtin_theme(THEME_ID)),
             mode,
-            plugin: Rc::new(IdePlugin { media_origin }),
+            plugin: Rc::new(IdePlugin { media_origin, uploads: uploads.clone() }),
             me: scope.as_ref().and_then(|s| s.run_as.as_ref()).map(|r| r.id.clone()).or_else(|| {
                 sync::Store::try_global(cx).and_then(|_| crate::queries::active_account(cx)).map(|a| a.user_id)
             }),
@@ -1912,6 +1999,9 @@ impl IdeHost {
             host
         });
         feeds.borrow_mut().upstream.host = Some(host.downgrade());
+        if let Some(uploads) = &uploads {
+            *uploads.host.borrow_mut() = Some(host.downgrade());
+        }
         Self { host, feeds, _subscriptions: subscriptions, _tick: tick }
     }
 
@@ -1931,6 +2021,18 @@ mod tests {
     }
 
     const NOW: i64 = 1_791_460_800_000; // 2026-10-08T12:00:00Z
+
+    /// VAPP-221 (apps.json `appFiles`): an app surface uploads; under Run
+    /// as, at access `read` or with no app nothing does.
+    #[test]
+    fn app_uploads_follow_the_scope() {
+        let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false, records: None };
+        assert_eq!(app_uploads(Some(&scope)).map(|u| u.app_id.clone()).as_deref(), Some("a1"));
+        assert!(app_uploads(None).is_none());
+        assert!(app_uploads(Some(&HostScope { read_only: true, ..scope.clone() })).is_none());
+        let run_as = RunAs { id: "u2".into(), name: "Jonas".into(), role: "member".into(), access: None, kinds: "{}".into() };
+        assert!(app_uploads(Some(&HostScope { run_as: Some(run_as), ..scope })).is_none());
+    }
 
     #[test]
     fn format_ago_matches_the_web() {
@@ -2416,7 +2518,7 @@ mod tests {
     fn the_app_host_narrows_media_to_its_instance() {
         assert_eq!(instance_origin("https://app.exponential.at/"), "https://app.exponential.at");
         assert_eq!(instance_origin("http://localhost:3000/x"), "http://localhost:3000");
-        let plugin = IdePlugin { media_origin: instance_origin("http://localhost:3000") };
+        let plugin = IdePlugin { media_origin: instance_origin("http://localhost:3000"), uploads: None };
         let id = "0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90";
         assert!(plugin.media_allowed(&format!("/api/attachments/{id}")));
         assert!(plugin.media_allowed(&format!("http://localhost:3000/api/attachments/{id}")));

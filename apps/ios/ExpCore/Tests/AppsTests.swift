@@ -351,6 +351,54 @@ final class AppsTests: XCTestCase {
         XCTAssertFalse(Apps.appMediaAllowed("/api/attachments/\(uuid)\n", origin: origin))
     }
 
+    // MARK: - VAPP-221 the FileUpload uploads (`appFiles`)
+
+    private func appFiles() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["appFiles"] as? [String: Any])
+    }
+
+    func testAppFilesConstantsMatchTheFixture() throws {
+        let files = try appFiles()
+        XCTAssertEqual(files["uploadPath"] as? String, Apps.Files.uploadPath)
+        XCTAssertEqual(files["partName"] as? String, Apps.Files.partName)
+        XCTAssertEqual(files["failedVerb"] as? String, Apps.Files.failedVerb)
+        XCTAssertEqual(files["failedThing"] as? String, Apps.Files.failedThing)
+        XCTAssertEqual(Apps.appUploadPath("abc"), "/api/apps/abc/files")
+        XCTAssertEqual(Apps.appUploadPath("a/b c"), "/api/apps/a%2Fb%20c/files")
+    }
+
+    func testAppUploadTargetCases() throws {
+        let list = try XCTUnwrap(try appFiles()["targetCases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let components = try XCTUnwrap(item["components"] as? [Any]).map { CardJSON(any: $0) ?? .null }
+            let name = try XCTUnwrap(item["name"] as? String)
+            XCTAssertEqual(Apps.appUploadTarget(components, name: name), item["expected"] as? String, item["$why"] as? String ?? "")
+        }
+    }
+
+    func testWithUploadedUrlCases() throws {
+        let list = try XCTUnwrap(try appFiles()["urlCases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let fileName = try XCTUnwrap(item["fileName"] as? String)
+            let url = try XCTUnwrap(item["url"] as? String)
+            let got = Apps.withUploadedUrl(CardJSON(any: item["list"]), fileName: fileName, url: url)
+            XCTAssertEqual(got.map(CardJSON.array) ?? .null, CardJSON(any: item["expected"]) ?? .null, item["$why"] as? String ?? "")
+        }
+        XCTAssertNil(Apps.withUploadedUrl(nil, fileName: "a", url: "/u"))
+    }
+
+    func testValueAtPointer() {
+        let root: CardJSON = .object(["draft": .object(["files": .array([.string("x")])]), "a~b/c": .number(1)])
+        XCTAssertEqual(Apps.valueAt(pointer: "/draft/files", in: root), .array([.string("x")]))
+        XCTAssertEqual(Apps.valueAt(pointer: "/draft/files/0", in: root), .string("x"))
+        XCTAssertEqual(Apps.valueAt(pointer: "/a~0b~1c", in: root), .number(1))
+        XCTAssertEqual(Apps.valueAt(pointer: "", in: root), root)
+        XCTAssertNil(Apps.valueAt(pointer: "/missing/x", in: root))
+        XCTAssertNil(Apps.valueAt(pointer: "/draft/files/3", in: root))
+    }
+
     // MARK: - exp: sources (web `devicesValue`; the rest: AppSourcesTests)
 
     func testDevicesValueDerivesLikeTheWebHost() {

@@ -311,4 +311,30 @@ class AppsTest {
         assertEquals(true, Apps.appMediaAllowed("$origin/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90", "$origin/"))
         assertEquals(false, Apps.appMediaAllowed("$origin/api/attachments/0b6c1a52-3e1f-4d7a-9c55-2f8e4a1b7c90", ""))
     }
+
+    // VAPP-221: the app hosts' file upload (`appFiles`).
+    @Test
+    fun `appFiles replays targetCases and urlCases`() {
+        val files = fixture["appFiles"]!!.jsonObject
+        assertEquals(files["uploadPath"]!!.jsonPrimitive.content, Apps.AppFiles.UPLOAD_PATH)
+        assertEquals(files["partName"]!!.jsonPrimitive.content, Apps.AppFiles.PART_NAME)
+        assertEquals(files["failedVerb"]!!.jsonPrimitive.content, Apps.AppFiles.FAILED_VERB)
+        assertEquals(files["failedThing"]!!.jsonPrimitive.content, Apps.AppFiles.FAILED_THING)
+        assertEquals("/api/apps/a1b2/files", Apps.appUploadPath("a1b2"))
+        fun value(e: kotlinx.serialization.json.JsonElement?): at.exponential.ui.json.JsonValue? =
+            if (e == null || e is JsonNull) null else at.exponential.ui.json.JsonValue.parse(e.toString())
+        val targets = files["targetCases"]!!.jsonArray.map { it.jsonObject }
+        assert(targets.isNotEmpty())
+        for (case in targets) {
+            val components = case["components"]!!.jsonArray.map { value(it)!! }
+            val expected = case["expected"]!!.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+            assertEquals(case.toString(), expected, Apps.appUploadTarget(components, case["name"]!!.jsonPrimitive.content))
+        }
+        val urls = files["urlCases"]!!.jsonArray.map { it.jsonObject }
+        assert(urls.isNotEmpty())
+        for (case in urls) {
+            val got = Apps.withUploadedUrl(value(case["list"]), case["fileName"]!!.jsonPrimitive.content, case["url"]!!.jsonPrimitive.content)
+            assertEquals(case.toString(), value(case["expected"])?.json, got?.json)
+        }
+    }
 }

@@ -193,7 +193,7 @@ final class AppRecordsTests: XCTestCase {
             "empty": C.empty, "noKinds": C.noKinds, "emptyTitle": C.emptyTitle, "newTitle": C.newTitle,
             "editTitle": C.editTitle, "save": C.save, "cancel": C.cancel, "yes": C.yes, "no": C.no,
             "none": C.none, "optional": C.optional, "listHint": C.listHint,
-            "author": C.author, "byFor": C.byFor,
+            "author": C.author, "byFor": C.byFor, "file": C.file, "files": C.files,
         ])
         let columns = try XCTUnwrap(tab["columns"] as? [String: Any])
         XCTAssertEqual(columns["byWidth"] as? Double, AppRecords.DataTab.Columns.byWidth)
@@ -254,6 +254,24 @@ final class AppRecordsTests: XCTestCase {
             let value: CardJSON? = item.keys.contains("value") ? json(item["value"]) : nil
             XCTAssertEqual(AppRecords.cellText(value), item["text"] as? String, "\(item["value"] ?? "missing")")
         }
+    }
+
+    // VAPP-221: an attachment field (a string or a list of strings with
+    // `format: "attachment"`) gets no form field; `cellCases` / `formCases`
+    // above replay the fixture, this pins the field rule itself.
+    func testIsAttachmentField() {
+        let attachment: CardJSON = .object(["type": .string("string"), "format": .string("attachment")])
+        let list: CardJSON = .object(["type": .string("array"), "items": attachment])
+        XCTAssertTrue(AppRecords.isAttachmentField(attachment))
+        XCTAssertTrue(AppRecords.isAttachmentField(list))
+        XCTAssertFalse(AppRecords.isAttachmentField(.object(["type": .string("string"), "format": .string("date")])))
+        XCTAssertFalse(AppRecords.isAttachmentField(.object(["type": .string("array"), "items": .object(["type": .string("string")])])))
+        XCTAssertFalse(AppRecords.isAttachmentField(.object(["type": .string("array"), "format": .string("attachment")])))
+        XCTAssertFalse(AppRecords.isAttachmentField(nil))
+        // A list of refs reads as a count, but its form input stays the refs.
+        let refs: CardJSON = .array([.string("/api/attachments/0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60")])
+        XCTAssertEqual(AppRecords.cellText(refs), AppRecords.DataTab.Copy.file)
+        XCTAssertEqual(AppRecords.formInput(.list, refs), .text("/api/attachments/0f6e2c1a-8b3d-4c5e-9a7f-1b2c3d4e5f60"))
     }
 
     private func fieldObject(_ field: AppRecords.DataFormField) -> NSDictionary {

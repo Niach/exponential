@@ -273,6 +273,19 @@ impl HttpAttachmentTransport {
         }
     }
 
+    /// VAPP-221 (apps.json `appFiles`): one file of an app's FileUpload →
+    /// `POST /api/apps/{appId}/files`, the same single-part multipart `file`.
+    pub fn upload_app_file(
+        &self,
+        app_id: &str,
+        filename: &str,
+        content_type: &str,
+        bytes: &[u8],
+    ) -> anyhow::Result<UploadedImage> {
+        let url = format!("{}{}", self.base_url, domain::apps::app_upload_path(app_id));
+        self.post_multipart(&url, filename, content_type, bytes)
+    }
+
     /// One multipart POST to the issue upload route. The user-facing error
     /// label follows the payload: an inline image is an "image", every other
     /// content type a "file".

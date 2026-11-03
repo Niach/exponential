@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/apps.json" with { type: "json" }
-import { appMediaAllowed, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
+import { appMediaAllowed, appUploadPath, appUploadTarget, withUploadedUrl, APP_FILES, automationRow, type AutomationRowInput, canPublish, editorBrief, editorTab, grantVersion, listPill, previewTemplate, previewTemplates, runAsOptions, shownVersion, slugify, sortApps, versionLabel, versionMigration, type VersionMigration, versionRow, webhookRow } from "./apps"
 
 describe(`apps (VAPP-110)`, () => {
   test.each(fixture.slugifyCases)(`slugify %j`, (c) => {
@@ -55,4 +55,10 @@ describe(`appMediaAllowed (VAPP-157)`, () => {
   test.each(fixture.mediaPolicy.cases)(`$src`, (c) => {
     expect(appMediaAllowed(c.src, fixture.mediaPolicy.origin)).toBe(c.expected)
   })
+})
+
+describe(`appFiles (VAPP-221)`, () => {
+  test(`uploadPath`, () => expect(appUploadPath(`a1`)).toBe(`/api/apps/a1/files`))
+  test.each(APP_FILES.targetCases)(`appUploadTarget $$why`, (c) => expect(appUploadTarget(c.components as never, c.name)).toBe(c.expected))
+  test.each(APP_FILES.urlCases)(`withUploadedUrl $$why`, (c) => expect(withUploadedUrl(c.list, c.fileName, c.url)).toEqual(c.expected))
 })

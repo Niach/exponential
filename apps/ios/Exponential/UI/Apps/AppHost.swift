@@ -41,7 +41,10 @@ import ExponentialUI
 //     hosting app's synced row grants (`apps.granted_tools`): no card; urls through the URL policy (an
 //     instance link opens in-app like a markdown link, anything else in the
 //     Safari sheet); media only through `Apps.appMediaAllowed` (VAPP-157:
-//     a data: image/audio/video or the instance's own attachment).
+//     a data: image/audio/video or the instance's own attachment);
+//   - VAPP-221 uploads: files picked for a FileUpload POST one at a time to
+//     the app's upload route (fixture `appFiles`), each answer's `url`
+//     written into the FileUpload's bound list (`AppHostUploads`).
 
 /// VAPP-107 (the consent prompt's `slot`): what the card shows of a call:
 /// the tool it names, its arguments as compact JSON (a `harness.mcp` call's
@@ -454,6 +457,12 @@ final class ExpAppHost {
         // VAPP-157: `data` for the fixture's data image/audio/video (the
         // plugin's `resolveUrl` already narrowed every src to the media rule).
         let schemes = ["https"] + (base?.scheme == "http" ? ["http"] : []) + ["data"]
+        // VAPP-221: a FileUpload's files upload to the hosting app; no app
+        // or access `read` (the FileUpload paints disabled) = nothing
+        // uploads. Phones have no Run as (apps.json `runAs`).
+        let uploads: AppHostUploads? = (appId != nil && !readOnly)
+            ? AppHostUploads(appId: appId ?? "", accountId: accountId, attachmentsApi: deps.attachmentsApi)
+            : nil
         let actions = Self.actionFunctions(accountId: accountId, base: base, httpClient: deps.httpClient)
         // VAPP-122: the app's own rows (no consent card); a refusal (the
         // kind's schema, the caps, the plan quota) = the failed-action toast,
@@ -622,7 +631,9 @@ final class ExpAppHost {
             mode: .dark,
             // VAPP-200: at app access `read` every surface is read-only.
             settings: readOnly ? SurfaceSettings(mode: .dark, readOnly: true) : nil,
-            plugin: AppHostPlugin(origin: origin ?? ""),
+            plugin: AppHostPlugin(origin: origin ?? "", uploads: uploads),
+            // VAPP-221: the surfaces' components (a FileUpload's `files` binding).
+            onOp: { op in uploads?.observe(op) },
             // VAPP-194: a package action runs as the viewer; one that landed
             // nothing = the failed-action toast. VAPP-201 (team-zone.json):
             // dates in the TEAM zone off the synced team row, else the device's.
@@ -635,6 +646,7 @@ final class ExpAppHost {
                 )
             }
         ))
+        uploads?.host = host
     }
 
     /// #VAPP-230: one upstream binding: the broker's answer for the viewer,
@@ -702,9 +714,17 @@ final class ExpAppHost {
 private final class AppHostPlugin: HostPlugin {
     /// The instance origin (`scheme://host[:port]`, no trailing slash).
     let origin: String
+    /// VAPP-221: the FileUpload uploads (nil = nothing uploads).
+    let uploads: AppHostUploads?
 
-    init(origin: String) {
+    init(origin: String, uploads: AppHostUploads? = nil) {
         self.origin = origin
+        self.uploads = uploads
+    }
+
+    /// VAPP-221: files picked for (or dropped on) a FileUpload.
+    func onUpload(_ event: SurfaceUploadEvent) {
+        uploads?.upload(event)
     }
 
     /// VAPP-157: the app host NARROWS the SDK's media policy with
@@ -718,6 +738,90 @@ private final class AppHostPlugin: HostPlugin {
     func icon(_ name: String, size: CGFloat) -> AnyView? {
         guard let resolved = AppIcons.conceptOrName(name) else { return nil }
         return AnyView(AppIcon(resolved, size: size))
+    }
+}
+
+/// VAPP-221 (eApps R7, fixture `appFiles`): the app host's FileUpload
+/// uploads. Each picked file POSTs, one at a time in the picked order, to
+/// the app's upload route as the viewer; its answer's `url` lands in the
+/// list at the FileUpload's bound `files` path (`Apps.appUploadTarget` +
+/// `Apps.withUploadedUrl`); a failure = the failed-action toast and the file
+/// stays listed without a url. The surfaces' RAW components (the painted
+/// nodes carry the resolved list, not the binding) come off the host's ops.
+@MainActor
+private final class AppHostUploads {
+    weak var host: ExponentialHost?
+    private let appId: String
+    private let accountId: String
+    private let attachmentsApi: AttachmentsApi
+    /// Every surface's components as its last `components` op set them
+    /// (the SDK's `setComponents` replaces the whole list).
+    private var components: [String: [JSONValue]] = [:]
+
+    init(appId: String, accountId: String, attachmentsApi: AttachmentsApi) {
+        self.appId = appId
+        self.accountId = accountId
+        self.attachmentsApi = attachmentsApi
+    }
+
+    /// One op the host performed (`HostOptions.onOp`).
+    func observe(_ op: JSONValue) {
+        let surfaceId = op["surfaceId"]?.string ?? ""
+        switch op["op"]?.string {
+        case "create", "delete":
+            components[surfaceId] = nil
+        case "components":
+            components[surfaceId] = op["components"]?.array ?? []
+        default:
+            break
+        }
+    }
+
+    func upload(_ event: SurfaceUploadEvent) {
+        // The SDK's `name` is the FileUpload's `name` prop ("" = none: its id).
+        let name = event.name.isEmpty ? event.componentId : event.name
+        let raw = (components[event.surfaceId] ?? []).map { CardJSON(any: $0.any) ?? .null }
+        let target = Apps.appUploadTarget(raw, name: name)
+        let surfaceId = event.surfaceId
+        let files = event.files
+        Task { @MainActor [weak self] in
+            for file in files {
+                guard let self else { return }
+                await self.upload(file, surfaceId: surfaceId, target: target)
+            }
+        }
+    }
+
+    private func upload(_ file: SurfaceUploadFile, surfaceId: String, target: String?) async {
+        do {
+            guard let bytes = file.data ?? file.url.flatMap({ try? Data(contentsOf: $0) }) else {
+                throw CocoaError(.fileReadUnknown)
+            }
+            let uploaded = try await attachmentsApi.uploadAppFile(
+                accountId: accountId, appId: appId, data: bytes, filename: file.name, contentType: file.type
+            )
+            // No absolute binding = nothing to write (the upload still happened).
+            guard let target, let model = host?.surface(surfaceId) else { return }
+            let current = Apps.valueAt(pointer: target, in: CardJSON(any: model.data.any) ?? .null)
+            guard let next = Apps.withUploadedUrl(current, fileName: file.name, url: uploaded.url) else { return }
+            model.setData(path: target, value: Self.jsonValue(.array(next)))
+        } catch {
+            Toaster.shared.error(
+                FeedbackStates.Errors.title(verb: Apps.Files.failedVerb, thing: Apps.Files.failedThing),
+                description: error.trpcUserMessage
+            )
+        }
+    }
+
+    private static func jsonValue(_ value: CardJSON) -> JSONValue {
+        switch value {
+        case .null: return .null
+        case let .bool(b): return .bool(b)
+        case let .number(n): return .number(n)
+        case let .string(s): return .string(s)
+        case let .array(items): return .array(items.map(jsonValue))
+        case let .object(object): return .object(object.mapValues(jsonValue))
+        }
     }
 }
 

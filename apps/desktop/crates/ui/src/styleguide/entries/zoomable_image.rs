@@ -32,7 +32,7 @@ fn specimen(key: &str, scale: Option<f64>, window: &mut Window, cx: &mut App) ->
                 controls: ZoomControls::Always,
                 theme: eui_core::themes::builtin_theme(crate::exponential_ui_host::THEME_ID),
                 mode: eui_core::theme::Mode::Dark,
-                host: Rc::new(crate::exponential_ui_host::IdePlugin { media_origin: String::new() }),
+                host: Rc::new(crate::exponential_ui_host::IdePlugin { media_origin: String::new(), uploads: None }),
                 ..ZoomableImageOptions::default()
             };
             cx.new(|cx| {

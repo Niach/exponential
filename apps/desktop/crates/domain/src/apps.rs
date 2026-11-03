@@ -849,6 +849,76 @@ pub fn app_media_allowed(src: &str, origin: &str) -> bool {
     path.strip_prefix(policy.attachment_path.as_str()).is_some_and(is_uuid)
 }
 
+/// VAPP-221 (eApps R7): the fixture's `appFiles` (the app hosts' FileUpload
+/// uploads): every picked file POSTs to `upload_path` as one multipart part
+/// `part_name`; the answer's `url` lands in the FileUpload's bound list.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppFiles {
+    pub upload_path: String,
+    pub part_name: String,
+    pub failed_verb: String,
+    pub failed_thing: String,
+}
+
+pub static APP_FILES: LazyLock<AppFiles> = LazyLock::new(|| {
+    let fixture: serde_json::Value = serde_json::from_str(APPS_JSON).expect("apps.json parses");
+    serde_json::from_value(fixture["appFiles"].clone()).expect("apps.json appFiles parses")
+});
+
+/// JS `encodeURIComponent`.
+fn encode_uri_component(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        if b.is_ascii_alphanumeric() || b"-_.!~*'()".contains(&b) {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// The upload url of an app (`uploadPath` with its id).
+pub fn app_upload_path(app_id: &str) -> String {
+    APP_FILES.upload_path.replace("{appId}", &encode_uri_component(app_id))
+}
+
+/// The absolute `files` path of the FIRST FileUpload (component order)
+/// named `name` (its `name`, else its id); None when it has no absolute
+/// `{path}` binding (`targetCases`).
+pub fn app_upload_target(components: &[serde_json::Value], name: &str) -> Option<String> {
+    let upload = components.iter().find(|c| {
+        c["component"].as_str() == Some("FileUpload")
+            && match c.get("name").and_then(serde_json::Value::as_str) {
+                Some(n) => n == name,
+                None => c["id"].as_str() == Some(name),
+            }
+    })?;
+    let path = upload.get("files")?.as_object()?.get("path")?.as_str()?;
+    path.starts_with('/').then(|| path.to_string())
+}
+
+/// `list` with `url` on every object entry named `file_name`; None = nothing
+/// to write (no list, no such entry) (`urlCases`).
+pub fn with_uploaded_url(list: Option<&serde_json::Value>, file_name: &str, url: &str) -> Option<Vec<serde_json::Value>> {
+    let list = list?.as_array()?;
+    let mut hit = false;
+    let next = list
+        .iter()
+        .map(|entry| match entry.as_object() {
+            Some(obj) if obj.get("name").and_then(serde_json::Value::as_str) == Some(file_name) => {
+                hit = true;
+                let mut obj = obj.clone();
+                obj.insert("url".into(), serde_json::Value::String(url.into()));
+                serde_json::Value::Object(obj)
+            }
+            _ => entry.clone(),
+        })
+        .collect();
+    hit.then_some(next)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1136,5 +1206,31 @@ mod tests {
         assert!(app_media_allowed(id, ""));
         assert!(!app_media_allowed(&format!("{origin}{id}"), ""));
         assert!(!app_media_allowed(&format!("{id}\u{feff}"), origin));
+    }
+
+    #[test]
+    fn app_files_replay_the_fixture() {
+        let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
+        let files = &fixture["appFiles"];
+        assert_eq!(APP_FILES.part_name, files["partName"].as_str().unwrap());
+        assert_eq!(APP_FILES.failed_verb, files["failedVerb"].as_str().unwrap());
+        assert_eq!(APP_FILES.failed_thing, files["failedThing"].as_str().unwrap());
+        assert_eq!(app_upload_path("abc"), "/api/apps/abc/files");
+        assert_eq!(app_upload_path("a/b c"), "/api/apps/a%2Fb%20c/files");
+        let targets = files["targetCases"].as_array().unwrap();
+        assert!(!targets.is_empty());
+        for case in targets {
+            let components = case["components"].as_array().unwrap();
+            let want = case["expected"].as_str().map(str::to_string);
+            assert_eq!(app_upload_target(components, case["name"].as_str().unwrap()), want, "{}", case["$why"]);
+        }
+        let urls = files["urlCases"].as_array().unwrap();
+        assert!(!urls.is_empty());
+        for case in urls {
+            let got = with_uploaded_url(Some(&case["list"]), case["fileName"].as_str().unwrap(), case["url"].as_str().unwrap());
+            let want = case["expected"].as_array().cloned();
+            assert_eq!(got, want, "{}", case["$why"]);
+        }
+        assert_eq!(with_uploaded_url(None, "a", "/u"), None);
     }
 }
