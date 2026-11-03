@@ -104,6 +104,24 @@ pub struct AppsCopy {
     pub run_as: AppsRunAsCopy,
     /// #VAPP-220: the Settings tab's Automations group.
     pub automations: AppsAutomationsCopy,
+    /// #VAPP-238: the Settings tab's Webhooks group.
+    pub webhooks: AppsWebhooksCopy,
+}
+
+/// #VAPP-238: `copy.webhooks.*`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsWebhooksCopy {
+    pub title: String,
+    pub ready: String,
+    pub unsigned: String,
+    pub copy_url: String,
+    pub copied: String,
+    pub mint: String,
+    pub rotate: String,
+    /// The shown-once secret row's label.
+    pub secret: String,
+    pub copy_secret: String,
 }
 
 /// #VAPP-220: `copy.automations.*`.
@@ -305,6 +323,10 @@ pub struct AppsTestIds {
     /// #VAPP-220: the Settings tab's Automations group and one row.
     pub automations: String,
     pub automation_row: String,
+    /// #VAPP-238: the Webhooks group, one row, the shown-once secret row.
+    pub webhooks: String,
+    pub webhook_row: String,
+    pub webhook_secret: String,
     /// VAPP-178: the Data tab.
     pub data: String,
     /// VAPP-179: the preview toolbar, its frame control and template picker.
@@ -652,6 +674,67 @@ pub fn automation_row(on: &AutomationOn, paused: Option<&str>, last_status: Opti
     AutomationRowView { trigger, status, label }
 }
 
+/// #VAPP-238: a webhook's state on its Settings row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebhookStatus {
+    Ready,
+    Unsigned,
+}
+
+impl WebhookStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::Unsigned => "unsigned",
+        }
+    }
+}
+
+/// #VAPP-238: an owner's action pill on a webhook row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WebhookAction {
+    /// No secret yet: `appAccess.rotateHook` at once.
+    Mint,
+    /// Asks first (`rotate-webhook-secret`), then the same call.
+    Rotate,
+}
+
+impl WebhookAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Mint => "mint",
+            Self::Rotate => "rotate",
+        }
+    }
+}
+
+/// #VAPP-238 (`webhookRowCases`): one row of the Settings tab's Webhooks
+/// group.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebhookRowView {
+    pub status: WebhookStatus,
+    pub label: String,
+    pub action: Option<WebhookAction>,
+    pub action_label: Option<String>,
+}
+
+/// #VAPP-238: the status, its label and the owner's action (the TS
+/// `webhookRow`); `is_owner` = `appTools.canToggle`.
+pub fn webhook_row(has_secret: bool, is_owner: bool) -> WebhookRowView {
+    let copy = &APPS.copy.webhooks;
+    let (status, label) = if has_secret {
+        (WebhookStatus::Ready, &copy.ready)
+    } else {
+        (WebhookStatus::Unsigned, &copy.unsigned)
+    };
+    let action = is_owner.then_some(if has_secret { WebhookAction::Rotate } else { WebhookAction::Mint });
+    let action_label = action.map(|a| match a {
+        WebhookAction::Mint => copy.mint.clone(),
+        WebhookAction::Rotate => copy.rotate.clone(),
+    });
+    WebhookRowView { status, label: label.clone(), action, action_label }
+}
+
 /// `Delete {name}?`.
 pub fn delete_title(name: &str) -> String {
     APPS.copy.delete_title.replace("{name}", name)
@@ -932,6 +1015,39 @@ mod tests {
         assert_eq!(APPS.copy.automations.title, fixture["copy"]["automations"]["title"].as_str().unwrap());
         assert_eq!(APPS.test_ids.automations, fixture["testIds"]["automations"].as_str().unwrap());
         assert_eq!(APPS.test_ids.automation_row, fixture["testIds"]["automationRow"].as_str().unwrap());
+    }
+
+    #[test]
+    fn webhook_row_replays_the_fixture() {
+        let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
+        let all = fixture["webhookRowCases"]["cases"].as_array().unwrap();
+        assert!(!all.is_empty());
+        for case in all {
+            let name = case["name"].as_str().unwrap();
+            let got = webhook_row(case["row"]["hasSecret"].as_bool().unwrap(), case["isOwner"].as_bool().unwrap());
+            let want = &case["expected"];
+            assert_eq!(got.status.as_str(), want["status"].as_str().unwrap(), "{name}");
+            assert_eq!(got.label, want["label"].as_str().unwrap(), "{name}");
+            assert_eq!(got.action.map(WebhookAction::as_str), want["action"].as_str(), "{name}");
+            assert_eq!(got.action_label.as_deref(), want["actionLabel"].as_str(), "{name}");
+        }
+        let copy = &APPS.copy.webhooks;
+        for (key, value) in [
+            ("title", &copy.title),
+            ("ready", &copy.ready),
+            ("unsigned", &copy.unsigned),
+            ("copyUrl", &copy.copy_url),
+            ("copied", &copy.copied),
+            ("mint", &copy.mint),
+            ("rotate", &copy.rotate),
+            ("secret", &copy.secret),
+            ("copySecret", &copy.copy_secret),
+        ] {
+            assert_eq!(fixture["copy"]["webhooks"][key], value.as_str(), "{key}");
+        }
+        assert_eq!(APPS.test_ids.webhooks, fixture["testIds"]["webhooks"].as_str().unwrap());
+        assert_eq!(APPS.test_ids.webhook_row, fixture["testIds"]["webhookRow"].as_str().unwrap());
+        assert_eq!(APPS.test_ids.webhook_secret, fixture["testIds"]["webhookSecret"].as_str().unwrap());
     }
 
     #[test]

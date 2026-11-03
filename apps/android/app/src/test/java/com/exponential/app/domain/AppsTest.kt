@@ -4,6 +4,7 @@ import java.io.File
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -118,6 +119,38 @@ class AppsTest {
         }
     }
 
+    // #VAPP-238: webhookRow replays `webhookRowCases` and locks `copy.webhooks`.
+    @Test
+    fun `webhookRowCases replay`() {
+        val copy = fixture["copy"]!!.jsonObject["webhooks"]!!.jsonObject
+        val expectedCopy = mapOf(
+            "title" to Apps.WebhooksCopy.TITLE, "ready" to Apps.WebhooksCopy.READY,
+            "unsigned" to Apps.WebhooksCopy.UNSIGNED, "copyUrl" to Apps.WebhooksCopy.COPY_URL,
+            "copied" to Apps.WebhooksCopy.COPIED, "mint" to Apps.WebhooksCopy.MINT,
+            "rotate" to Apps.WebhooksCopy.ROTATE, "secret" to Apps.WebhooksCopy.SECRET,
+            "copySecret" to Apps.WebhooksCopy.COPY_SECRET,
+        )
+        assertEquals(copy.keys, expectedCopy.keys)
+        for ((key, value) in expectedCopy) assertEquals(key, copy[key]!!.jsonPrimitive.content, value)
+
+        val cases = fixture["webhookRowCases"]!!.jsonObject["cases"]!!.jsonArray.map { it.jsonObject }
+        assert(cases.isNotEmpty())
+        fun opt(obj: JsonObject, key: String) = obj[key]?.let { if (it is JsonNull) null else it.jsonPrimitive.content }
+        for (case in cases) {
+            val name = case["name"]!!.jsonPrimitive.content
+            val row = case["row"]!!.jsonObject
+            val got = Apps.webhookRow(
+                Apps.WebhookRowInput(row["name"]!!.jsonPrimitive.content, row["hasSecret"]!!.jsonPrimitive.boolean),
+                case["isOwner"]!!.jsonPrimitive.boolean,
+            )
+            val expected = case["expected"]!!.jsonObject
+            assertEquals(name, expected["status"]!!.jsonPrimitive.content, got.status.wire)
+            assertEquals(name, expected["label"]!!.jsonPrimitive.content, got.label)
+            assertEquals(name, opt(expected, "action"), got.action?.wire)
+            assertEquals(name, opt(expected, "actionLabel"), got.actionLabel)
+        }
+    }
+
     @Test
     fun `editorTab replays the fixture`() {
         val tabs = fixture["editorTabs"]!!.jsonObject
@@ -223,6 +256,8 @@ class AppsTest {
             "previewToolbar" to Apps.TestIds.PREVIEW_TOOLBAR, "previewFrame" to Apps.TestIds.PREVIEW_FRAME,
             "previewTemplate" to Apps.TestIds.PREVIEW_TEMPLATE, "previewRunAs" to Apps.TestIds.PREVIEW_RUN_AS,
             "automations" to Apps.TestIds.AUTOMATIONS, "automationRow" to Apps.TestIds.AUTOMATION_ROW,
+            "webhooks" to Apps.TestIds.WEBHOOKS, "webhookRow" to Apps.TestIds.WEBHOOK_ROW,
+            "webhookSecret" to Apps.TestIds.WEBHOOK_SECRET,
         )
         assertEquals(ids.keys, expectedIds.keys)
         for ((key, value) in expectedIds) assertEquals(ids[key]!!.jsonPrimitive.content, value)

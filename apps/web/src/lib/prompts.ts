@@ -267,6 +267,12 @@ export const revokeMcpClientPrompt = (client: string) =>
     client,
   })
 
+/** #VAPP-238: an app Settings › Webhooks row's Rotate secret. */
+export const rotateWebhookSecretPrompt = (hook: string) =>
+  copyOf(P[`rotate-webhook-secret`], P[`rotate-webhook-secret`].title, P[`rotate-webhook-secret`].body, {
+    hook,
+  })
+
 /** VAPP-91: a host asking before a surface acts as the person (`harness.mcp`
  *  names its MCP tool, any other `ask` function its own name). Deny takes
  *  focus and Enter; Allow is the explicit `default` answer. VAPP-107:

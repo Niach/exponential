@@ -688,6 +688,15 @@ struct AppSettingsSheet: View {
     @State private var toolBusy: String?
     /// #VAPP-220: the published package's automations (`appAccess.appTools`).
     @State private var automations: [AppAutomationWire] = []
+    /// #VAPP-238: the published package's webhooks and `canToggle` (owner).
+    @State private var hooks: [AppHookWire] = []
+    @State private var canToggle = false
+    /// A minted / rotated secret, by hook name: shown ONCE, in this sheet's
+    /// memory only (never refetched; gone when the sheet closes).
+    @State private var hookSecrets: [String: String] = [:]
+    @State private var hookBusy: String?
+    @State private var rotateTarget: String?
+    @State private var showRotate = false
     @FocusState private var nameFocused: Bool
     @FocusState private var descriptionFocused: Bool
 
@@ -712,6 +721,19 @@ struct AppSettingsSheet: View {
         .onAppear { seed() }
         // #VAPP-220: refetched when the app or its published version changes.
         .task(id: automationsKey) { await loadAutomations() }
+        .background {
+            Color.clear
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .glassAlert(isPresented: $showRotate) {
+                    GlassAlert(
+                        prompt: Prompts.RotateWebhookSecret.copy(hook: rotateTarget ?? ""),
+                        handlers: ["rotate": {
+                            if let name = rotateTarget { rotateHook(name, verb: "rotate") }
+                        }]
+                    )
+                }
+        }
         .onChange(of: model.app?.id) { _, _ in
             seeded = false
             seed()
@@ -752,6 +774,7 @@ struct AppSettingsSheet: View {
                 .accessibilityIdentifier("app-settings-records")
             tools(app)
             automationsGroup
+            webhooksGroup
             actions(app)
         }
     }
@@ -906,6 +929,108 @@ struct AppSettingsSheet: View {
         .accessibilityIdentifier(Apps.TestIds.automationRow)
     }
 
+    /// #VAPP-238: `copy.webhooks` (shown when the published package's
+    /// automations listen on a webhook): one row per hook, the Automations
+    /// row's layout (name mono over the URL, the status pill), then the URL
+    /// copy pill and, for an owner (`canToggle`), Create / Rotate secret. A
+    /// minted secret shows ONCE in a row right under its hook.
+    @ViewBuilder
+    private var webhooksGroup: some View {
+        if !hooks.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(Apps.Copy.Webhooks.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                VStack(spacing: 0) {
+                    ForEach(Array(hooks.enumerated()), id: \.offset) { _, hook in
+                        webhookRow(hook)
+                        if let secret = hookSecrets[hook.name] {
+                            webhookSecretRow(secret)
+                        }
+                    }
+                }
+                .glassSection()
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Apps.TestIds.webhooks)
+        }
+    }
+
+    private func webhookRow(_ hook: AppHookWire) -> some View {
+        let row = Apps.webhookRow(hook.row, isOwner: canToggle)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(hook.name)
+                        .font(.subheadline.monospaced())
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Text(hook.url)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                GlassPill(row.label)
+            }
+            HStack(spacing: 8) {
+                GlassPill(Apps.Copy.Webhooks.copyUrl, icon: AppIcons.uiCopy, mode: .action {
+                    UIPasteboard.general.string = hook.url
+                    toaster.success(Apps.Copy.Webhooks.copied)
+                })
+                .fixedSize()
+                if let action = row.action, let label = row.actionLabel {
+                    GlassPill(label, mode: .action {
+                        switch action {
+                        case .mint:
+                            rotateHook(hook.name, verb: "create")
+                        case .rotate:
+                            rotateTarget = hook.name
+                            showRotate = true
+                        }
+                    }, enabled: hookBusy == nil)
+                    .fixedSize()
+                    .accessibilityIdentifier("\(Apps.TestIds.webhookRow)-\(hook.name)-\(action.rawValue)")
+                }
+                Spacer(minLength: 0)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("\(Apps.TestIds.webhookRow)-\(hook.name)")
+    }
+
+    /// The shown-once secret: `copy.webhooks.secret` over the secret (mono,
+    /// middle-truncated) and its copy pill.
+    private func webhookSecretRow(_ secret: String) -> some View {
+        HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(Apps.Copy.Webhooks.secret)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                Text(secret)
+                    .font(.subheadline.monospaced())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            GlassPill(Apps.Copy.Webhooks.copySecret, icon: AppIcons.uiCopy, mode: .action {
+                UIPasteboard.general.string = secret
+                toaster.success(Apps.Copy.Webhooks.copied)
+            })
+            .fixedSize()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(Apps.TestIds.webhookSecret)
+    }
+
     /// Export (once the app has a version) and, at the end, Delete app (the
     /// creator or an owner).
     @ViewBuilder
@@ -941,16 +1066,45 @@ struct AppSettingsSheet: View {
     }
 
     /// #VAPP-220: a failed read keeps the group hidden (nothing to act on).
+    /// #VAPP-238: the same read carries the webhooks and `canToggle`.
     private func loadAutomations() async {
         guard let app = model.app else {
             automations = []
+            hooks = []
+            canToggle = false
             return
         }
         let api = deps.appsApi
         let account = accountId
-        let rows = (try? await api.automations(accountId: account, appId: app.id)) ?? []
+        let summary = try? await api.tools(accountId: account, appId: app.id)
         guard !Task.isCancelled else { return }
-        automations = rows
+        automations = summary?.automations ?? []
+        hooks = summary?.hooks ?? []
+        canToggle = summary?.canToggle ?? false
+    }
+
+    /// #VAPP-238 `appAccess.rotateHook`: mints (no secret yet) or rotates a
+    /// hook's secret; the answer's secret is kept here only and the row
+    /// turns `ready`. A failure = the failed-action toast.
+    private func rotateHook(_ name: String, verb: String) {
+        guard canToggle, hookBusy == nil, let app = model.app else { return }
+        hookBusy = name
+        let api = deps.appsApi
+        let account = accountId
+        Task {
+            defer { hookBusy = nil }
+            do {
+                let minted = try await api.rotateHook(accountId: account, appId: app.id, name: name)
+                hookSecrets[name] = minted.secret
+                hooks = hooks.map { hook in
+                    hook.name == name
+                        ? AppHookWire(name: hook.name, url: hook.url, hasSecret: true, rotatedAt: hook.rotatedAt)
+                        : hook
+                }
+            } catch {
+                toaster.error(FeedbackStates.Errors.title(verb: verb, thing: "the secret"), description: error.trpcUserMessage)
+            }
+        }
     }
 
     /// Seed the drafts from the APP once (never on a resync of the same one).

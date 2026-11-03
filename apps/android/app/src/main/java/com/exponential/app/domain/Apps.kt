@@ -85,6 +85,19 @@ object Apps {
         const val NEVER = "Not run yet"
     }
 
+    /** #VAPP-238: the Settings tab's Webhooks group (`copy.webhooks`). */
+    object WebhooksCopy {
+        const val TITLE = "Webhooks"
+        const val READY = "Ready"
+        const val UNSIGNED = "No secret"
+        const val COPY_URL = "Copy URL"
+        const val COPIED = "Copied"
+        const val MINT = "Create secret"
+        const val ROTATE = "Rotate secret"
+        const val SECRET = "New secret"
+        const val COPY_SECRET = "Copy secret"
+    }
+
     object Preview {
         const val RADIUS = 12
         const val PADDING = 16
@@ -127,6 +140,10 @@ object Apps {
         // #VAPP-220: the Settings tab's Automations group + one of its rows.
         const val AUTOMATIONS = "app-settings-automations"
         const val AUTOMATION_ROW = "app-automation-row"
+        // #VAPP-238: the Webhooks group, one of its rows, the shown-once secret.
+        const val WEBHOOKS = "app-settings-webhooks"
+        const val WEBHOOK_ROW = "app-webhook-row"
+        const val WEBHOOK_SECRET = "app-webhook-secret"
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,
@@ -280,6 +297,39 @@ object Apps {
             AutomationStatus.NEVER -> AutomationsCopy.NEVER
         }
         return AutomationRow(trigger, status, label)
+    }
+
+    // #VAPP-238 (fixture `webhookRowCases`): one row of the Settings tab's
+    // Webhooks group, from tRPC `appAccess.appTools` `hooks`; isOwner = `canToggle`.
+
+    data class WebhookRowInput(val name: String, val hasSecret: Boolean)
+
+    enum class WebhookStatus(val wire: String) { READY("ready"), UNSIGNED("unsigned") }
+
+    enum class WebhookAction(val wire: String) { MINT("mint"), ROTATE("rotate") }
+
+    data class WebhookRow(
+        val status: WebhookStatus,
+        val label: String,
+        val action: WebhookAction?,
+        val actionLabel: String?,
+    )
+
+    /** status = ready with a secret, else unsigned; an owner gets mint (no
+     *  secret yet) or rotate, everyone else no action. */
+    fun webhookRow(row: WebhookRowInput, isOwner: Boolean): WebhookRow {
+        val status = if (row.hasSecret) WebhookStatus.READY else WebhookStatus.UNSIGNED
+        val action = if (!isOwner) null else if (row.hasSecret) WebhookAction.ROTATE else WebhookAction.MINT
+        return WebhookRow(
+            status,
+            if (status == WebhookStatus.READY) WebhooksCopy.READY else WebhooksCopy.UNSIGNED,
+            action,
+            when (action) {
+                WebhookAction.MINT -> WebhooksCopy.MINT
+                WebhookAction.ROTATE -> WebhooksCopy.ROTATE
+                null -> null
+            },
+        )
     }
 
     fun restored(restored: Int, version: Int): String =

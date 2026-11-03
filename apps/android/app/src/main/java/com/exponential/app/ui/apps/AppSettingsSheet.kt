@@ -25,8 +25,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -36,6 +38,7 @@ import at.exponential.ui.json.JsonValue
 import com.exponential.app.domain.AppActions
 import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.Apps
+import com.exponential.app.domain.Prompts
 import com.exponential.app.ui.components.ColorPicker
 import com.exponential.app.ui.components.DestructiveButton
 import com.exponential.app.ui.components.GlassPill
@@ -43,10 +46,13 @@ import com.exponential.app.ui.components.GlassSwitch
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
 import com.exponential.app.ui.components.IconPicker
+import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.PromptAlert
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
+import com.exponential.app.ui.settings.middleTruncate
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -75,6 +81,15 @@ internal fun AppSettingsBody(
     val granted by viewModel.grantedTools.collectAsStateWithLifecycle()
     val grantBusy by viewModel.grantBusy.collectAsStateWithLifecycle()
     val automations by viewModel.automations.collectAsStateWithLifecycle()
+    val hooks by viewModel.hooks.collectAsStateWithLifecycle()
+    val canManageHooks by viewModel.canManageHooks.collectAsStateWithLifecycle()
+    val hookBusy by viewModel.hookBusy.collectAsStateWithLifecycle()
+    // #VAPP-238: minted secrets live in this screen's memory only (never
+    // saved, never refetched): gone when the tab or sheet closes.
+    var secrets by remember(app.id) { mutableStateOf(mapOf<String, String>()) }
+    var rotateTarget by remember(app.id) { mutableStateOf<String?>(null) }
+    val clipboard = LocalClipboardManager.current
+    val toaster = LocalToaster.current
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
     val focus = LocalFocusManager.current
     // Seeded per APP, never on a resync of the same one.
@@ -269,6 +284,137 @@ internal fun AppSettingsBody(
                 }
             }
             Spacer(Modifier.height(16.dp))
+        }
+
+        // ── Webhooks (#VAPP-238) ─────────────────────────────────────────
+        // Everyone reads the rows and copies a URL; an owner mints (at once)
+        // or rotates (asks first) a secret, shown ONCE right under its hook.
+        if (hooks.isNotEmpty()) Column(Modifier.fillMaxWidth().testTag(Apps.TestIds.WEBHOOKS)) {
+            Text(
+                Apps.WebhooksCopy.TITLE,
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.padding(horizontal = 20.dp),
+            )
+            Spacer(Modifier.height(8.dp))
+            OptionGroup {
+                hooks.forEachIndexed { index, hook ->
+                    if (index > 0) GroupDivider()
+                    val secret = secrets[hook.name]
+                    val row = Apps.webhookRow(
+                        Apps.WebhookRowInput(hook.name, hook.hasSecret || secret != null),
+                        canManageHooks,
+                    )
+                    val act = {
+                        viewModel.rotateHook(hook.name) { minted -> secrets = secrets + (hook.name to minted) }
+                    }
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("${Apps.TestIds.WEBHOOK_ROW}-${hook.name}")
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                hook.name,
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontFamily = FontFamily.Monospace,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                remember(hook.url) { middleTruncate(hook.url) },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = muted,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        GlassPill(row.label, size = PillSize.Sm)
+                    }
+                    // The pills on a line of their own, leading-aligned.
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        GlassPill(
+                            Apps.WebhooksCopy.COPY_URL,
+                            size = PillSize.Sm,
+                            onClick = {
+                                clipboard.setText(AnnotatedString(hook.url))
+                                toaster.success(Apps.WebhooksCopy.COPIED)
+                            },
+                        )
+                        if (row.action != null && row.actionLabel != null) {
+                            GlassPill(
+                                row.actionLabel,
+                                size = PillSize.Sm,
+                                enabled = hookBusy == null,
+                                loading = hookBusy == hook.name,
+                                onClick = {
+                                    if (row.action == Apps.WebhookAction.ROTATE) rotateTarget = hook.name else act()
+                                },
+                                modifier = Modifier.testTag("${Apps.TestIds.WEBHOOK_ROW}-${hook.name}-${row.action.wire}"),
+                            )
+                        }
+                    }
+                    }
+                    if (secret != null) {
+                        GroupDivider()
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag(Apps.TestIds.WEBHOOK_SECRET)
+                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    Apps.WebhooksCopy.SECRET,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = muted,
+                                    maxLines = 1,
+                                )
+                                Text(
+                                    remember(secret) { middleTruncate(secret) },
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            GlassPill(
+                                Apps.WebhooksCopy.COPY_SECRET,
+                                size = PillSize.Sm,
+                                onClick = {
+                                    clipboard.setText(AnnotatedString(secret))
+                                    toaster.success(Apps.WebhooksCopy.COPIED)
+                                },
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
+        rotateTarget?.let { hookName ->
+            PromptAlert(
+                prompt = Prompts.RotateWebhookSecret.prompt(hookName),
+                onDismiss = { rotateTarget = null },
+                handlers = mapOf(
+                    "rotate" to {
+                        rotateTarget = null
+                        viewModel.rotateHook(hookName) { minted -> secrets = secrets + (hookName to minted) }
+                    },
+                ),
+            )
         }
 
         // ── Export + Delete app ──────────────────────────────────────────

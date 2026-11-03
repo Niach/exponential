@@ -89,7 +89,18 @@
     },
     "migrating": "Migrating records",
     "migratingOf": "Migrating records {done} of {total}",
-    "migrationFailed": "Records not migrated: {error}"
+    "migrationFailed": "Records not migrated: {error}",
+    "webhooks": {
+      "title": "Webhooks",
+      "ready": "Ready",
+      "unsigned": "No secret",
+      "copyUrl": "Copy URL",
+      "copied": "Copied",
+      "mint": "Create secret",
+      "rotate": "Rotate secret",
+      "secret": "New secret",
+      "copySecret": "Copy secret"
+    }
   },
   "panes": {
     "chat": 5,
@@ -285,7 +296,10 @@
     "publish": "app-editor-publish",
     "versionPublish": "app-version-publish",
     "automations": "app-settings-automations",
-    "automationRow": "app-automation-row"
+    "automationRow": "app-automation-row",
+    "webhooks": "app-settings-webhooks",
+    "webhookRow": "app-webhook-row",
+    "webhookSecret": "app-webhook-secret"
   },
   "slugifyCases": [
     {
@@ -1012,6 +1026,67 @@
           "migrationError": null
         },
         "expected": null
+      }
+    ]
+  },
+  "webhookRowCases": {
+    "$comment": "#VAPP-238: THE WEBHOOKS GROUP of the Settings tab ×4 (testId `webhooks`, under the Automations group, shown when the PUBLISHED package's automations listen on a webhook; rows = tRPC `appAccess.appTools` `hooks` [{name, url, hasSecret}] in package order). One row per hook (testId `webhookRow`-<name>, the Automations row's layout): title = the hook name (mono), a second line = its URL (mono, muted, middle-truncated), a trailing Pill = `webhookRow(row, isOwner).label`; under them, on a line of its own (leading-aligned, every platform and width alike), the URL copy pill `copy.webhooks.copyUrl` (the Settings › MCP endpoint row's copy pill: clipboard + the success toast `copy.webhooks.copied`), then for an OWNER (`appTools.canToggle`) the action pill `webhookRow(...).actionLabel` (testId `webhookRow`-<name>-<action>). `mint` (no secret yet) = tRPC `appAccess.rotateHook {appId, name}` at once; `rotate` asks first with the prompt `rotate-webhook-secret` (prompts.json, {hook} = the name), then the same call. The answer's secret is SHOWN ONCE: a row right under its hook (testId `webhookSecret`) = `copy.webhooks.secret` over the secret (mono, middle-truncated) + the copy pill `copy.webhooks.copySecret` (the same clipboard + `copy.webhooks.copied` toast); it lives in the screen's memory only, never refetched, gone when the tab or sheet closes, and the row turns `ready`. A failed mint/rotate = the failed-action toast. Everyone else reads the rows (URL copy included) without the action pill.",
+    "cases": [
+      {
+        "name": "an owner, no secret yet",
+        "row": {
+          "name": "stripe",
+          "hasSecret": false
+        },
+        "isOwner": true,
+        "expected": {
+          "status": "unsigned",
+          "label": "No secret",
+          "action": "mint",
+          "actionLabel": "Create secret"
+        }
+      },
+      {
+        "name": "an owner, a minted secret",
+        "row": {
+          "name": "stripe",
+          "hasSecret": true
+        },
+        "isOwner": true,
+        "expected": {
+          "status": "ready",
+          "label": "Ready",
+          "action": "rotate",
+          "actionLabel": "Rotate secret"
+        }
+      },
+      {
+        "name": "a member, a minted secret",
+        "row": {
+          "name": "github",
+          "hasSecret": true
+        },
+        "isOwner": false,
+        "expected": {
+          "status": "ready",
+          "label": "Ready",
+          "action": null,
+          "actionLabel": null
+        }
+      },
+      {
+        "name": "a member, no secret yet",
+        "row": {
+          "name": "github",
+          "hasSecret": false
+        },
+        "isOwner": false,
+        "expected": {
+          "status": "unsigned",
+          "label": "No secret",
+          "action": null,
+          "actionLabel": null
+        }
       }
     ]
   }

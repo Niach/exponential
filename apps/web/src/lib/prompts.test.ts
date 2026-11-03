@@ -29,6 +29,7 @@ import {
   removeRepositoryPrompt,
   removeServerPrompt,
   revokeMcpClientPrompt,
+  rotateWebhookSecretPrompt,
   resumeRunPrompt,
   stopRunPrompt,
   trashBoardPrompt,
@@ -100,6 +101,7 @@ const CASES: Record<string, Record<string, () => PromptCopy>> = {
   },
   "remove-server": { title: () => removeServerPrompt(`{server}`) },
   "revoke-mcp-client": { title: () => revokeMcpClientPrompt(`{client}`) },
+  "rotate-webhook-secret": { title: () => rotateWebhookSecretPrompt(`{hook}`) },
   "exponential-ui-consent": {
     title: () => exponentialUiConsentPrompt(`{tool}`),
   },

@@ -179,7 +179,7 @@ Needs: C2, C13.
 | C19 | Agent hand-off (`run.agent`) | ✅ A2 (#VAPP-236) | ✅ A2 |
 | C20 | Files on records | ✅ R7 (#VAPP-221) | `format: "attachment"` fields, `POST /api/apps/{id}/files` |
 | C21 | Public / guest links (submit-only form, read-only view) | ❌ (#VAPP-24 cancelled, #YO-27 parked) | 🆕 P1 |
-| C22 | Inbound webhooks | ✅ A3 server (#VAPP-237) | 🆕 A3 Settings ×4 |
+| C22 | Inbound webhooks | ✅ A3 server (#VAPP-237) + Settings ×4 (#VAPP-238) | ✅ |
 | C23 | Run-as identity for unattended runs | ❌ | 🆕 A1 |
 | C24 | Offline outbox for record writes | ✅ desktop, iOS, Android (#VAPP-235) | ✅ O1 |
 | C25 | `eapps` crate (host, query, store, broker executor) | 🟡 the query + `RecordStore` live in eUI (S1 ✅ #VAPP-189); the crate itself is open (#EXP-1420) | S2 |
@@ -554,7 +554,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 - **Verification:** header `exponential-signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + raw body)>` (Stripe's scheme; several `v1` may ride along). In order: body > 64 KB = 413, no header = 401, malformed = 401, `|now − t|` > 300 s = 401 (`stale`), no matching `v1` = 401, the signature already seen (the nonce cache: every accepted signature for 2 × the window, table `app_hook_nonces`, pruned by the watchdog) = 409 (`replayed`), not JSON = 400. The body is parsed only after the signature verifies. A verified delivery answers 202 with each run's status.
 - **Payload:** the run's event = `{hook, body}`: `${event.body.<path>}` in the run (and in an agent hand-off's data block, never its instructions, §12.1).
 - **Rate and audit:** at most 60 deliveries per hook per minute (429 beyond, not audited, so a flood never fills the audit table). Every delivery under the cap is one `mcp_calls` row: the run's (`automation:<name>`), or a refusal audited `denied` with its code (`badSignature`, `stale`, `replayed`, …) as the publisher.
-- 🆕 Settings ×4: the hook's URL (copy) and the owner's mint / rotate with the secret shown once (the second A3 PR). The trigger line "On webhook <name>" is ✅ ×4.
+- ✅ Settings ×4 (#VAPP-238, `apps.json` `webhookRowCases`): the Webhooks group under Automations, one row per hook with its URL (Copy URL), a Ready / No secret pill and the owner's Create secret / Rotate secret (the `rotate-webhook-secret` prompt first); the answer's secret is shown once under its hook (Copy secret), held in memory only. The trigger line "On webhook <name>" is ✅ ×4.
 
 ### 7.3 Agent hand-off (✅ A2, #VAPP-236)
 
@@ -876,7 +876,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 - **A1** ✅ #VAPP-220 Automations: schedule, record and event triggers, one run, a sponsor, audit, the loop guard and the rate cap; `automations.json` (TS + Rust), the server executor on the watchdog tick, Settings ×4. (C18, C23)
 - **A2** ✅ #VAPP-236 `run.agent` + the `handoff` action: an automation, an exposed tool or a press hands judgement to a team agent through `sessions.send` (the brief = the frozen prompt + a fenced data block + the record ref), `via <app>`, 10 hand-offs a minute per app, the agent loop guard; `exposes.json` `agent` + `automations.json` (TS + Rust), `exponential.apps.handoff`. (C19)
-- **A3** #VAPP-237 Inbound webhooks with vault-sealed secrets: ✅ the contract (`automations.json` `webhook`: signature, window, replay), `POST /api/apps/hooks/<appId>/<name>`, the sealed per-hook secret, the nonce cache, the rate cap and audit; 🆕 the Settings mint/rotate rows ×4. (C22)
+- **A3** #VAPP-237 Inbound webhooks with vault-sealed secrets: ✅ the contract (`automations.json` `webhook`: signature, window, replay), `POST /api/apps/hooks/<appId>/<name>`, the sealed per-hook secret, the nonce cache, the rate cap and audit; ✅ the Settings mint/rotate rows ×4 (#VAPP-238). (C22)
 - ✅ **M1** `upstream:` read bindings through the broker, with a 60 s cache. (C17, #VAPP-230)
 - **M2** Device-routed (stdio/LAN) upstreams over eNet. (C17b)
 - **M3** ✅ #VAPP-229 `via_app_id` on issues, sessions and records ×4. (§9.3)

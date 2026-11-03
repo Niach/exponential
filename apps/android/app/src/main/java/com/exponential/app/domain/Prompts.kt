@@ -444,6 +444,21 @@ object Prompts {
         fun prompt(server: String) = spec.render("title", "body", "server" to server)
     }
 
+    /** #VAPP-238: the app Settings tab's Webhooks group, a row's Rotate secret. */
+    object RotateWebhookSecret {
+        val spec = destructiveSpec(
+            "rotate-webhook-secret",
+            mapOf(
+                "title" to "Rotate the secret of {hook}?",
+                "body" to "The current secret stops working right away. Every sender needs the new one.",
+            ),
+            listOf("hook"),
+            "rotate",
+            "Rotate",
+        )
+        fun prompt(hook: String) = spec.render("title", "body", "hook" to hook)
+    }
+
     /** #VAPP-185: Settings › MCP › Clients, a row's Revoke. */
     object RevokeMcpClient {
         val spec = destructiveSpec(
@@ -515,6 +530,7 @@ object Prompts {
             DeleteTeam.spec, TrashBoard.spec, DeleteLabel.spec, RemoveMember.spec, LeaveTeam.spec,
             MakeOwner.spec, MakeMember.spec, RemoveRepository.spec, UnlinkSignInMethod.spec,
             RemovePassword.spec, RemovePasskey.spec, DeleteAccount.spec, RemoveServer.spec, RevokeMcpClient.spec,
+            RotateWebhookSecret.spec,
             ExponentialUiConsent.spec, ExponentialUiConsentDestructive.spec,
         ).associateBy { it.id }
     }

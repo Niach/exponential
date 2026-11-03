@@ -456,6 +456,18 @@ pub const REMOVE_SERVER: Spec = Spec {
     focus: "cancel",
 };
 
+/// #VAPP-238: the app Settings tab's Webhooks group, Rotate secret.
+pub const ROTATE_WEBHOOK_SECRET: Spec = Spec {
+    id: "rotate-webhook-secret",
+    copy: &[
+        ("title", "Rotate the secret of {hook}?"),
+        ("body", "The current secret stops working right away. Every sender needs the new one."),
+    ],
+    params: &["hook"],
+    actions: confirm!(destructive "rotate", "Rotate"),
+    focus: "cancel",
+};
+
 /// VAPP-185: Settings › MCP › Clients' Revoke.
 pub const REVOKE_MCP_CLIENT: Spec = Spec {
     id: "revoke-mcp-client",
@@ -526,6 +538,7 @@ pub const ALL: &[Spec] = &[
     REMOVE_PASSKEY,
     DELETE_ACCOUNT,
     REMOVE_SERVER,
+    ROTATE_WEBHOOK_SECRET,
     REVOKE_MCP_CLIENT,
     EXPONENTIAL_UI_CONSENT,
     EXPONENTIAL_UI_CONSENT_DESTRUCTIVE,
@@ -673,6 +686,11 @@ pub fn delete_account(server: Option<&str>) -> Prompt {
 
 pub fn remove_server(server: &str) -> Prompt {
     REMOVE_SERVER.render("title", Some("body"), &[("server", server)])
+}
+
+/// #VAPP-238: `hook` = the app webhook's name, unquoted.
+pub fn rotate_webhook_secret(hook: &str) -> Prompt {
+    ROTATE_WEBHOOK_SECRET.render("title", Some("body"), &[("hook", hook)])
 }
 
 /// VAPP-185: `client` = the MCP client's name, unquoted.
@@ -857,6 +875,7 @@ mod tests {
             delete_account(Some("Cloud")),
             delete_account(None),
             remove_server("Cloud"),
+            rotate_webhook_secret("stripe"),
             revoke_mcp_client("Claude Code"),
             exponential_ui_consent("exponential_issues_list"),
             exponential_ui_consent_destructive("exponential_issues"),

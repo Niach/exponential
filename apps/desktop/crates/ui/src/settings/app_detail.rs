@@ -120,6 +120,11 @@ pub struct AppDetailPane {
     mcp_for: Option<(String, i64)>,
     mcp_busy: Option<String>,
     connect_generation: u64,
+    /// #VAPP-238: the hook whose secret is being minted or rotated, and the
+    /// secrets this pane minted (hook name → secret): SHOWN ONCE, held in
+    /// memory only, never refetched, gone with the pane or another app.
+    hook_busy: Option<String>,
+    hook_secrets: std::collections::HashMap<String, String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -159,6 +164,8 @@ impl AppDetailPane {
             mcp_for: None,
             mcp_busy: None,
             connect_generation: 0,
+            hook_busy: None,
+            hook_secrets: std::collections::HashMap::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -316,6 +323,7 @@ impl AppDetailPane {
         }
         if self.mcp_for.as_ref().map(|(id, _)| id) != Some(&key.0) {
             self.mcp = None;
+            self.hook_secrets.clear();
         }
         self.mcp_for = Some(key.clone());
         self.fetch_mcp(key, cx);
@@ -370,6 +378,65 @@ impl AppDetailPane {
                 if let Err(err) = result {
                     this.mcp = Some(data);
                     crate::action_error::failed_action_err("save", "the tool", &err, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// #VAPP-238: a webhook row's owner pill: Create secret mints at once,
+    /// Rotate secret asks first (prompts.json `rotate-webhook-secret`).
+    pub(crate) fn hook_action(&mut self, name: String, action: domain::apps::WebhookAction, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        match action {
+            domain::apps::WebhookAction::Mint => self.rotate_hook(name, "create", cx),
+            domain::apps::WebhookAction::Rotate => {
+                let view = cx.entity().downgrade();
+                let prompt = domain::prompts::rotate_webhook_secret(&name);
+                let spec = crate::native_dialog::AlertSpec::from_prompt("Rotate secret", &prompt).on_ok(move |_, cx| {
+                    let name = name.clone();
+                    let _ = view.update(cx, |this, cx| this.rotate_hook(name, "rotate", cx));
+                    true
+                });
+                crate::native_dialog::open_alert(window, cx, spec);
+            }
+        }
+    }
+
+    /// #VAPP-238: `appAccess.rotateHook` (owners): the answer's secret is
+    /// kept for the shown-once row and the hook reads Ready; a failure =
+    /// the failed-action toast.
+    fn rotate_hook(&mut self, name: String, verb: &'static str, cx: &mut gpui::Context<Self>) {
+        let Some((app_id, _)) = self.mcp_for.clone() else { return };
+        if self.hook_busy.is_some() {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action(verb, "the secret", None, cx);
+            return;
+        };
+        self.hook_busy = Some(name.clone());
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let for_app = app_id.clone();
+            let result = cx
+                .background_executor()
+                .spawn(async move { api::app_access::rotate_hook(&trpc, &app_id, &name) })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.hook_busy = None;
+                match result {
+                    // Another app on show by now: drop the answer.
+                    Ok(_) if this.mcp_for.as_ref().map(|(id, _)| id) != Some(&for_app) => {}
+                    Ok(out) => {
+                        if let Some(data) = this.mcp.as_mut() {
+                            for hook in data.hooks.iter_mut().filter(|h| h.name == out.name) {
+                                hook.has_secret = true;
+                            }
+                        }
+                        this.hook_secrets.insert(out.name, out.secret);
+                    }
+                    Err(err) => crate::action_error::failed_action_err(verb, "the secret", &err, cx),
                 }
                 cx.notify();
             });
@@ -653,6 +720,8 @@ impl Render for AppDetailPane {
                     .children(super::app_mcp::tools_group(&data, busy.as_deref(), cx))
                     // #VAPP-220: the published package's automations, read-only.
                     .children(super::app_mcp::automations_group(&data, cx))
+                    // #VAPP-238: the webhooks those automations listen on.
+                    .children(super::app_mcp::webhooks_group(&data, &self.hook_secrets, self.hook_busy.as_deref(), cx))
             })
             .child(actions);
         v_flex().child(body).into_any_element()
