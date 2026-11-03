@@ -13,7 +13,7 @@ import {
   slugify,
 } from "@exp/domain-contract/apps"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { appAccess, appVersions, apps, mcpServers, sessions, type App } from "@/db/schema"
+import { appAccess, appVersions, apps, mcpServers, sessions, type App, type AppPackageJson } from "@/db/schema"
 import { assertTeamMember, getTeamMember } from "@/lib/auth/membership"
 import { resolveTeamAccess } from "@/lib/auth/access"
 import { appPackageIssues, packageBytes, recordKindSchema, upstreamIssues, validateAppPackage } from "@/lib/apps/package"
@@ -80,13 +80,35 @@ export function packageActions(pkg: unknown): string[] {
   return declaredActions(Array.isArray(functions) ? functions.filter((f): f is string => typeof f === `string`) : [])
 }
 
-/** A new version row + the app's head, in one transaction. VAPP-120: the
- *  grants follow the head: a name the new package no longer declares loses
- *  its grant, so a later version re-declaring it asks again (review of
- *  #1222: a grant is a person's choice about THIS package, never inherited).
- *  Release train 2026-10-25: only an OWNER's version keeps the still-declared
- *  grants; code written by anyone else (`byOwner: false`) starts with none,
+/** eApps V1 (#VAPP-210): the version a grant is made on and checked
+ *  against: the published one, or the head while nothing is published. */
+export function grantVersion(app: Pick<App, `headVersion` | `publishedVersion`>): number {
+  return app.publishedVersion > 0 ? app.publishedVersion : app.headVersion
+}
+
+/** eApps V1: the package grants refer to (the published one, else the head). */
+function grantPackage(app: Pick<App, `package` | `draftPackage`>): unknown {
+  return app.package ?? app.draftPackage
+}
+
+/** VAPP-120: the grants follow the package that RUNS: a name it no longer
+ *  declares loses its grant, so a later version re-declaring it asks again
+ *  (review of #1222: a grant is a person's choice about THIS package, never
+ *  inherited). Release train 2026-10-25: only an OWNER keeps the
+ *  still-declared grants; anyone else (`byOwner: false`) starts with none,
  *  so a member's code never runs on an owner's grant without asking. */
+function carriedGrants(current: readonly string[] | null | undefined, pkg: unknown, byOwner: boolean): string[] {
+  const declared = packageActions(pkg)
+  // VAPP-158: a stored grant that is no longer grantable (an owner-only or
+  // destructive action) is dropped on the way.
+  return byOwner ? (current ?? []).filter((name) => declared.includes(name) && actionGrantable(name)) : []
+}
+
+/** A new version row = the new HEAD (the editor's draft), in one
+ *  transaction. eApps V1 (#VAPP-210): it never touches the published
+ *  `package`; members keep running the published version until a Publish
+ *  (`publishVersionInTx`). While nothing is published the grants follow the
+ *  head as before (they refer to it, `grantVersion`). */
 export async function writeVersionInTx(
   tx: Tx,
   app: App,
@@ -94,15 +116,13 @@ export async function writeVersionInTx(
   args: { note: string | null; sessionId: string | null; createdBy: string | null; byOwner: boolean }
 ): Promise<{ number: number; versionId: string }> {
   const [locked] = await tx
-    .select({ headVersion: apps.headVersion, grantedTools: apps.grantedTools })
+    .select({ headVersion: apps.headVersion, publishedVersion: apps.publishedVersion, grantedTools: apps.grantedTools })
     .from(apps)
     .where(eq(apps.id, app.id))
     .for(`update`)
   const number = (locked?.headVersion ?? app.headVersion) + 1
-  const declared = packageActions(pkg)
-  // VAPP-158: a stored grant that is no longer grantable (an owner-only or
-  // destructive action) is dropped on the way, never carried to a new head.
-  const grantedTools = args.byOwner ? (locked?.grantedTools ?? app.grantedTools ?? []).filter((name) => declared.includes(name) && actionGrantable(name)) : []
+  const unpublished = (locked?.publishedVersion ?? app.publishedVersion) === 0
+  const grantedTools = unpublished ? carriedGrants(locked?.grantedTools ?? app.grantedTools, pkg, args.byOwner) : (locked?.grantedTools ?? app.grantedTools ?? [])
   const [version] = await tx
     .insert(appVersions)
     .values({
@@ -117,9 +137,51 @@ export async function writeVersionInTx(
     .returning({ id: appVersions.id })
   await tx
     .update(apps)
-    .set({ package: pkg, headVersion: number, grantedTools, updatedAt: new Date() })
+    .set({ draftPackage: pkg, headVersion: number, grantedTools, updatedAt: new Date() })
     .where(eq(apps.id, app.id))
   return { number, versionId: version!.id }
+}
+
+/** eApps V1 (#VAPP-210): PUBLISH version `number` (default: the head; an
+ *  older one = a rollback): `package` becomes its package and members,
+ *  exposed tools and automations run it from now on; `draft_package` keeps
+ *  the head's package while the head is ahead of it. The grants follow the
+ *  published package (`carriedGrants`: an owner's publish keeps the
+ *  still-declared ones, anyone else's clears them). */
+export async function publishVersionInTx(
+  tx: Tx,
+  app: Pick<App, `id`>,
+  args: { number?: number; byOwner: boolean }
+): Promise<{ published: number; head: number }> {
+  const [locked] = await tx
+    .select({ headVersion: apps.headVersion, grantedTools: apps.grantedTools, package: apps.package, draftPackage: apps.draftPackage })
+    .from(apps)
+    .where(eq(apps.id, app.id))
+    .for(`update`)
+  if (!locked || locked.headVersion === 0) throw new TRPCError({ code: `BAD_REQUEST`, message: APPS_COPY.publishNothing })
+  const number = args.number ?? locked.headVersion
+  const headPackage = locked.draftPackage ?? locked.package
+  let pkg: AppPackageJson | null = number === locked.headVersion ? headPackage : null
+  if (!pkg) {
+    const [row] = await tx
+      .select({ package: appVersions.package })
+      .from(appVersions)
+      .where(and(eq(appVersions.appId, app.id), eq(appVersions.number, number)))
+      .limit(1)
+    if (!row) throw new TRPCError({ code: `NOT_FOUND`, message: `Version not found` })
+    pkg = row.package
+  }
+  await tx
+    .update(apps)
+    .set({
+      package: pkg,
+      publishedVersion: number,
+      draftPackage: number === locked.headVersion ? null : headPackage,
+      grantedTools: carriedGrants(locked.grantedTools, pkg, args.byOwner),
+      updatedAt: new Date(),
+    })
+    .where(eq(apps.id, app.id))
+  return { published: number, head: locked.headVersion }
 }
 
 // Release train 2026-10-23: strip mode, so a newer client's extra field never 400s.
@@ -155,8 +217,9 @@ export const appUpdateInputSchema = z.object({
     )
     .max(200)
     .optional(),
-  // VAPP-156: the head version the owner was looking at when they flipped a
-  // switch; a grant must name it, and a newer head refuses with CONFLICT.
+  // VAPP-156: the version the owner was looking at when they flipped a
+  // switch (eApps V1: `grantVersion` = the published one, else the head; the
+  // field keeps its name); a grant must name it, a newer one = CONFLICT.
   headVersion: z.number().int().min(0).optional(),
 }).refine((v) => !v.grantedTools || v.headVersion !== undefined, { message: `a grant names the version it was made on (headVersion)`, path: [`headVersion`] })
 
@@ -240,6 +303,7 @@ export const appsRouter = router({
           color: apps.color,
           description: apps.description,
           headVersion: apps.headVersion,
+          publishedVersion: apps.publishedVersion,
           createdBy: apps.createdBy,
           createdAt: apps.createdAt,
           updatedAt: apps.updatedAt,
@@ -266,7 +330,9 @@ export const appsRouter = router({
       const app = await loadApp(ctx.db, input)
       await assertTeamMember(ctx.session.user.id, app.teamId)
       await assertAppAccess(ctx.db, app, ctx.session.user.id, `read`)
-      if (input.version === undefined || input.version === app.headVersion) return { app, version: app.headVersion, package: app.package }
+      // eApps V1: no version = the HEAD (the editor's draft, else the published package).
+      if (input.version === undefined || input.version === app.headVersion) return { app, version: app.headVersion, package: app.draftPackage ?? app.package }
+      if (input.version === app.publishedVersion) return { app, version: app.publishedVersion, package: app.package }
       const [row] = await ctx.db
         .select({ package: appVersions.package, number: appVersions.number })
         .from(appVersions)
@@ -327,8 +393,11 @@ export const appsRouter = router({
           let headVersion = 0
           if (pkg) {
             headVersion = (await writeVersionInTx(tx, app!, pkg as unknown as Record<string, unknown>, { note: input.note ?? null, sessionId: null, createdBy: userId, byOwner: false })).number
+            // eApps V1: an app created WITH a package (MCP `apps upsert` on a
+            // new slug) publishes it as v1; every later version is a draft.
+            await publishVersionInTx(tx, app!, { number: headVersion, byOwner: false })
           }
-          return { txid: txId, app: { ...app!, headVersion, package: pkg ?? null } }
+          return { txid: txId, app: { ...app!, headVersion, publishedVersion: headVersion, package: pkg ?? null } }
         })
       } catch (error) {
         if (isUniqueViolation(error)) {
@@ -381,9 +450,11 @@ export const appsRouter = router({
           })
           .returning()
         const { number } = await writeVersionInTx(tx, app!, file.package, { note: APP_EXPORT_COPY.importNote, sessionId: null, createdBy: userId, byOwner: false })
+        // eApps V1: an imported app file is a finished app: v1 is published at once.
+        await publishVersionInTx(tx, app!, { number, byOwner: false })
         // #VAPP-193: last in the transaction (it switches to role eapps).
         await importRecords(tx, { ...app!, package: file.package as App[`package`] }, userId, member.role, file.records)
-        return { txid: txId, app: { ...app!, headVersion: number }, records: file.records.length }
+        return { txid: txId, app: { ...app!, headVersion: number, publishedVersion: number }, records: file.records.length }
       })
       // VAPP-154: two same-name imports at once derive the same slug; the
       // loser's insert hits the unique index and retries on a fresh read of
@@ -407,7 +478,7 @@ export const appsRouter = router({
       const userId = ctx.session.user.id
       const app = await loadApp(ctx.db, { id: input.id })
       await assertCanManage(userId, app)
-      // VAPP-120: a grant names only what the HEAD package declares (review
+      // VAPP-120: a grant names only what the RUNNING package declares (review
       // of #1222: nothing is granted ahead of a version that would use it),
       // and only an OWNER grants (the ruling: the creator gets no grant power).
       if (input.grantedTools) await assertCanGrant(userId, app)
@@ -415,17 +486,21 @@ export const appsRouter = router({
         const txId = await generateTxId(tx)
         const { id, headVersion, ...patch } = input
         if (patch.grantedTools) {
-          // VAPP-156: the head is re-read under the row lock (a version write
-          // takes the same lock), so a grant lands only on the version the
-          // owner saw; a newer head = CONFLICT and the owner grants again.
-          const [head] = await tx.select({ headVersion: apps.headVersion, package: apps.package }).from(apps).where(eq(apps.id, id)).for(`update`)
-          if (!head || head.headVersion !== headVersion) {
+          // VAPP-156: the row is re-read under its lock (a version write or a
+          // publish takes the same lock), so a grant lands only on the version
+          // the owner saw; a newer one = CONFLICT and the owner grants again.
+          const [locked] = await tx
+            .select({ headVersion: apps.headVersion, publishedVersion: apps.publishedVersion, package: apps.package, draftPackage: apps.draftPackage })
+            .from(apps)
+            .where(eq(apps.id, id))
+            .for(`update`)
+          if (!locked || grantVersion(locked) !== headVersion) {
             throw new TRPCError({ code: `CONFLICT`, message: `A new version of the app was published; review its tools and grant again` })
           }
-          const declared = packageActions(head.package)
+          const declared = packageActions(grantPackage(locked))
           const undeclared = patch.grantedTools.filter((name) => !declared.includes(name))
           if (undeclared.length > 0) {
-            throw new TRPCError({ code: `BAD_REQUEST`, message: `The app's package does not declare ${undeclared.join(`, `)}: a grant names only what the head version calls` })
+            throw new TRPCError({ code: `BAD_REQUEST`, message: `The app's package does not declare ${undeclared.join(`, `)}: a grant names only what the published version calls` })
           }
         }
         // VAPP-176: a DRAFT (no version yet) renamed = its slug follows the
@@ -503,6 +578,23 @@ export const appsRouter = router({
           byOwner: canGrantActions(member.role),
         })
         return { txid: txId, version: number, restored: input.number }
+      })
+    }),
+
+  /** eApps V1 (#VAPP-210): PUBLISH a version (default: the head; an older
+   *  one = a rollback). Same access as writing a version; an owner's publish
+   *  keeps the still-declared grants, anyone else's clears them. */
+  publish: authedProcedure
+    .input(appRefSchema.and(z.object({ number: z.number().int().min(1).optional() })))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.session.user.id
+      const app = await loadApp(ctx.db, input)
+      const { member } = await resolveTeamAccess(userId, app.teamId)
+      await assertAppAccess(ctx.db, app, userId, `write`)
+      return await ctx.db.transaction(async (tx) => {
+        const txId = await generateTxId(tx)
+        const { published, head } = await publishVersionInTx(tx, app, { number: input.number, byOwner: canGrantActions(member.role) })
+        return { txid: txId, published, head }
       })
     }),
 

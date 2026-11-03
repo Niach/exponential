@@ -52,6 +52,44 @@ export function versionLabel(headVersion: number): string {
   return headVersion > 0 ? APPS_COPY.version.replace(`{n}`, String(headVersion)) : APPS_COPY.noVersion
 }
 
+/** eApps V1 (#VAPP-210, fixture `publishCases`): an app's two pointers. */
+export interface AppVersions {
+  headVersion: number
+  publishedVersion: number
+}
+
+/** The version the editor's preview shows: an explicitly viewed one, else
+ *  nothing (no version), else the HEAD (the draft) while the viewer's own
+ *  editor session is live or nothing is published, else the PUBLISHED one. */
+export function shownVersion(app: AppVersions, editing: boolean, viewing: number | null): number {
+  if (viewing !== null) return viewing
+  if (app.headVersion === 0) return 0
+  return editing || app.publishedVersion === 0 ? app.headVersion : app.publishedVersion
+}
+
+/** Publish is offered while the head is not the published version. */
+export function canPublish(app: AppVersions): boolean {
+  return app.headVersion > 0 && app.headVersion !== app.publishedVersion
+}
+
+/** The list's and the header's version pill: the PUBLISHED version. */
+export function listPill(app: AppVersions): string {
+  return versionLabel(app.publishedVersion)
+}
+
+/** The version a grant is made on and checked against (`apps.update
+ *  {headVersion}` carries it): the published one, else the head. */
+export function grantVersion(app: AppVersions): number {
+  return app.publishedVersion > 0 ? app.publishedVersion : app.headVersion
+}
+
+/** A Versions row's trailing: the published badge, the head badge + Publish,
+ *  or Preview + Publish. */
+export function versionRow(app: AppVersions, number: number): `published` | `head` | `version` {
+  if (number === app.publishedVersion) return `published`
+  return number === app.headVersion ? `head` : `version`
+}
+
 /** A name → its slug: lowercase ASCII letters, digits and single dashes,
  *  diacritics stripped, cut at the cap, `app` when nothing is left; a taken
  *  slug gets `-2`, `-3`, … */
@@ -92,7 +130,7 @@ export function editorBrief(app: { name: string; slug: string; headVersion: numb
     ...(isDraftApp(app)
       ? [`It is a new DRAFT with a placeholder name: on your FIRST exponential_apps {op: "upsert"} also pass name, icon, color and description that fit what the person asks for. The slug follows the new name; use the slug the upsert returns from then on.`]
       : []),
-    `An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "${app.slug}"}; learn the components, bindings, host functions and records with exponential_apps {op: "catalog"}; publish every change as a new version with exponential_apps {op: "upsert", slug: "${app.slug}", package, note}. An app keeps its own data as RECORDS (declare the kinds in the manifest, bind records:<kind>, write with records.upsert); seed or inspect them with exponential_apps {op: "records_upsert" | "records_list", slug: "${app.slug}", kind, data}. An app may also EXPOSE MCP tools (exposes: declarative bindings over its records, exponential.<noun>.<op> operations or a team MCP server in upstreams) that a member's MCP client runs as that member; the catalog documents the format. The person sees the live preview beside this chat, so keep replies to one or two lines and publish early.`,
+    `An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "${app.slug}"}; learn the components, bindings, host functions and records with exponential_apps {op: "catalog"}; save every change as a new DRAFT version with exponential_apps {op: "upsert", slug: "${app.slug}", package, note} (members keep running the published version); publish with exponential_apps {op: "publish", slug: "${app.slug}"} only when the person asks (they also have a Publish button). An app keeps its own data as RECORDS (declare the kinds in the manifest, bind records:<kind>, write with records.upsert); seed or inspect them with exponential_apps {op: "records_upsert" | "records_list", slug: "${app.slug}", kind, data}. An app may also EXPOSE MCP tools (exposes: declarative bindings over its records, exponential.<noun>.<op> operations or a team MCP server in upstreams) that a member's MCP client runs as that member; the catalog documents the format. The person sees the live preview beside this chat, so keep replies to one or two lines and save drafts early.`,
   ]
   return lines.join(`\n`)
 }
