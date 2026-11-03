@@ -376,11 +376,11 @@ final class ExpAppHost {
             theme: ThemeHandle.builtin(appHostThemeId),
             mode: .dark,
             plugin: AppHostPlugin(origin: origin ?? ""),
-            // VAPP-194: a package action runs as the viewer, in the device's
-            // zone (the surfaces' formatter's); one that landed nothing = the
-            // failed-action toast.
+            // VAPP-194: a package action runs as the viewer; one that landed
+            // nothing = the failed-action toast. VAPP-201 (team-zone.json):
+            // dates in the TEAM zone off the synced team row, else the device's.
             me: me,
-            zone: TimeZoneOffset(.current),
+            zone: TimeZoneOffset(TeamZone.hostTimeZone(AppHostStore.teamTimeZone(teamId: teamId, pool: pool))),
             onActionFailed: { failure in
                 Toaster.shared.error(
                     FeedbackStates.Errors.title(verb: "save", thing: "the record"),
@@ -724,6 +724,12 @@ enum AppHostStore {
 
     /// VAPP-120: the hosting app's grants off its synced `apps` row (none
     /// without an app or a store).
+    /// VAPP-201: the synced team's `time_zone` (nil = none, or not synced).
+    static func teamTimeZone(teamId: String?, pool: DatabasePool?) -> String? {
+        guard let pool, let teamId else { return nil }
+        return try? pool.read { db in try TeamEntity.fetchOne(db, key: teamId)?.timeZone }
+    }
+
     static func grantedTools(appId: String?, pool: DatabasePool?) -> [String] {
         guard let pool, let appId else { return [] }
         return (try? pool.read { db in try AppEntity.fetchOne(db, key: appId)?.grantedTools }) ?? []

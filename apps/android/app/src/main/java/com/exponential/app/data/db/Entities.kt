@@ -33,6 +33,9 @@ data class TeamEntity(
     // without the column) = estimates OFF, so the
     // chip and the properties row hide; issues keep their point values.
     @ColumnInfo(name = "estimation_type") @SerialName("estimation_type") @JsonNames("estimationType") val estimationType: String? = null,
+    // VAPP-201: the team time zone (an IANA name) app hosts read dates in;
+    // null = each device's own (domain `resolveZone`).
+    @ColumnInfo(name = "time_zone") @SerialName("time_zone") @JsonNames("timeZone") val timeZone: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 )

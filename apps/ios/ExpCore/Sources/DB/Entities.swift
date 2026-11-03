@@ -48,6 +48,9 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Equa
     /// EXP-630: the team's estimate scale (contract `issueEstimation`). NULL
     /// (a pre-rotation snapshot) reads as `none` = estimates off.
     public let estimationType: String?
+    /// VAPP-201: the team time zone (an IANA name) app hosts read dates in;
+    /// nil = each device's own (`TeamZone.resolveZone`).
+    public let timeZone: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -58,6 +61,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Equa
         iconUrl: String?,
         yoloMode: Bool = false,
         estimationType: String? = nil,
+        timeZone: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
@@ -67,6 +71,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Equa
         self.iconUrl = iconUrl
         self.yoloMode = yoloMode
         self.estimationType = estimationType
+        self.timeZone = timeZone
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
@@ -80,6 +85,7 @@ public struct TeamEntity: FetchableRecord, PersistableRecord, Identifiable, Equa
         case iconUrl = "icon_url"
         case yoloMode = "yolo_mode"
         case estimationType = "estimation_type"
+        case timeZone = "time_zone"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -98,6 +104,7 @@ extension TeamEntity: Codable {
         iconUrl = try c.decodeIfPresent(String.self, forKey: .iconUrl)
         yoloMode = c.decodeWireBool(forKey: .yoloMode, default: false)
         estimationType = try c.decodeIfPresent(String.self, forKey: .estimationType)
+        timeZone = try c.decodeIfPresent(String.self, forKey: .timeZone)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

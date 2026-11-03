@@ -125,6 +125,9 @@ private struct TeamGeneralPage: View {
     @State private var savingName = false
     /// The yolo flip while its write is in flight.
     @State private var yoloPending: Bool?
+    /// VAPP-201: the zone pick while its write is in flight (`.some(nil)` =
+    /// clearing it).
+    @State private var zonePending: String??
     /// nil = still loading (the field stays a skeleton, so a blur can never
     /// save an empty draft over a prompt that has not arrived).
     @State private var prompt: String?
@@ -145,8 +148,14 @@ private struct TeamGeneralPage: View {
             if let team = data.team {
                 VStack(alignment: .leading, spacing: 4) {
                     GlassSectionBand("General")
-                    nameRow(team)
-                        .glassSection()
+                    VStack(spacing: 0) {
+                        nameRow(team)
+                        Rectangle()
+                            .fill(GlassTokens.strokeCard)
+                            .frame(height: GlassTokens.hairline)
+                        zoneRow(team)
+                    }
+                    .glassSection()
                 }
                 .accessibilityIdentifier("team-settings-identity")
 
@@ -180,6 +189,7 @@ private struct TeamGeneralPage: View {
                     name = next.team?.name ?? ""
                 }
                 if let pending = yoloPending, next.team?.yoloMode == pending { yoloPending = nil }
+                if let pending = zonePending, let team = next.team, team.timeZone == pending { zonePending = nil }
                 data = next
             })
         }
@@ -309,6 +319,37 @@ private struct TeamGeneralPage: View {
             } catch {
                 toaster.error(
                     FeedbackStates.Errors.title(verb: "save", thing: "the team name"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
+    /// VAPP-201 (team-zone.json): THE schedule zone picker, `Device time
+    /// zone` (= nil) first; an owner's pick saves at once.
+    private func zoneRow(_ team: TeamEntity) -> some View {
+        ScheduleZonePicker(
+            title: TeamZone.Copy.row,
+            value: zonePending ?? team.timeZone,
+            nullLabel: TeamZone.Copy.device,
+            disabled: !data.isOwner || zonePending != nil,
+            onChange: { saveZone($0) }
+        )
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityIdentifier(TeamZone.TestIds.row)
+    }
+
+    private func saveZone(_ next: String?) {
+        guard let team = data.team, data.isOwner, next != team.timeZone else { return }
+        zonePending = .some(next)
+        Task {
+            do {
+                try await deps.teamsApi.update(accountId: accountId, UpdateTeamInput(teamId: teamId, timeZone: .some(next)))
+            } catch {
+                zonePending = nil
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "save", thing: "the time zone"),
                     description: error.trpcUserMessage
                 )
             }

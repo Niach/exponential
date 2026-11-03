@@ -43,6 +43,7 @@ import at.exponential.ui.host.MediaRule
 import at.exponential.ui.host.RecordRow
 import at.exponential.ui.host.RecordsQuery
 import at.exponential.ui.host.SourceResolver
+import at.exponential.ui.ffi.HostZone
 import at.exponential.ui.host.TimeZoneOffset
 import at.exponential.ui.host.UrlPolicy
 import at.exponential.ui.json.JsonValue
@@ -63,6 +64,7 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.domain.AppActions
 import com.exponential.app.domain.AppHostValues
 import com.exponential.app.domain.AppRecords
+import com.exponential.app.domain.TeamZone
 import com.exponential.app.domain.AppSources
 import com.exponential.app.domain.Apps
 import com.exponential.app.ui.components.failedAction
@@ -393,6 +395,17 @@ fun rememberAppHost(
         val ownHost = origin?.let { runCatching { java.net.URI(it).host }.getOrNull() }?.let { listOf(it) }
         val token = origin?.let { resolveAccountForUrl(auth.accounts.value, auth.activeAccountId.value, it)?.token }
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        // VAPP-201 (team-zone.json): dates in the TEAM zone, read live off
+        // the synced team row; the device's without one.
+        val zone = TeamHostZone()
+        if (teamId != null) {
+            scope.launch {
+                db.scopedQuery(null) { it.teamDao().observeById(teamId) }
+                    .map { it?.timeZone }
+                    .distinctUntilChanged()
+                    .collect { zone.teamZone(it) }
+            }
+        }
 
         // VAPP-122: the `records:<kind>` value over the parsed query (VAPP-189:
         // eUI's one evaluator, the SDK's `RecordsQuery` over the core).
@@ -565,11 +578,11 @@ fun rememberAppHost(
                 theme = themeId?.let(ThemeHandle::builtin) ?: ThemeHandle.builtin(APP_THEME_ID),
                 mode = Mode.Dark,
                 plugin = AppHostIcons,
-                // VAPP-194: a package action runs as the viewer, in the
-                // device's zone (the surfaces' formatter's); one that landed
-                // nothing = the failed-action toast.
+                // VAPP-194: a package action runs as the viewer; one that
+                // landed nothing = the failed-action toast. VAPP-201: in the
+                // team zone, else the device's.
                 me = me,
-                zone = TimeZoneOffset(java.util.TimeZone.getDefault()),
+                zone = zone,
                 onActionFailed = { failure -> toaster.failedAction("save", "the record", failure.message) },
             ),
             scope,
@@ -614,4 +627,16 @@ private suspend fun callMcp(client: HttpClient, origin: String?, token: String?,
     val answer = messages.firstOrNull { it["id"]?.number?.toInt() == id } ?: error("MCP: no answer")
     answer["error"]?.takeIf { it != JsonValue.Null }?.let { error(it["message"]?.string ?: "MCP error") }
     return answer["result"]
+}
+
+/** VAPP-201: the host's zone, `TimeZoneOffset(the resolved team zone)` once
+ *  the team row says so, else the device's. */
+private class TeamHostZone : HostZone {
+    @Volatile private var current: HostZone = TimeZoneOffset(java.util.TimeZone.getDefault())
+
+    fun teamZone(name: String?) {
+        current = TimeZoneOffset(java.util.TimeZone.getTimeZone(TeamZone.hostZoneId(name)))
+    }
+
+    override fun offsetMinutes(epochMs: Double): Int = current.offsetMinutes(epochMs)
 }
