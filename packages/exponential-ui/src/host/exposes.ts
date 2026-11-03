@@ -18,6 +18,8 @@ const RECORD_OPS: readonly string[] = host.package.exposes.recordOps
 const READ_RECORD_OPS: readonly string[] = host.package.exposes.readRecordOps
 const READ_OP_WORDS: readonly string[] = host.package.exposes.readOpWords
 const DESTRUCTIVE_WORDS: readonly string[] = host.package.exposes.destructiveWords
+const AGENT = host.package.exposes.agent
+const AGENT_SLUG = new RegExp(AGENT.slugPattern)
 
 export type ExposeAccess = `read` | `write`
 
@@ -35,6 +37,7 @@ export interface PackageExpose {
     | { records: { op: `list` | `get` | `upsert`; kind: string; id?: unknown; where?: Record<string, unknown>; data?: Record<string, unknown>; limit?: unknown } }
     | { action: string; args?: Record<string, unknown> }
     | { upstream: string; tool: string; args?: Record<string, unknown> }
+    | { agent: string; prompt: string; device?: string }
 }
 
 /** One problem with a binding: the eMCP error `code` (`fixtures/exposes.json`
@@ -124,7 +127,7 @@ export function exposeIssues(exposes: unknown, records: unknown, upstreams: unkn
     if (expose.access !== `read` && expose.access !== `write`) fail(`access`, `/access`, `access is read or write`)
     const properties = isObject(input) && isObject(input.properties) ? input.properties : {}
     const run = expose.run
-    if (!isObject(run) || EXPOSE_RUN_KINDS.filter((k) => k in run).length !== 1) return fail(`run`, `/run`, `run holds exactly one of records, action, upstream`)
+    if (!isObject(run) || EXPOSE_RUN_KINDS.filter((k) => k in run).length !== 1) return fail(`run`, `/run`, `run holds exactly one of records, action, upstream, agent`)
     for (const path of exposeTemplatePaths(run))
       if (!Object.prototype.hasOwnProperty.call(properties, path.split(`.`)[0]!)) fail(`template`, `/run`, `\${input.${path}} names no input property`)
     let level: ExposeAccess
@@ -141,6 +144,11 @@ export function exposeIssues(exposes: unknown, records: unknown, upstreams: unkn
       if (typeof action !== `string` || !ACTION.test(action)) return fail(`action`, `/run/action`, `action is a function name like namespace.function`)
       if (exposeNameDestructive(action)) return fail(`destructive`, `/run/action`, `a destructive action is never exposed`)
       level = exposeActionAccess(action)
+    } else if (`agent` in run) {
+      if (typeof run.agent !== `string` || !AGENT_SLUG.test(run.agent) || run.agent.length > AGENT.slugMax) fail(`agent`, `/run/agent`, `agent is an agent slug (lowercase words joined by -)`)
+      if (typeof run.prompt !== `string` || run.prompt.trim() === `` || run.prompt.length > AGENT.promptMax) fail(`prompt`, `/run/prompt`, `prompt is non-blank text of at most ${AGENT.promptMax} characters`)
+      if (run.device !== undefined && !(AGENT.devices as readonly unknown[]).includes(run.device)) fail(`run`, `/run/device`, `device is ${AGENT.devices.join(`, `)}`)
+      level = `write`
     } else {
       if (typeof run.upstream !== `string` || !servers.includes(run.upstream)) fail(`upstream`, `/run/upstream`, `upstream names none of the package's upstreams`)
       if (typeof run.tool !== `string` || run.tool === ``) return fail(`run`, `/run/tool`, `tool is a non-empty string`)

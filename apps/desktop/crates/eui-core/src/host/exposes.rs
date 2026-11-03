@@ -19,7 +19,17 @@ pub const EXPOSE_TITLE_MAX: usize = 80;
 pub const EXPOSE_DESCRIPTION_MAX: usize = 1024;
 pub const EXPOSE_MAX_TOOLS: usize = 32;
 pub const EXPOSE_SEPARATOR: &str = "__";
-pub const EXPOSE_RUN_KINDS: &[&str] = &["records", "action", "upstream"];
+pub const EXPOSE_RUN_KINDS: &[&str] = &["records", "action", "upstream", "agent"];
+/// `package.exposes.agent` (#VAPP-236).
+pub const EXPOSE_AGENT_SLUG_MAX: usize = 64;
+pub const EXPOSE_AGENT_PROMPT_MAX: usize = 4000;
+pub const EXPOSE_AGENT_DEVICES: &[&str] = &["default"];
+
+fn agent_slug_ok(slug: &str) -> bool {
+    !slug.is_empty()
+        && slug.len() <= EXPOSE_AGENT_SLUG_MAX
+        && slug.split('-').all(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
+}
 pub const EXPOSE_RECORD_OPS: &[&str] = &["list", "get", "upsert"];
 pub const EXPOSE_READ_RECORD_OPS: &[&str] = &["list", "get"];
 pub const EXPOSE_READ_OP_WORDS: &[&str] = &["list", "get", "show", "catalog", "activity", "files"];
@@ -198,7 +208,7 @@ pub fn expose_issues(exposes: &Value, records: Option<&Value>, upstreams: Option
         }
         let properties = input.and_then(|i| i.get("properties")).and_then(Value::as_object).unwrap_or(&empty);
         let Some(run) = expose.get("run").and_then(Value::as_object).filter(|r| EXPOSE_RUN_KINDS.iter().filter(|k| r.contains_key(**k)).count() == 1) else {
-            fail("run", "/run", "run holds exactly one of records, action, upstream".into());
+            fail("run", "/run", "run holds exactly one of records, action, upstream, agent".into());
             continue;
         };
         for path in expose_template_paths(&Value::Object(run.clone())) {
@@ -233,6 +243,17 @@ pub fn expose_issues(exposes: &Value, records: Option<&Value>, upstreams: Option
                 continue;
             }
             level = expose_action_access(action);
+        } else if run.contains_key("agent") {
+            if !run.get("agent").and_then(Value::as_str).is_some_and(agent_slug_ok) {
+                fail("agent", "/run/agent", "agent is an agent slug (lowercase words joined by -)".into());
+            }
+            if !run.get("prompt").and_then(Value::as_str).is_some_and(|p| !p.trim().is_empty() && p.encode_utf16().count() <= EXPOSE_AGENT_PROMPT_MAX) {
+                fail("prompt", "/run/prompt", format!("prompt is non-blank text of at most {EXPOSE_AGENT_PROMPT_MAX} characters"));
+            }
+            if run.get("device").is_some_and(|d| !d.as_str().is_some_and(|d| EXPOSE_AGENT_DEVICES.contains(&d))) {
+                fail("run", "/run/device", format!("device is {}", EXPOSE_AGENT_DEVICES.join(", ")));
+            }
+            level = "write";
         } else {
             if !run.get("upstream").and_then(Value::as_str).is_some_and(|u| servers.contains(&u)) {
                 fail("upstream", "/run/upstream", "upstream names none of the package's upstreams".into());

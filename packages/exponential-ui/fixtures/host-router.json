@@ -3085,11 +3085,11 @@
         },
         {
           "path": "/exposes/2/run",
-          "message": "run holds exactly one of records, action, upstream"
+          "message": "run holds exactly one of records, action, upstream, agent"
         },
         {
           "path": "/exposes/3/run",
-          "message": "run holds exactly one of records, action, upstream"
+          "message": "run holds exactly one of records, action, upstream, agent"
         },
         {
           "path": "/exposes/4/name",
