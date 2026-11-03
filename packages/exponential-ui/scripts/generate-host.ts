@@ -143,6 +143,7 @@ function renderRecordsQuery(f: Record<string, any>): Record<string, unknown> {
       me: c.me as string | null,
       now: c.now as string,
       names: c.names as Record<string, string>,
+      computed: c.computed as Record<string, string> | undefined,
     }),
   }))
   return f

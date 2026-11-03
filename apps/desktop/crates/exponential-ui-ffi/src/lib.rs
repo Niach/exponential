@@ -2875,7 +2875,7 @@ pub fn parse_records_source_json(source: String) -> Option<String> {
 
 /// VAPP-189: THE records value (`valueCases`): `rows_json` = every row of
 /// the app `[{id, kind, data, createdBy, authorId?, createdAt, updatedAt}]`,
-/// `query_json` = a parsed query, `context_json` = `{me, now, names}`;
+/// `query_json` = a parsed query, `context_json` = `{me, now, names, computed?}` (VAPP-214: the queried kind's computed fields);
 /// the value JSON, `null` without a kind.
 #[uniffi::export]
 pub fn records_value_json(rows_json: String, query_json: String, context_json: String) -> Result<String, UiError> {
@@ -2887,11 +2887,14 @@ pub fn records_value_json(rows_json: String, query_json: String, context_json: S
             now: String,
             #[serde(default)]
             names: std::collections::HashMap<String, String>,
+            /// VAPP-214: the queried kind's computed fields (name → CEL).
+            #[serde(default)]
+            computed: Option<std::collections::BTreeMap<String, String>>,
         }
         let rows: Vec<h::RecordRow> = parse(&rows_json)?;
         let query: h::RecordsQuery = parse(&query_json)?;
         let ctx: Context = parse(&context_json)?;
-        let value = h::records_value_owned(&rows, &query, h::RecordsContext { me: ctx.me.as_deref(), now: &ctx.now, names: &ctx.names });
+        let value = h::records_value_owned(&rows, &query, h::RecordsContext { me: ctx.me.as_deref(), now: &ctx.now, names: &ctx.names, computed: ctx.computed.as_ref() });
         Ok(value.map_or_else(|| "null".to_string(), |v| v.to_string()))
     })
 }

@@ -779,6 +779,64 @@ pub struct RecordsContext<'a> {
     pub now: &'a str,
     /// user id → display name (`author`; "" when unknown).
     pub names: &'a HashMap<String, String>,
+    /// VAPP-214 (Q3): the queried kind's computed fields (`records.<kind>.computed`:
+    /// name → CEL), evaluated on every row of the kind before the query.
+    pub computed: Option<&'a BTreeMap<String, String>>,
+}
+
+/// VAPP-214 (Q3): at most this many computed fields per kind.
+pub const RECORDS_COMPUTED_MAX: usize = 16;
+/// The row keys a computed field reads next to its kind's fields (`author`, a name, never).
+pub const RECORDS_COMPUTED_ROW_KEYS: [&str; 5] = ["id", "createdAt", "updatedAt", "createdBy", "authorId"];
+
+/// VAPP-214 (Q3): a package's computed fields of `kind` (`records.<kind>.computed`,
+/// the string ones); `None` = none. What a host passes as `computed`.
+pub fn kind_computed(records: Option<&Value>, kind: Option<&str>) -> Option<BTreeMap<String, String>> {
+    let def = records?.as_object()?.get(kind?)?.as_object()?;
+    let out: BTreeMap<String, String> = def.get("computed")?.as_object()?.iter().filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string()))).collect();
+    (!out.is_empty()).then_some(out)
+}
+
+/// VAPP-214 (Q3): the data of every row of `kind` with its computed fields
+/// written in (`None` for other kinds' rows: they stay as they are). A field
+/// reads the row's data and the row keys by name (a missing one = null); it
+/// never reads another computed field (the checker refuses it). A failing
+/// or unparsable expression reads null. Evaluated in UTC with the query's
+/// `now`, like the query's own buckets. Never stored.
+pub fn computed_data(rows: &[RecordRowRef], kind: &str, computed: &BTreeMap<String, String>, now: &str) -> Vec<Option<Value>> {
+    let fields: Vec<(&String, Option<crate::cel::Node>, Vec<String>)> = computed
+        .iter()
+        .map(|(name, source)| {
+            let ast = crate::cel::parse_expression(source).ok();
+            let reads = ast.as_ref().map(crate::cel::expression_names).unwrap_or_default();
+            (name, ast, reads)
+        })
+        .collect();
+    let env = crate::cel::ExpressionEnv { now: Some(crate::cel::parse_timestamp(now).unwrap_or(0.0)), offset: None, max_steps: None };
+    rows.iter()
+        .map(|row| {
+            if row.kind != kind {
+                return None;
+            }
+            let mut vars: Map<String, Value> = row.data.as_object().cloned().unwrap_or_default();
+            vars.insert("id".into(), Value::String(row.id.to_string()));
+            vars.insert("createdAt".into(), Value::String(row.created_at.to_string()));
+            vars.insert("updatedAt".into(), Value::String(row.updated_at.to_string()));
+            vars.insert("createdBy".into(), row.created_by.map_or(Value::Null, |s| Value::String(s.to_string())));
+            vars.insert("authorId".into(), row.author().map_or(Value::Null, |s| Value::String(s.to_string())));
+            let mut data: Map<String, Value> = row.data.as_object().cloned().unwrap_or_default();
+            for (name, ast, reads) in &fields {
+                for r in reads {
+                    if !vars.contains_key(r) {
+                        vars.insert(r.clone(), Value::Null);
+                    }
+                }
+                let value = ast.as_ref().and_then(|ast| crate::cel::evaluate_node(ast, &vars, &env).ok()).unwrap_or(Value::Null);
+                data.insert((*name).clone(), value);
+            }
+            Some(Value::Object(data))
+        })
+        .collect()
 }
 
 /// A field as a JS value (`undefined` = `Missing`).
@@ -1208,6 +1266,12 @@ fn sorted<'r, 'a>(rows: Vec<&'r RecordRowRef<'a>>, sort: &[RecordsSortKey]) -> V
 /// cut at the limit, `count` and `sum` before the limit.
 pub fn records_value(rows: &[RecordRowRef], query: &RecordsQuery, ctx: RecordsContext) -> Option<Value> {
     let kind = query.from.as_deref()?;
+    // VAPP-214: the computed fields ride in each row's data from here on.
+    if let Some(computed) = ctx.computed.filter(|c| !c.is_empty()) {
+        let data = computed_data(rows, kind, computed, ctx.now);
+        let rows: Vec<RecordRowRef> = rows.iter().zip(&data).map(|(row, d)| RecordRowRef { data: d.as_ref().unwrap_or(row.data), ..*row }).collect();
+        return records_value(&rows, query, RecordsContext { computed: None, ..ctx });
+    }
     let view = query.month.as_ref();
     let month_key: Option<String> = view.map(|v| v.key.clone().unwrap_or_else(|| prefix(ctx.now, 7)));
     let where_: Vec<Cond> = query.where_.iter().map(Cond::new).collect();

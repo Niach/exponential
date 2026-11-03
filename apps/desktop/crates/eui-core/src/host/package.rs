@@ -233,6 +233,8 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
                             if let Some(policy) = def.get("policy") {
                                 issues.extend(super::record_policy::validate_record_policy(policy, &format!("{at}/policy")));
                             }
+                            // VAPP-214 (Q3): computed fields, typed against the schema.
+                            issues.extend(super::expressions::validate_record_computed(&Value::Object(def.clone()), &at));
                         }
                     }
                 }

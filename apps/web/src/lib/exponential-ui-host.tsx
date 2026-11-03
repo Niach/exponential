@@ -42,7 +42,7 @@ import {
   teamMemberCollection,
   userCollection,
 } from "@/lib/collections"
-import { RECORDS_SCHEME, parseRecordsQuery, recordAuthor, recordsValue, type RecordRow } from "@exponential_app/eui/host/query"
+import { RECORDS_SCHEME, kindComputed, parseRecordsQuery, recordAuthor, recordsValue, type RecordRow } from "@exponential_app/eui/host/query"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { APPS_COPY, appMediaAllowed } from "@exp/domain-contract/apps"
@@ -329,6 +329,8 @@ export interface RecordsScope {
   me: string | null
   /** VAPP-198 (Run as): only the rows this member may read (record-policy.json `readable`). */
   readable?: (rows: readonly RecordRow[]) => RecordRow[]
+  /** VAPP-214: the hosting package's kinds (their `computed` fields apply on read). */
+  records?: Record<string, unknown>
 }
 
 /** VAPP-122: `records:<kind>?…` → the eUI evaluator's value over the synced
@@ -352,7 +354,9 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
       const author = recordAuthor(row)
       if (author && !(author in names)) names[author] = users.get(author) ?? ``
     }
-    const value = recordsValue(rows, query, { me: scope.me, now: new Date().toISOString(), names })
+    // VAPP-214: the hosting app's computed fields (another app's rows carry none).
+    const computed = query.app ? undefined : kindComputed(scope.records, query.from)
+    const value = recordsValue(rows, query, { me: scope.me, now: new Date().toISOString(), names, computed })
     const key = JSON.stringify(value)
     if (key === last) return
     last = key
@@ -527,6 +531,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
     teamId: options.teamId ?? null,
     me: runAs ? runAs.id : (options.me ?? null),
     readable: runAs ? (rows) => readableRows(rows, kinds, { id: runAs.id, role: runAs.role, access: runAs.access }) : undefined,
+    records: kinds,
   }
   const appRef = () => {
     if (!scope.appId) throw new Error(`No app to keep records for`)

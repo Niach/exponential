@@ -15,7 +15,7 @@ import { validateTools } from "./tools"
 import type { PackageTool } from "./tools"
 import { validatePackageExposes, validateUpstreams } from "./exposes"
 import type { PackageExpose } from "./exposes"
-import { validatePackageExpressions } from "./expressions"
+import { validatePackageExpressions, validateRecordComputed } from "./expressions"
 import { validatePackageActions, validatePackageEffects } from "./actions"
 import { packageTestIssues, validatePackageTests } from "./tests"
 import { validatePackageComponents } from "./components"
@@ -202,6 +202,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
           issues.push(...validateRecordSchema(def.schema, `${at}/schema`))
           // eApps R3: who may read, create, update and delete (record-policy.json).
           if (def.policy !== undefined) issues.push(...validateRecordPolicy(def.policy, `${at}/policy`))
+          // VAPP-214 (Q3): computed fields, typed against the schema.
+          issues.push(...validateRecordComputed(def, at))
         }
       }
   }

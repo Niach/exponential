@@ -522,6 +522,7 @@ impl AppScreenView {
             grants,
             run_as: run_as.clone(),
             read_only,
+            records: pkg.get("records").cloned(),
         });
         let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), scope, cx);
         if let Some(message) = apply_template_message(&pkg, self.picked_template.as_deref()) {

@@ -217,7 +217,8 @@ fn records_source_value(source: &str, pkg: &Map<String, Value>, rows: &[RecordRo
     let query = parse_source(&expanded).filter(|p| p.scheme == RECORDS_SCHEME).and_then(|p| parse_records_source(&p));
     let Some(query) = query else { return error(format!("{source} is not a records source")) };
     let names = HashMap::new();
-    records_value_owned(rows, &query, RecordsContext { me: Some(me), now, names: &names }).unwrap_or(Value::Null)
+    let computed = if query.app.is_none() { super::query::kind_computed(pkg.get("records"), query.from.as_deref()) } else { None };
+    records_value_owned(rows, &query, RecordsContext { me: Some(me), now, names: &names, computed: computed.as_ref() }).unwrap_or(Value::Null)
 }
 
 /// Run one (valid) test: what it produced.

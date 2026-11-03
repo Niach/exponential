@@ -15,7 +15,8 @@ use super::package::PackageIssue;
 use super::query::{expand_query_source, parse_records_source, RecordsQuery};
 use super::record_store::RECORDS_SCHEME;
 use super::sources::parse_source;
-use crate::cel::{check_expression, is_optional, optional_type, required_type, type_name};
+use super::query::{RECORDS_COMPUTED_MAX, RECORDS_COMPUTED_ROW_KEYS, RECORDS_ROW_KEYS};
+use crate::cel::{check_expression, expression_names, is_optional, optional_type, parse_expression, required_type, type_name};
 
 fn ty(name: &str) -> Value {
     Value::String(name.into())
@@ -83,8 +84,76 @@ pub fn record_row_type(kind: Option<&Value>) -> Value {
         for (k, t) in [("id", "string"), ("createdAt", "timestamp"), ("updatedAt", "timestamp"), ("createdBy", "string"), ("authorId", "string"), ("author", "string")] {
             m.insert(k.into(), ty(t));
         }
+        // VAPP-214: plus its computed fields, each its expression's type
+        // (`dyn?` when it does not check).
+        if let Some(computed) = kind.and_then(|k| k.get("computed")).and_then(Value::as_object) {
+            let vars = computed_vars(kind);
+            let mut names: Vec<&String> = computed.keys().collect();
+            names.sort();
+            for name in names {
+                if m.contains_key(name.as_str()) {
+                    continue;
+                }
+                let t = computed[name.as_str()].as_str().and_then(|src| check_expression(src, &vars).ok()).unwrap_or_else(|| optional_type(ty("dyn")));
+                m.insert(name.clone(), t);
+            }
+        }
     }
     row
+}
+
+/// VAPP-214: the names a kind's computed field reads: its schema's fields
+/// (`T?` unless required) and the row keys but `author`.
+fn computed_vars(kind: Option<&Value>) -> Map<String, Value> {
+    let schema = kind.and_then(Value::as_object).and_then(|k| k.get("schema")).and_then(Value::as_object);
+    let props = schema.and_then(|s| s.get("properties")).and_then(Value::as_object);
+    let mut vars = match props.map(|p| row_of(p, schema.and_then(|s| s.get("required")))) {
+        Some(Value::Object(m)) => m,
+        _ => Map::new(),
+    };
+    for key in RECORDS_COMPUTED_ROW_KEYS {
+        vars.insert(key.into(), ty(if key == "createdAt" || key == "updatedAt" { "timestamp" } else { "string" }));
+    }
+    vars
+}
+
+/// VAPP-214 (Q3): a kind's `computed` ({name: CEL}), each issue at
+/// `<at>/computed/<name>`: at most [`RECORDS_COMPUTED_MAX`]; a name is not a
+/// schema field nor a row key; the expression is a string that reads no
+/// other computed field and type-checks against the kind's fields.
+pub fn validate_record_computed(kind: &Value, at: &str) -> Vec<PackageIssue> {
+    let Some(computed) = kind.get("computed") else { return Vec::new() };
+    let Some(computed) = computed.as_object() else {
+        return vec![PackageIssue { path: format!("{at}/computed"), message: "computed is {name: expression}".into() }];
+    };
+    let mut issues = Vec::new();
+    let mut names: Vec<&String> = computed.keys().collect();
+    names.sort();
+    if names.len() > RECORDS_COMPUTED_MAX {
+        issues.push(PackageIssue { path: format!("{at}/computed"), message: format!("at most {RECORDS_COMPUTED_MAX} computed fields per kind") });
+    }
+    let props = kind.get("schema").and_then(|s| s.get("properties")).and_then(Value::as_object);
+    let declared = |n: &str| props.is_some_and(|p| p.contains_key(n));
+    let vars = computed_vars(Some(kind));
+    for name in names {
+        let fp = format!("{at}/computed/{}", escape(name));
+        let source = &computed[name.as_str()];
+        if declared(name) {
+            issues.push(PackageIssue { path: fp, message: format!("{name} shadows a field of the schema") });
+        } else if RECORDS_ROW_KEYS.contains(&name.as_str()) {
+            issues.push(PackageIssue { path: fp, message: format!("{name} is a reserved record key") });
+        } else if let Some(source) = source.as_str() {
+            let reads: Vec<String> = parse_expression(source).map(|ast| expression_names(&ast)).unwrap_or_default().into_iter().filter(|n| computed.contains_key(n) && !declared(n)).collect();
+            if !reads.is_empty() {
+                issues.push(PackageIssue { path: fp, message: format!("a computed field reads no computed field: {}", reads.join(", ")) });
+            } else if let Err(message) = check_expression(source, &vars) {
+                issues.push(PackageIssue { path: fp, message });
+            }
+        } else {
+            issues.push(PackageIssue { path: fp, message: "a computed field is an expression (a string)".into() });
+        }
+    }
+    issues
 }
 
 /// A month view's value (`RecordsMonth`).

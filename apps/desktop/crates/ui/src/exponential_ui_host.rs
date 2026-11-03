@@ -176,6 +176,9 @@ pub(crate) struct HostScope {
     /// VAPP-200: the viewer's (or Run as member's) app access is `read`:
     /// the app's own writing controls paint disabled (eUI `read_only`).
     pub(crate) read_only: bool,
+    /// VAPP-214: the hosting package's `records` (its kinds' `computed`
+    /// fields apply on read); `None` = none.
+    pub(crate) records: Option<Value>,
 }
 
 /// VAPP-198 (apps.json `runAs`): who the preview runs as: `me` is them,
@@ -281,7 +284,9 @@ pub(crate) fn records_feed_value(feed: &RecordsFeed, query: &eui_core::host::Rec
             updated_at: &r.updated_at,
         })
         .collect();
-    let ctx = eui_core::host::RecordsContext { me: feed.me.as_deref(), now, names: &feed.names };
+    // VAPP-214: the hosting app's computed fields (another app's rows carry none).
+    let computed = if query.app.is_none() { eui_core::host::kind_computed(scope.and_then(|s| s.records.as_ref()), query.from.as_deref()) } else { None };
+    let ctx = eui_core::host::RecordsContext { me: feed.me.as_deref(), now, names: &feed.names, computed: computed.as_ref() };
     eui_core::host::records_value(&rows, query, ctx).unwrap_or(Value::Null)
 }
 
@@ -1426,7 +1431,7 @@ mod tests {
 
     fn records_feed() -> RecordsFeed {
         RecordsFeed {
-            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false }),
+            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false, records: None }),
             me: Some("u1".into()),
             records: vec![record("r1", "a1", 3, "u1"), record("r2", "a2", 4, "u2"), record("r3", "a3", 5, "u2")],
             apps: vec![
@@ -1466,6 +1471,25 @@ mod tests {
         assert_ne!(query("records:entry?kind=other"), query("records:entry"));
         assert_eq!(records_feed_value(&feed, &query("records:entry?kind=other"), now)["count"], 0);
         assert!(query_of(&eui_core::host::parse_source("other:records?kind=entry").unwrap()).is_none());
+    }
+
+    /// VAPP-214: the hosting package's computed fields ride on its rows (a
+    /// filter reads them); another app's rows carry none.
+    #[test]
+    fn records_apply_the_package_computed_fields() {
+        let mut feed = records_feed();
+        if let Some(scope) = feed.scope.as_mut() {
+            scope.records = Some(json!({"entry": {"schema": {"type": "object", "properties": {"hours": {"type": "number"}}}, "computed": {"minutes": "hours * 60"}}}));
+        }
+        let query = |s: &str| match query_of(&eui_core::host::parse_source(s).unwrap()) {
+            Some(Query::Records(q)) => q,
+            other => panic!("{other:?}"),
+        };
+        let now = "2026-10-24T09:00:00.000Z";
+        let own = records_feed_value(&feed, &query("records:entry?minutes.gte=180"), now);
+        assert_eq!(own["rows"][0]["minutes"], 180);
+        let other = records_feed_value(&feed, &query("records:entry?app=other"), now);
+        assert!(other["rows"][0].get("minutes").is_none());
     }
 
     #[test]
@@ -1544,7 +1568,7 @@ mod tests {
             ]), cx);
         });
         let ide = cx.update(|cx| {
-            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false };
+            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false, records: None };
             IdeHost::with_packages(Mode::Dark, &[], None, Some(scope), cx)
         });
         let feeds = ide._feeds.clone();

@@ -1044,6 +1044,45 @@ fn dotted_name(node: &Node) -> Option<String> {
     }
 }
 
+/// VAPP-214: the free names an expression reads, sorted (a macro's own
+/// variable is not free inside its body).
+pub fn expression_names(node: &Node) -> Vec<String> {
+    fn walk(n: &Node, bound: &mut Vec<String>, out: &mut std::collections::BTreeSet<String>) {
+        match n {
+            Node::Lit(..) => {}
+            Node::Id(name, _) => {
+                if !bound.iter().any(|b| b == name) {
+                    out.insert(name.clone());
+                }
+            }
+            Node::List(items, _) | Node::Call(_, items, _) => items.iter().for_each(|x| walk(x, bound, out)),
+            Node::Field(of, _, _) | Node::Has(of, _) | Node::Unary(_, of, _) => walk(of, bound, out),
+            Node::Index(of, index, _) => {
+                walk(of, bound, out);
+                walk(index, bound, out);
+            }
+            Node::Bin(_, a, b, _) => {
+                walk(a, bound, out);
+                walk(b, bound, out);
+            }
+            Node::Cond(test, then, other, _) => {
+                walk(test, bound, out);
+                walk(then, bound, out);
+                walk(other, bound, out);
+            }
+            Node::Macro(_, of, v, body, _) => {
+                walk(of, bound, out);
+                bound.push(v.clone());
+                walk(body, bound, out);
+                bound.pop();
+            }
+        }
+    }
+    let mut out = std::collections::BTreeSet::new();
+    walk(node, &mut Vec::new(), &mut out);
+    out.into_iter().collect()
+}
+
 /// VAPP-195: a value's path as written (`a.b[0].c`, `m['k']`): names,
 /// fields and literal indexes; `None` for anything else.
 pub fn path_text(node: &Node) -> Option<String> {

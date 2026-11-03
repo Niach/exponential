@@ -49,6 +49,9 @@ export interface RecordKind {
   /** eApps R3: who may read, create, update and delete its records
    *  (`host/record-policy.ts`; absent ops keep `DEFAULT_RECORD_POLICY`). */
   policy?: Partial<import("./record-policy").RecordPolicy>
+  /** eApps Q3 (VAPP-214): fields evaluated on read (name → CEL over the
+   *  record's fields), never stored; queries filter, sort and group on them. */
+  computed?: Record<string, string>
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)

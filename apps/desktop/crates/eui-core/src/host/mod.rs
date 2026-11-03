@@ -34,7 +34,7 @@ pub use actions::{
 };
 pub use components::validate_package_components;
 pub use contract::*;
-pub use expressions::{literal_type, record_row_type, records_value_type, schema_type, validate_package_expressions};
+pub use expressions::{literal_type, record_row_type, records_value_type, schema_type, validate_package_expressions, validate_record_computed};
 pub use exposes::{expose_action_access, expose_issues, expose_name_destructive, expose_template_paths, validate_package_exposes, validate_upstreams, ExposeIssue};
 pub use decoders::{decode_jsonl, mcp_action_call, messages_from_mcp_result, DecodeIssue, Decoded, JsonlDecoder, SseDecoder};
 pub use package::{
@@ -47,8 +47,8 @@ pub use policy::{
 };
 pub use router::{normalize_path, HostRouter, SurfaceInfo};
 pub use query::{
-    expand_query_source, fill_query_templates, month_days, month_label, parse_records_json, parse_records_query, parse_records_source, records_value, records_value_owned, shift_month, RecordRow, RecordRowRef, RecordsAggregate, RecordsAggregateOp, RecordsBefore, RecordsContext, RecordsDay, RecordsFilter, RecordsFilterOp, RecordsFilterValue, RecordsGroupKey, RecordsMonthView, RecordsOrder, RecordsQueryIssue, RecordsRunning, RecordsRunningOp,
-    RecordsQuery, RecordsSortKey, RECORDS_AGGREGATE_OPS, RECORDS_AGGREGATE_RESERVED, RECORDS_FILTER_OPS, RECORDS_MONTHS, RECORDS_OP_ALIASES, RECORDS_RUNNING_OPS, RECORDS_RESERVED_PARAMS, RECORDS_ROW_KEYS, RECORDS_SCHEME, RECORDS_WEEKDAYS,
+    computed_data, expand_query_source, fill_query_templates, kind_computed, month_days, month_label, parse_records_json, parse_records_query, parse_records_source, records_value, records_value_owned, shift_month, RecordRow, RecordRowRef, RecordsAggregate, RecordsAggregateOp, RecordsBefore, RecordsContext, RecordsDay, RecordsFilter, RecordsFilterOp, RecordsFilterValue, RecordsGroupKey, RecordsMonthView, RecordsOrder, RecordsQueryIssue, RecordsRunning, RecordsRunningOp,
+    RecordsQuery, RecordsSortKey, RECORDS_AGGREGATE_OPS, RECORDS_AGGREGATE_RESERVED, RECORDS_COMPUTED_MAX, RECORDS_COMPUTED_ROW_KEYS, RECORDS_FILTER_OPS, RECORDS_MONTHS, RECORDS_OP_ALIASES, RECORDS_RUNNING_OPS, RECORDS_RESERVED_PARAMS, RECORDS_ROW_KEYS, RECORDS_SCHEME, RECORDS_WEEKDAYS,
 };
 pub use record_policy::{
     readable_rows, record_allowed, record_author_of, record_policy, record_policy_copy, record_refusal, validate_record_policy, RecordOp, RecordPolicy, RecordViewer, APP_ACCESS_LEVELS, DEFAULT_RECORD_POLICY, RECORD_POLICY_LEVELS, RECORD_POLICY_OPS,

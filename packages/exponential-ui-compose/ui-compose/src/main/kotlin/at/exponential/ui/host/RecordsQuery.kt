@@ -27,15 +27,17 @@ class RecordsQuery private constructor(
      * kind): [JsonValue.Null] without a kind, else `{rows, count, sum?,
      * month?, groups?, totals?, before?}`. [me] = the viewer (null: `mine` matches nothing), [now] =
      * ISO 8601 (the month view's default month), [names] = user id →
-     * display name.
+     * display name. VAPP-214: [computed] = the queried kind's computed
+     * fields (name → CEL, [computed] in the companion), evaluated on read.
      */
-    fun value(rows: List<RecordRow>, me: String?, now: String, names: Map<String, String> = emptyMap()): JsonValue {
+    fun value(rows: List<RecordRow>, me: String?, now: String, names: Map<String, String> = emptyMap(), computed: Map<String, String> = emptyMap()): JsonValue {
         val rowsJson = JsonValue.Arr(rows.map { it.toJson() }).json
         val context = JsonValue.Obj(
             mapOf(
                 "me" to (me?.let { JsonValue.Str(it) } ?: JsonValue.Null),
                 "now" to JsonValue.Str(now),
                 "names" to JsonValue.Obj(names.mapValues { JsonValue.Str(it.value) }),
+                "computed" to JsonValue.Obj(computed.mapValues { JsonValue.Str(it.value) }),
             ),
         ).json
         val out = runCatching { at.exponential.ui.ffi.recordsValueJson(rowsJson, json, context) }.getOrNull() ?: return JsonValue.Null
@@ -49,6 +51,12 @@ class RecordsQuery private constructor(
     override fun toString(): String = json
 
     companion object {
+        /** VAPP-214: a package's computed fields of [kind] (`records.<kind>.computed`, the string ones); what a host passes as `computed`. */
+        fun computed(records: JsonValue?, kind: String?): Map<String, String> {
+            val fields = kind?.let { records?.get(it)?.get("computed")?.obj } ?: return emptyMap()
+            return fields.mapNotNull { (k, v) -> v.string?.let { k to it } }.toMap()
+        }
+
         /** Query params (as [ParsedSource.params] gives them) → the query. [kind] = the source's own name (`records:<kind>`); a `kind` param is a field filter. */
         fun parse(params: Map<String, String>, kind: String? = null): RecordsQuery {
             val paramsJson = JsonValue.Obj(params.mapValues { JsonValue.Str(it.value) }).json
