@@ -40,3 +40,5 @@
 - Una app lee un campo que falta como vacío en lugar de fallar la vista
 - Los cambios de una app son borradores hasta que alguien pulsa Publicar
 - Los propietarios fijan la zona horaria del equipo; las apps leen las fechas en ella
+- Deshaz cambios de registros durante 10 segundos; cada registro guarda un historial restaurable
+- Las apps pueden calcular campos y enlazar registros entre sí

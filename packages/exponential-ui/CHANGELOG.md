@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.10.0 (2026-11-03)
+
+- VAPP-219 (eApps R5): record refs + expand: a kind's `refs` (`records.<kind>.refs`) name the kind a field points to, and a query's `expand` resolves them into the rows.
 - Swift/Kotlin: the committed UniFFI bindings match the 0.9.0 core again (`records_value_json`'s checksum after Q3); 0.9.0's `ExponentialUICore` reported `apiChecksumMismatch` at init.
 - Every install validation pass (components, actions, expressions, package) walks templates sorted by id, so every renderer reports the issues in one order.
 

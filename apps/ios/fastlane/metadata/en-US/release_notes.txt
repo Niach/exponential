@@ -40,3 +40,5 @@
 - An app reads a record's missing field as empty instead of failing the view
 - App edits are drafts until someone presses Publish
 - Owners set the team's time zone; apps read dates in it
+- Undo app record changes for 10 seconds; every record keeps a history you can restore from
+- Apps can compute fields and link records to each other

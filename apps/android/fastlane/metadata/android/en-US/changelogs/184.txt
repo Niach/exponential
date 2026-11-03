@@ -1,0 +1,3 @@
+- Undo app record changes for 10 seconds; every record keeps a history you can restore from
+- Apps can compute fields, link records to each other and attach files
+- Settings, sessions, the composer and sign-in look the same as on the other apps

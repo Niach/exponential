@@ -40,3 +40,5 @@
 - En app leser et manglende felt som tomt i stedet for at visningen feiler
 - Endringer i en app er utkast til noen trykker Publiser
 - Eiere velger teamets tidssone; apper leser datoer i den
+- Angre endringer i app-poster i 10 sekunder; hver post har en historikk du kan gjenopprette fra
+- Apper kan beregne felt og koble poster til hverandre

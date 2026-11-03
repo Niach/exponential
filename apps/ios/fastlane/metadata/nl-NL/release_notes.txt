@@ -40,3 +40,5 @@
 - Een app leest een ontbrekend veld als leeg in plaats van de weergave te laten mislukken
 - Wijzigingen aan een app zijn concepten tot iemand op Publiceren drukt
 - Eigenaren stellen de tijdzone van het team in; apps lezen datums daarin
+- Maak wijzigingen aan records 10 seconden ongedaan; elk record bewaart een herstelbare geschiedenis
+- Apps kunnen velden berekenen en records aan elkaar koppelen

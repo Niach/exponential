@@ -40,3 +40,5 @@
 - Une app lit un champ manquant comme vide au lieu de faire échouer la vue
 - Les modifications d'une app sont des brouillons jusqu'à ce que quelqu'un appuie sur Publier
 - Les propriétaires règlent le fuseau horaire de l'équipe ; les apps y lisent les dates
+- Annulez les modifications d'éléments pendant 10 secondes ; chaque élément garde un historique restaurable
+- Les apps peuvent calculer des champs et relier des éléments entre eux

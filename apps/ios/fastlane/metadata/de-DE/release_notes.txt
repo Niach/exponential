@@ -40,3 +40,5 @@
 - Eine App liest ein fehlendes Feld eines Eintrags als leer, statt die Ansicht scheitern zu lassen
 - App-Änderungen sind Entwürfe, bis jemand auf Veröffentlichen tippt
 - Inhaber legen die Zeitzone des Teams fest; Apps lesen Daten darin
+- Änderungen an App-Einträgen 10 Sekunden lang rückgängig machen; jeder Eintrag hat einen wiederherstellbaren Verlauf
+- Apps können Felder berechnen und Einträge miteinander verknüpfen

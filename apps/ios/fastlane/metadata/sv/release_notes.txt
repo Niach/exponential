@@ -40,3 +40,5 @@
 - En app läser ett saknat fält som tomt i stället för att vyn misslyckas
 - Ändringar i en app är utkast tills någon trycker Publicera
 - Ägare väljer teamets tidszon; appar läser datum i den
+- Ångra ändringar i appposter i 10 sekunder; varje post har en historik du kan återställa från
+- Appar kan beräkna fält och länka poster till varandra

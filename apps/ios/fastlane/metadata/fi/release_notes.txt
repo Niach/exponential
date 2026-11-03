@@ -40,3 +40,5 @@
 - Sovellus lukee puuttuvan kentän tyhjäksi sen sijaan, että näkymä epäonnistuisi
 - Sovelluksen muutokset ovat luonnoksia, kunnes joku painaa Julkaise
 - Omistajat asettavat tiimin aikavyöhykkeen; sovellukset lukevat päivämäärät siinä
+- Kumoa sovelluksen tietuemuutokset 10 sekunnin ajan; jokaisella tietueella on palautettava historia
+- Sovellukset voivat laskea kenttiä ja linkittää tietueita

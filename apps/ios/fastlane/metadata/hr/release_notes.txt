@@ -40,3 +40,5 @@
 - Aplikacija čita polje koje nedostaje kao prazno umjesto da prikaz ne uspije
 - Izmjene aplikacije su skice dok netko ne pritisne Objavi
 - Vlasnici postavljaju vremensku zonu tima; aplikacije u njoj čitaju datume
+- Poništite izmjene zapisa 10 sekundi; svaki zapis čuva povijest za vraćanje
+- Aplikacije mogu računati polja i povezivati zapise

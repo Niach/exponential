@@ -40,3 +40,5 @@
 - Uma app lê um campo em falta como vazio em vez de falhar a vista
 - As alterações a uma app são rascunhos até alguém premir Publicar
 - Os proprietários definem o fuso horário da equipa; as apps leem as datas nele
+- Anule alterações de registos durante 10 segundos; cada registo guarda um histórico restaurável
+- As apps podem calcular campos e ligar registos entre si

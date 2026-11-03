@@ -40,3 +40,5 @@
 - Az app a hiányzó mezőt üresnek olvassa, ahelyett hogy a nézet hibára futna
 - Az app módosításai piszkozatok, amíg valaki meg nem nyomja a Közzététel gombot
 - A tulajdonosok beállítják a csapat időzónáját; az appok abban olvassák a dátumokat
+- Az app rekordjainak módosítása 10 másodpercig visszavonható; minden rekordnak van visszaállítható előzménye
+- Az appok mezőket számolhatnak és rekordokat kapcsolhatnak össze

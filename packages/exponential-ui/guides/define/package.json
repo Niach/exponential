@@ -7,7 +7,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@exponential_app/eui": "^0.9.0"
+    "@exponential_app/eui": "^0.10.0"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
