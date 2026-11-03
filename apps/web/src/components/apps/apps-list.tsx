@@ -15,23 +15,24 @@ import {
   SETTINGS_LIST_CLASS,
 } from "@exp/ui"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
-import { AppImportDialog } from "@/components/apps/app-import-dialog"
-import { useNewApp } from "@/hooks/use-new-app"
+import { AppsNewMenu } from "@/components/apps/apps-new-menu"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { appCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 
-// VAPP-110 (fixtures/apps.json): the Apps list = the band with `New app` as
-// its trailing pill, then one ListRow per app (glyph, name, the version
-// pill, the `…` menu: Export, Delete). VAPP-176: New app = a draft and its
-// editor (no dialog); Import is the band's second pill.
+// VAPP-110 (fixtures/apps.json THE LIST): the Apps list = the band with
+// `New app` as its trailing pill (VAPP-242: THE NEW MENU, New app / Import…),
+// then one ListRow per app (glyph, name, the version pill, the `…` menu:
+// Edit app, Export, Delete). VAPP-242: PHONES ONLY (the Apps tab); a row
+// RUNS the app (THE RUN VIEW), the editor sits behind `…` › Edit app.
 
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const UiAddIcon = conceptIcon(`ui-add`)
 const UiMoreIcon = conceptIcon(`ui-more`)
 const UiShareIcon = conceptIcon(`ui-share`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
+const UiEditIcon = conceptIcon(`ui-edit`)
 
 export function AppsList({
   teamId,
@@ -39,27 +40,20 @@ export function AppsList({
   apps,
   me,
   isOwner,
-  rowsOpen = `editor`,
 }: {
   teamId: string
   teamSlug: string
   apps: readonly AppListEntry[]
   me: string | null
   isOwner: boolean
-  /** Where a row goes: the editor (the Apps page) or, VAPP-177, the editor on its Settings tab (Settings → Apps). */
-  rowsOpen?: `editor` | `settings`
 }) {
   const navigate = useNavigate()
-  const newApp = useNewApp(teamId, teamSlug)
-  const [importing, setImporting] = useState(false)
   const [exporting, setExporting] = useState<AppListEntry | null>(null)
   const [deleting, setDeleting] = useState<AppListEntry | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const open = (app: AppListEntry) =>
-    void (rowsOpen === `settings`
-      ? navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug }, search: { tab: `settings` } })
-      : navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug } }))
+  const open = (app: AppListEntry) => void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: app.slug } })
+  const edit = (app: AppListEntry) => void navigate({ to: `/t/$teamSlug/app-editor/$appSlug`, params: { teamSlug, appSlug: app.slug } })
 
   const remove = async () => {
     if (!deleting) return
@@ -82,15 +76,16 @@ export function AppsList({
       <GlassSectionHeader
         label={APPS_COPY.title}
         trailing={
-          <div className="flex items-center gap-2">
-            <Pill mode="action" onClick={() => setImporting(true)} data-testid={APPS_TEST_IDS.importApp}>
-              {APPS_COPY.import}
-            </Pill>
-            <Pill mode="action" onClick={() => void newApp.create()} disabled={newApp.pending} data-testid={APPS_TEST_IDS.newApp}>
-              <UiAddIcon className="size-3" />
-              {APPS_COPY.newApp}
-            </Pill>
-          </div>
+          <AppsNewMenu
+            teamId={teamId}
+            teamSlug={teamSlug}
+            trigger={
+              <Pill mode="action" data-testid={APPS_TEST_IDS.newApp}>
+                <UiAddIcon className="size-3" />
+                {APPS_COPY.newApp}
+              </Pill>
+            }
+          />
         }
       />
       {apps.length === 0 ? (
@@ -110,15 +105,19 @@ export function AppsList({
               <Pill size="sm" className={app.publishedVersion > 0 ? `tabular-nums` : `text-muted-foreground`}>
                 {listPill(app)}
               </Pill>
-              {(canManage(app) || app.headVersion > 0) && (
+              {(canManage(app) || app.publishedVersion > 0) && (
                 <div onClick={(event) => event.stopPropagation()}>
                   <Menu
                     align="end"
                     aria-label={`${app.name} actions`}
                     title={app.name}
                     entries={[
-                      // VAPP-121: any member exports an app that has a version.
-                      ...(app.headVersion > 0
+                      // VAPP-242: the editor sits here (the creator or an owner).
+                      ...(canManage(app)
+                        ? [{ kind: `item` as const, id: `edit`, label: APPS_COPY.menu.edit, icon: UiEditIcon, onSelect: () => edit(app) }]
+                        : []),
+                      // VAPP-121: any member exports an app that has a published version.
+                      ...(app.publishedVersion > 0
                         ? [{ kind: `item` as const, id: `export`, label: APP_EXPORT_COPY.export, icon: UiShareIcon, onSelect: () => setExporting(app) }]
                         : []),
                       ...(canManage(app)
@@ -147,7 +146,6 @@ export function AppsList({
         </div>
       )}
 
-      <AppImportDialog open={importing} onOpenChange={setImporting} teamId={teamId} teamSlug={teamSlug} />
       <AppExportDialog app={exporting} onOpenChange={(next) => !next && setExporting(null)} />
       <Prompt
         open={deleting !== null}

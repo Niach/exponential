@@ -469,26 +469,12 @@
         "bytes": 20228,
         "sha256": "68b4b55a289b5440b62b9dec5a6f87477b471f7fa1d4e4e52eddd1b7922d8fff"
       },
-      "desktop": {
-        "file": "shots/apps/desktop.webp",
-        "width": 1800,
-        "height": 1126,
-        "bytes": 29226,
-        "sha256": "4fe6058ad3d2b92c5e09841db5497c2f11ccdc0cf5859fdc98aa3911bdf90e52"
-      },
       "ios": {
         "file": "shots/apps/ios.webp",
         "width": 828,
         "height": 1800,
         "bytes": 20420,
         "sha256": "f640ce73cb0203786a534189500402e16d0d47a6b72622970c506578b777978d"
-      },
-      "web": {
-        "file": "shots/apps/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 30752,
-        "sha256": "464fe05d7d0634b2134995388489fef847293592d9f3ac4afa3e0233c2ecf5cd"
       },
       "web-mobile": {
         "file": "shots/apps/web-mobile.webp",
@@ -5439,43 +5425,6 @@
         "height": 1800,
         "bytes": 22586,
         "sha256": "e2d09f13c13006067d3732ae52e3b5960ed52cee9907e6bfc3d693a80e6413ac"
-      }
-    },
-    "settings-apps": {
-      "android": {
-        "file": "shots/settings-apps/android.webp",
-        "width": 810,
-        "height": 1800,
-        "bytes": 13894,
-        "sha256": "953fed273b504b22f28543d96d5595f5e7a4bd9f8fa971f0ed4e44209572902a"
-      },
-      "desktop": {
-        "file": "shots/settings-apps/desktop.webp",
-        "width": 1800,
-        "height": 1126,
-        "bytes": 28012,
-        "sha256": "ea5a44d16e933fbdf61518e26ea81824c537f93466dc7ed07eaa524347d09848"
-      },
-      "ios": {
-        "file": "shots/settings-apps/ios.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 14830,
-        "sha256": "bddadfd8cf48348cbc7d8ec8afa12f3f4de86b64b6e2f44d94864df5798dccc2"
-      },
-      "web": {
-        "file": "shots/settings-apps/web.webp",
-        "width": 1800,
-        "height": 1200,
-        "bytes": 34390,
-        "sha256": "4a4a482e5097971b5994f5046dab6e5051cab7b6c53c8d53b49c839c3732110a"
-      },
-      "web-mobile": {
-        "file": "shots/settings-apps/web-mobile.webp",
-        "width": 828,
-        "height": 1800,
-        "bytes": 17064,
-        "sha256": "8be017687bb5b0e91a3a56212dae3ab8e4d0d25e130dc9b93d7a62701de88000"
       }
     },
     "settings-assistant": {

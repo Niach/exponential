@@ -34,8 +34,7 @@ import XCTest
 ///   sg_story-ring · sg_story-viewer · sg_plan-page ·
 ///   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
 ///   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
-///   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558) ·
-///   sg_settings-apps (#EXP-1632)
+///   sg_settings-labels · sg_settings-repositories · sg_onboarding-join (EXP-1558)
 ///
 /// EXP-1295 (Threads v2) repointed the shots whose screens left (Reviews,
 /// the work faces, the Recent sheet, the builtin actions, the action page)
@@ -948,27 +947,6 @@ final class StyleguideScreenshots: XCTestCase {
                 goBack(app)
             }
             goBack(app)
-        }
-
-        // ── sg_settings-apps: Settings → Apps ───────────────────────────────
-        // #EXP-1632: the Team page's Apps row (settings-nav.json `apps`) →
-        // the team's Apps list in the settings chrome (the band with Import…
-        // + New app, one row per app), gated on the seeded Working hours row.
-        // A detour: nothing is opened or saved.
-        if ScreenshotShots.isWanted("sg_settings-apps") {
-            let appsRow = teamSettingsRow(app, "Apps")
-            scrollUntilVisible(app, appsRow, attempts: 4)
-            expect(appsRow, within: Wait.nav, "The Team tab has no Apps row")
-            appsRow.tap()
-            expect(anyElement(app, identified: "team-settings-page"), within: Wait.nav, "Apps opened no settings page")
-            expect(
-                anyElement(app, identified: "apps-row-\(Self.appSlug)"),
-                within: Wait.sync,
-                "Settings › Apps has no \(Self.appName) row — reseed with `bun run seed:screenshots`"
-            )
-            snapshot("sg_settings-apps", settle: 2)
-            goBack(app)
-            expect(teamSettingsRow(app, "Boards"), within: Wait.nav, "Did not return to the Team tab")
         }
 
         // ── sg_settings-account: the account / server detail ──────────────────

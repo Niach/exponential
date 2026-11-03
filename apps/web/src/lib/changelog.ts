@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-apps-run-full-screen`,
+    date: `2026-11-03`,
+    title: `Apps open full screen`,
+    summary: `Clicking an app in the sidebar runs it full screen, as your team uses it; the gear opens the editor.`,
+    body: `- **Run**: an app's row in the sidebar (on phones, the Apps tab) opens the published app full screen, with its screens.
+- **Edit**: the editor opens from the row's gear, from Settings, or on phones from the app's ⋯ menu (Edit app).
+- **New app**: the Apps + opens a menu with New app and Import….
+- **Links**: links to an app's screen open the running app.
+- **No Apps page**: the separate Apps list page and Settings › Apps are gone; the sidebar lists your apps.`,
+  },
+  {
     id: `2026-11-03-device-mcp-servers`,
     date: `2026-11-03`,
     title: `MCP servers on your own machine`,

@@ -17,7 +17,7 @@ export function useNewApp(teamId: string | undefined, teamSlug: string) {
     try {
       const result = await trpc.apps.create.mutate({ teamId }, SKIP_ERROR_TOAST)
       await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
-      void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: result.app.slug } })
+      void navigate({ to: `/t/$teamSlug/app-editor/$appSlug`, params: { teamSlug, appSlug: result.app.slug } })
     } catch (error) {
       failedAction(`create`, `the app`, error)
     } finally {

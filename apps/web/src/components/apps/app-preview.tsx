@@ -107,6 +107,7 @@ export function AppPreview({
   phone = false,
   screen = null,
   onScreen,
+  variant = `frame`,
 }: {
   pkg: Record<string, unknown> | null
   /** VAPP-179: the picked template (null or missing = the first by id). */
@@ -136,6 +137,9 @@ export function AppPreview({
   screen?: ScreenRequest | null
   /** VAPP-218: a row/tab tap or `app.navigate` asks for a screen. */
   onScreen?: (request: ScreenRequest) => void
+  /** VAPP-242 (apps.json THE RUN VIEW): `run` = the same surface edge to
+   *  edge (no frame border or radius), the run view's full screen. */
+  variant?: `frame` | `run`
 }) {
   // VAPP-218: with screens the shown one picks the template (the Select is hidden).
   const screens = useMemo(() => (pkg ? packageScreens(pkg) : []), [pkg])
@@ -165,18 +169,20 @@ export function AppPreview({
     </div>
   )
   const open = (id: string) => onScreen?.({ screen: id, params: {} })
-  const frameClass = `relative min-h-0 rounded-[12px] border border-border bg-background ${frame === `desktop` ? `flex-1 ${className ?? ``}` : `shrink-0`}`
+  const run = variant === `run`
+  const frameClass = `relative min-h-0 bg-background ${run ? `` : `rounded-[12px] border border-border`} ${frame === `desktop` ? `flex-1 ${className ?? ``}` : `shrink-0`}`
   const frameStyle = {
-    borderRadius: APPS_PREVIEW.radius,
+    ...(run ? {} : { borderRadius: APPS_PREVIEW.radius }),
     ...(frame === `phone` ? { width: APPS_PREVIEW.phoneWidth, maxWidth: `100%` } : {}),
   }
+  const testId = run ? APPS_TEST_IDS.run : APPS_TEST_IDS.preview
   const surface = !shell || !resolved ? (
-    <div className={`${frameClass} overflow-y-auto`} style={{ ...frameStyle, padding: APPS_PREVIEW.padding }} data-testid={APPS_TEST_IDS.preview}>
+    <div className={`${frameClass} overflow-y-auto`} style={{ ...frameStyle, padding: APPS_PREVIEW.padding }} data-testid={testId}>
       {content}
     </div>
   ) : shell === `sidebar` ? (
     // The sidebar rows at the frame's start, a hairline, then the surface.
-    <div className={`${frameClass} flex overflow-hidden`} style={frameStyle} data-testid={APPS_TEST_IDS.preview}>
+    <div className={`${frameClass} flex overflow-hidden`} style={frameStyle} data-testid={testId}>
       <nav className="shrink-0 overflow-y-auto p-2" style={{ width: APPS_SCREENS.sidebarWidth }} data-testid={APPS_TEST_IDS.previewScreens}>
         <SidebarMenu>
           {screens.map((s) => (
@@ -195,7 +201,7 @@ export function AppPreview({
     </div>
   ) : (
     // The phone tab bar under the surface, inside the frame.
-    <div className={`${frameClass} flex flex-col overflow-hidden`} style={frameStyle} data-testid={APPS_TEST_IDS.preview}>
+    <div className={`${frameClass} flex flex-col overflow-hidden`} style={frameStyle} data-testid={testId}>
       <div className="relative min-h-0 flex-1 overflow-y-auto" style={{ padding: APPS_PREVIEW.padding }}>
         {content}
       </div>

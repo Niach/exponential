@@ -58,7 +58,7 @@ export function useAppLinkClick() {
           })
           return
         case `appScreen`:
-          // VAPP-218: the app's editor, Preview tab, on that screen.
+          // VAPP-218 + VAPP-242: THE RUN VIEW on that screen.
           void navigate({ href: screenPath(link.teamSlug, link.appSlug, link.screen, link.params) })
           return
         case `app`:

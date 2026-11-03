@@ -144,7 +144,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card · sg_session-xref ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
- *   sg_settings-skills · sg_settings-skill · sg_settings-apps (#EXP-1632) ·
+ *   sg_settings-skills · sg_settings-skill ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
@@ -1452,17 +1452,6 @@ class StyleguideScreenshotsTest {
             Espresso.pressBack()
             flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
             flow.settle()
-        }
-
-        // --- sg_settings-apps (#EXP-1632): the Team page's Apps row
-        // (settings-nav.json `apps`) = Settings › Apps, the Apps band
-        // (Import… + New app) over the seeded apps, anchored on the demo app.
-        step("settings-apps") {
-            if (ScreenshotFlow.anyRequested("sg_settings-apps")) {
-                openTeamSettingsPage(SettingsNav.row(SettingsNav.APPS).label, hasTestTag("${Apps.TestIds.ROW}-$DEMO_APP_SLUG"))
-                flow.screenshot("sg_settings-apps")
-                leaveTeamSettingsPage()
-            }
         }
 
         // --- Account settings: there is no separate profile screen (EXP-311) —

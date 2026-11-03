@@ -14,7 +14,6 @@ import {
   previewTemplate,
   previewTemplates,
   runAsOptions,
-  screenPath,
   shownVersion,
   versionLabel,
   versionRow,
@@ -237,8 +236,8 @@ export function AppEditor({
   requestedTab: string | null
   /** VAPP-179: the route's `?frame=` (read once; screenshots open on Phone). */
   requestedFrame?: PreviewFrame | null
-  /** VAPP-218: the route's `/$screen?<params>` = the preview's shown screen
-   *  (live: a tap or `app.navigate` REPLACES the route with `screenPath`). */
+  /** VAPP-218: the preview's first screen (null = the package's first); a
+   *  tap or `app.navigate` then moves it in memory (VAPP-242). */
   requestedScreen?: ScreenRequest | null
 }) {
   const navigate = useNavigate()
@@ -425,7 +424,10 @@ export function AppEditor({
     try {
       await trpc.apps.delete.mutate({ id: app.id }, SKIP_ERROR_TOAST)
       setDeleteOpen(false)
-      void navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug }, replace: true })
+      // VAPP-242: no Apps page on web ≥ md: the team's home (phones: the Apps tab).
+      void (isMobile
+        ? navigate({ to: `/t/$teamSlug/apps`, params: { teamSlug }, replace: true })
+        : navigate({ to: `/t/$teamSlug`, params: { teamSlug }, replace: true }))
     } catch (error) {
       failedAction(`delete`, `the app`, error)
     } finally {
@@ -621,10 +623,10 @@ export function AppEditor({
     </div>
   )
 
-  // VAPP-218: a screen request REPLACES the route (history replace, not push).
-  const openScreen = (request: ScreenRequest) => {
-    void navigate({ href: screenPath(teamSlug, app.slug, request.screen, request.params), replace: true })
-  }
+  // VAPP-218 + VAPP-242: the editor's preview keeps its screen in memory
+  // (deep links and the route's screen belong to THE RUN VIEW).
+  const [screenRequest, setScreenRequest] = useState<ScreenRequest | null>(requestedScreen)
+  const openScreen = (request: ScreenRequest) => setScreenRequest(request)
 
   const preview = (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4">
@@ -651,7 +653,7 @@ export function AppEditor({
         </div>
       )}
       {/* A grant is about the version it was made on (`grantVersion`): any other previews asking for everything. */}
-      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} phone={isMobile} screen={requestedScreen} onScreen={openScreen} appId={app.id} teamId={teamId} me={me} grantedTools={shown === grantVersion(app) ? (app.row?.grantedTools ?? []) : []} runAs={isMobile ? null : runAs} readOnly={((isMobile ? null : runAs)?.access ?? access) === `read`} migrateFrom={shown !== app.publishedVersion && app.publishedVersion > 0 ? ((app.row?.package as { version?: string } | null)?.version ?? null) : null} />
+      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} phone={isMobile} screen={screenRequest} onScreen={openScreen} appId={app.id} teamId={teamId} me={me} grantedTools={shown === grantVersion(app) ? (app.row?.grantedTools ?? []) : []} runAs={isMobile ? null : runAs} readOnly={((isMobile ? null : runAs)?.access ?? access) === `read`} migrateFrom={shown !== app.publishedVersion && app.publishedVersion > 0 ? ((app.row?.package as { version?: string } | null)?.version ?? null) : null} />
     </div>
   )
 

@@ -181,6 +181,10 @@
     {
       "route": "/t/$teamSlug/sessions/$sessionId/plan/$messageId",
       "reason": "#EXP-1493: THE plan page needs a real plan message; the `plan-page` view captures its specimen (`?dev=plan-page`)."
+    },
+    {
+      "route": "/t/$teamSlug/apps/$appSlug/$screen",
+      "reason": "VAPP-218 + VAPP-242: a screen deep link renders THE RUN VIEW of its parent route on that screen (the match itself draws nothing); `app-run` photographs that page."
     }
   ],
   "views": [
@@ -394,7 +398,7 @@
       "title": "Accept an invite",
       "blurb": "The landing page a teammate opens from an invite link, with the team they were invited to and the accept button.",
       "order": 7,
-            "web": {
+      "web": {
         "route": "/invite/$inviteToken",
         "anchor": {
           "text": "Team invite",
@@ -2156,47 +2160,13 @@
       }
     },
     {
-      "id": "settings-apps",
-      "group": "settings",
-      "title": "Settings · Apps",
-      "blurb": "VAPP-110: Settings → Apps, the Agents page's twin (fixtures/apps.json): the Apps band (New app) whose rows open the app's settings page; the settings nav lists the team's apps under Agents with New app.",
-      "order": 26,
-      "web": {
-        "route": "/t/$teamSlug/settings/apps",
-        "anchor": {
-          "testId": "apps-list",
-          "timeoutMs": 20000
-        },
-        "settleMs": 800
-      },
-      "webMobile": "inherit",
-      "ios": {
-        "shot": "sg_settings-apps",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_settings-apps",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "settings",
-          "value": "apps"
-        }
-      },
-      "notes": {
-        "ios": "#EXP-1632 (approved 2026-11-03): the phone Team page's Apps row (settings-nav.json) opens this page, the Apps tab's list under the settings header.",
-        "android": "#EXP-1632 (approved 2026-11-03): the phone Team page's Apps row (settings-nav.json) opens this page, the Apps tab's list under the settings header."
-      }
-    },
-    {
       "id": "app-settings",
       "group": "coding",
       "title": "App editor · Settings",
       "blurb": "VAPP-177 (fixtures/apps.json THE SETTINGS TAB): the editor's Settings tab: icon, colour and name in one row, the description card, the records line, the Tools group (grant switches, an owner only), Export and Delete app. The old Settings → Apps → app page redirects here; phones open it as the … menu's Settings sheet, grants included.",
       "order": 56,
       "web": {
-        "route": "/t/$teamSlug/apps/$appSlug?tab=settings",
+        "route": "/t/$teamSlug/app-editor/$appSlug?tab=settings",
         "anchor": {
           "testId": "app-editor-settings",
           "timeoutMs": 30000
@@ -2204,7 +2174,7 @@
         "settleMs": 1000
       },
       "webMobile": {
-        "route": "/t/$teamSlug/apps/$appSlug?tab=settings",
+        "route": "/t/$teamSlug/app-editor/$appSlug?tab=settings",
         "anchor": {
           "testId": "app-editor-settings",
           "timeoutMs": 30000
@@ -2383,9 +2353,9 @@
       "id": "apps",
       "group": "coding",
       "title": "Apps",
-      "blurb": "VAPP-110 + VAPP-176: the team's Exponential apps (fixtures/apps.json): the band with Import and New app (New app opens a new draft's editor at once, no dialog), one row per app (glyph, name, the version pill or the Draft badge, the … menu with Export and Delete), the team's apps only (Exponential ships no built-in apps). An app is a declarative Exponential UI package every client renders.",
+      "blurb": "VAPP-110 + VAPP-176 + VAPP-242: the phones' Apps tab (fixtures/apps.json THE LIST): the band whose New app pill opens THE NEW MENU (New app / Import…), one row per app (glyph, name, the version pill or the Draft badge, the … menu with Edit app, Export and Delete); a tap RUNS the app. Web ≥ md and the IDE have no Apps page (the sidebar's Apps group lists the apps).",
       "order": 30,
-      "web": {
+      "webMobile": {
         "route": "/t/$teamSlug/apps",
         "anchor": {
           "testId": "apps-list",
@@ -2393,7 +2363,6 @@
         },
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "ios": {
         "shot": "sg_apps",
         "lane": "styleguide"
@@ -2401,17 +2370,12 @@
       "notes": {
         "ios": "VAPP-112: the LIVE walk: the Threads tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row.",
         "android": "VAPP-116: the LIVE walk (signed in, the seeded demo apps): Threads → the header's Apps entry. The phone reaches Apps from the Threads tab (no sidebar).",
-        "desktop": "#EXP-1650: the IDE's own Apps page (`Screen::Apps`, the rail's Apps label), the same band as web's /apps; `EXP_DEV_SCREEN=apps`."
+        "desktop": "VAPP-242: no Apps page in the IDE; the sidebar's Apps group lists the apps.",
+        "web": "VAPP-242: no Apps page on web ≥ md (the route forwards to the team); the sidebar's Apps group lists the apps."
       },
       "android": {
         "shot": "sg_apps",
         "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "apps"
-        }
       }
     },
     {
@@ -2421,7 +2385,7 @@
       "blurb": "VAPP-110 + VAPP-122 + VAPP-177: one app's editor (fixtures/apps.json): the member's editor session (the chat: channel rows + the composer) docked beside the TAB pane, the header ending in the Preview | Versions | Settings segmented control; the Preview tab = the head package rendered live by the Exponential UI renderer through the app host, its records (fixtures/app-records.json) live. Phones show Chat | Preview with a … menu (Versions, Settings, Export, Delete app) and the shot opens Preview.",
       "order": 31,
       "web": {
-        "route": "/t/$teamSlug/apps/$appSlug",
+        "route": "/t/$teamSlug/app-editor/$appSlug",
         "anchor": {
           "testId": "app-editor-preview",
           "timeoutMs": 30000
@@ -2429,7 +2393,7 @@
         "settleMs": 1500
       },
       "webMobile": {
-        "route": "/t/$teamSlug/apps/$appSlug",
+        "route": "/t/$teamSlug/app-editor/$appSlug",
         "recipe": "openAppPreviewTab",
         "anchor": {
           "testId": "app-editor-preview",
@@ -2460,13 +2424,35 @@
       }
     },
     {
+      "id": "app-run",
+      "group": "coding",
+      "title": "App (running)",
+      "blurb": "VAPP-242: an app RUNNING full screen (fixtures/apps.json THE RUN VIEW): the published package through the same app host as the editor's preview, the screens shell (the sidebar rows on wide, the phone tab bar on phones), records as the viewer; phones add the detail header with the … menu (Edit app, Export, Delete app). A sidebar row's plain click opens it.",
+      "order": 60,
+      "web": {
+        "route": "/t/$teamSlug/apps/$appSlug",
+        "anchor": {
+          "testId": "app-run",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1500
+      },
+      "webMobile": "inherit",
+      "notes": {
+        "desktop": "VAPP-242: the desktop run view lands in its own PR (the sidebar row's click).",
+        "ios": "VAPP-242: the iOS run view lands in its own PR (the Apps tab's row tap).",
+        "android": "VAPP-242: the Android run view lands in its own PR (the Apps tab's row tap).",
+        "web": "`$appSlug` resolves to DEMO_APP_SLUG, the seeded Working hours app (published, records)."
+      }
+    },
+    {
       "id": "app-data",
       "group": "coding",
       "title": "App editor · Data",
       "blurb": "VAPP-178 (fixtures/app-records.json `dataTab`): the editor's Data tab: the kind Select (`entry · 14`) and Add record, then the records of that kind as a table (the schema's columns, by, updated, a … menu with Edit and Delete). Phones show the same toolbar over one row per record.",
       "order": 57,
       "web": {
-        "route": "/t/$teamSlug/apps/$appSlug?tab=data",
+        "route": "/t/$teamSlug/app-editor/$appSlug?tab=data",
         "anchor": {
           "testId": "app-editor-data",
           "timeoutMs": 30000
@@ -2474,7 +2460,7 @@
         "settleMs": 1000
       },
       "webMobile": {
-        "route": "/t/$teamSlug/apps/$appSlug?tab=data",
+        "route": "/t/$teamSlug/app-editor/$appSlug?tab=data",
         "anchor": {
           "testId": "app-editor-data",
           "timeoutMs": 30000
@@ -2511,7 +2497,7 @@
       "blurb": "VAPP-177 (fixtures/apps.json VERSIONS): the editor's Versions tab: one grouped list newest first, each row the v{n} pill, the note and who · when; the head row carries Current, every other row Preview and Restore. Phones open it as the … menu's Versions sheet.",
       "order": 55,
       "web": {
-        "route": "/t/$teamSlug/apps/$appSlug?tab=versions",
+        "route": "/t/$teamSlug/app-editor/$appSlug?tab=versions",
         "anchor": {
           "testId": "app-editor-versions",
           "timeoutMs": 30000
@@ -2519,7 +2505,7 @@
         "settleMs": 1000
       },
       "webMobile": {
-        "route": "/t/$teamSlug/apps/$appSlug?tab=versions",
+        "route": "/t/$teamSlug/app-editor/$appSlug?tab=versions",
         "anchor": {
           "testId": "app-editor-versions",
           "timeoutMs": 30000
@@ -2556,7 +2542,7 @@
       "blurb": "VAPP-179 (fixtures/apps.json `preview.$comment`): the Preview tab's toolbar: Desktop | Phone (here Phone: the surface in a 390 px frame centred in the pane) and, for a package with more than one template, the template Select (the ids sorted by name). Web ≥ md and desktop only.",
       "order": 58,
       "web": {
-        "route": "/t/$teamSlug/apps/team-dashboard?frame=phone",
+        "route": "/t/$teamSlug/app-editor/team-dashboard?frame=phone",
         "anchor": {
           "testId": "app-preview-template",
           "timeoutMs": 30000
@@ -2585,7 +2571,7 @@
       "blurb": "VAPP-176 (fixtures/apps.json NEW APP): New app opens a DRAFT's editor at once (no dialog): the name with the Draft badge, the chat docked whatever the stored layout, its page-size empty state `What should this app do?` with the starter pills, the composer focused (`Describe your app…`), the preview's `No version yet`. Phones open on the Chat tab.",
       "order": 54,
       "web": {
-        "route": "/t/$teamSlug/apps/release-checklist",
+        "route": "/t/$teamSlug/app-editor/release-checklist",
         "anchor": {
           "testId": "app-editor-starter",
           "timeoutMs": 30000
@@ -2622,7 +2608,7 @@
       "blurb": "VAPP-120: the consent card an app surface raises for a typed action nobody granted (fixtures/app-actions.json): the operation's own words (\"Allow this surface to comment on issue APP-15?\"), the arguments it would send, Deny and Allow. A granted action never shows it; a destructive one always does (the 2026-10-24 ruling).",
       "order": 41,
       "web": {
-        "route": "/t/$teamSlug/apps/$appSlug",
+        "route": "/t/$teamSlug/app-editor/$appSlug",
         "anchor": {
           "testId": "exponential-ui-consent",
           "timeoutMs": 30000
@@ -6935,7 +6921,7 @@
       "blurb": "VAPP-121 (fixtures/app-export.json): the Export dialog over the app editor: the title `Export <name>`, the one Include records switch (switched on in the shot) and Export, which hands `<slug>.app.json` to the platform (web download, desktop save panel, iOS share sheet, Android share intent).",
       "order": 42,
       "web": {
-        "route": "/t/$teamSlug/apps/$appSlug",
+        "route": "/t/$teamSlug/app-editor/$appSlug",
         "anchor": {
           "testId": "app-export-dialog",
           "timeoutMs": 30000
@@ -6974,9 +6960,18 @@
       "id": "app-import",
       "group": "coding",
       "title": "App · import",
-      "blurb": "VAPP-121 + VAPP-176 (fixtures/app-export.json): the import dialog the Apps list band's Import pill opens: the paste field holding the capture text, Choose file, the server's issues as `path: message` rows (here `/package: is required`) and Import, disabled while there are issues.",
+      "blurb": "VAPP-121 + VAPP-176 (fixtures/app-export.json): the import dialog THE NEW MENU's Import… opens (VAPP-242: the sidebar's / the Apps band's +): the paste field holding the capture text, Choose file, the server's issues as `path: message` rows (here `/package: is required`) and Import, disabled while there are issues.",
       "order": 43,
       "web": {
+        "route": "/t/$teamSlug",
+        "anchor": {
+          "testId": "app-import-issues",
+          "timeoutMs": 30000
+        },
+        "recipe": "openAppImport",
+        "settleMs": 800
+      },
+      "webMobile": {
         "route": "/t/$teamSlug/apps",
         "anchor": {
           "testId": "app-import-issues",
@@ -6985,7 +6980,6 @@
         "recipe": "openAppImport",
         "settleMs": 800
       },
-      "webMobile": "inherit",
       "desktop": {
         "drive": {
           "kind": "dialog",
@@ -7008,8 +7002,7 @@
         "web": "The capture text comes from fixtures/app-export.json `capture.importText`.",
         "ios": "The live walk: the Apps list → the band's Import pill, the capture text typed into the field, the issue row from the server.",
         "android": "See ios: the same walk in StyleguideScreenshotsTest.",
-        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the import dialog with the capture text, over the Apps page (`EXP_DEV_SCREEN=apps`, #EXP-1650).",
-        "web-mobile": "Inherits web at the phone's width."
+        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the import dialog with the capture text, over the Apps page (`EXP_DEV_SCREEN=apps`, #EXP-1650)."
       }
     },
     {
