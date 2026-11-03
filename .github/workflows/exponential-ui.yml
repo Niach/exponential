@@ -393,7 +393,7 @@ jobs:
         working-directory: packages/exponential-ui-swift
         env:
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-swift.json
-        run: swift test
+        run: swift test ${EXP_SWIFTPM_CACHE:+--cache-path "$EXP_SWIFTPM_CACHE"}
       - name: Guide (SwiftUI) from a fresh project
         if: ${{ !inputs.conformance_only }}
         run: bun packages/exponential-ui/guides/check.ts swift

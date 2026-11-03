@@ -4,7 +4,7 @@
 #   bash .github/runners/mac/install.sh              # macbook   in ~/actions-runner
 #   bash .github/runners/mac/install.sh macbook-2    # macbook-2 in ~/actions-runner-2
 # Every instance gets its own work dir, launchd service, TMPDIR, sccache
-# server port and simulator, so two Mac jobs run side by side; touching one
+# server port, simulator and tuist + SwiftPM caches, so two Mac jobs run side by side; touching one
 # instance never restarts another.
 # Needs: gh logged in as a repo admin, the newest release Xcode 27.x at /Applications/Xcode.app
 # with the iOS 27 simulator runtime (.github/scripts/select-xcode.sh), Homebrew
@@ -54,6 +54,13 @@ if [ "$N" -gt 1 ]; then
   mkdir -p "$DIR/_tmp"
   echo "TMPDIR=$DIR/_tmp/" >> .env
   echo "IOS_SIM_DEVICE_NAME=iPhone 17 Pro Max ($NAME)" >> .env
+  # Never the first instance's tuist cache (~/.cache/tuist) or SwiftPM cache
+  # (~/Library/Caches/org.swift.swiftpm): parallel `tuist install`s in one
+  # lose Firebase's xcframeworks. test-ios, ios-core and eui-swift pass
+  # EXP_SWIFTPM_CACHE as --cache-path; DerivedData is per job ($RUNNER_TEMP).
+  mkdir -p "$DIR/_cache/swiftpm"
+  echo "TUIST_XDG_CACHE_HOME=$DIR/_cache" >> .env
+  echo "EXP_SWIFTPM_CACHE=$DIR/_cache/swiftpm" >> .env
 fi
 # EXP-1396: the disk guard also drops the dev box's shared cargo incremental dirs.
 [ -n "${CARGO_TARGET_DIR:-}" ] && echo "DISK_GUARD_CARGO_TARGETS=$CARGO_TARGET_DIR" >> .env
