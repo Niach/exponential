@@ -1,6 +1,13 @@
 package com.exponential.app.ui.components
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -102,6 +109,14 @@ fun SearchListInput(
     onBackspaceEmpty: (() -> Unit)? = null,
     onSubmit: (() -> Unit)? = null,
     onMove: ((Int) -> Unit)? = null,
+    /**
+     * EXP-1649: web's phone FIELD variant (`CommandInput variant="field"`):
+     * the input is THE search field capsule (36dp, card fill + hairline, the
+     * glyph inside, a clear button once there is text) in a 12/8-padded row,
+     * [leading] before it (the Search screen's back arrow), the count after.
+     */
+    asField: Boolean = false,
+    leading: (@Composable () -> Unit)? = null,
 ) {
     // The field keeps its own caret: a prefilled token opens with the caret
     // AFTER it, ready to keep typing.
@@ -126,66 +141,129 @@ fun SearchListInput(
         }
     }
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(SearchListDefaults.InputHeight)
-                .padding(horizontal = GlassSheetDefaults.HorizontalPadding),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                ExpIcons.navSearch,
-                contentDescription = null,
-                modifier = Modifier.size(16.dp),
-                tint = muted,
-            )
-            Spacer(Modifier.width(10.dp))
-            Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
-                if (field.text.isEmpty()) {
-                    Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = muted, maxLines = 1)
-                }
-                BasicTextField(
-                    value = field,
-                    onValueChange = { next ->
-                        field = next
-                        if (next.text != value) onValueChange(next.text)
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                    keyboardActions = KeyboardActions(onGo = { onSubmit?.invoke() }),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                        .onFocusChanged { focused = it.isFocused }
-                        .onPreviewKeyEvent { event ->
-                            if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-                            when (event.key) {
-                                Key.Backspace -> if (field.text.isEmpty() && onBackspaceEmpty != null) {
-                                    onBackspaceEmpty()
-                                    true
-                                } else {
-                                    false
-                                }
-                                Key.DirectionUp -> onMove?.let { it(-1); true } ?: false
-                                Key.DirectionDown -> onMove?.let { it(1); true } ?: false
-                                Key.Enter, Key.NumPadEnter, Key.Tab -> onSubmit?.let { it(); true } ?: false
-                                else -> false
-                            }
-                        }
-                        .testTag(SearchList.INPUT_TEST_ID),
-                )
+    val textField: @Composable (Modifier) -> Unit = { boxModifier ->
+        Box(modifier = boxModifier, contentAlignment = Alignment.CenterStart) {
+            if (field.text.isEmpty()) {
+                Text(placeholder, style = MaterialTheme.typography.bodyLarge, color = muted, maxLines = 1)
             }
-            if (count != null && value.isNotEmpty()) {
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    count.toString(),
-                    style = MaterialTheme.typography.labelMedium,
-                    color = muted,
-                    modifier = Modifier.testTag(SearchList.COUNT_TEST_ID),
+            BasicTextField(
+                value = field,
+                onValueChange = { next ->
+                    field = next
+                    if (next.text != value) onValueChange(next.text)
+                },
+                singleLine = true,
+                textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
+                cursorBrush = SolidColor(MaterialTheme.colorScheme.onSurface),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                keyboardActions = KeyboardActions(onGo = { onSubmit?.invoke() }),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+                    .onFocusChanged { focused = it.isFocused }
+                    .onPreviewKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.Backspace -> if (field.text.isEmpty() && onBackspaceEmpty != null) {
+                                onBackspaceEmpty()
+                                true
+                            } else {
+                                false
+                            }
+                            Key.DirectionUp -> onMove?.let { it(-1); true } ?: false
+                            Key.DirectionDown -> onMove?.let { it(1); true } ?: false
+                            Key.Enter, Key.NumPadEnter, Key.Tab -> onSubmit?.let { it(); true } ?: false
+                            else -> false
+                        }
+                    }
+                    .testTag(SearchList.INPUT_TEST_ID),
+            )
+        }
+    }
+    val countLabel: @Composable () -> Unit = {
+        if (count != null && value.isNotEmpty()) {
+            Text(
+                count.toString(),
+                style = MaterialTheme.typography.labelMedium,
+                color = muted,
+                modifier = Modifier.testTag(SearchList.COUNT_TEST_ID),
+            )
+        }
+    }
+    Column(modifier = modifier.fillMaxWidth()) {
+        if (asField) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                leading?.invoke()
+                val shape = CircleShape
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                        .clip(shape)
+                        .background(GlassTokens.CardFill, shape)
+                        .border(1.dp, if (focused) GlassTokens.StrokeActive else GlassTokens.StrokeCard, shape),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Icon(
+                        ExpIcons.navSearch,
+                        contentDescription = null,
+                        modifier = Modifier.padding(start = 10.dp).size(16.dp),
+                        tint = muted,
+                    )
+                    textField(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 32.dp, end = if (field.text.isEmpty()) 12.dp else 32.dp),
+                    )
+                    if (field.text.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterEnd)
+                                .padding(end = 6.dp)
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .clickable {
+                                    field = TextFieldValue("")
+                                    onValueChange("")
+                                    runCatching { focusRequester.requestFocus() }
+                                }
+                                .semantics { contentDescription = "Clear search" },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(ExpIcons.uiClear, contentDescription = null, modifier = Modifier.size(14.dp), tint = muted)
+                        }
+                    }
+                }
+                countLabel()
+            }
+        } else {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(SearchListDefaults.InputHeight)
+                    .padding(horizontal = GlassSheetDefaults.HorizontalPadding),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                leading?.let {
+                    it()
+                    Spacer(Modifier.width(8.dp))
+                }
+                Icon(
+                    ExpIcons.navSearch,
+                    contentDescription = null,
+                    modifier = Modifier.size(16.dp),
+                    tint = muted,
                 )
+                Spacer(Modifier.width(10.dp))
+                textField(Modifier.weight(1f))
+                if (count != null && value.isNotEmpty()) Spacer(Modifier.width(8.dp))
+                countLabel()
             }
         }
         HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)

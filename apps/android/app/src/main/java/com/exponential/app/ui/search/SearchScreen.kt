@@ -79,22 +79,10 @@ fun SearchScreen(
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                CircleIconButton(ExpIcons.uiBack, "Back", onClick = onBack, borderless = true)
-                Spacer(Modifier.width(12.dp))
-                Text(
-                    "Search",
-                    style = MaterialTheme.typography.headlineLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
             // SLOP-28 (EXP-1259 D4): THE search list — its input row (focused
             // on open, the result count trailing) over the picker's issue rows.
+            // EXP-1649: web-mobile's header IS that row — the back arrow, THE
+            // search field (glyph, text, clear) and the count; no title.
             SearchListInput(
                 value = query,
                 onValueChange = {
@@ -105,6 +93,17 @@ fun SearchScreen(
                 count = state.results.size.takeIf { state.query.isNotEmpty() },
                 autoFocus = true,
                 onSubmit = { state.results.firstOrNull()?.let { onOpenIssue(it.issue.id) } },
+                asField = true,
+                leading = {
+                    CircleIconButton(
+                        ExpIcons.uiBack,
+                        "Back",
+                        onClick = onBack,
+                        borderless = true,
+                        size = 24.dp,
+                        glyphSize = 16.dp,
+                    )
+                },
             )
 
             // EXP-922: the ×4 copy set — same words on web, desktop, iOS and
