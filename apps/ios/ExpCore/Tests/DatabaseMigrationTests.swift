@@ -1900,7 +1900,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "needs_input", "blocked", "started_at", "last_turn_at", "ended_at",
              "shared", "title", "guide", "created_at", "updated_at", "agent_id", "app_id",
              "agent_instructions_at", "started_by_agent_id", "background",
-             "seal_public_key", "seal_epoch", "sealed_title"]
+             "seal_public_key", "seal_epoch", "sealed_title", "via_app_id"]
         )
         // NEW-2: agent definitions, events and prompts carry exactly the
         // shape allowlists (`instructions`, `trigger_state`, `body` never).
@@ -3310,7 +3310,7 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(
             try columnNames(pool, "app_records"),
             ["id", "app_id", "team_id", "kind", "data", "created_by", "created_at", "updated_at",
-             "author_id", "updated_by"]
+             "author_id", "updated_by", "via_app_id"]
         )
         try pool.read { db in
             let indexes = try db.indexes(on: "app_records").map(\.columns)
@@ -4139,7 +4139,8 @@ final class DatabaseMigrationTests: XCTestCase {
             XCTAssertEqual(reset, ["app-records", "issues", "sessions"])
         }
         let issue = try JSONDecoder().decode(IssueEntity.self, from: Data(#"""
-            {"id":"i-1","board_id":"b","title":"Log hours","status":"backlog","priority":"none",
+            {"id":"i-1","board_id":"b","number":"1","identifier":"EXP-1","source":"user",
+             "sort_order":"1","title":"Log hours","status":"backlog","priority":"none",
              "via_app_id":"a-1","created_at":"x","updated_at":"x"}
             """#.utf8))
         let session = try JSONDecoder().decode(SessionEntity.self, from: Data(#"""
@@ -4162,7 +4163,8 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         // A pre-rotation row (no key) decodes as nil.
         let legacy = try JSONDecoder().decode(IssueEntity.self, from: Data(#"""
-            {"id":"i-2","board_id":"b","title":"Old","status":"backlog","priority":"none",
+            {"id":"i-2","board_id":"b","number":"2","identifier":"EXP-2","source":"user",
+             "sort_order":"1","title":"Old","status":"backlog","priority":"none",
              "created_at":"x","updated_at":"x"}
             """#.utf8))
         XCTAssertNil(legacy.viaAppId)
