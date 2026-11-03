@@ -91,9 +91,7 @@ class SteerConnectionStore @Inject constructor(
         // most kicks are no-ops on a healthy socket.
         scope.launch {
             syncManager.lastKickAt.drop(1).collect {
-                val live = synchronized(lock) {
-                    if (foreground) connections.values.toList() else emptyList()
-                }
+                val live = synchronized(lock) { revivableLocked() }
                 if (live.isEmpty()) return@collect
                 Log.i(TAG, "sync-kick -> ${live.size} connection(s)")
                 live.forEach { it.kick("sync-kick") }
@@ -107,9 +105,7 @@ class SteerConnectionStore @Inject constructor(
                 .distinctUntilChanged()
                 .filter { it }
                 .collect {
-                    val live = synchronized(lock) {
-                        if (foreground) connections.values.toList() else emptyList()
-                    }
+                    val live = synchronized(lock) { revivableLocked() }
                     if (live.isEmpty()) return@collect
                     Log.i(TAG, "enet-ready -> ${live.size} connection(s)")
                     live.forEach { it.kick("enet-ready") }
@@ -240,7 +236,11 @@ class SteerConnectionStore @Inject constructor(
                 // A session that ended while nobody was watching has nothing
                 // left to revive — drop it instead of redialing it.
                 reapLocked()
-                connections.values.toList().forEach { it.resume() }
+                // #EXP-1678: only what a screen shows comes back. A connection
+                // nobody is attached to stays parked until a screen acquires
+                // it (its attach kicks it): reviving every session opened
+                // this process lifetime redialled them all in one burst.
+                revivableLocked().forEach { it.resume() }
                 null
             } else {
                 // EXP-1529: the analytics go out before the process may sleep.
@@ -271,6 +271,10 @@ class SteerConnectionStore @Inject constructor(
             connStats.flush()
         }
     }
+
+    /** #EXP-1678: the connections a revival may dial: foreground, attached. */
+    private fun revivableLocked(): List<SteerConnection> =
+        if (foreground) connections.values.filter { it.refCount > 0 } else emptyList()
 
     private fun reapLocked() {
         val done = connections.filterValues { it.refCount == 0 && it.isFinished }
