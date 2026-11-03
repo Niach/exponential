@@ -17,7 +17,7 @@ import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
 import { validateRecord, type RecordSchema } from "@exponential_app/eui"
 import { RECORD_POLICY_COPY, recordPolicy, recordRefusal, type AppAccessLevel, type RecordOp, type RecordViewer } from "@exponential_app/eui/host"
-import { parseRecordsJson, recordsValue, type RecordRow, type RecordsQueryIssue, type RecordsValue } from "@exponential_app/eui/host/query"
+import { kindComputed, parseRecordsJson, recordsValue, withComputed, type RecordRow, type RecordsQueryIssue, type RecordsValue } from "@exponential_app/eui/host/query"
 import { APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
 import { APP_RECORDS_ON_BEHALF, recordAuthor, writeAsVerdict } from "@exp/domain-contract/app-records"
 import { db as defaultDb } from "@/db/connection"
@@ -142,6 +142,25 @@ function checkedAgainst(schemas: readonly RecordSchema[], data: Record<string, u
   return checkedRecordData(fits ?? schemas[0]!, data)
 }
 
+/** VAPP-214 (Q3): the rows with their kind's computed fields
+ *  (`records.<kind>.computed`) written into `data`: eUI's evaluator, the
+ *  same as every client host's records query; evaluated on read, never stored. */
+function withComputedFields<R extends { id: string; kind?: string; data: unknown; createdBy: string | null; authorId: string | null; createdAt: Date; updatedAt: Date }>(app: RecordsApp, rows: R[], kind?: string): R[] {
+  const records = effectiveRecords(app)
+  let evaluated: readonly RecordRow[] = rows.map((row) => ({
+    id: row.id,
+    kind: row.kind ?? kind ?? ``,
+    data: row.data && typeof row.data === `object` && !Array.isArray(row.data) ? (row.data as Record<string, unknown>) : {},
+    createdBy: row.createdBy,
+    authorId: row.authorId,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  }))
+  const now = new Date().toISOString()
+  for (const k of new Set(evaluated.map((r) => r.kind))) evaluated = withComputed(evaluated, k, kindComputed(records, k), now)
+  return rows.map((row, i) => (evaluated[i]!.data === row.data ? row : { ...row, data: evaluated[i]!.data }))
+}
+
 /** A kind's effective policy (record-policy.json). */
 const kindPolicy = (app: RecordsApp, kind: string) => recordPolicy(effectiveRecords(app)[kind])
 
@@ -227,7 +246,7 @@ export async function listRecords(
         .offset(query.offset),
     executor
   )
-  return { records: rows }
+  return { records: withComputedFields(app, rows) }
 }
 
 /** Create a record, or (with `recordId`) patch that record's data (shallow).
@@ -425,7 +444,7 @@ export async function getAppRecord(app: { id: string; teamId: string }, kind: st
       .where(and(eq(appRecords.appId, app.id), eq(appRecords.kind, kind), isNull(appRecords.deletedAt), eq(appRecords.id, id), readPolicyWhere(full, viewer)))
       .limit(1)
   )
-  return row ?? null
+  return row ? withComputedFields(full, [row], kind)[0]! : null
 }
 
 // ── #VAPP-216 (Q4): the full structured query on the server ─────────────
@@ -481,7 +500,8 @@ export async function readAppRecordRows(
     createdAt: iso(r.createdAt),
     updatedAt: iso(r.updatedAt),
   }))
-  return { rows, truncated: read.length > RECORDS_SERVER_READ_MAX }
+  // VAPP-214: the kind's computed fields ride in each row's data (the query filters, sorts and groups on them).
+  return { rows: [...withComputed(rows, kind, kindComputed(effectiveRecords(full), kind), new Date().toISOString())], truncated: read.length > RECORDS_SERVER_READ_MAX }
 }
 
 const iso = (v: unknown): string => (v instanceof Date ? v.toISOString() : String(v ?? ``))

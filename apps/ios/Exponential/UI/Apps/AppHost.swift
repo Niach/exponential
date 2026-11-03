@@ -217,7 +217,7 @@ final class ExpAppHost {
             ]))
         }
         let installed = packages
-        let scope = AppHostStore.RecordsScope(appId: appId, teamId: teamId, me: me)
+        let scope = AppHostStore.RecordsScope(appId: appId, teamId: teamId, me: me, records: packages.first.map(JSONValue.parse)?["records"])
         let appsApi = deps.appsApi
 
         // VAPP-157: `data` for the fixture's data image/audio/video (the
@@ -655,6 +655,9 @@ enum AppHostStore {
         let appId: String?
         let teamId: String?
         let me: String?
+        /// VAPP-214: the hosting package's `records` (its kinds' `computed`
+        /// fields apply on read).
+        var records: JSONValue? = nil
     }
 
     /// What one records read sees: the app's rows and their authors' names.
@@ -684,7 +687,9 @@ enum AppHostStore {
                     updatedAt: AppRecords.isoTimestamp(entity.updatedAt)
                 )
             }
-            let value = query.value(rows: rows, me: scope.me, now: Date(), names: snapshot.names)
+            // VAPP-214: the hosting app's computed fields (another app's rows carry none).
+            let computed = query.app == nil ? RecordsQuery.computed(records: scope.records, kind: query.from) : [:]
+            let value = query.value(rows: rows, me: scope.me, now: Date(), names: snapshot.names, computed: computed)
             let json = value.json
             guard json != last else { return }
             last = json

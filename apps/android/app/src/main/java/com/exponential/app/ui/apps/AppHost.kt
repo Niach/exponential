@@ -412,6 +412,9 @@ fun rememberAppHost(
 
         // VAPP-122: the `records:<kind>` value over the parsed query (VAPP-189:
         // eUI's one evaluator, the SDK's `RecordsQuery` over the core).
+        // VAPP-214: the hosting package's `records` (its kinds' `computed` fields apply on read).
+        val packageRecords = packages.firstOrNull()?.let { JsonValue.parse(it)["records"] }
+
         fun recordsValues(query: RecordsQuery): Flow<JsonValue?> {
             // The app whose records are read: the hosting app, or
             // (`app=`) another app of the same team by slug (it may
@@ -437,7 +440,9 @@ fun rememberAppHost(
                 // VAPP-187: `author` = the AUTHOR's name (`authorId ?? createdBy`).
                 val wanted = mapped.mapNotNullTo(HashSet()) { it.authorId ?: it.createdBy }
                 val names = people.filter { it.id in wanted }.associate { it.id to it.name.orEmpty() }
-                query.value(mapped, me, AppRecords.isoNow(), names)
+                // VAPP-214: the hosting app's computed fields (another app's rows carry none).
+                val computed = if (query.app == null) RecordsQuery.computed(packageRecords, query.from) else emptyMap()
+                query.value(mapped, me, AppRecords.isoNow(), names, computed)
             }
         }
 

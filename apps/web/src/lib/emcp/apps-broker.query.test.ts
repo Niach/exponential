@@ -9,15 +9,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js"
 import fixture from "@exponential_app/eui/fixtures/records-query.json" with { type: "json" }
-import type { RecordRow } from "@exponential_app/eui/host/query"
+import { withComputed, type RecordRow } from "@exponential_app/eui/host/query"
 import type { Expose } from "@exp/emcp/exposes"
 
-const read = vi.hoisted(() => ({ rows: [] as unknown[], names: {} as Record<string, string>, calls: [] as { kind: string; contains: Record<string, unknown>; userId: string }[], truncated: false }))
+const read = vi.hoisted(() => ({ rows: [] as unknown[], computed: undefined as Record<string, string> | undefined, names: {} as Record<string, string>, calls: [] as { kind: string; contains: Record<string, unknown>; userId: string }[], truncated: false }))
 vi.mock(`@/lib/apps/records-service`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/apps/records-service")>()),
   readAppRecordRows: async (_app: unknown, kind: string, contains: Record<string, unknown>, userId: string) => {
     read.calls.push({ kind, contains, userId })
-    return { rows: (read.rows as RecordRow[]).filter((r) => r.kind === kind), truncated: read.truncated }
+    // VAPP-214: the real read writes the kind's computed fields into the rows.
+    return { rows: [...withComputed((read.rows as RecordRow[]).filter((r) => r.kind === kind), kind, read.computed, new Date().toISOString())], truncated: read.truncated }
   },
   teamMemberNames: async () => read.names,
 }))
@@ -43,12 +44,13 @@ async function call(tool: BrokerTool, me: string, args: Record<string, unknown> 
   return result as { isError?: boolean; structuredContent?: Record<string, unknown>; content: { text: string }[]; _meta?: Record<string, unknown> }
 }
 
-type ValueCase = { name: string; me: string; now: string; names: Record<string, string>; rows: unknown[]; query?: Record<string, unknown>; expected: unknown }
+type ValueCase = { name: string; me: string; now: string; names: Record<string, string>; rows: unknown[]; computed?: Record<string, string>; query?: Record<string, unknown>; expected: unknown }
 const jsonCases = (fixture.valueCases as unknown as ValueCase[]).filter((c) => c.query && c.query.from === `entry` && c.expected !== null)
 
 beforeEach(() => {
   read.calls = []
   read.truncated = false
+  read.computed = undefined
 })
 afterEach(() => vi.useRealTimers())
 
@@ -62,6 +64,7 @@ describe(`the broker's records list = the Q1 query (VAPP-216)`, () => {
     vi.setSystemTime(new Date(c.now))
     read.rows = c.rows
     read.names = c.names
+    read.computed = c.computed
     const { from: _from, ...query } = c.query!
     const result = await call(listTool(query), c.me)
     expect(result.isError, result.content[0]?.text).toBeFalsy()

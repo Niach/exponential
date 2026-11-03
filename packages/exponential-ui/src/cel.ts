@@ -616,6 +616,46 @@ export function pathText(node: ExprNode): string | null {
   return null
 }
 
+/** VAPP-214: the free names an expression reads, sorted (a macro's own
+ *  variable is not free inside its body). */
+export function expressionNames(node: ExprNode): string[] {
+  const out = new Set<string>()
+  const walk = (n: ExprNode, bound: readonly string[]): void => {
+    switch (n.k) {
+      case `lit`:
+        return
+      case `id`:
+        if (!bound.includes(n.name)) out.add(n.name)
+        return
+      case `list`:
+        return n.items.forEach((x) => walk(x, bound))
+      case `field`:
+        return walk(n.of, bound)
+      case `has`:
+        return walk(n.of, bound)
+      case `index`:
+        walk(n.of, bound)
+        return walk(n.index, bound)
+      case `unary`:
+        return walk(n.arg, bound)
+      case `bin`:
+        walk(n.a, bound)
+        return walk(n.b, bound)
+      case `cond`:
+        walk(n.test, bound)
+        walk(n.then, bound)
+        return walk(n.else, bound)
+      case `call`:
+        return n.args.forEach((x) => walk(x, bound))
+      case `macro`:
+        walk(n.of, bound)
+        return walk(n.body, [...bound, n.v])
+    }
+  }
+  walk(node, [])
+  return [...out].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+}
+
 const rootAt = (node: ExprNode): number => (node.k === `field` ? rootAt(node.of) : node.at)
 
 class Parser {

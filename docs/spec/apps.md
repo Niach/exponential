@@ -220,7 +220,7 @@ Caps (✅ `contract.json` `apps`): package ≤ 128 KB, ≤ 500 components per te
 | `screens` | The navigation manifest: `[{template, title, icon, params?}]`, painted as a sidebar on desktop and a bottom bar on phones | 5.1 |
 | `records.<kind>.policy` | ✅ R3 (#VAPP-199): read/create/update/delete per kind: `member` · `author` · `owners` (`role:<field>` waits for R6 transitions) | 3.4 |
 | `records.<kind>.refs` | Relations: `{field: {kind}}`, `{field: "issue"}`, `{field: "member"}` | 3.3 |
-| `records.<kind>.computed` | Expressions evaluated on read | 4.4 |
+| `records.<kind>.computed` | ✅ Q3 (#VAPP-214): expressions evaluated on read | 4.4 |
 | `records.<kind>.transitions` | A state machine on one enum field | 3.3 |
 | `queries` | Named structured queries, reusable by bindings and `exposes` (✅ Q1 for bindings, already in format 2) | 4.1 |
 | `automations` | Schedule, record event, Exponential event and webhook → one run | 7 |
@@ -412,13 +412,15 @@ The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <
 - Weeks are ISO and months are calendar months.
 - The platform has no notion of working days, holidays or targets. An app that needs them keeps them as its own records (a `holiday` kind, a `target` kind) and combines them with `weekday`, `dateDiff` and the query.
 
-### 4.4 Computed fields (🆕 Q3)
+### 4.4 Computed fields (✅ Q3, #VAPP-214)
 
 ```jsonc
 "computed": { "minutes": "round(hours * 60)", "week": "isoWeek(date)" }
 ```
 
 Computed fields are evaluated on read by the same evaluator. They are never stored, so they never go stale. Queries can filter, sort and group on them.
+
+- ✅ (Q3, #VAPP-214) Built: `records.<kind>.computed` (≤ 16 per kind). Each expression reads the record's schema fields and the row keys (`id createdAt updatedAt createdBy authorId`) by name; a failing one reads null. The records query writes them into every row of the kind before it runs (`recordsValue(…, {computed})`, TS `withComputed` / Rust `computed_data`, FFI context `computed`, SDKs `RecordsQuery.value(…, computed:)` + `RecordsQuery.computed(records:kind:)`), so filters, sorts, groups, aggregates, running values, `sum=` and the month view read them, and a template's row type carries them (typed). The hosts ×4 pass the hosting package's; another app's rows (`app=`) carry none. The server's records service applies them to `apps.records.list` and every Q4 read (`readAppRecordRows`: the broker's `records` runs and MCP `records_list` with `query` filter, sort and group on them). Checked at install (`/records/<kind>/computed/<name>`): typed against the schema (E2 `T?`), no shadowing a schema field or a row key, no computed field reading another (no chains, no cycles), the cap. Evaluated in UTC with the query's clock, like the query's own buckets (the team zone lands with the buckets'). Fixtures: `records-query.json` (values, filter, sort, group, aggregate, the month view) and `expressions.json` `packages`, replayed ×4.
 
 ### 4.5 Effects: pure bindings, all-or-nothing actions (✅ E1, #VAPP-194)
 
@@ -766,7 +768,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **S1 ★** ✅ #VAPP-189 Move the records query out of `domain-contract` into eUI host records (TS + eui-core), with a pluggable `RecordStore`. The ×4 hand derivations become one. (C25)
 - **Q1 ★** ✅ #VAPP-190 The structured query: group-by on any field + time buckets, all aggregates, `before`/running sums, `in/between/or`. Fixture `records-query.json` ×4 (TS, Rust, Swift, Kotlin). `search` and a cursor stay open. (C5, C6)
 - **Q2 ★** ✅ #VAPP-191 Expressions: mul/div/round/min/max, array aggregates, date maths in the team timezone, the string form. (C7)
-- **Q3** Computed fields. (C11)
+- **Q3** ✅ #VAPP-214 Computed fields: `records.<kind>.computed`, evaluated on read ×4 + the server, queryable, typed at install. (C11)
 - **Q4** ✅ #VAPP-216 The broker's `records` run uses the Q1 evaluator: tools get the same query as the UI. A list run carries any JSON query key (`where` as a list, `sort`, `group`, `aggregate`, `running`, `before`, `sum`, `mine`, `user`, `month`, `limit`) or names a package query (`query: "<name>"`, its `${param}`s filled from the call's input); MCP `apps records_list` takes `query` too. The server reads the caller's rows of the kind (read policy + RLS, an object `where` = the jsonb containment prefilter, capped at 25,000 = the Team plan quota, `truncated` beyond), then runs `recordsValue`; the answer is the binding's value (`rows`, `count`, `groups?`, `totals?`…) with the usual `_meta`. `app` and another `from` are refused. Q3's computed fields reach tools once the evaluator has them. (C15)
 - **E1** ✅ #VAPP-194 Typed effects: pure bindings vs all-or-nothing actions with `require` (§4.5). Before A1.
 - **E2** ✅ #VAPP-195 Optional types (`T?`) in the checker + a fallback on every binding (§4.2). With or before Q3.

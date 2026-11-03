@@ -68,7 +68,7 @@ reaches (neither the root nor a list's row template) is not checked.
 
 ## Records
 
-An app's own data. `records: {<kind>: {schema, title?, description?, policy?}}`
+An app's own data. `records: {<kind>: {schema, title?, description?, policy?, computed?}}`
 declares every kind (VAPP-122: the kind pattern, the JSON Schema subset and
 the reserved row keys are in `catalog/host.json` `package.records`). The
 host provides the store; the format fixes what a surface sees and calls.
@@ -92,6 +92,31 @@ synced rows, so a private kind never reaches another member's device);
 `recordRefusal(policy, op, viewer, row?)` / `readableRows` are the rule,
 the refusal texts are the fixture's `copy`. Field-level privacy is out: use
 a separate kind with `read: owners`.
+
+**Computed fields** (eApps Q3, VAPP-214; `fixtures/records-query.json`
+VAPP-214 cases, `fixtures/expressions.json` `packages`): fields evaluated on
+read by the expression evaluator (below), never stored, so they never go stale:
+
+```jsonc
+"computed": { "minutes": "round(hours * 60)", "week": "isoWeek(date)" }
+```
+
+Each is a CEL expression over the record: its schema fields and the row keys
+`id`, `createdAt`, `updatedAt`, `createdBy`, `authorId` by name (a field the
+row lacks reads null). Every row of the kind carries them like data, so a
+query filters, sorts, groups and aggregates on them (`minutes.gte=60`,
+`group: ["week"]`, `aggregate: {m: ["sum", "minutes"]}`), and a template reads
+them typed. A failing expression reads null. They are evaluated in UTC with
+the query's clock, like the query's own buckets, and only on the hosting
+app's rows (`app=` rows carry none). At install, each is type-checked against
+the kind's schema (`T?` unless required: guard it, see Expressions), issues
+at `/records/<kind>/computed/<name>`: a name the schema declares
+(`shadows a field of the schema`) or a row key, an expression that reads
+another computed field (no chains, so no cycles), or one that does not
+check. At most 16 per kind, plus the expression caps. Every host applies
+them: the clients' records query (`recordsValue(rows, query, {…, computed})`,
+the FFI context's `computed`; `kindComputed(records, kind)` picks a kind's)
+and Exponential's server (the records list, MCP and the broker's reads).
 
 **Read** = the binding source `records:<kind>[?query]`. The value is
 `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?, groups?, totals?, before?}`
@@ -123,7 +148,7 @@ evaluator for every host. The params parse INTO the structured query
 `{from, app, mine, user, where: [{field, op, value}], sort: [{field, order}],
 limit, sum, month: {field, key} | null}` (`parseRecordsQuery(params, kind?)`,
 `parseRecordsSource(source)`), and `recordsValue(rows, query, {me, now,
-names})` evaluates it over the rows of any store
+names, computed?})` evaluates it over the rows of any store
 (`@exponential_app/eui/host/query`, the Rust core's `host::query`, the FFI's
 `parse_records_query_json` / `parse_records_source_json` /
 `records_value_json` for the Swift and Compose SDKs);

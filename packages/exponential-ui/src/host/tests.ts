@@ -11,7 +11,7 @@
 import { evaluateExpression, parseTimestamp } from "../cel"
 import { applyRecordBatch, runAction } from "./actions"
 import type { PackageIssue } from "./package"
-import { RECORDS_SCHEME, expandQuerySource, parseRecordsSource, recordsValue } from "./query"
+import { RECORDS_SCHEME, expandQuerySource, kindComputed, parseRecordsSource, recordsValue } from "./query"
 import type { RecordRow } from "./query"
 import { readableRows } from "./record-policy"
 import { validateRecord } from "./records"
@@ -146,7 +146,7 @@ function recordsSourceValue(source: string, pkg: Record<string, unknown>, rows: 
   const parsed = parseSource(expanded)
   const query = parsed?.scheme === RECORDS_SCHEME ? parseRecordsSource(parsed) : null
   if (!query) return { error: `${source} is not a records source` }
-  return recordsValue(rows, query, { me, now }) ?? null
+  return recordsValue(rows, query, { me, now, computed: query.app === null ? kindComputed(pkg.records, query.from) : undefined }) ?? null
 }
 
 /** Run one test (a valid one): what it produced. */

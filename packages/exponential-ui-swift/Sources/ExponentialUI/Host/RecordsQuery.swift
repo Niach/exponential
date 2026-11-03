@@ -65,17 +65,20 @@ public struct RecordsQuery: Sendable, Equatable {
     /// groups?, totals?, before?}`.
     /// `me` = the viewer (nil: `mine` matches nothing), `now` = ISO 8601
     /// (the month view's default month), `names` = user id → display name.
-    public func value(rows: [RecordRow], me: String?, now: Date = Date(), names: [String: String] = [:]) -> JSONValue {
-        value(rows: rows, me: me, now: RecordsQuery.iso(now), names: names)
+    /// VAPP-214: `computed` = the queried kind's computed fields (name →
+    /// CEL, `RecordsQuery.computed(records:kind:)`), evaluated on read.
+    public func value(rows: [RecordRow], me: String?, now: Date = Date(), names: [String: String] = [:], computed: [String: String] = [:]) -> JSONValue {
+        value(rows: rows, me: me, now: RecordsQuery.iso(now), names: names, computed: computed)
     }
 
     /// `value` with `now` as ISO 8601 text.
-    public func value(rows: [RecordRow], me: String?, now: String, names: [String: String]) -> JSONValue {
+    public func value(rows: [RecordRow], me: String?, now: String, names: [String: String], computed: [String: String] = [:]) -> JSONValue {
         let rowsJson = JSONValue.array(rows.map(\.json)).json
         let context = JSONValue.object([
             "me": me.map(JSONValue.string) ?? .null,
             "now": .string(now),
             "names": .object(names.mapValues { .string($0) }),
+            "computed": .object(computed.mapValues { .string($0) }),
         ]).json
         guard let out = try? recordsValueJson(rowsJson: rowsJson, queryJson: json, contextJson: context) else { return .null }
         return JSONValue.parse(out)
@@ -84,6 +87,13 @@ public struct RecordsQuery: Sendable, Equatable {
     /// The raw JSON value (for a host that compares emits as text).
     public func valueJson(rows: [RecordRow], me: String?, now: String, names: [String: String]) -> String {
         value(rows: rows, me: me, now: now, names: names).json
+    }
+
+    /// VAPP-214: a package's computed fields of `kind` (`records.<kind>.computed`,
+    /// the string ones); what a host passes as `computed`.
+    public static func computed(records: JSONValue?, kind: String?) -> [String: String] {
+        guard let kind, let fields = records?[kind]?["computed"]?.object else { return [:] }
+        return fields.compactMapValues(\.string)
     }
 
     private nonisolated(unsafe) static let isoMillis: ISO8601DateFormatter = {

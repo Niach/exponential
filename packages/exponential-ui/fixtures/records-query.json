@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-189 (S1, docs/package-format.md \"Records\"): THE records query, one evaluator on every host. TS reference src/host/query.ts (`@exponential_app/eui/host/query`), Rust twin eui-core `host/query.rs`, reached by the Swift and Compose SDKs over the FFI (`parse_records_query_json`, `parse_records_source_json`, `records_value_json`); every one replays these cases. Inputs hand-written, `expected` filled by scripts/generate-host.ts. PARSE (`parseCases`: parseRecordsQuery(params, kind?)): query params (as parseSource gives them) → the structured query {from, app, mine, user, where: [{field, op, value}], sort: [{field, order}], limit, sum, month: {field, key} | null}. `kind` = the source's own name (`records:<kind>`); `from` = the kind (none = null); `app=<slug>` = another app's rows (the HOST resolves whose); `mine=1|true` = the viewer's rows; `user=<id>`; `sort` (default `query.sortDefault`) + `order=asc|desc` (default `orderDefault`, anything else = the default) = the one sort key of the URL sugar; `limit` a positive integer (default `limitDefault`, capped at `limitMax`); `sum=<field>`; `by=<dateField>` (+ `month=YYYY-MM`, a malformed one = null = the month of now) = the month view, `month` without `by` = none; every OTHER key (the `reserved` keys never; an empty key never) = a condition: `<field>=v` eq, `<field>.gt|gte|lt|lte=v` (a different suffix = an eq on the whole key), sorted by field then operator. The JSON query form (VAPP-190) adds keys next to these. SOURCES (`sourceCases`: parseRecordsSource(parseSource(source))): `records:<kind>?q` = parse(q, kind); any other scheme = null. VALUE (`valueCases`: recordsValue(rows, parse(params, kind), {me, now, names})): null without a kind; else the rows of that kind where: the AUTHOR (`authorId ?? createdBy`, #VAPP-187: an owner's on-behalf write is its author's) is `me` for `mine` (signed out = nothing) and `user` for `user=`; with a month view the `field` text starts with the month key; every condition holds over the field (the row keys `id`, `createdAt`, `updatedAt`, `createdBy` read the row, `authorId` the author, any other name the data): eq compares as text (null/missing = \"\", objects as JSON), the ranges as numbers when both sides parse (finite), else as text by UTF-16 code units. Sorted by each sort key (desc reverses), ties by id; {rows: [{…data, id, createdAt, updatedAt, createdBy, authorId (the author), author}] cut at the limit (a data key never shadows a row key; `author` = names[author] or \"\"), count: the matches before the limit, sum?: Σ of the field's numbers over the matches (non-numbers count 0, rounded to 1e-6), month?: {key, label (`months`), prev, next, today (now's date), days: every day of the month {date, day, weekday (`weekdays`), count, sum}, labels/counts/sums: the same days as chart-ready arrays}}. The `rowKeys` ride on every row and are reserved: a kind's schema may not declare them.",
+  "$comment": "VAPP-189 (S1, docs/package-format.md \"Records\"): THE records query, one evaluator on every host. TS reference src/host/query.ts (`@exponential_app/eui/host/query`), Rust twin eui-core `host/query.rs`, reached by the Swift and Compose SDKs over the FFI (`parse_records_query_json`, `parse_records_source_json`, `records_value_json`); every one replays these cases. Inputs hand-written, `expected` filled by scripts/generate-host.ts. PARSE (`parseCases`: parseRecordsQuery(params, kind?)): query params (as parseSource gives them) → the structured query {from, app, mine, user, where: [{field, op, value}], sort: [{field, order}], limit, sum, month: {field, key} | null}. `kind` = the source's own name (`records:<kind>`); `from` = the kind (none = null); `app=<slug>` = another app's rows (the HOST resolves whose); `mine=1|true` = the viewer's rows; `user=<id>`; `sort` (default `query.sortDefault`) + `order=asc|desc` (default `orderDefault`, anything else = the default) = the one sort key of the URL sugar; `limit` a positive integer (default `limitDefault`, capped at `limitMax`); `sum=<field>`; `by=<dateField>` (+ `month=YYYY-MM`, a malformed one = null = the month of now) = the month view, `month` without `by` = none; every OTHER key (the `reserved` keys never; an empty key never) = a condition: `<field>=v` eq, `<field>.gt|gte|lt|lte=v` (a different suffix = an eq on the whole key), sorted by field then operator. The JSON query form (VAPP-190) adds keys next to these. SOURCES (`sourceCases`: parseRecordsSource(parseSource(source))): `records:<kind>?q` = parse(q, kind); any other scheme = null. VALUE (`valueCases`: recordsValue(rows, parse(params, kind), {me, now, names})): null without a kind; else the rows of that kind where: the AUTHOR (`authorId ?? createdBy`, #VAPP-187: an owner's on-behalf write is its author's) is `me` for `mine` (signed out = nothing) and `user` for `user=`; with a month view the `field` text starts with the month key; every condition holds over the field (the row keys `id`, `createdAt`, `updatedAt`, `createdBy` read the row, `authorId` the author, any other name the data): eq compares as text (null/missing = \"\", objects as JSON), the ranges as numbers when both sides parse (finite), else as text by UTF-16 code units. Sorted by each sort key (desc reverses), ties by id; {rows: [{…data, id, createdAt, updatedAt, createdBy, authorId (the author), author}] cut at the limit (a data key never shadows a row key; `author` = names[author] or \"\"), count: the matches before the limit, sum?: Σ of the field's numbers over the matches (non-numbers count 0, rounded to 1e-6), month?: {key, label (`months`), prev, next, today (now's date), days: every day of the month {date, day, weekday (`weekdays`), count, sum}, labels/counts/sums: the same days as chart-ready arrays}}. The `rowKeys` ride on every row and are reserved: a kind's schema may not declare them. VAPP-214 (Q3, spec §4.4): a case's `computed` = the queried kind's computed fields (`records.<kind>.computed`, name → CEL), passed in the context: before the query each row of the kind gets every computed field written into its data (computed wins over a stored key of that name), the expression reading the row's data fields and the row keys id createdAt updatedAt createdBy authorId by name (a name absent from the row reads null); a parse or evaluation error reads null; evaluated in UTC with `now` as the clock. Then filters, sorts, groups, aggregates, running values, sum= and the month view read a computed field like any field, and the rows carry it. Never stored.",
   "query": {
     "reserved": [
       "app",
@@ -7379,6 +7379,1250 @@
           "m": null,
           "n": 0,
           "s": 0
+        }
+      }
+    },
+    {
+      "name": "VAPP-214 computed fields: written into every row of the kind (a number, a week, a bool); a text or missing input fails and reads null; sorted by a computed field",
+      "me": "u1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {
+        "u1": "Danny",
+        "u2": "Chris"
+      },
+      "rows": [
+        {
+          "id": "e1",
+          "kind": "entry",
+          "data": {
+            "date": "2026-09-28",
+            "hours": 2,
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-09-28T17:00:00Z",
+          "updatedAt": "2026-09-28T17:00:00Z"
+        },
+        {
+          "id": "e2",
+          "kind": "entry",
+          "data": {
+            "date": "2026-09-30",
+            "hours": 5,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-09-30T17:00:00Z",
+          "updatedAt": "2026-09-30T17:00:00Z"
+        },
+        {
+          "id": "e3",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 3.5,
+            "status": "open"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T17:00:00Z",
+          "updatedAt": "2026-10-01T17:00:00Z"
+        },
+        {
+          "id": "e4",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 4,
+            "status": "doing"
+          },
+          "createdBy": "u1",
+          "authorId": "u2",
+          "createdAt": "2026-10-01T18:00:00Z",
+          "updatedAt": "2026-10-01T18:00:00Z"
+        },
+        {
+          "id": "e5",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 0.1,
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T17:00:00Z",
+          "updatedAt": "2026-10-05T17:00:00Z"
+        },
+        {
+          "id": "e6",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 0.2,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-05T17:30:00Z",
+          "updatedAt": "2026-10-05T17:30:00Z"
+        },
+        {
+          "id": "e7",
+          "kind": "entry",
+          "data": {
+            "date": "2026-12-31",
+            "hours": "6",
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-12-31T17:00:00Z",
+          "updatedAt": "2026-12-31T17:00:00Z"
+        },
+        {
+          "id": "e8",
+          "kind": "entry",
+          "data": {
+            "date": "2027-01-01",
+            "hours": "x",
+            "status": "open"
+          },
+          "createdBy": "u3",
+          "createdAt": "2027-01-01T09:00:00Z",
+          "updatedAt": "2027-01-01T09:00:00Z"
+        },
+        {
+          "id": "e9",
+          "kind": "entry",
+          "data": {
+            "hours": 1,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "t1",
+          "kind": "todo",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 9
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        }
+      ],
+      "computed": {
+        "minutes": "round(hours * 60)",
+        "week": "isoWeek(date)",
+        "long": "hours >= 3"
+      },
+      "query": {
+        "from": "entry",
+        "sort": [
+          [
+            "minutes",
+            "desc"
+          ]
+        ],
+        "limit": 5
+      },
+      "expected": {
+        "rows": [
+          {
+            "date": "2026-09-30",
+            "hours": 5,
+            "status": "open",
+            "long": true,
+            "minutes": 300,
+            "week": 40,
+            "id": "e2",
+            "createdAt": "2026-09-30T17:00:00Z",
+            "updatedAt": "2026-09-30T17:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "Chris"
+          },
+          {
+            "date": "2026-10-01",
+            "hours": 4,
+            "status": "doing",
+            "long": true,
+            "minutes": 240,
+            "week": 40,
+            "id": "e4",
+            "createdAt": "2026-10-01T18:00:00Z",
+            "updatedAt": "2026-10-01T18:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u2",
+            "author": "Chris"
+          },
+          {
+            "date": "2026-10-01",
+            "hours": 3.5,
+            "status": "open",
+            "long": true,
+            "minutes": 210,
+            "week": 40,
+            "id": "e3",
+            "createdAt": "2026-10-01T17:00:00Z",
+            "updatedAt": "2026-10-01T17:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Danny"
+          },
+          {
+            "date": "2026-09-28",
+            "hours": 2,
+            "status": "done",
+            "long": false,
+            "minutes": 120,
+            "week": 40,
+            "id": "e1",
+            "createdAt": "2026-09-28T17:00:00Z",
+            "updatedAt": "2026-09-28T17:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Danny"
+          },
+          {
+            "hours": 1,
+            "status": "open",
+            "long": false,
+            "minutes": 60,
+            "week": null,
+            "id": "e9",
+            "createdAt": "2026-10-02T09:00:00Z",
+            "updatedAt": "2026-10-02T09:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "Chris"
+          }
+        ],
+        "count": 9
+      }
+    },
+    {
+      "name": "VAPP-214 filter on computed fields (eq as text, a range as numbers), the row keys readable (createdBy)",
+      "me": "u1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {
+        "u1": "Danny",
+        "u2": "Chris"
+      },
+      "rows": [
+        {
+          "id": "e1",
+          "kind": "entry",
+          "data": {
+            "date": "2026-09-28",
+            "hours": 2,
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-09-28T17:00:00Z",
+          "updatedAt": "2026-09-28T17:00:00Z"
+        },
+        {
+          "id": "e2",
+          "kind": "entry",
+          "data": {
+            "date": "2026-09-30",
+            "hours": 5,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-09-30T17:00:00Z",
+          "updatedAt": "2026-09-30T17:00:00Z"
+        },
+        {
+          "id": "e3",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 3.5,
+            "status": "open"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T17:00:00Z",
+          "updatedAt": "2026-10-01T17:00:00Z"
+        },
+        {
+          "id": "e4",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 4,
+            "status": "doing"
+          },
+          "createdBy": "u1",
+          "authorId": "u2",
+          "createdAt": "2026-10-01T18:00:00Z",
+          "updatedAt": "2026-10-01T18:00:00Z"
+        },
+        {
+          "id": "e5",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 0.1,
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T17:00:00Z",
+          "updatedAt": "2026-10-05T17:00:00Z"
+        },
+        {
+          "id": "e6",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 0.2,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-05T17:30:00Z",
+          "updatedAt": "2026-10-05T17:30:00Z"
+        },
+        {
+          "id": "e7",
+          "kind": "entry",
+          "data": {
+            "date": "2026-12-31",
+            "hours": "6",
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-12-31T17:00:00Z",
+          "updatedAt": "2026-12-31T17:00:00Z"
+        },
+        {
+          "id": "e8",
+          "kind": "entry",
+          "data": {
+            "date": "2027-01-01",
+            "hours": "x",
+            "status": "open"
+          },
+          "createdBy": "u3",
+          "createdAt": "2027-01-01T09:00:00Z",
+          "updatedAt": "2027-01-01T09:00:00Z"
+        },
+        {
+          "id": "e9",
+          "kind": "entry",
+          "data": {
+            "hours": 1,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "t1",
+          "kind": "todo",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 9
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        }
+      ],
+      "computed": {
+        "week": "isoWeek(date)",
+        "minutes": "round(hours * 60)",
+        "mine": "authorId == 'u1'"
+      },
+      "query": {
+        "from": "entry",
+        "where": [
+          [
+            "week",
+            "==",
+            40
+          ],
+          [
+            "minutes",
+            ">=",
+            100
+          ]
+        ],
+        "sort": "date"
+      },
+      "expected": {
+        "rows": [
+          {
+            "date": "2026-09-28",
+            "hours": 2,
+            "status": "done",
+            "mine": true,
+            "minutes": 120,
+            "week": 40,
+            "id": "e1",
+            "createdAt": "2026-09-28T17:00:00Z",
+            "updatedAt": "2026-09-28T17:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Danny"
+          },
+          {
+            "date": "2026-09-30",
+            "hours": 5,
+            "status": "open",
+            "mine": false,
+            "minutes": 300,
+            "week": 40,
+            "id": "e2",
+            "createdAt": "2026-09-30T17:00:00Z",
+            "updatedAt": "2026-09-30T17:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "Chris"
+          },
+          {
+            "date": "2026-10-01",
+            "hours": 3.5,
+            "status": "open",
+            "mine": true,
+            "minutes": 210,
+            "week": 40,
+            "id": "e3",
+            "createdAt": "2026-10-01T17:00:00Z",
+            "updatedAt": "2026-10-01T17:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Danny"
+          },
+          {
+            "date": "2026-10-01",
+            "hours": 4,
+            "status": "doing",
+            "mine": false,
+            "minutes": 240,
+            "week": 40,
+            "id": "e4",
+            "createdAt": "2026-10-01T18:00:00Z",
+            "updatedAt": "2026-10-01T18:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u2",
+            "author": "Chris"
+          }
+        ],
+        "count": 4
+      }
+    },
+    {
+      "name": "VAPP-214 group and aggregate on computed fields: per ISO week, Σ minutes, the long ones counted; groups sorted by a computed aggregate",
+      "me": "u1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {
+        "u1": "Danny",
+        "u2": "Chris"
+      },
+      "rows": [
+        {
+          "id": "e1",
+          "kind": "entry",
+          "data": {
+            "date": "2026-09-28",
+            "hours": 2,
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-09-28T17:00:00Z",
+          "updatedAt": "2026-09-28T17:00:00Z"
+        },
+        {
+          "id": "e2",
+          "kind": "entry",
+          "data": {
+            "date": "2026-09-30",
+            "hours": 5,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-09-30T17:00:00Z",
+          "updatedAt": "2026-09-30T17:00:00Z"
+        },
+        {
+          "id": "e3",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 3.5,
+            "status": "open"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T17:00:00Z",
+          "updatedAt": "2026-10-01T17:00:00Z"
+        },
+        {
+          "id": "e4",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 4,
+            "status": "doing"
+          },
+          "createdBy": "u1",
+          "authorId": "u2",
+          "createdAt": "2026-10-01T18:00:00Z",
+          "updatedAt": "2026-10-01T18:00:00Z"
+        },
+        {
+          "id": "e5",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 0.1,
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T17:00:00Z",
+          "updatedAt": "2026-10-05T17:00:00Z"
+        },
+        {
+          "id": "e6",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 0.2,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-05T17:30:00Z",
+          "updatedAt": "2026-10-05T17:30:00Z"
+        },
+        {
+          "id": "e7",
+          "kind": "entry",
+          "data": {
+            "date": "2026-12-31",
+            "hours": "6",
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-12-31T17:00:00Z",
+          "updatedAt": "2026-12-31T17:00:00Z"
+        },
+        {
+          "id": "e8",
+          "kind": "entry",
+          "data": {
+            "date": "2027-01-01",
+            "hours": "x",
+            "status": "open"
+          },
+          "createdBy": "u3",
+          "createdAt": "2027-01-01T09:00:00Z",
+          "updatedAt": "2027-01-01T09:00:00Z"
+        },
+        {
+          "id": "e9",
+          "kind": "entry",
+          "data": {
+            "hours": 1,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "t1",
+          "kind": "todo",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 9
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        }
+      ],
+      "computed": {
+        "minutes": "round(hours * 60)",
+        "week": "isoWeek(date)",
+        "long": "hours >= 3"
+      },
+      "query": {
+        "from": "entry",
+        "group": [
+          "week"
+        ],
+        "aggregate": {
+          "minutes": [
+            "sum",
+            "minutes"
+          ],
+          "long": [
+            "countDistinct",
+            "long"
+          ]
+        },
+        "sort": [
+          [
+            "minutes",
+            "desc"
+          ]
+        ]
+      },
+      "expected": {
+        "rows": [
+          {
+            "date": "2026-09-30",
+            "hours": 5,
+            "status": "open",
+            "long": true,
+            "minutes": 300,
+            "week": 40,
+            "id": "e2",
+            "createdAt": "2026-09-30T17:00:00Z",
+            "updatedAt": "2026-09-30T17:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "Chris"
+          },
+          {
+            "date": "2026-10-01",
+            "hours": 4,
+            "status": "doing",
+            "long": true,
+            "minutes": 240,
+            "week": 40,
+            "id": "e4",
+            "createdAt": "2026-10-01T18:00:00Z",
+            "updatedAt": "2026-10-01T18:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u2",
+            "author": "Chris"
+          },
+          {
+            "date": "2026-10-01",
+            "hours": 3.5,
+            "status": "open",
+            "long": true,
+            "minutes": 210,
+            "week": 40,
+            "id": "e3",
+            "createdAt": "2026-10-01T17:00:00Z",
+            "updatedAt": "2026-10-01T17:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Danny"
+          },
+          {
+            "date": "2026-09-28",
+            "hours": 2,
+            "status": "done",
+            "long": false,
+            "minutes": 120,
+            "week": 40,
+            "id": "e1",
+            "createdAt": "2026-09-28T17:00:00Z",
+            "updatedAt": "2026-09-28T17:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Danny"
+          },
+          {
+            "hours": 1,
+            "status": "open",
+            "long": false,
+            "minutes": 60,
+            "week": null,
+            "id": "e9",
+            "createdAt": "2026-10-02T09:00:00Z",
+            "updatedAt": "2026-10-02T09:00:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "Chris"
+          },
+          {
+            "date": "2026-10-05",
+            "hours": 0.2,
+            "status": "open",
+            "long": false,
+            "minutes": 12,
+            "week": 41,
+            "id": "e6",
+            "createdAt": "2026-10-05T17:30:00Z",
+            "updatedAt": "2026-10-05T17:30:00Z",
+            "createdBy": "u2",
+            "authorId": "u2",
+            "author": "Chris"
+          },
+          {
+            "date": "2026-10-05",
+            "hours": 0.1,
+            "status": "done",
+            "long": false,
+            "minutes": 6,
+            "week": 41,
+            "id": "e5",
+            "createdAt": "2026-10-05T17:00:00Z",
+            "updatedAt": "2026-10-05T17:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Danny"
+          },
+          {
+            "date": "2026-12-31",
+            "hours": "6",
+            "status": "done",
+            "long": null,
+            "minutes": null,
+            "week": 53,
+            "id": "e7",
+            "createdAt": "2026-12-31T17:00:00Z",
+            "updatedAt": "2026-12-31T17:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Danny"
+          },
+          {
+            "date": "2027-01-01",
+            "hours": "x",
+            "status": "open",
+            "long": null,
+            "minutes": null,
+            "week": 53,
+            "id": "e8",
+            "createdAt": "2027-01-01T09:00:00Z",
+            "updatedAt": "2027-01-01T09:00:00Z",
+            "createdBy": "u3",
+            "authorId": "u3",
+            "author": ""
+          }
+        ],
+        "count": 9,
+        "groups": [
+          {
+            "week": 40,
+            "count": 4,
+            "long": 2,
+            "minutes": 870
+          },
+          {
+            "week": null,
+            "count": 1,
+            "long": 1,
+            "minutes": 60
+          },
+          {
+            "week": 41,
+            "count": 2,
+            "long": 1,
+            "minutes": 18
+          },
+          {
+            "week": 53,
+            "count": 2,
+            "long": 0,
+            "minutes": 0
+          }
+        ],
+        "totals": {
+          "count": 9,
+          "long": 2,
+          "minutes": 948
+        }
+      }
+    },
+    {
+      "name": "VAPP-214 computed fields apply to the queried kind only; sum= and the month view read them too",
+      "me": "u1",
+      "now": "2026-10-24T09:00:00Z",
+      "names": {
+        "u1": "Danny",
+        "u2": "Chris"
+      },
+      "rows": [
+        {
+          "id": "e1",
+          "kind": "entry",
+          "data": {
+            "date": "2026-09-28",
+            "hours": 2,
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-09-28T17:00:00Z",
+          "updatedAt": "2026-09-28T17:00:00Z"
+        },
+        {
+          "id": "e2",
+          "kind": "entry",
+          "data": {
+            "date": "2026-09-30",
+            "hours": 5,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-09-30T17:00:00Z",
+          "updatedAt": "2026-09-30T17:00:00Z"
+        },
+        {
+          "id": "e3",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 3.5,
+            "status": "open"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T17:00:00Z",
+          "updatedAt": "2026-10-01T17:00:00Z"
+        },
+        {
+          "id": "e4",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 4,
+            "status": "doing"
+          },
+          "createdBy": "u1",
+          "authorId": "u2",
+          "createdAt": "2026-10-01T18:00:00Z",
+          "updatedAt": "2026-10-01T18:00:00Z"
+        },
+        {
+          "id": "e5",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 0.1,
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-05T17:00:00Z",
+          "updatedAt": "2026-10-05T17:00:00Z"
+        },
+        {
+          "id": "e6",
+          "kind": "entry",
+          "data": {
+            "date": "2026-10-05",
+            "hours": 0.2,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-05T17:30:00Z",
+          "updatedAt": "2026-10-05T17:30:00Z"
+        },
+        {
+          "id": "e7",
+          "kind": "entry",
+          "data": {
+            "date": "2026-12-31",
+            "hours": "6",
+            "status": "done"
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-12-31T17:00:00Z",
+          "updatedAt": "2026-12-31T17:00:00Z"
+        },
+        {
+          "id": "e8",
+          "kind": "entry",
+          "data": {
+            "date": "2027-01-01",
+            "hours": "x",
+            "status": "open"
+          },
+          "createdBy": "u3",
+          "createdAt": "2027-01-01T09:00:00Z",
+          "updatedAt": "2027-01-01T09:00:00Z"
+        },
+        {
+          "id": "e9",
+          "kind": "entry",
+          "data": {
+            "hours": 1,
+            "status": "open"
+          },
+          "createdBy": "u2",
+          "createdAt": "2026-10-02T09:00:00Z",
+          "updatedAt": "2026-10-02T09:00:00Z"
+        },
+        {
+          "id": "t1",
+          "kind": "todo",
+          "data": {
+            "date": "2026-10-01",
+            "hours": 9
+          },
+          "createdBy": "u1",
+          "createdAt": "2026-10-01T09:00:00Z",
+          "updatedAt": "2026-10-01T09:00:00Z"
+        }
+      ],
+      "kind": "entry",
+      "computed": {
+        "minutes": "round(hours * 60)"
+      },
+      "params": {
+        "by": "date",
+        "month": "2026-10",
+        "sum": "minutes",
+        "mine": "1"
+      },
+      "expected": {
+        "rows": [
+          {
+            "date": "2026-10-05",
+            "hours": 0.1,
+            "status": "done",
+            "minutes": 6,
+            "id": "e5",
+            "createdAt": "2026-10-05T17:00:00Z",
+            "updatedAt": "2026-10-05T17:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Danny"
+          },
+          {
+            "date": "2026-10-01",
+            "hours": 3.5,
+            "status": "open",
+            "minutes": 210,
+            "id": "e3",
+            "createdAt": "2026-10-01T17:00:00Z",
+            "updatedAt": "2026-10-01T17:00:00Z",
+            "createdBy": "u1",
+            "authorId": "u1",
+            "author": "Danny"
+          }
+        ],
+        "count": 2,
+        "sum": 216,
+        "month": {
+          "key": "2026-10",
+          "label": "October 2026",
+          "prev": "2026-09",
+          "next": "2026-11",
+          "today": "2026-10-24",
+          "days": [
+            {
+              "date": "2026-10-01",
+              "day": 1,
+              "weekday": "Thu",
+              "count": 1,
+              "sum": 210
+            },
+            {
+              "date": "2026-10-02",
+              "day": 2,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-03",
+              "day": 3,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-04",
+              "day": 4,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-05",
+              "day": 5,
+              "weekday": "Mon",
+              "count": 1,
+              "sum": 6
+            },
+            {
+              "date": "2026-10-06",
+              "day": 6,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-07",
+              "day": 7,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-08",
+              "day": 8,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-09",
+              "day": 9,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-10",
+              "day": 10,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-11",
+              "day": 11,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-12",
+              "day": 12,
+              "weekday": "Mon",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-13",
+              "day": 13,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-14",
+              "day": 14,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-15",
+              "day": 15,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-16",
+              "day": 16,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-17",
+              "day": 17,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-18",
+              "day": 18,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-19",
+              "day": 19,
+              "weekday": "Mon",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-20",
+              "day": 20,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-21",
+              "day": 21,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-22",
+              "day": 22,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-23",
+              "day": 23,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-24",
+              "day": 24,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-25",
+              "day": 25,
+              "weekday": "Sun",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-26",
+              "day": 26,
+              "weekday": "Mon",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-27",
+              "day": 27,
+              "weekday": "Tue",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-28",
+              "day": 28,
+              "weekday": "Wed",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-29",
+              "day": 29,
+              "weekday": "Thu",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-30",
+              "day": 30,
+              "weekday": "Fri",
+              "count": 0,
+              "sum": 0
+            },
+            {
+              "date": "2026-10-31",
+              "day": 31,
+              "weekday": "Sat",
+              "count": 0,
+              "sum": 0
+            }
+          ],
+          "labels": [
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9",
+            "10",
+            "11",
+            "12",
+            "13",
+            "14",
+            "15",
+            "16",
+            "17",
+            "18",
+            "19",
+            "20",
+            "21",
+            "22",
+            "23",
+            "24",
+            "25",
+            "26",
+            "27",
+            "28",
+            "29",
+            "30",
+            "31"
+          ],
+          "counts": [
+            1,
+            0,
+            0,
+            0,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "sums": [
+            210,
+            0,
+            0,
+            0,
+            6,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
         }
       }
     }

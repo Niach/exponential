@@ -7,10 +7,10 @@
 // agent can fix it. The Rust core's `host::expressions` mirrors it
 // (`fixtures/expressions.json` `packages`).
 
-import { checkExpression, isOptional, optionalType, requiredType, typeName } from "../cel"
+import { checkExpression, expressionNames, isOptional, optionalType, parseExpression, requiredType, typeName } from "../cel"
 import type { ExprType } from "../cel"
 import { isBinding, isCall } from "../expr"
-import { RECORDS_SCHEME, expandQuerySource, parseRecordsSource } from "./query"
+import { RECORDS_COMPUTED_MAX, RECORDS_COMPUTED_ROW_KEYS, RECORDS_ROW_KEYS, RECORDS_SCHEME, expandQuerySource, parseRecordsSource } from "./query"
 import type { RecordsQuery } from "./query"
 import { parseSource } from "./sources"
 
@@ -46,11 +46,64 @@ export function rowOf(properties: Record<string, unknown>, required: unknown): E
 }
 
 /** A record row of a kind: its schema's fields (`T?` unless required) plus
- *  the row keys (always there). */
+ *  the row keys (always there). VAPP-214: plus its computed fields, each
+ *  its expression's type (`dyn?` when it does not check). */
 export function recordRowType(kind: unknown): ExprType {
   const schema = isObject(kind) && isObject(kind.schema) ? kind.schema : {}
   const props = isObject(schema.properties) ? schema.properties : {}
-  return { ...(rowOf(props, schema.required) as Record<string, ExprType>), id: `string`, createdAt: `timestamp`, updatedAt: `timestamp`, createdBy: `string`, authorId: `string`, author: `string` }
+  const row: Record<string, ExprType> = { ...(rowOf(props, schema.required) as Record<string, ExprType>), id: `string`, createdAt: `timestamp`, updatedAt: `timestamp`, createdBy: `string`, authorId: `string`, author: `string` }
+  const computed = isObject(kind) && isObject(kind.computed) ? kind.computed : {}
+  const vars = computedVars(kind)
+  for (const name of Object.keys(computed).sort()) {
+    if (own(row, name)) continue
+    const source = computed[name]
+    const checked = typeof source === `string` ? checkExpression(source, vars) : null
+    row[name] = checked && `type` in checked ? checked.type : optionalType(`dyn`)
+  }
+  return row
+}
+
+/** VAPP-214: the names a kind's computed field reads: its schema's fields
+ *  (`T?` unless required) and the row keys but `author`. */
+function computedVars(kind: unknown): Record<string, ExprType> {
+  const schema = isObject(kind) && isObject(kind.schema) ? kind.schema : {}
+  const props = isObject(schema.properties) ? schema.properties : {}
+  const vars = { ...(rowOf(props, schema.required) as Record<string, ExprType>) }
+  for (const key of RECORDS_COMPUTED_ROW_KEYS) vars[key] = key === `createdAt` || key === `updatedAt` ? `timestamp` : `string`
+  return vars
+}
+
+/** VAPP-214 (Q3): a kind's `computed` ({name: CEL}), each issue at
+ *  `<at>/computed/<name>`: at most `RECORDS_COMPUTED_MAX`; a name is not a
+ *  schema field nor a row key; the expression is a string that reads no
+ *  other computed field and type-checks against the kind's fields. */
+export function validateRecordComputed(kind: unknown, at: string): ExpressionIssue[] {
+  if (!isObject(kind) || kind.computed === undefined) return []
+  const computed = kind.computed
+  if (!isObject(computed)) return [{ path: `${at}/computed`, message: `computed is {name: expression}` }]
+  const issues: ExpressionIssue[] = []
+  const names = Object.keys(computed).sort()
+  if (names.length > RECORDS_COMPUTED_MAX) issues.push({ path: `${at}/computed`, message: `at most ${RECORDS_COMPUTED_MAX} computed fields per kind` })
+  const schema = isObject(kind.schema) ? kind.schema : {}
+  const props = isObject(schema.properties) ? schema.properties : {}
+  const vars = computedVars(kind)
+  for (const name of names) {
+    const fp = `${at}/computed/${escape(name)}`
+    const source = computed[name]
+    if (own(props, name)) issues.push({ path: fp, message: `${name} shadows a field of the schema` })
+    else if (RECORDS_ROW_KEYS.includes(name)) issues.push({ path: fp, message: `${name} is a reserved record key` })
+    else if (typeof source !== `string`) issues.push({ path: fp, message: `a computed field is an expression (a string)` })
+    else {
+      const parsed = parseExpression(source)
+      const reads = `ast` in parsed ? expressionNames(parsed.ast).filter((n) => own(computed, n) && !own(props, n)) : []
+      if (reads.length) issues.push({ path: fp, message: `a computed field reads no computed field: ${reads.join(`, `)}` })
+      else {
+        const checked = checkExpression(source, vars)
+        if (`error` in checked) issues.push({ path: fp, message: checked.error })
+      }
+    }
+  }
+  return issues
 }
 
 /** A month view's value (`RecordsMonth`). */

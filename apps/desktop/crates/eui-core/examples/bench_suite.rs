@@ -479,7 +479,7 @@ fn records(sc: &Value, m: &mut Metrics) {
     let rows = record_rows(spec);
     let kind = spec["kind"].as_str().expect("records.kind");
     let names = HashMap::new();
-    let ctx = RecordsContext { me: steps["me"].as_str(), now: steps["now"].as_str().expect("steps.now"), names: &names };
+    let ctx = RecordsContext { me: steps["me"].as_str(), now: steps["now"].as_str().expect("steps.now"), names: &names, computed: None };
     let warmup = steps["warmup"].as_u64().expect("steps.warmup") as usize;
     let runs = steps["runs"].as_u64().expect("steps.runs") as usize;
     let mut matched = 0.0;

@@ -66,7 +66,8 @@ describe(`records query (VAPP-189)`, () => {
     const json = (c as { query?: unknown }).query
     const kind = (c as { kind?: string }).kind
     const query = json !== undefined ? parseRecordsJson(json, kind).query : parseRecordsQuery((c as unknown as { params: Record<string, string> }).params, kind)
-    expect(recordsValue(c.rows as RecordRow[], query, { me: c.me, now: c.now, names: c.names as Record<string, string> })).toEqual(c.expected as never)
+    const computed = (c as { computed?: Record<string, string> }).computed
+    expect(recordsValue(c.rows as RecordRow[], query, { me: c.me, now: c.now, names: c.names as Record<string, string>, computed })).toEqual(c.expected as never)
   })
   test(`shiftMonth crosses years both ways`, () => {
     expect(shiftMonth(`2026-01`, -1)).toBe(`2025-12`)

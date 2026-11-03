@@ -13,6 +13,7 @@
 // operators and `or`. The date maths lives in `../dates.ts` (shared with
 // the bind-time expressions).
 
+import { evaluateExpression, expressionNames, parseExpression, parseTimestamp, type ExprNode } from "../cel"
 import { DATE_BUCKETS, dateBucket, daysInMonth, weekdayOf, type DateBucket } from "../dates"
 import { canonicalJson } from "./signature"
 import { parseSource, sourceWithParams, type ParsedSource } from "./sources"
@@ -176,6 +177,9 @@ export interface RecordsContext {
   now?: string
   /** user id → display name (`author`; "" when unknown). */
   names?: Record<string, string>
+  /** VAPP-214 (Q3): the queried kind's computed fields (`records.<kind>.computed`:
+   *  name → CEL), evaluated on every row of the kind before the query. */
+  computed?: Record<string, string>
 }
 
 /** A problem with a JSON query, a JSON pointer into it. */
@@ -663,6 +667,48 @@ function groupColumns(key: RecordsGroupKey, row: RecordRow, names: Record<string
   cols[key.field] = key.bucket !== null ? dateBucket(text(v), key.bucket) : jsonOf(v)
 }
 
+/** VAPP-214 (Q3): at most this many computed fields per kind. */
+export const RECORDS_COMPUTED_MAX = 16
+/** The row keys a computed field reads next to its kind's fields (`author`, a name, never). */
+export const RECORDS_COMPUTED_ROW_KEYS: readonly string[] = [`id`, `createdAt`, `updatedAt`, `createdBy`, `authorId`]
+
+/** VAPP-214 (Q3): a package's computed fields of `kind` (`records.<kind>.computed`,
+ *  the string ones); undefined = none. What a host passes as `computed`. */
+export function kindComputed(records: unknown, kind: string | null | undefined): Record<string, string> | undefined {
+  const def = kind && isObject(records) && Object.prototype.hasOwnProperty.call(records, kind) ? records[kind] : undefined
+  if (!isObject(def) || !isObject(def.computed)) return undefined
+  const out: Record<string, string> = {}
+  for (const [name, source] of Object.entries(def.computed)) if (typeof source === `string`) out[name] = source
+  return Object.keys(out).length ? out : undefined
+}
+
+/** VAPP-214 (Q3): `rows` with the computed fields of `kind` written into
+ *  each of its rows' data (other kinds' rows as they are). A field reads
+ *  the row's data and the row keys by name (a missing one = null); it never
+ *  reads another computed field (the checker refuses it). A failing or
+ *  unparsable expression reads null. Evaluated in UTC with the query's
+ *  `now`, like the query's own buckets. Never stored. */
+export function withComputed(rows: readonly RecordRow[], kind: string, computed: Record<string, string> | undefined, now?: string): readonly RecordRow[] {
+  const names = computed ? Object.keys(computed).sort(byCodeUnits) : []
+  if (!names.length) return rows
+  const fields = names.map((name) => {
+    const parsed = parseExpression(computed![name]!)
+    return { name, ast: `ast` in parsed ? (parsed.ast as ExprNode) : null, reads: `ast` in parsed ? expressionNames(parsed.ast as ExprNode) : [] }
+  })
+  const env = { now: (now ? parseTimestamp(now) : null) ?? 0 }
+  return rows.map((row) => {
+    if (row.kind !== kind) return row
+    const vars: Record<string, unknown> = { ...row.data, id: row.id, createdAt: row.createdAt, updatedAt: row.updatedAt, createdBy: row.createdBy, authorId: recordAuthor(row) }
+    const data: Record<string, unknown> = { ...row.data }
+    for (const f of fields) {
+      for (const name of f.reads) if (!Object.prototype.hasOwnProperty.call(vars, name)) vars[name] = null
+      const result = f.ast ? evaluateExpression(f.ast, vars, env) : null
+      data[f.name] = result && `value` in result ? result.value : null
+    }
+    return { ...row, data }
+  })
+}
+
 /** The value a records binding emits for `query` over `rows` (every row of
  *  the app, any kind): null without a kind; else {rows, count, sum?,
  *  month?, groups?, totals?, before?}: the matches sorted (ties by id)
@@ -670,6 +716,7 @@ function groupColumns(key: RecordsGroupKey, row: RecordRow, names: Record<string
 export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ctx: RecordsContext): RecordsValue | null {
   if (!query.from) return null
   const now = ctx.now ?? new Date().toISOString()
+  rows = withComputed(rows, query.from, ctx.computed, now)
   const view = query.month
   const monthKey = view ? (view.key ?? now.slice(0, 7)) : null
   const where = query.where.map(cond)
