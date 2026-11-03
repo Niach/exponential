@@ -66,7 +66,10 @@ pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
     // (Escape and a scrim press still close it). The chrome is fixed at open
     // time, so a token picks it; the paste-link dialog keeps its header.
     let chromeless = token.is_some();
-    let mut spec = DialogSpec::new(TITLE, size(px(416.), px(340.)));
+    // The landing card (disc, title, team card, Accept) needs 384: at 340
+    // Accept invite was cut off. `hug()` measures the scroll pane as 0.
+    let height = if chromeless { 384. } else { 340. };
+    let mut spec = DialogSpec::new(TITLE, size(px(416.), px(height)));
     if chromeless {
         spec = spec.chromeless();
     }

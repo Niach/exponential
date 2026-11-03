@@ -1113,8 +1113,8 @@
         "file": "shots/device-readiness/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 37958,
-        "sha256": "df6f29be9f0f7ae99f82196de33b4d4c8719c45803a713d204ef46524c7626c8"
+        "bytes": 37424,
+        "sha256": "dd23283db8e1aa0aadcf6b28c1b769cdc65c2afef4270d4ac1657e28f25d9a9f"
       },
       "ios": {
         "file": "shots/device-readiness/ios.webp",
@@ -4175,8 +4175,8 @@
         "file": "shots/getting-started/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 31150,
-        "sha256": "b211902bec0a2272264d935a013a7062b4f12ea502a95b587200f7e093798931"
+        "bytes": 29976,
+        "sha256": "f238ef080b4ce7c633e12b522b94152a464c780f06fd5434e362436eddc2afef"
       },
       "ios": {
         "file": "shots/getting-started/ios.webp",
@@ -4235,8 +4235,8 @@
         "file": "shots/invite-accept/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 53446,
-        "sha256": "3b6602585f0cd631ed26763b7277efbe93d2aa2130bd8ac67afd3f4f36d50aee"
+        "bytes": 51680,
+        "sha256": "4aac37eac6abee56f35d77c457096a4822b4ec8264289a207f7473ee7db94443"
       },
       "web": {
         "file": "shots/invite-accept/web.webp",
@@ -4584,8 +4584,8 @@
         "file": "shots/onboarding-devices/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 16586,
-        "sha256": "e8c7c25b78c0ee4e15f97429fc3ed160ffbc669c91c0d3617a12838234922fa0"
+        "bytes": 18900,
+        "sha256": "65ebe225b679633e2984e6353bc3fb3eec16cd59ea4cf45cf392415ecd587d6b"
       },
       "ios": {
         "file": "shots/onboarding-devices/ios.webp",
@@ -6034,8 +6034,8 @@
         "file": "shots/settings-tools/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 40730,
-        "sha256": "5057607a5a3f1d7bc51db65b3be5c162b395581242415202d23e74edfe8e6e96"
+        "bytes": 40140,
+        "sha256": "89438de0d160e77bd22d3a8593484053b2c0c56876a2a22b495a5fdb40e8195b"
       }
     },
     "settings-widget": {
