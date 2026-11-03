@@ -616,6 +616,29 @@
       ],
       "focus": "cancel"
     },
+    "rotate-webhook-secret": {
+      "title": "Rotate the secret of {hook}?",
+      "body": "The current secret stops working right away. Every sender needs the new one.",
+      "params": [
+        {
+          "name": "hook",
+          "meaning": "the app webhook's name, unquoted"
+        }
+      ],
+      "actions": [
+        {
+          "id": "cancel",
+          "label": "Cancel",
+          "role": "cancel"
+        },
+        {
+          "id": "rotate",
+          "label": "Rotate",
+          "role": "destructive"
+        }
+      ],
+      "focus": "cancel"
+    },
     "revoke-mcp-client": {
       "title": "Revoke {client}?",
       "body": "It loses access right away. Connecting it again asks for consent again.",

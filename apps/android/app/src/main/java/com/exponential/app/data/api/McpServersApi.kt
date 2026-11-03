@@ -168,12 +168,32 @@ data class AppAutomationDto(
     }
 }
 
-/** #VAPP-220: `appAccess.appTools` (only the automations are read on phones). */
+/** #VAPP-238: one `appAccess.appTools` webhook (the secret itself never comes back). */
 @Serializable
-data class AppToolsDto(val canToggle: Boolean = false, val automations: List<AppAutomationDto> = emptyList())
+data class AppHookDto(
+    val name: String = "",
+    val url: String = "",
+    val hasSecret: Boolean = false,
+    val rotatedAt: String? = null,
+)
+
+/** #VAPP-238: `appAccess.rotateHook`'s answer, the secret shown once. */
+@Serializable
+data class AppHookSecretDto(val name: String = "", val url: String = "", val secret: String = "")
+
+/** #VAPP-220: `appAccess.appTools` (only the automations + webhooks are read on phones). */
+@Serializable
+data class AppToolsDto(
+    val canToggle: Boolean = false,
+    val automations: List<AppAutomationDto> = emptyList(),
+    val hooks: List<AppHookDto> = emptyList(),
+)
 
 @Serializable
 private data class AppToolsInput(val appId: String)
+
+@Serializable
+private data class AppHookRotateInput(val appId: String, val name: String)
 
 @Serializable
 private data class AppAccessSetInput(val appId: String, val userId: String, val level: String)
@@ -220,6 +240,16 @@ class McpSettingsApi @Inject constructor(private val trpc: TrpcClient) {
     /** #VAPP-220: the app's tools, upstreams and automations (`appAccess.appTools`). */
     suspend fun appTools(accountId: String, appId: String): AppToolsDto =
         trpc.query(accountId, "appAccess.appTools", AppToolsInput(appId), AppToolsInput.serializer(), AppToolsDto.serializer())
+
+    /** #VAPP-238: mint or rotate a webhook's secret (owner); the answer carries it once. */
+    suspend fun rotateHook(accountId: String, appId: String, name: String): AppHookSecretDto =
+        trpc.mutation(
+            accountId,
+            "appAccess.rotateHook",
+            AppHookRotateInput(appId, name),
+            AppHookRotateInput.serializer(),
+            AppHookSecretDto.serializer(),
+        )
 
     suspend fun setAppAccess(accountId: String, appId: String, userId: String, level: String) {
         trpc.mutationUnit(accountId, "appAccess.set", AppAccessSetInput(appId, userId, level), AppAccessSetInput.serializer())

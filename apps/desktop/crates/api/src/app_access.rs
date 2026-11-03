@@ -5,7 +5,10 @@
 //! - `appTools {appId}` (query, any member) → `{canToggle, tools:[{name,
 //!   title, access, via, enabled}], upstreams:[{name, serverId|null,
 //!   auth|null, state|null}], automations:[{name, on, tool, paused|null,
-//!   lastRunAt, lastStatus|null, lastError, lastFailureAt}]}` (#VAPP-220);
+//!   lastRunAt, lastStatus|null, lastError, lastFailureAt}], hooks:[{name,
+//!   url, hasSecret, rotatedAt|null}]}` (#VAPP-220, #VAPP-238);
+//! - #VAPP-238: `rotateHook {appId, name}` (mutation, owners) → `{name,
+//!   url, secret}` (the secret is shown once, never refetched);
 //! - `setToolEnabled {appId, tool, enabled}` (mutation, owners) →
 //!   `{ok: true}`;
 //! - VAPP-185 (Settings › MCP › Access): `list {teamId}` (query) →
@@ -84,6 +87,20 @@ impl AppAutomation {
     }
 }
 
+/// #VAPP-238: one webhook the PUBLISHED package's automations listen on
+/// (`apps/web/src/lib/apps/webhooks.ts` `HookRow`).
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AppHook {
+    pub name: String,
+    #[serde(default)]
+    pub url: String,
+    #[serde(default)]
+    pub has_secret: bool,
+    #[serde(default)]
+    pub rotated_at: Option<String>,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct AppToolsOut {
@@ -97,6 +114,9 @@ pub struct AppToolsOut {
     /// #VAPP-220 (absent on an older server).
     #[serde(default)]
     pub automations: Vec<AppAutomation>,
+    /// #VAPP-238 (absent on an older server), in package order.
+    #[serde(default)]
+    pub hooks: Vec<AppHook>,
 }
 
 /// `appAccess.appTools` — query.
@@ -107,6 +127,27 @@ pub fn app_tools(trpc: &TrpcClient, app_id: &str) -> Result<AppToolsOut, ApiErro
         app_id: &'a str,
     }
     trpc.query_with_input("appAccess.appTools", &Input { app_id })
+}
+
+/// #VAPP-238: a freshly minted (or rotated) webhook secret.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RotatedHook {
+    pub name: String,
+    #[serde(default)]
+    pub url: String,
+    pub secret: String,
+}
+
+/// `appAccess.rotateHook` — mutation (owners; the server checks).
+pub fn rotate_hook(trpc: &TrpcClient, app_id: &str, name: &str) -> Result<RotatedHook, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        app_id: &'a str,
+        name: &'a str,
+    }
+    trpc.mutation("appAccess.rotateHook", &Input { app_id, name })
 }
 
 /// eApps R3: the caller's own level for an app (`appAccess.mine`).
@@ -280,6 +321,32 @@ mod tests {
         assert!(matches!(out.automations[0].trigger(), Some(domain::apps::AutomationOn::Schedule(_))));
         assert_eq!(out.automations[1].trigger(), None);
         assert_eq!(out.automations[1].paused.as_deref(), Some("sponsorGone"));
+    }
+
+    #[test]
+    fn app_tools_decodes_hooks() {
+        let out: AppToolsOut = serde_json::from_str(
+            r#"{"canToggle":true,"tools":[],"upstreams":[],"automations":[],"hooks":[{"name":"stripe","url":"https://x.at/api/apps/a-1/hooks/stripe","hasSecret":true,"rotatedAt":"2026-11-03T08:00:00.000Z"},{"name":"github","url":"https://x.at/api/apps/a-1/hooks/github","hasSecret":false,"rotatedAt":null}]}"#,
+        )
+        .unwrap();
+        assert_eq!(out.hooks.len(), 2);
+        assert!(out.hooks[0].has_secret && !out.hooks[1].has_secret);
+        assert_eq!(out.hooks[1].rotated_at, None);
+        let old: AppToolsOut = serde_json::from_str(r#"{"canToggle":false,"tools":[],"upstreams":[]}"#).unwrap();
+        assert!(old.hooks.is_empty());
+    }
+
+    #[test]
+    fn rotate_hook_posts_and_decodes_the_secret() {
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"name":"stripe","url":"https://x.at/api/apps/a-1/hooks/stripe","secret":"whsec_1"}}}"#,
+        );
+        let out = rotate_hook(&client(&base), "a-1", "stripe").unwrap();
+        assert_eq!(out.secret, "whsec_1");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.contains("POST /api/trpc/appAccess.rotateHook"), "mutation: {request}");
+        assert!(request.contains(r#""appId":"a-1""#) && request.contains(r#""name":"stripe""#), "{request}");
     }
 
     #[test]

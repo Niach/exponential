@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AppCreateInput
+import com.exponential.app.data.api.AppHookDto
+import com.exponential.app.data.api.AppToolsDto
 import com.exponential.app.data.api.AppUpdateInput
 import com.exponential.app.data.api.AppsApi
 import com.exponential.app.data.api.SessionsApi
@@ -273,22 +275,60 @@ class AppEditorViewModel @Inject constructor(
             .distinctUntilChanged()
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    /** #VAPP-220: the PUBLISHED package's automations (`appAccess.appTools`),
-     *  refetched when the published version moves; empty = no group. */
-    val automations: StateFlow<List<Apps.AutomationRowInput>> =
+    /** #VAPP-220 / #VAPP-238: the PUBLISHED package's `appAccess.appTools`,
+     *  refetched when the published version moves; null = none (no groups). */
+    private val appTools: StateFlow<AppToolsDto?> =
         app.map { it?.publishedVersion }.distinctUntilChanged().flatMapLatest { published ->
             kotlinx.coroutines.flow.flow {
                 val accountId = auth.activeAccountId.value
                 if (published == null || accountId == null) {
-                    emit(emptyList())
+                    emit(null)
                     return@flow
                 }
                 emit(
-                    runCatching { accessApi.appTools(accountId, appId).automations.mapNotNull { it.toRowInput() } }
-                        .getOrElse { if (it is CancellationException) throw it else emptyList() },
+                    runCatching { accessApi.appTools(accountId, appId) }
+                        .getOrElse { if (it is CancellationException) throw it else null },
                 )
             }
-        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** #VAPP-220: the published package's automations; empty = no group. */
+    val automations: StateFlow<List<Apps.AutomationRowInput>> =
+        appTools.map { tools -> tools?.automations.orEmpty().mapNotNull { it.toRowInput() } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #VAPP-238: the published package's webhooks (package order); empty = no group. */
+    val hooks: StateFlow<List<AppHookDto>> =
+        appTools.map { it?.hooks.orEmpty() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    /** #VAPP-238: `appTools.canToggle` (an owner): the hook rows' action pill. */
+    val canManageHooks: StateFlow<Boolean> =
+        appTools.map { it?.canToggle == true }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
+
+    private val _hookBusy = MutableStateFlow<String?>(null)
+    /** The hook whose mint / rotate is in flight (its pill waits). */
+    val hookBusy: StateFlow<String?> = _hookBusy
+
+    /** #VAPP-238: mint or rotate [name]'s secret (`appAccess.rotateHook`);
+     *  [onSecret] gets the answer's secret ONCE (the screen keeps it in
+     *  memory only); a failure = the failed-action toast. */
+    fun rotateHook(name: String, onSecret: (String) -> Unit) {
+        if (_hookBusy.value != null) return
+        val accountId = auth.activeAccountId.value ?: return
+        _hookBusy.value = name
+        viewModelScope.launch {
+            try {
+                onSecret(accessApi.rotateHook(accountId, appId, name).secret)
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("rotate", "the secret", trpcErrorMessage(t, ""))
+            } finally {
+                _hookBusy.value = null
+            }
+        }
+    }
 
     /** VAPP-121: the app's synced records (Export's switch + rows). */
     val records: StateFlow<List<AppRecordEntity>> =

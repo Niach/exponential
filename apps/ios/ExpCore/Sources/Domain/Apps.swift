@@ -5,7 +5,7 @@ import Foundation
 /// `domain/Apps.kt`). An app = a team-scoped declarative Exponential UI
 /// package rendered through the client's app host. The render rules live in
 /// the fixture's `$comment`; `AppsTests` replays `slugifyCases`,
-/// `versionLabelCases`, `sortAppsCases`, `publishCases` and `automationRowCases` and pins the constants below to
+/// `versionLabelCases`, `sortAppsCases`, `publishCases`, `automationRowCases` and `webhookRowCases` and pins the constants below to
 /// the fixture and `contract.json` `apps`.
 public enum Apps {
     // MARK: - Fixture constants
@@ -100,6 +100,19 @@ public enum Apps {
             public static let never = "Not run yet"
         }
 
+        /// #VAPP-238: the Settings tab's Webhooks group (`webhookRow`).
+        public enum Webhooks {
+            public static let title = "Webhooks"
+            public static let ready = "Ready"
+            public static let unsigned = "No secret"
+            public static let copyUrl = "Copy URL"
+            public static let copied = "Copied"
+            public static let mint = "Create secret"
+            public static let rotate = "Rotate secret"
+            public static let secret = "New secret"
+            public static let copySecret = "Copy secret"
+        }
+
         public static func viewing(_ number: Int) -> String {
             viewing.replacingOccurrences(of: "{n}", with: String(number))
         }
@@ -168,6 +181,11 @@ public enum Apps {
         // #VAPP-220: the Settings tab's Automations group and its rows.
         public static let automations = "app-settings-automations"
         public static let automationRow = "app-automation-row"
+        // #VAPP-238: the Settings tab's Webhooks group, its rows and the
+        // shown-once secret row.
+        public static let webhooks = "app-settings-webhooks"
+        public static let webhookRow = "app-webhook-row"
+        public static let webhookSecret = "app-webhook-secret"
     }
 
     /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and
@@ -445,6 +463,55 @@ public enum Apps {
         case .never: label = Strings.never
         }
         return AutomationRow(trigger: trigger, status: status, label: label)
+    }
+
+    // MARK: - eApps webhooks (#VAPP-238, fixture `webhookRowCases`)
+
+    /// One row of the Settings tab's Webhooks group (TS `WebhookRowInput`),
+    /// from tRPC `appAccess.appTools` `hooks`.
+    public struct WebhookRowInput: Equatable, Sendable {
+        public let name: String
+        public let hasSecret: Bool
+
+        public init(name: String, hasSecret: Bool) {
+            self.name = name
+            self.hasSecret = hasSecret
+        }
+    }
+
+    public enum WebhookStatus: String, Equatable, Sendable {
+        case ready, unsigned
+    }
+
+    public enum WebhookAction: String, Equatable, Sendable {
+        case mint, rotate
+    }
+
+    public struct WebhookRow: Equatable, Sendable {
+        public let status: WebhookStatus
+        public let label: String
+        public let action: WebhookAction?
+        public let actionLabel: String?
+    }
+
+    /// The trailing pill and the owner's action pill (TS `webhookRow`;
+    /// `isOwner` = `appTools.canToggle`): no secret yet = mint, else rotate.
+    public static func webhookRow(_ row: WebhookRowInput, isOwner: Bool) -> WebhookRow {
+        typealias Strings = Apps.Copy.Webhooks
+        let status: WebhookStatus = row.hasSecret ? .ready : .unsigned
+        let action: WebhookAction? = isOwner ? (row.hasSecret ? .rotate : .mint) : nil
+        let actionLabel: String?
+        switch action {
+        case .mint: actionLabel = Strings.mint
+        case .rotate: actionLabel = Strings.rotate
+        case nil: actionLabel = nil
+        }
+        return WebhookRow(
+            status: status,
+            label: status == .ready ? Strings.ready : Strings.unsigned,
+            action: action,
+            actionLabel: actionLabel
+        )
     }
 
     /// A name → its slug: lowercase ASCII letters, digits and single dashes,

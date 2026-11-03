@@ -240,6 +240,135 @@ pub(crate) fn automations_group(data: &AppToolsOut, cx: &mut gpui::Context<AppDe
     )
 }
 
+/// The copy pill of a URL or secret (Settings › MCP's endpoint row: the
+/// clipboard, then the success toast).
+fn copy_pill(id: SharedString, label: String, text: String, copied: String) -> Button {
+    Button::new(id)
+        .outline()
+        .cursor_pointer()
+        .web_sm()
+        .label(label)
+        .on_click(move |_, window, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text.clone()));
+            crate::toast::show(crate::toast::Toast::success(copied.clone()), window, cx);
+        })
+}
+
+/// #VAPP-238: the Webhooks group (`app-settings-webhooks`), under
+/// Automations, `None` when the published package listens on none: one row
+/// per hook = the name (mono) over its URL (mono, muted, middle-truncated)
+/// and the status Pill; under them Copy URL and an owner's Create secret /
+/// Rotate secret. A secret this pane minted shows
+/// ONCE in a row right under its hook (`app-webhook-secret`).
+pub(crate) fn webhooks_group(
+    data: &AppToolsOut,
+    secrets: &std::collections::HashMap<String, String>,
+    busy: Option<&str>,
+    cx: &mut gpui::Context<AppDetailPane>,
+) -> Option<gpui::Stateful<gpui::Div>> {
+    use gpui::InteractiveElement as _;
+    if data.hooks.is_empty() {
+        return None;
+    }
+    let apps = &*domain::apps::APPS;
+    let copy = &apps.copy.webhooks;
+    let muted = cx.theme().muted_foreground;
+    let mono = cx.theme().mono_font_family.clone();
+    let mut rows = Vec::new();
+    for hook in &data.hooks {
+        let view = domain::apps::webhook_row(hook.has_secret, data.can_toggle);
+        // The top line = the name/URL column + the status Pill; under them,
+        // leading-aligned, Copy URL then (an owner) the action pill.
+        let top = gpui_component::h_flex()
+            .w_full()
+            .justify_between()
+            .gap_3()
+            .child(
+                v_flex()
+                    .id(SharedString::from(format!("{}-{}", apps.test_ids.webhook_row, hook.name)))
+                    .flex_1()
+                    .min_w_0()
+                    .child(div().text_sm().font_family(mono.clone()).truncate().child(hook.name.clone()))
+                    .child(
+                        div()
+                            .text_xs()
+                            .font_family(mono.clone())
+                            .text_color(muted)
+                            .overflow_hidden()
+                            .whitespace_nowrap()
+                            .text_ellipsis_middle()
+                            .child(hook.url.clone()),
+                    ),
+            )
+            .child(
+                crate::surface::glass_pill(
+                    SharedString::from(format!("app-webhook-status-{}", hook.name)),
+                    crate::surface::PillSize::Sm,
+                    crate::surface::PillMode::Readonly,
+                    cx,
+                )
+                .flex_shrink_0()
+                .child(view.label),
+            );
+        let mut pills = gpui_component::h_flex().flex_wrap().items_center().gap_2().child(copy_pill(
+            SharedString::from(format!("app-webhook-copy-url-{}", hook.name)),
+            copy.copy_url.clone(),
+            hook.url.clone(),
+            copy.copied.clone(),
+        ));
+        if let (Some(action), Some(label)) = (view.action, view.action_label) {
+            let name = hook.name.clone();
+            pills = pills.child(
+                Button::new(SharedString::from(format!("app-webhook-{}-{}", action.as_str(), hook.name)))
+                    .outline()
+                    .cursor_pointer()
+                    .web_sm()
+                    .label(label)
+                    .loading(busy == Some(hook.name.as_str()))
+                    .disabled(busy.is_some())
+                    .on_click(cx.listener(move |this, _, window, cx| this.hook_action(name.clone(), action, window, cx))),
+            );
+        }
+        rows.push(crate::surface::glass_row_shell().child(v_flex().w_full().min_w_0().gap_2().child(top).child(pills)));
+        if let Some(secret) = secrets.get(&hook.name) {
+            rows.push(
+                crate::surface::glass_row_shell()
+                    .justify_between()
+                    .gap_3()
+                    .child(
+                        v_flex()
+                            .id(SharedString::from(format!("{}-{}", apps.test_ids.webhook_secret, hook.name)))
+                            .flex_1()
+                            .min_w_0()
+                            .child(div().text_xs().text_color(muted).truncate().child(copy.secret.clone()))
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_family(mono.clone())
+                                    .overflow_hidden()
+                                    .whitespace_nowrap()
+                                    .text_ellipsis_middle()
+                                    .child(secret.clone()),
+                            ),
+                    )
+                    .child(copy_pill(
+                        SharedString::from(format!("app-webhook-copy-secret-{}", hook.name)),
+                        copy.copy_secret.clone(),
+                        secret.clone(),
+                        copy.copied.clone(),
+                    )),
+            );
+        }
+    }
+    Some(
+        v_flex()
+            .id(SharedString::from(apps.test_ids.webhooks.clone()))
+            .gap_1()
+            .child(div().px_1().text_sm().font_weight(FontWeight::MEDIUM).child(copy.title.clone()))
+            .child(crate::surface::glass_group_rows(rows)),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,7 +404,7 @@ mod tests {
     #[test]
     fn a_switch_flips_one_tool() {
         let tool = |name: &str| AppTool { name: name.into(), title: name.into(), access: "read".into(), via: None, enabled: true };
-        let data = AppToolsOut { can_toggle: true, tools: vec![tool("a"), tool("b")], upstreams: vec![], automations: vec![] };
+        let data = AppToolsOut { can_toggle: true, tools: vec![tool("a"), tool("b")], upstreams: vec![], automations: vec![], hooks: vec![] };
         let next = with_tool_enabled(&data, "b", false);
         assert!(next.tools[0].enabled);
         assert!(!next.tools[1].enabled);

@@ -517,6 +517,21 @@ public enum Prompts {
         }
     }
 
+    /// #VAPP-238: the app Settings tab's Webhooks › Rotate secret.
+    public enum RotateWebhookSecret {
+        public static let entry = destructive(
+            "rotate-webhook-secret",
+            texts: [
+                "title": "Rotate the secret of {hook}?",
+                "body": "The current secret stops working right away. Every sender needs the new one.",
+            ],
+            params: ["hook"], answer: "rotate", label: "Rotate"
+        )
+        public static func copy(hook: String) -> PromptCopy {
+            entry.copy(["hook": hook])
+        }
+    }
+
     /// #VAPP-185: Settings › MCP › Clients' Revoke.
     public enum RevokeMcpClient {
         public static let entry = destructive(
@@ -601,6 +616,6 @@ public enum Prompts {
         DeleteLabel.entry, RemoveMember.entry, LeaveTeam.entry, MakeOwner.entry,
         MakeMember.entry, RemoveRepository.entry, UnlinkSignInMethod.entry,
         RemovePassword.entry, RemovePasskey.entry, DeleteAccount.entry,
-        RemoveServer.entry, RevokeMcpClient.entry, ExponentialUiConsent.entry, ExponentialUiConsentDestructive.entry,
+        RemoveServer.entry, RotateWebhookSecret.entry, RevokeMcpClient.entry, ExponentialUiConsent.entry, ExponentialUiConsentDestructive.entry,
     ]
 }

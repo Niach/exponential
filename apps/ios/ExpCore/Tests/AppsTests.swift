@@ -6,7 +6,7 @@ import XCTest
 // packages/domain-contract/fixtures/apps.json (TS `apps.test.ts`, desktop
 // `domain::apps`, Android `AppsTest`): the copy, the
 // panes, the preview frame and the test ids are pinned; `slugifyCases`,
-// `versionLabelCases`, `sortAppsCases`, `templateCases` and `automationRowCases` replay. The caps pin to
+// `versionLabelCases`, `sortAppsCases`, `templateCases`, `automationRowCases` and `webhookRowCases` replay. The caps pin to
 // `contract.json` `apps`. The `exp:` source derivations pin to the web host.
 final class AppsTests: XCTestCase {
     private func repoFile(_ path: String) throws -> [String: Any] {
@@ -77,6 +77,13 @@ final class AppsTests: XCTestCase {
             "failed": Apps.Copy.Automations.failed, "ok": Apps.Copy.Automations.ok,
             "never": Apps.Copy.Automations.never,
         ])
+        XCTAssertEqual(copy["webhooks"] as? [String: String], [
+            "title": Apps.Copy.Webhooks.title, "ready": Apps.Copy.Webhooks.ready,
+            "unsigned": Apps.Copy.Webhooks.unsigned, "copyUrl": Apps.Copy.Webhooks.copyUrl,
+            "copied": Apps.Copy.Webhooks.copied, "mint": Apps.Copy.Webhooks.mint,
+            "rotate": Apps.Copy.Webhooks.rotate, "secret": Apps.Copy.Webhooks.secret,
+            "copySecret": Apps.Copy.Webhooks.copySecret,
+        ])
         XCTAssertEqual(Apps.Copy.viewing(2), "Viewing v2")
         XCTAssertEqual(Apps.Copy.restored(1, as: 4), "Restored v1 as v4")
         XCTAssertEqual(Apps.Copy.publishedToast(3), "Published v3")
@@ -111,6 +118,8 @@ final class AppsTests: XCTestCase {
             "previewToolbar": Apps.TestIds.previewToolbar, "previewFrame": Apps.TestIds.previewFrame,
             "previewTemplate": Apps.TestIds.previewTemplate, "previewRunAs": Apps.TestIds.previewRunAs,
             "automations": Apps.TestIds.automations, "automationRow": Apps.TestIds.automationRow,
+            "webhooks": Apps.TestIds.webhooks, "webhookRow": Apps.TestIds.webhookRow,
+            "webhookSecret": Apps.TestIds.webhookSecret,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])
@@ -225,6 +234,28 @@ final class AppsTests: XCTestCase {
             XCTAssertEqual(result.trigger, expected["trigger"] as? String, name)
             XCTAssertEqual(result.status.rawValue, expected["status"] as? String, name)
             XCTAssertEqual(result.label, expected["label"] as? String, name)
+        }
+    }
+
+    // #VAPP-238: `webhookRow` replays `webhookRowCases`.
+    func testWebhookRowCases() throws {
+        let block = try XCTUnwrap(try fixture()["webhookRowCases"] as? [String: Any])
+        let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let name = item["name"] as? String ?? ""
+            let raw = try XCTUnwrap(item["row"] as? [String: Any])
+            let row = Apps.WebhookRowInput(
+                name: try XCTUnwrap(raw["name"] as? String),
+                hasSecret: try XCTUnwrap(raw["hasSecret"] as? Bool)
+            )
+            let isOwner = try XCTUnwrap(item["isOwner"] as? Bool)
+            let expected = try XCTUnwrap(item["expected"] as? [String: Any])
+            let result = Apps.webhookRow(row, isOwner: isOwner)
+            XCTAssertEqual(result.status.rawValue, expected["status"] as? String, name)
+            XCTAssertEqual(result.label, expected["label"] as? String, name)
+            XCTAssertEqual(result.action?.rawValue, expected["action"] as? String, name)
+            XCTAssertEqual(result.actionLabel, expected["actionLabel"] as? String, name)
         }
     }
 

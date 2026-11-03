@@ -313,7 +313,8 @@ private struct AppUpstreamReadResult: Decodable {
 }
 
 /// #VAPP-220 `appAccess.appTools {appId}`: only the published package's
-/// automations are read here (the Settings sheet's Automations group).
+/// automations, its webhooks (#VAPP-238) and `canToggle` are read here (the
+/// Settings sheet's Automations and Webhooks groups).
 private struct AppToolsInput: Encodable {
     let appId: String
 }
@@ -374,15 +375,71 @@ public struct AppAutomationWire: Decodable, Sendable, Equatable {
     }
 }
 
+/// #VAPP-238: one published webhook on the wire (`appTools.hooks`): its
+/// URL and whether a secret is minted (the secret itself never comes back).
+public struct AppHookWire: Decodable, Sendable, Equatable {
+    public let name: String
+    public let url: String
+    public let hasSecret: Bool
+    public let rotatedAt: String?
+
+    private enum CodingKeys: String, CodingKey { case name, url, hasSecret, rotatedAt }
+
+    public init(name: String, url: String, hasSecret: Bool, rotatedAt: String?) {
+        self.name = name
+        self.url = url
+        self.hasSecret = hasSecret
+        self.rotatedAt = rotatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        url = (try? c.decodeIfPresent(String.self, forKey: .url)) ?? ""
+        hasSecret = (try? c.decodeIfPresent(Bool.self, forKey: .hasSecret)) ?? false
+        rotatedAt = try? c.decodeIfPresent(String.self, forKey: .rotatedAt)
+    }
+
+    /// The pure row's input (`Apps.webhookRow`).
+    public var row: Apps.WebhookRowInput {
+        Apps.WebhookRowInput(name: name, hasSecret: hasSecret)
+    }
+}
+
+/// `appTools`' part the Settings sheet reads: automations, webhooks and
+/// `canToggle` (= a team owner).
+public struct AppToolsSummary: Sendable, Equatable {
+    public let automations: [AppAutomationWire]
+    public let hooks: [AppHookWire]
+    public let canToggle: Bool
+}
+
 private struct AppToolsResult: Decodable {
     let automations: [AppAutomationWire]
+    let hooks: [AppHookWire]
+    let canToggle: Bool
 
-    private enum CodingKeys: String, CodingKey { case automations }
+    private enum CodingKeys: String, CodingKey { case automations, hooks, canToggle }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         automations = (try? c.decodeIfPresent([AppAutomationWire].self, forKey: .automations)) ?? []
+        hooks = (try? c.decodeIfPresent([AppHookWire].self, forKey: .hooks)) ?? []
+        canToggle = (try? c.decodeIfPresent(Bool.self, forKey: .canToggle)) ?? false
     }
+}
+
+/// #VAPP-238 `appAccess.rotateHook {appId, name}`.
+private struct AppRotateHookInput: Encodable {
+    let appId: String
+    let name: String
+}
+
+/// `appAccess.rotateHook`'s answer: the secret, shown ONCE.
+public struct AppHookSecret: Decodable, Sendable, Equatable {
+    public let name: String
+    public let url: String
+    public let secret: String
 }
 
 public final class AppsApi: Sendable {
@@ -564,6 +621,23 @@ public final class AppsApi: Sendable {
             accountId: accountId, path: "appAccess.appTools", input: AppToolsInput(appId: appId)
         )
         return result.automations
+    }
+
+    /// #VAPP-238 `appAccess.appTools {appId}`: the automations, the
+    /// published webhooks and `canToggle` (owner) in one read.
+    public func tools(accountId: String, appId: String) async throws -> AppToolsSummary {
+        let result: AppToolsResult = try await trpc.query(
+            accountId: accountId, path: "appAccess.appTools", input: AppToolsInput(appId: appId)
+        )
+        return AppToolsSummary(automations: result.automations, hooks: result.hooks, canToggle: result.canToggle)
+    }
+
+    /// #VAPP-238 `appAccess.rotateHook {appId, name}` (owners): mints or
+    /// rotates a webhook's secret; the answer carries it ONCE.
+    public func rotateHook(accountId: String, appId: String, name: String) async throws -> AppHookSecret {
+        try await trpc.mutation(
+            accountId: accountId, path: "appAccess.rotateHook", input: AppRotateHookInput(appId: appId, name: name)
+        )
     }
 
     /// One version's package as compact JSON text (nil = none): the Versions

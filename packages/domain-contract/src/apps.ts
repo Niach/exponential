@@ -252,3 +252,23 @@ export function automationRow(row: AutomationRowInput): { trigger: string; statu
   const status: AutomationStatus = row.paused ? `paused` : row.lastStatus === null ? `never` : row.lastStatus !== `ok` ? `failed` : `ok`
   return { trigger, status, label: copy[status] }
 }
+
+/** #VAPP-238 (`webhookRowCases`): one row of the Settings tab's Webhooks
+ *  group, from tRPC `appAccess.appTools` `hooks`; `isOwner` = `canToggle`. */
+export interface WebhookRowInput {
+  name: string
+  hasSecret: boolean
+}
+
+export type WebhookStatus = `ready` | `unsigned`
+export type WebhookAction = `mint` | `rotate`
+
+export function webhookRow(
+  row: WebhookRowInput,
+  isOwner: boolean,
+): { status: WebhookStatus; label: string; action: WebhookAction | null; actionLabel: string | null } {
+  const copy = fixture.copy.webhooks
+  const status: WebhookStatus = row.hasSecret ? `ready` : `unsigned`
+  const action: WebhookAction | null = isOwner ? (row.hasSecret ? `rotate` : `mint`) : null
+  return { status, label: copy[status], action, actionLabel: action ? copy[action] : null }
+}
