@@ -3237,7 +3237,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, ["sessions"])
+            XCTAssertEqual(reset, ["messages", "sessions"])
         }
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
@@ -3522,7 +3522,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, ["conversations"])
+            XCTAssertEqual(reset, ["conversations", "messages"])
         }
         let wire = Data("""
             {"id":"c-1","team_id":"t","kind":"session","session_id":"s-1","title":null,
@@ -3568,7 +3568,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, ["sessions"])
+            XCTAssertEqual(reset, ["messages", "sessions"])
             XCTAssertEqual(try SessionEntity.fetchOne(db, key: "s-0")?.background, false)
         }
         for (wireValue, expected) in [("true", true), (#""t""#, true), (#""f""#, false)] {
