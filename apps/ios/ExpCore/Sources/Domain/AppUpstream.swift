@@ -28,6 +28,42 @@ public enum AppUpstream {
     public enum Answer: Equatable, Sendable {
         case ok(CardJSON)
         case refused(error: String, server: String)
+        /// #VAPP-239: a device-routed server whose device is offline
+        /// (`{ok: false, error: upstreamFailed, server, offline: <device>}`).
+        case offline(server: String, device: String)
+    }
+
+    /// #VAPP-239: an offline device's banner (`device.copy.offline`).
+    public static let offlineBanner = "{server} runs on {device}, offline"
+
+    /// One host banner: its text and whether it carries the Connect action.
+    public struct HostBanner: Equatable, Sendable, Identifiable {
+        public let server: String
+        public let text: String
+        public let connect: Bool
+        public var id: String { server }
+    }
+
+    /// #VAPP-239 (`device.bannerCases`): `Connect <server>` for an
+    /// upstreamDisconnected read, the offline copy (no action) for an offline
+    /// device; one per server, sorted by server.
+    public static func hostBanners(_ answers: [Answer]) -> [HostBanner] {
+        var byServer: [String: HostBanner] = [:]
+        for answer in answers {
+            switch answer {
+            case let .refused(error, server) where error == disconnected && byServer[server] == nil:
+                byServer[server] = HostBanner(server: server, text: bannerText(server), connect: true)
+            case let .offline(server, device) where byServer[server] == nil:
+                byServer[server] = HostBanner(
+                    server: server,
+                    text: offlineBanner.replacingOccurrences(of: "{server}", with: server).replacingOccurrences(of: "{device}", with: device),
+                    connect: false
+                )
+            default:
+                break
+            }
+        }
+        return byServer.keys.sorted().compactMap { byServer[$0] }
     }
 
     /// The servers the viewer must connect: every server whose read

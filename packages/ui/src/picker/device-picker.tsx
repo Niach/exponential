@@ -41,6 +41,10 @@ export interface DevicePickerProps extends PickerSurfaceProps {
   disabled?: boolean
   emptyText?: string
   className?: string
+  /** A FIRST row that clears the pick (#VAPP-239: a server's "Runs on"
+   *  Exponential), marked while `value` is null (the Picker's none row). */
+  noneLabel?: string
+  onNone?: () => void
 }
 
 export function devicePickerItems(devices: readonly DevicePickerDevice[]): PickerItem[] {

@@ -65,6 +65,14 @@ class McpSettingsTest {
     }
 
     @Test
+    fun runsOnCases() {
+        assertEquals(fixture.str("runsOn"), McpSettings.RUNS_ON)
+        for (case in fixture.getValue("runsOnCases").jsonArray.map { it.jsonObject }) {
+            assertEquals(case.str("name"), case.str("expected"), McpSettings.runsOnCaption(case.str("device")))
+        }
+    }
+
+    @Test
     fun usedByCases() {
         for (case in fixture.getValue("usedByCases").jsonArray.map { it.jsonObject }) {
             assertEquals(case.str("name"), case.str("expected"), McpSettings.usedByCaption(case.strings("apps")))

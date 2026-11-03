@@ -58,7 +58,7 @@ import { trpc } from "@/lib/trpc-client"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { readinessAgo } from "@/lib/coding-readiness"
 import { readJsonRpcAnswer } from "@/lib/emcp/upstream/json-rpc-reader"
-import { UPSTREAM_BINDING, UPSTREAM_ERRORS, upstreamBanners, type UpstreamReadAnswer } from "@exp/emcp/upstream"
+import { UPSTREAM_BINDING, upstreamHostBanners, type UpstreamHostBanner, type UpstreamReadAnswer } from "@exp/emcp/upstream"
 import { incrementalTable, memoByVersions, type ChangeSource, type IncrementalTable } from "@/lib/incremental-table"
 import { destructiveTool, exponentialUiConsentPrompt, promptActions } from "@/lib/prompts"
 
@@ -527,19 +527,17 @@ export interface AppHostOptions {
 }
 
 /** #VAPP-230: every live upstream binding's last answer, for the banners
- *  (@exp/emcp `upstreamBanners`: one per server answering
- *  upstreamDisconnected). */
+ *  (@exp/emcp `upstreamHostBanners`: one per server answering
+ *  upstreamDisconnected, with Connect, or #VAPP-239 an offline device,
+ *  without). */
 export class UpstreamAnswers {
   private answers = new Map<number, UpstreamReadAnswer>()
   private listeners = new Set<() => void>()
-  private snapshot: { server: string; text: string }[] = []
+  private snapshot: UpstreamHostBanner[] = []
   set(id: number, answer: UpstreamReadAnswer | null) {
     if (answer) this.answers.set(id, answer)
     else this.answers.delete(id)
-    const all = [...this.answers.values()]
-    const texts = upstreamBanners(all)
-    const servers = [...new Set(all.flatMap((a) => (!a.ok && a.error === UPSTREAM_ERRORS.disconnected ? [a.server] : [])))].sort()
-    const next = servers.map((server, i) => ({ server, text: texts[i]! }))
+    const next = upstreamHostBanners([...this.answers.values()])
     if (JSON.stringify(next) === JSON.stringify(this.snapshot)) return
     this.snapshot = next
     for (const l of this.listeners) l()
@@ -856,7 +854,7 @@ export function ConsentCard({ gate }: { gate: ConsentGate }) {
 }
 
 /** `host_offline` and the catalog-update banner above a host's surfaces. */
-const NO_BANNERS: { server: string; text: string }[] = []
+const NO_BANNERS: UpstreamHostBanner[] = []
 const WarningIcon = conceptIcon(`ui-warning`)
 /** The banner's action (upstream.json `binding.connect`). */
 const UPSTREAM_CONNECT = UPSTREAM_BINDING.connect
@@ -877,7 +875,7 @@ export function HostBanner({ host }: { host: ExponentialHost }) {
           <div key={banner.server} role="status" className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-sm text-amber-600 dark:text-amber-300" data-testid="exponential-ui-upstream-connect">
             <WarningIcon className="size-3.5 shrink-0" />
             <span className="min-w-0 flex-1">{banner.text}</span>
-            {slug ? (
+            {slug && banner.connect ? (
               <Button variant="ghost" size="sm" className="h-6 px-2 text-amber-600 hover:bg-amber-500/15 dark:text-amber-300" onClick={() => window.location.assign(`/t/${slug}/settings/mcp`)}>
                 {UPSTREAM_CONNECT}
               </Button>

@@ -62,6 +62,12 @@ object McpSettings {
         return USED_BY.replace("{apps}", apps.sortedWith(String.CASE_INSENSITIVE_ORDER).joinToString(", "))
     }
 
+    /** #VAPP-239 (`runsOn`): a device-routed server row's caption part. */
+    const val RUNS_ON = "Runs on {device}"
+
+    /** #VAPP-239 (`runsOnCases`): "Runs on <device>", null = the server broker calls it. */
+    fun runsOnCaption(device: String?): String? = device?.takeIf { it.isNotEmpty() }?.let { RUNS_ON.replace("{device}", it) }
+
     /** A client row's caption: [member ·] kinds (apps access) · last used. */
     fun clientCaption(
         scope: String,

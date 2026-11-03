@@ -37,6 +37,21 @@ class AppUpstreamTest {
         }
     }
 
+    /** #VAPP-239: `device.bannerCases` through [AppUpstream.hostBanners]. */
+    @Test
+    fun `the device banner cases replay`() {
+        val device = fixture["device"]!!
+        assertEquals(device["copy"]!!["offline"]!!.string, AppUpstream.OFFLINE_BANNER)
+        assertEquals(device["errors"]!!["offline"]!!.string, AppUpstream.FAILED)
+        for (case in device["bannerCases"]!!.array!!) {
+            val answers = case["answers"]!!.array!!.map(AppUpstream.Answer::of)
+            val expected = case["expected"]!!.array!!.map {
+                AppUpstream.Banner(it["server"]!!.string!!, it["text"]!!.string!!, it["connect"]!!.bool!!)
+            }
+            assertEquals(case["name"]!!.string, expected, AppUpstream.hostBanners(answers))
+        }
+    }
+
     @Test
     fun `an ok answer carries its value`() {
         val answer = AppUpstream.Answer.of(JsonValue.parse("""{"ok":true,"value":{"mrr":1200},"meta":{}}"""))

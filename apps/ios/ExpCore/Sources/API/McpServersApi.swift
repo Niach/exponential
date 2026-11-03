@@ -27,6 +27,9 @@ public struct McpServerRow: Decodable, Identifiable, Equatable, Sendable {
     /// #VAPP-185: the apps whose head package declares this server in
     /// `upstreams` (Settings › MCP's "Used by …").
     public let usedBy: [String]
+    /// #VAPP-239: the label of the device the server runs on for app calls
+    /// (nil = the server broker calls it): the row's "Runs on …".
+    public let deviceLabel: String?
 
     public init(
         id: String,
@@ -36,7 +39,8 @@ public struct McpServerRow: Decodable, Identifiable, Equatable, Sendable {
         enabledByDefault: Bool = false,
         connection: Connection,
         auth: String = "oauth",
-        usedBy: [String] = []
+        usedBy: [String] = [],
+        deviceLabel: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -46,10 +50,15 @@ public struct McpServerRow: Decodable, Identifiable, Equatable, Sendable {
         self.connection = connection
         self.auth = auth
         self.usedBy = usedBy
+        self.deviceLabel = deviceLabel
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, url, command, enabledByDefault, connection, auth, usedBy
+        case id, name, url, command, enabledByDefault, connection, auth, usedBy, device
+    }
+
+    private struct Device: Decodable {
+        let label: String?
     }
 
     public init(from decoder: Decoder) throws {
@@ -63,6 +72,7 @@ public struct McpServerRow: Decodable, Identifiable, Equatable, Sendable {
             ?? Connection(status: "not_connected")
         auth = (try? c.decodeIfPresent(String.self, forKey: .auth)) ?? "oauth"
         usedBy = (try? c.decodeIfPresent([String].self, forKey: .usedBy)) ?? []
+        deviceLabel = (try? c.decodeIfPresent(Device.self, forKey: .device))?.label
     }
 }
 

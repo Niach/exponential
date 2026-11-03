@@ -102,8 +102,9 @@ final class AppConsentGate {
 @MainActor
 @Observable
 final class AppUpstreamAnswers {
-    /// The servers the viewer must connect (one banner each).
-    private(set) var servers: [String] = []
+    /// The host banners: Connect <server>, or (#VAPP-239) an offline
+    /// device's notice (`AppUpstream.hostBanners`).
+    private(set) var banners: [AppUpstream.HostBanner] = []
     @ObservationIgnored private var answers: [Int: AppUpstream.Answer] = [:]
     @ObservationIgnored private var ids = 0
 
@@ -116,8 +117,8 @@ final class AppUpstreamAnswers {
     /// A binding's latest answer; nil = it unbound.
     func set(_ id: Int, _ answer: AppUpstream.Answer?) {
         answers[id] = answer
-        let next = AppUpstream.bannerServers(Array(answers.values))
-        if next != servers { servers = next }
+        let next = AppUpstream.hostBanners(Array(answers.values))
+        if next != banners { banners = next }
     }
 }
 

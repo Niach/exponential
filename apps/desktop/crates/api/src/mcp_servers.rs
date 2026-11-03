@@ -157,6 +157,23 @@ pub struct McpServerListEntry {
     /// VAPP-185: the apps whose head package declares this server in
     /// `upstreams` (names, alphabetical): Settings › MCP's "Used by".
     pub used_by: Vec<String>,
+    /// VAPP-239: the device the server runs on for app calls (`None` = the
+    /// server broker calls it): the row's "Runs on" and the dialog's pick.
+    pub device: Option<McpServerDevice>,
+}
+
+/// VAPP-239: a device-routed server's device, as `mcpServers.list` names it.
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerDevice {
+    /// `devices.id` (the row id `mcpServers.setDevice` takes).
+    pub id: String,
+    pub label: String,
+    pub owner_id: String,
+    /// `desktop` | `server` (a CLI daemon).
+    pub kind: String,
+    #[serde(default)]
+    pub icon: Option<String>,
 }
 
 /// The `mcpServers.list` row as the wire spells it.
@@ -179,6 +196,8 @@ struct RawListEntry {
     connected_user_ids: Vec<String>,
     #[serde(default)]
     used_by: Vec<String>,
+    #[serde(default)]
+    device: Option<McpServerDevice>,
 }
 
 impl From<RawListEntry> for McpServerListEntry {
@@ -193,6 +212,7 @@ impl From<RawListEntry> for McpServerListEntry {
             shared_user_ids: raw.shared_user_ids,
             connected_user_ids: raw.connected_user_ids,
             used_by: raw.used_by,
+            device: raw.device,
         }
     }
 }
@@ -404,6 +424,18 @@ pub fn claim_device_call(trpc: &TrpcClient, call_id: &str, device_id: &str) -> R
         device_id: &'a str,
     }
     trpc.mutation("mcpServers.claimDeviceCall", &Input { call_id, device_id })
+}
+
+/// VAPP-239: `mcpServers.setDevice` — owner-only: run the server on one of
+/// the caller's own devices (`devices.id`), or `None` = back to the server.
+pub fn set_device(trpc: &TrpcClient, id: &str, device_id: Option<&str>) -> Result<(), ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        id: &'a str,
+        device_id: Option<&'a str>,
+    }
+    ok_mutation(trpc, "mcpServers.setDevice", &Input { id, device_id })
 }
 
 /// `mcpServers.test`.

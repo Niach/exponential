@@ -57,6 +57,11 @@ pub(crate) struct McpCopy {
     pub builtin_app: &'static str,
     pub first_party: &'static str,
     pub used_by: &'static str,
+    /// VAPP-239: a device-routed server's caption part, the dialog row's
+    /// label and its no-device item.
+    pub runs_on: &'static str,
+    pub runs_on_label: &'static str,
+    pub runs_on_server: &'static str,
     pub tool_one: &'static str,
     pub tool_other: &'static str,
 }
@@ -79,6 +84,9 @@ pub(crate) const SETTINGS_MCP: McpCopy = McpCopy {
     builtin_app: "Exponential",
     first_party: "API key",
     used_by: "Used by {apps}",
+    runs_on: "Runs on {device}",
+    runs_on_label: "Runs on",
+    runs_on_server: "Exponential",
     tool_one: "{n} tool",
     tool_other: "{n} tools",
 };
@@ -135,6 +143,12 @@ pub(crate) fn used_by_caption(apps: &[String]) -> Option<String> {
     let mut sorted = apps.to_vec();
     sorted.sort_by_key(|name| name.to_lowercase());
     Some(SETTINGS_MCP.used_by.replace("{apps}", &sorted.join(", ")))
+}
+
+/// VAPP-239: a device-routed server row's "Runs on …" part
+/// (`runsOnCases`), `None` = the server broker calls it.
+pub(crate) fn runs_on_caption(device: Option<&str>) -> Option<String> {
+    device.filter(|d| !d.is_empty()).map(|d| SETTINGS_MCP.runs_on.replace("{device}", d))
 }
 
 /// A client row's caption (`clientCaptionCases`): [member ·] kinds (apps
@@ -1055,6 +1069,17 @@ mod tests {
         assert_eq!(map(&f["accessLabels"]), owned(&ACCESS_LABELS));
         assert_eq!(map(&f["statusLabels"]), owned(&STATUS_LABELS));
         assert_eq!(map(&f["testIds"]), owned(&TEST_IDS));
+    }
+
+    #[test]
+    fn runs_on_cases_replay() {
+        let f = fixture();
+        assert_eq!(f["runsOn"], SETTINGS_MCP.runs_on);
+        assert_eq!(f["runsOnLabel"], SETTINGS_MCP.runs_on_label);
+        assert_eq!(f["runsOnServer"], SETTINGS_MCP.runs_on_server);
+        for case in f["runsOnCases"].as_array().unwrap() {
+            assert_eq!(runs_on_caption(case["device"].as_str()).as_deref(), case["expected"].as_str(), "{}", case["name"]);
+        }
     }
 
     #[test]

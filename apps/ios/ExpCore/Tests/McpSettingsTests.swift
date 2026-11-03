@@ -62,6 +62,13 @@ final class McpSettingsTests: XCTestCase {
         }
     }
 
+    func testRunsOnCasesReplay() throws {
+        let cases = try XCTUnwrap(try fixture()["runsOnCases"] as? [[String: Any]])
+        for c in cases {
+            XCTAssertEqual(McpSettings.runsOnCaption(c["device"] as? String), c["expected"] as? String, c["name"] as? String ?? "")
+        }
+    }
+
     func testUsedByCases() throws {
         let cases = try XCTUnwrap(try fixture()["usedByCases"] as? [[String: Any]])
         XCTAssertFalse(cases.isEmpty)
@@ -161,6 +168,11 @@ final class McpSettingsTests: XCTestCase {
         {"id":"s1","name":"Linear","url":"https://mcp.linear.app/sse","auth":"oauth","connection":{"status":"connected"},"usedBy":["Customer admin"]}
         """.utf8))
         XCTAssertEqual(server.usedBy, ["Customer admin"])
+        XCTAssertNil(server.deviceLabel)
+        let routed = try JSONDecoder().decode(McpServerRow.self, from: Data("""
+        {"id":"s2","name":"ha","command":"ha-mcp","auth":"none","connection":{"status":"not_needed"},"device":{"id":"d1","label":"homelab","ownerId":"u1","kind":"server","icon":null}}
+        """.utf8))
+        XCTAssertEqual(routed.deviceLabel, "homelab")
         let revoke = try JSONEncoder().encode(McpClientRevokeInput(clientId: "c1", teamId: "t1", userId: nil))
         XCTAssertFalse(String(decoding: revoke, as: UTF8.self).contains("userId"))
     }

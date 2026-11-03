@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-device-mcp-servers`,
+    date: `2026-11-03`,
+    title: `MCP servers on your own machine`,
+    summary: `A team MCP server can run on an owner's desktop app or CLI daemon, so apps can use command servers and servers only your network reaches.`,
+    body: `- **Runs on**: when adding or editing a server, a team owner picks one of their own machines to run it on; the server's row reads "Runs on <device>".
+- **Apps**: that owner's app tools, upstream reads and the automations they sponsor run there; nobody else's calls use the machine.
+- **Offline**: while the machine is offline, apps keep their default values and show "<server> runs on <device>, offline".
+- **LAN addresses**: plain http:// is accepted for local addresses (192.168.x.x, .local, .lan).`,
+  },
+  {
     id: `2026-11-03-app-screens`,
     date: `2026-11-03`,
     title: `Apps with several screens`,

@@ -16,6 +16,12 @@ export function usedByCaption(apps: readonly string[]): string | null {
   return fixture.usedBy.replace(`{apps}`, sorted.join(`, `))
 }
 
+/** #VAPP-239: a device-routed server row's "Runs on …" caption part (null
+ *  = the server broker calls it). */
+export function runsOnCaption(device: string | null | undefined): string | null {
+  return device ? fixture.runsOn.replace(`{device}`, device) : null
+}
+
 export interface McpClientCaptionInput {
   userName: string
   kinds: readonly string[]

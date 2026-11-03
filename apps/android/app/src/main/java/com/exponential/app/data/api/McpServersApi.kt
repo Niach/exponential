@@ -24,6 +24,18 @@ data class McpServerListRow(
     val connection: McpConnectionDto = McpConnectionDto(),
     /** #VAPP-185: the apps whose head package declares this server in `upstreams`. */
     val usedBy: List<String> = emptyList(),
+    /** #VAPP-239: the device the server runs on for app calls (null = the server broker). */
+    val device: McpServerDeviceDto? = null,
+)
+
+/** #VAPP-239: a device-routed server's device, as `mcpServers.list` names it. */
+@Serializable
+data class McpServerDeviceDto(
+    val id: String = "",
+    val label: String = "",
+    val ownerId: String = "",
+    val kind: String = "",
+    val icon: String? = null,
 )
 
 @Serializable
