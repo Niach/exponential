@@ -193,6 +193,38 @@ pub fn agent_skills_value(names: &[&str]) -> String {
     }
 }
 
+/// #VAPP-213: the built-in skills (`builtin`): names, the app editor's
+/// delivery order, the list pill.
+pub const BUILTIN_NAMES: [&str; 3] = ["exponential-apps", "exponential-motion", "exponential-ui"];
+pub const EDITOR_DELIVERY: [&str; 3] = ["exponential-apps", "exponential-ui", "exponential-motion"];
+pub const BUILTIN_PILL: &str = "Built-in";
+
+/// The list row's pill (`pillCases`): Built-in for a built-in (never
+/// Default), Default while a team skill is pre-selected, else none.
+pub fn skill_pill(builtin: bool, enabled_by_default: bool) -> Option<&'static str> {
+    if builtin {
+        Some(BUILTIN_PILL)
+    } else if enabled_by_default {
+        Some(DEFAULT_PILL)
+    } else {
+        None
+    }
+}
+
+/// Whether the skill page is editable (`editCases`): owners, never a built-in.
+pub fn can_edit_skill(builtin: bool, owner: bool) -> bool {
+    owner && !builtin
+}
+
+/// A built-in's file path (`filePathCases`): relative, `/`-separated, no
+/// empty, `.` or `..` segment, no backslash or NUL, never SKILL.md itself.
+pub fn is_skill_file_path(path: &str) -> bool {
+    if path.is_empty() || path == "SKILL.md" || path.contains('\\') || path.contains('\0') {
+        return false;
+    }
+    path.split('/').all(|segment| !segment.is_empty() && segment != "." && segment != "..")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,6 +364,29 @@ mod tests {
         for case in f["agentValueCases"].as_array().unwrap() {
             let names: Vec<&str> = case["names"].as_array().unwrap().iter().map(|n| n.as_str().unwrap()).collect();
             assert_eq!(agent_skills_value(&names), case["expected"].as_str().unwrap(), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn the_builtins_replay_the_fixture() {
+        let f = fixture();
+        let names: Vec<&str> = f["builtin"]["names"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(names, BUILTIN_NAMES);
+        let delivery: Vec<&str> = f["builtin"]["editorDelivery"].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
+        assert_eq!(delivery, EDITOR_DELIVERY);
+        assert_eq!(f["builtin"]["pill"], BUILTIN_PILL);
+        for case in f["pillCases"].as_array().unwrap() {
+            let skill = &case["skill"];
+            let got = skill_pill(skill["builtin"].as_bool().unwrap(), skill["enabledByDefault"].as_bool().unwrap());
+            assert_eq!(got, case["expected"].as_str(), "{}", case["name"]);
+        }
+        for case in f["editCases"].as_array().unwrap() {
+            let got = can_edit_skill(case["skill"]["builtin"].as_bool().unwrap(), case["owner"].as_bool().unwrap());
+            assert_eq!(got, case["expected"].as_bool().unwrap(), "{}", case["name"]);
+        }
+        for case in f["filePathCases"].as_array().unwrap() {
+            let got = is_skill_file_path(case["path"].as_str().unwrap());
+            assert_eq!(got, case["expected"].as_bool().unwrap(), "{}", case["name"]);
         }
     }
 }

@@ -26,6 +26,7 @@
     "./generated/*": "./generated/*",
     "./conformance/*": "./conformance/*",
     "./eval/*": "./eval/*",
+    "./skills": "./skills/index.ts",
     "./skills/*": "./skills/*",
     "./motion": "./src/motion/index.ts",
     "./wasm/*": "./wasm/*",

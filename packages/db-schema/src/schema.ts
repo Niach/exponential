@@ -2335,6 +2335,11 @@ export const skills = pgTable(
     description: varchar({ length: 1024 }).notNull(),
     body: text().notNull(),
     enabledByDefault: boolean(`enabled_by_default`).notNull().default(false),
+    // #VAPP-213: a BUILT-IN (fixtures/skills.json `builtin`): seeded into every
+    // team and reconciled on boot to the set shipped with the server
+    // (packages/exponential-ui/skills); read-only for everyone, body and
+    // files served from the shipped set.
+    builtin: boolean().notNull().default(false),
     createdById: text(`created_by_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
