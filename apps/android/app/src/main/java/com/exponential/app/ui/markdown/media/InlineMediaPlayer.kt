@@ -226,7 +226,7 @@ fun AudioBlockView(
         Spacer(Modifier.width(10.dp))
         Text(
             if (started) "${formatDuration(positionMs)} / ${formatDuration(durationMs)}" else formatDuration(durationMs),
-            style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.8f),
+            style = MdStyle.body.copy(fontSize = MdStyle.mediaTextSize * 0.8f),
             color = MdStyle.Dim,
         )
     }
@@ -403,7 +403,7 @@ fun DurationChip(durationMs: Long?, modifier: Modifier = Modifier) {
     Text(
         formatDuration(durationMs),
         color = Color.White,
-        style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.7f),
+        style = MdStyle.body.copy(fontSize = MdStyle.mediaTextSize * 0.7f),
         modifier = modifier
             .clip(RoundedCornerShape(4.dp))
             .background(Color.Black.copy(alpha = 0.6f))

@@ -43,8 +43,8 @@
         "file": "shots/agent-channel/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 55474,
-        "sha256": "e3f5169440717b41fedb18951fcf0ded7edd2120b0c3c7ddd4c0c4450c4146c8"
+        "bytes": 48984,
+        "sha256": "88b5665a0f10b378cd06ead2e46d317e72bfd20eba39fc57d7784c02547231b9"
       },
       "desktop": {
         "file": "shots/agent-channel/desktop.webp",
@@ -875,8 +875,8 @@
         "file": "shots/chat-transcript/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 48398,
-        "sha256": "ff9efd7a321c548225118044794b27953ff41d2d910ebf862ceb52b2a0f67377"
+        "bytes": 42874,
+        "sha256": "c7feeea63519c9c50e385ff2b990cbdf2a2ca29d278cc6d8dc6f64a2e37af6f6"
       },
       "desktop": {
         "file": "shots/chat-transcript/desktop.webp",
@@ -4244,8 +4244,8 @@
         "file": "shots/issue-comments/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 64262,
-        "sha256": "fe0c6bce353b95fba1b116995e1b319bf2ba474a1577da4485ae7bd1d6de59c6"
+        "bytes": 67470,
+        "sha256": "dfc8b3ec239b849788b12b9871260bc304839ac0f46413324de3842024723336"
       },
       "desktop": {
         "file": "shots/issue-comments/desktop.webp",
@@ -4859,8 +4859,8 @@
         "file": "shots/pr-checks/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 15572,
-        "sha256": "db212f6ef8c4a355d7cad175c6e57dc5bc7ff2af9f8a1c7431455b7020caf571"
+        "bytes": 17606,
+        "sha256": "090f757143675ecd489229ad73a928e9a4a9025c95dc0a5bc4cef5cddd4b7889"
       },
       "desktop": {
         "file": "shots/pr-checks/desktop.webp",
@@ -5134,8 +5134,8 @@
         "file": "shots/session/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 68084,
-        "sha256": "9c94ba94fdd85298014633cf66447a7b85a65b0e39c0420005dd405a6e7093e0"
+        "bytes": 72692,
+        "sha256": "98ec3b155c29ca2e90735888266e57d573e0f6c47e705b6a7bf8b0dd493fabf9"
       },
       "desktop": {
         "file": "shots/session/desktop.webp",
@@ -5194,8 +5194,8 @@
         "file": "shots/session-slash-menu/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 52194,
-        "sha256": "e3a22fe39c2a7bddc1e8eb6254b454caa5c5bf7684cf3ec55fabae592a286b92"
+        "bytes": 51686,
+        "sha256": "723028db06235d2803be17731676ea8af69cfb9e158e069d1659adf2f4245ec5"
       },
       "desktop": {
         "file": "shots/session-slash-menu/desktop.webp",

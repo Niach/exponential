@@ -298,7 +298,6 @@ import com.exponential.app.domain.agentWorking
 import com.exponential.app.domain.askComplete
 import com.exponential.app.domain.BACK_TO_CURRENT_STEP_LABEL
 import com.exponential.app.domain.FREE_TEXT_ANSWER_PLACEHOLDER
-import com.exponential.app.domain.withFreeTextRow
 import com.exponential.app.domain.PLAN_FEEDBACK_PLACEHOLDER
 import com.exponential.app.domain.collectSubagents
 import com.exponential.app.domain.projectLaneRows
@@ -2143,8 +2142,7 @@ private fun AnswerCardRowBody(row: AgentFeedRow, cards: AnswerCards) {
     when (row) {
         is AgentFeedRow.QuestionStepper -> QuestionStepperCard(
             askId = row.askId,
-            // EXP-1316: every step offers the free-text answer.
-            steps = remember(row.steps) { row.steps.map { it.withFreeTextRow() } },
+            steps = row.steps,
             answered = cards.answered,
             activeQuestionIds = cards.activeQuestionIds,
             answerEnabled = cards.answerEnabled,
@@ -2153,9 +2151,7 @@ private fun AnswerCardRowBody(row: AgentFeedRow, cards: AnswerCards) {
             onAnswer = cards.onAnswer,
         )
         is AgentFeedRow.Single -> {
-            val raw = row.item as? AgentFeedItem.Question ?: return
-            // EXP-1316: the free-text answer on every question card.
-            val item = remember(raw) { raw.withFreeTextRow() }
+            val item = row.item as? AgentFeedItem.Question ?: return
             QuestionCard(
                 item = item,
                 active = item.id in cards.activeQuestionIds,
@@ -5898,9 +5894,11 @@ private fun SlashCommandMenu(
     onPick: (com.exponential.app.domain.SlashCandidate) -> Unit,
 ) {
     GlassMenuSurface(modifier = Modifier.fillMaxWidth()) {
+        // Web's `TypeaheadMenu` above the composer has no height cap: every
+        // builtin and every team prompt shows; it scrolls only when the
+        // layout runs out of room.
         Column(
             modifier = Modifier
-                .heightIn(max = 240.dp)
                 .verticalScroll(rememberScrollState())
                 // Scrolls with the content, matching M3's menu padding.
                 .padding(vertical = 4.dp),
@@ -5947,11 +5945,24 @@ private fun SlashCommandMenu(
                         color = nameColor,
                         maxLines = 1,
                     )
+                    // Web `CommandCandidateRow`: the name, the description
+                    // left-aligned after it, the `<argHint>` trailing.
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        command.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(
+                            alpha = TextEmphasis.Secondary,
+                        ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
                     if (command.argHint.isNotEmpty()) {
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(
-                            command.argHint,
-                            style = MaterialTheme.typography.labelSmall,
+                            "<${command.argHint}>",
+                            style = MaterialTheme.typography.labelMedium,
                             fontFamily = FontFamily.Monospace,
                             color = MaterialTheme.colorScheme.onSurface.copy(
                                 alpha = TextEmphasis.Tertiary,
@@ -5959,18 +5970,6 @@ private fun SlashCommandMenu(
                             maxLines = 1,
                         )
                     }
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        command.description,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(
-                            alpha = TextEmphasis.Secondary,
-                        ),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.End,
-                        modifier = Modifier.weight(1f),
-                    )
                 }
             }
         }
