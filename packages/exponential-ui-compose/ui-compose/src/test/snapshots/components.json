@@ -24698,6 +24698,90 @@
       }
     ]
   },
+  "Switch\/size=compact" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Switch",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "switch"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          354,
+          20
+        ],
+        "id" : "switch.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Switch",
+        "frame" : [
+          362,
+          2,
+          28,
+          16
+        ],
+        "id" : "switch.track",
+        "part" : "track",
+        "radius" : 9999,
+        "states" : [
+          "checked"
+        ]
+      }
+    ]
+  },
+  "Switch\/size=default" : {
+    "height" : 20,
+    "nodes" : [
+      {
+        "component" : "Switch",
+        "frame" : [
+          0,
+          0,
+          390,
+          20
+        ],
+        "id" : "switch"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          0,
+          350,
+          20
+        ],
+        "id" : "switch.label",
+        "part" : "label"
+      },
+      {
+        "bg" : "#e5e5e5",
+        "component" : "Switch",
+        "frame" : [
+          358,
+          0,
+          32,
+          20
+        ],
+        "id" : "switch.track",
+        "part" : "track",
+        "radius" : 9999,
+        "states" : [
+          "checked"
+        ]
+      }
+    ]
+  },
   "Table\/density=compact" : {
     "height" : 91,
     "nodes" : [

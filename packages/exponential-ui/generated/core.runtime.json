@@ -264,6 +264,10 @@
       "default",
       "sm"
     ],
+    "switchSize": [
+      "default",
+      "compact"
+    ],
     "traceStatus": [
       "running",
       "error",
@@ -3662,6 +3666,11 @@
         "disabled": {
           "type": "boolean",
           "default": false
+        },
+        "size": {
+          "type": "enum",
+          "enum": "switchSize",
+          "default": "default"
         }
       },
       "events": [
