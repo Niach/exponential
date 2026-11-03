@@ -22,8 +22,16 @@ export const entry: StyleguideEntry = {
       symbol: `voice_overlay::call_pill`,
       file: `apps/desktop/crates/etalk-gpui/src/voice_overlay.rs`,
     },
-    ios: { state: `leftover`, note: `Lands with the phone pill (EXP-1681): a minimized call has no surface yet.` },
-    android: { state: `leftover`, note: `Lands with the phone pill (EXP-1681): a minimized call has no surface yet.` },
+    ios: {
+      state: `ok`,
+      symbol: `VoiceCallPill · VoiceCallPillOverlay`,
+      file: `apps/ios/Exponential/UI/Voice/VoiceCallPill.swift`,
+    },
+    android: {
+      state: `ok`,
+      symbol: `VoiceCallPill · VoiceCallPillOverlay`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/call/VoiceCallPill.kt`,
+    },
   },
   island: () => (
     <TooltipProvider>

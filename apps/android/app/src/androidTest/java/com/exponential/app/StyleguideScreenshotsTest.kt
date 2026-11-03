@@ -74,6 +74,8 @@ import com.exponential.app.ui.styleguide.MentionPillSpecimenScreen
 import com.exponential.app.ui.styleguide.MentionPillSpecimenTestId
 import com.exponential.app.ui.styleguide.CallControlsSpecimenScreen
 import com.exponential.app.ui.styleguide.CallControlsSpecimenTestId
+import com.exponential.app.ui.styleguide.CallPillSpecimenScreen
+import com.exponential.app.ui.styleguide.CallPillSpecimenTestId
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenScreen
 import com.exponential.app.ui.styleguide.VoiceCallSpecimenTestId
 import com.exponential.app.ui.styleguide.DeviceReadinessSpecimenScreen
@@ -147,7 +149,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-skills · sg_settings-skill · sg_settings-apps (#EXP-1632) ·
  *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
- *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_settings-assistant · sg_device-readiness ·
+ *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
  *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories · sg_plan-page ·
  *   sg_add-server · sg_drafts · sg_composer-slash-menu · sg_session-slash-menu ·
  *   sg_settings-assistant-meeting · sg_settings-general · sg_settings-members ·
@@ -245,6 +247,8 @@ class StyleguideScreenshotsTest {
             // NEW-69 / S-3: the phone-call screen's states, and its round buttons.
             "sg_voice-call",
             "sg_call-controls",
+            // EXP-1681: THE floating call pill a minimized call draws.
+            "sg_call-pill",
             // EXP-1375: the Storage band + the composer's low-disk row.
             "sg_device-readiness",
             // S-3 STORIES: THE story ring row + THE story viewer.
@@ -1779,6 +1783,9 @@ class StyleguideScreenshotsTest {
         // --- sg_call-controls (S-3): the round icon-only call buttons.
         show(CallControlsSpecimenTestId) { CallControlsSpecimenScreen() }
         flow.screenshot("sg_call-controls")
+        // --- sg_call-pill (EXP-1681): THE floating call pill, once per row.
+        show(CallPillSpecimenTestId) { CallPillSpecimenScreen() }
+        flow.screenshot("sg_call-pill")
         // --- sg_device-readiness (EXP-1375, device-doctor.json): the low-disk
         // case's block and the composer's low-disk row.
         show(DeviceReadinessSpecimenTestId) { DeviceReadinessSpecimenScreen() }

@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-phone-call-pill",
+    date: "2026-11-03",
+    title: "Keep a call going while you use the app",
+    summary: "On your phone, minimize a call with your agent into a small floating pill and keep working; tap it to go back to the call.",
+    body: r#"- **Minimize**: the chevron at the call screen's top left, a swipe down (iPhone) or Back (Android) turns the call into a floating pill over every screen; the call goes on.
+- **The pill**: the agent, the call's timer, the voice wave, Mute and End call, the same pill the desktop app shows while its windows are in the background.
+- **Move it**: drag the pill anywhere; it stays where you put it. Tap it to open the call screen again."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_193: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-sealed-open-at-launch",
     date: "2026-11-03",
     title: "Encrypted chats open at launch",
