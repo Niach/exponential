@@ -37,6 +37,9 @@ struct AppPreview: View {
     /// eApps R8: a draft preview's published `version` (its records read
     /// through the package's migrations, copies only); nil = as stored.
     var migrateFrom: String? = nil
+    /// VAPP-218: the requested screen (the editor's state; a tab tap and
+    /// `app.navigate` write it), nil = the first.
+    var screen: Binding<Apps.ScreenRequest?> = .constant(nil)
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Apps.Preview.radius)
