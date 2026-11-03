@@ -2443,6 +2443,11 @@ impl Render for ChatScreenView {
             // EXP-1557 (DEV-ONLY, `EXP_DEV_COMPOSER_TEXT`): the page types
             // the capture's text once its mention source (the team) is set.
             if matches!(self.presentation, Presentation::Page) {
+                // EXP-1649 (DEV-ONLY, `EXP_DEV_COMPOSER_ISSUES`): web's
+                // `/agent?issues=` — the issues chipped on the page itself.
+                if let Some(issue_ids) = crate::screens::take_dev_composer_issues() {
+                    self.apply_seed(ChatSeed::issues(issue_ids), window, cx);
+                }
                 if let Some(text) = crate::screens::take_dev_composer_text() {
                     self.input.read(cx).focus_handle(cx).focus(window, cx);
                     self.mention.update(cx, |mention, cx| mention.dev_type(&text, window, cx));

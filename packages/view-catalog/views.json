@@ -1023,12 +1023,16 @@
       },
       "notes": {
         "web": "`issues` is a one-shot search param, a csv of issue uuids. `$issueA`/`$issueB` resolve to APP-3 and APP-6 (apps/web/scripts/lib/demo-ids.ts): two codeable issues on the repo-backed board that no seeded session runs on, the first being the issue the phone store slide starts coding from — hence the anchor on its chip. Needs `bun run screenshots:desktop`: without an online machine the device picker is empty.",
-        "desktop": "EXP-1551: the IDE chips issues in the composer DIALOG (EXP-1037: every play button opens it), so the drive is `EXP_DEV_DIALOG=run:<a>,<b>` on the same two issues; `chat?issues=` died with EXP-1294 and photographed an empty Home."
+        "desktop": "EXP-1649: web's `?issues=` deep link chips the issues on the Home page itself (not the ▶ dialog, EXP-1037), so the drive is the Home screen with `EXP_DEV_COMPOSER_ISSUES=<a>,<b>` on the same two issues (`screens::take_dev_composer_issues`); `chat?issues=` died with EXP-1294."
       },
       "desktop": {
         "drive": {
-          "kind": "dialog",
-          "value": "run:$issueA,$issueB"
+          "kind": "screen",
+          "value": "chat"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_COMPOSER_ISSUES": "$issueA,$issueB"
         }
       }
     },
