@@ -68,10 +68,9 @@ import {
   InboxUnreadBadge,
   TeamLiveDot,
   ThreadsLiveBadge,
-  TeamSidebarRail,
   UserAvatar,
   UserMenuItems,
-} from "@/components/team/sidebar-rail"
+} from "@/components/team/sidebar-shared"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
 import {
   DRAFTS_LABEL,
@@ -88,7 +87,6 @@ import {
   resetSidebarWidth,
   setSidebarResizing,
   setSidebarWidth,
-  sidebarColumnWidth,
   sidebarResizable,
   sidebarUnitScale,
   sidebarWidthCss,
@@ -174,7 +172,7 @@ export function TeamSidebar({
   // EXP-878: the Drafts entry lists only while a draft is parked.
   const draftCount = useDraftCount(team?.id)
   // EXP-1293: ONE Threads list read for the sidebar — the Threads entry's
-  // dot, the Running section and the compact rail's running icons.
+  // dot, and the Running section.
   const threadsList = useThreadsList(team?.id)
   const teamPrs = useTeamPullRequestsByRoot(team?.id)
   const threads: SidebarThreads = {
@@ -193,11 +191,12 @@ export function TeamSidebar({
   // email instead of a bare "?".
   const userLabel = session?.user?.name || session?.user?.email
 
-  // EXP-456 / EXP-851 / EXP-870: the column's layout is a function of the URL
-  // (`useSidebarOccupant`) — the MAIN menu alone, or the rail compacted to
-  // icons beside the settings nav. #EXP-1672: the Inbox keeps the main menu
-  // (its list is the content card's second sidebar, desktop parity). Every
-  // entry point drives the same swap, and a direct load lands settled.
+  // EXP-456 / EXP-851: the column's occupant is a function of the URL
+  // (`useSidebarOccupant`) — the MAIN menu, or the settings nav in its place
+  // (desktop `left_occupant_for`). Nothing folds to icons. #EXP-1672: the
+  // Inbox keeps the main menu (its list is the content card's second
+  // sidebar). Every entry point drives the same swap, and a direct load lands
+  // settled.
   const router = useRouter()
   const locationHref = useRouterState({ select: (s) => s.location.href })
   const activeAgentId = useRouterState({
@@ -209,9 +208,6 @@ export function TeamSidebar({
   const { apps } = useApps(team?.id)
   const occupant = useSidebarOccupant()
   const inSettings = occupant.kind === `settings`
-  // EXP-870: settings is up → the rail compacts to its icon column instead of
-  // leaving. Strictly derived, never a toggle.
-  const compact = inSettings
 
   // Last non-settings location — the back button returns exactly here (with
   // its search params), not merely to the team index. Read in the same
@@ -244,9 +240,9 @@ export function TeamSidebar({
           rounded card whose own stroke is the divider (sidebar-on-ground). */}
       <Sidebar className="border-r-0!">
         <div className="flex h-full w-full flex-col overflow-hidden">
-          {/* EXP-870: the header is FIXED above both the rail and the panel —
-              the team picker, Search and New issue stay put in every state
-              (desktop parity), instead of sliding out with the main menu. */}
+          {/* EXP-870: the header is FIXED above both occupants — the team
+              picker, Search and New issue stay put in every state (desktop
+              parity), instead of sliding out with the main menu. */}
           <SidebarHeader className="p-2">
             {/* EXP-449: Linear-style header row — team picker plus icon-only
                 Search and New-issue actions. */}
@@ -355,19 +351,18 @@ export function TeamSidebar({
 
           <Separator />
 
-          <div className="flex min-h-0 flex-1">
-            {/* EXP-870: the RAIL slot — the full main menu (its dragged
-                `main` width, EXP-1156) or its 48px icon column beside a
-                panel. Both stay mounted and cross-fade while the slot's width
-                animates; `inert` takes the hidden one out of the tab order
-                and the accessibility tree. */}
-            <RailSlot compact={compact}>
+          {/* The occupants share one slot and both stay mounted: going into
+              Settings the main menu slides out left as the settings nav
+              slides in from the right (desktop `render_left_column`), and
+              back. `inert` takes the hidden one out of the tab order and the
+              accessibility tree. */}
+          <div className="relative min-h-0 flex-1 overflow-hidden">
               <PanelLayer
                 panel="main"
-                inert={compact}
+                inert={inSettings}
                 className={cn(
-                  `transition-opacity`,
-                  compact ? `opacity-0` : `opacity-100`
+                  `transition-transform`,
+                  inSettings ? `-translate-x-full` : `translate-x-0`
                 )}
               >
                 {/* EXP-1022: the scroll area runs to the footer's edge and the
@@ -401,7 +396,7 @@ export function TeamSidebar({
                                 <span>Inbox</span>
                               </Link>
                             </SidebarMenuButton>
-                            <InboxUnreadBadge placement="row" />
+                            <InboxUnreadBadge />
                           </SidebarMenuItem>
                           {/* EXP-1293: Threads replaced Reviews and the
                               Agent page's history — green while a thread of the
@@ -417,7 +412,7 @@ export function TeamSidebar({
                                 <span>{CHATS_COPY.title}</span>
                               </Link>
                             </SidebarMenuButton>
-                            <ThreadsLiveBadge state={threadsNav} placement="row" />
+                            <ThreadsLiveBadge state={threadsNav} />
                           </SidebarMenuItem>
                           <SidebarMenuItem>
                             <SidebarMenuButton asChild density="compact">
@@ -610,37 +605,12 @@ export function TeamSidebar({
                 </SidebarFooter>
               </PanelLayer>
 
-              <div
-                inert={!compact}
-                className={cn(
-                  `absolute inset-y-0 left-0 flex w-12 flex-col transition-opacity`,
-                  SLOT_MOTION,
-                  compact ? `opacity-100` : `pointer-events-none opacity-0`
-                )}
-              >
-                <TeamSidebarRail
-                  teamSlug={teamSlug}
-                  team={team}
-                  boards={boards}
-                  agents={agents}
-                  threads={threads}
-                  threadsNav={threadsNav}
-                  onWhatsNew={() => setWhatsNewOpen(true)}
-                />
-              </div>
-            </RailSlot>
-
-            {/* EXP-870: the PANEL slot — 0 wide with the main menu, the
-                settings nav's dragged width (EXP-1156) beside the compact
-                rail. It comes out from under the rail's edge going in and
-                slides back under it on the way out. */}
-            <PanelSlot occupant={occupant.kind}>
               <PanelLayer
                 panel="settings"
                 inert={!inSettings}
                 className={cn(
                   `transition-transform`,
-                  inSettings ? `translate-x-0` : `-translate-x-full`
+                  inSettings ? `translate-x-0` : `translate-x-full`
                 )}
               >
                 <SettingsSidebar
@@ -649,12 +619,11 @@ export function TeamSidebar({
                   onBack={handleSettingsBack}
                 />
               </PanelLayer>
-            </PanelSlot>
           </div>
         </div>
         {/* EXP-1156: the column's ONE drag edge — EXP-1163: the content
-            card's left edge. It resizes the panel beside the rail; the main
-            menu has none. */}
+            card's left edge. It resizes the settings nav; the main menu has
+            none. */}
         <SidebarResizeEdge panel={occupant.kind} workTabs={workTabs} />
       </Sidebar>
 
@@ -679,53 +648,6 @@ export function TeamSidebar({
 // each subscribed to the width store. A drag then re-renders these few
 // wrappers per frame while the menus inside them (passed in as `children`,
 // created by `TeamSidebar`, which never subscribes) bail out untouched.
-
-/** The rail slot: the main menu's width, or the 48px icon rail (`w-12`). */
-function RailSlot({
-  compact,
-  children,
-}: {
-  compact: boolean
-  children: ReactNode
-}) {
-  const main = useSidebarWidth(`main`)
-  return (
-    <div
-      className={cn(
-        `relative shrink-0 overflow-hidden transition-[width]`,
-        SLOT_MOTION,
-        compact && `w-12`
-      )}
-      style={compact ? undefined : { width: sidebarWidthCss(main) }}
-    >
-      {children}
-    </div>
-  )
-}
-
-/** The panel slot: the ACTIVE panel's width beside the rail, else 0. */
-function PanelSlot({
-  occupant,
-  children,
-}: {
-  occupant: SidebarOccupant[`kind`]
-  children: ReactNode
-}) {
-  const widths = useSidebarWidths()
-  const compact = occupant !== `main`
-  return (
-    <div
-      className={cn(
-        `relative shrink-0 overflow-hidden transition-[width]`,
-        SLOT_MOTION,
-        compact ? `border-l border-glass-stroke` : `w-0`
-      )}
-      style={compact ? { width: sidebarWidthCss(widths[occupant]) } : undefined}
-    >
-      {children}
-    </div>
-  )
-}
 
 /** One stacked layer, at ITS OWN panel's width (so it slides by that). */
 function PanelLayer({
@@ -775,7 +697,7 @@ function SidebarResizeEdge({
   const { isMobile } = useSidebar()
   const width = useSidebarWidth(panel)
   const { min, max } = useSidebarWidthBounds(panel)
-  // The main menu stays as it is: only a panel beside the rail drags.
+  // The main menu stays as it is: only the settings nav drags.
   if (isMobile || !sidebarResizable(panel)) return null
   const card = mainPanelEdge({ tabs: workTabs })
   return (
@@ -822,7 +744,7 @@ export function SidebarWidthSync({
 }) {
   const widths = useSidebarWidths()
   const resizing = useSidebarResizing()
-  const column = sidebarWidthCss(sidebarColumnWidth(widths, occupant))
+  const column = sidebarWidthCss(widths[occupant])
   useLayoutEffect(() => {
     if (!wrapper) return
     wrapper.style.setProperty(`--sidebar-width`, column)

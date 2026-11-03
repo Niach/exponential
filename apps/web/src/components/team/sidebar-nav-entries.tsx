@@ -1,8 +1,8 @@
 import { conceptIcon } from "@exp/ui"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 
-// The Drafts pile is a ROOT entry of the navigation ×4: the expanded
-// sidebar, the compact rail and the IDE rail (`sidebar.rs`) list it below
+// The Drafts pile is a ROOT entry of the navigation ×4: the sidebar and the
+// IDE rail (`sidebar.rs`) list it below
 // Devices while any draft exists (EXP-878). NEW-2: there is no Actions entry
 // any more (prompts live in the composer's `/` menu and Settings → Prompts).
 

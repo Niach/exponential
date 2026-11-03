@@ -1,4 +1,3 @@
-import type * as React from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
 import {
   AgentRunMark,
@@ -196,42 +195,3 @@ export function SidebarRunningSection({
   )
 }
 
-/** The compact rail's Active column — one 32px button per Active thread
- *  under the board icons. The rail owns the button chrome, so it hands one
- *  in, exactly like `SidebarPinnedIcons`. */
-export function SidebarRunningIcons({
-  teamSlug,
-  threads,
-  renderItem,
-  separator,
-}: {
-  teamSlug: string
-  threads: SidebarThreads
-  renderItem: (item: {
-    key: string
-    label: string
-    active: boolean
-    onClick: () => void
-    icon: React.ReactNode
-  }) => React.ReactNode
-  separator?: React.ReactNode
-}) {
-  const rows = railThreads(threads.groups, threads.wordOf)
-  const shown = useShownThreadId()
-  const openThread = useOpenThread(teamSlug)
-  if (rows.length === 0) return null
-  return (
-    <>
-      {separator}
-      {rows.map((row) =>
-        renderItem({
-          key: row.sessionId,
-          label: row.title || SIDEBAR_RUNNING_LOADING_LABEL,
-          active: shown === row.sessionId,
-          onClick: () => openThread(row.sessionId),
-          icon: <ThreadRunMark row={row} />,
-        })
-      )}
-    </>
-  )
-}

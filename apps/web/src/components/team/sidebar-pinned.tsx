@@ -1,5 +1,4 @@
 import { useMemo } from "react"
-import type * as React from "react"
 import { Link, useParams } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
 import {
@@ -45,8 +44,7 @@ export function SidebarPinned({
   return <PinnedRows pins={pins} teamId={teamId} teamSlug={teamSlug} />
 }
 
-/** One pin whose target resolved — the rows and the compact rail's icons
- *  render the same list. */
+/** One pin whose target resolved. */
 type ResolvedPin = {
   kind: `issue`
   pin: Pin
@@ -55,8 +53,7 @@ type ResolvedPin = {
   active: boolean
 }
 
-/** EXP-870: resolve the caller's pins against the synced targets, once, for
- *  both rail states. A pin with no synced target yields nothing. */
+/** EXP-870: resolve the caller's pins against the synced targets, once. A pin with no synced target yields nothing. */
 function useResolvedPins(pins: Pin[], teamId: string): ResolvedPin[] {
   const boards = useTeamBoards(teamId)
   const issueIds = useMemo(
@@ -157,58 +154,6 @@ function PinnedRows({
         <SidebarMenu>{items}</SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
-  )
-}
-
-/** EXP-870: the compact rail's pinned icons — the same resolved pins as the
- *  rows, one 32px icon each with the name in a tooltip. Context-free like
- *  the rows: nothing here ever brings a list nav along. */
-export function SidebarPinnedIcons({
-  teamId,
-  teamSlug,
-  renderItem,
-  separator,
-}: {
-  teamId: string
-  teamSlug: string
-  /** Drawn above the icons, only when there are any. */
-  separator?: React.ReactNode
-  /** The rail's own button shell (size, tooltip, active fill). */
-  renderItem: (item: {
-    key: string
-    label: string
-    active: boolean
-    icon: React.ReactNode
-    link?: {
-      to: string
-      params: Record<string, string>
-    }
-    onClick?: () => void
-  }) => React.ReactNode
-}) {
-  const pins = useTeamPins(teamId)
-  const resolved = useResolvedPins(pins, teamId)
-  if (resolved.length === 0) return null
-  return (
-    <>
-      {separator}
-      {resolved.map((entry) =>
-        renderItem({
-          key: entry.pin.id,
-          label: `${entry.issue.identifier} ${entry.issue.title}`,
-          active: entry.active,
-          icon: <NavIssuesIcon className="size-4" />,
-          link: {
-            to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-            params: {
-              teamSlug,
-              boardSlug: entry.board.slug,
-              issueIdentifier: entry.issue.identifier,
-            },
-          },
-        })
-      )}
-    </>
   )
 }
 

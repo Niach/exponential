@@ -3,7 +3,6 @@ import { act, cleanup, renderHook } from "@testing-library/react"
 import {
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
-  SIDEBAR_RAIL_WIDTH,
   SIDEBAR_WIDTHS_STORAGE_KEY,
   clampSidebarWidth,
   parseSidebarWidths,
@@ -27,7 +26,6 @@ describe(`sidebar width tokens`, () => {
 
   it(`renders design units as rem, so the default stays 17rem`, () => {
     expect(sidebarWidthCss(272)).toBe(`17rem`)
-    expect(sidebarWidthCss(SIDEBAR_RAIL_WIDTH + 272)).toBe(`20rem`)
   })
 })
 
@@ -39,12 +37,7 @@ describe(`clampSidebarWidth`, () => {
   })
 
   it(`keeps the whole column at or under half the viewport`, () => {
-    // The main menu alone: half of 1000 = 500.
     expect(clampSidebarWidth(540, { viewportWidth: 1000 })).toBe(500)
-    // Beside the rail the panel gets half minus the rail.
-    expect(
-      clampSidebarWidth(540, { viewportWidth: 1000, withRail: true })
-    ).toBe(500 - SIDEBAR_RAIL_WIDTH)
     // A wide window leaves the shared max in charge.
     expect(clampSidebarWidth(9999, { viewportWidth: 4000 })).toBe(
       SIDEBAR_MAX_WIDTH
@@ -52,12 +45,11 @@ describe(`clampSidebarWidth`, () => {
   })
 
   it(`never goes below the minimum on a narrow window`, () => {
-    expect(
-      clampSidebarWidth(400, { viewportWidth: 600, withRail: true })
-    ).toBe(SIDEBAR_MIN_WIDTH)
-    expect(sidebarWidthBounds({ viewportWidth: 600, withRail: true })).toEqual(
-      { min: SIDEBAR_MIN_WIDTH, max: SIDEBAR_MIN_WIDTH }
-    )
+    expect(clampSidebarWidth(400, { viewportWidth: 500 })).toBe(SIDEBAR_MIN_WIDTH)
+    expect(sidebarWidthBounds({ viewportWidth: 500 })).toEqual({
+      min: SIDEBAR_MIN_WIDTH,
+      max: SIDEBAR_MIN_WIDTH,
+    })
   })
 })
 
@@ -157,7 +149,6 @@ describe(`the width store`, () => {
   it(`follows the viewport: half the window bounds the column`, () => {
     const scale = sidebarUnitScale()
     window.innerWidth = 600 * scale
-    // #EXP-1672: the Inbox list has no rail beside it (it sits in the card).
     const width = renderHook(() => useSidebarWidth(`list`))
     const bounds = renderHook(() => useSidebarWidthBounds(`list`))
     expect(width.result.current).toBe(300)

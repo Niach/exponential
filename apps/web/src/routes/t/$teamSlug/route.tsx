@@ -150,8 +150,8 @@ function TeamLayout() {
     return () => window.removeEventListener(`keydown`, handleKeyDown)
   }, [])
 
-  // EXP-870: the sidebar is the main menu alone or (settings) the compact
-  // 3rem rail plus the settings nav beside it — the provider's width follows the URL, and the shadcn
+  // EXP-870: the sidebar is the main menu or (settings) the settings nav in
+  // its place — the provider's width follows the URL, and the shadcn
   // gap/container animate it on the shared motion tokens. EXP-1156: each
   // width is the user's dragged one; `SidebarWidthSync` writes the column's
   // `--sidebar-width` onto the wrapper so a drag never re-renders this layout.
@@ -161,7 +161,8 @@ function TeamLayout() {
   )
   // EXP-870: browser-like work tabs above the card, md+ only. EXP-1255: the
   // strip mounts with zero tabs too, so its "+" (a New session tab) is
-  // reachable. EXP-1293: route-driven — no screen calls into it.
+  // reachable. EXP-1293: route-driven — no screen calls into it. Settings is
+  // tab-less (desktop EXP-1192): the band keeps its height, without tabs.
   const isMobile = useIsMobile()
   const showWorkTabs = !isMobile && Boolean(team)
 
@@ -219,11 +220,13 @@ function TeamLayout() {
             <div className={MAIN_COLUMN_CLASS}>
               {showWorkTabs && team && (
                 <div className={WORK_TABS_BAND_CLASS}>
-                  <WorkTabsStrip
-                    teamId={team.id}
-                    teamSlug={teamSlug}
-                    boards={boards}
-                  />
+                  {occupant.kind === `main` && (
+                    <WorkTabsStrip
+                      teamId={team.id}
+                      teamSlug={teamSlug}
+                      boards={boards}
+                    />
+                  )}
                 </div>
               )}
               <main className={mainPanelClass({ tabs: showWorkTabs })}>

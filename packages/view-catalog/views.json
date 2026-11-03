@@ -1340,6 +1340,7 @@
         "lane": "styleguide"
       },
       "notes": {
+        "web": "The desktop's layout, every settings view shares it: the settings nav takes the main menu's place in the sidebar column, and the tab band above the card stays empty.",
         "desktop": "EXP-1192: Settings swaps the root sidebar for the settings nav and HIDES the top tab band — a chrome-only band of the same height keeps the window controls. Every settings view shares this.",
         "ios": "EXP-1558: the phone's own General page (settings-nav.json `phone`), opened from the Team tab's General row by the live walk.",
         "android": "EXP-1558: the phone's own General page (settings-nav.json `phone`), opened from the Team tab's General row by the live walk, gated on the Danger zone's Delete team."

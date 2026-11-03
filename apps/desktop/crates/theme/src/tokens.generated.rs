@@ -146,7 +146,6 @@ pub mod transcript {
 // The draggable sidebar columns (EXP-1156), in px: one min/max, a default
 // per panel. Read through `ui::resize_edge`, which owns the clamp.
 pub mod sidebar {
-    pub const RAIL_WIDTH: f32 = 48.0;
     pub const MIN_WIDTH: f32 = 272.0;
     pub const MAX_WIDTH: f32 = 560.0;
     pub const DEFAULT_MAIN: f32 = 272.0;
