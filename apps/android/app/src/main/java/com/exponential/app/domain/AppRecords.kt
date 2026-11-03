@@ -182,7 +182,7 @@ object AppRecords {
         const val EDIT = "Edit"
         const val DELETE = "Delete"
         const val DELETE_TITLE = "Delete this record?"
-        const val DELETE_BODY = "The app stops showing it. This cannot be undone."
+        const val DELETE_BODY = "The app stops showing it."
         const val BY = "by"
         const val UPDATED = "updated"
         const val EMPTY = "No records yet"
@@ -224,6 +224,9 @@ object AppRecords {
         const val FORM = "app-data-form"
         const val SAVE = "app-data-save"
         const val ERROR = "app-data-error"
+        const val HISTORY = "app-data-history"
+        const val HISTORY_ROW = "app-data-history-row"
+        const val RESTORE = "app-data-restore"
     }
 
     data class DataKind(val kind: String, val count: Int)
@@ -395,5 +398,115 @@ object AppRecords {
         val n = format.format(count)
         if (max == null) return if (count == 1) Apps.Copy.RECORDS_ONE else Apps.Copy.RECORDS.replace("{n}", n)
         return Apps.Copy.RECORDS_OF.replace("{n}", n).replace("{max}", format.format(max))
+    }
+
+    // VAPP-215 (R4) RECORD HISTORY + UNDO (fixture `history`, locked by
+    // AppRecordsTest): what one `app_record_events` row means, its undo and
+    // its History row (TS `eventState`, `inverseWrite`, `eventLabel`,
+    // `historyRows`, `undoTitle`).
+    object History {
+        const val UNDO_SECONDS = 10
+        const val RETENTION_DAYS = 90
+        const val BATCH = 500
+        const val HISTORY_LIMIT = 50
+        const val MAX_FIELDS = 3
+        val OPS = listOf("create", "update", "delete", "restore")
+        val VIAS = listOf("editor", "app", "mcp", "action", "import")
+    }
+
+    object HistoryCopy {
+        const val HISTORY = "History"
+        const val RESTORE = "Restore"
+        const val UNDO = "Undo"
+        const val CREATED = "Created"
+        const val DELETED = "Deleted"
+        const val RESTORED = "Restored"
+        const val CHANGED = "Changed {fields}"
+        const val MORE = "+{n}"
+        const val SAVED = "Saved"
+        const val EMPTY = "No history yet"
+        const val UNDO_CREATE = "Record added"
+        const val UNDO_UPDATE = "Record saved"
+        const val UNDO_DELETE = "Record deleted"
+        const val UNDO_BATCH = "Records saved"
+        const val UNDO_VERB = "undo"
+        const val UNDO_THING = "the change"
+    }
+
+    /** One event as `apps.records.history` returns it (newest first);
+     *  the pure rules read [op], [before] and [patch]. */
+    data class RecordEvent(
+        val id: String = "",
+        val op: String,
+        val before: Map<String, JsonValue>?,
+        val patch: Map<String, JsonValue>?,
+        val actor: String? = null,
+        val createdAt: String = "",
+    )
+
+    /** The write that undoes an event: a delete ([data] null) or a restore of [data]. */
+    data class InverseWrite(val op: String, val data: Map<String, JsonValue>? = null)
+
+    /** The record an event left (`stateCases`): null = gone. */
+    fun eventState(event: RecordEvent): Map<String, JsonValue>? = when (event.op) {
+        "delete" -> null
+        "update" -> (event.before ?: emptyMap()) + (event.patch ?: emptyMap())
+        else -> event.patch ?: emptyMap()
+    }
+
+    /** Undo = a new write of the event's `before` (`inverseCases`). */
+    fun inverseWrite(event: RecordEvent): InverseWrite =
+        if (event.before == null) InverseWrite("delete") else InverseWrite("restore", event.before)
+
+    /** Deep JSON equality (objects by key, numbers by value). */
+    fun jsonEqual(a: JsonValue?, b: JsonValue?): Boolean {
+        if (a == null || b == null) return a == null && b == null
+        return when {
+            a is JsonValue.Num && b is JsonValue.Num -> a.v == b.v
+            a is JsonValue.Arr && b is JsonValue.Arr -> a.v.size == b.v.size && a.v.indices.all { jsonEqual(a.v[it], b.v[it]) }
+            a is JsonValue.Obj && b is JsonValue.Obj -> a.v.size == b.v.size && a.v.all { (k, v) -> b.v.containsKey(k) && jsonEqual(v, b.v[k]) }
+            else -> a == b
+        }
+    }
+
+    /** A History row's title (`labelCases`). */
+    fun eventLabel(event: RecordEvent): String {
+        val c = HistoryCopy
+        when (event.op) {
+            "create" -> return c.CREATED
+            "delete" -> return c.DELETED
+            "restore" -> return c.RESTORED
+        }
+        val before = event.before ?: emptyMap()
+        val patch = event.patch ?: emptyMap()
+        val changed = patch.keys.filter { !jsonEqual(before[it], patch[it]) }.sorted()
+        if (changed.isEmpty()) return c.SAVED
+        val max = History.MAX_FIELDS
+        val shown = changed.take(max).joinToString(", ")
+        val rest = changed.size - max
+        return c.CHANGED.replace("{fields}", if (rest > 0) "$shown ${c.MORE.replace("{n}", rest.toString())}" else shown)
+    }
+
+    data class HistoryRow(val id: String, val label: String, val who: String, val at: String, val restorable: Boolean)
+
+    /** The History list (`rowsCases`): the events in the server's order
+     *  (newest first); Restore on every row but the newest, never on a delete. */
+    fun historyRows(events: List<RecordEvent>, names: Map<String, String>, fallback: String): List<HistoryRow> =
+        events.mapIndexed { i, event ->
+            HistoryRow(
+                id = event.id,
+                label = eventLabel(event),
+                who = event.actor?.let { names[it] } ?: fallback,
+                at = event.createdAt,
+                restorable = i > 0 && event.op != "delete",
+            )
+        }
+
+    /** The Undo toast's title for a UI write (`create` | `update` | `delete` | `batch`). */
+    fun undoTitle(write: String): String = when (write) {
+        "create" -> HistoryCopy.UNDO_CREATE
+        "update" -> HistoryCopy.UNDO_UPDATE
+        "delete" -> HistoryCopy.UNDO_DELETE
+        else -> HistoryCopy.UNDO_BATCH
     }
 }

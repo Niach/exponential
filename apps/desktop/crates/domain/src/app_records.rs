@@ -341,6 +341,11 @@ pub struct DataTabTestIds {
     pub form: String,
     pub save: String,
     pub error: String,
+    /// VAPP-215: the record form's History section, its rows, Restore.
+    pub history: String,
+    #[serde(rename = "historyRow")]
+    pub history_row: String,
+    pub restore: String,
 }
 
 /// `dataTab` minus its cases.
@@ -647,6 +652,228 @@ pub fn form_data(schema: &DataSchema, inputs: &HashMap<String, FormInput>, editi
     data
 }
 
+// VAPP-215 (R4) RECORD HISTORY + UNDO (fixture `history`): what one
+// `app_record_events` row means, its undo and its History row, pure so the
+// four clients replay the same cases (TS `app-records.ts`).
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryCopy {
+    pub history: String,
+    pub restore: String,
+    pub undo: String,
+    pub created: String,
+    pub deleted: String,
+    pub restored: String,
+    /// `Changed {fields}`.
+    pub changed: String,
+    /// `+{n}`.
+    pub more: String,
+    pub saved: String,
+    pub empty: String,
+    pub undo_create: String,
+    pub undo_update: String,
+    pub undo_delete: String,
+    pub undo_batch: String,
+    pub undo_verb: String,
+    pub undo_thing: String,
+}
+
+/// `history` minus its cases.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistorySpec {
+    pub undo_seconds: u64,
+    pub retention_days: u64,
+    pub batch: u64,
+    pub history_limit: u64,
+    pub max_fields: usize,
+    pub ops: Vec<String>,
+    pub vias: Vec<String>,
+    pub copy: HistoryCopy,
+}
+
+pub static APP_RECORD_HISTORY: LazyLock<HistorySpec> = LazyLock::new(|| {
+    let fixture: Value = serde_json::from_str(RECORDS_JSON).expect("app-records.json parses");
+    serde_json::from_value(fixture["history"].clone()).expect("history parses")
+});
+
+/// An `app_record_events.op`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RecordEventOp {
+    Create,
+    Update,
+    Delete,
+    Restore,
+}
+
+impl RecordEventOp {
+    pub fn parse(op: &str) -> Option<Self> {
+        match op {
+            "create" => Some(Self::Create),
+            "update" => Some(Self::Update),
+            "delete" => Some(Self::Delete),
+            "restore" => Some(Self::Restore),
+            _ => None,
+        }
+    }
+}
+
+/// The part of an event the pure rules read (`before` / `patch` = a JSON
+/// object, `None` = null).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordEventCore {
+    pub op: RecordEventOp,
+    pub before: Option<Map<String, Value>>,
+    pub patch: Option<Map<String, Value>>,
+}
+
+/// One event as `apps.records.history` returns it (newest first).
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordEvent {
+    pub id: String,
+    pub core: RecordEventCore,
+    pub actor: Option<String>,
+    pub created_at: String,
+}
+
+impl RecordEvent {
+    /// One `apps.records.history` event (`None` = unreadable).
+    pub fn from_value(value: &Value) -> Option<Self> {
+        let object = |key: &str| value.get(key).and_then(Value::as_object).cloned();
+        Some(Self {
+            id: value.get("id")?.as_str()?.to_string(),
+            core: RecordEventCore {
+                op: RecordEventOp::parse(value.get("op")?.as_str()?)?,
+                before: object("before"),
+                patch: object("patch"),
+            },
+            actor: value.get("actor").and_then(Value::as_str).map(str::to_string),
+            created_at: value.get("createdAt").and_then(Value::as_str).unwrap_or_default().to_string(),
+        })
+    }
+}
+
+/// The write that undoes an event: a delete, or a restore of `data`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum InverseWrite {
+    Delete,
+    Restore(Map<String, Value>),
+}
+
+/// The record an event left (`stateCases`): `None` = gone.
+pub fn event_state(event: &RecordEventCore) -> Option<Map<String, Value>> {
+    match event.op {
+        RecordEventOp::Delete => None,
+        RecordEventOp::Update => {
+            let mut out = event.before.clone().unwrap_or_default();
+            for (k, v) in event.patch.iter().flatten() {
+                out.insert(k.clone(), v.clone());
+            }
+            Some(out)
+        }
+        RecordEventOp::Create | RecordEventOp::Restore => Some(event.patch.clone().unwrap_or_default()),
+    }
+}
+
+/// Undo = a new write of the event's `before` (`inverseCases`).
+pub fn inverse_write(event: &RecordEventCore) -> InverseWrite {
+    match &event.before {
+        None => InverseWrite::Delete,
+        Some(before) => InverseWrite::Restore(before.clone()),
+    }
+}
+
+/// Deep JSON equality (objects by key, numbers by value: `2` equals `2.0`).
+pub fn json_equal(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => x == y || x.as_f64() == y.as_f64(),
+        (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(a, b)| json_equal(a, b)),
+        (Value::Object(x), Value::Object(y)) => {
+            x.len() == y.len() && x.iter().all(|(k, v)| y.get(k).is_some_and(|w| json_equal(v, w)))
+        }
+        _ => a == b,
+    }
+}
+
+/// A History row's title (`labelCases`).
+pub fn event_label(event: &RecordEventCore) -> String {
+    let c = &APP_RECORD_HISTORY.copy;
+    match event.op {
+        RecordEventOp::Create => return c.created.clone(),
+        RecordEventOp::Delete => return c.deleted.clone(),
+        RecordEventOp::Restore => return c.restored.clone(),
+        RecordEventOp::Update => {}
+    }
+    let empty = Map::new();
+    let before = event.before.as_ref().unwrap_or(&empty);
+    let patch = event.patch.as_ref().unwrap_or(&empty);
+    let mut changed: Vec<&str> = patch
+        .iter()
+        .filter(|(k, v)| !before.get(k.as_str()).is_some_and(|b| json_equal(b, v)))
+        .map(|(k, _)| k.as_str())
+        .collect();
+    changed.sort_unstable();
+    if changed.is_empty() {
+        return c.saved.clone();
+    }
+    let max = APP_RECORD_HISTORY.max_fields;
+    let shown = changed.iter().take(max).copied().collect::<Vec<_>>().join(", ");
+    let fields = if changed.len() > max {
+        format!("{shown} {}", c.more.replace("{n}", &(changed.len() - max).to_string()))
+    } else {
+        shown
+    };
+    c.changed.replace("{fields}", &fields)
+}
+
+/// One History row (`rowsCases`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryRow {
+    pub id: String,
+    pub label: String,
+    pub who: String,
+    pub at: String,
+    pub restorable: bool,
+}
+
+/// The History list (`rowsCases`): the events in the server's order (newest
+/// first); Restore on every row but the newest, never on a delete. `names` =
+/// user id → display name (`None` = unknown), `fallback` = apps.json byAgent.
+pub fn history_rows(events: &[RecordEvent], names: impl Fn(&str) -> Option<String>, fallback: &str) -> Vec<HistoryRow> {
+    events
+        .iter()
+        .enumerate()
+        .map(|(i, event)| HistoryRow {
+            id: event.id.clone(),
+            label: event_label(&event.core),
+            who: event.actor.as_deref().and_then(&names).unwrap_or_else(|| fallback.to_string()),
+            at: event.created_at.clone(),
+            restorable: i > 0 && event.core.op != RecordEventOp::Delete,
+        })
+        .collect()
+}
+
+/// A UI records write the Undo toast names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UndoableWrite {
+    Create,
+    Update,
+    Delete,
+    Batch,
+}
+
+/// The Undo toast's title for a UI write.
+pub fn undo_title(write: UndoableWrite) -> &'static str {
+    let c = &APP_RECORD_HISTORY.copy;
+    match write {
+        UndoableWrite::Create => &c.undo_create,
+        UndoableWrite::Update => &c.undo_update,
+        UndoableWrite::Delete => &c.undo_delete,
+        UndoableWrite::Batch => &c.undo_batch,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -888,6 +1115,82 @@ mod tests {
             let got = form_author(case["viewer"].as_str(), record, case["picked"].as_str());
             assert_eq!(got.default, case["default"].as_str(), "{} default", case["name"]);
             assert_eq!(got.send, case["send"].as_str(), "{} send", case["name"]);
+        }
+    }
+
+    fn history_cases(key: &str) -> Vec<Value> {
+        let fixture: Value = serde_json::from_str(RECORDS_JSON).unwrap();
+        let all = fixture["history"][key].as_array().unwrap().clone();
+        assert!(!all.is_empty(), "{key}");
+        all
+    }
+
+    fn event_core(v: &Value) -> RecordEventCore {
+        RecordEventCore {
+            op: RecordEventOp::parse(v["op"].as_str().unwrap()).unwrap(),
+            before: v["before"].as_object().cloned(),
+            patch: v["patch"].as_object().cloned(),
+        }
+    }
+
+    /// VAPP-215: `history` spec + `stateCases`.
+    #[test]
+    fn history_state_cases_replay_the_fixture() {
+        let fixture: Value = serde_json::from_str(RECORDS_JSON).unwrap();
+        let h = &fixture["history"];
+        assert_eq!(h["undoSeconds"].as_u64().unwrap(), APP_RECORD_HISTORY.undo_seconds);
+        assert_eq!(h["maxFields"].as_u64().unwrap() as usize, APP_RECORD_HISTORY.max_fields);
+        assert_eq!(h["copy"]["undo"], APP_RECORD_HISTORY.copy.undo.as_str());
+        assert_eq!(fixture["dataTab"]["testIds"]["historyRow"], DATA_TAB.test_ids.history_row.as_str());
+        assert_eq!(undo_title(UndoableWrite::Create), h["copy"]["undoCreate"].as_str().unwrap());
+        assert_eq!(undo_title(UndoableWrite::Update), h["copy"]["undoUpdate"].as_str().unwrap());
+        assert_eq!(undo_title(UndoableWrite::Delete), h["copy"]["undoDelete"].as_str().unwrap());
+        assert_eq!(undo_title(UndoableWrite::Batch), h["copy"]["undoBatch"].as_str().unwrap());
+        for case in history_cases("stateCases") {
+            let got = event_state(&event_core(&case["event"])).map(Value::Object).unwrap_or(Value::Null);
+            assert!(json_equal(&got, &case["state"]), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn history_inverse_cases_replay_the_fixture() {
+        for case in history_cases("inverseCases") {
+            let got = match inverse_write(&event_core(&case["event"])) {
+                InverseWrite::Delete => json!({"op": "delete"}),
+                InverseWrite::Restore(data) => json!({"op": "restore", "data": data}),
+            };
+            assert!(json_equal(&got, &case["inverse"]), "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn history_label_cases_replay_the_fixture() {
+        for case in history_cases("labelCases") {
+            assert_eq!(event_label(&event_core(&case["event"])), case["label"].as_str().unwrap(), "{}", case["name"]);
+        }
+        assert!(json_equal(&json!(2), &json!(2.0)));
+        assert!(!json_equal(&json!([1, 2]), &json!([2, 1])));
+    }
+
+    #[test]
+    fn history_rows_cases_replay_the_fixture() {
+        let fixture: Value = serde_json::from_str(RECORDS_JSON).unwrap();
+        // `history_cases` refuses an empty list; `rowsCases` must have cases.
+        let all = fixture["history"]["rowsCases"].as_array().unwrap();
+        assert!(!all.is_empty());
+        for case in all {
+            let names = case["names"].as_object().unwrap();
+            let events: Vec<RecordEvent> =
+                case["events"].as_array().unwrap().iter().map(|e| RecordEvent::from_value(e).unwrap()).collect();
+            let got: Vec<Value> = history_rows(
+                &events,
+                |id| names.get(id).and_then(Value::as_str).map(str::to_string),
+                case["fallback"].as_str().unwrap(),
+            )
+            .into_iter()
+            .map(|r| json!({"id": r.id, "label": r.label, "who": r.who, "at": r.at, "restorable": r.restorable}))
+            .collect();
+            assert_eq!(Value::Array(got), case["rows"], "{}", case["name"]);
         }
     }
 

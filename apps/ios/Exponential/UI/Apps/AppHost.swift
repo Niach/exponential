@@ -275,6 +275,11 @@ final class ExpAppHost {
                     CardJSON(any: try? JSONSerialization.jsonObject(with: Data(write.json.utf8)))
                 }
                 let result = try await appsApi.recordsBatch(accountId: accountId, appId: appId, writes: writes)
+                // VAPP-215: a package action's writes toast Undo for 10 s (app-records.json `history`).
+                AppRecordUndo.toast(
+                    .batch, appId: appId, eventIds: result.eventIds ?? [], via: "app",
+                    accountId: accountId, api: appsApi, toaster: Toaster.shared
+                )
                 return ["ids": result.ids]
             } catch let error as AppHostMcp.CallError {
                 throw error

@@ -306,7 +306,7 @@ public enum AppRecords {
             public static let edit = "Edit"
             public static let delete = "Delete"
             public static let deleteTitle = "Delete this record?"
-            public static let deleteBody = "The app stops showing it. This cannot be undone."
+            public static let deleteBody = "The app stops showing it."
             public static let by = "by"
             public static let updated = "updated"
             public static let empty = "No records yet"
@@ -371,6 +371,10 @@ public enum AppRecords {
             public static let form = "app-data-form"
             public static let save = "app-data-save"
             public static let error = "app-data-error"
+            /// VAPP-215: the record form's History section, a row, its Restore.
+            public static let history = "app-data-history"
+            public static let historyRow = "app-data-history-row"
+            public static let restore = "app-data-restore"
         }
     }
 
@@ -583,6 +587,162 @@ public enum AppRecords {
             if value != .null || editing { data[field.name] = value }
         }
         return data
+    }
+
+    // MARK: - Record history + undo (VAPP-215, fixture `history`)
+
+    /// What one `app_record_events` row means, its undo and its History row
+    /// (TS `APP_RECORD_HISTORY`).
+    public enum History {
+        public static let undoSeconds: Double = 10
+        public static let retentionDays = 90
+        public static let batch = 500
+        public static let historyLimit = 50
+        public static let maxFields = 3
+        public static let ops = ["create", "update", "delete", "restore"]
+        public static let vias = ["editor", "app", "mcp", "action", "import"]
+
+        public enum Copy {
+            public static let history = "History"
+            public static let restore = "Restore"
+            public static let undo = "Undo"
+            public static let created = "Created"
+            public static let deleted = "Deleted"
+            public static let restored = "Restored"
+            /// `Changed {fields}`.
+            public static let changed = "Changed {fields}"
+            /// `+{n}`.
+            public static let more = "+{n}"
+            public static let saved = "Saved"
+            public static let empty = "No history yet"
+            public static let undoCreate = "Record added"
+            public static let undoUpdate = "Record saved"
+            public static let undoDelete = "Record deleted"
+            public static let undoBatch = "Records saved"
+            public static let undoVerb = "undo"
+            public static let undoThing = "the change"
+        }
+    }
+
+    /// One event as `apps.records.history` returns it (newest first); the
+    /// pure rules read `op`, `before` and `patch`.
+    public struct RecordEvent: Equatable, Sendable {
+        public let id: String
+        /// `create` | `update` | `delete` | `restore`.
+        public let op: String
+        public let actor: String?
+        public let before: [String: CardJSON]?
+        public let patch: [String: CardJSON]?
+        public let createdAt: String
+
+        public init(
+            id: String = "", op: String, actor: String? = nil,
+            before: [String: CardJSON]?, patch: [String: CardJSON]?, createdAt: String = ""
+        ) {
+            self.id = id
+            self.op = op
+            self.actor = actor
+            self.before = before
+            self.patch = patch
+            self.createdAt = createdAt
+        }
+    }
+
+    /// The write that undoes an event: a delete, or a restore of `data`.
+    public enum InverseWrite: Equatable, Sendable {
+        case delete
+        case restore([String: CardJSON])
+    }
+
+    /// The record an event left (TS `eventState`, `stateCases`): nil = gone.
+    public static func eventState(_ event: RecordEvent) -> [String: CardJSON]? {
+        if event.op == "delete" { return nil }
+        if event.op == "update" {
+            return (event.before ?? [:]).merging(event.patch ?? [:]) { _, new in new }
+        }
+        return event.patch ?? [:]
+    }
+
+    /// Undo = a new write of the event's `before` (TS `inverseWrite`,
+    /// `inverseCases`).
+    public static func inverseWrite(_ event: RecordEvent) -> InverseWrite {
+        guard let before = event.before else { return .delete }
+        return .restore(before)
+    }
+
+    /// Deep JSON equality (objects by key, numbers by value; a missing value
+    /// = nil differs from null; TS `jsonEqual`).
+    public static func jsonEqual(_ a: CardJSON?, _ b: CardJSON?) -> Bool {
+        a == b
+    }
+
+    /// A History row's title (TS `eventLabel`, `labelCases`).
+    public static func eventLabel(_ event: RecordEvent) -> String {
+        typealias C = History.Copy
+        switch event.op {
+        case "create": return C.created
+        case "delete": return C.deleted
+        case "restore": return C.restored
+        default: break
+        }
+        let before = event.before ?? [:]
+        let patch = event.patch ?? [:]
+        let changed = patch.keys
+            .filter { !jsonEqual(before[$0], patch[$0]) }
+            .sorted(by: scalarLess)
+        if changed.isEmpty { return C.saved }
+        let max = History.maxFields
+        let shown = changed.prefix(max).joined(separator: ", ")
+        let rest = changed.count - max
+        let fields = rest > 0 ? shown + " " + C.more.replacingOccurrences(of: "{n}", with: String(rest)) : shown
+        return C.changed.replacingOccurrences(of: "{fields}", with: fields)
+    }
+
+    /// One History row.
+    public struct HistoryRow: Equatable, Sendable {
+        public let id: String
+        public let label: String
+        public let who: String
+        public let at: String
+        public let restorable: Bool
+
+        public init(id: String, label: String, who: String, at: String, restorable: Bool) {
+            self.id = id
+            self.label = label
+            self.who = who
+            self.at = at
+            self.restorable = restorable
+        }
+    }
+
+    /// The History list (TS `historyRows`, `rowsCases`): the events in the
+    /// server's order (newest first); Restore on every row but the newest,
+    /// never on a delete.
+    public static func historyRows(_ events: [RecordEvent], names: [String: String], fallback: String) -> [HistoryRow] {
+        events.enumerated().map { i, event in
+            HistoryRow(
+                id: event.id,
+                label: eventLabel(event),
+                who: event.actor.flatMap { names[$0] } ?? fallback,
+                at: event.createdAt,
+                restorable: i > 0 && event.op != "delete"
+            )
+        }
+    }
+
+    /// The UI write an Undo toast follows.
+    public enum UndoWrite: String, Sendable {
+        case create, update, delete, batch
+    }
+
+    /// The Undo toast's title for a UI write (TS `undoTitle`).
+    public static func undoTitle(_ write: UndoWrite) -> String {
+        switch write {
+        case .create: return History.Copy.undoCreate
+        case .update: return History.Copy.undoUpdate
+        case .delete: return History.Copy.undoDelete
+        case .batch: return History.Copy.undoBatch
+        }
     }
 
     // MARK: - Settings → Apps → the app

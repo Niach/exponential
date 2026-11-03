@@ -237,6 +237,10 @@ pub struct RecordUpsertInput {
     /// writer, omitted on the wire).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub author: Option<String>,
+    /// VAPP-215: where the write came from (`editor` = the Data tab, `app`
+    /// = an app's own UI; `None` = omitted, the server says `app`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub via: Option<String>,
 }
 
 /// `apps.records.upsert` output: the record's id, `created` = a new row.
@@ -248,6 +252,9 @@ pub struct RecordUpsertOutput {
     pub id: String,
     #[serde(default)]
     pub created: bool,
+    /// VAPP-215: the write's `app_record_events` row (the Undo toast's).
+    #[serde(default)]
+    pub event_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -255,6 +262,77 @@ pub struct RecordUpsertOutput {
 struct RecordIdInput<'a> {
     id: &'a str,
     record_id: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    via: Option<&'a str>,
+}
+
+/// `apps.records.delete` output: the write's event (VAPP-215).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordDeleteOutput {
+    #[serde(default, alias = "txid")]
+    pub tx_id: Option<i64>,
+    #[serde(default)]
+    pub event_id: Option<String>,
+}
+
+/// VAPP-215 `apps.records.restore` / `undo` output: the new writes' events.
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecordEventsOutput {
+    #[serde(default, alias = "txid")]
+    pub tx_id: Option<i64>,
+    #[serde(default)]
+    pub event_ids: Vec<String>,
+}
+
+/// VAPP-215 `apps.records.history` output: the record's events, newest
+/// first, raw (`domain::app_records::RecordEvent::from_value` reads one).
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
+pub struct RecordHistoryOutput {
+    #[serde(default)]
+    pub events: Vec<Value>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordRestoreInput<'a> {
+    id: &'a str,
+    record_id: &'a str,
+    event_id: &'a str,
+    via: &'a str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct RecordUndoInput<'a> {
+    id: &'a str,
+    event_ids: &'a [String],
+    via: &'a str,
+}
+
+/// VAPP-215 `apps.records.history {recordId}`: the record's events (its
+/// read policy; read on demand, no synced shape).
+pub fn records_history(trpc: &TrpcClient, app_id: &str, record_id: &str) -> Result<RecordHistoryOutput, ApiError> {
+    trpc.query_with_input("apps.records.history", &RecordIdInput { id: app_id, record_id, via: None })
+}
+
+/// VAPP-215 `apps.records.restore {recordId, eventId}`: the record as that
+/// event left it, as a new write.
+pub fn records_restore(
+    trpc: &TrpcClient,
+    app_id: &str,
+    record_id: &str,
+    event_id: &str,
+    via: &str,
+) -> Result<RecordEventsOutput, ApiError> {
+    trpc.mutation("apps.records.restore", &RecordRestoreInput { id: app_id, record_id, event_id, via })
+}
+
+/// VAPP-215 `apps.records.undo {eventIds}`: each event's `before` as a new
+/// write, newest first, in one transaction.
+pub fn records_undo(trpc: &TrpcClient, app_id: &str, event_ids: &[String], via: &str) -> Result<RecordEventsOutput, ApiError> {
+    trpc.mutation("apps.records.undo", &RecordUndoInput { id: app_id, event_ids, via })
 }
 
 /// VAPP-122 `apps.records.upsert`: create a record, or shallow-patch the
@@ -265,8 +343,13 @@ pub fn records_upsert(trpc: &TrpcClient, input: &RecordUpsertInput) -> Result<Re
 }
 
 /// VAPP-122 `apps.records.delete`: the record's trash.
-pub fn records_delete(trpc: &TrpcClient, app_id: &str, record_id: &str) -> Result<TxOutput, ApiError> {
-    trpc.mutation("apps.records.delete", &RecordIdInput { id: app_id, record_id })
+pub fn records_delete(
+    trpc: &TrpcClient,
+    app_id: &str,
+    record_id: &str,
+    via: Option<&str>,
+) -> Result<RecordDeleteOutput, ApiError> {
+    trpc.mutation("apps.records.delete", &RecordIdInput { id: app_id, record_id, via })
 }
 
 /// VAPP-194 `apps.records.batch` input: a package action's writes, passed
@@ -287,6 +370,9 @@ pub struct RecordsBatchOutput {
     pub tx_id: Option<i64>,
     #[serde(default)]
     pub ids: Vec<String>,
+    /// VAPP-215: the batch's events (the Undo toast's; empty = no change).
+    #[serde(default)]
+    pub event_ids: Vec<String>,
 }
 
 /// VAPP-194 `apps.records.batch`: the writes as ONE transaction (all land
@@ -347,6 +433,7 @@ mod tests {
             data: serde_json::json!({"hours": 3}),
             record_id: None,
             author: None,
+            via: None,
         };
         assert_eq!(
             serde_json::to_value(&upsert).unwrap(),
@@ -358,11 +445,25 @@ mod tests {
             serde_json::json!({"id": "app", "kind": "entry", "data": {"hours": 3}, "recordId": "r1", "author": "u2"})
         );
         assert_eq!(
-            serde_json::to_value(RecordIdInput { id: "app", record_id: "r1" }).unwrap(),
+            serde_json::to_value(RecordIdInput { id: "app", record_id: "r1", via: None }).unwrap(),
             serde_json::json!({"id": "app", "recordId": "r1"})
         );
-        let out: RecordUpsertOutput = serde_json::from_value(serde_json::json!({"txid": 3, "id": "r1", "created": true})).unwrap();
-        assert_eq!((out.tx_id, out.id.as_str(), out.created), (Some(3), "r1", true));
+        // VAPP-215: the Data tab says `via: "editor"`; the write's event comes back.
+        assert_eq!(
+            serde_json::to_value(RecordIdInput { id: "app", record_id: "r1", via: Some("editor") }).unwrap(),
+            serde_json::json!({"id": "app", "recordId": "r1", "via": "editor"})
+        );
+        assert_eq!(
+            serde_json::to_value(RecordUndoInput { id: "app", event_ids: &["e1".to_string()], via: "editor" }).unwrap(),
+            serde_json::json!({"id": "app", "eventIds": ["e1"], "via": "editor"})
+        );
+        assert_eq!(
+            serde_json::to_value(RecordRestoreInput { id: "app", record_id: "r1", event_id: "e1", via: "editor" }).unwrap(),
+            serde_json::json!({"id": "app", "recordId": "r1", "eventId": "e1", "via": "editor"})
+        );
+        let out: RecordUpsertOutput =
+            serde_json::from_value(serde_json::json!({"txid": 3, "id": "r1", "created": true, "eventId": "e1"})).unwrap();
+        assert_eq!((out.tx_id, out.id.as_str(), out.created, out.event_id.as_deref()), (Some(3), "r1", true, Some("e1")));
         let writes = vec![
             serde_json::json!({"op": "upsert", "kind": "entry", "data": {"hours": 2}}),
             serde_json::json!({"op": "delete", "id": "r1"}),

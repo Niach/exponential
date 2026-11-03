@@ -63,13 +63,13 @@ public final class Toaster {
         queue.append(item)
         let after = Set(queue.items.map(\.id))
         for dropped in before.subtracting(after) { forget(dropped) }
-        remaining[item.id] = .milliseconds(ToastStack.Constants.durationMs)
+        remaining[item.id] = .milliseconds(item.durationMs ?? ToastStack.Constants.durationMs)
         if !queue.expanded { startClock(item.id) }
         AccessibilityNotification.Announcement(item.title).post()
     }
 
-    public func success(_ title: String, description: String? = nil, action: ToastAction? = nil) {
-        show(ToastItem(kind: .success, title: title, description: description, action: action))
+    public func success(_ title: String, description: String? = nil, action: ToastAction? = nil, durationMs: Int? = nil) {
+        show(ToastItem(kind: .success, title: title, description: description, action: action, durationMs: durationMs))
     }
 
     public func error(_ title: String, description: String? = nil, action: ToastAction? = nil) {
