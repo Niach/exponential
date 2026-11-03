@@ -4984,15 +4984,15 @@
         "file": "shots/schedule-picker/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 30942,
-        "sha256": "f9cbfd559c1f363f071fa03802027272a2cbe81d96ee90eed5348618bbfcbd98"
+        "bytes": 30908,
+        "sha256": "236f34f1e8b10c9a4a52928e3f3f7a3b462dfbaea38a74a1526bcd97d338cf8c"
       },
       "web-mobile": {
         "file": "shots/schedule-picker/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 12986,
-        "sha256": "f3ba7d334247b449e2ffe1a8dc0c951848082e7b1c1210efe0b52a4b8c51cc91"
+        "bytes": 12970,
+        "sha256": "17355edf0863b61cdaee074597051606b8e8fed2b898f9823a479d41ac1e26ca"
       }
     },
     "script-card": {
