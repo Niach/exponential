@@ -7,7 +7,8 @@
     "dev": "bun run sync && astro dev",
     "sync": "bun run scripts/sync-reference.ts",
     "build": "bun run sync && astro build",
-    "preview": "astro preview"
+    "preview": "astro preview",
+    "test": "bun test ./scripts"
   },
   "dependencies": {
     "@astrojs/react": "7.1.1",
