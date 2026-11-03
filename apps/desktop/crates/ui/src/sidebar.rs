@@ -1403,8 +1403,8 @@ impl RailView {
     }
 
     /// VAPP-110: one Apps row (the Agents row's twin): the app's glyph and
-    /// name. VAPP-242: click = THE RUN VIEW, lit while it runs; the hover
-    /// gear (the creator's and the owners') opens THE EDITOR (its default tab).
+    /// name. VAPP-242: click = THE RUN VIEW, lit while it runs and in its
+    /// editor; the hover gear (the creator's and the owners') opens THE EDITOR (its default tab).
     fn rail_app_row(
         &self,
         index: usize,
@@ -1414,7 +1414,7 @@ impl RailView {
     ) -> gpui::AnyElement {
         let active = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::AppRun { app }) if app == entry.id || app == entry.slug
+            Some(Screen::AppRun { app } | Screen::App { app }) if app == entry.id || app == entry.slug
         );
         let open = entry.id.clone();
         let settings_id = entry.id.clone();
