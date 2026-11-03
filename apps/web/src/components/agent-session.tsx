@@ -6,7 +6,16 @@ import {
   agentInstructionsChanged,
   commandDivider,
 } from "@exp/domain-contract/chats"
-import { threadDockQueue, type DockRow, type DockSource } from "@exp/domain-contract/dock"
+import {
+  THREAD_QUEUE_CLOSED_TTL_MS,
+  THREAD_QUEUE_PROBE_DEADLINE_MS,
+  threadDockQueue,
+  threadQueueChildState,
+  threadQueueProbe,
+  type DockRow,
+  type DockSource,
+  type ThreadQueueProbe,
+} from "@exp/domain-contract/dock"
 import { PLAN_CARD_COPY } from "@exp/domain-contract/plan-card"
 import type { ReactNode } from "react"
 import {
@@ -172,6 +181,7 @@ import {
   type QuestionItem,
   type SteerDockSlots,
   type SteerSessionSnapshot,
+  type ViewerPhase,
   type ToolItem,
 } from "@/lib/steer-session-store"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
@@ -1914,36 +1924,85 @@ export interface DockChild {
 
 const NO_CHILDREN: readonly DockChild[] = []
 
-/** #EXP-1545 (dock.json THREAD QUEUE): every Live child's relay snapshot
- *  (LOCAL FIRST: the per-session store's last-known slots while it dials);
- *  an ended child is not read at all. */
-function useChildSnapshots(children: readonly DockChild[]): { child: DockChild; snapshot: SteerSessionSnapshot }[] {
+/** #EXP-1678 (dock.json ONE CHILD STREAM): children read closed, by session
+ *  id, keyed by their activeAt then; kept across thread mounts. */
+const closedQueueReads = new Map<string, { activeAt: number | null; at: number }>()
+const NO_SUBSCRIBE = () => () => {}
+const NO_SNAPSHOT = () => null
+
+function streamPhase(phase: ViewerPhase): `connecting` | `live` | `starting` | `closed` | `ended` {
+  switch (phase.kind) {
+    case `idle`:
+    case `connecting`:
+      return `connecting`
+    default:
+      return phase.kind
+  }
+}
+
+function snapshotQueueOpen(snapshot: SteerSessionSnapshot): boolean {
+  const { taskList, backgroundTasks, feed } = snapshot
+  return Boolean(sessionTaskQueue({ taskList, backgroundTasks, feed, now: Date.now() })?.todo.items.length)
+}
+
+/** #EXP-1545 (dock.json THREAD QUEUE) + #EXP-1678 (ONE CHILD STREAM): the
+ *  relay snapshot of the ONE Live child `threadQueueProbe` names (LOCAL
+ *  FIRST: the per-session store's last-known slots while it dials); the
+ *  thread never opens a stream per Live child (a burst of joins to one
+ *  device). An ended child is not read at all. */
+function useChildSnapshots(
+  children: readonly DockChild[],
+  rootOpen: boolean
+): { child: DockChild; snapshot: SteerSessionSnapshot }[] {
   const live = useMemo(() => children.filter((child) => child.session.status !== `ended`), [children])
-  const key = live.map((child) => child.session.id).join(`,`)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const stores = useMemo(() => live.map((child) => acquireSteerSession(child.session.id)), [key])
+  const [held, setHeld] = useState<{ id: string; at: number } | null>(null)
+  const [, setTick] = useState(0)
+  const heldId = held?.id ?? null
+  const store = useMemo(() => (heldId ? acquireSteerSession(heldId) : null), [heldId])
   useEffect(() => {
-    for (const store of stores) store.connect()
-  }, [stores])
-  const subscribe = useCallback(
-    (listener: () => void) => {
-      const offs = stores.map((store) => store.subscribe(listener))
-      return () => offs.forEach((off) => off())
-    },
-    [stores]
-  )
-  const cache = useRef<SteerSessionSnapshot[]>([])
-  const getSnapshot = useCallback(() => {
-    const next = stores.map((store) => store.getSnapshot())
-    const prev = cache.current
-    if (next.length !== prev.length || next.some((snap, i) => snap !== prev[i])) cache.current = next
-    return cache.current
-  }, [stores])
-  const snapshots = useSyncExternalStore(subscribe, getSnapshot)
-  return useMemo(
-    () => live.flatMap((child, i) => (snapshots[i] ? [{ child, snapshot: snapshots[i]! }] : [])),
-    [live, snapshots]
-  )
+    store?.connect()
+  }, [store])
+  const snapshot = useSyncExternalStore(store?.subscribe ?? NO_SUBSCRIBE, store?.getSnapshot ?? NO_SNAPSHOT)
+  const heldOpen = useMemo(() => (snapshot ? snapshotQueueOpen(snapshot) : false), [snapshot])
+  const now = Date.now()
+  const probes: ThreadQueueProbe[] = live.map((child) => {
+    const id = child.session.id
+    const at = activeAt(child.session)
+    const seen = closedQueueReads.get(id)
+    const remembered = !!seen && seen.activeAt === at && now - seen.at < THREAD_QUEUE_CLOSED_TTL_MS
+    const mine = held && held.id === id && snapshot ? snapshot : null
+    const stream = mine && held ? { phase: streamPhase(mine.phase), replayed: mine.replayed, attachedMs: now - held.at } : null
+    return { sessionId: id, activeAt: at, state: threadQueueChildState({ open: !!mine && heldOpen, remembered, stream }) }
+  })
+  const wanted = threadQueueProbe(rootOpen, probes)
+  const closedKey = probes
+    .filter((probe) => probe.state === `closed`)
+    .map((probe) => `${probe.sessionId}:${probe.activeAt}`)
+    .join(`,`)
+  useEffect(() => {
+    const at = Date.now()
+    for (const probe of probes) {
+      if (probe.state !== `closed`) continue
+      const seen = closedQueueReads.get(probe.sessionId)
+      if (!seen || seen.activeAt !== probe.activeAt || at - seen.at >= THREAD_QUEUE_CLOSED_TTL_MS) {
+        closedQueueReads.set(probe.sessionId, { activeAt: probe.activeAt, at })
+      }
+    }
+    if (wanted !== heldId) setHeld(wanted ? { id: wanted, at } : null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wanted, heldId, closedKey])
+  // Re-read once the probe deadline passes, and (every child read closed)
+  // once the closed memory runs out.
+  const rearmMs = held ? THREAD_QUEUE_PROBE_DEADLINE_MS : wanted === null && live.length > 0 && !rootOpen ? THREAD_QUEUE_CLOSED_TTL_MS : null
+  useEffect(() => {
+    if (rearmMs === null) return
+    const timer = setTimeout(() => setTick((n) => n + 1), rearmMs)
+    return () => clearTimeout(timer)
+  }, [rearmMs, held])
+  return useMemo(() => {
+    const child = heldId ? live.find((entry) => entry.session.id === heldId) : undefined
+    return child && snapshot ? [{ child, snapshot }] : []
+  }, [live, heldId, snapshot])
 }
 
 function activeAt(session: SessionRow): number | null {
@@ -1977,7 +2036,12 @@ export function useSessionDock(
   // says so (S-3: an interruption draws nothing).
   const stateBanner = useMemo(() => sessionBanner(toTreeSession(session)), [session])
   const blockedLabel = blockedBadgeLabel(session.blocked, now)
-  const childSnapshots = useChildSnapshots(children)
+  // #EXP-1678: the root's own open Queue wins (no child stream at all).
+  const rootOpen = useMemo(
+    () => Boolean(sessionTaskQueue({ taskList, backgroundTasks, feed, now: Date.now() })?.todo.items.length),
+    [taskList, backgroundTasks, feed]
+  )
+  const childSnapshots = useChildSnapshots(children, rootOpen && !sessionEnded)
   const ticking = [backgroundTasks, ...childSnapshots.map((entry) => entry.snapshot.backgroundTasks)].some((tasks) =>
     tasks.some((task) => task.kind !== `agent`)
   )

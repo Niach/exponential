@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 
 import fixture from "../fixtures/dock.json" with { type: "json" }
 import toastFixture from "../fixtures/toast-stack.json" with { type: "json" }
-import { dock, dockAutoOpen, dockRows, suggestionSources, threadDockQueue, DOCK_AUTO_OPEN_GRACE_MS, DOCK_STACK, type DockKind, type DockRow, type DockSource, type ThreadQueueCandidate } from "./dock"
+import { dock, dockAutoOpen, dockRows, suggestionSources, threadDockQueue, threadQueueChildState, threadQueueProbe, DOCK_AUTO_OPEN_GRACE_MS, DOCK_STACK, type DockKind, type DockRow, type DockSource, type ThreadQueueCandidate, type ThreadQueueChildState, type ThreadQueueProbe } from "./dock"
 
 describe(`dockRows`, () => {
   for (const entry of fixture.rowCases) {
@@ -44,6 +44,19 @@ describe(`threadDockQueue`, () => {
   for (const entry of fixture.threadQueueCases) {
     test(entry.name, () => {
       expect(threadDockQueue(entry.candidates as ThreadQueueCandidate[])).toEqual(entry.expected)
+    })
+  }
+})
+
+describe(`threadQueueProbe (#EXP-1678: one child stream)`, () => {
+  for (const entry of fixture.threadQueueProbeCases) {
+    test(entry.name, () => {
+      expect(threadQueueProbe(entry.rootOpen, entry.children as ThreadQueueProbe[])).toBe(entry.expected)
+    })
+  }
+  for (const entry of fixture.childStateCases) {
+    test(`child state: ${entry.name}`, () => {
+      expect(threadQueueChildState(entry as Parameters<typeof threadQueueChildState>[0])).toBe(entry.state as ThreadQueueChildState)
     })
   }
 })

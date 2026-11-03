@@ -195,7 +195,7 @@ fn open_transcript(record: &coding::run_registry::RunRecord, cx: &App) -> Option
 
 /// The in-process ACP engine hosting `session_id`, if this process is running
 /// it.
-fn local_engine(session_id: &str, cx: &App) -> Option<engine::EngineSession> {
+pub(crate) fn local_engine(session_id: &str, cx: &App) -> Option<engine::EngineSession> {
     let sessions = LocalSessions::global_ref(cx)?;
     Some(sessions.read(cx).session_by_id(session_id)?.host.session.clone())
 }

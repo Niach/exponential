@@ -676,6 +676,9 @@ export interface SteerSessionSnapshot {
   /** VAPP-171: the `ended` phase is the device-offline one (no feed: its
    *  `detail` is the "{device} is offline" copy the empty column shows ×4). */
   deviceOffline: boolean
+  /** #EXP-1678: a join replay has landed in this snapshot (at least once):
+   *  a thread's child probe reads the Queue only once it is there. */
+  replayed: boolean
 }
 
 export interface SteerDraftSnapshot {
@@ -867,6 +870,7 @@ export function createSteerSessionStore(
    *  ended row), which keeps redialing: the stale timer, a wakeup, the
    *  device's presence flip online (fixtures/steer-enet.json OFFLINE REDIAL). */
   let deviceOffline = false
+  let replayed = false
   /** VAPP-173: a redial's feed answered while the row still read ended, so
    *  the phase went `ended` from the ROW, not from `bye`: the row flipping
    *  back to running under that open feed lifts it to live. */
@@ -995,6 +999,7 @@ export function createSteerSessionStore(
     connected,
     canLoadEarlier: false,
     deviceOffline,
+    replayed,
   }
   let draftSnapshot: SteerDraftSnapshot = { text: draftText, images: draftImages }
 
@@ -1026,6 +1031,7 @@ export function createSteerSessionStore(
       // device dropped this viewer, the button goes.
       canLoadEarlier: historyTruncated && !historyExhausted && connected,
       deviceOffline,
+      replayed,
     }
     notify()
   }
@@ -1664,6 +1670,7 @@ export function createSteerSessionStore(
     if (events === null) return
     clearStagingTimers()
     staged = null
+    replayed = true
     const echoes = stagedEchoes
     stagedEchoes = []
 

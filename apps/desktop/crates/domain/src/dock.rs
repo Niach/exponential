@@ -412,6 +412,75 @@ pub fn thread_dock_queue(candidates: &[ThreadQueueCandidate]) -> Option<ThreadDo
     best.map(|b| ThreadDockQueue { session_id: b.session_id.clone(), session_name: Some(b.name.clone()) })
 }
 
+/// dock.json `probeDeadlineMs` / `closedQueueTtlMs` (#EXP-1678).
+pub const PROBE_DEADLINE_MS: u64 = 15_000;
+pub const CLOSED_QUEUE_TTL_MS: u64 = 60_000;
+
+/// #EXP-1678 (dock.json ONE CHILD STREAM): what a thread knows of one Live
+/// child's Queue before it pays for that child's stream.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChildQueueState {
+    Open,
+    Closed,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ThreadQueueProbe {
+    pub session_id: String,
+    pub active_at: Option<i64>,
+    pub state: ChildQueueState,
+}
+
+/// A held child stream as the probe reads it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChildStreamPhase {
+    Connecting,
+    Live,
+    Starting,
+    Closed,
+    Ended,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChildStream {
+    pub phase: ChildStreamPhase,
+    pub replayed: bool,
+    pub attached_ms: u64,
+}
+
+/// #EXP-1678: the ONE Live child a thread holds a stream on: none while the
+/// root's Queue is open, else the first child in [`thread_dock_queue`]'s
+/// order (latest activeAt, none = oldest, ties by id) not known closed.
+pub fn thread_queue_probe(root_open: bool, children: &[ThreadQueueProbe]) -> Option<String> {
+    if root_open {
+        return None;
+    }
+    let mut ordered: Vec<&ThreadQueueProbe> = children.iter().collect();
+    ordered.sort_by(|a, b| b.active_at.cmp(&a.active_at).then_with(|| a.session_id.cmp(&b.session_id)));
+    ordered.into_iter().find(|c| c.state != ChildQueueState::Closed).map(|c| c.session_id.clone())
+}
+
+/// #EXP-1678 (`childStateCases`): one Live child's state for [`thread_queue_probe`].
+pub fn thread_queue_child_state(open: bool, remembered: bool, stream: Option<ChildStream>) -> ChildQueueState {
+    if open {
+        return ChildQueueState::Open;
+    }
+    if remembered {
+        return ChildQueueState::Closed;
+    }
+    let Some(stream) = stream else { return ChildQueueState::Unknown };
+    match stream.phase {
+        ChildStreamPhase::Starting | ChildStreamPhase::Closed | ChildStreamPhase::Ended => ChildQueueState::Closed,
+        _ if stream.replayed || stream.attached_ms >= PROBE_DEADLINE_MS => ChildQueueState::Closed,
+        _ => ChildQueueState::Unknown,
+    }
+}
+
 fn ask_row(kind: AskDockKind, id: &str, text: &str, session_name: &Option<String>, questions: usize) -> DockRow {
     let label = ask_dock_label(kind).to_string();
     let title = ask_dock_title(text);
@@ -561,6 +630,28 @@ mod tests {
             let candidates: Vec<ThreadQueueCandidate> = serde_json::from_value(case["candidates"].clone()).unwrap();
             let got = thread_dock_queue(&candidates);
             assert_eq!(serde_json::to_value(&got).unwrap(), case["expected"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn the_child_probe_matches_the_fixture() {
+        let fixture = fixture();
+        assert_eq!(fixture["probeDeadlineMs"], PROBE_DEADLINE_MS);
+        assert_eq!(fixture["closedQueueTtlMs"], CLOSED_QUEUE_TTL_MS);
+        let cases = fixture["threadQueueProbeCases"].as_array().unwrap();
+        assert!(!cases.is_empty());
+        for case in cases {
+            let children: Vec<ThreadQueueProbe> = serde_json::from_value(case["children"].clone()).unwrap();
+            let got = thread_queue_probe(case["rootOpen"].as_bool().unwrap(), &children);
+            assert_eq!(got.as_deref(), case["expected"].as_str(), "{}", case["name"]);
+        }
+        let states = fixture["childStateCases"].as_array().unwrap();
+        assert!(!states.is_empty());
+        for case in states {
+            let stream: Option<ChildStream> = serde_json::from_value(case["stream"].clone()).unwrap();
+            let got = thread_queue_child_state(case["open"].as_bool().unwrap(), case["remembered"].as_bool().unwrap(), stream);
+            let want: ChildQueueState = serde_json::from_value(case["state"].clone()).unwrap();
+            assert_eq!(got, want, "{}", case["name"]);
         }
     }
 

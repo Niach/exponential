@@ -487,6 +487,9 @@ pub(crate) struct SteerSessionView {
     /// EXP-1650: an app editor's chat draws no "No transcript" replay banner
     /// (web shows only "Session ended" there) — [`Self::hide_empty_replay`].
     hide_empty_replay: bool,
+    /// #EXP-1678: a join replay has landed in the feed (at least once): the
+    /// thread's child probe reads the Queue only once it is there.
+    replayed: bool,
     /// The composer controls' element ids.
     composer_ids: ComposerIds,
     sending: bool,
@@ -823,6 +826,7 @@ impl SteerSessionView {
             pending_images: PendingImages::default(),
             tree_scope: false,
             hide_empty_replay: false,
+            replayed: false,
             composer_ids: ComposerIds::session(),
             sending: false,
             notice: None,
@@ -1881,6 +1885,7 @@ impl SteerSessionView {
                 }
                 self.feed.apply_synced_from(first_seq);
                 self.history_truncated = truncated;
+                self.replayed = true;
             }
             // EXP-783: an older page, requested by scrolling past the top of
             // what this client holds. It is PREPENDED, so every visible row
@@ -2183,6 +2188,7 @@ impl SteerSessionView {
                     // Re-minted ids: see the `ViewerEvent::Synced` arm.
                     this.edit_memo.clear();
                     this.feed.force_swap();
+                    this.replayed = true;
                     this.refresh_derived();
                     this.note_feed_moved(pulse);
                     this.note_compaction(was_compacting, cx);
@@ -7699,6 +7705,20 @@ impl SteerSessionView {
     /// N-12: THE Queue as the `tasks` DockCard reads it; `None` when nothing
     /// is to do or the session is over. #EXP-1545: a thread reads each Live
     /// child's through its own view.
+    /// #EXP-1678 (dock.json ONE CHILD STREAM): this viewer as the thread's
+    /// child probe reads it, `attached_ms` after the thread attached it.
+    pub(crate) fn probe_stream(&self, attached_ms: u64) -> domain::dock::ChildStream {
+        use domain::dock::{ChildStream, ChildStreamPhase};
+        let phase = match &self.phase {
+            ViewerPhase::Connecting | ViewerPhase::Reconnecting => ChildStreamPhase::Connecting,
+            ViewerPhase::Live => ChildStreamPhase::Live,
+            ViewerPhase::Starting => ChildStreamPhase::Starting,
+            ViewerPhase::Ended { .. } => ChildStreamPhase::Ended,
+            ViewerPhase::Unauthorized { .. } => ChildStreamPhase::Closed,
+        };
+        ChildStream { phase, replayed: self.replayed, attached_ms }
+    }
+
     pub(crate) fn dock_queue(&self) -> Option<domain::dock::DockQueue> {
         use domain::dock::{DockQueue, DockQueueCompleted, DockQueueItem, DockQueueTodo};
         // #EXP-1538: a session that is over shows none of the stream's slots.
