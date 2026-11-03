@@ -51,6 +51,7 @@ vi.mock(`@/lib/integrations/notifications`, () => ({
 // The object store (never reached here: card pictures arrive as rows).
 vi.mock(`@/lib/storage`, () => ({
   uploadObject: async () => {},
+  copyObject: async () => {},
   deleteObject: async () => {},
   getObject: async () => ({ Body: {}, ContentLength: 3 }),
   toResponseBody: async () => new Uint8Array([1, 2, 3]).buffer,
@@ -289,13 +290,32 @@ describe.skipIf(!ready.ok)(`sessions.send — a new root`, () => {
     expect(att!.messageId).toBe(sent.messageId)
     const [message] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, sent.messageId!))
     expect(message!.body).toBe(`look\n\n![shot.png](/api/attachments/${upload!.id})`)
-    // A second claim of the same upload is refused.
+    // #EXP-1682: sending it again FORWARDS a copy (the upload stays put).
+    const again = await sendSession({
+      userId: w.owner,
+      input: { sessionId: sent.sessionId, attachmentIds: [upload!.id] },
+    })
+    const [forwarded] = await db.select(messageWithSession()).from(messages).where(eq(messages.id, again.messageId!))
+    expect(forwarded!.attachmentIds).toHaveLength(1)
+    expect(forwarded!.attachmentIds![0]).not.toBe(upload!.id)
+    expect((await db.select().from(attachments).where(eq(attachments.id, upload!.id)))[0]!.messageId).toBe(sent.messageId)
+    // Someone else's unsent upload is still refused.
+    const mate = `mate-${id8()}`
+    await db.execute(sql`
+      INSERT INTO users (id, name, email, email_verified, is_admin, created_at, updated_at)
+      VALUES (${mate}, 'Mate', ${`${mate}@x.test`}, true, false, now(), now())
+    `)
+    const [theirs] = await db
+      .insert(attachments)
+      .values({ teamId: w.teamId, uploaderId: mate, filename: `t.png`, contentType: `image/png`, sizeBytes: 3, storageKey: `k-${id8()}`, url: `x` })
+      .returning({ id: attachments.id })
     await expect(
       sendSession({
         userId: w.owner,
-        input: { sessionId: sent.sessionId, attachmentIds: [upload!.id] },
+        input: { sessionId: sent.sessionId, attachmentIds: [theirs!.id] },
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    await db.execute(sql`DELETE FROM users WHERE id = ${mate}`)
   })
 
   it(`NEW-2: a prompt run's first message is the body plus the text, titled after the prompt`, async () => {

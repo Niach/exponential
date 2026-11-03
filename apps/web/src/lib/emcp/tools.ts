@@ -57,6 +57,7 @@ import {
 } from "drizzle-orm"
 import { alias } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
+import { answeredMessageFiles, forwardMessageFiles } from "@/lib/sessions/forward-attachments"
 import {
   agents,
   prompts,
@@ -728,6 +729,17 @@ export function registerExponentialTools(
         ctxIssue: Awaited<ReturnType<typeof getIssueTeamContext>>
       }
     | { kind: `reporter`; reporter: ResolvedReporterIssue }
+  /** #EXP-1682: `ids` with every readable message file copied onto the
+   *  issue (its new id in place); the rest pass through unchanged. */
+  async function forwardIntoIssue(ids: string[], issueId: string, teamId: string): Promise<string[]> {
+    const own = await loadCallerSession()
+    const readerIds = [...new Set([user.id, ...(own?.userId ? [own.userId] : [])])]
+    const forwarded = await db.transaction((tx) =>
+      forwardMessageFiles(tx, { ids, teamId, readerIds, uploaderId: user.id, owner: { kind: `issue`, issueId } })
+    )
+    return ids.map((id) => forwarded.get(id) ?? id)
+  }
+
   async function resolveIssueTarget(idInput: string): Promise<IssueTarget> {
     let memberError: unknown
     try {
@@ -2142,10 +2154,15 @@ export function registerExponentialTools(
         }
         // The member gate above already checked the grant and the team.
         const { issueId } = target
+        // #EXP-1682: a message's file (a person's pasted screenshot) is
+        // copied onto the issue first, so the comment can carry it.
+        const commentAttachmentIds = attachmentIds?.length
+          ? await forwardIntoIssue(attachmentIds, issueId, target.ctxIssue.teamId)
+          : attachmentIds
         const result = await caller(user, request).comments.create({
           issueId,
           body,
-          ...(attachmentIds ? { attachmentIds } : {}),
+          ...(commentAttachmentIds ? { attachmentIds: commentAttachmentIds } : {}),
           ...(parentId ? { parentId } : {}),
           ...(audience ? { audience } : {}),
         })
@@ -2429,7 +2446,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_send`,
     {
-      description: `THE one call for sessions. sessionId = message it (idle resumes; an ended thread resumes the row, an ended child continues as a sibling; answer = answer its open question/plan {answer|answers|decision|dismissed}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = message a team agent (your conversation with it); appId = your app editor session. parentId = start a child. Neither = a new thread (text, issueIds, promptId = a saved prompt's body first, repositoryId); its transitions wake you, as do wakeOn sessions. New threads need deviceId; teamId defaults to yours. Never resend, never wait.`,
+      description: `THE one call for sessions. sessionId = message it (idle or ended resumes, an ended child as a sibling; answer = its open question/plan {answer|answers|decision|dismissed}, first wins; issueIds = forward; account/model/effort = set; deviceId = move; stop = interrupt its turn). agentId = a team agent; appId = an app's editor. parentId = start a child. Neither = a new thread (needs deviceId; text, issueIds, promptId = a saved prompt, repositoryId); it and wakeOn sessions wake you. attachmentIds = uploads or readable files (Image/File line ids); forwardAttachments = your current message's. Never resend, never wait.`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
@@ -2450,6 +2467,9 @@ export function registerExponentialTools(
         name: z.string().optional(),
         text: z.string().optional(),
         attachmentIds: z.array(uuidString).optional(),
+        // #EXP-1682: the files of the newest message delivered into the
+        // caller's session (the one it is answering), merged in.
+        forwardAttachments: z.boolean().optional(),
         issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
         promptId: uuidString.optional(),
         repositoryId: uuidString.optional(),
@@ -2468,9 +2488,15 @@ export function registerExponentialTools(
         stop: z.boolean().optional(),
       }),
     },
-    async ({ issueIds: issueRefs, stop, ...rest }) => {
+    async ({ issueIds: issueRefs, stop, forwardAttachments, ...rest }) => {
       try {
         const own = await loadCallerSession()
+        if (forwardAttachments) {
+          if (!own) throw new Error(noSessionMessage(`exponential_sessions_send`, `attachmentIds`))
+          const answered = await answeredMessageFiles(db, own.id)
+          if (answered.length === 0) throw new Error(`forwardAttachments: the message you are answering carries no files.`)
+          rest.attachmentIds = [...new Set([...(rest.attachmentIds ?? []), ...answered])]
+        }
         if (stop) {
           if (!rest.sessionId) throw new Error(`stop needs sessionId.`)
           if (!access.full) await loadGrantedSession(rest.sessionId)

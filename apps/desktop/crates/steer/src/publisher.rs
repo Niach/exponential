@@ -297,14 +297,22 @@ const MANIFEST_PREFIX: &str = "Image #";
 /// Wave D: the file manifest lines' prefix (numbered apart from the images).
 const FILE_MANIFEST_PREFIX: &str = "File #";
 
+/// #EXP-1682: what follows a manifest line's target: the attachment's
+/// server id, so the agent can FORWARD the file by id
+/// (`exponential_sessions_send {attachmentIds}`, a comment's
+/// `attachmentIds`) without uploading it again.
+fn attachment_id_suffix(id: &str) -> String {
+    format!(" (attachment {id})")
+}
+
 /// One image's manifest line, as the agent reads it.
-fn image_manifest_line(index: usize, target: &str) -> String {
-    format!("{MANIFEST_PREFIX}{index}: {target}")
+fn image_manifest_line(index: usize, target: &str, id: &str) -> String {
+    format!("{MANIFEST_PREFIX}{index}: {target}{}", attachment_id_suffix(id))
 }
 
 /// One file's manifest line, as the agent reads it.
-fn file_manifest_line(index: usize, target: &str) -> String {
-    format!("{FILE_MANIFEST_PREFIX}{index}: {target}")
+fn file_manifest_line(index: usize, target: &str, id: &str) -> String {
+    format!("{FILE_MANIFEST_PREFIX}{index}: {target}{}", attachment_id_suffix(id))
 }
 
 /// Is `needle` a whole manifest LINE (vs a bare path)?
@@ -321,8 +329,8 @@ fn is_manifest_needle(needle: &str) -> bool {
 /// ```text
 /// crop [Image #1] please
 ///
-/// Image #1: /…/.exp-steer-images/a.png
-/// Image #2: /…/.exp-steer-images/b.png
+/// Image #1: /…/.exp-steer-images/a.png (attachment <uuid>)
+/// Image #2: /…/.exp-steer-images/b.png (attachment <uuid>)
 /// ```
 ///
 /// The numbers are the EMBED ORDER, which is the image order the composer's
@@ -363,7 +371,7 @@ async fn localize_image_embeds(
     let mut restores: Vec<(String, String)> = Vec::new();
     let (mut images, mut files) = (0usize, 0usize);
     for (token, id, name) in tokens.iter() {
-        let line_for: fn(usize, &str) -> String = if name.is_some() {
+        let line_for: fn(usize, &str, &str) -> String = if name.is_some() {
             files += 1;
             file_manifest_line
         } else {
@@ -378,7 +386,7 @@ async fn localize_image_embeds(
         {
             Ok(Ok(path)) => {
                 let path = path.display().to_string();
-                let line = line_for(number, &path);
+                let line = line_for(number, &path, id);
                 restores.push((line.clone(), token.clone()));
                 restores.push((path, token.clone()));
                 manifest.push(line);
@@ -387,13 +395,13 @@ async fn localize_image_embeds(
                 log::warn!("steer publisher: attachment {id} not localized ({reason})");
                 // No local file — the manifest carries the URL itself, and
                 // the line restores to the token like any other.
-                let line = line_for(number, token);
+                let line = line_for(number, token, id);
                 restores.push((line.clone(), token.clone()));
                 manifest.push(line);
             }
             Err(join_err) => {
                 log::warn!("steer publisher: attachment {id} download panicked: {join_err}");
-                let line = line_for(number, token);
+                let line = line_for(number, token, id);
                 restores.push((line.clone(), token.clone()));
                 manifest.push(line);
             }
@@ -1809,16 +1817,16 @@ mod tests {
             .handle()
             .block_on(localize_message(text, &hook, &embeds));
         let path = local.display().to_string();
-        assert_eq!(agent_text, format!("fix [Image #1]\n\nImage #1: {path}"));
+        assert_eq!(agent_text, format!("fix [Image #1]\n\nImage #1: {path}{}", tail(ID_A)));
         assert_eq!(
             embeds.snapshot(),
             vec![
-                (format!("Image #1: {path}"), EMBED.to_string()),
+                (format!("Image #1: {path}{}", tail(ID_A)), EMBED.to_string()),
                 (path.clone(), EMBED.to_string()),
             ]
         );
         // The round trip: an agent echo restores to the steerer's token.
-        let mut echo = ActivityEvent::user_message(format!("fix [Image #1]\n\nImage #1: {path}"));
+        let mut echo = ActivityEvent::user_message(format!("fix [Image #1]\n\nImage #1: {path}{}", tail(ID_A)));
         restore_image_embeds(&mut echo, &embeds);
         assert_eq!(echo, ActivityEvent::user_message(format!("fix [Image #1]\n\n{EMBED}")));
         let mut tool = ActivityEvent::tool("Read", Some(path.clone()));
@@ -1834,6 +1842,14 @@ mod tests {
     /// The exact token shape the shared `buildSteerImageMessage` template
     /// emits on web/iOS/Android.
     const EMBED: &str = "![image](/api/attachments/11111111-2222-3333-4444-555555555555)";
+
+    /// #EXP-1682: the id tail every manifest line carries.
+    fn tail(id: &str) -> String {
+        attachment_id_suffix(id)
+    }
+    const ID_A: &str = "11111111-2222-3333-4444-555555555555";
+    const ID_B: &str = "22222222-3333-4444-5555-666666666666";
+    const ID_F: &str = "33333333-4444-5555-6666-777777777777";
 
     /// A scratch dir for the fake localizer's paths (nothing is written — the
     /// publisher only ever handles the path string).
@@ -1875,7 +1891,7 @@ mod tests {
         wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
         assert_eq!(
             recorded.inputs.lock().unwrap()[0],
-            format!("look at please\n\nImage #1: {path}").into_bytes(),
+            format!("look at please\n\nImage #1: {path}{}", tail(ID_A)).into_bytes(),
             "the agent gets a numbered file to read, not an auth-gated URL"
         );
 
@@ -1885,7 +1901,8 @@ mod tests {
         handle
             .activity_sender()
             .send(ActivityEvent::user_message(format!(
-                "look at please\n\nImage #1: {path}"
+                "look at please\n\nImage #1: {path}{}",
+                tail(ID_A)
             )));
         let event = seen_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(event.contains(r#""kind":"user_message""#), "{event}");
@@ -1928,7 +1945,7 @@ mod tests {
         wait_for(|| !recorded.inputs.lock().unwrap().is_empty());
         assert_eq!(
             recorded.inputs.lock().unwrap()[0],
-            format!("Image #1: {EMBED}").into_bytes()
+            format!("Image #1: {EMBED}{}", tail(ID_A)).into_bytes()
         );
         handle.shutdown(None);
     }
@@ -1995,7 +2012,7 @@ mod tests {
         assert_eq!(
             recorded.inputs.lock().unwrap().as_slice(),
             &[
-                format!("look at\n\nImage #1: {}", local.display()).into_bytes(),
+                format!("look at\n\nImage #1: {}{}", local.display(), tail(ID_A)).into_bytes(),
                 b"\r".to_vec()
             ]
         );
@@ -2041,7 +2058,7 @@ mod tests {
         wait_for(|| !sunk.lock().unwrap().is_empty());
         assert_eq!(
             sunk.lock().unwrap().as_slice(),
-            &[format!("crop this\n\nImage #1: {}", local.display())]
+            &[format!("crop this\n\nImage #1: {}{}", local.display(), tail(ID_A))]
         );
         handle.shutdown(None);
     }
@@ -2148,10 +2165,15 @@ mod tests {
         let (out, embeds, seen) = localize_named(&message);
         assert_eq!(
             out,
-            "read these [Image #1]\n\n\
-             Image #1: /w/11111111-2222-3333-4444-555555555555.png\n\
-             File #1: /w/33333333-4444-5555-6666-777777777777/notes.pdf\n\
-             File #2: /w/44444444-5555-6666-7777-888888888888/a]b.txt"
+            format!(
+                "read these [Image #1]\n\n\
+                 Image #1: /w/11111111-2222-3333-4444-555555555555.png{}\n\
+                 File #1: /w/33333333-4444-5555-6666-777777777777/notes.pdf{}\n\
+                 File #2: /w/44444444-5555-6666-7777-888888888888/a]b.txt{}",
+                tail(ID_A),
+                tail(ID_F),
+                tail("44444444-5555-6666-7777-888888888888")
+            )
         );
         // The image embed's `[image](…)` half is never mistaken for a file.
         assert_eq!(
@@ -2161,9 +2183,10 @@ mod tests {
         assert!(has_attachment_embed(FILE));
         assert!(!has_attachment_embed("[notes.pdf](https://example.com/x)"));
         // An echo of the file line (and of the bare path) restores the token.
-        let mut echo = ActivityEvent::user_message(
-            "File #1: /w/33333333-4444-5555-6666-777777777777/notes.pdf".to_string(),
-        );
+        let mut echo = ActivityEvent::user_message(format!(
+            "File #1: /w/33333333-4444-5555-6666-777777777777/notes.pdf{}",
+            tail(ID_F)
+        ));
         restore_image_embeds(&mut echo, &embeds);
         assert_eq!(echo, ActivityEvent::user_message(FILE.to_string()));
         let mut tool = ActivityEvent::tool(
@@ -2184,7 +2207,7 @@ mod tests {
             &hook,
             &embeds,
         ));
-        assert_eq!(out, format!("look\n\nFile #1: {FILE}"));
+        assert_eq!(out, format!("look\n\nFile #1: {FILE}{}", tail(ID_F)));
         let mut echo = ActivityEvent::user_message(out);
         restore_image_embeds(&mut echo, &embeds);
         assert_eq!(echo, ActivityEvent::user_message(format!("look\n\n{FILE}")));
@@ -2197,7 +2220,7 @@ mod tests {
         let (out, _) = localize(&format!("crop [Image #2]\n\n{EMBED}\n{EMBED_B}"));
         assert_eq!(
             out,
-            "crop [Image #2]\n\nImage #1: /img/1.png\nImage #2: /img/2.png"
+            format!("crop [Image #2]\n\nImage #1: /img/1.png{}\nImage #2: /img/2.png{}", tail(ID_A), tail(ID_B))
         );
     }
 
@@ -2208,20 +2231,20 @@ mod tests {
         let (out, _) = localize(&format!("have a look\n\n{EMBED}\n{EMBED_B}"));
         assert_eq!(
             out,
-            "have a look\n\nImage #1: /img/1.png\nImage #2: /img/2.png"
+            format!("have a look\n\nImage #1: /img/1.png{}\nImage #2: /img/2.png{}", tail(ID_A), tail(ID_B))
         );
     }
 
     #[test]
     fn embeds_alone_become_the_manifest_alone() {
         let (out, _) = localize(EMBED);
-        assert_eq!(out, "Image #1: /img/1.png");
+        assert_eq!(out, format!("Image #1: /img/1.png{}", tail(ID_A)));
     }
 
     #[test]
     fn an_inline_embed_leaves_no_gap_behind() {
         let (out, _) = localize(&format!("look at {EMBED} please"));
-        assert_eq!(out, "look at please\n\nImage #1: /img/1.png");
+        assert_eq!(out, format!("look at please\n\nImage #1: /img/1.png{}", tail(ID_A)));
     }
 
     #[test]
@@ -2249,7 +2272,7 @@ mod tests {
             &embeds,
         ));
         // In the second message the shared image is #2, not #1.
-        assert!(second.contains("Image #2: /img/11111111-2222-3333-4444-555555555555.png"));
+        assert!(second.contains(&format!("Image #2: /img/11111111-2222-3333-4444-555555555555.png{}", tail(ID_A))));
 
         for (localized, original) in [
             (first, format!("look [Image #1]\n\n{EMBED}")),

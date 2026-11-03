@@ -89,6 +89,7 @@ import { attachmentLine } from "@/lib/sessions/attachment-lines"
 import { parseBodyEnvelope } from "@exp/domain-contract/sealed-content"
 import { composeIssueBrief } from "@exp/domain-contract/session-brief"
 import { isSealedBody, validSealedBody } from "@/lib/sessions/sealed"
+import { forwardMessageFiles, retargetBody } from "@/lib/sessions/forward-attachments"
 import { parseVersionTuple } from "@/lib/client-version"
 import { createTreeKeyInTx, dropNonReaderKeysInTx } from "@/lib/sessions/tree-keys"
 import { hidePrivateLinesInTx } from "@/lib/sessions/private-lines"
@@ -287,10 +288,13 @@ async function agentSkillIds(tx: Tx, agentId: string): Promise<string[] | null> 
 /**
  * Claims eager uploads (team-scoped `attachments` rows with no owner yet,
  * uploaded by the sender) onto the message and names them in clear
- * (`messages.attachment_ids`, EXP-1458). A PLAINTEXT body also gets an
- * embed line for every one it does not already reference (attachments
- * never sync, so the body is how older clients and the device find them);
- * a SEALED body is never touched: the writer put its embeds inside.
+ * (`messages.attachment_ids`, EXP-1458). #EXP-1682: an id of a file another
+ * message already carries, which the sender may read, is FORWARDED: copied
+ * onto this message under a new id (`forwardMessageFiles`), no re-upload.
+ * A PLAINTEXT body also gets an embed line for every one it does not
+ * already reference (attachments never sync, so the body is how older
+ * clients and the device find them); a SEALED body is never touched: the
+ * writer put its embeds inside.
  */
 async function claimAttachments(
   tx: Tx,
@@ -302,14 +306,14 @@ async function claimAttachments(
     body: string
   }
 ): Promise<void> {
-  const ids = [...new Set(args.ids)]
-  if (ids.length === 0) return
+  const requested = [...new Set(args.ids)]
+  if (requested.length === 0) return
   const claimed = await tx
     .update(attachments)
     .set({ messageId: args.messageId })
     .where(
       and(
-        inArray(attachments.id, ids),
+        inArray(attachments.id, requested),
         eq(attachments.teamId, args.teamId),
         isNull(attachments.issueId),
         isNull(attachments.draftId),
@@ -319,25 +323,35 @@ async function claimAttachments(
         inArray(attachments.uploaderId, args.uploaderIds)
       )
     )
-    .returning({
-      id: attachments.id,
-      filename: attachments.filename,
-      contentType: attachments.contentType,
-    })
-  if (claimed.length !== ids.length) {
+    .returning({ id: attachments.id })
+  const claimedIds = new Set(claimed.map((row) => row.id))
+  const forwarded = await forwardMessageFiles(tx, {
+    ids: requested.filter((id) => !claimedIds.has(id)),
+    teamId: args.teamId,
+    readerIds: args.uploaderIds,
+    uploaderId: args.uploaderIds[0]!,
+    owner: { kind: `message`, messageId: args.messageId },
+  })
+  if (claimed.length + forwarded.size !== requested.length) {
     throw new TRPCError({
       code: `BAD_REQUEST`,
-      message: `Attach files you uploaded to this team (each file once)`,
+      message: `Attach files you uploaded to this team, or files of messages you can read (each file once)`,
     })
   }
+  const ids = requested.map((id) => forwarded.get(id) ?? id)
   await tx.update(messages).set({ attachmentIds: ids }).where(eq(messages.id, args.messageId))
   if (isSealedBody(args.body)) return
-  const byId = new Map(claimed.map((row) => [row.id, row]))
+  const rows = await tx
+    .select({ id: attachments.id, filename: attachments.filename, contentType: attachments.contentType })
+    .from(attachments)
+    .where(inArray(attachments.id, ids))
+  const byId = new Map(rows.map((row) => [row.id, row]))
+  const retargeted = retargetBody(args.body, forwarded)
   const lines = ids
-    .filter((id) => !args.body.includes(buildAttachmentUrl(id)))
+    .filter((id) => !retargeted.includes(buildAttachmentUrl(id)))
     .map((id) => attachmentLine(byId.get(id)!))
-  if (lines.length === 0) return
-  const body = [args.body.trimEnd(), ...lines].filter(Boolean).join(`\n\n`)
+  if (lines.length === 0 && retargeted === args.body) return
+  const body = [retargeted.trimEnd(), ...lines].filter(Boolean).join(`\n\n`)
   await tx.execute(sql`UPDATE messages SET body = ${body} WHERE id = ${args.messageId}`)
 }
 

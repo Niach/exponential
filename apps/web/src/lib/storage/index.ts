@@ -1,5 +1,6 @@
 import "@dotenvx/dotenvx/config"
 import {
+  CopyObjectCommand,
   CreateBucketCommand,
   DeleteObjectCommand,
   GetObjectCommand,
@@ -207,6 +208,21 @@ export async function headObject(
 
     throw error
   }
+}
+
+/** #EXP-1682: a server-side copy of one stored object (a forwarded
+ *  attachment gets its own blob, so each row's reclaim stays independent). */
+export async function copyObject(sourceKey: string, targetKey: string) {
+  await ensureBucketReady()
+  await sendWithThrottleRetry(() =>
+    storageClient.send(
+      new CopyObjectCommand({
+        Bucket: storageBucket,
+        CopySource: `${storageBucket}/${sourceKey.split(`/`).map(encodeURIComponent).join(`/`)}`,
+        Key: targetKey,
+      })
+    )
+  )
 }
 
 export async function deleteObject(key: string) {
