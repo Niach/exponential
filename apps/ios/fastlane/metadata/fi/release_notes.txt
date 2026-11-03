@@ -35,3 +35,5 @@
 - Sovelluksen toiminto tallentaa kaikki tietueensa yhdessä tai ei yhtäkään
 - Sovellukset näyttävät oman varavaihtoehtonsa, kun arvo puuttuu
 - Kaaviot, luettelot, poistetut kentät ja kuvat näyttävät sovelluksissa samalta kuin muissa sovelluksissa
+- Tiimin taidot: valitse +-valikosta taidot, joilla istunto toimii
+- Sovelluksissa on Tiedot-välilehti, joka noudattaa kunkin lajin tietuesääntöä

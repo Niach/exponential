@@ -35,3 +35,5 @@
 - Radnja aplikacije sprema sve svoje zapise zajedno ili nijedan
 - Aplikacije prikazuju vlastitu zamjensku vrijednost gdje vrijednost nedostaje
 - Grafikoni, popisi, onemogućena polja i slike u aplikacijama izgledaju jednako kao u ostalim aplikacijama
+- Timske vještine: u izborniku + odaberite vještine s kojima sesija radi
+- Aplikacije imaju karticu Podaci koja prati pravilo zapisa svake vrste

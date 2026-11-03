@@ -35,3 +35,5 @@
 - A ação de uma app guarda todos os seus registos juntos, ou nenhum
 - As apps mostram o seu próprio valor alternativo onde falta um valor
 - Gráficos, listas, campos desativados e imagens nas apps têm o mesmo aspeto que nas outras apps
+- Competências da equipa: escolha no menu + as de uma sessão
+- As apps têm um separador Dados que segue a regra de registos de cada tipo

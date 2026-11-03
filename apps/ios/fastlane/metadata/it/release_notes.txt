@@ -35,3 +35,5 @@
 - L'azione di un'app salva tutti i suoi record insieme, oppure nessuno
 - Le app mostrano il proprio valore di riserva dove manca un valore
 - Grafici, elenchi, campi disattivati e immagini nelle app appaiono come nelle altre app
+- Competenze del team: scegli dal menu + quelle con cui gira una sessione
+- Le app hanno una scheda Dati che segue la regola dei record di ogni tipo

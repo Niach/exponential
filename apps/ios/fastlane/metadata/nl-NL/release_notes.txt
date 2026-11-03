@@ -35,3 +35,5 @@
 - Een actie van een app slaat al haar records samen op, of geen enkele
 - Apps tonen hun eigen terugvalwaarde waar een waarde ontbreekt
 - Grafieken, lijsten, uitgeschakelde velden en afbeeldingen in apps zien er hetzelfde uit als in de andere apps
+- Teamvaardigheden: kies in het +-menu de vaardigheden van een sessie
+- Apps hebben een tabblad Gegevens dat de recordregel van elk soort volgt

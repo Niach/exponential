@@ -35,3 +35,5 @@
 - En apps handling gemmer alle sine poster samlet eller ingen af dem
 - Apps viser deres egen reserveværdi, hvor en værdi mangler
 - Diagrammer, lister, deaktiverede felter og billeder i apps ser ud som i de andre apps
+- Teamfærdigheder: vælg i +-menuen de færdigheder, en session kører med
+- Apps har en Data-fane, der følger hver types postregel

@@ -35,3 +35,5 @@
 - En apphandling lagrer alle postene sine samlet, eller ingen av dem
 - Apper viser sin egen reserveverdi der en verdi mangler
 - Diagrammer, lister, deaktiverte felt og bilder i apper ser ut som i de andre appene
+- Teamferdigheter: velg i +-menyen ferdighetene en økt kjører med
+- Apper har en Data-fane som følger hver types postregel
