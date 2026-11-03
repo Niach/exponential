@@ -15,13 +15,13 @@
 // `docs/third-party-licences.md`; this file is the machine-readable projection
 // of them.
 
-export type Client = `desktop` | `web` | `marketing` | `ios` | `android`
+export type Client = `desktop` | `web` | `site` | `ios` | `android`
 
 export const CLIENTS: Client[] = [
   `android`,
   `desktop`,
   `ios`,
-  `marketing`,
+  `site`,
   `web`,
 ]
 
@@ -56,9 +56,9 @@ export interface CuratedEntry {
 export const FONTS: CuratedEntry[] = [
   {
     title: `Inter`,
-    clients: [`desktop`, `marketing`],
+    clients: [`desktop`, `site`],
     body: [
-      `Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter), licensed under the SIL Open Font License 1.1. The desktop application embeds the TTFs in its binary; the marketing site self-hosts woff2 subsets.`,
+      `Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter), licensed under the SIL Open Font License 1.1. The desktop application embeds the TTFs in its binary; the website self-hosts woff2 subsets.`,
     ],
     reproduce: [
       { label: `SIL Open Font License 1.1 — Inter`, path: `apps/desktop/assets/fonts/LICENSE.txt` },
@@ -66,7 +66,7 @@ export const FONTS: CuratedEntry[] = [
   },
   {
     title: `JetBrains Mono`,
-    clients: [`desktop`, `marketing`],
+    clients: [`desktop`, `site`],
     body: [
       `Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono), licensed under the SIL Open Font License 1.1.`,
     ],
@@ -79,7 +79,7 @@ export const FONTS: CuratedEntry[] = [
   },
   {
     title: `Geist and Geist Mono`,
-    clients: [`marketing`],
+    clients: [`site`],
     body: [
       `Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font), licensed under the SIL Open Font License 1.1. Self-hosted as latin / latin-ext woff2 subsets.`,
     ],
@@ -277,13 +277,13 @@ export const TRADEMARKS: Trademark[] = [
   {
     mark: `Apple logo`,
     owner: `Apple Inc.`,
-    clients: [`desktop`, `marketing`, `web`],
+    clients: [`desktop`, `site`, `web`],
     use: `label the "Sign in with Apple" button and the macOS download link`,
   },
   {
     mark: `App Store badge`,
     owner: `Apple Inc.`,
-    clients: [`marketing`],
+    clients: [`site`],
     use: `label the iOS App Store download link`,
   },
   {
@@ -307,13 +307,13 @@ export const TRADEMARKS: Trademark[] = [
   {
     mark: `Microsoft Windows logo`,
     owner: `Microsoft Corporation`,
-    clients: [`marketing`],
+    clients: [`site`],
     use: `label the Windows download link`,
   },
   {
     mark: `Tux, the Linux mascot`,
     owner: `Linus Torvalds (the LINUX trademark)`,
-    clients: [`marketing`],
+    clients: [`site`],
     use: `label the Linux download link`,
   },
   // The MCP catalog's brand marks (packages/icons `brand`, contract
@@ -463,7 +463,7 @@ export const MPL_SOURCE_URLS: Record<string, string> = {
   [`uniffi*`]: `https://github.com/mozilla/uniffi-rs`,
   // npm (web)
   [`lightningcss*`]: `https://github.com/parcel-bundler/lightningcss`,
-  // npm (marketing)
+  // npm (site)
   mediabunny: `https://github.com/Vanilagy/mediabunny`,
   [`@mediabunny/*`]: `https://github.com/Vanilagy/mediabunny`,
 }

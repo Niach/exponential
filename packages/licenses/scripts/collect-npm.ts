@@ -5,7 +5,7 @@
 //   bun run --filter @exp/licenses collect:npm
 //
 // Collects BOTH npm scopes in one pass and writes `inventory/npm-web.json`
-// and `inventory/npm-marketing.json`. Those files are committed and are the
+// and `inventory/npm-site.json`. Those files are committed and are the
 // only thing `scripts/generate.ts` reads, so this script's output has to be a
 // pure function of the repo contents — see "DETERMINISM" below.
 //
@@ -101,7 +101,7 @@ const COLLECTOR = `packages/licenses/scripts/collect-npm.ts`
 
 const SCOPES = [
   { scope: `web` as const, dir: `apps/web` },
-  { scope: `marketing` as const, dir: `apps/marketing` },
+  { scope: `site` as const, dir: `apps/site` },
 ]
 
 // ---------------------------------------------------------------------------
@@ -139,6 +139,13 @@ const PLATFORM_LICENCE_FALLBACK: Record<string, string> = {
   // registry.npmjs.org/@img/sharp-linuxmusl-{x64,arm64}@0.34.5 → Apache-2.0,
   // matching the sharp binding prebuilds on disk.
   [`@img/sharp-linuxmusl`]: `Apache-2.0`,
+  // apps/site (Astro + Starlight): pagefind's Windows binaries and sharp
+  // 0.35's webcontainers build have no member on a Linux or macOS host.
+  // registry.npmjs.org/@pagefind/windows-{x64,arm64}@1.5.2 → MIT, matching
+  // @pagefind/linux-x64 on disk.
+  [`@pagefind/windows`]: `MIT`,
+  // registry.npmjs.org/@img/sharp-webcontainers-wasm32@0.35.5 → Apache-2.0.
+  [`@img/sharp-webcontainers`]: `Apache-2.0`,
 }
 
 // Platform / architecture / ABI tokens stripped to find a family base.

@@ -1,0 +1,5 @@
+# The compositor's dry-run / proposal frames and the raw web-app captures the
+# social cards compose (apps/web `bun run screenshots:social`): store and
+# social screenshots stay out of git (EXP-348, EXP-597).
+out/
+social-shots/

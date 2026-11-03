@@ -110,7 +110,7 @@ jobs:
             apps/android/app/src/main/java/com/exponential/app/ui/theme/DesignTokens.generated.kt \
             apps/desktop/assets/licenses/NOTICES.txt \
             apps/web/public/NOTICES.txt \
-            apps/marketing/public/NOTICES.txt \
+            apps/site/public/NOTICES.txt \
             apps/ios/Exponential/Resources/NOTICES.txt \
             apps/android/app/src/main/assets/NOTICES.txt
 

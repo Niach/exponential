@@ -9,7 +9,7 @@ name: test
 # eUI conformance pass (`eui`, below; every renderer but SwiftUI) when it touches eUI. The Mac-runner
 # legs (`ios-core`, the ExpCore fixture replay, and `eui-swift`, the SwiftUI conformance pass) run on
 # PRs too but are informational: `gate` does not wait for them. Everything heavy (the rest of the eUI suite: unit suites,
-# parity, guides, benches, Simulator + emulator; iOS, Android lint + licences, the full desktop cargo test, marketing,
+# parity, guides, benches, Simulator + emulator; iOS, Android lint + licences, the full desktop cargo test, the site,
 # shots:check, the package suites, the real-DB suites, image smoke builds)
 # runs in release-suite.yml: on release tags and on workflow_dispatch.
 #

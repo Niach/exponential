@@ -58,10 +58,10 @@ export const OUTPUTS: Record<
     inventories: [`npm-web.json`],
     ships: `served at /NOTICES.txt`,
   },
-  marketing: {
-    title: `Marketing site`,
-    path: `apps/marketing/public/NOTICES.txt`,
-    inventories: [`npm-marketing.json`],
+  site: {
+    title: `Website`,
+    path: `apps/site/public/NOTICES.txt`,
+    inventories: [`npm-site.json`],
     ships: `served at /NOTICES.txt`,
   },
   ios: {

@@ -62,10 +62,10 @@ Every package publishes together from an `eui-v*` tag.
 
 ## Compiled in CI
 
-The guides show the files in [apps/marketing/ui/guides](https://github.com/Niach/exponential/blob/master/apps/marketing/ui/guides) as they are. `guides/check.ts` builds each in an empty temp directory from the packed npm packages, the Swift package, local Maven artifacts and path crates:
+The guides show the files in [packages/exponential-ui/guides](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/guides) as they are. `guides/check.ts` builds each in an empty temp directory from the packed npm packages, the Swift package, local Maven artifacts and path crates:
 
 ```sh
-bun apps/marketing/ui/guides/check.ts react   # or solid, element, agent, define, theme, swift, compose, gpui, all
+bun packages/exponential-ui/guides/check.ts react   # or solid, element, agent, define, theme, swift, compose, gpui, all
 ```
 
 The [samples](https://github.com/Niach/exponential/blob/master/samples/exponential-ui) are complete apps: web, iOS, Android and gpui hosts against one local A2UI server, with a third-party theme and an extension component.

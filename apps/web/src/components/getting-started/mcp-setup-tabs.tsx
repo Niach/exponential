@@ -274,7 +274,7 @@ export function McpSetupTabs() {
           </Note>
           <Note>
             <a
-              href={docsUrl(`mcp`)}
+              href={docsUrl(`build/mcp`)}
               target="_blank"
               rel="noreferrer"
               className="underline underline-offset-2 hover:text-foreground"

@@ -444,7 +444,7 @@ describe(`fail-safe`, () => {
       `docs/third-party-licences.md`,
       `apps/web/src/lib/filters.test.ts`,
       `packages/shots/src/store.ts`,
-      `apps/marketing/src/lib/seo.ts`
+      `apps/site/src/components/landing/seo.ts`
     )
     for (const platform of WEB_LANES) expect(views(result, platform)).toEqual([])
     expect(result.ignored).toHaveLength(4)

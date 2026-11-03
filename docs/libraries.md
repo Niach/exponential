@@ -130,7 +130,7 @@ release after that removes the shim crate and the old tag pattern.
   distribution repo, Kotlin a Maven Central bundle under `at.exponential`.
 - One tag prefix per lib (`<lib>-v<semver>`), never `v*` (the web image) or
   the native app prefixes.
-- Docs: one page per lib in the `/ui/` site's style (`apps/marketing/ui`), and
+- Docs: one docs section per lib on exponential.at (`apps/site/src/content/docs/docs/libraries/<lib>/`), and
   one entry per lib in the front page's library section.
 - gpui consumers (Exponential desktop, spezl desktop) pin the same zed/gpui and
   gpui-component revisions: see `apps/desktop/crates/eui-gpui/README.md`.

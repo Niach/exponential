@@ -1,8 +1,8 @@
 # exponential.at (apps/site)
 
 The public site on Astro + Starlight: landing pages, product pages, docs,
-the library docs (the old /ui/ site merged in), blog. Replaces
-`apps/marketing`. The audit and the URL map: `docs/site/audit.md`.
+the library docs (the old /ui/ site merged in), blog. The audit and
+the URL map: `docs/site/audit.md`.
 
 ```bash
 bun --filter @exp/site dev        # syncs reference pages, astro dev on :4321

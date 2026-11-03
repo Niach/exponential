@@ -24339,7 +24339,7 @@ Inter
 
 Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter),
 licensed under the SIL Open Font License 1.1. The desktop application embeds
-the TTFs in its binary; the marketing site self-hosts woff2 subsets.
+the TTFs in its binary; the website self-hosts woff2 subsets.
 
 ..............................................................................
 SIL Open Font License 1.1 — Inter
