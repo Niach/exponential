@@ -639,6 +639,8 @@ struct AppSettingsSheet: View {
     @State private var color = AppSettingsSheet.defaultColor
     @State private var description = ""
     @State private var toolBusy: String?
+    /// #VAPP-220: the published package's automations (`appAccess.appTools`).
+    @State private var automations: [AppAutomationWire] = []
     @FocusState private var nameFocused: Bool
     @FocusState private var descriptionFocused: Bool
 
@@ -661,6 +663,8 @@ struct AppSettingsSheet: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Apps.TestIds.settings)
         .onAppear { seed() }
+        // #VAPP-220: refetched when the app or its published version changes.
+        .task(id: automationsKey) { await loadAutomations() }
         .onChange(of: model.app?.id) { _, _ in
             seeded = false
             seed()
@@ -700,6 +704,7 @@ struct AppSettingsSheet: View {
                 .padding(.horizontal, 4)
                 .accessibilityIdentifier("app-settings-records")
             tools(app)
+            automationsGroup
             actions(app)
         }
     }
@@ -808,6 +813,52 @@ struct AppSettingsSheet: View {
         .accessibilityIdentifier("app-tool-\(tool)")
     }
 
+    /// #VAPP-220: `copy.automations` (shown when the published package
+    /// declares any): one read-only row per automation, its name over the
+    /// trigger (muted) and the status pill (`Apps.automationRow`).
+    @ViewBuilder
+    private var automationsGroup: some View {
+        if !automations.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(Apps.Copy.Automations.title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                VStack(spacing: 0) {
+                    ForEach(Array(automations.enumerated()), id: \.offset) { _, automation in
+                        automationRow(automation)
+                    }
+                }
+                .glassSection()
+            }
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier(Apps.TestIds.automations)
+        }
+    }
+
+    private func automationRow(_ automation: AppAutomationWire) -> some View {
+        let row = Apps.automationRow(automation.row)
+        return HStack(spacing: 12) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(automation.name)
+                    .font(.subheadline)
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Text(row.trigger)
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            GlassPill(row.label)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(Apps.TestIds.automationRow)
+    }
+
     /// Export (once the app has a version) and, at the end, Delete app (the
     /// creator or an owner).
     @ViewBuilder
@@ -837,6 +888,23 @@ struct AppSettingsSheet: View {
     }
 
     // MARK: - Writes
+
+    private var automationsKey: String? {
+        model.app.map { "\($0.id):\($0.publishedVersion)" }
+    }
+
+    /// #VAPP-220: a failed read keeps the group hidden (nothing to act on).
+    private func loadAutomations() async {
+        guard let app = model.app else {
+            automations = []
+            return
+        }
+        let api = deps.appsApi
+        let account = accountId
+        let rows = (try? await api.automations(accountId: account, appId: app.id)) ?? []
+        guard !Task.isCancelled else { return }
+        automations = rows
+    }
 
     /// Seed the drafts from the APP once (never on a resync of the same one).
     private func seed() {

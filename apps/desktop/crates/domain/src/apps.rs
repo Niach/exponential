@@ -96,6 +96,29 @@ pub struct AppsCopy {
     pub frame: AppsFrameCopy,
     /// VAPP-198: Run as.
     pub run_as: AppsRunAsCopy,
+    /// #VAPP-220: the Settings tab's Automations group.
+    pub automations: AppsAutomationsCopy,
+}
+
+/// #VAPP-220: `copy.automations.*`.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsAutomationsCopy {
+    pub title: String,
+    /// `Schedule {cron}`.
+    pub schedule: String,
+    /// `Schedule {cron} ({tz})`.
+    pub schedule_zone: String,
+    /// `When a {kind} is created` (and updated, deleted).
+    pub create: String,
+    pub update: String,
+    pub delete: String,
+    /// `On {event}`.
+    pub event: String,
+    pub paused: String,
+    pub failed: String,
+    pub ok: String,
+    pub never: String,
 }
 
 /// VAPP-198: `copy.runAs.*`.
@@ -271,6 +294,9 @@ pub struct AppsTestIds {
     /// eApps V1: the header's (phones: the menu's) Publish, a row's Publish.
     pub publish: String,
     pub version_publish: String,
+    /// #VAPP-220: the Settings tab's Automations group and one row.
+    pub automations: String,
+    pub automation_row: String,
     /// VAPP-178: the Data tab.
     pub data: String,
     /// VAPP-179: the preview toolbar, its frame control and template picker.
@@ -506,6 +532,97 @@ pub fn restored_label(restored: i64, version: i64) -> String {
         .restored
         .replace("{n}", &restored.to_string())
         .replace("{m}", &version.to_string())
+}
+
+/// #VAPP-220: a schedule automation's trigger.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AutomationSchedule {
+    pub cron: String,
+    #[serde(default)]
+    pub tz: Option<String>,
+}
+
+/// #VAPP-220: a record automation's trigger (`op` = create | update | delete).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct AutomationRecord {
+    pub kind: String,
+    pub op: String,
+}
+
+/// #VAPP-220: an automation's `on` (`{schedule}` | `{record}` | `{event}`).
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum AutomationOn {
+    Schedule(AutomationSchedule),
+    Record(AutomationRecord),
+    Event(String),
+}
+
+/// #VAPP-220: an automation's state on its Settings row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AutomationStatus {
+    Paused,
+    Failed,
+    Ok,
+    Never,
+}
+
+impl AutomationStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Paused => "paused",
+            Self::Failed => "failed",
+            Self::Ok => "ok",
+            Self::Never => "never",
+        }
+    }
+}
+
+/// #VAPP-220 (`automationRowCases`): one row of the Settings tab's
+/// Automations group.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AutomationRowView {
+    pub trigger: String,
+    pub status: AutomationStatus,
+    pub label: String,
+}
+
+/// #VAPP-220: the trigger line, the status and its label (the TS
+/// `automationRow`).
+pub fn automation_row(on: &AutomationOn, paused: Option<&str>, last_status: Option<&str>) -> AutomationRowView {
+    let copy = &APPS.copy.automations;
+    let trigger = match on {
+        AutomationOn::Schedule(s) => match s.tz.as_deref().filter(|tz| !tz.is_empty()) {
+            Some(tz) => copy.schedule_zone.replace("{cron}", &s.cron).replace("{tz}", tz),
+            None => copy.schedule.replace("{cron}", &s.cron),
+        },
+        AutomationOn::Record(r) => {
+            let text = match r.op.as_str() {
+                "create" => &copy.create,
+                "update" => &copy.update,
+                _ => &copy.delete,
+            };
+            text.replace("{kind}", &r.kind)
+        }
+        AutomationOn::Event(event) => copy.event.replace("{event}", event),
+    };
+    let status = if paused.is_some_and(|p| !p.is_empty()) {
+        AutomationStatus::Paused
+    } else {
+        match last_status {
+            None => AutomationStatus::Never,
+            Some("ok") => AutomationStatus::Ok,
+            Some(_) => AutomationStatus::Failed,
+        }
+    };
+    let label = match status {
+        AutomationStatus::Paused => &copy.paused,
+        AutomationStatus::Failed => &copy.failed,
+        AutomationStatus::Ok => &copy.ok,
+        AutomationStatus::Never => &copy.never,
+    }
+    .clone();
+    AutomationRowView { trigger, status, label }
 }
 
 /// `Delete {name}?`.
@@ -768,6 +885,26 @@ mod tests {
             let name = case["name"].as_str().unwrap();
             assert_eq!(slugify(name, &taken), case["slug"].as_str().unwrap(), "{name}");
         }
+    }
+
+    #[test]
+    fn automation_row_replays_the_fixture() {
+        let fixture: Value = serde_json::from_str(APPS_JSON).unwrap();
+        let all = fixture["automationRowCases"]["cases"].as_array().unwrap();
+        assert!(!all.is_empty());
+        for case in all {
+            let name = case["name"].as_str().unwrap();
+            let row = &case["row"];
+            let on: AutomationOn = serde_json::from_value(row["on"].clone()).unwrap();
+            let got = automation_row(&on, row["paused"].as_str(), row["lastStatus"].as_str());
+            let want = &case["expected"];
+            assert_eq!(got.trigger, want["trigger"].as_str().unwrap(), "{name}");
+            assert_eq!(got.status.as_str(), want["status"].as_str().unwrap(), "{name}");
+            assert_eq!(got.label, want["label"].as_str().unwrap(), "{name}");
+        }
+        assert_eq!(APPS.copy.automations.title, fixture["copy"]["automations"]["title"].as_str().unwrap());
+        assert_eq!(APPS.test_ids.automations, fixture["testIds"]["automations"].as_str().unwrap());
+        assert_eq!(APPS.test_ids.automation_row, fixture["testIds"]["automationRow"].as_str().unwrap());
     }
 
     #[test]

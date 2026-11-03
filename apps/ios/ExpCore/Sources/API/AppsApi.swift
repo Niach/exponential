@@ -275,6 +275,72 @@ private struct AppUpstreamReadResult: Decodable {
     let server: String?
 }
 
+/// #VAPP-220 `appAccess.appTools {appId}`: only the published package's
+/// automations are read here (the Settings sheet's Automations group).
+private struct AppToolsInput: Encodable {
+    let appId: String
+}
+
+/// One automation on the wire. Every field tolerates its absence (an older
+/// server, a partial row): a missing `on` reads as an empty event.
+public struct AppAutomationWire: Decodable, Sendable, Equatable {
+    public let name: String
+    public let on: Apps.AutomationTrigger
+    public let tool: String?
+    public let paused: String?
+    public let lastStatus: String?
+
+    private struct Schedule: Decodable {
+        let cron: String?
+        let tz: String?
+    }
+
+    private struct Record: Decodable {
+        let kind: String?
+        let op: String?
+    }
+
+    private struct Trigger: Decodable {
+        let schedule: Schedule?
+        let record: Record?
+        let event: String?
+    }
+
+    private enum CodingKeys: String, CodingKey { case name, on, tool, paused, lastStatus }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? ""
+        tool = try? c.decodeIfPresent(String.self, forKey: .tool)
+        paused = try? c.decodeIfPresent(String.self, forKey: .paused)
+        lastStatus = try? c.decodeIfPresent(String.self, forKey: .lastStatus)
+        let trigger = try? c.decodeIfPresent(Trigger.self, forKey: .on)
+        if let schedule = trigger?.schedule {
+            on = .schedule(cron: schedule.cron ?? "", tz: schedule.tz)
+        } else if let record = trigger?.record {
+            on = .record(kind: record.kind ?? "", op: record.op ?? "create")
+        } else {
+            on = .event(trigger?.event ?? "")
+        }
+    }
+
+    /// The pure row's input (`Apps.automationRow`).
+    public var row: Apps.AutomationRowInput {
+        Apps.AutomationRowInput(name: name, on: on, paused: paused, lastStatus: lastStatus)
+    }
+}
+
+private struct AppToolsResult: Decodable {
+    let automations: [AppAutomationWire]
+
+    private enum CodingKeys: String, CodingKey { case automations }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        automations = (try? c.decodeIfPresent([AppAutomationWire].self, forKey: .automations)) ?? []
+    }
+}
+
 public final class AppsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -412,6 +478,15 @@ public final class AppsApi: Sendable {
             accountId: accountId, path: "apps.records.undo",
             input: AppRecordUndoInput(id: appId, eventIds: eventIds, via: via)
         )
+    }
+
+    /// #VAPP-220 `appAccess.appTools {appId}`: the published package's
+    /// automations with their last run and a live pause reason (any member).
+    public func automations(accountId: String, appId: String) async throws -> [AppAutomationWire] {
+        let result: AppToolsResult = try await trpc.query(
+            accountId: accountId, path: "appAccess.appTools", input: AppToolsInput(appId: appId)
+        )
+        return result.automations
     }
 
     /// One version's package as compact JSON text (nil = none): the Versions

@@ -5,7 +5,7 @@ import Foundation
 /// `domain/Apps.kt`). An app = a team-scoped declarative Exponential UI
 /// package rendered through the client's app host. The render rules live in
 /// the fixture's `$comment`; `AppsTests` replays `slugifyCases`,
-/// `versionLabelCases`, `sortAppsCases` and `publishCases` and pins the constants below to
+/// `versionLabelCases`, `sortAppsCases`, `publishCases` and `automationRowCases` and pins the constants below to
 /// the fixture and `contract.json` `apps`.
 public enum Apps {
     // MARK: - Fixture constants
@@ -80,6 +80,21 @@ public enum Apps {
             public static let settings = "Settings"
         }
 
+        /// #VAPP-220: the Settings tab's Automations group (`automationRow`).
+        public enum Automations {
+            public static let title = "Automations"
+            public static let schedule = "Schedule {cron}"
+            public static let scheduleZone = "Schedule {cron} ({tz})"
+            public static let create = "When a {kind} is created"
+            public static let update = "When a {kind} is updated"
+            public static let delete = "When a {kind} is deleted"
+            public static let event = "On {event}"
+            public static let paused = "Paused"
+            public static let failed = "Failed"
+            public static let ok = "OK"
+            public static let never = "Not run yet"
+        }
+
         public static func viewing(_ number: Int) -> String {
             viewing.replacingOccurrences(of: "{n}", with: String(number))
         }
@@ -145,6 +160,9 @@ public enum Apps {
         public static let previewTemplate = "app-preview-template"
         // VAPP-198: Run as (in the toolbar: web ≥ md + desktop only).
         public static let previewRunAs = "app-preview-run-as"
+        // #VAPP-220: the Settings tab's Automations group and its rows.
+        public static let automations = "app-settings-automations"
+        public static let automationRow = "app-automation-row"
     }
 
     /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and
@@ -326,6 +344,85 @@ public enum Apps {
     public static func versionRow(_ app: Versions, number: Int) -> VersionRowKind {
         if number == app.publishedVersion { return .published }
         return number == app.headVersion ? .head : .version
+    }
+
+    // MARK: - eApps automations (#VAPP-220, fixture `automationRowCases`)
+
+    /// An automation's trigger (tRPC `appAccess.appTools` `automations[].on`).
+    public enum AutomationTrigger: Equatable, Sendable {
+        case schedule(cron: String, tz: String?)
+        /// `op` = create | update | delete.
+        case record(kind: String, op: String)
+        case event(String)
+    }
+
+    /// One row of the Settings tab's Automations group (TS `AutomationRowInput`).
+    public struct AutomationRowInput: Equatable, Sendable {
+        public let name: String
+        public let on: AutomationTrigger
+        public let paused: String?
+        public let lastStatus: String?
+
+        public init(name: String, on: AutomationTrigger, paused: String?, lastStatus: String?) {
+            self.name = name
+            self.on = on
+            self.paused = paused
+            self.lastStatus = lastStatus
+        }
+    }
+
+    public enum AutomationStatus: String, Equatable, Sendable {
+        case paused, failed, ok, never
+    }
+
+    public struct AutomationRow: Equatable, Sendable {
+        public let trigger: String
+        public let status: AutomationStatus
+        public let label: String
+    }
+
+    /// The row's second line, its status and the trailing pill's label (TS
+    /// `automationRow`): a pause wins, then no run yet, then the LAST run's
+    /// status (anything but `ok` reads as failed).
+    public static func automationRow(_ row: AutomationRowInput) -> AutomationRow {
+        typealias Strings = Apps.Copy.Automations
+        let trigger: String
+        switch row.on {
+        case let .schedule(cron, tz):
+            if let tz, !tz.isEmpty {
+                trigger = Strings.scheduleZone
+                    .replacingOccurrences(of: "{cron}", with: cron)
+                    .replacingOccurrences(of: "{tz}", with: tz)
+            } else {
+                trigger = Strings.schedule.replacingOccurrences(of: "{cron}", with: cron)
+            }
+        case let .record(kind, op):
+            let template: String
+            switch op {
+            case "update": template = Strings.update
+            case "delete": template = Strings.delete
+            default: template = Strings.create
+            }
+            trigger = template.replacingOccurrences(of: "{kind}", with: kind)
+        case let .event(event):
+            trigger = Strings.event.replacingOccurrences(of: "{event}", with: event)
+        }
+        let status: AutomationStatus
+        if let paused = row.paused, !paused.isEmpty {
+            status = .paused
+        } else if let last = row.lastStatus {
+            status = last == "ok" ? .ok : .failed
+        } else {
+            status = .never
+        }
+        let label: String
+        switch status {
+        case .paused: label = Strings.paused
+        case .failed: label = Strings.failed
+        case .ok: label = Strings.ok
+        case .never: label = Strings.never
+        }
+        return AutomationRow(trigger: trigger, status: status, label: label)
     }
 
     /// A name → its slug: lowercase ASCII letters, digits and single dashes,

@@ -651,6 +651,8 @@ impl Render for AppDetailPane {
                 let busy = self.mcp_busy.clone();
                 body.children(super::app_mcp::accounts_group(&data, busy.as_deref(), cx))
                     .children(super::app_mcp::tools_group(&data, busy.as_deref(), cx))
+                    // #VAPP-220: the published package's automations, read-only.
+                    .children(super::app_mcp::automations_group(&data, cx))
             })
             .child(actions);
         v_flex().child(body).into_any_element()

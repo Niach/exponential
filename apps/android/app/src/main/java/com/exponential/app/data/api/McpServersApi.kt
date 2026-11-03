@@ -7,6 +7,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 
 /** EXP-792: one `mcpServers.list` row (#VAPP-185: + what Settings › MCP reads). */
 @Serializable
@@ -130,6 +132,46 @@ private data class AppAccessMineInput(val appId: String)
 @Serializable
 data class AppAccessMine(val level: String)
 
+/** #VAPP-220: one `appAccess.appTools` automation (lenient: `on` stays raw,
+ *  [toRowInput] reads it; an unknown shape = no row). */
+@Serializable
+data class AppAutomationDto(
+    val name: String = "",
+    val on: JsonElement? = null,
+    val tool: String = "",
+    val paused: String? = null,
+    val lastRunAt: String? = null,
+    val lastStatus: String? = null,
+    val lastError: String? = null,
+    val lastFailureAt: String? = null,
+) {
+    fun toRowInput(): com.exponential.app.domain.Apps.AutomationRowInput? {
+        val obj = on as? JsonObject ?: return null
+        fun JsonElement?.text(): String? = (this as? JsonPrimitive)?.takeIf { it.isString }?.content
+        val trigger = when {
+            obj["schedule"] is JsonObject -> (obj["schedule"] as JsonObject).let { schedule ->
+                val cron = schedule["cron"].text() ?: return null
+                com.exponential.app.domain.Apps.AutomationTrigger.Schedule(cron, schedule["tz"].text())
+            }
+            obj["record"] is JsonObject -> (obj["record"] as JsonObject).let { record ->
+                com.exponential.app.domain.Apps.AutomationTrigger.Record(
+                    record["kind"].text() ?: return null,
+                    record["op"].text() ?: return null,
+                )
+            }
+            else -> com.exponential.app.domain.Apps.AutomationTrigger.Event(obj["event"].text() ?: return null)
+        }
+        return com.exponential.app.domain.Apps.AutomationRowInput(name, trigger, paused, lastStatus)
+    }
+}
+
+/** #VAPP-220: `appAccess.appTools` (only the automations are read on phones). */
+@Serializable
+data class AppToolsDto(val canToggle: Boolean = false, val automations: List<AppAutomationDto> = emptyList())
+
+@Serializable
+private data class AppToolsInput(val appId: String)
+
 @Serializable
 private data class AppAccessSetInput(val appId: String, val userId: String, val level: String)
 
@@ -171,6 +213,10 @@ class McpSettingsApi @Inject constructor(private val trpc: TrpcClient) {
     /** eApps R3: the caller's own level for one app (`none | read | write`). */
     suspend fun appAccessMine(accountId: String, appId: String): AppAccessMine =
         trpc.query(accountId, "appAccess.mine", AppAccessMineInput(appId), AppAccessMineInput.serializer(), AppAccessMine.serializer())
+
+    /** #VAPP-220: the app's tools, upstreams and automations (`appAccess.appTools`). */
+    suspend fun appTools(accountId: String, appId: String): AppToolsDto =
+        trpc.query(accountId, "appAccess.appTools", AppToolsInput(appId), AppToolsInput.serializer(), AppToolsDto.serializer())
 
     suspend fun setAppAccess(accountId: String, appId: String, userId: String, level: String) {
         trpc.mutationUnit(accountId, "appAccess.set", AppAccessSetInput(appId, userId, level), AppAccessSetInput.serializer())
