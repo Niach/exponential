@@ -25,6 +25,13 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-compact-trigger-switches`,
+    date: `2026-11-03`,
+    title: `Smaller trigger switches`,
+    summary: `An agent's trigger rows carry the compact switch, the same size on web, desktop, iOS and Android.`,
+    body: `- **Trigger rows**: the on/off switch beside each trigger in an agent's settings is the compact switch on every platform, so it no longer outweighs the row on phones.`,
+  },
+  {
     id: `2026-11-03-phone-call-pill`,
     date: `2026-11-03`,
     title: `Keep a call going while you use the app`,

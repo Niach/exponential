@@ -978,7 +978,7 @@ private fun TriggerRows(
                 checked = trigger.enabled,
                 onCheckedChange = if (editable) ({ onToggleTrigger(index, it) }) else null,
                 enabled = editable,
-                size = GlassSwitchSize.Menu,
+                size = GlassSwitchSize.Compact,
             )
             if (editable) {
                 var menu by remember { mutableStateOf(false) }
