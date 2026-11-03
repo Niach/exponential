@@ -2072,10 +2072,17 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-skills",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-skills",
+        "lane": "styleguide"
+      },
       "notes": {
         "web": "The demo team's four skills (release-notes and db-migration on by default, shots, incident-triage; seed-screenshots.ts seeds them). Members see the same list without New skill and the row menus.",
-        "ios": "#EXP-1661: the iOS Skills page lands with the mobile PR; no capture wired yet.",
-        "android": "#EXP-1661: the Android Skills page lands with the mobile PR; no capture wired yet.",
+        "android": "#EXP-1661: read only on phones (skills.json `permissions.phone`): no New skill, no row menu, no Save or Delete. iOS shares the step names (no Xcode on the capture host, so its shots come from a Mac run).",
         "desktop": "#EXP-1660: the desktop Skills page lands with the desktop PR; no capture wired yet."
       }
     },
@@ -2094,10 +2101,17 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-skill",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-skill",
+        "lane": "styleguide"
+      },
       "notes": {
         "web": "`$skillId` resolves to DEMO_SKILL_ID, the seeded db-migration skill (on by default). The body is server-only (`skills.get`), so the anchor waits for the editor.",
-        "ios": "#EXP-1661: the iOS Skills page lands with the mobile PR; no capture wired yet.",
-        "android": "#EXP-1661: the Android Skills page lands with the mobile PR; no capture wired yet.",
+        "android": "#EXP-1661: read only on phones (skills.json `permissions.phone`): no New skill, no row menu, no Save or Delete. iOS shares the step names (no Xcode on the capture host, so its shots come from a Mac run).",
         "desktop": "#EXP-1660: the desktop Skills page lands with the desktop PR; no capture wired yet."
       }
     },
