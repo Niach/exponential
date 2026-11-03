@@ -27,6 +27,7 @@ import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
 import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
 import type { Tx } from "@/lib/sessions/tx"
+import { readUpstreamBinding } from "@/lib/emcp/upstream-reads"
 
 // VAPP-110: Exponential APPS. The rows sync (the `apps` shape carries the
 // head package; `app_versions` their metadata); the writes here return a
@@ -684,6 +685,20 @@ export const appsRouter = router({
       )
       .mutation(({ ctx, input }) => commitRecordBatch(ctx.session.user.id, input, input.writes, ctx.db)),
   }),
+
+  /** #VAPP-230 (eApps M1): one `upstream:<server>/<tool>?…` read binding,
+   *  run by the broker as the viewer with their own connection, cached 60 s
+   *  (@exp/emcp upstream.json `binding`). A refusal is an answer, not an
+   *  error: the host keeps the binding's default (and, disconnected, shows
+   *  "Connect <server>"). */
+  upstreamRead: authedProcedure
+    .input(z.object({ id: uuid, source: z.string().trim().min(1).max(2048) }))
+    .query(async ({ ctx, input }) => {
+      const app = await loadApp(ctx.db, { id: input.id })
+      await assertTeamMember(ctx.session.user.id, app.teamId)
+      await assertAppAccess(ctx.db, app, ctx.session.user.id, `read`)
+      return readUpstreamBinding(ctx.session.user.id, app, input.source)
+    }),
 
   /** VAPP-176: leaving the editor of an EMPTY draft (no version, no editor
    *  session: nothing was ever sent) deletes it for good, so abandoned New

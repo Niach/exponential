@@ -18,6 +18,9 @@
 //   - VAPP-157: media narrowed to `appMediaAllowed` (fixtures/apps.json
 //     `mediaPolicy`: a data: image/audio/video or the instance's own
 //     attachment) by overriding the host's public `mediaRequest`;
+//   - upstream reads (#VAPP-230): `upstream:<server>/<tool>?…` through the
+//     server broker (`apps.upstreamRead`, re-read every 60 s), the
+//     "Connect <server>" banner when the viewer is not connected;
 //   - status: `host_offline` + the catalog-update banner (`HostBanner`).
 // No private hook: if one is ever needed, the SDK's API is incomplete.
 
@@ -55,6 +58,7 @@ import { trpc } from "@/lib/trpc-client"
 import { deviceRowIsOnline } from "@/lib/steer-devices"
 import { readinessAgo } from "@/lib/coding-readiness"
 import { readJsonRpcAnswer } from "@/lib/emcp/upstream/json-rpc-reader"
+import { UPSTREAM_BINDING, UPSTREAM_ERRORS, upstreamBanners, type UpstreamReadAnswer } from "@exp/emcp/upstream"
 import { incrementalTable, memoByVersions, type ChangeSource, type IncrementalTable } from "@/lib/incremental-table"
 import { destructiveTool, exponentialUiConsentPrompt, promptActions } from "@/lib/prompts"
 
@@ -482,6 +486,60 @@ export interface AppHostOptions {
   runAs?: { id: string; name: string; role: string; access?: AppAccessLevel } | null
 }
 
+/** #VAPP-230: every live upstream binding's last answer, for the banners
+ *  (@exp/emcp `upstreamBanners`: one per server answering
+ *  upstreamDisconnected). */
+export class UpstreamAnswers {
+  private answers = new Map<number, UpstreamReadAnswer>()
+  private listeners = new Set<() => void>()
+  private snapshot: { server: string; text: string }[] = []
+  set(id: number, answer: UpstreamReadAnswer | null) {
+    if (answer) this.answers.set(id, answer)
+    else this.answers.delete(id)
+    const all = [...this.answers.values()]
+    const texts = upstreamBanners(all)
+    const servers = [...new Set(all.flatMap((a) => (!a.ok && a.error === UPSTREAM_ERRORS.disconnected ? [a.server] : [])))].sort()
+    const next = servers.map((server, i) => ({ server, text: texts[i]! }))
+    if (JSON.stringify(next) === JSON.stringify(this.snapshot)) return
+    this.snapshot = next
+    for (const l of this.listeners) l()
+  }
+  subscribe = (listener: () => void) => {
+    this.listeners.add(listener)
+    return () => void this.listeners.delete(listener)
+  }
+  banners = () => this.snapshot
+}
+
+let upstreamBindingIds = 0
+
+/** #VAPP-230: `upstream:<server>/<tool>?…` → the broker's answer for the
+ *  viewer, re-read every `cacheSeconds` while bound. A refusal or offline
+ *  emits nothing (the path keeps the template's data: the binding's
+ *  default); a disconnected one raises the "Connect <server>" banner. */
+function upstreamSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope, answers: UpstreamAnswers): () => void {
+  const id = ++upstreamBindingIds
+  let live = true
+  const read = async () => {
+    if (!scope.appId) return
+    try {
+      const answer = await trpc.apps.upstreamRead.query({ id: scope.appId, source: source.uri }, SKIP_ERROR_TOAST)
+      if (!live) return
+      answers.set(id, answer as UpstreamReadAnswer)
+      if (answer.ok) emit(answer.value ?? null)
+    } catch {
+      // Offline or refused: the binding keeps its default.
+    }
+  }
+  void read()
+  const timer = setInterval(read, UPSTREAM_BINDING.cacheSeconds * 1000)
+  return () => {
+    live = false
+    clearInterval(timer)
+    answers.set(id, null)
+  }
+}
+
 /** VAPP-157: an APP host. Every src an app surface loads (Image, Avatar,
  *  Video, Audio, markdown images: the renderers all ask the host's
  *  `mediaRequest` with the raw src, the web plugin sets no `resolveUrl`)
@@ -490,9 +548,14 @@ export interface AppHostOptions {
  *  the specimen) are plain `ExponentialHost`s and keep the SDK default. */
 export class AppHost extends ExponentialHost {
   private readonly appOrigin: string
-  constructor(options: HostOptions, origin: string) {
+  /** #VAPP-230: the live upstream reads' last answers (the banners). */
+  readonly upstreams: UpstreamAnswers
+  /** The team's slug (the banner's Settings › MCP link). */
+  teamSlug: () => string | null = () => null
+  constructor(options: HostOptions, origin: string, upstreams: UpstreamAnswers = new UpstreamAnswers()) {
     super(options)
     this.appOrigin = origin
+    this.upstreams = upstreams
   }
   override mediaRequest(url: string): MediaRequest | null {
     return appMediaAllowed(url, this.appOrigin) ? super.mediaRequest(url) : null
@@ -573,7 +636,8 @@ export function createAppHost(options: AppHostOptions): AppHost {
     if (scope.appId) toastRecordUndo(scope.appId, `batch`, result.eventIds, `app`)
     return { ids: result.ids }
   }
-  return new AppHost({
+  const upstreamAnswers = new UpstreamAnswers()
+  const host = new AppHost({
     transport: options.transport,
     me: scope.me,
     // VAPP-201 (team-zone.json): dates in the TEAM zone (read live off the
@@ -589,6 +653,7 @@ export function createAppHost(options: AppHostOptions): AppHost {
         emit(null)
       },
       [RECORDS_SCHEME]: (source, emit) => recordsSource(source, emit, scope),
+      [UPSTREAM_BINDING.scheme]: (source, emit) => upstreamSource(source, emit, scope, upstreamAnswers),
     },
     functions: refuseAsOther(runAs, {
       "harness.toast": ({ message, tone }) => {
@@ -628,7 +693,9 @@ export function createAppHost(options: AppHostOptions): AppHost {
         else window.open(url, `_blank`, `noopener,noreferrer`)
       },
     },
-  }, origin)
+  }, origin, upstreamAnswers)
+  host.teamSlug = () => teamCollection.toArray.find((t) => t.id === scope.teamId)?.slug ?? null
+  return host
 }
 
 /** VAPP-107 (the consent prompt's `slot`): what the card shows of a call:
@@ -713,9 +780,32 @@ export function ConsentCard({ gate }: { gate: ConsentGate }) {
 }
 
 /** `host_offline` and the catalog-update banner above a host's surfaces. */
+const NO_BANNERS: { server: string; text: string }[] = []
+const noSubscribe = () => () => {}
+
 export function HostBanner({ host }: { host: ExponentialHost }) {
   const { status, unsupportedCatalog } = useHostStatus(host)
+  const upstreams = host instanceof AppHost ? host.upstreams : null
+  const connect = useSyncExternalStore(upstreams?.subscribe ?? noSubscribe, upstreams?.banners ?? (() => NO_BANNERS), () => NO_BANNERS)
   const offline = host.hasTransport && (status === `error` || status === `closed`)
+  // #VAPP-230: the viewer has no connection to an upstream the app reads.
+  if (connect.length > 0 && host instanceof AppHost) {
+    const slug = host.teamSlug()
+    return (
+      <>
+        {connect.map((banner) => (
+          <div key={banner.server} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground" data-testid="exponential-ui-upstream-connect">
+            <span>{banner.text}</span>
+            {slug ? (
+              <Button size="sm" variant="outline" onClick={() => window.location.assign(`/t/${slug}/settings/mcp`)}>
+                Connect
+              </Button>
+            ) : null}
+          </div>
+        ))}
+      </>
+    )
+  }
   if (unsupportedCatalog)
     return (
       <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-300" data-testid="exponential-ui-catalog-update">

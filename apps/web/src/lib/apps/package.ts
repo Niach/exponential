@@ -17,6 +17,7 @@ import { APP_PACKAGE_MAX_BYTES, APP_RECORD_KINDS_MAX, APP_RECORD_MAX_BYTES, APP_
 import { APP_RECORD_ROW_KEYS } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS } from "@exp/domain-contract/app-actions"
 import { validateExposes, type Expose } from "@exp/emcp/exposes"
+import { UPSTREAM_BINDING, upstreamDeclareIssues } from "@exp/emcp/upstream"
 import type { RecordSchema } from "@exponential_app/eui"
 
 // VAPP-110: what an app's PACKAGE may be, server-side (tRPC `apps.upsertPackage`
@@ -63,10 +64,22 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
   if (!Array.isArray(valid.sources)) {
     rules.push({ path: `/sources`, message: `package must declare sources: the sources its bindings follow, e.g. ["exp:issues", "records:*"] (or [] for none)` })
   } else {
-    const unknown = valid.sources.filter((source) => !source.startsWith(`records:`) && !APP_SOURCE_NAMES.some((name) => source === name || source.startsWith(`${name}?`)))
+    const unknown = valid.sources.filter((source) => !source.startsWith(`records:`) && !source.startsWith(`${UPSTREAM_BINDING.scheme}:`) && !APP_SOURCE_NAMES.some((name) => source === name || source.startsWith(`${name}?`)))
     if (unknown.length > 0) {
       rules.push({ path: `/sources`, message: `sources ${unknown.join(`, `)} are not resolved by Exponential's app hosts; use ${APP_SOURCE_NAMES.join(`, `)}` })
     }
+  }
+  // #VAPP-230: an `upstream:` binding (and source) names one of the package's upstreams.
+  for (const [id, template] of Object.entries(valid.templates)) {
+    const bound = (template.bindings ?? []).map((b) => b.source)
+    for (const issue of upstreamDeclareIssues(bound, valid.upstreams ?? [])) {
+      rules.push({ path: `/templates/${id}/bindings/${issue.index}/source`, message: upstreamDeclareMessage(issue.code, bound[issue.index]!) })
+    }
+  }
+  // (`upstream:*` = any declared server; the reads check the server again.)
+  const listed = (valid.sources ?? []).map((source) => (source === `${UPSTREAM_BINDING.scheme}:*` ? `` : source))
+  for (const issue of upstreamDeclareIssues(listed, valid.upstreams ?? [])) {
+    rules.push({ path: `/sources/${issue.index}`, message: upstreamDeclareMessage(issue.code, listed[issue.index]!) })
   }
   for (const [id, template] of Object.entries(valid.templates)) {
     if (template.components.length > APP_TEMPLATE_MAX_COMPONENTS) {
@@ -102,6 +115,12 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
     rules.push({ path: `/records`, message: `records declares ${kinds.length} kinds; the cap is ${APP_RECORD_KINDS_MAX}` })
   }
   return { sdk: [], rules }
+}
+
+function upstreamDeclareMessage(code: string, source: string): string {
+  return code === UPSTREAM_BINDING.errors.invalid
+    ? `${source} is not an upstream:<server>/<tool> source`
+    : `${source} reads an upstream the package does not declare: add its server to upstreams`
 }
 
 /** VAPP-180: the eMCP codes the SDK leaves to the host (an action binding
@@ -165,6 +184,10 @@ export const APP_HOST_SOURCES: readonly { source: string; value: string }[] = [
   {
     source: `records:<kind>?mine=1&sort=<field>&order=asc|desc&limit=<n>&sum=<field>&by=<dateField>&month=YYYY-MM&<field>=<v>&<field>.gte=<v>`,
     value: `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?: {key, label, prev, next, days: [{date, day, weekday, count, sum}]}}: the app's OWN records of a kind, live (declare "records:*" or "records:<kind>" in sources; mine = the viewer's rows (by author); any other key filters a data field: equals, or .gt .gte .lt .lte; sum = Σ of a number field; by + month = one month's rows and every day of it; app=<slug> reads another app's records)`,
+  },
+  {
+    source: `upstream:<server>/<tool>?<arg>=<v>`,
+    value: `the tool's answer (its structuredContent, else its text as JSON or text): a READ-ONLY tool of a team MCP server named in upstreams, run on the server as the viewer with their own connection, cached 60 s (declare "upstream:<server>/<tool>" or "upstream:<server>/*" in sources; args read as JSON when they are numbers, true/false/null, objects or arrays; a tool without readOnlyHint reads only when sources lists it exactly; not connected = the path keeps its data default and the host shows "Connect <server>")`,
   },
 ]
 /** The source names (`scheme:name`) the app hosts resolve ×4 (`records:<kind>`
