@@ -91,7 +91,7 @@ type InputEvent = Parameters<NonNullable<HostPlugin[`onInput`]>>[0]
 type Waitable<T> = T & { waitUntil: (promise: Promise<unknown>) => void }
 
 /** The element's settable surface (properties, camelCase). */
-type SurfaceProps = Partial<Pick<ExponentialSurfaceElement, `surface` | `root` | `templates` | `data` | `theme` | `mode` | `direction` | `width` | `height` | `locale` | `surfaceId` | `plugin` | `measure` | `viewportHeight` | `states` | `readOnly`>>
+type SurfaceProps = Partial<Pick<ExponentialSurfaceElement, `surface` | `root` | `templates` | `data` | `theme` | `mode` | `direction` | `width` | `height` | `locale` | `surfaceId` | `plugin` | `measure` | `viewportHeight` | `states` | `readOnly` | `formFactor`>>
 
 /** A new `<exponential-surface>` with `props` set as properties (before it
  *  is attached: the element paints on connect). Undefined values stay unset. */
@@ -200,12 +200,12 @@ function Catalog(): Node {
 
 /** One style-conditions.json case × context. */
 function Conditions(): Node {
-  type Ctx = { width: number; height?: number; states?: string[]; breakpoints?: Record<string, number> }
+  type Ctx = { width: number; height?: number; states?: string[]; breakpoints?: Record<string, number>; formFactor?: `phone` | `wide` }
   const c = (conditions.cases as { style: Record<string, unknown>; contexts: Ctx[] }[])[Number(params.get(`case`) ?? 0)]
   const ctx = c.contexts[Number(params.get(`ctx`) ?? 0)]
   const theme = ctx.breakpoints ? { $schema: THEME_SCHEMA_ID, id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } : `neutral`
   const { root } = reduceNested({ id: `n`, component: `Box`, style: { ...c.style, width: 40, height: 40 } } as unknown as NestedNode, { catalogId: CORE_CATALOG_ID, validate: false })
-  return surfaceEl({ surfaceId: `cond`, root, theme: theme as never, mode: `light`, width: ctx.width, viewportHeight: ctx.height, height: px(ctx.height), states: ctx.states?.map((s) => s) })
+  return surfaceEl({ surfaceId: `cond`, root, theme: theme as never, mode: `light`, width: ctx.width, viewportHeight: ctx.height, height: px(ctx.height), states: ctx.states?.map((s) => s), formFactor: ctx.formFactor })
 }
 
 /** Any nested tree from the query (keyboard + overlay suites, the parity matrix). */

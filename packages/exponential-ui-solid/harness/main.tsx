@@ -179,12 +179,12 @@ function Catalog(): JSX.Element {
 
 /** One style-conditions.json case × context. */
 function Conditions(): JSX.Element {
-  type Ctx = { width: number; height?: number; states?: string[]; breakpoints?: Record<string, number> }
+  type Ctx = { width: number; height?: number; states?: string[]; breakpoints?: Record<string, number>; formFactor?: `phone` | `wide` }
   const c = (conditions.cases as { style: Record<string, unknown>; contexts: Ctx[] }[])[Number(params.get(`case`) ?? 0)]
   const ctx = c.contexts[Number(params.get(`ctx`) ?? 0)]
   const theme = ctx.breakpoints ? { $schema: THEME_SCHEMA_ID, id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } : `neutral`
   const { root } = reduceNested({ id: `n`, component: `Box`, style: { ...c.style, width: 40, height: 40 } } as unknown as NestedNode, { catalogId: CORE_CATALOG_ID, validate: false })
-  return <ExponentialSurface id="cond" root={root} theme={theme as never} mode="light" width={ctx.width} viewportHeight={ctx.height} style={ctx.height === undefined ? undefined : { height: px(ctx.height) }} states={ctx.states?.map((s) => s)} />
+  return <ExponentialSurface id="cond" root={root} theme={theme as never} mode="light" width={ctx.width} viewportHeight={ctx.height} style={ctx.height === undefined ? undefined : { height: px(ctx.height) }} states={ctx.states?.map((s) => s)} formFactor={ctx.formFactor} />
 }
 
 /** Any nested tree from the query (keyboard + overlay suites). */
