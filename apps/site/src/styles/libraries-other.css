@@ -1,0 +1,30 @@
+/* The product pages of eTalk, eNet, ePilot, eMCP, eAgent, eCore and eApps
+   (src/pages/{talk,net,pilot,mcp,agent,core,apps}.astro). */
+
+.lib-figure {
+  margin-inline: auto;
+}
+
+.lib-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: start;
+}
+.lib-pair .exp-figure {
+  margin: 0;
+}
+
+.lib-diagram {
+  overflow-x: auto;
+}
+
+.lib-code {
+  max-width: 44rem;
+}
+
+@media (max-width: 50rem) {
+  .lib-pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
