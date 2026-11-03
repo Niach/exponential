@@ -300,9 +300,9 @@ fn parse_dev_settings_section(spec: &str) -> Option<crate::settings::SettingsSec
         "agents" => Some(S::Agents),
         "agent" => Some(S::Agent(String::new())),
         "new-agent" => Some(S::NewAgent),
-        // VAPP-110: the Apps index and one app's page (`app` = the team's
-        // first app, `app:<slug or id>` that one). VAPP-176: no create page.
-        "apps" => Some(S::Apps),
+        // VAPP-110: one app's page (`app` = the team's first app,
+        // `app:<slug or id>` that one). VAPP-176: no create page; VAPP-242:
+        // no Apps index.
         "app" => Some(S::App(String::new())),
         spec if spec.starts_with("app:") => Some(S::App(spec["app:".len()..].to_string())),
         // NEW-6: Settings → Prompts, and its create page.
@@ -777,39 +777,6 @@ pub(crate) fn rail_section_label(text: &'static str, cx: &App) -> gpui::Div {
                 .font_weight(FontWeight::MEDIUM)
                 .text_color(cx.theme().sidebar_foreground.opacity(0.5))
                 .child(text),
-        )
-}
-
-/// EXP-1650: [`rail_section_label`] whose TEXT is a link (the Apps label →
-/// the Apps page): the label's muted ink, the foreground on hover and while
-/// `lit`. Only the text clicks, so a trailing `+` keeps its own click.
-pub(crate) fn rail_section_link(
-    id: &'static str,
-    text: &'static str,
-    lit: bool,
-    on_click: impl Fn(&mut Window, &mut App) + 'static,
-    cx: &App,
-) -> gpui::Div {
-    let muted = cx.theme().sidebar_foreground.opacity(0.5);
-    let foreground = cx.theme().sidebar_foreground;
-    h_flex()
-        .w_full()
-        .h(px(24.))
-        .pl_1p5()
-        .pr_1()
-        .items_center()
-        .child(
-            div().flex_1().min_w_0().child(
-                div()
-                    .id(id)
-                    .cursor_pointer()
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .text_color(if lit { foreground } else { muted })
-                    .hover(move |label| label.text_color(foreground))
-                    .on_click(move |_: &ClickEvent, window, cx| on_click(window, cx))
-                    .child(text),
-            ),
         )
 }
 
@@ -1436,8 +1403,8 @@ impl RailView {
     }
 
     /// VAPP-110: one Apps row (the Agents row's twin): the app's glyph and
-    /// name, lit while its editor is up; click = the editor. The hover gear
-    /// (the creator's and the owners') opens the editor on its Settings tab.
+    /// name. VAPP-242: click = THE RUN VIEW, lit while it runs; the hover
+    /// gear (the creator's and the owners') opens THE EDITOR (its default tab).
     fn rail_app_row(
         &self,
         index: usize,
@@ -1447,7 +1414,7 @@ impl RailView {
     ) -> gpui::AnyElement {
         let active = matches!(
             resolved_screen(&self.nav, cx),
-            Some(Screen::App { app }) if app == entry.id || app == entry.slug
+            Some(Screen::AppRun { app }) if app == entry.id || app == entry.slug
         );
         let open = entry.id.clone();
         let settings_id = entry.id.clone();
@@ -1461,7 +1428,7 @@ impl RailView {
         )
         .group(APP_ROW_GROUP)
         .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-            navigate(window, cx, Screen::App { app: open.clone() })
+            navigate(window, cx, Screen::AppRun { app: open.clone() })
         }))
         .when(manage, |row| {
             row.child(rail_trailing_hover_action(
@@ -1475,14 +1442,8 @@ impl RailView {
                     .tooltip("App settings")
                     .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
                         cx.stop_propagation();
-                        // VAPP-177: the app's editor on its Settings tab.
-                        crate::app_screen::open_app_tab(
-                            window,
-                            cx,
-                            settings_id.clone(),
-                            domain::apps::EditorTab::Settings,
-                            false,
-                        );
+                        // VAPP-242: the app's editor on its default tab.
+                        navigate(window, cx, Screen::App { app: settings_id.clone() });
                     })),
             ))
         })
@@ -2242,29 +2203,11 @@ impl Render for RailView {
                 self.rail_app_row(index, entry, manage, cx)
             })
             .collect();
-        // EXP-1650: the label itself opens the Apps page (web parity), lit
-        // while it shows (Settings → Apps' label twin).
-        let on_apps_page = matches!(resolved_screen(&self.nav, cx), Some(Screen::Apps));
+        // VAPP-242: the label is NOT clickable (there is no Apps page); the
+        // `+` opens THE NEW MENU (New app / Import…).
         let apps_header: Option<gpui::AnyElement> = active_team.clone().map(|team_id| {
-            rail_section_link(
-                "rail-apps-page",
-                domain::apps::APPS.copy.title.as_str(),
-                on_apps_page,
-                |window, cx| navigate(window, cx, Screen::Apps),
-                cx,
-            )
-                .child(
-                    Button::new("rail-new-app")
-                        .ghost()
-                        .cursor_pointer()
-                        .xsmall()
-                        .icon(registry::UI_ADD)
-                        .tooltip(domain::apps::APPS.copy.new_app.clone())
-                        .on_click(cx.listener(move |_, _: &ClickEvent, window, cx| {
-                            // VAPP-176: a draft and its editor, no dialog.
-                            crate::apps_view::new_app(team_id.clone(), window, cx);
-                        })),
-                )
+            self.section_label(domain::apps::APPS.copy.title.as_str(), cx)
+                .child(crate::apps_view::new_menu_button(team_id))
                 .into_any_element()
         });
         // EXP-923: MY live threads — under the boards, hidden while nothing

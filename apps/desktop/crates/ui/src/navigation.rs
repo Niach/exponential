@@ -95,12 +95,15 @@ pub enum Screen {
     /// Needs you / Running / Recent (`domain::session_tree::partition_threads`).
     /// Tab-less full-page mode like Devices.
     Threads,
-    /// EXP-1650: the Apps page (web `t/$teamSlug/apps`): the team's apps
-    /// list ([`crate::apps_view::AppsPage`]), the rail's `Apps` label.
-    /// Tab-less full-page mode like Threads.
-    Apps,
+    /// VAPP-242 (apps.json THE RUN VIEW): one app RUNNING full screen
+    /// ([`crate::app_screen::AppScreenView::run`], web `apps/$appSlug`): the
+    /// PUBLISHED package through the preview's host, no header of its own.
+    /// A sidebar app row, an `appScreen` link (dev `run:<slug>`). `app` = the
+    /// `apps` row id or a slug of the active team. Tab-less full-page mode
+    /// like Threads (EXP-1650's Apps page is gone).
+    AppRun { app: String },
     /// VAPP-110: one app's EDITOR ([`crate::app_screen`], web
-    /// `apps/$appSlug`): the member's editor session beside the live preview.
+    /// `app-editor/$appSlug`): the member's editor session beside the live preview.
     /// `app` = the `apps` row id, or a slug of the active team (the dev route
     /// `app:<slug>`).
     /// Tab-less full-page mode: leaving it ENDS the live editor session.
@@ -449,7 +452,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::IssueDraft { .. } => domain::issue_draft::HEADER.into(),
         Screen::Home => "Home".into(),
         Screen::Threads => domain::session_tree::THREADS_LIST.copy.title.clone().into(),
-        Screen::Apps => domain::apps::APPS.copy.title.clone().into(),
+        Screen::AppRun { app } => crate::app_screen::app_tab_title(app, cx),
         Screen::ExponentialUiKitchenSink => "Exponential UI".into(),
         Screen::App { app } => crate::app_screen::app_tab_title(app, cx),
         Screen::ExponentialUiSpecimen { .. } => "Exponential UI".into(),
@@ -876,8 +879,6 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         "home" => Some(Screen::Home),
         // EXP-1294: the Threads page.
         "threads" => Some(Screen::Threads),
-        // EXP-1650: the Apps page.
-        "apps" => Some(Screen::Apps),
         // EXP-851: the four list screens the rail's tool windows became. A
         // board takes the window's ACTIVE board (the empty `board_id`
         // sentinel, resolved at render time) so `EXP_DEV_BOARD_ID` still
@@ -931,6 +932,10 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
             if let Some(app) = spec.strip_prefix("app:") {
                 let (app, _, _) = crate::app_screen::split_app_spec(app);
                 return Some(Screen::App { app: app.to_string() });
+            }
+            // VAPP-242: one app's RUN VIEW, by id or by slug.
+            if let Some(app) = spec.strip_prefix("run:") {
+                return Some(Screen::AppRun { app: app.to_string() });
             }
             if let Some(id) = spec.strip_prefix("agent:") {
                 return Some(Screen::Agent {
@@ -2210,6 +2215,9 @@ mod tests {
             Some(Screen::App { app: "working-hours".into() })
         );
         assert!(!Screen::App { app: "a".into() }.is_detail());
+        // VAPP-242: one app's run view (by slug or id).
+        assert_eq!(parse_dev_screen("run:working-hours"), Some(Screen::AppRun { app: "working-hours".into() }));
+        assert!(!Screen::AppRun { app: "a".into() }.is_detail());
         // VAPP-93: every specimen id of the site (view `exponential-ui-<x>`).
         assert_eq!(
             parse_dev_screen("exponential-ui-button"),
@@ -2250,7 +2258,8 @@ mod tests {
         // spellings are gone with their screens.
         assert_eq!(parse_dev_screen("home"), Some(Screen::Home));
         assert_eq!(parse_dev_screen("threads"), Some(Screen::Threads));
-        assert_eq!(parse_dev_screen("apps"), Some(Screen::Apps));
+        // VAPP-242: the Apps page is gone.
+        assert_eq!(parse_dev_screen("apps"), None);
         assert_eq!(parse_dev_screen("reviews"), None);
         assert_eq!(parse_dev_screen("chat"), None);
         assert_eq!(parse_dev_screen("chat?issues=a"), None);
@@ -2334,10 +2343,11 @@ mod tests {
         assert_eq!(Screen::Threads.list_origin(), None);
         assert!(!Screen::Threads.is_detail());
         assert!(!Screen::Threads.undockable());
-        // EXP-1650: so is the Apps page.
-        assert_eq!(Screen::Apps.list_origin(), None);
-        assert!(!Screen::Apps.is_detail());
-        assert!(!Screen::Apps.undockable());
+        // VAPP-242: so is an app's run view.
+        let run = Screen::AppRun { app: "a".into() };
+        assert_eq!(run.list_origin(), None);
+        assert!(!run.is_detail());
+        assert!(!run.undockable());
         assert!(!Screen::Home.is_detail());
         assert!(Screen::IssueDetail {
             issue_id: "i1".into()
@@ -2467,7 +2477,7 @@ mod tests {
             Screen::Drafts,
             Screen::Home,
             Screen::Threads,
-            Screen::Apps,
+            Screen::AppRun { app: "a".into() },
             Screen::Files,
             Screen::SourceControl,
             Screen::ExponentialUiKitchenSink,
@@ -2971,7 +2981,6 @@ mod tests {
             // EXP-1170: the New issue page names itself by the contract.
             assert_eq!(screen_title(&draft_screen("d1", ""), cx), "New issue");
             assert_eq!(screen_title(&Screen::Threads, cx), "Chats");
-            assert_eq!(screen_title(&Screen::Apps, cx), "Apps");
             assert_eq!(screen_title(&Screen::Home, cx), "Home");
         });
     }

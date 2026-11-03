@@ -1,22 +1,16 @@
-//! VAPP-110 — the APPS list (web `apps-list.tsx`, fixtures/apps.json), drawn
-//! as Settings → Apps' index (the Agents index's twin; the rail lists the
-//! apps as a group like the Agents): the band `Apps` with `Import…` and
-//! `New app` as its trailing pills (VAPP-176: New app = a draft and its
-//! editor at once, [`new_app`]; Import opens the import dialog), then one
-//! row per app = its glyph (the board set) + name + the version pill
-//! (`v{n}`, the muted `Draft` badge) + the `…` menu (Export → the export
-//! dialog, VAPP-121; Delete → the confirm; no Rename). Only the
-//! team's synced apps, by name (Exponential ships no built-in apps); members
-//! manage only their own apps, owners every app. A row opens the editor
-//! ([`Screen::App`]).
+//! VAPP-110 — the team's apps for the IDE (fixtures/apps.json). VAPP-242:
+//! no Apps list page on desktop (wide); the sidebar's APPS group lists the
+//! apps (a row RUNS the app, [`Screen::AppRun`]) and its `+` opens THE NEW
+//! MENU ([`new_menu_button`]: New app = a draft and its editor at once,
+//! [`new_app`]; Import… = the import dialog). Here: the entries (the team's
+//! synced apps, by name), the version pill, the delete prompt.
 
-use crate::controls::PointerMenuButtonExt as _;
-use gpui::{
-    div, App, AppContext as _, ClickEvent, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement as _,
-    Styled, Subscription, Window,
+use crate::controls::{PointerMenu, PointerMenuButtonExt as _};
+use gpui::{App, ClickEvent, IntoElement, ParentElement, SharedString, Styled, Window};
+use gpui_component::{
+    button::{Button, ButtonVariants as _},
+    ActiveTheme as _, Icon, Sizable as _,
 };
-use gpui_component::{v_flex, ActiveTheme as _, Icon, Sizable as _};
 use sync::Store;
 
 use domain::apps::{sort_apps, AppListLike, APPS};
@@ -24,7 +18,7 @@ use domain::prompts::{Action, Prompt, Role};
 use domain::rows::AppRow;
 
 use crate::icons::registry;
-use crate::navigation::{active_team_id, Navigation, Screen};
+use crate::navigation::Screen;
 
 /// One list entry: a synced app.
 #[derive(Clone, Debug, PartialEq)]
@@ -236,221 +230,42 @@ pub(crate) fn confirm_delete(
     crate::native_dialog::open_alert(window, cx, spec);
 }
 
-/// The row's `…` menu: Export (VAPP-121: any member, once the app has a
-/// version), then Delete app (the creator or an owner). VAPP-176: no Rename
-/// (the agent names an app, the settings page renames it).
-fn row_menu(index: usize, row: AppRow, manage: bool, cx: &App) -> gpui::AnyElement {
-    let delete = APPS.copy.menu.delete.clone();
-    let export = row.head_version.unwrap_or(0) > 0;
-    div()
-        .flex_shrink_0()
-        // The menu is not the row: a press here never opens the editor.
-        .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-        .child(
-            crate::controls::ghost_icon_button(("apps-row-menu", index), Icon::new(registry::UI_MORE), cx)
-                .pointer_menu(move |menu, _window, cx| {
-                    let (delete_id, delete_name) = (row.id.clone(), row.name.clone());
-                    let export_id = row.id.clone();
-                    let menu = if export {
-                        menu.item(
-                            crate::controls::pointer_label_item(
-                                domain::app_export::APP_EXPORT_COPY.export.clone(),
-                                false,
-                            )
-                            .icon(Icon::new(registry::UI_SHARE))
-                            .on_click(move |_: &ClickEvent, window, cx| {
-                                crate::app_export_dialog::open(window, cx, export_id.clone(), false)
-                            }),
-                        )
-                    } else {
-                        menu
-                    };
-                    if !manage {
-                        return menu;
-                    }
-                    menu.item(
-                        crate::controls::danger_menu_item(delete.clone(), Icon::new(registry::UI_DELETE), cx)
-                            .on_click(move |_: &ClickEvent, window, cx| {
-                                confirm_delete(delete_id.clone(), delete_name.clone(), |_, _| {}, window, cx)
-                            }),
-                    )
-                }),
-        )
-        .into_any_element()
-}
-
-/// One app row (web `ListRow`): glyph · name · the version pill · `…`.
-fn app_row(index: usize, entry: &AppEntry, manage: bool, to_settings: bool, cx: &App) -> gpui::AnyElement {
-    let row_hover = cx.theme().list_hover;
-    let target = entry.id.clone();
-    // Settings → Apps opens an app's editor on its Settings tab, the band
-    // elsewhere its editor (default tab).
-    crate::surface::list_row(
-        crate::surface::flat_row()
-            .id(SharedString::from(format!("{}-{}", APPS.test_ids.row, entry.slug)))
-            .flex()
-            .w_full()
-            .min_w_0()
-            .items_center()
-            .gap_3()
-            .px_3()
-            .py_2()
-            .text_sm()
-            .cursor_pointer()
-            .hover(move |this| this.bg(row_hover))
-            .on_click(move |_: &ClickEvent, window, cx| {
-                if to_settings {
-                    // VAPP-177: the app's editor on its Settings tab.
-                    crate::app_screen::open_app_tab(
-                        window,
-                        cx,
-                        target.clone(),
-                        domain::apps::EditorTab::Settings,
-                        false,
-                    );
-                } else {
-                    crate::navigation::navigate(window, cx, Screen::App { app: target.clone() });
-                }
-            })
-            .child(entry.icon().small().flex_shrink_0())
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(SharedString::from(entry.name.clone())),
-            )
-            .child(version_pill(("apps-row-pill", index), entry, cx))
-            .children(
-                entry
-                    .row
-                    .clone()
-                    .filter(|_| manage || entry.head_version > 0)
-                    .map(|row| row_menu(index, row, manage, cx)),
-            ),
-    )
-    .into_any_element()
-}
-
-/// The page body (the band + the rows, or the empty state); the styleguide
-/// draws it too.
-pub(crate) fn apps_list(
-    team_id: Option<&str>,
-    entries: &[AppEntry],
-    me: Option<&str>,
-    owner: bool,
-    to_settings: bool,
-    cx: &App,
-) -> gpui::Div {
-    let new_team = team_id.map(str::to_string);
-    let import_team = new_team.clone();
-    // VAPP-176: `Import…` before New app (app-export.json IMPORT).
-    let import = crate::surface::glass_pill_button(APPS.test_ids.import_app.clone(), crate::surface::PillSize::Sm, cx)
-        .label(APPS.copy.import.clone())
-        .on_click(move |_, window, cx| {
-            if let Some(team_id) = import_team.clone() {
-                crate::app_import_dialog::open(window, cx, team_id);
-            }
-        });
-    let new_app = crate::surface::glass_pill_button(APPS.test_ids.new_app.clone(), crate::surface::PillSize::Sm, cx)
+/// VAPP-242 (apps.json THE NEW MENU, testId `newMenu`): the apps `+`
+/// opening THE existing menu with `run.newMenu` in order: New app (ui-add)
+/// = a draft and its editor, Import… (ui-file) = the import dialog.
+pub(crate) fn new_menu_button(team_id: String) -> PointerMenu<Button> {
+    Button::new(SharedString::from(APPS.test_ids.new_menu.clone()))
+        .ghost()
+        .cursor_pointer()
+        .xsmall()
         .icon(registry::UI_ADD)
-        .label(APPS.copy.new_app.clone())
-        .on_click(move |_, window, cx| {
-            if let Some(team_id) = new_team.clone() {
-                new_app(team_id, window, cx);
+        .tooltip(APPS.copy.new_app.clone())
+        .pointer_menu(move |mut menu, _window, _cx| {
+            for key in &APPS.run.new_menu {
+                let team_id = team_id.clone();
+                menu = match key.as_str() {
+                    "newApp" => menu.item(
+                        crate::controls::pointer_label_item(APPS.copy.new_app.clone(), false)
+                            .icon(Icon::new(registry::UI_ADD))
+                            .on_click(move |_: &ClickEvent, window, cx| new_app(team_id.clone(), window, cx)),
+                    ),
+                    "import" => menu.item(
+                        crate::controls::pointer_label_item(APPS.copy.import.clone(), false)
+                            .icon(Icon::new(registry::UI_FILE))
+                            .on_click(move |_: &ClickEvent, window, cx| {
+                                crate::app_import_dialog::open(window, cx, team_id.clone())
+                            }),
+                    ),
+                    _ => menu,
+                };
             }
-        });
-    let pills = gpui_component::h_flex().gap_2().child(import).child(new_app);
-    let band = crate::surface::glass_section_header(APPS.copy.title.clone(), Some(pills.into_any_element()), cx);
-    let column = v_flex().id(SharedString::from(APPS.test_ids.list.clone())).w_full().min_w_0().child(band);
-    let body = if entries.is_empty() {
-        crate::controls::empty_state_list(Icon::new(registry::NAV_APPS), APPS.copy.empty.clone(), cx).into_any_element()
-    } else {
-        v_flex()
-            .w_full()
-            .min_w_0()
-            .children(entries.iter().enumerate().map(|(index, entry)| {
-                let manage = can_manage(entry, me, owner);
-                app_row(index, entry, manage, to_settings, cx)
-            }))
-            .into_any_element()
-    };
-    v_flex().w_full().min_w_0().child(column.child(body))
+            menu
+        })
 }
 
 /// Whether the viewer manages `entry`: its creator, or a team owner.
 pub(crate) fn can_manage(entry: &AppEntry, me: Option<&str>, owner: bool) -> bool {
     owner || entry.row.as_ref().and_then(|row| row.created_by.as_deref()).is_some_and(|by| Some(by) == me)
-}
-
-/// Settings → Apps, the index (the Agents index's twin): the list band.
-/// EXP-1650: the Apps page ([`AppsPage`]) holds one too.
-pub struct AppsIndexPane {
-    nav: Entity<Navigation>,
-    /// Settings → Apps opens a row's editor on its Settings tab; the Apps
-    /// page its editor (default tab).
-    to_settings: bool,
-    _subscriptions: Vec<Subscription>,
-}
-
-impl AppsIndexPane {
-    pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
-        Self::with_target(nav, true, cx)
-    }
-
-    fn with_target(nav: Entity<Navigation>, to_settings: bool, cx: &mut gpui::Context<Self>) -> Self {
-        let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
-        if let Some(collections) = Store::try_global(cx).map(|store| store.collections().clone()) {
-            subscriptions.push(cx.observe(&collections.apps, |_, _, cx| cx.notify()));
-            subscriptions.push(cx.observe(&collections.team_members, |_, _, cx| cx.notify()));
-        }
-        Self { nav, to_settings, _subscriptions: subscriptions }
-    }
-}
-
-impl Render for AppsIndexPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let ready = Store::try_global(cx).is_some_and(|store| store.collections().apps.read(cx).is_ready());
-        let team_id = active_team_id(&self.nav, cx);
-        match team_id.filter(|_| ready) {
-            // Skeletons, never "Loading…" (feedback-states.json).
-            None => v_flex().min_w_0().child(crate::feedback::skeleton_rows(
-                "apps-skeleton",
-                crate::feedback::SKELETON_ROWS,
-                44.,
-                cx,
-            )),
-            Some(team_id) => {
-                let me = crate::queries::active_account(cx).map(|account| account.user_id);
-                let owner = crate::settings::is_owner(cx, &team_id);
-                let entries = app_entries(&team_id, cx);
-                apps_list(Some(&team_id), &entries, me.as_deref(), owner, self.to_settings, cx)
-            }
-        }
-    }
-}
-
-/// EXP-1650: the Apps PAGE ([`Screen::Apps`], web `t/$teamSlug/apps`): the
-/// same list band in the full-page scaffold (`max-w-5xl`, `px-4 py-4`),
-/// opened from the rail's `Apps` label.
-pub struct AppsPage {
-    pane: Entity<AppsIndexPane>,
-    scroll: gpui::ScrollHandle,
-}
-
-impl AppsPage {
-    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let nav = crate::navigation::nav_for_window(window, cx);
-        let pane = cx.new(|cx| AppsIndexPane::with_target(nav, false, cx));
-        Self { pane, scroll: gpui::ScrollHandle::new() }
-    }
-}
-
-impl Render for AppsPage {
-    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        crate::scroll_pane::page_scaffold("apps-screen-scroll", &self.scroll, v_flex().min_w_0().child(self.pane.clone()))
-    }
 }
 
 #[cfg(test)]

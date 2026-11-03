@@ -2440,10 +2440,17 @@
       },
       "webMobile": "inherit",
       "notes": {
-        "desktop": "VAPP-242: the desktop run view lands in its own PR (the sidebar row's click).",
+        "desktop": "VAPP-242: DEV-ONLY `EXP_DEV_SCREEN=run:<slug>`: the seeded Working hours app running full screen (no header of its own; the sidebar's app row is the active one).",
         "ios": "VAPP-242: the iOS run view lands in its own PR (the Apps tab's row tap).",
         "android": "VAPP-242: the Android run view lands in its own PR (the Apps tab's row tap).",
         "web": "`$appSlug` resolves to DEMO_APP_SLUG, the seeded Working hours app (published, records)."
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "run:working-hours"
+        },
+        "anchorDelayMs": 1500
       }
     },
     {
@@ -6988,7 +6995,7 @@
         },
         "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_SCREEN": "apps"
+          "EXP_DEV_SCREEN": "home"
         }
       },
       "ios": {
@@ -7003,7 +7010,7 @@
         "web": "The capture text comes from fixtures/app-export.json `capture.importText`.",
         "ios": "The live walk: the Apps list → the band's Import pill, the capture text typed into the field, the issue row from the server.",
         "android": "See ios: the same walk in StyleguideScreenshotsTest.",
-        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the import dialog with the capture text, over the Apps page (`EXP_DEV_SCREEN=apps`, #EXP-1650)."
+        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the import dialog with the capture text, over Home (`EXP_DEV_SCREEN=home`; VAPP-242: no Apps page)."
       }
     },
     {
