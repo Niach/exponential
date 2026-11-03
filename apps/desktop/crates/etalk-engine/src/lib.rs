@@ -485,8 +485,11 @@ fn serve<H: listener::Hearing>(input: impl BufRead, data_dir: PathBuf, hearing: 
             }
             Request::Stop => {
                 shared.stop_ring(None);
-                shared.generation.fetch_add(1, Ordering::SeqCst);
-                silence(&shared);
+                // eTalk device pass: answered at once like a barge-in. The
+                // sentence being synthesized can't be aborted (CrispASR's
+                // stream callback), so the engine's own Finished came ~2.3 s
+                // after the audio stopped and the Speaking banner lingered.
+                barge(&shared);
             }
             Request::Listen { id, .. } if listening.meeting().is_some() => {
                 // NEW-57: push to talk during a meeting is its flush
