@@ -7636,6 +7636,34 @@ public func messagesFromMcpResultJson(resultJson: String)throws  -> String  {
 })
 }
 /**
+ * eApps R8 (VAPP-233, `record-migrations.json` `migrateCases`): a record
+ * written under `version` as `kind` through the migrations of `package_json`
+ * (`{kind, data, applied}` or `{error}` JSON; `now` = the clock in ms).
+ */
+public func migrateRecordJson(packageJson: String, version: String, kind: String, dataJson: String, now: Double)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_migrate_record_json(
+        FfiConverterString.lower(packageJson),
+        FfiConverterString.lower(version),
+        FfiConverterString.lower(kind),
+        FfiConverterString.lower(dataJson),
+        FfiConverterDouble.lower(now),$0
+    )
+})
+}
+/**
+ * eApps R8 (`refusalCases`): why `after_json` may not replace the published
+ * `before_json` (an uncovered incompatible major bump), or none.
+ */
+public func migrationRefusalJson(beforeJson: String, afterJson: String)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_migration_refusal_json(
+        FfiConverterString.lower(beforeJson),
+        FfiConverterString.lower(afterJson),$0
+    )
+})
+}
+/**
  * `{min, max, step, ticks}`: nice axis ticks.
  */
 public func niceTicksJson(min: Double, max: Double, target: UInt32) -> String  {
@@ -8315,6 +8343,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json() != 8649) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_migrate_record_json() != 46396) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json() != 56997) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json() != 40785) {

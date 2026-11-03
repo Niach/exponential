@@ -873,7 +873,7 @@ pub const SHAPES: [ShapeSpec; 34] = [
         path: "/api/shapes/app-versions",
         // VAPP-110: an app's versions. MUST NOT declare `package`: an old
         // version's package loads on demand (tRPC `apps.get {version}`).
-        columns: &["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at"],
+        columns: &["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at", "migration_state", "migration_total", "migration_done", "migration_error"],
         pk: PkKind::Id,
     },
     ShapeSpec {
@@ -1097,7 +1097,7 @@ mod tests {
         let versions = shape_by_name("app_versions").unwrap();
         assert_eq!(
             versions.columns,
-            &["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at"]
+            &["id", "app_id", "team_id", "number", "note", "session_id", "created_by", "created_at", "migration_state", "migration_total", "migration_done", "migration_error"]
         );
         assert!(!versions.columns.contains(&"package"));
         // VAPP-122: records byte-match the proxy; the trash columns stay

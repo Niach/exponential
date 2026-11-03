@@ -19,6 +19,7 @@ import {
   versionRow,
   type AppEditorSheet,
   type AppEditorTab,
+  versionMigration,
 } from "@exp/domain-contract/apps"
 import {
   BoardGlyph,
@@ -157,6 +158,7 @@ function VersionRows({
     const author = version.createdBy ? usersById.get(version.createdBy) : undefined
     const note = version.note?.trim()
     const kind = versionRow(pointers, version.number)
+    const migration = versionMigration({ migrationState: version.migrationState ?? null, migrationTotal: version.migrationTotal ?? 0, migrationDone: version.migrationDone ?? 0, migrationError: version.migrationError ?? null })
     return (
       <ListRow
         key={version.id}
@@ -170,6 +172,8 @@ function VersionRows({
           </div>
           <div className="mt-0.5 truncate text-xs text-muted-foreground">
             {author?.name ?? APPS_COPY.byAgent} · {relativeTime(version.createdAt)}
+            {/* eApps R8 (apps.json migrationCases): the record sweep's line. */}
+            {migration ? ` · ${migration}` : ``}
           </div>
         </div>
         {kind === `published` ? (
@@ -611,7 +615,7 @@ export function AppEditor({
         </div>
       )}
       {/* A grant is about the version it was made on (`grantVersion`): any other previews asking for everything. */}
-      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} appId={app.id} teamId={teamId} me={me} grantedTools={shown === grantVersion(app) ? (app.row?.grantedTools ?? []) : []} runAs={isMobile ? null : runAs} readOnly={((isMobile ? null : runAs)?.access ?? access) === `read`} />
+      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} appId={app.id} teamId={teamId} me={me} grantedTools={shown === grantVersion(app) ? (app.row?.grantedTools ?? []) : []} runAs={isMobile ? null : runAs} readOnly={((isMobile ? null : runAs)?.access ?? access) === `read`} migrateFrom={shown !== app.publishedVersion && app.publishedVersion > 0 ? ((app.row?.package as { version?: string } | null)?.version ?? null) : null} />
     </div>
   )
 

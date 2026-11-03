@@ -16,6 +16,11 @@ export const APP_VERSION_COLUMNS = [
   `session_id`,
   `created_by`,
   `created_at`,
+  // eApps R8 (#VAPP-233): the record sweep's progress (apps.json `migrationCases`).
+  `migration_state`,
+  `migration_total`,
+  `migration_done`,
+  `migration_error`,
 ]
 
 export const Route = createFileRoute(`/api/shapes/app-versions`)({

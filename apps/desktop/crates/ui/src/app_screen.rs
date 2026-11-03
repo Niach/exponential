@@ -480,6 +480,18 @@ impl AppScreenView {
         self.viewing_package.clone()
     }
 
+    /// eApps R8 (apps.json `migrationCases`): previewing a version other than
+    /// the published one: the published package's `version` the records are
+    /// read through (the draft's migrations, copies only); `None` = as stored.
+    fn migrate_from(&self, cx: &App) -> Option<String> {
+        let app = self.app.as_ref()?;
+        let shown = domain::apps::shown_version(app.versions(), self.editing(cx), self.viewing);
+        if app.published_version == 0 || shown == app.published_version {
+            return None;
+        }
+        app.row.as_ref()?.package.as_ref()?.get("version")?.as_str().map(str::to_string)
+    }
+
     /// eApps V1: the shown version is the one the grants were made on.
     fn shows_grant_version(&self, cx: &App) -> bool {
         self.app.as_ref().is_some_and(|app| {
@@ -518,6 +530,7 @@ impl AppScreenView {
         }
         let Some(pkg) = pkg else { return };
         let theme = pkg.get("theme").and_then(Value::as_str).unwrap_or(THEME_ID).to_string();
+        let migrate_from = self.migrate_from(cx);
         // VAPP-122: the editor's app keeps its records (`records:<kind>`,
         // `records.*`).
         let scope = self.app.as_ref().map(|app| crate::exponential_ui_host::HostScope {
@@ -527,6 +540,7 @@ impl AppScreenView {
             run_as: run_as.clone(),
             read_only,
             records: pkg.get("records").cloned(),
+            migrate_from: migrate_from.clone().filter(|_| pkg.get("migrations").is_some_and(|m| m.as_array().is_some_and(|l| !l.is_empty()))).map(|from| (from, serde_json::json!({ "migrations": pkg["migrations"].clone() }))),
         });
         let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), scope, cx);
         if let Some(message) = apply_template_message(&pkg, self.picked_template.as_deref()) {
@@ -1057,6 +1071,11 @@ impl AppScreenView {
                         .map(|at| crate::comments::relative_time(at, now))
                         .unwrap_or_default();
                     let caption = if when.is_empty() { who } else { format!("{who} · {when}") };
+                    // eApps R8 (apps.json `migrationCases`): the record sweep's line.
+                    let caption = match domain::apps::version_migration(version.migration_state.as_deref(), version.migration_total.unwrap_or(0), version.migration_done.unwrap_or(0), version.migration_error.as_deref()) {
+                        Some(line) => format!("{caption} · {line}"),
+                        None => caption,
+                    };
                     let note = version.note.as_deref().map(str::trim).filter(|note| !note.is_empty());
                     // eApps V1 (`versionRow`): Published | Current + Publish | Preview + Publish.
                     let kind = version_row(pointers, number);

@@ -1604,6 +1604,12 @@ public struct AppVersionEntity: FetchableRecord, PersistableRecord, Identifiable
     /// The person who wrote it; nil = the editor session.
     public let createdBy: String?
     public let createdAt: String
+    /// eApps R8 (#VAPP-233): the record sweep a publish of it started
+    /// (`running` | `done` | `failed` | `superseded`; apps.json `migrationCases`).
+    public let migrationState: String?
+    public let migrationTotal: Int
+    public let migrationDone: Int
+    public let migrationError: String?
 
     public init(
         id: String,
@@ -1613,7 +1619,11 @@ public struct AppVersionEntity: FetchableRecord, PersistableRecord, Identifiable
         note: String? = nil,
         sessionId: String? = nil,
         createdBy: String? = nil,
-        createdAt: String
+        createdAt: String,
+        migrationState: String? = nil,
+        migrationTotal: Int = 0,
+        migrationDone: Int = 0,
+        migrationError: String? = nil
     ) {
         self.id = id
         self.appId = appId
@@ -1623,6 +1633,10 @@ public struct AppVersionEntity: FetchableRecord, PersistableRecord, Identifiable
         self.sessionId = sessionId
         self.createdBy = createdBy
         self.createdAt = createdAt
+        self.migrationState = migrationState
+        self.migrationTotal = migrationTotal
+        self.migrationDone = migrationDone
+        self.migrationError = migrationError
     }
 
     enum CodingKeys: String, CodingKey {
@@ -1632,6 +1646,10 @@ public struct AppVersionEntity: FetchableRecord, PersistableRecord, Identifiable
         case sessionId = "session_id"
         case createdBy = "created_by"
         case createdAt = "created_at"
+        case migrationState = "migration_state"
+        case migrationTotal = "migration_total"
+        case migrationDone = "migration_done"
+        case migrationError = "migration_error"
     }
 }
 
@@ -1646,6 +1664,10 @@ extension AppVersionEntity: Codable {
         sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
         createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy)
         createdAt = try c.decode(String.self, forKey: .createdAt)
+        migrationState = try c.decodeIfPresent(String.self, forKey: .migrationState)
+        migrationTotal = try c.decodeWireInt(forKey: .migrationTotal) ?? 0
+        migrationDone = try c.decodeWireInt(forKey: .migrationDone) ?? 0
+        migrationError = try c.decodeIfPresent(String.self, forKey: .migrationError)
     }
 }
 

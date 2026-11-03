@@ -85,7 +85,10 @@
       "failed": "Failed",
       "ok": "OK",
       "never": "Not run yet"
-    }
+    },
+    "migrating": "Migrating records",
+    "migratingOf": "Migrating records {done} of {total}",
+    "migrationFailed": "Records not migrated: {error}"
   },
   "panes": {
     "chat": 5,
@@ -942,6 +945,71 @@
           "status": "ok",
           "label": "OK"
         }
+      }
+    ]
+  },
+  "migrationCases": {
+    "$comment": "eApps R8 (#VAPP-233, record-migrations.json SWEEP) ×4: a Versions row's record sweep, off the synced app_versions columns migrationState / migrationTotal / migrationDone / migrationError (`versionMigration(row)`): running = `copy.migrating` while the total is 0, else `copy.migratingOf` ({done}, {total}); failed = `copy.migrationFailed` ({error}); none, done and superseded = null. Shown after the row's subtitle (who · when) joined with ` · `, in the same muted caption: no new component. DRAFT PREVIEW: when the editor previews a version that is not the published one and whose package declares `migrations`, the host runs every row of the hosting app through migrateRecord(those migrations, the PUBLISHED package's `version`, row.kind, row.data) before the records query (a failing row keeps its data), so the draft renders on migrated copies; nothing is written.",
+    "cases": [
+      {
+        "name": "no sweep",
+        "row": {
+          "migrationState": null,
+          "migrationTotal": 0,
+          "migrationDone": 0,
+          "migrationError": null
+        },
+        "expected": null
+      },
+      {
+        "name": "running, not counted yet",
+        "row": {
+          "migrationState": "running",
+          "migrationTotal": 0,
+          "migrationDone": 0,
+          "migrationError": null
+        },
+        "expected": "Migrating records"
+      },
+      {
+        "name": "running",
+        "row": {
+          "migrationState": "running",
+          "migrationTotal": 500,
+          "migrationDone": 120,
+          "migrationError": null
+        },
+        "expected": "Migrating records 120 of 500"
+      },
+      {
+        "name": "failed",
+        "row": {
+          "migrationState": "failed",
+          "migrationTotal": 500,
+          "migrationDone": 200,
+          "migrationError": "record r1: /hours: a number"
+        },
+        "expected": "Records not migrated: record r1: /hours: a number"
+      },
+      {
+        "name": "done and superseded say nothing",
+        "row": {
+          "migrationState": "done",
+          "migrationTotal": 5,
+          "migrationDone": 5,
+          "migrationError": null
+        },
+        "expected": null
+      },
+      {
+        "name": "superseded",
+        "row": {
+          "migrationState": "superseded",
+          "migrationTotal": 5,
+          "migrationDone": 2,
+          "migrationError": null
+        },
+        "expected": null
       }
     ]
   }

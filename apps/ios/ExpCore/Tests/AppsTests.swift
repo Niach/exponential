@@ -42,6 +42,7 @@ final class AppsTests: XCTestCase {
             "restored": Apps.Copy.restored, "restoredNote": Apps.Copy.restoredNote,
             "publish": Apps.Copy.publish, "published": Apps.Copy.published,
             "publishedToast": Apps.Copy.publishedToast, "publishNothing": Apps.Copy.publishNothing,
+            "migrating": Apps.Copy.migrating, "migratingOf": Apps.Copy.migratingOf, "migrationFailed": Apps.Copy.migrationFailed,
             "empty": Apps.Copy.empty,
             "chatEmpty": Apps.Copy.chatEmpty, "previewEmpty": Apps.Copy.previewEmpty,
             "versionsEmpty": Apps.Copy.versionsEmpty, "draftPlaceholder": Apps.Copy.draftPlaceholder,
@@ -151,6 +152,18 @@ final class AppsTests: XCTestCase {
         for item in try cases("versionLabelCases") {
             let head = try XCTUnwrap(item["headVersion"] as? Int)
             XCTAssertEqual(Apps.versionLabel(head), item["label"] as? String)
+        }
+    }
+
+    // eApps R8 (#VAPP-233): `versionMigration` replays `migrationCases`.
+    func testMigrationCases() throws {
+        let block = try XCTUnwrap(try fixture()["migrationCases"] as? [String: Any])
+        let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            let row = try XCTUnwrap(item["row"] as? [String: Any])
+            let got = Apps.versionMigration(state: row["migrationState"] as? String, total: row["migrationTotal"] as? Int ?? 0, done: row["migrationDone"] as? Int ?? 0, error: row["migrationError"] as? String)
+            XCTAssertEqual(got, item["expected"] as? String, item["name"] as? String ?? "")
         }
     }
 

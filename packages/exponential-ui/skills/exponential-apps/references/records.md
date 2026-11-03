@@ -163,6 +163,11 @@ dropped = drop or rename from; retyped / narrowed = map; required = default,
 map or rename to), else the host refuses the upsert (`migrationRefusal`:
 `entry drops note in 2.0.0: add a migration from 1.4.0 that covers it`). An
 added optional field or kind needs none, and a minor bump is never refused.
+Exponential sweeps the app's records into the new shape when the version is
+published (progress on the Versions row), and the editor previews a draft
+with migrations on migrated copies of the records (nothing written; the
+FFI's `migrate_record_json` / `migration_refusal_json`, the SDKs'
+`RecordMigrations`).
 
 **Read** = the binding source `records:<kind>[?query]`. The value is
 `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?, groups?, totals?, before?}`

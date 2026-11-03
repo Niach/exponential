@@ -21,15 +21,15 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const EXTENSIONS = [appReactExtension]
 
-function PackageSurface({ pkg, templateId, mode, appId, teamId, me, grantedTools, runAs, readOnly }: { pkg: AppPackage; templateId: string | null; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null; grantedTools: readonly string[]; runAs: AppRunAs | null; readOnly: boolean }) {
+function PackageSurface({ pkg, templateId, mode, appId, teamId, me, grantedTools, runAs, readOnly, migrateFrom }: { pkg: AppPackage; templateId: string | null; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null; grantedTools: readonly string[]; runAs: AppRunAs | null; readOnly: boolean; migrateFrom: string | null }) {
   const router = useRouter()
   const consent = useMemo(createConsentGate, [])
   // VAPP-120: the grants follow the synced row without remounting the host.
   const grants = useRef(grantedTools)
   grants.current = grantedTools
   const host = useMemo(
-    () => createAppHost({ consent, navigate: (href) => router.history.push(href), packages: [pkg], appId, teamId, me, grantedTools: () => grants.current, runAs }),
-    [consent, router, pkg, appId, teamId, me, runAs]
+    () => createAppHost({ consent, navigate: (href) => router.history.push(href), packages: [pkg], appId, teamId, me, grantedTools: () => grants.current, runAs, migrateFrom }),
+    [consent, router, pkg, appId, teamId, me, runAs, migrateFrom]
   )
   const plugin = useMemo(() => ({ icons: exponentialUiIcons }), [])
   useEffect(() => {
@@ -70,6 +70,7 @@ export function AppPreview({
   grantedTools = [],
   runAs = null,
   readOnly = false,
+  migrateFrom = null,
 }: {
   pkg: Record<string, unknown> | null
   /** VAPP-179: the picked template (null or missing = the first by id). */
@@ -86,6 +87,10 @@ export function AppPreview({
   grantedTools?: readonly string[]
   /** VAPP-198: preview as another member (owners; null = me). */
   runAs?: AppRunAs | null
+  /** eApps R8 (apps.json `migrationCases`): previewing a draft with
+   *  `migrations`: the published package's `version` its records are read
+   *  through (migrated copies, nothing written); null = as stored. */
+  migrateFrom?: string | null
   /** VAPP-200: the viewer's app access is `read`: the app's own writing
    *  controls paint disabled (eUI `readOnly`). */
   readOnly?: boolean
@@ -104,7 +109,7 @@ export function AppPreview({
       data-testid={APPS_TEST_IDS.preview}
     >
       {pkg ? (
-        <PackageSurface key={`${templateId ?? ``}:${runAs?.id ?? ``}:${key}`} pkg={pkg as unknown as AppPackage} templateId={templateId} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} runAs={runAs} readOnly={readOnly} />
+        <PackageSurface key={`${templateId ?? ``}:${runAs?.id ?? ``}:${key}`} pkg={pkg as unknown as AppPackage} templateId={templateId} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} runAs={runAs} readOnly={readOnly} migrateFrom={migrateFrom} />
       ) : (
         <div className="flex h-full min-h-48 items-center justify-center">
           <EmptyState icon={NavAppsIcon} title={APPS_COPY.previewEmpty} size="page" />

@@ -290,6 +290,8 @@ fun AppEditorScreen(
                         teamId = entry.teamId,
                         me = me,
                         readOnly = access == "read",
+                        // eApps R8 (apps.json `migrationCases`): a draft preview reads migrated copies.
+                        migrateFrom = if (entry.publishedVersion > 0 && shown != entry.publishedVersion) entry.packageJson?.let { runCatching { JsonValue.parse(it)["version"]?.string }.getOrNull() } else null,
                         modifier = Modifier.padding(padding),
                     )
                 }
@@ -478,6 +480,7 @@ private fun AppPreviewPane(
     teamId: String?,
     me: String?,
     readOnly: Boolean,
+    migrateFrom: String? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -519,7 +522,7 @@ private fun AppPreviewPane(
             if (pkg != null) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Apps.Preview.PADDING.dp)) {
                     // A new package = a new host (the key): every synced upsert repaints.
-                    androidx.compose.runtime.key(pkg, viewing) { AppPackageSurface(pkg, onOpenIssue, onOpenTeamSettings, appId, teamId, me, grants = grants, readOnly = readOnly) }
+                    androidx.compose.runtime.key(pkg, viewing, migrateFrom) { AppPackageSurface(pkg, onOpenIssue, onOpenTeamSettings, appId, teamId, me, grants = grants, readOnly = readOnly, migrateFrom = migrateFrom) }
                 }
             } else {
                 EmptyState(
@@ -535,7 +538,7 @@ private fun AppPreviewPane(
 
 /** One package's default template (`Apps.previewTemplate`) on the app host (`applyTemplate`). */
 @Composable
-private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, onOpenTeamSettings: (teamId: String, section: String) -> Unit, appId: String, teamId: String?, me: String?, grants: Boolean, readOnly: Boolean) {
+private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, onOpenTeamSettings: (teamId: String, section: String) -> Unit, appId: String, teamId: String?, me: String?, grants: Boolean, readOnly: Boolean, migrateFrom: String? = null) {
     val parsed = remember(packageJson) { runCatching { JsonValue.parse(packageJson) }.getOrNull() }
     val packageId = parsed?.get("id")?.string
     val templateId = parsed?.get("templates")?.obj?.keys?.let { Apps.previewTemplate(it) }
@@ -553,6 +556,7 @@ private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit
         grants = grants,
         readOnly = readOnly,
         upstreams = upstreams,
+        migrateFrom = migrateFrom,
     )
     LaunchedEffect(host, packageId, templateId) {
         if (packageId != null && templateId != null) {
@@ -632,6 +636,8 @@ private fun AppVersionsList(
                             listOfNotNull(
                                 author?.let { userDisplayName(it, it.id) } ?: Apps.Copy.BY_AGENT,
                                 version.createdAt?.let { relativeTime(it) }?.takeIf { it.isNotEmpty() },
+                                // eApps R8 (apps.json `migrationCases`): the record sweep's line.
+                                Apps.versionMigration(version.migrationState, version.migrationTotal ?: 0, version.migrationDone ?: 0, version.migrationError),
                             ).joinToString(" · "),
                             color = muted,
                             style = MaterialTheme.typography.labelSmall,

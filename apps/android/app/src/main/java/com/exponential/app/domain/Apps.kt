@@ -30,6 +30,10 @@ object Apps {
         const val PUBLISHED = "Published"
         const val PUBLISHED_TOAST = "Published v{n}"
         const val PUBLISH_NOTHING = "Nothing to publish yet"
+        // eApps R8 (#VAPP-233, `migrationCases`): a version row's record sweep.
+        const val MIGRATING = "Migrating records"
+        const val MIGRATING_OF = "Migrating records {done} of {total}"
+        const val MIGRATION_FAILED = "Records not migrated: {error}"
         const val EMPTY = "No apps yet"
         const val CHAT_EMPTY = "Describe the app you want. The editor session builds it and the preview follows."
         const val PREVIEW_EMPTY = "No version yet"
@@ -207,6 +211,13 @@ object Apps {
 
     /** A Versions row's trailing: the published badge, the head badge +
      *  Publish, or Preview + Publish. */
+    /** eApps R8 (#VAPP-233, fixture `migrationCases`): a version row's sweep line after its subtitle, or null. */
+    fun versionMigration(state: String?, total: Int, done: Int, error: String?): String? = when (state) {
+        "running" -> if (total > 0) Copy.MIGRATING_OF.replace("{done}", done.toString()).replace("{total}", total.toString()) else Copy.MIGRATING
+        "failed" -> Copy.MIGRATION_FAILED.replace("{error}", error ?: "")
+        else -> null
+    }
+
     fun versionRow(app: Versions, number: Int): VersionRowKind = when (number) {
         app.publishedVersion -> VersionRowKind.PUBLISHED
         app.headVersion -> VersionRowKind.HEAD

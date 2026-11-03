@@ -3087,6 +3087,27 @@ public final class DatabaseManager: @unchecked Sendable {
             try createAppRecordOutboxTable(db)
         }
 
+        // v98 (#VAPP-233, eApps R8): a version's record sweep progress on
+        // `app_versions` (apps.json `migrationCases`). The app-versions
+        // cursor resets only when the columns were added.
+        migrator.registerMigration("v98_app_version_migration") { db in
+            guard try db.tableExists("app_versions") else { return }
+            guard try db.columns(in: "app_versions").contains(where: { $0.name == "migration_state" }) == false else { return }
+            try db.alter(table: "app_versions") { t in
+                t.add(column: "migration_state", .text)
+                t.add(column: "migration_total", .integer).notNull().defaults(to: 0)
+                t.add(column: "migration_done", .integer).notNull().defaults(to: 0)
+                t.add(column: "migration_error", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'app-versions'
+                    """)
+            }
+        }
+
         return migrator
     }
 

@@ -835,6 +835,10 @@ external fun uniffi_exponential_ui_ffi_checksum_func_media_request_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_migrate_record_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_package_policy_json(
@@ -1547,6 +1551,10 @@ external fun uniffi_exponential_ui_ffi_fn_func_media_image_header(`bytes`: RustB
 external fun uniffi_exponential_ui_ffi_fn_func_media_request_json(`url`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(`resultJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_migrate_record_json(`packageJson`: RustBuffer.ByValue,`version`: RustBuffer.ByValue,`kind`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`now`: Double,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_migration_refusal_json(`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(`min`: Double,`max`: Double,`target`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -10623,6 +10631,37 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(
     
         FfiConverterString.lower(`resultJson`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * eApps R8 (VAPP-233, `record-migrations.json` `migrateCases`): a record
+         * written under `version` as `kind` through the migrations of `package_json`
+         * (`{kind, data, applied}` or `{error}` JSON; `now` = the clock in ms).
+         */
+    @Throws(UiException::class) fun `migrateRecordJson`(`packageJson`: kotlin.String, `version`: kotlin.String, `kind`: kotlin.String, `dataJson`: kotlin.String, `now`: kotlin.Double): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_migrate_record_json(
+    
+        FfiConverterString.lower(`packageJson`),FfiConverterString.lower(`version`),FfiConverterString.lower(`kind`),FfiConverterString.lower(`dataJson`),FfiConverterDouble.lower(`now`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * eApps R8 (`refusalCases`): why `after_json` may not replace the published
+         * `before_json` (an uncovered incompatible major bump), or none.
+         */
+    @Throws(UiException::class) fun `migrationRefusalJson`(`beforeJson`: kotlin.String, `afterJson`: kotlin.String): kotlin.String? {
+            return FfiConverterOptionalString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_migration_refusal_json(
+    
+        FfiConverterString.lower(`beforeJson`),FfiConverterString.lower(`afterJson`),_status)
 }
     )
     }

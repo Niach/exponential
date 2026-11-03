@@ -424,6 +424,7 @@ final class ExpAppHost {
         consent: AppConsentGate,
         grants: Bool = true,
         readOnly: Bool = false,
+        migrateFrom: String? = nil,
         onOpenIssue: @escaping (String) -> Void
     ) {
         self.consent = consent
@@ -440,7 +441,12 @@ final class ExpAppHost {
             ]))
         }
         let installed = packages
-        let scope = AppHostStore.RecordsScope(appId: appId, teamId: teamId, me: me, records: packages.first.map(JSONValue.parse)?["records"])
+        let hosting = packages.first.map(JSONValue.parse)
+        let scope = AppHostStore.RecordsScope(
+            appId: appId, teamId: teamId, me: me, records: hosting?["records"],
+            migrateFrom: (hosting?["migrations"]?.array?.isEmpty == false) ? migrateFrom : nil,
+            migrations: hosting.flatMap { $0["migrations"] }.map { JSONValue.object(["migrations": $0]) }
+        )
         let appsApi = deps.appsApi
         let upstreams = AppUpstreamAnswers()
         self.upstreams = upstreams
@@ -936,6 +942,11 @@ enum AppHostStore {
         /// VAPP-214: the hosting package's `records` (its kinds' `computed`
         /// fields apply on read).
         var records: JSONValue? = nil
+        /// eApps R8 (apps.json `migrationCases`): a draft preview: the
+        /// published `version` and `{migrations}`; the hosting app's rows
+        /// read through them (copies, nothing written).
+        var migrateFrom: String? = nil
+        var migrations: JSONValue? = nil
     }
 
     /// What one records read sees: the app's rows and their authors' names.
@@ -991,10 +1002,25 @@ enum AppHostStore {
                     updatedAt: row.updatedAt
                 )
             }
+            // eApps R8: a draft preview reads migrated copies of the hosting app's rows.
+            let shown: [RecordRow]
+            if let from = scope.migrateFrom, let migrations = scope.migrations, query.app == nil {
+                let ms = Date().timeIntervalSince1970 * 1000
+                shown = rows.map { row in
+                    let out = RecordMigrations.migrate(package: migrations, version: from, kind: row.kind, data: row.data, now: ms)
+                    guard out["error"] == nil, (out["applied"]?.number ?? 0) > 0, let kind = out["kind"]?.string, let data = out["data"] else { return row }
+                    var moved = row
+                    moved.kind = kind
+                    moved.data = data
+                    return moved
+                }
+            } else {
+                shown = rows
+            }
             // VAPP-214: the hosting app's computed fields (another app's rows carry none).
             let computed = query.app == nil ? RecordsQuery.computed(records: scope.records, kind: query.from) : [:]
             let now = Date()
-            let value = query.value(rows: rows, me: scope.me, now: now, today: TeamZone.day(now, in: zone), names: snapshot.names, computed: computed, refs: refs, issues: snapshot.issues, transitions: transitions, role: snapshot.role)
+            let value = query.value(rows: shown, me: scope.me, now: now, today: TeamZone.day(now, in: zone), names: snapshot.names, computed: computed, refs: refs, issues: snapshot.issues, transitions: transitions, role: snapshot.role)
             let json = value.json
             guard json != last else { return }
             last = json

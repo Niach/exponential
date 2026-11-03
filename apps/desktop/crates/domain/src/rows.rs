@@ -1380,6 +1380,16 @@ pub struct AppVersionRow {
     pub created_by: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
+    /// eApps R8 (#VAPP-233): the record sweep a publish of it started
+    /// (`running` | `done` | `failed` | `superseded`; apps.json `migrationCases`).
+    #[serde(default)]
+    pub migration_state: Option<String>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub migration_total: Option<i64>,
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub migration_done: Option<i64>,
+    #[serde(default)]
+    pub migration_error: Option<String>,
 }
 
 /// VAPP-122: `app_records` shape row: one record of an app's own data. The

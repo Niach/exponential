@@ -1212,6 +1212,22 @@ fn dotlottie_machine_reads_the_first() {
     assert_eq!(motion_read_dotlottie_machine(eui_motion::dotlottie::write("x", &anim, &[], &[])).unwrap(), "");
 }
 
+/// eApps R8 (VAPP-233): `fixtures/record-migrations.json` through the free
+/// functions, as the Swift (`RecordMigrationsTests`) and Compose
+/// (`RecordMigrationsTest`) suites replay it.
+#[test]
+fn the_record_migrations_fixture_replays_through_the_free_functions() {
+    let f = fixture("record-migrations.json");
+    for c in f["migrateCases"].as_array().unwrap() {
+        let got = migrate_record_json(c["package"].to_string(), c["version"].as_str().unwrap().into(), c["kind"].as_str().unwrap().into(), c["data"].to_string(), 0.0).unwrap();
+        assert!(eui_core::json::equal(&serde_json::from_str::<Value>(&got).unwrap(), &c["expected"]), "migrate: {}", c["name"]);
+    }
+    for c in f["refusalCases"].as_array().unwrap() {
+        let got = migration_refusal_json(c["before"].to_string(), c["after"].to_string()).unwrap();
+        assert_eq!(json!(got), c["expected"], "refusal: {}", c["name"]);
+    }
+}
+
 /// eApps R6 (VAPP-222): `fixtures/record-transitions.json` through the free
 /// functions, exactly as the Swift (`RecordTransitionsTests`) and Compose
 /// (`RecordTransitionsTest`) suites replay it.

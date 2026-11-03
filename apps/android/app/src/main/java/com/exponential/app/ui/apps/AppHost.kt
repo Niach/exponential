@@ -50,6 +50,7 @@ import at.exponential.ui.host.HostPolicy
 import at.exponential.ui.host.MediaOptions
 import at.exponential.ui.host.MediaRule
 import at.exponential.ui.host.RecordRow
+import at.exponential.ui.host.RecordMigrations
 import at.exponential.ui.host.RecordsQuery
 import at.exponential.ui.host.SourceResolver
 import at.exponential.ui.ffi.HostZone
@@ -449,6 +450,8 @@ fun rememberAppHost(
     readOnly: Boolean = false,
     /** #VAPP-230: the upstream reads' answers (the banners); null = untracked. */
     upstreams: AppUpstreamAnswers? = null,
+    /** eApps R8 (apps.json `migrationCases`): a draft preview's published `version`; the hosting app's rows read through the package's migrations (copies, nothing written). */
+    migrateFrom: String? = null,
 ): ExponentialHost {
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -459,7 +462,7 @@ fun rememberAppHost(
     // instance link opens in-app, anything else in the Custom Tab; no
     // instance known = the SDK's system opener.
     val links = rememberAppLinkHandler()
-    val host = remember(packages, consent, themeId, links, appId, teamId, me, grants, readOnly, upstreams) {
+    val host = remember(packages, consent, themeId, links, appId, teamId, me, grants, readOnly, upstreams, migrateFrom) {
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
         val db = accountDatabaseFlow(auth, deps.databaseHolder())
@@ -515,6 +518,9 @@ fun rememberAppHost(
         // eUI's one evaluator, the SDK's `RecordsQuery` over the core).
         // VAPP-214: the hosting package's `records` (its kinds' `computed` fields apply on read).
         val packageRecords = packages.firstOrNull()?.let { JsonValue.parse(it)["records"] }
+        // eApps R8: a draft preview's migrations (null = rows as stored).
+        val migrations = packages.firstOrNull()?.let { JsonValue.parse(it)["migrations"] }?.takeIf { (it.array?.size ?: 0) > 0 && migrateFrom != null }
+            ?.let { JsonValue.Obj(mapOf("migrations" to it)) }
 
         fun recordsValues(query: RecordsQuery): Flow<JsonValue?> {
             // The app whose records are read: the hosting app, or
@@ -567,6 +573,15 @@ fun rememberAppHost(
                         createdAt = row.createdAt,
                         updatedAt = row.updatedAt,
                     )
+                }.let { rows ->
+                    // eApps R8: a draft preview reads migrated copies of the hosting app's rows.
+                    if (migrations == null || migrateFrom == null || query.app != null) rows
+                    else rows.map { row ->
+                        val out = RecordMigrations.migrate(migrations, migrateFrom, row.kind, row.data, System.currentTimeMillis().toDouble())
+                        val kind = out["kind"]?.string
+                        val data = out["data"]
+                        if (out["error"] != null || (out["applied"]?.number ?: 0.0) <= 0.0 || kind == null || data == null) row else row.copy(kind = kind, data = data)
+                    }
                 }
                 // VAPP-187: `author` = the AUTHOR's name (`authorId ?? createdBy`).
                 val wanted = mapped.mapNotNullTo(HashSet()) { it.authorId ?: it.createdBy }

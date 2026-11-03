@@ -24,14 +24,17 @@ struct AppPreview: View {
     /// VAPP-200: the viewer's app access is `read`: the app's own writing
     /// controls paint disabled (eUI `readOnly`).
     var readOnly = false
+    /// eApps R8: a draft preview's published `version` (its records read
+    /// through the package's migrations, copies only); nil = as stored.
+    var migrateFrom: String? = nil
 
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: Apps.Preview.radius)
         ScrollView {
             Group {
                 if let packageJSON {
-                    AppPackageSurface(packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants, readOnly: readOnly)
-                        .id("\(grants):\(readOnly):\(packageJSON)")
+                    AppPackageSurface(packageJSON: packageJSON, appId: appId, teamId: teamId, grants: grants, readOnly: readOnly, migrateFrom: migrateFrom)
+                        .id("\(grants):\(readOnly):\(migrateFrom ?? ""):\(packageJSON)")
                 } else {
                     EmptyState(title: Apps.Copy.previewEmpty, icon: AppIcons.navApps, size: .page)
                         .frame(maxWidth: .infinity, minHeight: 192)
@@ -58,6 +61,7 @@ private struct AppPackageSurface: View {
     let teamId: String?
     let grants: Bool
     let readOnly: Bool
+    let migrateFrom: String?
 
     #if canImport(ExponentialUI)
     @Environment(AppDependencies.self) private var deps
@@ -129,6 +133,7 @@ private struct AppPackageSurface: View {
             consent: consent,
             grants: grants,
             readOnly: readOnly,
+            migrateFrom: migrateFrom,
             onOpenIssue: { [pushRoute, accountId] issueId in
                 pushRoute(.issue(accountId: accountId, id: issueId))
             }

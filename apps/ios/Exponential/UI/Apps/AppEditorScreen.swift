@@ -394,6 +394,14 @@ struct AppEditorScreen: View {
         return viewingPackage
     }
 
+    /// eApps R8 (apps.json `migrationCases`): previewing a version other than
+    /// the published one: the published package's `version` its records are
+    /// read through (the draft's migrations, copies only); nil = as stored.
+    private func migrateFrom(_ app: AppListEntry, shown: Int) -> String? {
+        guard app.publishedVersion > 0, shown != app.publishedVersion, let published = app.package else { return nil }
+        return JSONValue.parse(published)["version"]?.string
+    }
+
     private func preview(_ app: AppListEntry) -> some View {
         let canWrite = model.canWrite
         let number = shown(app)
@@ -424,7 +432,7 @@ struct AppEditorScreen: View {
                 }
                 // A grant is about the version it was made on (`grantVersion`):
                 // any other previews asking for everything.
-                AppPreview(packageJSON: shownPackage(app), appId: app.id, teamId: app.teamId, grants: number == Apps.grantVersion(app.versions), readOnly: access == "read")
+                AppPreview(packageJSON: shownPackage(app), appId: app.id, teamId: app.teamId, grants: number == Apps.grantVersion(app.versions), readOnly: access == "read", migrateFrom: migrateFrom(app, shown: number))
             }
             .padding(16)
         }
@@ -586,6 +594,8 @@ struct AppVersionsSheet: View {
         let note = version.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let who = author?.name ?? Apps.Copy.byAgent
         let when = RelativeTime.long(wire: version.createdAt)
+        // eApps R8 (apps.json `migrationCases`): the record sweep's line.
+        let migration = Apps.versionMigration(state: version.migrationState, total: version.migrationTotal, done: version.migrationDone, error: version.migrationError)
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {
@@ -596,7 +606,7 @@ struct AppVersionsSheet: View {
                         .foregroundStyle(note.isEmpty ? Color.white.opacity(TextOpacity.secondary) : Color.white)
                         .lineLimit(1)
                 }
-                Text(when.isEmpty ? who : "\(who)\(UserMessageCaption.separator)\(when)")
+                Text([when.isEmpty ? who : "\(who)\(UserMessageCaption.separator)\(when)", migration].compactMap { $0 }.joined(separator: UserMessageCaption.separator))
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)

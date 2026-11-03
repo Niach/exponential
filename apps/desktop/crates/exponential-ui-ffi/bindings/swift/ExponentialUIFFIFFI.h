@@ -1280,6 +1280,16 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_media_request_json(RustBuffer url, 
 RustBuffer uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(RustBuffer result_json, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MIGRATE_RECORD_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MIGRATE_RECORD_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_migrate_record_json(RustBuffer package_json, RustBuffer version, RustBuffer kind, RustBuffer data_json, double now, RustCallStatus *_Nonnull out_status
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MIGRATION_REFUSAL_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MIGRATION_REFUSAL_JSON
+RustBuffer uniffi_exponential_ui_ffi_fn_func_migration_refusal_json(RustBuffer before_json, RustBuffer after_json, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_NICE_TICKS_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_NICE_TICKS_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(double min, double max, uint32_t target, RustCallStatus *_Nonnull out_status
@@ -1993,6 +2003,18 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_media_request_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MESSAGES_FROM_MCP_RESULT_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MESSAGES_FROM_MCP_RESULT_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MIGRATE_RECORD_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MIGRATE_RECORD_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_migrate_record_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MIGRATION_REFUSAL_JSON
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MIGRATION_REFUSAL_JSON
+uint16_t uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json(void
     
 );
 #endif
