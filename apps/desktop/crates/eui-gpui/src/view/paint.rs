@@ -68,11 +68,14 @@ pub(crate) struct Place {
     pub clip: Option<Clip>,
     pub scale: f32,
     pub shift: (f32, f32),
+    /// EXP-1644: the opacity a transparent ancestor handed down instead of
+    /// fading its own element (see `paint_node`).
+    pub dim: f32,
 }
 
 impl Place {
     pub(crate) fn at(origin: (f32, f32), abs: (f32, f32), clip: Option<Clip>) -> Place {
-        Place { origin, abs, clip, scale: 1.0, shift: (0.0, 0.0) }
+        Place { origin, abs, clip, scale: 1.0, shift: (0.0, 0.0), dim: 1.0 }
     }
 }
 
@@ -243,6 +246,16 @@ impl SurfaceView {
         }
         let tf = style.transform;
         let leaf = n.kind == NodeKind::Leaf;
+        // EXP-1644: gpui fades an element by multiplying its opacity into
+        // every primitive below it, not as one layer like CSS, so a dimmed
+        // Button inside a dimmed Form drew its flattened label translucent
+        // over its own fill (dimmed twice). A container that paints nothing
+        // itself hands its opacity down instead: its descendants fade by the
+        // TOTAL, and a Button flattens with it (`group_dim`).
+        let total = place.dim * style.opacity.unwrap_or(1.0);
+        let hand_down = !leaf && total < 1.0 && style.bg.is_none() && style.gradient.is_none() && style.shadows.is_empty() && !style.has_border() && anim.is_none() && n.component != "Extension" && n.component != "VoiceWave" && !self.scrolls.contains_key(&index);
+        style.opacity = (!hand_down && total < 1.0).then_some(total);
+        let child_dim = if hand_down { total } else { 1.0 };
         // Round 2 §2: `position: sticky` / a pinned section header moves by
         // the core's offset (inside its scroller's translation).
         let (sdx, sdy) = self.sticky.get(&index).copied().unwrap_or((0.0, 0.0));
@@ -365,7 +378,7 @@ impl SurfaceView {
         // Children: the content origin shifts by the scroll offset.
         let (sx, sy) = self.scrolls.get(&index).map(|s| (s.offset_x, s.offset_y)).unwrap_or((0.0, 0.0));
         let clip = if style.clips() && radii.iter().any(|r| *r > 0.0) && sx == 0.0 && sy == 0.0 { Some(Clip { x: abs.0, y: abs.1, w, h, radii }) } else if style.clips() { None } else { place.clip };
-        let mut child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip, scale: ps, shift: (0.0, 0.0) };
+        let mut child_place = Place { origin: (f.x + sx, f.y + sy), abs, clip, scale: ps, shift: (0.0, 0.0), dim: child_dim };
         let mut kids_shown = true;
         if n.component == "VoiceWave" && !leaf && natives::voice_wave_is_bars(&n.props) {
             // VAPP-162: the `bars` meter has no child (it stays in the tree,
@@ -795,7 +808,7 @@ impl SurfaceView {
     #[allow(clippy::too_many_arguments)]
     fn paint_extension(&self, el: Stateful<Div>, index: u32, n: &PlacedNode, w: f32, h: f32, place: Place, abs: (f32, f32), window: &mut Window, cx: &mut Context<Self>) -> AnyElement {
         let f = self.frames.get(index as usize).copied().unwrap_or_default();
-        let children = self.children_elements(index, Place { origin: (f.x, f.y), abs, clip: place.clip, scale: place.scale, shift: (0.0, 0.0) }, window, cx);
+        let children = self.children_elements(index, Place { origin: (f.x, f.y), abs, clip: place.clip, scale: place.scale, shift: (0.0, 0.0), dim: 1.0 }, window, cx);
         let kind = n.extension_kind.clone().unwrap_or_default();
         let Some(painter) = self.painters.get(&kind).cloned() else {
             // No painter registered: the placeholder note, children kept.

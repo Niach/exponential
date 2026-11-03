@@ -1145,3 +1145,23 @@ fn a_disabled_file_upload_dims_its_dropzone_once_not_the_browse_button_again() {
     assert_eq!(opacity("f.dropzone"), Some(0.5));
     assert_eq!(opacity("f.browse"), None);
 }
+
+#[test]
+fn a_disabled_form_dims_its_switch_track_once_like_web() {
+    // EXP-1653: the Form's injected `disabled` makes its fields inert and
+    // gives them the disabled STATE, but a part recipe keyed on the
+    // author's `disabled` prop (the Switch track) does not match: web
+    // dims that track by the Form's own opacity only.
+    let mut s = field_surface(json!({"id": "form", "component": "Form", "props": {"name": "f", "disabled": true}, "children": [
+        {"id": "sw", "component": "Switch", "props": {"name": "sw", "label": "Notify", "checked": true}},
+        {"id": "own", "component": "Switch", "props": {"name": "own", "label": "Own", "disabled": true}},
+    ]}));
+    let mut m = fixed();
+    s.layout(&mut m);
+    let opacity = |id: &str| s.index_of(id).and_then(|i| s.visual(i)).and_then(|v| v.opacity);
+    assert_eq!(opacity("form"), Some(0.5));
+    assert_eq!(opacity("sw.track"), None);
+    assert_eq!(opacity("own.track"), Some(0.5));
+    let nodes = s.nodes();
+    assert_eq!(nodes.iter().find(|n| n.id == "sw").unwrap().props["disabled"], json!(true), "still inert");
+}

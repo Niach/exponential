@@ -701,6 +701,9 @@ const SPECIMEN_OVERRIDES: Record<string, { label: string; node: NestedNode }[]> 
     { label: `example`, node: { id: `list`, component: `List`, props: { direction: `vertical`, divided: true }, children: SPECIMEN_CHILDREN.List } },
     { label: `direction · horizontal`, node: { id: `list`, component: `List`, props: { direction: `horizontal`, divided: true, gap: `lg` }, children: SPECIMEN_CHILDREN.List } },
   ],
+  // EXP-1653: the column stays at every width, so a phone frame shows the
+  // shell and not only the pane (`md` hides it there with no way back).
+  Sidebar: [{ label: `collapseBelow · never`, node: { id: `sidebar`, component: `Sidebar`, props: { side: `left`, width: 240, collapseBelow: `never` } } }],
   SplitView: [{ label: `example`, node: { id: `split-view`, component: `SplitView`, props: { width: 280 } } }],
   FormActions: [
     { label: `example`, node: { id: `form-actions`, component: `FormActions`, props: { submit: `Save`, cancel: true } } },
@@ -893,7 +896,10 @@ function generatedCases(name: string, all: ComponentCase[]): { label: string; no
   const def = coreCatalog.components[name]
   if (def.props.open) {
     const open = own.find((c) => suffix(c) === `open=true`)!
-    return [{ label: `open`, node: open.node }]
+    // EXP-1653: a timed overlay (Toast) stays up for the shot on every
+    // platform instead of dismissing itself before the capture settles.
+    const node = def.props.duration ? { ...open.node, props: { ...open.node.props, duration: 0 } } : open.node
+    return [{ label: `open`, node }]
   }
   const picked: ComponentCase[] = [own.find((c) => suffix(c) === `example`)!]
   const enums = SPECIMEN_ENUMS.filter((p) => def.props[p]?.type === `enum`).slice(0, 2)
