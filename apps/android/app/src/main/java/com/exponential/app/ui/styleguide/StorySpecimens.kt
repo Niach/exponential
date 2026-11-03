@@ -8,8 +8,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import com.exponential.app.ui.components.LocalSpecimenPicture
+import com.exponential.app.ui.components.SpecimenSamples
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.CardSurface
 import com.exponential.app.domain.SessionTree
@@ -235,8 +239,8 @@ private val TAB_RING: Stories.StoryRing? = Stories.storyTab(
 )
 
 /** `story-tab`: THE Stories tab body over tabCases[1]'s ring (the phone
- *  size, no PR block) in the web specimen's card; the pictures are
- *  placeholders (the thumbnail's muted fill alone). */
+ *  size, no PR block) in the web specimen's card; the pictures are the
+ *  committed samples (EXP-1654, `SpecimenSamples`). */
 @Composable
 fun StoryTabSpecimenScreen() {
     val shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
@@ -248,7 +252,9 @@ fun StoryTabSpecimenScreen() {
                     .specimenCard(shape)
                     .padding(20.dp),
             ) {
-                StoryTab(ring = TAB_RING, onOpen = { _, _ -> })
+                CompositionLocalProvider(LocalSpecimenPicture provides SpecimenSamples.resolver(LocalContext.current)) {
+                    StoryTab(ring = TAB_RING, onOpen = { _, _ -> })
+                }
             }
         }
     }

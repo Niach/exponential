@@ -196,7 +196,8 @@ impl Render for DoctorPanel {
         let hub = CodingHub::global(cx);
         let (doctor, running) = {
             let hub = hub.read(cx);
-            (hub.doctor.device.clone(), hub.doctor.running)
+            // EXP-1654: a capture's pinned fixture case, else the live run.
+            (device_readiness::dev_doctor_case().or_else(|| hub.doctor.device.clone()), hub.doctor.running)
         };
         let block = match &doctor {
             None => device_readiness::render_loading(cx),

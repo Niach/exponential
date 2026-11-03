@@ -101,6 +101,18 @@ val syncAppHostAssets = tasks.register<Sync>("syncAppHostAssets") {
 }
 tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(syncAppHostAssets) }
 
+// EXP-1654: the styleguide specimens' sample pictures (`SpecimenSamples`), in
+// DEBUG assets only (the styleguide captures' build): never in a release APK.
+val specimenSamplesDir = layout.buildDirectory.dir("generated/specimenSamples")
+val syncSpecimenSamples = tasks.register<Sync>("syncSpecimenSamples") {
+    from("../../../packages/exponential-ui/samples") {
+        include("samples.json", "*.png")
+        into("samples")
+    }
+    into(specimenSamplesDir)
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(syncSpecimenSamples) }
+
 android {
     namespace = "com.exponential.app"
     compileSdk = 36
@@ -201,6 +213,7 @@ android {
     // package (never copied into src/main/assets). Exponential ships no
     // built-in apps, so the package's `templates/` stay out of the APK.
     sourceSets["main"].assets.srcDir(appHostAssetsDir.get().asFile)
+    sourceSets["debug"].assets.srcDir(specimenSamplesDir.get().asFile)
 
     // Product flavors mirror the iOS Tuist targets (Exponential / Exponential-Staging):
     // `production` ships the public cloud default, `staging` co-installs under a

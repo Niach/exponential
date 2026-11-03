@@ -122,8 +122,8 @@ mod tests {
     /// one that used to only describe its own — `device-settings` — now
     /// paints the product's own elements. EXP-1092
     /// did the same for `issue-context-menu` (a real `PopupMenu`), and
-    /// EXP-1294 for `session-row` (THE session card over
-    /// `domain::session_tree`) — with NO `sync::Store` installed here, so
+    /// EXP-1294 for `session-row` (EXP-1654: THE session row,
+    /// `run_rows::run_row`) — with NO `sync::Store` installed here, so
     /// every store read on those paths is `try_global`.
     #[gpui::test]
     async fn every_entry_paints_with_the_window_and_the_app(cx: &mut gpui::TestAppContext) {

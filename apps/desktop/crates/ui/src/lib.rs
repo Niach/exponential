@@ -72,6 +72,8 @@ mod entity_chip;
 mod entity_preview;
 // VAPP-90: the Exponential UI kitchen-sink dev screen.
 mod exponential_ui_screen;
+// EXP-1654: the sample pictures the specimen hosts paint.
+mod specimen_pictures;
 // VAPP-91: the IDE as an Exponential UI host.
 mod exponential_ui_host;
 // VAPP-110: the Apps page, one app's editor, the New app / Rename form.

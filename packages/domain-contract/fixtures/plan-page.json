@@ -690,7 +690,7 @@
     }
   ],
   "specimen": {
-    "$comment": "THE styleguide specimen ×4 (`plan-page`): this card, waiting, drawn wide (1280 × 720: header, outline with `Part A` active, the document from its top, the rail on question 1) and phone (390 × 760: the document from its top, the DockCard at the foot). Pictures = placeholders (the muted fill); the chat name = `chatName`.",
+    "$comment": "THE styleguide specimen ×4 (`plan-page`): this card, waiting, drawn wide (1280 × 720: header, outline with `Part A` active, the document from its top, the rail on question 1) and phone (390 × 760: the document from its top, the DockCard at the foot). Pictures = THE committed sample pictures (EXP-1654: packages/exponential-ui/samples, samples.json `attachments` maps sg-1…sg-4), painted from bundled bytes on every platform, never fetched; the chat name = `chatName`.",
     "chatName": "Editor-first app creation, eApps MCP",
     "activeSection": "part-a-editor-first-creation",
     "card": {

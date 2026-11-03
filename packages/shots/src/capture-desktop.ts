@@ -72,13 +72,26 @@ export const DEFAULT_PROCESS_NAME = `exp-desktop`
 export const DEFAULT_BINARY = `apps/desktop/target/release/${DEFAULT_PROCESS_NAME}`
 /** What the desktop app talks to. The vite dev server, not the Caddy proxy; `SHOTS_DEV_URL` overrides it (an isolated stack beside the shared one). */
 export const DEFAULT_BASE_URL = process.env.SHOTS_DEV_URL ?? `http://localhost:5173`
+/**
+ * EXP-1654: the origin the WEB lane photographs (`capture:views`' base URL:
+ * `CAPTURE_BASE_URL`, else the Caddy proxy). The app still talks to
+ * `DEFAULT_BASE_URL`; this is only what it PRINTS (`EXP_DEV_PUBLIC_URL`: the
+ * MCP endpoint, the server install one-liner), so desktop and web show the
+ * same URL instead of the vite port.
+ */
+export const PUBLIC_URL = (
+  process.env.CAPTURE_BASE_URL?.trim() ||
+  process.env.SHOTS_PROXY_URL?.trim() ||
+  `https://localhost:3000`
+).replace(/\/+$/, ``)
 /** `PLATFORM_FRAME.desktop` is 1800×1125 — this @2x source scales exactly onto it. */
 export const WINDOW_SIZE = `1440x900`
 /**
- * The lane's device row needs a demo-plausible name: the app labels its synced
- * `devices` row from the OS hostname, and `api::users::hostname()` reads the
- * HOSTNAME env var first — without this, every committed desktop shot of the
- * Agents view would carry the developer's real machine name.
+ * The capture app needs a demo-plausible name: it labels this machine (the
+ * launch picker's "This device" line, the relay presence) from the OS
+ * hostname, and `api::users::hostname()` reads the HOSTNAME env var first —
+ * without this, desktop shots would carry the developer's real machine name.
+ * EXP-1654: it no longer registers a `devices` row (`EXP_DEV_NO_REGISTER`).
  */
 export const DEVICE_HOSTNAME = `Alex's Mac mini`
 /**
@@ -428,9 +441,9 @@ export async function captureDesktop(
     return { shots, failures: 0 }
   }
 
-  // Before AND after: a crashed run leaves its registration behind, and the
-  // fleet in every machines-band shot has to be the seed's plus exactly ONE
-  // machine — the one this lane is running on.
+  // Before AND after: an older build (or a run before EXP-1654's
+  // `EXP_DEV_NO_REGISTER`) left registrations behind, and the fleet in every
+  // machines-band shot has to be exactly the seed's, as on web and the natives.
   await pruneStrayDevices()
 
   // EXP-1558: no repos root given = the deterministic fixture clone, not
@@ -679,7 +692,17 @@ async function captureOne(options: CaptureOneOptions): Promise<string> {
           // app registers and heartbeats the capture machine's REAL agent
           // logins into it.
           EXP_DEV_AGENT_ACCOUNT: DEMO_EMAIL,
+          // EXP-1654: and never REGISTER the capture Mac at all. Its row put
+          // a second "My devices" card ("Alex's Mac mini · This device")
+          // beside the seeded demo machine on the Devices page and the
+          // Add-device dialog, a fleet web and the natives never show.
+          EXP_DEV_NO_REGISTER: `1`,
+          EXP_DEV_PUBLIC_URL: PUBLIC_URL,
           ZDOTDIR: options.zdotdir,
+          // EXP-1654: the Tools pane's Terminal shell placeholder (and the
+          // `terminal` shell, whose ZDOTDIR prompt is zsh) read $SHELL: pin
+          // it, never the capture Mac's own login shell.
+          SHELL: `/bin/zsh`,
           ...(options.shellCwd ? { EXP_DEV_SHELL_CWD: options.shellCwd } : {}),
           ...options.driveVars,
         } as Record<string, string>,

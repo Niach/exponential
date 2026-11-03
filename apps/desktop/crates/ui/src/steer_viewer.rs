@@ -4873,6 +4873,7 @@ impl SteerSessionView {
             return div().flex_1().min_h_0().child(body).into_any_element();
         }
 
+        crate::dev_ready::note_feed_painted();
         // EXP-776: the virtualised transcript. The list holds `row_keys.len()`
         // items ([`Self::sync_list`] ran at the top of this frame) and asks
         // for each one it paints by index; the padding is the old column's,

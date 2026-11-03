@@ -1712,7 +1712,7 @@ pub(crate) fn desktop_download_url() -> String {
 /// The instance the install one-liner points the daemon at.
 pub(crate) fn server_install_origin(cx: &gpui::App) -> String {
     queries::active_account(cx)
-        .map(|account| account.instance_url.trim_end_matches('/').to_string())
+        .map(|account| queries::display_instance_url(&account.instance_url).trim_end_matches('/').to_string())
         .unwrap_or_else(|| "https://app.exponential.at".to_string())
 }
 

@@ -3837,7 +3837,6 @@ impl ThreadScreenView {
         let images = self.images.clone();
         let tab_body = crate::story_tab::TabBody {
             images: &images,
-            load_pictures: true,
             card_for: &crate::story_tab::store_story_card,
         };
         let body = crate::story_tab::story_tab_body(ring.as_ref().as_ref(), lead, &tab_body, Some(on_open), window, cx);
