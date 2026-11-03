@@ -125,3 +125,12 @@ const current = (href: string) => (!href.includes(`#`) && path.startsWith(href) 
     }
   }
 </style>
+
+<script>
+  /* Site behaviour on every page: cookieless ref/utm forwarding onto app and
+     internal links, and the feedback widget. A bundled module ('self'). */
+  import { initAttributionForwarding } from "../lib/attribution.ts"
+  import { initWidget } from "../lib/widget.ts"
+  initAttributionForwarding()
+  initWidget()
+</script>
