@@ -45,6 +45,7 @@ fixtures; a crates.io package would not):
 | Fixture | What it decides |
 | --- | --- |
 | `packages/emcp/fixtures/exposes.json` | an app's MCP tools as declarative bindings: validation, `${input.x}` resolution, `<app>__<tool>` naming and collisions, the upstream call-time check, the `_meta` provenance |
+| `packages/emcp/fixtures/automations.json` | an app's automations (#VAPP-220): validation, the schedule spacing, trigger matching + the loop guard, the sponsor, the rate cap, `${record.x}` resolution, the audit names |
 | `packages/emcp/fixtures/access.json` | who sees and calls which app tool: `mcp_grants`, the member × app policy (no row = `write`) |
 | `packages/emcp/fixtures/audit.json` | the `mcp_calls` row: canonical JSON, the args hash, the status rule, 90-day retention |
 | `packages/emcp/fixtures/vault.json` | `ev1.<kid>.<iv>.<ciphertext‖tag>`: AES-256-GCM, the AAD binding a value to its row and key |
@@ -124,7 +125,7 @@ per-run `GatewayTransform`. A host with tools of its own installs a
 | `server::ToolProvider::{tools_for, try_call}` | optional: a per-run list, and MCP's unknown-tool error instead of content (`Refusal`) |
 | `hub::{Hub, Mount, HubGrant, AuditSink, MemoryAudit, JsonlAudit, AuditRow}` | the local hub |
 | `codemode::{grant, gateway_grant, revoke, worker, set_subject_table, …}` | code mode (feature `codemode`) |
-| `contract::{exposes, access, audit, vault, upstream, hub, actions}` | the pure contract, one module per fixture |
+| `contract::{exposes, automations, access, audit, vault, upstream, hub, actions}` | the pure contract, one module per fixture |
 
 `tests/fixtures.rs` replays every fixture case; `tests/loopback.rs` serves and
 calls over a real socket; `tests/hub.rs` replays hub.json's list and call cases

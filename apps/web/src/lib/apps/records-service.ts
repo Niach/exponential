@@ -16,6 +16,7 @@
 // #VAPP-215 (R4): every write appends its `app_record_events` row in the
 // same transaction under the same role (`logEvents`); history, restore and
 // undo read those rows back (app-records.json `history`).
+import { afterRecordWrite, type RecordTriggerOp } from "@/lib/apps/automation-scope"
 import { TRPCError } from "@trpc/server"
 import { and, asc, desc, eq, inArray, isNull, notInArray, or, sql, type SQL } from "drizzle-orm"
 import { validateRecord, type RecordSchema } from "@exponential_app/eui"
@@ -350,7 +351,8 @@ export async function upsertRecord(
   const members = onBehalf ? await teamMemberIds(executor, app.teamId) : []
   const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
   await assertTeamRefs(executor, app, input.kind, input.data)
-  return await executor.transaction(async (tx) => {
+  let written: Record<string, unknown> = {}
+  const out = await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     // VAPP-221: files only from this app (reads `attachments`: before the role).
     await assertRecordAttachments(tx, app, schemas.map((schema) => ({ schema, data: input.data })))
@@ -381,6 +383,7 @@ export async function upsertRecord(
         const [eventId] = await logEvents(tx, app, userId, input.via ?? `app`, [
           { recordId: existing.id, kind: existing.kind, op: `update`, author: reassign ? input.author! : recordAuthor(existing), patch: input.data, before: existing.data },
         ])
+        written = data
         return { txid: txId, id: existing.id, created: false, eventId: eventId! }
       })
     }
@@ -402,9 +405,13 @@ export async function upsertRecord(
       const [eventId] = await logEvents(tx, app, userId, input.via ?? `app`, [
         { recordId: row!.id, kind: input.kind, op: `create`, author: input.author ?? userId, patch: data, before: null },
       ])
+      written = data
       return { txid: txId, id: row!.id, created: true, eventId: eventId! }
     })
   })
+  // #VAPP-220: a committed write fires the app's record automations.
+  afterRecordWrite(app, input.kind, out.created ? `create` : `update`, { ...written, id: out.id })
+  return out
 }
 
 /** Soft-delete one record (its author or a team owner). */
@@ -418,7 +425,8 @@ export async function deleteRecord(
   const app = await loadApp(executor, ref)
   const viewer = await viewerOf(executor, app, userId)
   assertCanWrite(viewer)
-  return await executor.transaction(async (tx) => {
+  let gone: { kind: string; data: Record<string, unknown> } | null = null
+  const out = await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     return asEapps(tx, { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }, async (tx) => {
       const [existing] = await tx
@@ -437,9 +445,13 @@ export async function deleteRecord(
       const [eventId] = await logEvents(tx, app, userId, via, [
         { recordId: existing.id, kind: existing.kind, op: `delete`, author: recordAuthor(existing), patch: null, before: existing.data },
       ])
+      gone = { kind: existing.kind, data: existing.data }
       return { txid: txId, eventId: eventId! }
     })
   })
+  const deleted = gone as { kind: string; data: Record<string, unknown> } | null
+  if (deleted) afterRecordWrite(app, deleted.kind, `delete`, { ...deleted.data, id: recordId })
+  return out
 }
 
 /** VAPP-194: one write of a package action's plan (`@exponential_app/eui`
@@ -475,7 +487,8 @@ export async function commitRecordBatch(
   for (const [i, w] of writes.entries()) if (w.op === `upsert`) await assertTeamRefs(executor, app, w.kind, w.data).catch((e) => at(i, e))
   const creates = writes.filter((w) => w.op === `upsert` && w.id === undefined).length
   const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
-  return await executor.transaction(async (tx) => {
+  const fired: { kind: string; op: RecordTriggerOp; record: Record<string, unknown> }[] = []
+  const out = await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     await assertRecordAttachments(tx, app, writes.flatMap((w, i) => (w.op === `upsert` ? schemas[i]!.map((schema) => ({ schema, data: w.data })) : [])))
     if (creates > 0) await lockAndCheckQuota(tx, app.teamId, creates)
@@ -495,6 +508,7 @@ export async function commitRecordBatch(
             assertReadable(app, viewer, existing)
             assertRecordOp(app, existing.kind, `delete`, viewer, existing)
             await tx.update(appRecords).set({ deletedAt: sql`now()`, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+            fired.push({ kind: existing.kind, op: `delete`, record: { ...existing.data, id: existing.id } })
             ids.push(existing.id)
             events.push({ recordId: existing.id, kind: existing.kind, op: `delete`, author: recordAuthor(existing), patch: null, before: existing.data })
             continue
@@ -513,6 +527,7 @@ export async function commitRecordBatch(
             const data = checkedAgainst(schema, { ...existing.data, ...w.data })
             await assertRecordRefs(tx, app, w.kind, w.data)
             await tx.update(appRecords).set({ data, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
+            fired.push({ kind: w.kind, op: `update`, record: { ...data, id: existing.id } })
             ids.push(existing.id)
             events.push({ recordId: existing.id, kind: existing.kind, op: `update`, author: recordAuthor(existing), patch: w.data, before: existing.data })
             continue
@@ -524,6 +539,7 @@ export async function commitRecordBatch(
             .insert(appRecords)
             .values({ appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: userId, updatedBy: userId })
             .returning({ id: appRecords.id })
+          fired.push({ kind: w.kind, op: `create`, record: { ...data, id: row!.id } })
           ids.push(row!.id)
           events.push({ recordId: row!.id, kind: w.kind, op: `create`, author: userId, patch: data, before: null })
         } catch (e) {
@@ -534,6 +550,8 @@ export async function commitRecordBatch(
       return { txid: txId, ids, eventIds }
     })
   })
+  for (const f of fired) afterRecordWrite(app, f.kind, f.op, f.record)
+  return out
 }
 
 // ── VAPP-215 (R4): history, restore, undo ─────────────────────────────────

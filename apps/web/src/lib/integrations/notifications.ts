@@ -1128,6 +1128,41 @@ export async function notifyDeviceShareRemoved(args: {
   }
 }
 
+/** #VAPP-220: why an app automation paused (@exp/emcp automations.json
+ *  `sponsorStates`), as its owners read it. */
+export const AUTOMATION_PAUSED_COPY: Record<string, string> = {
+  sponsorGone: `its sponsor is no longer a member: publish the app again to sponsor it yourself`,
+  sponsorReadOnly: `its sponsor no longer has write access to the app`,
+  sponsorNotAllowed: `it names a sponsor, which only a team owner's publish may do`,
+}
+
+/** #VAPP-220: an app automation paused (once per pause) → the team's
+ *  owners. Best-effort, never throws. */
+export async function notifyAutomationPaused(args: {
+  teamId: string
+  ownerIds: string[]
+  appName: string
+  appSlug: string
+  automation: string
+  reason: string
+}): Promise<void> {
+  if (args.ownerIds.length === 0) return
+  try {
+    const [team] = await db.select({ slug: teams.slug }).from(teams).where(eq(teams.id, args.teamId)).limit(1)
+    if (!team) return
+    await deliverToTeam({
+      teamId: args.teamId,
+      recipientIds: args.ownerIds,
+      type: `agent_message`,
+      title: `${args.appName}: the automation ${args.automation} is paused`,
+      body: AUTOMATION_PAUSED_COPY[args.reason] ?? null,
+      pushData: { teamId: args.teamId, teamSlug: team.slug },
+    })
+  } catch (err) {
+    console.error(`[notify] automation paused failed:`, err)
+  }
+}
+
 /**
  * #EXP-1534: logins one of the owner's devices held healthy now read
  * signed_out / needs_relogin (`detectAgentSignOuts` decided: once per login

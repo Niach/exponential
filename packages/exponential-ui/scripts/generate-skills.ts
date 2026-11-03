@@ -128,6 +128,7 @@ function appsSkill(): Files {
     `${formatPath} (Tools, Exposes, Extensions)`,
     [section(format, `Tools`), section(format, `Exposes`), section(format, `Extensions`)].join(`\n`)
   )
+  ref(`references/automations.md`, `Automations: schedule, record and event triggers`, `docs/spec/apps.md §7.1`, section(spec, `7.1 Triggers`))
 
   const examples = SAMPLE_APPS.map((id) => {
     const text = read(`samples/apps/${id}.app.json`)

@@ -162,7 +162,7 @@ export async function writeVersionInTx(
 export async function publishVersionInTx(
   tx: Tx,
   app: Pick<App, `id`>,
-  args: { number?: number; byOwner: boolean }
+  args: { number?: number; byOwner: boolean; userId: string | null }
 ): Promise<{ published: number; head: number }> {
   const [locked] = await tx
     .select({ headVersion: apps.headVersion, grantedTools: apps.grantedTools, package: apps.package, draftPackage: apps.draftPackage })
@@ -187,6 +187,8 @@ export async function publishVersionInTx(
     .set({
       package: pkg,
       publishedVersion: number,
+      // #VAPP-220: the automations' default sponsor.
+      publishedBy: args.userId,
       draftPackage: number === locked.headVersion ? null : headPackage,
       grantedTools: carriedGrants(locked.grantedTools, pkg, args.byOwner),
       updatedAt: new Date(),
@@ -406,7 +408,7 @@ export const appsRouter = router({
             headVersion = (await writeVersionInTx(tx, app!, pkg as unknown as Record<string, unknown>, { note: input.note ?? null, sessionId: null, createdBy: userId, byOwner: false })).number
             // eApps V1: an app created WITH a package (MCP `apps upsert` on a
             // new slug) publishes it as v1; every later version is a draft.
-            await publishVersionInTx(tx, app!, { number: headVersion, byOwner: false })
+            await publishVersionInTx(tx, app!, { number: headVersion, byOwner: false, userId })
           }
           return { txid: txId, app: { ...app!, headVersion, publishedVersion: headVersion, package: pkg ?? null } }
         })
@@ -462,7 +464,7 @@ export const appsRouter = router({
           .returning()
         const { number } = await writeVersionInTx(tx, app!, file.package, { note: APP_EXPORT_COPY.importNote, sessionId: null, createdBy: userId, byOwner: false })
         // eApps V1: an imported app file is a finished app: v1 is published at once.
-        await publishVersionInTx(tx, app!, { number, byOwner: false })
+        await publishVersionInTx(tx, app!, { number, byOwner: false, userId })
         // #VAPP-193: last in the transaction (it switches to role eapps).
         await importRecords(tx, { ...app!, package: file.package as App[`package`] }, userId, member.role, file.records)
         return { txid: txId, app: { ...app!, headVersion: number, publishedVersion: number }, records: file.records.length }
@@ -604,7 +606,7 @@ export const appsRouter = router({
       await assertAppAccess(ctx.db, app, userId, `write`)
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        const { published, head } = await publishVersionInTx(tx, app, { number: input.number, byOwner: canGrantActions(member.role) })
+        const { published, head } = await publishVersionInTx(tx, app, { number: input.number, byOwner: canGrantActions(member.role), userId })
         return { txid: txId, published, head }
       })
     }),

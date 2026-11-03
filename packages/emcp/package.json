@@ -20,6 +20,7 @@
     "./vault": "./src/vault.ts",
     "./upstream": "./src/upstream.ts",
     "./hub": "./src/hub.ts",
+    "./automations": "./src/automations.ts",
     "./fixtures/*": "./fixtures/*"
   },
   "devDependencies": {

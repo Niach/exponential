@@ -1,8 +1,9 @@
-import { eq, lt } from "drizzle-orm"
+import { and, eq, isNull, lt, sql } from "drizzle-orm"
 import type { EventEmitter } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
-import { events, issues, type Event } from "@/db/schema"
+import { apps, events, issues, type Event } from "@/db/schema"
+import { inAutomation } from "@/lib/apps/automation-scope"
 import { fireEventTriggersInTx, type EventPrivateDetail } from "@/lib/agents/triggers"
 import type { Tx } from "@/lib/sessions/tx"
 
@@ -46,6 +47,19 @@ export async function emitEventInTx(tx: Tx, args: EmitEventArgs): Promise<Event>
     })
     .returning()
   await fireEventTriggersInTx(tx, row!, args.privateDetail)
+  // #VAPP-220: the apps' event automations (not for an event an automation
+  // run caused: the loop guard), run once the row is committed.
+  if (!inAutomation()) {
+    const listening = await tx
+      .select({ id: apps.id })
+      .from(apps)
+      .where(and(eq(apps.teamId, args.teamId), isNull(apps.deletedAt), sql`${apps.package} @> ${JSON.stringify({ automations: [{ on: { event: args.name } }] })}::jsonb`))
+    if (listening.length > 0) {
+      void import(`@/lib/apps/automations`)
+        .then((m) => m.fireEventAutomations(row!, listening.map((a) => a.id)))
+        .catch((err) => console.error(`[automations] event trigger failed:`, err))
+    }
+  }
   return row!
 }
 

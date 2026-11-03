@@ -3,6 +3,7 @@
 //! like the TypeScript references and the server broker do.
 
 pub mod access;
+pub mod automations;
 pub mod actions;
 pub mod audit;
 pub mod exposes;
@@ -25,6 +26,7 @@ pub mod fixture {
         };
     }
 
+    fixture!(automations, "../../../../../../packages/emcp/fixtures/automations.json");
     fixture!(exposes, "../../../../../../packages/emcp/fixtures/exposes.json");
     fixture!(access, "../../../../../../packages/emcp/fixtures/access.json");
     fixture!(audit, "../../../../../../packages/emcp/fixtures/audit.json");
