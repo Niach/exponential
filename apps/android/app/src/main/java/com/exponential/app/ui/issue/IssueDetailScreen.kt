@@ -303,7 +303,6 @@ fun IssueFace(
     // EXP-57: same-team boards the issue can move to.
     val moveTargets by viewModel.moveTargets.collectAsStateWithLifecycle()
     // EXP-1291: the issue's pull requests (PR state left `issues`).
-    val pullRequests by viewModel.pullRequests.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val issue = state.issue
@@ -748,15 +747,9 @@ fun IssueFace(
                     )
                 }
 
-                // EXP-1291: the issue's pull requests (one row each).
-                if (pullRequests.isNotEmpty()) {
-                    Spacer(Modifier.height(20.dp))
-                    AgentPrCard(
-                        pullRequests = pullRequests,
-                        onOpenPullRequest = { pr -> onOpenPullRequest?.invoke(pr) },
-                        mergeControlFor = prMergeControl,
-                    )
-                }
+                // EXP-1647: NO pull-request row on the issue page ×4 (web
+                // issue-coding-rows.tsx, EXP-1293): a PR is the thread's
+                // (its Stories tab / header Merge), never the issue's.
 
                 // Widget/agent submission metadata (EXP-496): expandable card,
                 // default collapsed; renders nothing without a submission row.
