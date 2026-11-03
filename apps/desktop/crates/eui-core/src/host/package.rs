@@ -295,8 +295,26 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
                     let from = q.as_object().and_then(|o| o.get("from")).and_then(Value::as_str).map(super::js_trim).unwrap_or("");
                     if !from.is_empty() && !from.contains("${") && !p.get("records").and_then(Value::as_object).is_some_and(|r| r.contains_key(from)) {
                         issues.push(issue(format!("{at}/from"), format!("records:{from} names no declared kind")));
+                    } else if !from.is_empty() && !from.contains("${") && q.is_object() {
+                        issues.extend(query_field_issues(q, from, p.get("records").and_then(|r| r.get(from)), &at));
                     }
                 }
+            }
+        }
+    }
+    // Dogfood G: an exposed records run's `query` names a package query of the run's kind.
+    for (i, expose) in p.get("exposes").and_then(Value::as_array).into_iter().flatten().enumerate() {
+        let Some(run) = expose.get("run").and_then(|r| r.get("records")).filter(|r| r.is_object()) else { continue };
+        let Some(name) = run.get("query").and_then(Value::as_str) else { continue };
+        let at = format!("/exposes/{i}/run/records/query");
+        let Some(q) = p.get("queries").and_then(Value::as_object).and_then(|qs| qs.get(name)) else {
+            issues.push(issue(at, format!("query {name} names no package query")));
+            continue;
+        };
+        let from = q.as_object().and_then(|o| o.get("from")).and_then(Value::as_str).map(super::js_trim).unwrap_or("");
+        if let Some(kind) = run.get("kind").and_then(Value::as_str) {
+            if !from.is_empty() && !from.contains("${") && from != kind {
+                issues.push(issue(at, format!("query {name} reads records:{from}, the tool's kind is {kind}")));
             }
         }
     }
@@ -476,3 +494,76 @@ fn sorted_entries(map: &serde_json::Map<String, Value>) -> Vec<(&String, &Value)
     entries
 }
 
+/// Dogfood G: a named query reads fields its kind has. Every field it filters,
+/// groups, aggregates, sums, sorts, buckets or runs on is a schema field, a
+/// computed field or a row key (a sort, a running value: or one of its
+/// aggregates, `count`), and `sum`/`avg` read a number. Else the query
+/// silently reads null. Issues at the query's top-level key (TS twin
+/// `queryFieldIssues`).
+fn query_field_issues(json: &Value, kind: &str, def: Option<&Value>, at: &str) -> Vec<PackageIssue> {
+    use super::query::RecordsAggregateOp as Op;
+    let (query, _) = parse_records_json(json, Some(kind));
+    let row = super::expressions::record_row_type(def);
+    let row = row.as_object().cloned().unwrap_or_default();
+    let has = |f: &str| row.contains_key(f);
+    let mut outputs: HashSet<String> = HashSet::from(["count".to_string()]);
+    outputs.extend(query.aggregate.iter().map(|a| a.name.clone()));
+    outputs.extend(query.group.iter().map(|g| g.field.clone()));
+    let mut issues = Vec::new();
+    let mut seen: HashSet<(String, String)> = HashSet::new();
+    let mut unknown = |issues: &mut Vec<PackageIssue>, key: String, f: &str, also: bool| {
+        if has(f) || also || !seen.insert((key.clone(), f.to_string())) {
+            return;
+        }
+        issues.push(issue(format!("{at}/{key}"), format!("{f} is no field of records:{kind}")));
+    };
+    let numeric = |issues: &mut Vec<PackageIssue>, key: String, op: &str, f: &str| {
+        let t = row.get(f).map(crate::cel::required_type).unwrap_or_else(|| json!("dyn"));
+        if t != json!("number") && t != json!("dyn") {
+            let name = match &t {
+                Value::String(s) => s.clone(),
+                Value::Array(_) => "list".into(),
+                _ => "map".into(),
+            };
+            issues.push(issue(format!("{at}/{key}"), format!("{op} reads a number: {f} is {name}")));
+        }
+    };
+    let listed = |k: &str| json.get(k).is_some_and(Value::is_array);
+    for f in &query.where_ {
+        unknown(&mut issues, "where".into(), &f.field, false);
+    }
+    for alt in &query.or {
+        for f in alt {
+            unknown(&mut issues, "or".into(), &f.field, false);
+        }
+    }
+    for (i, g) in query.group.iter().enumerate() {
+        unknown(&mut issues, if listed("group") { format!("group/{i}") } else { "group".into() }, &g.field, false);
+    }
+    for a in &query.aggregate {
+        let Some(f) = &a.field else { continue };
+        unknown(&mut issues, format!("aggregate/{}", a.name), f, false);
+        if matches!(a.op, Op::Sum | Op::Avg) && has(f) {
+            numeric(&mut issues, format!("aggregate/{}", a.name), if matches!(a.op, Op::Sum) { "sum" } else { "avg" }, f);
+        }
+    }
+    if let Some(f) = &query.sum {
+        unknown(&mut issues, "sum".into(), f, false);
+        if has(f) {
+            numeric(&mut issues, "sum".into(), "sum", f);
+        }
+    }
+    if let Some(m) = &query.month {
+        unknown(&mut issues, "month".into(), &m.field, false);
+    }
+    if let Some(b) = &query.before {
+        unknown(&mut issues, "before".into(), &b.field, false);
+    }
+    for (i, s) in query.sort.iter().enumerate() {
+        unknown(&mut issues, if listed("sort") { format!("sort/{i}") } else { "sort".into() }, &s.field, outputs.contains(&s.field));
+    }
+    for r in &query.running {
+        unknown(&mut issues, format!("running/{}", r.field), &r.field, outputs.contains(&r.field));
+    }
+    issues
+}

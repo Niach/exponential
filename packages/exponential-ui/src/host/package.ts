@@ -15,7 +15,8 @@ import { validateTools } from "./tools"
 import type { PackageTool } from "./tools"
 import { validatePackageExposes, validateUpstreams } from "./exposes"
 import type { PackageExpose } from "./exposes"
-import { validatePackageExpressions, validateRecordComputed } from "./expressions"
+import { recordRowType, validatePackageExpressions, validateRecordComputed } from "./expressions"
+import { requiredType, type ExprType } from "../cel"
 import { validatePackageActions, validatePackageEffects } from "./actions"
 import { packageTestIssues, validatePackageTests } from "./tests"
 import { validatePackageComponents } from "./components"
@@ -241,8 +242,21 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
         const from = isObject(q) && typeof q.from === `string` ? q.from.trim() : ``
         if (from && !from.includes(`\${`) && (!isObject(pkg.records) || !Object.prototype.hasOwnProperty.call(pkg.records, from)))
           issues.push({ path: `${at}/from`, message: `records:${from} names no declared kind` })
+        else if (from && !from.includes(`\${`) && isObject(q)) issues.push(...queryFieldIssues(q, from, (pkg.records as Record<string, unknown>)[from], at))
       }
   }
+  // Dogfood G: an exposed records run's `query` names a package query of the run's kind.
+  if (Array.isArray(pkg.exposes))
+    pkg.exposes.forEach((expose, i) => {
+      const run = isObject(expose) && isObject(expose.run) && isObject(expose.run.records) ? expose.run.records : null
+      if (!run || typeof run.query !== `string`) return
+      const at = `/exposes/${i}/run/records/query`
+      const q = isObject(pkg.queries) && Object.prototype.hasOwnProperty.call(pkg.queries, run.query) ? (pkg.queries as Record<string, unknown>)[run.query] : undefined
+      if (q === undefined) return void issues.push({ path: at, message: `query ${run.query} names no package query` })
+      const from = isObject(q) && typeof q.from === `string` ? q.from.trim() : ``
+      if (from && !from.includes(`\${`) && typeof run.kind === `string` && from !== run.kind)
+        issues.push({ path: at, message: `query ${run.query} reads records:${from}, the tool's kind is ${run.kind}` })
+    })
   if (isObject(pkg.templates))
     for (const [id, template] of Object.entries(pkg.templates)) {
       if (!isObject(template) || !Array.isArray(template.bindings)) continue
@@ -269,6 +283,46 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
   // package) every one run; a failing test is an issue like a type error.
   issues.push(...validatePackageTests(pkg))
   if (issues.length === 0) issues.push(...packageTestIssues(pkg))
+  return issues
+}
+
+/** Dogfood G: a named query reads fields its kind has. Every field it filters,
+ *  groups, aggregates, sums, sorts, buckets or runs on is a schema field, a
+ *  computed field or a row key (a sort, a running value: or one of its
+ *  aggregates, `count`), and `sum`/`avg` read a number. Else the query
+ *  silently reads null. Issues at the query's top-level key. */
+function queryFieldIssues(json: Record<string, unknown>, kind: string, def: unknown, at: string): PackageIssue[] {
+  const { query } = parseRecordsJson(json, kind)
+  const row = recordRowType(def) as Record<string, ExprType>
+  const has = (f: string) => Object.prototype.hasOwnProperty.call(row, f)
+  const outputs = new Set([`count`, ...query.aggregate.map((a) => a.name), ...query.group.map((g) => g.field)])
+  const issues: PackageIssue[] = []
+  const seen = new Set<string>()
+  const unknown = (key: string, f: string, also?: boolean) => {
+    if (has(f) || also || seen.has(`${key}\u0000${f}`)) return
+    seen.add(`${key}\u0000${f}`)
+    issues.push({ path: `${at}/${key}`, message: `${f} is no field of records:${kind}` })
+  }
+  const numeric = (key: string, op: string, f: string) => {
+    const t = has(f) ? requiredType(row[f]!) : `dyn`
+    if (t !== `number` && t !== `dyn`) issues.push({ path: `${at}/${key}`, message: `${op} reads a number: ${f} is ${typeof t === `string` ? t : Array.isArray(t) ? `list` : `map`}` })
+  }
+  for (const f of query.where) unknown(`where`, f.field)
+  for (const alt of query.or) for (const f of alt) unknown(`or`, f.field)
+  query.group.forEach((g, i) => unknown(Array.isArray(json.group) ? `group/${i}` : `group`, g.field))
+  for (const a of query.aggregate) {
+    if (a.field === null) continue
+    unknown(`aggregate/${a.name}`, a.field)
+    if ((a.op === `sum` || a.op === `avg`) && has(a.field)) numeric(`aggregate/${a.name}`, a.op, a.field)
+  }
+  if (query.sum !== null) {
+    unknown(`sum`, query.sum)
+    if (has(query.sum)) numeric(`sum`, `sum`, query.sum)
+  }
+  if (query.month) unknown(`month`, query.month.field)
+  if (query.before) unknown(`before`, query.before.field)
+  query.sort.forEach((s, i) => unknown(Array.isArray(json.sort) ? `sort/${i}` : `sort`, s.field, outputs.has(s.field)))
+  for (const r of query.running) unknown(`running/${r.field}`, r.field, outputs.has(r.field))
   return issues
 }
 
