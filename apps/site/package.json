@@ -17,6 +17,7 @@
     "@exponential_app/eui-element": "workspace:*",
     "@exponential_app/eui-react": "workspace:*",
     "astro": "7.4.2",
+    "lucide-react": "^0.544.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "starlight-llms-txt": "0.12.0"

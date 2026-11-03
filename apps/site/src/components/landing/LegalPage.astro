@@ -2,7 +2,6 @@
 /* Privacy, terms and imprint: the legal text in the reading column. */
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
 import { seoHead } from "./seo.ts"
-import SiteFooter from "./SiteFooter.astro"
 
 interface Props {
   title: string
@@ -18,5 +17,4 @@ const { title, description, meta } = Astro.props
     <p class="exp-legal-meta">{meta}</p>
     <slot />
   </div>
-  <SiteFooter />
 </StarlightPage>

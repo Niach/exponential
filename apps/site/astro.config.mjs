@@ -23,6 +23,7 @@ export default defineConfig({
       components: {
         Header: `./src/components/Header.astro`,
         Head: `./src/components/Head.astro`,
+        Footer: `./src/components/Footer.astro`,
       },
       social: [{ icon: `github`, label: `GitHub`, href: `https://github.com/Niach/exponential` }],
       editLink: { baseUrl: `https://github.com/Niach/exponential/edit/master/apps/site/` },

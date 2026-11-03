@@ -1,7 +1,6 @@
 ---
 /* The blog: every post with its cover, newest first. */
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
-import SiteFooter from "../../components/landing/SiteFooter.astro"
 import { BLOG_DESCRIPTION, BLOG_TITLE, POSTS, formatDate, postPath } from "../../components/landing/blog.ts"
 import { SITE_ORIGIN, breadcrumb, seoHead } from "../../components/landing/seo.ts"
 
@@ -42,5 +41,4 @@ const head = [
     }
   </ul>
   <p class="exp-rss"><a href="/blog/rss.xml">RSS</a></p>
-  <SiteFooter />
 </StarlightPage>

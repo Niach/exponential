@@ -5,7 +5,6 @@ import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
 import { LinkButton, LinkCard } from "@astrojs/starlight/components"
 import Duo from "../components/landing/Duo.astro"
 import Feature from "../components/landing/Feature.astro"
-import SiteFooter from "../components/landing/SiteFooter.astro"
 import { LINKS } from "../components/landing/links.ts"
 import { ORGANIZATION, SOFTWARE_APPLICATION, seoHead } from "../components/landing/seo.ts"
 import { shot } from "../components/landing/shots.ts"
@@ -83,5 +82,4 @@ const libraries = [...LIBRARIES.map((lib) => ({ name: lib.name, href: lib.produc
       </div>
     </section>
   </div>
-  <SiteFooter />
 </StarlightPage>

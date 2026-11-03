@@ -4,7 +4,6 @@
    connect-src allows the origin). The button stays disabled until the
    script runs, so a native submit never puts the fields in a URL. */
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
-import SiteFooter from "../components/landing/SiteFooter.astro"
 import { LINKS } from "../components/landing/links.ts"
 import { seoHead } from "../components/landing/seo.ts"
 
@@ -38,7 +37,6 @@ const MAILTO = `mailto:${MAIL}?subject=Exponential%20Enterprise`
       <p class="exp-form-done" role="status" hidden id="exp-contact-done">Thanks, we got your message and will answer at the email you gave.</p>
     </section>
   </div>
-  <SiteFooter />
 </StarlightPage>
 
 <script>

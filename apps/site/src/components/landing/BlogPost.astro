@@ -1,7 +1,6 @@
 ---
 /* One blog post: title, date and author, the cover, the body, the other posts. */
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
-import SiteFooter from "./SiteFooter.astro"
 import { POSTS, formatDate, postBySlug, postPath } from "./blog.ts"
 import { SITE_ORIGIN, breadcrumb, seoHead } from "./seo.ts"
 
@@ -56,5 +55,4 @@ const head = [
       }
     </ul>
   </article>
-  <SiteFooter />
 </StarlightPage>

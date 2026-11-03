@@ -40,6 +40,9 @@ export const REDIRECTS: Record<string, string> = {
   "/talk/numbers": `/docs/libraries/etalk/reference/numbers/`,
   "/talk/licences": `/docs/libraries/etalk/reference/licences/`,
 
+  // Astro's sitemap integration writes sitemap-index.xml
+  "/sitemap.xml": `/sitemap-index.xml`,
+
   // Carried over from apps/marketing/public/serve.json
   "/blog/what-an-assistant-should-do": `/blog/ui-as-data-down-to-the-compositor/`,
   "/skills/voice-reference-clip/SKILL.md": `/talk/skills/voice-reference-clip/SKILL.md`,

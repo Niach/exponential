@@ -3,7 +3,6 @@
 import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
 import Duo from "../components/landing/Duo.astro"
 import PlatformLogo from "../components/landing/PlatformLogo.astro"
-import SiteFooter from "../components/landing/SiteFooter.astro"
 import { LINKS } from "../components/landing/links.ts"
 import { seoHead } from "../components/landing/seo.ts"
 import { shot } from "../components/landing/shots.ts"
@@ -46,5 +45,4 @@ const PLATFORMS = [
 
     <Duo desktop={shot(`board`, `desktop`, `A board in the desktop app`)} phone={shot(`board`, `android`, `The same board on Android`)} />
   </div>
-  <SiteFooter />
 </StarlightPage>
