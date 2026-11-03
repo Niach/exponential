@@ -254,6 +254,9 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     /// #EXP-1383: the agent whose session created the issue (`creatorId`
     /// keeps the member whose conversation it was).
     public let creatorAgentId: String?
+    /// #VAPP-229: the app whose exposed tool created it ("via <app>",
+    /// via-app.json); SET NULL when the app goes.
+    public let viaAppId: String?
 
     public init(
         id: String,
@@ -277,10 +280,12 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
         createdAt: String,
         updatedAt: String,
         assigneeAgentId: String? = nil,
-        creatorAgentId: String? = nil
+        creatorAgentId: String? = nil,
+        viaAppId: String? = nil
     ) {
         self.assigneeAgentId = assigneeAgentId
         self.creatorAgentId = creatorAgentId
+        self.viaAppId = viaAppId
         self.id = id
         self.boardId = boardId
         self.number = number
@@ -319,6 +324,7 @@ public struct IssueEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
         case updatedAt = "updated_at"
         case assigneeAgentId = "assignee_agent_id"
         case creatorAgentId = "creator_agent_id"
+        case viaAppId = "via_app_id"
     }
 }
 
@@ -355,6 +361,8 @@ extension IssueEntity: Codable {
         // #EXP-1383: absent on a pre-rotation snapshot.
         assigneeAgentId = try container.decodeIfPresent(String.self, forKey: .assigneeAgentId)
         creatorAgentId = try container.decodeIfPresent(String.self, forKey: .creatorAgentId)
+        // #VAPP-229: absent on a pre-rotation snapshot.
+        viaAppId = try? container.decodeIfPresent(String.self, forKey: .viaAppId)
     }
 }
 
@@ -442,6 +450,9 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
     /// EXP-1458: the title as a sealed body envelope (`title` then stays a
     /// neutral fallback).
     public let sealedTitle: String?
+    /// #VAPP-229: the app whose exposed tool started it ("via <app>",
+    /// via-app.json). NOT `appId` (the app an EDITOR session edits).
+    public let viaAppId: String?
 
     public init(
         id: String,
@@ -479,11 +490,13 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         startedByAgentId: String? = nil,
         sealPublicKey: String? = nil,
         sealEpoch: Int? = nil,
-        sealedTitle: String? = nil
+        sealedTitle: String? = nil,
+        viaAppId: String? = nil
     ) {
         self.sealPublicKey = sealPublicKey
         self.sealEpoch = sealEpoch
         self.sealedTitle = sealedTitle
+        self.viaAppId = viaAppId
         self.agentId = agentId
         self.appId = appId
         self.agentInstructionsAt = agentInstructionsAt
@@ -552,6 +565,7 @@ public struct SessionEntity: FetchableRecord, PersistableRecord, Identifiable, E
         case sealPublicKey = "seal_public_key"
         case sealEpoch = "seal_epoch"
         case sealedTitle = "sealed_title"
+        case viaAppId = "via_app_id"
     }
 }
 
@@ -605,6 +619,8 @@ extension SessionEntity: Codable {
         sealPublicKey = try c.decodeIfPresent(String.self, forKey: .sealPublicKey)
         sealEpoch = try c.decodeWireInt(forKey: .sealEpoch)
         sealedTitle = try c.decodeIfPresent(String.self, forKey: .sealedTitle)
+        // #VAPP-229: absent on a pre-rotation snapshot.
+        viaAppId = try? c.decodeIfPresent(String.self, forKey: .viaAppId)
     }
 }
 
@@ -1651,6 +1667,9 @@ public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable,
     public let authorId: String?
     /// VAPP-187: the last writer.
     public let updatedBy: String?
+    /// #VAPP-229: the app whose exposed tool CREATED it ("via <app>",
+    /// via-app.json; an update keeps it). SET NULL when the app goes.
+    public let viaAppId: String?
     public let createdAt: String
     public let updatedAt: String
 
@@ -1663,9 +1682,11 @@ public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable,
         createdBy: String? = nil,
         authorId: String? = nil,
         updatedBy: String? = nil,
+        viaAppId: String? = nil,
         createdAt: String,
         updatedAt: String
     ) {
+        self.viaAppId = viaAppId
         self.id = id
         self.appId = appId
         self.teamId = teamId
@@ -1685,6 +1706,7 @@ public struct AppRecordEntity: FetchableRecord, PersistableRecord, Identifiable,
         case createdBy = "created_by"
         case authorId = "author_id"
         case updatedBy = "updated_by"
+        case viaAppId = "via_app_id"
         case createdAt = "created_at"
         case updatedAt = "updated_at"
     }
@@ -1701,6 +1723,8 @@ extension AppRecordEntity: Codable {
         createdBy = try c.decodeIfPresent(String.self, forKey: .createdBy)
         authorId = try c.decodeIfPresent(String.self, forKey: .authorId)
         updatedBy = try c.decodeIfPresent(String.self, forKey: .updatedBy)
+        // #VAPP-229: absent on a pre-rotation snapshot.
+        viaAppId = try? c.decodeIfPresent(String.self, forKey: .viaAppId)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
     }

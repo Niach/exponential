@@ -159,3 +159,20 @@ val MIGRATION_112_113: Migration = object : Migration(112, 113) {
         )
     }
 }
+
+/**
+ * v114 (#VAPP-229): `issues.via_app_id`, `sessions.via_app_id` and
+ * `app_records.via_app_id`, the app whose tool caused the row ("via <app>").
+ * Only those three shapes refetch.
+ */
+val MIGRATION_113_114: Migration = object : Migration(113, 114) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `issues` ADD COLUMN `via_app_id` TEXT")
+        db.execSQL("ALTER TABLE `sessions` ADD COLUMN `via_app_id` TEXT")
+        db.execSQL("ALTER TABLE `app_records` ADD COLUMN `via_app_id` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` IN ('issues', 'sessions', 'app_records')",
+        )
+    }
+}

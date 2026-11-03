@@ -142,7 +142,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone"]
+             "v95_team_time_zone", "v96_via_app_id"]
         )
     }
 
@@ -206,7 +206,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone"]
+             "v95_team_time_zone", "v96_via_app_id"]
         )
     }
 
@@ -742,7 +742,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone"]
+             "v95_team_time_zone", "v96_via_app_id"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -854,7 +854,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v88_comment_via_app", "v89_notification_device_id",
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
-             "v95_team_time_zone"]
+             "v95_team_time_zone", "v96_via_app_id"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -3680,6 +3680,9 @@ final class DatabaseMigrationTests: XCTestCase {
              "sealed_title":"exp-sealed:v1:2:abc"}
             """.utf8)
         let row = try JSONDecoder().decode(SessionEntity.self, from: wire)
+        // The entity carries every later column (v96 `via_app_id`,
+        // #VAPP-229): migrate to the head before saving the row.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         try pool.write { db in try row.save(db) }
         let read = try pool.read { db in try SessionEntity.fetchOne(db, key: "s-1") }
         XCTAssertEqual(read?.sealKey, TreeSealKey(publicKey: "NYBy1jZYgNGu6jKa35EhODhR7SGijjt16WXQ0s0WYlQ", epoch: 2))
@@ -3845,6 +3848,9 @@ final class DatabaseMigrationTests: XCTestCase {
         let row = try JSONDecoder().decode(AppRecordEntity.self, from: wire)
         XCTAssertEqual(row.authorId, "u2")
         XCTAssertEqual(row.updatedBy, "u1")
+        // The entity carries every later column (v96 `via_app_id`,
+        // #VAPP-229): migrate to the head before saving the row.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         try pool.write { db in try row.save(db) }
         let read = try pool.read { db in try AppRecordEntity.fetchOne(db, key: "r1") }
         XCTAssertEqual(read, row)
@@ -4097,6 +4103,69 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertEqual(row.timeZone, "Europe/Vienna")
         try pool.write { db in try row.save(db) }
         XCTAssertEqual(try pool.read { db in try TeamEntity.fetchOne(db, key: "t1") }, row)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #VAPP-229: v96 adds `via_app_id` to issues, sessions and app records,
+    // resetting ONLY those three cursors so synced rows re-arrive carrying
+    // it; wire rows round-trip through the store.
+    func testViaAppIdColumnsAdded() throws {
+        let pool = try makePool("vapp229-via-app-id")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v95_team_time_zone")
+        try pool.write { db in
+            for shape in ["issues", "sessions", "app-records", "apps", "comments"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        for table in ["issues", "sessions", "app_records"] {
+            XCTAssertFalse(try columnNames(pool, table).contains("via_app_id"), table)
+        }
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v96_via_app_id"))
+        for table in ["issues", "sessions", "app_records"] {
+            XCTAssertTrue(try columnNames(pool, table).contains("via_app_id"), table)
+        }
+        try pool.read { db in
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["app-records", "issues", "sessions"])
+        }
+        let issue = try JSONDecoder().decode(IssueEntity.self, from: Data(#"""
+            {"id":"i-1","board_id":"b","title":"Log hours","status":"backlog","priority":"none",
+             "via_app_id":"a-1","created_at":"x","updated_at":"x"}
+            """#.utf8))
+        let session = try JSONDecoder().decode(SessionEntity.self, from: Data(#"""
+            {"id":"s-1","team_id":"t","user_id":"u","device_id":"d","via_app_id":"a-1",
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        let record = try JSONDecoder().decode(AppRecordEntity.self, from: Data(#"""
+            {"id":"r-1","app_id":"a-1","team_id":"t","kind":"entry","data":{},"via_app_id":"a-1",
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        try pool.write { db in
+            try issue.save(db)
+            try session.save(db)
+            try record.save(db)
+        }
+        try pool.read { db in
+            XCTAssertEqual(try IssueEntity.fetchOne(db, key: "i-1")?.viaAppId, "a-1")
+            XCTAssertEqual(try SessionEntity.fetchOne(db, key: "s-1")?.viaAppId, "a-1")
+            XCTAssertEqual(try AppRecordEntity.fetchOne(db, key: "r-1")?.viaAppId, "a-1")
+        }
+        // A pre-rotation row (no key) decodes as nil.
+        let legacy = try JSONDecoder().decode(IssueEntity.self, from: Data(#"""
+            {"id":"i-2","board_id":"b","title":"Old","status":"backlog","priority":"none",
+             "created_at":"x","updated_at":"x"}
+            """#.utf8))
+        XCTAssertNil(legacy.viaAppId)
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

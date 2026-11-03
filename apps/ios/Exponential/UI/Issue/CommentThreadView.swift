@@ -87,7 +87,8 @@ struct CommentThreadView: View {
     /// #EXP-1383: every synced agent definition — agent actors (events,
     /// comments, the creation row) and agent assignees resolve against it.
     @State private var agents: [String: AgentDefinitionEntity] = [:]
-    /// #VAPP-186: the synced, live apps' names by id ("via <app>").
+    /// #VAPP-186: the synced, live apps' names by id ("via <app>"; #VAPP-229
+    /// the creation row too).
     @State private var appNames: [String: String] = [:]
     @State private var labels: [String: LabelEntity] = [:]
     @State private var boards: [String: BoardEntity] = [:]
@@ -316,6 +317,12 @@ struct CommentThreadView: View {
                 ? "Agent"
                 : memberDisplayName(actorId.flatMap { users[$0] }, id: actorId)
         let time = relativeDate(createdAt)
+        // #VAPP-229 (via-app.json): an app's tool filed it = `· via <app>` on
+        // the muted tail (a deleted app = none).
+        let tail = withViaApp(
+            time.isEmpty ? "created the issue" : "created the issue · \(time)",
+            issue.viaAppId.flatMap { appNames[$0] }
+        )
         TimelineRow(
             showTop: showTop,
             showBottom: showBottom,
@@ -324,7 +331,7 @@ struct CommentThreadView: View {
             bottomPadding: 5,
             marker: { eventDot }
         ) {
-            Text(time.isEmpty ? "\(who) created the issue" : "\(who) created the issue · \(time)")
+            Text("\(who) \(tail)")
                 .font(.caption)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
         }

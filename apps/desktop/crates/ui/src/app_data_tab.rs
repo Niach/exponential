@@ -63,6 +63,8 @@ struct Record {
     created_by: Option<String>,
     /// VAPP-187: whose record it is (`None` = `created_by`).
     author_id: Option<String>,
+    /// #VAPP-229: the app whose tool created it (the By cell's `via <app>`).
+    via_app_id: Option<String>,
     updated_at: String,
 }
 
@@ -126,6 +128,7 @@ fn app_state(app_id: &str, access: Option<String>, cx: &App) -> (Option<Value>, 
                     data: row.data.clone(),
                     created_by: row.created_by.clone(),
                     author_id: row.author_id.clone(),
+                    via_app_id: row.via_app_id.clone(),
                     updated_at: crate::exponential_ui_host::iso_millis(row.updated_at.as_deref().unwrap_or("")),
                 })
                 .collect()
@@ -373,6 +376,12 @@ impl Render for AppDataTab {
                         record.created_by.as_deref(),
                         |id| users.as_ref()?.read(cx).get(id)?.name.clone().filter(|name| !name.trim().is_empty()),
                         &APPS.copy.by_agent,
+                    );
+                    // #VAPP-229 (via-app.json): `Ana · via Timesheet` while
+                    // the creating app syncs; one truncated line.
+                    let by = domain::via_app::with_via_app(
+                        &by,
+                        crate::comments::synced_app_name(record.via_app_id.as_deref(), cx).as_deref(),
                     );
                     let updated = crate::comments::relative_time(&record.updated_at, now);
                     let cells = columns

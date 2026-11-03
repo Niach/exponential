@@ -806,6 +806,24 @@ class AgentSessionViewModel @AssistedInject constructor(
             .map { rows -> rows.associateBy { it.id } }
             .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
 
+    /** #VAPP-229 (via-app.json): "via <app>" when an app's tool started this
+     *  session and the app resolves against the live synced apps (an unknown
+     *  or deleted app = null, no line). */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val viaAppCaption: StateFlow<String?> = session
+        .map { it?.viaAppId?.takeIf { id -> id.isNotEmpty() } }
+        .distinctUntilChanged()
+        .flatMapLatest { appId ->
+            if (appId == null) {
+                flowOf(null)
+            } else {
+                dbFlow.scopedQuery<com.exponential.app.data.db.AppEntity?>(null) { it.appDao().observeById(appId) }
+                    .map { app -> com.exponential.app.domain.viaAppCaption(app?.name) }
+            }
+        }
+        .distinctUntilChanged()
+        .flowOn(Dispatchers.Default).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /** S-3: the session page's `origin` link ([root] = the target is a
      *  root: it opens as its thread, else as its session view). */
     data class OriginLink(val xref: SessionTree.SessionXref, val root: Boolean)

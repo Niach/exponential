@@ -364,6 +364,8 @@ public struct FetchedIssue: Decodable, Sendable {
     /// #EXP-1383: optional, so a server that predates the columns decodes.
     public let assigneeAgentId: String?
     public let creatorAgentId: String?
+    /// #VAPP-229: optional, so a server that predates the column decodes.
+    public let viaAppId: String?
 }
 
 /// `issues.create`'s envelope. The id is the only REQUIRED part; the full
