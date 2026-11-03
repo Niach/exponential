@@ -85,7 +85,9 @@ struct BlocksBadge: View {
     let action: () -> Void
 
     var body: some View {
-        HStack(spacing: 5) {
+        // Web's `IssueBlocksBadge`: h-5, px-1.5, gap-1.5, a `glass-row` fill
+        // inside a `glass-stroke` 1px ring, 11px tabular text (EXP-1647).
+        HStack(spacing: 6) {
             if counts.blockedBy > 0 {
                 side(
                     icon: AppIcons.relationBlockedBy,
@@ -102,9 +104,9 @@ struct BlocksBadge: View {
             }
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, 2)
-        .background(Capsule().fill(DesignTokens.Glass.backgroundTop.opacity(0.9)))
-        .overlay(Capsule().stroke(.white.opacity(0.12), lineWidth: 1))
+        .frame(height: 20)
+        .background(Capsule().fill(GlassTokens.fillRow))
+        .overlay(Capsule().strokeBorder(GlassTokens.strokeRow, lineWidth: 1))
         .contentShape(Capsule())
         .highPriorityGesture(TapGesture().onEnded { action() })
         .accessibilityElement(children: .ignore)
@@ -116,9 +118,9 @@ struct BlocksBadge: View {
     @ViewBuilder
     private func side(icon: String, count: Int, color: Color) -> some View {
         HStack(spacing: 2) {
-            AppIcon(icon, size: 10)
+            AppIcon(icon, size: 12)
             Text("\(count)")
-                .font(.caption2.weight(.medium))
+                .font(.system(size: 11).monospacedDigit())
                 .lineLimit(1)
         }
         .foregroundStyle(color)
