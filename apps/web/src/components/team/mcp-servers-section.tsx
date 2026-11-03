@@ -87,8 +87,7 @@ import {
   type McpServerDraft,
   type McpServerRow,
 } from "@/lib/mcp-servers"
-import { builtinExpTools } from "@/lib/agent-feed"
-import { SETTINGS_MCP, usedByCaption } from "@exp/domain-contract/settings-mcp"
+import { builtinToolBands, builtinToolMatches, SETTINGS_MCP, usedByCaption } from "@exp/domain-contract/settings-mcp"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { Empty } from "@/components/empty"
 import { cn } from "@/lib/utils"
@@ -934,52 +933,60 @@ function SecretDialog({
  * the Exponential MCP tools themselves. One row per contract tool
  * (`expToolDisplay`): the Exponential mark, the tool's title and its blurb,
  * with the raw wire name only as a tooltip. EXP-1274: always expanded (a
- * plain band, never a fold, no count: bands carry no numbers) with an
- * inline filter field at its trailing edge over title, blurb and wire name. */
+ * plain band, never a fold, no count: bands carry no numbers). EXP-1657
+ * (fixtures/settings-mcp.json `builtinCases`): ONE band per contract tool
+ * group (Work, Tracker, …); the first visible band carries the filter field,
+ * which filters every band; a band with no match hides; none left = the
+ * empty state under the section's own label. */
 export function BuiltinToolsGroup() {
-  const tools = useMemo(() => builtinExpTools(), [])
   const [query, setQuery] = useState(``)
-  const shown = useMemo(() => filterBuiltinTools(tools, query), [tools, query])
-  return (
-    <div className="mt-6">
-      <GlassSectionHeader
-        label="Built-in Exponential tools"
-        trailing={
-          <SearchField
-            size="sm"
-            value={query}
-            onValueChange={setQuery}
-            placeholder={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
-            aria-label={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
-            className="w-32 sm:w-48"
-            data-testid="mcp-builtin-tools-filter"
-          />
-        }
-      />
-      {shown.length === 0 ? (
+  const bands = useMemo(() => builtinToolBands(query), [query])
+  const filter = (
+    <SearchField
+      size="sm"
+      value={query}
+      onValueChange={setQuery}
+      placeholder={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
+      aria-label={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
+      className="w-32 sm:w-48"
+      data-testid="mcp-builtin-tools-filter"
+    />
+  )
+  if (bands.length === 0) {
+    return (
+      <div className="mt-6">
+        <GlassSectionHeader label={SETTINGS_MCP.labels.builtin} trailing={filter} />
         <Empty id="builtin-tools-no-match" />
-      ) : (
-        <div className={SETTINGS_LIST_CLASS}>
-          {shown.map((tool) => (
-            <ListRow key={tool.name} className="gap-2 px-3 py-2" title={tool.name}>
-              <ExponentialLogo
-                variant="light"
-                size={12}
-                className="size-3 shrink-0 text-muted-foreground/60"
-              />
-              <span className="shrink-0 text-sm font-medium">{tool.title}</span>
-              <span className="min-w-0 truncate text-xs text-muted-foreground">
-                {tool.blurb}
-              </span>
-            </ListRow>
-          ))}
+      </div>
+    )
+  }
+  return (
+    <>
+      {bands.map((band, index) => (
+        <div key={band.id} className="mt-6" data-band={band.id}>
+          <GlassSectionHeader label={band.label} trailing={index === 0 ? filter : undefined} />
+          <div className={SETTINGS_LIST_CLASS}>
+            {band.tools.map((tool) => (
+              <ListRow key={tool.name} className="gap-2 px-3 py-2" title={tool.name}>
+                <ExponentialLogo
+                  variant="light"
+                  size={12}
+                  className="size-3 shrink-0 text-muted-foreground/60"
+                />
+                <span className="shrink-0 text-sm font-medium">{tool.title}</span>
+                <span className="min-w-0 truncate text-xs text-muted-foreground">
+                  {tool.blurb}
+                </span>
+              </ListRow>
+            ))}
+          </div>
         </div>
-      )}
-    </div>
+      ))}
+    </>
   )
 }
 
-export const BUILTIN_TOOLS_FILTER_PLACEHOLDER = `Filter tools`
+export const BUILTIN_TOOLS_FILTER_PLACEHOLDER = SETTINGS_MCP.builtinFilter
 
 /** The band's filter: a case-insensitive substring over the title, the
  * blurb and the wire name (`exponential_issues_create`), so "issues" and
@@ -987,14 +994,7 @@ export const BUILTIN_TOOLS_FILTER_PLACEHOLDER = `Filter tools`
 export function filterBuiltinTools<
   T extends { name: string; title: string; blurb: string },
 >(tools: readonly T[], query: string): T[] {
-  const needle = query.trim().toLowerCase()
-  if (!needle) return [...tools]
-  return tools.filter(
-    (tool) =>
-      tool.title.toLowerCase().includes(needle) ||
-      tool.blurb.toLowerCase().includes(needle) ||
-      tool.name.toLowerCase().includes(needle)
-  )
+  return tools.filter((tool) => builtinToolMatches(tool, query))
 }
 
 // ── Add / edit dialog ────────────────────────────────────────────────────────

@@ -1227,7 +1227,7 @@ export function registerExponentialTools(
       // inline value lists out too, so status/statusCategory, their exclude*
       // twins and priority all validate at runtime (the refusal names the
       // values; issues_create spells the status enum out).
-      description: `List issues, OPEN only: completed/cancelled/duplicate need includeClosed or a status* filter. Descriptions cut at 200. statusId: exponential_statuses_list; exclude* invert. created*/updated*: ISO. sort: [-]createdAt|updatedAt|priority. search: text + identifier; assigneeId null = unassigned; source: user|widget.`,
+      description: `List issues, OPEN only: completed/cancelled/duplicate need includeClosed or a status* filter. Descriptions cut at 200. statusId: exponential_statuses {op: "list"}; exclude* invert. created*/updated*: ISO. sort: [-]createdAt|updatedAt|priority. search: text + identifier; assigneeId null = unassigned; source: user|widget.`,
       inputSchema: issuesListInput,
     },
     listIssues
@@ -1350,7 +1350,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_create`,
     {
-      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue. Unlinked unless sessionId (that session holds it) or link: true (your own session; link: false with sessionId is refused); filing never moves its status, a later link or start does. The result's sessionId = the session it linked to, null = none.`,
+      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses {op: "list"}. parentId files it as a sub-issue of that issue. Unlinked unless sessionId (that session holds it) or link: true (your own session; link: false with sessionId is refused); filing never moves its status, a later link or start does. The result's sessionId = the session it linked to, null = none.`,
       inputSchema: strictInput({
         boardId: uuidString,
         title: z.string().min(1).max(500),
@@ -1447,7 +1447,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_update`,
     {
-      description: `Update an issue's fields (by UUID or identifier, e.g. "MET-12"). Pass only the fields you want to change. For a custom status pass statusId (not status); see exponential_statuses_list.`,
+      description: `Update an issue's fields (by UUID or identifier, e.g. "MET-12"). Pass only the fields you want to change. For a custom status pass statusId (not status); see exponential_statuses {op: "list"}.`,
       inputSchema: strictInput({
         id: z.string().min(1),
         title: z.string().min(1).max(500).optional(),
@@ -2164,7 +2164,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_update_status`,
     {
-      description: `Set an issue's status (UUID or identifier). Pass status (builtin enum) or statusId (a team status row from exponential_statuses_list). Status changes are normally AUTOMATIC — PR open/merge apply the team's configured status automation — so set one directly only when the user explicitly asks.`,
+      description: `Set an issue's status (UUID or identifier). Pass status (builtin enum) or statusId (a team status row from exponential_statuses {op: "list"}). Status changes are normally AUTOMATIC — PR open/merge apply the team's configured status automation — so set one directly only when the user explicitly asks.`,
       inputSchema: strictInput({
         id: z.string().min(1),
         status: issueStatusEnumSchema.optional(),
@@ -2200,7 +2200,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_statuses_create`,
     {
-      description: `Create a custom issue status in a category (never duplicate; started allows at most 4 rows per team). Names are unique per team, color is #rrggbb. Team members only; ids via exponential_statuses_list.`,
+      description: `Create a custom issue status in a category (never duplicate; started allows at most 4 rows per team). Names are unique per team, color is #rrggbb. Team members only; ids via exponential_statuses {op: "list"}.`,
       inputSchema: strictInput({
         teamId: uuidString,
         category: z.enum(customizableStatusCategoryValues),
@@ -3710,7 +3710,7 @@ export function registerExponentialTools(
     `exponential_prompts_list`,
     {
       annotations: READ_ONLY,
-      description: `List a team's saved prompts (name, icon). Run one with exponential_sessions_send {promptId, text}; exponential_prompts_get reads its body.`,
+      description: `List a team's saved prompts (name, icon). Run one with exponential_sessions_send {promptId, text}; exponential_prompts {op: "get"} reads its body.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
     async ({ teamId, limit, offset }) => {
@@ -4027,6 +4027,25 @@ export function registerExponentialTools(
         if (!access.full) assertTeamFullyGranted(access, teamId)
         const result = await caller(user, request).agents.list({ teamId })
         return ok(page(result.agents, limit, offset))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_agents_get`,
+    {
+      annotations: READ_ONLY,
+      description: `Read one agent by UUID: name, triggers, device, owner and its instructions.`,
+      inputSchema: strictInput({ id: uuidString }),
+    },
+    async ({ id }) => {
+      try {
+        const agent = await loadAgentForUser(user.id, id)
+        if (!access.full) assertTeamFullyGranted(access, agent.teamId)
+        const { triggerState: _state, ...rest } = agent
+        return ok(rest)
       } catch (e) {
         return err(e)
       }

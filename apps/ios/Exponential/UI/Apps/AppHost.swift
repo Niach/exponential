@@ -176,7 +176,9 @@ final class ExpAppHost {
     /// operation), the args alone for the verb tool.
     static func actionFunctions(accountId: String, base: URL?, httpClient: HTTPClient) -> [String: HostFunction] {
         var functions: [String: HostFunction] = [:]
-        for name in AppActions.all {
+        // EXP-1657: the aliases too, so a package published before the
+        // `team_config` split keeps working.
+        for name in AppActions.all + AppActions.aliases.keys.sorted() {
             guard let target = AppActions.parseActionName(name) else { continue }
             functions[name] = { args, _ in
                 try await AppHostMcp.call(

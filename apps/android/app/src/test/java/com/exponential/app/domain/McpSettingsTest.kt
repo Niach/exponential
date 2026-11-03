@@ -108,6 +108,29 @@ class McpSettingsTest {
     }
 
     @Test
+    fun builtinCases() {
+        assertEquals(fixture.str("builtinFilter"), McpSettings.BUILTIN_FILTER_PLACEHOLDER)
+        for (case in fixture.getValue("builtinCases").jsonArray.map { it.jsonObject }) {
+            val name = case.str("name")
+            val bands = McpSettings.builtinToolBands(case.str("query")!!)
+            val expected = case.getValue("expected").jsonArray.map { it.jsonObject }
+            assertEquals(name, expected.map { it.str("id") }, bands.map { it.id })
+            expected.zip(bands).forEach { (want, band) ->
+                assertEquals(name, want.str("label"), band.label)
+                assertEquals(name, want.getValue("count").jsonPrimitive.content.toInt(), band.tools.size)
+                if (want.containsKey("rows")) assertEquals(name, want.strings("rows"), band.tools.map { it.name })
+            }
+        }
+    }
+
+    @Test
+    fun `the flat built-in list never lists a retired alias row`() {
+        val tools = McpSettings.builtinTools()
+        assertEquals(McpSettings.builtinToolBands("").sumOf { it.tools.size }, tools.size)
+        assertEquals(emptyList<String>(), tools.map { it.name }.filter { "team_config" in it })
+    }
+
+    @Test
     fun `tool count, level labels and the endpoint url`() {
         assertEquals("1 tool", McpSettings.toolCountLabel(1))
         assertEquals("3 tools", McpSettings.toolCountLabel(3))

@@ -12,6 +12,17 @@ export const APP_ACTION_PREFIX = fixture.prefix
 export const APP_ACTIONS: readonly string[] = fixture.functions
 export const APP_ACTIONS_COPY = fixture.copy
 const TOOLS = fixture.tools as Record<string, { tool: string; op: string | null }>
+const ALIASES = fixture.aliases as Record<string, string>
+
+/** EXP-1657: the names from before the `team_config` split (old → new).
+ *  A host registers each as a function too, so a published package keeps
+ *  working; never listed in `APP_ACTIONS` or a declared list. */
+export const APP_ACTION_ALIASES: Readonly<Record<string, string>> = ALIASES
+
+/** The name an action is judged by: an alias's new name, else the name. */
+export function canonicalAction(name: string): string {
+  return Object.prototype.hasOwnProperty.call(ALIASES, name) ? ALIASES[name]! : name
+}
 
 export interface ActionTarget {
   /** The MCP tool (`exponential_issues`). */
@@ -20,9 +31,10 @@ export interface ActionTarget {
   op: string | null
 }
 
-/** `exponential.issues.update_status` → the tool and op it runs; null for
- *  anything that is not an offered action. */
+/** `exponential.issues.update_status` → the tool and op it runs (an alias
+ *  → its new name's); null for anything that is not an offered action. */
 export function parseActionName(name: string): ActionTarget | null {
+  name = canonicalAction(name)
   const target = Object.prototype.hasOwnProperty.call(TOOLS, name) ? TOOLS[name] : undefined
   return target ? { tool: target.tool, op: target.op } : null
 }
@@ -32,10 +44,13 @@ function matches(pattern: string, name: string): boolean {
   return pattern.endsWith(`*`) ? name.startsWith(pattern.slice(0, -1)) : pattern === name
 }
 
-/** The actions a package's `functions` list names (patterns expanded), in
- *  the fixture's order; anything that is not an offered action is dropped. */
+/** The actions a package's `functions` list names (patterns expanded, over
+ *  the aliases too: an alias declares its NEW name), in the fixture's order;
+ *  anything that is not an offered action is dropped. */
 export function declaredActions(functions: readonly string[]): string[] {
-  return APP_ACTIONS.filter((name) => functions.some((pattern) => matches(pattern, name)))
+  const named = (name: string) => functions.some((pattern) => matches(pattern, name))
+  const viaAlias = new Set(Object.keys(ALIASES).filter(named).map((old) => ALIASES[old]!))
+  return APP_ACTIONS.filter((name) => named(name) || viaAlias.has(name))
 }
 
 /** The team role that sets or changes an app's grants (`owner`): the app's
@@ -63,7 +78,7 @@ export function actionDestructive(name: string): boolean {
  *  invites, MCP servers, prompts, the team's settings). Never grantable;
  *  always asks (the plain card). */
 export function actionOwnerOnly(name: string): boolean {
-  return OWNER_ACTIONS.includes(name)
+  return OWNER_ACTIONS.includes(canonicalAction(name))
 }
 
 /** May `name` be granted at all: an offered action that is neither
@@ -77,15 +92,18 @@ export function actionGrantable(name: string): boolean {
  *  `exponential.sessions.send` with `stop` = prompts.json's stop-run. */
 export function callDestructive(name: string, args: Record<string, unknown> | null | undefined): boolean {
   if (actionDestructive(name)) return true
+  name = canonicalAction(name)
   const keys = Object.prototype.hasOwnProperty.call(DESTRUCTIVE_ARGS, name) ? DESTRUCTIVE_ARGS[name]! : []
   return keys.some((key) => args != null && args[key] !== undefined && args[key] !== null && args[key] !== false)
 }
 
 /** Does the app's `granted_tools` list let this call run without asking?
- *  Exact names only (a grant is a person's choice, never a pattern), and a
- *  destructive action or call ignores a stored grant: it always asks. */
+ *  Exact names only (a grant is a person's choice, never a pattern; an alias
+ *  and its new name are the same action), and a destructive action or call
+ *  ignores a stored grant: it always asks. */
 export function grantAllows(granted: readonly string[], name: string, args: Record<string, unknown> | null | undefined): boolean {
-  return actionGrantable(name) && !callDestructive(name, args) && granted.includes(name)
+  const action = canonicalAction(name)
+  return actionGrantable(name) && !callDestructive(name, args) && granted.some((g) => canonicalAction(g) === action)
 }
 
 export interface ActionConsent {

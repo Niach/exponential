@@ -11,6 +11,7 @@ public enum AppActions {
 
     /// Every function name, sorted (the fixture's `functions`).
     public static let all: [String] = [
+        "exponential.agents.get", "exponential.agents.list",
         "exponential.apps.catalog", "exponential.apps.delete", "exponential.apps.get", "exponential.apps.list", "exponential.apps.records_delete", "exponential.apps.records_list", "exponential.apps.records_upsert", "exponential.apps.upsert",
         "exponential.attachments.delete", "exponential.attachments.get", "exponential.attachments.list", "exponential.attachments.upload",
         "exponential.boards.create", "exponential.boards.delete", "exponential.boards.get", "exponential.boards.list", "exponential.boards.set_repository", "exponential.boards.update",
@@ -18,13 +19,49 @@ public enum AppActions {
         "exponential.devices.account_login", "exponential.devices.list",
         "exponential.events.emit", "exponential.events.list",
         "exponential.issues.activity", "exponential.issues.create", "exponential.issues.delete", "exponential.issues.get", "exponential.issues.labels_add", "exponential.issues.labels_remove", "exponential.issues.list", "exponential.issues.relations_add", "exponential.issues.relations_remove", "exponential.issues.show", "exponential.issues.subscribe", "exponential.issues.unsubscribe", "exponential.issues.update", "exponential.issues.update_status",
+        "exponential.labels.create", "exponential.labels.delete", "exponential.labels.get", "exponential.labels.list", "exponential.labels.update",
+        "exponential.mcp_servers.create", "exponential.mcp_servers.delete", "exponential.mcp_servers.list",
         "exponential.notifications.list", "exponential.notifications.mark_read",
         "exponential.people.add", "exponential.people.invites_create", "exponential.people.invites_list", "exponential.people.invites_revoke", "exponential.people.list",
         "exponential.pr.close", "exponential.pr.files", "exponential.pr.merge", "exponential.pr.open", "exponential.pr.retarget", "exponential.pr.unlink", "exponential.pr.update",
+        "exponential.prompts.create", "exponential.prompts.delete", "exponential.prompts.get", "exponential.prompts.list", "exponential.prompts.update",
+        "exponential.repositories.create", "exponential.repositories.list",
         "exponential.sessions.end", "exponential.sessions.get", "exponential.sessions.link", "exponential.sessions.list", "exponential.sessions.send", "exponential.sessions.unlink",
-        "exponential.team_config.agents_list", "exponential.team_config.labels_create", "exponential.team_config.labels_delete", "exponential.team_config.labels_get", "exponential.team_config.labels_list", "exponential.team_config.labels_update", "exponential.team_config.mcp_servers_add", "exponential.team_config.mcp_servers_list", "exponential.team_config.mcp_servers_remove", "exponential.team_config.prompts_create", "exponential.team_config.prompts_delete", "exponential.team_config.prompts_get", "exponential.team_config.prompts_list", "exponential.team_config.prompts_update", "exponential.team_config.repositories_add", "exponential.team_config.repositories_list", "exponential.team_config.statuses_create", "exponential.team_config.statuses_delete", "exponential.team_config.statuses_list", "exponential.team_config.statuses_update",
+        "exponential.statuses.create", "exponential.statuses.delete", "exponential.statuses.list", "exponential.statuses.update",
         "exponential.teams.create", "exponential.teams.get", "exponential.teams.list", "exponential.teams.update",
     ]
+
+    /// EXP-1657: the names from before the `team_config` split (old → new;
+    /// the fixture's `aliases`). A host registers each as a function too, so
+    /// a published package keeps working; never listed in `all` or a
+    /// declared list.
+    public static let aliases: [String: String] = [
+        "exponential.team_config.agents_list": "exponential.agents.list",
+        "exponential.team_config.labels_create": "exponential.labels.create",
+        "exponential.team_config.labels_delete": "exponential.labels.delete",
+        "exponential.team_config.labels_get": "exponential.labels.get",
+        "exponential.team_config.labels_list": "exponential.labels.list",
+        "exponential.team_config.labels_update": "exponential.labels.update",
+        "exponential.team_config.mcp_servers_add": "exponential.mcp_servers.create",
+        "exponential.team_config.mcp_servers_list": "exponential.mcp_servers.list",
+        "exponential.team_config.mcp_servers_remove": "exponential.mcp_servers.delete",
+        "exponential.team_config.prompts_create": "exponential.prompts.create",
+        "exponential.team_config.prompts_delete": "exponential.prompts.delete",
+        "exponential.team_config.prompts_get": "exponential.prompts.get",
+        "exponential.team_config.prompts_list": "exponential.prompts.list",
+        "exponential.team_config.prompts_update": "exponential.prompts.update",
+        "exponential.team_config.repositories_add": "exponential.repositories.create",
+        "exponential.team_config.repositories_list": "exponential.repositories.list",
+        "exponential.team_config.statuses_create": "exponential.statuses.create",
+        "exponential.team_config.statuses_delete": "exponential.statuses.delete",
+        "exponential.team_config.statuses_list": "exponential.statuses.list",
+        "exponential.team_config.statuses_update": "exponential.statuses.update",
+    ]
+
+    /// The name an action is judged by: an alias's new name, else the name.
+    public static func canonicalAction(_ name: String) -> String {
+        aliases[name] ?? name
+    }
 
     /// The `copy.tools` strings (the editor's Settings Tools group; VAPP-177:
     /// phones show it in the `…` menu's Settings sheet).
@@ -57,7 +94,7 @@ public enum AppActions {
     /// args carry a `destructiveArgs` key (present and not false/null).
     public static func callDestructive(_ name: String, args: [String: CardJSON]) -> Bool {
         if actionDestructive(name) { return true }
-        return (destructiveArgs[name] ?? []).contains { key in
+        return (destructiveArgs[canonicalAction(name)] ?? []).contains { key in
             guard let value = args[key] else { return false }
             return value != .null && value != .bool(false)
         }
@@ -76,14 +113,14 @@ public enum AppActions {
     /// owner only (members, invites, MCP servers, prompts, team settings).
     static let ownerActions: Set<String> = [
         "exponential.people.add", "exponential.people.invites_create", "exponential.people.invites_revoke",
-        "exponential.team_config.mcp_servers_add", "exponential.team_config.prompts_create", "exponential.team_config.prompts_update",
+        "exponential.mcp_servers.create", "exponential.prompts.create", "exponential.prompts.update",
         "exponential.teams.update",
     ]
 
     /// An owner-only operation: never grantable; always asks (the plain
     /// card, `callDestructive` is unchanged).
     public static func actionOwnerOnly(_ name: String) -> Bool {
-        ownerActions.contains(name)
+        ownerActions.contains(canonicalAction(name))
     }
 
     /// May `name` be granted at all: an offered action that is neither
@@ -111,9 +148,11 @@ public enum AppActions {
         }
     }
 
-    /// `exponential.issues.update_status` → the tool and op it runs; nil for
-    /// anything that is not an offered action.
+    /// `exponential.issues.update_status` → the tool and op it runs (an
+    /// alias → its new name's); nil for anything that is not an offered
+    /// action.
     public static func parseActionName(_ name: String) -> ActionTarget? {
+        let name = canonicalAction(name)
         guard offered.contains(name) else { return nil }
         if let tool = verbTools[name] { return ActionTarget(tool: tool, op: nil) }
         let parts = name.dropFirst(prefix.count).split(separator: ".", maxSplits: 1).map(String.init)
@@ -126,11 +165,13 @@ public enum AppActions {
         pattern.hasSuffix("*") ? name.hasPrefix(String(pattern.dropLast())) : pattern == name
     }
 
-    /// The actions a package's `functions` list names (patterns expanded),
-    /// in the fixture's order; anything that is not an offered action is
-    /// dropped.
+    /// The actions a package's `functions` list names (patterns expanded,
+    /// over the aliases too: an alias declares its NEW name), in the
+    /// fixture's order; anything that is not an offered action is dropped.
     public static func declaredActions(_ functions: [String]) -> [String] {
-        all.filter { name in functions.contains { matches($0, name) } }
+        let named = { (name: String) in functions.contains { matches($0, name) } }
+        let viaAlias = Set(aliases.filter { named($0.key) }.values)
+        return all.filter { named($0) || viaAlias.contains($0) }
     }
 
     /// A typed action's MCP `arguments`: `{…args, op}` for a noun's op (the
@@ -146,9 +187,11 @@ public enum AppActions {
 
     /// Does the app's `granted_tools` list let this call run without
     /// asking? Exact names only (a grant is a person's choice, never a
-    /// pattern), and a destructive action or call ignores a stored grant.
+    /// pattern; an alias and its new name are the same action), and a
+    /// destructive action or call ignores a stored grant.
     public static func grantAllows(_ granted: [String], _ name: String, args: [String: CardJSON]) -> Bool {
-        actionGrantable(name) && !callDestructive(name, args: args) && granted.contains(name)
+        let action = canonicalAction(name)
+        return actionGrantable(name) && !callDestructive(name, args: args) && granted.contains { canonicalAction($0) == action }
     }
 
     public struct ActionConsent: Equatable, Sendable {

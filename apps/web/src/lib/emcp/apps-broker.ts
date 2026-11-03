@@ -22,7 +22,7 @@ import {
   type Tool,
 } from "@modelcontextprotocol/sdk/types.js"
 import { and, eq, isNull } from "drizzle-orm"
-import { actionGrantable, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
+import { actionGrantable, canonicalAction, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import {
   effectiveAccess,
   grantErrors,
@@ -143,7 +143,7 @@ export interface BrokerTool {
 function actionListable(app: BrokerApp, action: string): boolean {
   const target = parseActionName(action)
   if (!target || target.tool === `exponential_apps`) return false
-  return actionGrantable(action) && app.grantedTools.includes(action)
+  return actionGrantable(action) && app.grantedTools.some((granted) => canonicalAction(granted) === canonicalAction(action))
 }
 
 /** The member's policy rows in a team (Settings › MCP Access, #VAPP-183):

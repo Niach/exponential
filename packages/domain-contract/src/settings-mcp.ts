@@ -59,3 +59,80 @@ export function toolCountLabel(n: number): string {
 export function levelLabel(level: McpPolicyLevel): string {
   return fixture.levels.find((l) => l.value === level)?.label ?? level
 }
+
+// EXP-1657: the BUILT-IN section = one band per contract tool group
+// (`contract.expToolDisplay.groups`, labels from there), each listing its
+// rows in contract order; retired alias rows (`aliasOf`) are never listed.
+import contractJson from "../contract.json" with { type: "json" }
+
+interface DisplayRow {
+  name: string
+  title: string
+  blurb: string
+  aliasOf?: string
+}
+
+const display = (contractJson as unknown as {
+  expToolDisplay: {
+    prefix: string
+    groups: { id: string; label: string; tools: string[] }[]
+    tools: DisplayRow[]
+  }
+}).expToolDisplay
+
+/** The group id of a display row: the tool it belongs to (the verb by its
+ *  own name, a noun's op by `<noun>_`, the longest tool name wins so
+ *  `sessions_send` stays Work); null for a retired alias row. Mirrors the
+ *  generator's `expToolRowGroups` ×3. */
+export function expToolRowGroup(row: { name: string; aliasOf?: string }): string | null {
+  if (row.aliasOf) return null
+  let best: { id: string; length: number } | null = null
+  for (const group of display.groups) {
+    for (const tool of group.tools) {
+      if (row.name !== tool && !row.name.startsWith(`${tool}_`)) continue
+      if (!best || tool.length > best.length) best = { id: group.id, length: tool.length }
+    }
+  }
+  return best?.id ?? null
+}
+
+export interface BuiltinTool {
+  /** The wire name (`exponential_issues_create`): the row's tooltip. */
+  name: string
+  title: string
+  blurb: string
+}
+
+export interface BuiltinToolBand {
+  id: string
+  label: string
+  tools: BuiltinTool[]
+}
+
+/** The filter: a case-insensitive substring over the title, the blurb and
+ *  the wire name; blank = every tool. */
+export function builtinToolMatches(tool: BuiltinTool, query: string): boolean {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return true
+  return (
+    tool.title.toLowerCase().includes(needle) ||
+    tool.blurb.toLowerCase().includes(needle) ||
+    tool.name.toLowerCase().includes(needle)
+  )
+}
+
+/** The bands the BUILT-IN section shows for a filter query, in group order;
+ *  a band with no match is left out, so every band filtered away = [] (the
+ *  page shows the `builtin-tools-no-match` empty state). */
+export function builtinToolBands(query: string): BuiltinToolBand[] {
+  return display.groups
+    .map((group) => ({
+      id: group.id,
+      label: group.label,
+      tools: display.tools
+        .filter((row) => expToolRowGroup(row) === group.id)
+        .map((row) => ({ name: `${display.prefix}${row.name}`, title: row.title, blurb: row.blurb }))
+        .filter((tool) => builtinToolMatches(tool, query)),
+    }))
+    .filter((band) => band.tools.length > 0)
+}

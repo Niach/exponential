@@ -349,6 +349,9 @@ export interface DomainContract {
   expToolDisplay: {
     prefix: string
     resultKinds: readonly string[]
+    /** EXP-1657: the tool groups in order (Settings › MCP: one band per
+     *  group ×4); `tools` = the wire names without the prefix. */
+    groups: readonly { id: string; label: string; tools: readonly string[] }[]
     tools: readonly {
       name: string
       title: string
@@ -363,6 +366,9 @@ export interface DomainContract {
       doneMany: string
       subjectKey: string
       result: string
+      /** EXP-1657: a retired row (the old `team_config_*`) kept so an old
+       *  transcript still renders; names the row it became. Never listed. */
+      aliasOf?: string
     }[]
   }
   /**

@@ -8,10 +8,17 @@ use serde_json::Value;
 
 use super::fixture;
 
-/// `exponential.issues.update_status` → (tool, op); `None` for anything
-/// that is not an offered action.
+/// EXP-1657: the name an action is judged by: an alias's (the fixture's
+/// `aliases`, the names from before the `team_config` split) new name, else
+/// the name.
+pub fn canonical_action(name: &str) -> String {
+    fixture::app_actions()["aliases"][name].as_str().unwrap_or(name).to_string()
+}
+
+/// `exponential.issues.update_status` → (tool, op) (an alias → its new
+/// name's); `None` for anything that is not an offered action.
 pub fn parse_action_name(name: &str) -> Option<(String, Option<String>)> {
-    let target = fixture::app_actions()["tools"].get(name)?;
+    let target = fixture::app_actions()["tools"].get(canonical_action(name))?;
     Some((target["tool"].as_str()?.to_string(), target["op"].as_str().map(str::to_string)))
 }
 
@@ -35,9 +42,10 @@ pub fn action_destructive(name: &str) -> bool {
 
 /// An operation the server runs for a team owner only: never grantable.
 pub fn action_owner_only(name: &str) -> bool {
+    let name = canonical_action(name);
     fixture::app_actions()["ownerActions"]
         .as_array()
-        .is_some_and(|list| list.iter().any(|entry| entry.as_str() == Some(name)))
+        .is_some_and(|list| list.iter().any(|entry| entry.as_str() == Some(name.as_str())))
 }
 
 /// A destructive CALL: a destructive action, or one whose args carry a
@@ -46,7 +54,7 @@ pub fn call_destructive(name: &str, args: Option<&Value>) -> bool {
     if action_destructive(name) {
         return true;
     }
-    let keys = fixture::app_actions()["destructiveArgs"][name].as_array().cloned().unwrap_or_default();
+    let keys = fixture::app_actions()["destructiveArgs"][canonical_action(name).as_str()].as_array().cloned().unwrap_or_default();
     keys.iter().filter_map(Value::as_str).any(|key| {
         args.and_then(|args| args.get(key)).is_some_and(|value| !matches!(value, Value::Null | Value::Bool(false)))
     })

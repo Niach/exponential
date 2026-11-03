@@ -169,10 +169,10 @@ export function ActionsDocsPage() {
             <p>
               Agents read and edit prompts over MCP too: see{` `}
               <a href="/docs/mcp/#tools">
-                <code>exponential_team_config</code>
+                <code>exponential_prompts</code>
               </a>
-              {` `}(<code>prompts_list</code>, <code>prompts_get</code>, and for owners{` `}
-              <code>prompts_create</code>, <code>prompts_update</code>, <code>prompts_delete</code>).
+              {` `}(op <code>list</code>, <code>get</code>, and for owners{` `}
+              <code>create</code>, <code>update</code>, <code>delete</code>).
             </p>
           </DocsSection>
         </DocsLayout>

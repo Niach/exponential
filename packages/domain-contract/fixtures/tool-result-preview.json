@@ -552,7 +552,7 @@
       ]
     },
     {
-      "name": "agents_list: one ref per agent",
+      "name": "agents_list (retired team_config row, EXP-1657): one ref per agent",
       "tool": "exponential_team_config_agents_list",
       "result": [
         {
@@ -568,6 +568,47 @@
           "title": "agents",
           "count": 1
         },
+        {
+          "kind": "agent",
+          "id": "ag-1",
+          "title": "Triage"
+        }
+      ]
+    },
+    {
+      "name": "agents_list: one ref per agent",
+      "tool": "exponential_agents_list",
+      "result": [
+        {
+          "id": "ag-1",
+          "teamId": "t-1",
+          "name": "Triage"
+        }
+      ],
+      "refs": [
+        {
+          "kind": "list",
+          "id": "agent",
+          "title": "agents",
+          "count": 1
+        },
+        {
+          "kind": "agent",
+          "id": "ag-1",
+          "title": "Triage"
+        }
+      ]
+    },
+    {
+      "name": "agents_get (EXP-1657): the agent",
+      "tool": "exponential_agents_get",
+      "result": {
+        "id": "ag-1",
+        "teamId": "t-1",
+        "name": "Triage",
+        "instructions": "# Triage"
+      },
+      "refs": [
         {
           "kind": "agent",
           "id": "ag-1",
