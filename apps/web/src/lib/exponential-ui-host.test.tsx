@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => {
     ],
     listeners: [] as (() => void)[],
     toast: vi.fn(),
+    upstreamRead: vi.fn(async (_input: { source: string }): Promise<unknown> => ({ ok: true, value: { mrr: 1200 } })),
   }
 })
 
@@ -44,6 +45,9 @@ vi.mock(`@/lib/collections`, () => {
     attachmentCollection: collection(() => []),
   }
 })
+vi.mock(`@/lib/trpc-client`, () => ({
+  trpc: { apps: { upstreamRead: { query: (input: { source: string }) => mocks.upstreamRead(input) } } },
+}))
 vi.mock(`@exp/ui`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   const toast = Object.assign(mocks.toast, { error: mocks.toast })
@@ -344,5 +348,42 @@ describe(`VAPP-157: the app host's media rule`, () => {
     expect(plain.mediaRequest(`https://images.example/cat.png`)).not.toBeNull()
     const app = createAppHost({ consent: createConsentGate(), navigate: () => {}, origin: `https://app.exponential.at` })
     expect(app.mediaRequest(`https://images.example/cat.png`)).toBeNull()
+  })
+
+  it(`#VAPP-230: an upstream binding reads through the broker; disconnected keeps the default and shows Connect <server>`, async () => {
+    const pkg = {
+      formatVersion: 3,
+      id: `acme.console`,
+      name: `Console`,
+      version: `1.0.0`,
+      catalogId: `https://ui.exponential.at/catalogs/core/v1`,
+      sources: [`upstream:*`],
+      upstreams: [`crm`, `stripe`],
+      templates: {
+        main: {
+          data: { mrr: { total: 0 }, charges: { rows: [] } },
+          bindings: [
+            { path: `/mrr`, source: `upstream:crm/mrr?months=3` },
+            { path: `/charges`, source: `upstream:stripe/list_charges` },
+          ],
+          components: [{ id: `root`, component: `Text`, text: { path: `/mrr/total` } }],
+        },
+      },
+    } as unknown as AppPackage
+    mocks.upstreamRead.mockImplementation(async ({ source }) =>
+      source.startsWith(`upstream:crm/`) ? { ok: true, value: { total: 1200 } } : { ok: false, error: `upstreamDisconnected`, server: `stripe` }
+    )
+    const host = createAppHost({ consent: createConsentGate(), navigate: () => {}, packages: [pkg], appId: `a1` })
+    await act(async () => {
+      host.receive({ version: `v0.9`, applyTemplate: { surfaceId: `main`, templateId: `main`, packageId: `acme.console` } })
+      await new Promise((r) => setTimeout(r, 0))
+    })
+    expect(mocks.upstreamRead).toHaveBeenCalledWith({ id: `a1`, source: `upstream:crm/mrr?months=3` })
+    expect(host.surface(`main`)!.data.mrr).toEqual({ total: 1200 })
+    expect(host.surface(`main`)!.data.charges).toEqual({ rows: [] })
+    const view = render(<HostBanner host={host} />)
+    expect(view.getByTestId(`exponential-ui-upstream-connect`).textContent).toContain(`Connect stripe`)
+    act(() => host.close())
+    expect(view.queryByTestId(`exponential-ui-upstream-connect`)).toBeNull()
   })
 })

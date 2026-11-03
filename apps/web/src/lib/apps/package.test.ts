@@ -34,6 +34,15 @@ describe(`validateAppPackage`, () => {
     expect(() => validateAppPackage(pkg({ sources: [`exp:devices`] }))).toThrow(/not in the package's sources/)
   })
 
+  it(`#VAPP-230: an upstream binding names a declared upstream`, () => {
+    const up = (over: Record<string, unknown>) =>
+      pkg({ sources: [`upstream:crm/*`], templates: { main: { bindings: [{ path: `/mrr`, source: `upstream:crm/mrr?months=3` }], components: [{ id: `root`, component: `Text`, text: { path: `/mrr/total` } }] } }, ...over })
+    expect(validateAppPackage(up({ upstreams: [`crm`] })).id).toBe(`acme.board`)
+    expect(validateAppPackage(up({ upstreams: [`crm`], sources: [`upstream:*`] })).id).toBe(`acme.board`)
+    expect(() => validateAppPackage(up({ upstreams: [] }))).toThrow(/does not declare/)
+    expect(() => validateAppPackage(up({ upstreams: [`crm`], sources: [`upstream:crm/*`, `upstream:crm`] }))).toThrow(/not an upstream:<server>\/<tool> source/)
+  })
+
   it(`refuses a source no app host resolves`, () => {
     expect(() => validateAppPackage(pkg({ sources: [`exp:issues`, `exp:secrets`] }))).toThrow(/exp:secrets/)
     expect(() => validateAppPackage(pkg({ sources: [`exp:issues`, `exp:records`] }))).toThrow(/exp:records/)

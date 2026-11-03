@@ -53,5 +53,56 @@
     { "name": "two apps share an upstream, listed once and sorted", "declared": [["crm", "linear"], ["crm"]], "states": { "linear": "reconnect" }, "servers": ["crm", "linear"], "expected": ["crm", "linear"] },
     { "name": "connected and expired are fine", "declared": [["crm", "linear"]], "states": { "crm": "connected", "linear": "expired" }, "servers": ["crm", "linear"], "expected": [] },
     { "name": "a removed server is not offered", "declared": [["crm", "gone"]], "states": { "crm": "failed" }, "servers": ["crm"], "expected": ["crm"] }
-  ]
+  ],
+  "binding": {
+    "$comment": "VAPP-230 (eApps M1, apps.md §6.3, C17): A TEMPLATE READS AN UPSTREAM. A binding source `upstream:<server>/<tool>?<args>` (eUI `parseSource`: scheme `upstream`, name = `<server>/<tool>`, split at the LAST `/`, both non-empty; anything else is null) follows one read-only tool of a team MCP server. ARGS (`parseCases`): every query param is one argument; its text reads as JSON when it is `true`, `false`, `null`, a JSON number (`-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?`, so `007` stays text) or starts with `{` or `[` and parses; anything else is the string (so a `bind` action's params drive it, sourceWithParams). DECLARED (`declareCases`, Exponential's install check on top of the SDK's `sources` allowlist): a template binding's server must be in the package's `upstreams` (`notDeclared`), else the install refuses it; a source that does not parse is `invalid`. READS ONLY (`readCases`, checked by the broker at EVERY call against the tool's live `tools/list` annotations): a destructive tool never runs (`destructiveHint: true` or a destructiveWords word in its name, exposes.json: `destructive`); `readOnlyHint: true` reads; `readOnlyHint: false` never reads (`notReadOnly`); a tool that sets no readOnlyHint reads only when the package VOUCHES for it: its `sources` lists the binding's `upstream:<server>/<tool>` EXACTLY (no `*` pattern, no query), else `notReadOnly`. THE BROKER (the server, apps-broker.ts) runs exactly one tool per read as the VIEWING member with their OWN connection (`resolveForLaunch`); an app reaches only its own `upstreams` (the published package's or the head's), never another app's, and nothing chains. CACHE: a good answer is kept `cacheSeconds` per `cacheKey(member, serverId, tool, args)` = the four joined by a newline, args as canonical JSON (audit.json: keys sorted, compact), so the same read by the same member answers from the cache and two members never share one; an error is never cached; hosts re-read every `cacheSeconds` while the binding lives. VALUE (`valueCases`): a result with `isError` is `upstreamFailed`; else `structuredContent` when it is an object; else the first text content parsed as JSON, or that text itself; else null. The answer carries `_meta` provenance (exposes.json keys: app = the app slug, tool = `<server>/<tool>`, via = `upstream`, upstream = the server). HOSTS ×4 (web, desktop, iOS, Android) resolve the `upstream` scheme through ONE call (tRPC `apps.upstreamRead {id, source}` → `{ok: true, value}` | `{ok: false, error, server}`, error ∈ upstream `errors` + `notReadOnly` | `destructive` | `notDeclared` | `invalid`): ok emits the value at the bound path; any refusal or offline emits NOTHING (the path keeps the template's `data`: the binding's default). BANNER (`bannerCases`): the host shows ONE banner per server whose read answered `upstreamDisconnected`, sorted, text `banner` with {server}, its action opening Settings › MCP (the existing host banner); every other error shows none.",
+    "scheme": "upstream",
+    "cacheSeconds": 60,
+    "banner": "Connect {server}",
+    "errors": { "notReadOnly": "notReadOnly", "destructive": "destructive", "notDeclared": "notDeclared", "invalid": "invalid" },
+    "parseCases": [
+      { "source": "upstream:crm/search_customers", "expected": { "server": "crm", "tool": "search_customers", "args": {} } },
+      { "source": "upstream:crm/search_customers?query=acme&limit=5", "expected": { "server": "crm", "tool": "search_customers", "args": { "limit": 5, "query": "acme" } } },
+      { "source": "upstream:stripe/list_charges?failed=true&since=null&zip=007&ratio=-1.5e2", "expected": { "server": "stripe", "tool": "list_charges", "args": { "failed": true, "ratio": -150, "since": null, "zip": "007" } } },
+      { "source": "upstream:github/list_prs?filter=%7B%22state%22%3A%22open%22%7D&labels=%5B%22bug%22%5D", "expected": { "server": "github", "tool": "list_prs", "args": { "filter": { "state": "open" }, "labels": ["bug"] } } },
+      { "source": "upstream:crm/search?q=%7Bnot+json", "expected": { "server": "crm", "tool": "search", "args": { "q": "{not json" } } },
+      { "source": "upstream:team/crm/search", "expected": { "server": "team/crm", "tool": "search", "args": {} } },
+      { "source": "upstream:crm", "expected": null },
+      { "source": "upstream:crm/", "expected": null },
+      { "source": "upstream:/search", "expected": null },
+      { "source": "records:entry", "expected": null }
+    ],
+    "declareCases": [
+      { "name": "a declared server", "upstreams": ["crm"], "sources": ["upstream:crm/search_customers?q=a"], "expected": [] },
+      { "name": "an undeclared server", "upstreams": ["crm"], "sources": ["upstream:stripe/list_charges"], "expected": [{ "index": 0, "code": "notDeclared" }] },
+      { "name": "no upstreams at all", "upstreams": [], "sources": ["upstream:crm/search"], "expected": [{ "index": 0, "code": "notDeclared" }] },
+      { "name": "a source without a tool", "upstreams": ["crm"], "sources": ["upstream:crm"], "expected": [{ "index": 0, "code": "invalid" }] },
+      { "name": "other schemes are not this check's", "upstreams": [], "sources": ["records:entry", "exp:issues", "upstream:crm/a"], "expected": [{ "index": 2, "code": "notDeclared" }] }
+    ],
+    "readCases": [
+      { "name": "read-only by its hint", "tool": "search_customers", "annotations": { "readOnlyHint": true }, "sources": ["upstream:*"], "expected": null },
+      { "name": "a write by its hint never reads", "tool": "search_customers", "annotations": { "readOnlyHint": false }, "sources": ["upstream:crm/search_customers"], "expected": "notReadOnly" },
+      { "name": "no hint, not vouched", "tool": "search_customers", "annotations": null, "sources": ["upstream:crm/*"], "expected": "notReadOnly" },
+      { "name": "no hint, vouched exactly", "tool": "search_customers", "annotations": {}, "sources": ["upstream:crm/search_customers"], "expected": null },
+      { "name": "a vouch with a query is not exact", "tool": "search_customers", "annotations": {}, "sources": ["upstream:crm/search_customers?q=a"], "expected": "notReadOnly" },
+      { "name": "destructive by its hint", "tool": "list_charges", "annotations": { "readOnlyHint": true, "destructiveHint": true }, "sources": [], "expected": "destructive" },
+      { "name": "destructive by its name", "tool": "delete_customer", "annotations": { "readOnlyHint": true }, "sources": ["upstream:crm/delete_customer"], "expected": "destructive" }
+    ],
+    "cacheKeyCases": [
+      { "member": "u1", "serverId": "s1", "tool": "search", "args": { "q": "a", "limit": 5 }, "expected": "u1\ns1\nsearch\n{\"limit\":5,\"q\":\"a\"}" },
+      { "member": "u1", "serverId": "s1", "tool": "search", "args": {}, "expected": "u1\ns1\nsearch\n{}" }
+    ],
+    "valueCases": [
+      { "name": "structured content wins", "result": { "content": [{ "type": "text", "text": "ignored" }], "structuredContent": { "mrr": 1200 } }, "expected": { "value": { "mrr": 1200 } } },
+      { "name": "JSON text", "result": { "content": [{ "type": "image", "data": "" }, { "type": "text", "text": "[{\"id\":1}]" }] }, "expected": { "value": [{ "id": 1 }] } },
+      { "name": "plain text", "result": { "content": [{ "type": "text", "text": "All good" }] }, "expected": { "value": "All good" } },
+      { "name": "nothing", "result": { "content": [] }, "expected": { "value": null } },
+      { "name": "an error answer", "result": { "isError": true, "content": [{ "type": "text", "text": "rate limited" }] }, "expected": { "error": "upstreamFailed" } }
+    ],
+    "bannerCases": [
+      { "name": "nothing to connect", "answers": [{ "ok": true, "value": 1 }, { "ok": false, "error": "upstreamFailed", "server": "crm" }], "expected": [] },
+      { "name": "one per server, sorted", "answers": [{ "ok": false, "error": "upstreamDisconnected", "server": "stripe" }, { "ok": false, "error": "upstreamDisconnected", "server": "crm" }, { "ok": false, "error": "upstreamDisconnected", "server": "stripe" }], "expected": ["Connect crm", "Connect stripe"] },
+      { "name": "a missing server has no banner", "answers": [{ "ok": false, "error": "upstreamMissing", "server": "crm" }, { "ok": false, "error": "notReadOnly", "server": "github" }], "expected": [] }
+    ]
+  }
 }
