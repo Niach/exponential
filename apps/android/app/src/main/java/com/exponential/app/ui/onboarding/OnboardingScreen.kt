@@ -238,17 +238,13 @@ fun OnboardingScreen(
 @Composable
 private fun InviteStep(teamId: String?, onContinue: () -> Unit) {
     var linkMinted by remember { mutableStateOf(false) }
-    Column(
-        modifier = Modifier
-            .widthIn(max = 460.dp)
-            .fillMaxWidth()
-            .glassGroup()
-            .testTag("onboarding-invite-step"),
+    OnboardingStepCard(
+        icon = ExpIcons.uiInvite,
+        title = OnboardingCopy.INVITE_TITLE,
+        modifier = Modifier.testTag("onboarding-invite-step"),
     ) {
-        StepCardHeader(icon = ExpIcons.uiInvite, title = OnboardingCopy.INVITE_TITLE)
-        HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
         Column(
-            modifier = Modifier.fillMaxWidth().padding(20.dp),
+            modifier = Modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             if (teamId != null) {
@@ -273,6 +269,31 @@ private fun InviteStep(teamId: String?, onContinue: () -> Unit) {
                 )
             }
         }
+    }
+}
+
+/**
+ * Web `StepCard` ×4 (iOS `OnboardingStepCard`): ONE glass group card, the
+ * icon disc + title header over a hairline, then the step's body padded 20dp.
+ * The invite, devices, create-team and join-team pages all wear it.
+ */
+@Composable
+internal fun OnboardingStepCard(
+    icon: ImageVector,
+    title: String,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .widthIn(max = 460.dp)
+            .fillMaxWidth()
+            .glassGroup()
+            .then(modifier),
+    ) {
+        StepCardHeader(icon = icon, title = title)
+        HorizontalDivider(thickness = GlassTokens.Hairline, color = GlassTokens.StrokeRow)
+        Box(Modifier.fillMaxWidth().padding(20.dp)) { content() }
     }
 }
 

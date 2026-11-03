@@ -55,16 +55,21 @@ struct UsageWindows: View {
     private func windowRow(_ card: UsageCard) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
+                // EXP-1627: the title never truncates; the reset caption
+                // gives way first.
                 Text(card.title)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .layoutPriority(1)
                 Spacer(minLength: 0)
                 if !card.caption.isEmpty {
                     Text(card.caption)
                         .font(.caption2)
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         .lineLimit(1)
+                        .truncationMode(.tail)
                 }
             }
             HStack(spacing: 8) {

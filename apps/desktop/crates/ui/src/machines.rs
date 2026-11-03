@@ -241,6 +241,10 @@ const COPY_SIGNED_OUT: &str = "{label} · Signed out";
 const COPY_LIMIT_REACHED: &str = "{label} · Limit reached";
 pub(crate) const COPY_UPDATE: &str = "Update";
 pub(crate) const COPY_SIGN_IN: &str = "Sign in";
+/// EXP-1627: the sign-in dialog's title (never the agent's name) and its
+/// ONE waiting line (`{device}` = the device label, `{agent}` = the agent).
+pub(crate) const COPY_SIGN_IN_TITLE: &str = "Sign in";
+pub(crate) const COPY_SIGN_IN_WAITING: &str = "Waiting for {device} to publish the {agent} sign-in link…";
 const COPY_STATUS_NEEDS_RELOGIN: &str = "Needs re-login";
 const COPY_STATUS_SIGNED_OUT: &str = "Signed out";
 const COPY_STATUS_LIMIT: &str = "Limit reached";
@@ -1485,6 +1489,10 @@ pub(crate) fn account_header(
                         .min_w_0()
                         .truncate()
                         .text_sm()
+                        // EXP-1627: foreground at medium weight (web
+                        // `device-logins.tsx`), never the menu's muted.
+                        .font_weight(gpui::FontWeight::MEDIUM)
+                        .text_color(cx.theme().foreground)
                         .child(SharedString::from(title)),
                 )
                 .when_some(plan, |this, plan| {
@@ -1941,6 +1949,8 @@ mod tests {
             ("signedOut", COPY_SIGNED_OUT),
             ("update", COPY_UPDATE),
             ("signIn", COPY_SIGN_IN),
+            ("signInTitle", COPY_SIGN_IN_TITLE),
+            ("signInWaiting", COPY_SIGN_IN_WAITING),
             ("limitReached", COPY_LIMIT_REACHED),
             ("deviceActions", COPY_DEVICE_ACTIONS),
             ("settings", COPY_SETTINGS),
@@ -1968,7 +1978,7 @@ mod tests {
             );
         }
         assert_eq!(copy["status"].as_object().map(|status| status.len()), Some(3));
-        assert_eq!(copy.as_object().map(|copy| copy.len()), Some(24), "a new copy key");
+        assert_eq!(copy.as_object().map(|copy| copy.len()), Some(26), "a new copy key");
         assert_eq!(COPY_LONG_LIVED_REFUSED, coding::agent_login::LONG_LIVED_NEEDS_PROFILE);
         // EXP-1626: the account menu reads the fixture's copy.
         assert_eq!(crate::usage_bar::ChipAction::Persist { renew: false }.label(), COPY_PERSIST_LOGIN);

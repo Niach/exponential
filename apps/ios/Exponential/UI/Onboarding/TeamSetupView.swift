@@ -101,60 +101,57 @@ struct TeamSetupView: View {
         }
     }
 
+    /// Web's `StepCard` (wizard.tsx CreateTeamStep): the users disc + title
+    /// over a hairline, then the field and the Back / Create row.
     private var createPage: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            pageTitle(TeamSetupCopy.createTeam)
+        OnboardingStepCard(icon: AppIcons.uiTeam, title: TeamSetupCopy.createTeam) {
+            VStack(alignment: .leading, spacing: 12) {
+                fieldLabel(TeamSetupCopy.teamNameLabel)
+                GlassTextField("e.g. Acme Inc", text: $teamName)
+                    .font(.subheadline)
+                    .overlay { invalidBorder(createError != nil) }
 
-            fieldLabel(TeamSetupCopy.teamNameLabel)
-            GlassTextField("e.g. Acme Inc", text: $teamName)
-                .font(.subheadline)
-                .overlay { invalidBorder(createError != nil) }
+                if let createError {
+                    inlineError(createError)
+                }
 
-            if let createError {
-                inlineError(createError)
+                pageFooter(
+                    primary: creating ? "Creating…" : TeamSetupCopy.createSubmit,
+                    enabled: canCreate,
+                    loading: creating
+                ) {
+                    Task { await createTeam() }
+                }
             }
-
-            pageFooter(
-                primary: creating ? "Creating…" : TeamSetupCopy.createSubmit,
-                enabled: canCreate,
-                loading: creating
-            ) {
-                Task { await createTeam() }
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
+    /// Web's `StepCard` (wizard.tsx JoinStep): the link disc + title.
     private var joinPage: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            pageTitle(TeamSetupCopy.joinTeam)
+        OnboardingStepCard(icon: AppIcons.uiLink, title: TeamSetupCopy.joinTeam) {
+            VStack(alignment: .leading, spacing: 12) {
+                fieldLabel(TeamSetupCopy.inviteLinkLabel)
+                GlassTextField(TeamSetupCopy.invitePlaceholder, text: $inviteInput)
+                    .font(.subheadline)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .overlay { invalidBorder(joinError != nil) }
 
-            fieldLabel(TeamSetupCopy.inviteLinkLabel)
-            GlassTextField(TeamSetupCopy.invitePlaceholder, text: $inviteInput)
-                .font(.subheadline)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .overlay { invalidBorder(joinError != nil) }
+                if let joinError {
+                    inlineError(joinError)
+                }
 
-            if let joinError {
-                inlineError(joinError)
+                pageFooter(
+                    primary: joining ? "Joining…" : TeamSetupCopy.joinSubmit,
+                    enabled: canJoin,
+                    loading: joining
+                ) {
+                    Task { await joinTeam() }
+                }
             }
-
-            pageFooter(
-                primary: joining ? "Joining…" : TeamSetupCopy.joinSubmit,
-                enabled: canJoin,
-                loading: joining
-            ) {
-                Task { await joinTeam() }
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private func pageTitle(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: 24, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity, alignment: .center)
-            .padding(.bottom, 12)
     }
 
     private func fieldLabel(_ label: String) -> some View {

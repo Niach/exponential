@@ -24,6 +24,12 @@ import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { ChangelogSheet } from "@/components/whats-new"
 import { openFeedbackWidget } from "@/components/feedback-widget-provider"
 import { useFeedbackWidgetAvailable } from "@/components/feedback-button"
+import {
+  GettingStartedDialog,
+  useGettingStartedEntryVisible,
+} from "@/components/getting-started/getting-started-button"
+import { GETTING_STARTED_TITLE } from "@/components/getting-started/getting-started-copy"
+import gettingStartedSpec from "@exp/domain-contract/fixtures/getting-started.json"
 import { useAgents } from "@/hooks/use-session-tree"
 import { useSignOut } from "@/hooks/use-sign-out"
 import { useTeamBoards, useTeamMemberships } from "@/hooks/use-team-data"
@@ -67,6 +73,7 @@ const AddIcon = conceptIcon(`ui-add`)
 const AdminIcon = conceptIcon(`nav-admin`)
 const ChangelogIcon = conceptIcon(`nav-changelog`)
 const AboutIcon = conceptIcon(`settings-about`)
+const GettingStartedIcon = conceptIcon(`nav-getting-started`)
 const ReportBugIcon = conceptIcon(`nav-report-bug`)
 const SignOutIcon = conceptIcon(`nav-sign-out`)
 
@@ -202,17 +209,20 @@ function RowButton({
   label,
   onClick,
   destructive = false,
+  testId,
 }: {
   icon: ReactNode
   label: string
   onClick: () => void
   destructive?: boolean
+  testId?: string
 }) {
   return (
     <button
       type="button"
       className={cn(ROW, destructive && `text-destructive`)}
       onClick={onClick}
+      data-testid={testId}
     >
       <span className="flex size-6 shrink-0 items-center justify-center">{icon}</span>
       <span className="min-w-0 flex-1 truncate">{label}</span>
@@ -233,6 +243,10 @@ function TeamTabPage() {
   const feedbackAvailable = useFeedbackWidgetAvailable()
   const [whatsNewOpen, setWhatsNewOpen] = useState(false)
   const [createTeamOpen, setCreateTeamOpen] = useState(false)
+  // #EXP-1632: the phone's Getting started entry (the natives' Settings
+  // row): the sidebar's dialog, gone once every step is done.
+  const gettingStartedVisible = useGettingStartedEntryVisible(team)
+  const [gettingStartedOpen, setGettingStartedOpen] = useState(false)
 
   const navContext = { isCloud: Boolean(config?.isCloud) }
   const visible = (item: SettingsNavItem) => item.visible(permissions, navContext)
@@ -338,6 +352,14 @@ function TeamTabPage() {
         </GlassGroup>
 
         <GlassGroup>
+          {gettingStartedVisible && (
+            <RowButton
+              icon={<GettingStartedIcon className="size-5" />}
+              label={GETTING_STARTED_TITLE}
+              onClick={() => setGettingStartedOpen(true)}
+              testId={gettingStartedSpec.testIds.entry}
+            />
+          )}
           {isAdminUser(user) && (
             <RowButton icon={<AdminIcon className="size-5" />} label="Admin" onClick={() => void navigate({ to: `/admin` })} />
           )}
@@ -351,6 +373,14 @@ function TeamTabPage() {
       </div>
       <ChangelogSheet open={whatsNewOpen} onOpenChange={setWhatsNewOpen} />
       <CreateTeamDialog open={createTeamOpen} onOpenChange={setCreateTeamOpen} />
+      {team && (
+        <GettingStartedDialog
+          team={team}
+          teamSlug={teamSlug}
+          open={gettingStartedOpen}
+          onOpenChange={setGettingStartedOpen}
+        />
+      )}
     </div>
   )
 }

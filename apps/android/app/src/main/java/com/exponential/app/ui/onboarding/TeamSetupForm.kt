@@ -116,51 +116,59 @@ fun TeamSetupForm(
                 }
             }
             TeamSetupPage.Create -> {
-                PageTitle(TeamSetupCopy.CREATE_TITLE)
-                FieldLabel(TeamSetupCopy.CREATE_LABEL)
-                GlassTextField(
-                    value = teamName,
-                    onValueChange = { teamName = it },
-                    singleLine = true,
-                    placeholder = TeamSetupCopy.CREATE_PLACEHOLDER,
-                    enabled = !state.busy,
-                    modifier = Modifier.fillMaxWidth().testTag("team-setup-name"),
-                )
-                PageError(state.createError)
-                PageFooter(onBack = { page = TeamSetupPage.Choice }, busy = state.busy) {
-                    GlassPill(
-                        label = if (state.busy) "Creating…" else TeamSetupCopy.CREATE_BUTTON,
-                        onClick = { onCreate(teamName) },
-                        enabled = !state.busy && teamName.isNotBlank(),
-                        primary = true,
-                    )
+                // Web's `StepCard` (wizard.tsx): the users disc + title over a hairline.
+                OnboardingStepCard(icon = ExpIcons.uiTeam, title = TeamSetupCopy.CREATE_TITLE) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        FieldLabel(TeamSetupCopy.CREATE_LABEL)
+                        GlassTextField(
+                            value = teamName,
+                            onValueChange = { teamName = it },
+                            singleLine = true,
+                            placeholder = TeamSetupCopy.CREATE_PLACEHOLDER,
+                            enabled = !state.busy,
+                            modifier = Modifier.fillMaxWidth().testTag("team-setup-name"),
+                        )
+                        PageError(state.createError)
+                        PageFooter(onBack = { page = TeamSetupPage.Choice }, busy = state.busy) {
+                            GlassPill(
+                                label = if (state.busy) "Creating…" else TeamSetupCopy.CREATE_BUTTON,
+                                onClick = { onCreate(teamName) },
+                                enabled = !state.busy && teamName.isNotBlank(),
+                                primary = true,
+                            )
+                        }
+                    }
                 }
             }
             TeamSetupPage.Join -> {
-                PageTitle(TeamSetupCopy.JOIN_TITLE)
-                FieldLabel(TeamSetupCopy.JOIN_LABEL)
-                GlassTextField(
-                    value = inviteInput,
-                    onValueChange = { inviteInput = it },
-                    singleLine = true,
-                    placeholder = TeamSetupCopy.JOIN_PLACEHOLDER,
-                    enabled = !state.busy,
-                    // A token is neither a sentence nor a word — autocapitalizing
-                    // or "correcting" a pasted link silently breaks the accept.
-                    keyboardOptions = KeyboardOptions(
-                        capitalization = KeyboardCapitalization.None,
-                        autoCorrectEnabled = false,
-                    ),
-                    modifier = Modifier.fillMaxWidth().testTag("team-setup-invite"),
-                )
-                PageError(state.joinError)
-                PageFooter(onBack = { page = TeamSetupPage.Choice }, busy = state.busy) {
-                    GlassPill(
-                        label = if (state.busy) "Joining…" else TeamSetupCopy.JOIN_BUTTON,
-                        onClick = { onJoin(inviteInput) },
-                        enabled = !state.busy && inviteInput.isNotBlank(),
-                        primary = true,
-                    )
+                // Web's `StepCard` (wizard.tsx): the link disc + title over a hairline.
+                OnboardingStepCard(icon = ExpIcons.uiLink, title = TeamSetupCopy.JOIN_TITLE) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        FieldLabel(TeamSetupCopy.JOIN_LABEL)
+                        GlassTextField(
+                            value = inviteInput,
+                            onValueChange = { inviteInput = it },
+                            singleLine = true,
+                            placeholder = TeamSetupCopy.JOIN_PLACEHOLDER,
+                            enabled = !state.busy,
+                            // A token is neither a sentence nor a word — autocapitalizing
+                            // or "correcting" a pasted link silently breaks the accept.
+                            keyboardOptions = KeyboardOptions(
+                                capitalization = KeyboardCapitalization.None,
+                                autoCorrectEnabled = false,
+                            ),
+                            modifier = Modifier.fillMaxWidth().testTag("team-setup-invite"),
+                        )
+                        PageError(state.joinError)
+                        PageFooter(onBack = { page = TeamSetupPage.Choice }, busy = state.busy) {
+                            GlassPill(
+                                label = if (state.busy) "Joining…" else TeamSetupCopy.JOIN_BUTTON,
+                                onClick = { onJoin(inviteInput) },
+                                enabled = !state.busy && inviteInput.isNotBlank(),
+                                primary = true,
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -179,17 +187,6 @@ object TeamSetupCopy {
     const val JOIN_PLACEHOLDER = "Paste an invite link"
     const val JOIN_BUTTON = "Continue"
     const val BACK = "Back"
-}
-
-@Composable
-private fun PageTitle(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
-        color = MaterialTheme.colorScheme.onSurface,
-        textAlign = TextAlign.Center,
-        modifier = Modifier.padding(bottom = 4.dp),
-    )
 }
 
 /** The field's label above its input (web `<Label>`, iOS `fieldLabel`). */

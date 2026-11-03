@@ -38,6 +38,8 @@ final class DevicesListTests: XCTestCase {
             "signedOut": DevicesList.Copy.signedOut,
             "update": DevicesList.Copy.update,
             "signIn": DevicesList.Copy.signIn,
+            "signInTitle": DevicesList.Copy.signInTitle,
+            "signInWaiting": DevicesList.Copy.signInWaiting,
             "limitReached": DevicesList.Copy.limitReached,
             "deviceActions": DevicesList.Copy.deviceActions,
             "settings": DevicesList.Copy.settings,

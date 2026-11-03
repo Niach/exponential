@@ -109,6 +109,13 @@ const NO_LINK_IN_TIME: &str = "The sign-in did not produce a link in time.";
 /// (web `agent-login-dialog.tsx`), so a client that does print the wire text
 /// prints exactly what its own spinner says.
 const SIGNING_IN: &str = agent_login::SIGNING_IN;
+
+/// EXP-1627: the sign-in dialog's waiting line, `copy.signInWaiting`.
+fn sign_in_waiting(device: &str, agent: &str) -> String {
+    crate::machines::COPY_SIGN_IN_WAITING
+        .replace("{device}", device)
+        .replace("{agent}", agent)
+}
 const CODE_ENTERED: &str = SIGNING_IN;
 const NO_LOGIN_WAITING: &str = "No sign-in is waiting for a code on this machine.";
 
@@ -1199,7 +1206,7 @@ impl LoginDialogState {
     }
 }
 
-/// EXP-862 — "Sign in to <agent>" as its own dialog: a title and ONE status
+/// EXP-862 — the sign-in as its own dialog (EXP-1627: titled "Sign in"): a title and ONE status
 /// line (waiting → the link → an error), which CLOSES ITSELF the moment the
 /// machine reports the login on its synced row. Web parity
 /// (`agent-login-dialog.tsx`), minus the stacked pending/result/error blocks
@@ -1224,19 +1231,20 @@ pub(crate) fn open_login_dialog(
     cx: &mut App,
 ) {
     let persist = persist && agent == CodingAgent::Claude && intended.is_some();
-    let title = if intended.is_none() {
-        format!("Add a {} account", agent.label())
-    } else {
-        format!("Sign in to {}", agent.label())
-    };
-    // EXP-1626: a persist dialog carries its one note line.
-    let height = if persist { 220. } else { 180. };
-    let spec = native_dialog::DialogSpec::new(title, size(px(460.), px(height)));
+    // EXP-1627: the title is `copy.signInTitle`, never the agent's name, and
+    // the panel HUGS its content (no fixed height, no empty band under the
+    // waiting line): `hug` ignores the height, and the view pads itself
+    // (a padded body scrolls, which measures 0 in a hugging panel).
+    let spec = native_dialog::DialogSpec::new(
+        crate::machines::COPY_SIGN_IN_TITLE,
+        size(px(460.), px(180.)),
+    )
+    .hug();
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
             LoginDialogView::new(device_id, device_label, agent, intended, persist, window, cx)
         });
-        native_dialog::DialogContent::new(view)
+        native_dialog::DialogContent::new(view).padless()
     });
 }
 
@@ -1729,21 +1737,30 @@ impl Render for LoginDialogView {
         let line = match &self.state {
             // EXP-940: the wait SPINS. A line that never moves reads the same
             // as a line that is stuck, which is what this dialog used to be.
+            // EXP-1627: ONE muted line, `copy.signInWaiting`, in the web's
+            // small size (`text-xs`), WRAPPING — never cut to one line.
             LoginDialogState::Queueing | LoginDialogState::Waiting => h_flex()
                 .w_full()
+                .min_w_0()
                 .items_center()
                 .gap_2()
-                .text_sm()
+                .text_xs()
                 .text_color(muted)
                 .child(
                     div()
                         .flex_shrink_0()
                         .child(Spinner::new().icon(crate::icons::registry::UI_LOADING)),
                 )
-                .child(SharedString::from(format!(
-                    "Waiting for the sign-in link from {}. Open it on any device.",
-                    self.device_label
-                )))
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .whitespace_normal()
+                        .child(SharedString::from(sign_in_waiting(
+                            &self.device_label,
+                            self.agent.label(),
+                        ))),
+                )
                 .into_any_element(),
             // EXP-1000: the code is in; the machine finishes on its own and
             // reports the login on its next heartbeat (web `SIGNING_IN`).
@@ -1751,7 +1768,7 @@ impl Render for LoginDialogView {
                 .w_full()
                 .items_center()
                 .gap_2()
-                .text_sm()
+                .text_xs()
                 .text_color(muted)
                 .child(
                     div()
@@ -1765,7 +1782,7 @@ impl Render for LoginDialogView {
                 .w_full()
                 .items_center()
                 .gap_2()
-                .text_sm()
+                .text_xs()
                 .text_color(foreground)
                 .child(
                     div().flex_shrink_0().child(
@@ -1819,7 +1836,7 @@ impl Render for LoginDialogView {
                 .text_color(muted)
                 .child(crate::machines::COPY_PERSIST_NOTE)
         });
-        v_flex().w_full().gap_2().child(line).children(note)
+        v_flex().w_full().px_4().pb_4().gap_2().child(line).children(note)
     }
 }
 
@@ -2000,6 +2017,16 @@ impl Render for AddAccountDialogView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1627: the waiting line is the fixture's `copy.signInWaiting`,
+    /// byte for byte, with the device and the agent filled in.
+    #[test]
+    fn the_waiting_line_is_the_fixture_copy() {
+        assert_eq!(
+            sign_in_waiting("mint", CodingAgent::Claude.label()),
+            format!("Waiting for mint to publish the {} sign-in link…", CodingAgent::Claude.label())
+        );
+    }
 
     /// EXP-1000: what the machine hands back for each agent, as the dialog
     /// reads it. Claude's link carries NO device code — the browser shows one

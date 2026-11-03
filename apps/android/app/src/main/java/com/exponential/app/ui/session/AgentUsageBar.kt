@@ -96,22 +96,27 @@ private fun UsageWindowRow(card: UsageCard) {
             .semantics(mergeDescendants = true) { contentDescription = description },
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            // EXP-1627: the title never truncates; the reset caption gives
+            // way. An unweighted Row child is measured first, so the title
+            // takes its full width and the weighted caption gets the rest.
             Text(
                 card.title,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
+                softWrap = false,
             )
             if (card.caption.isNotEmpty()) {
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
                 Text(
                     card.caption,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(1f),
                 )
             }
         }

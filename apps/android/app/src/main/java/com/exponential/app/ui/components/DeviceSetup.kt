@@ -38,6 +38,7 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
@@ -129,26 +130,33 @@ fun DeviceSetup(
         )
 
         if (!listDevices) return@Column
-        Text(
-            OnboardingCopy.DEVICES_YOURS,
-            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        // Web's `GlassSectionHeader` band over the list (iOS twin).
+        SectionHeader(OnboardingCopy.DEVICES_YOURS)
         val rows = devices.orEmpty()
         if (devices == null) {
             // EXP-1275: still loading = skeleton rows in the device row's geometry.
             SkeletonRows(rows = 2, rowHeight = 56.dp, dot = false)
         } else if (rows.isEmpty()) {
-            Text(
-                OnboardingCopy.DEVICES_NONE,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .glassRow()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            )
+            // EXP-1554: web's empty state: the monitor-off glyph over the
+            // muted line, centred, on no card (iOS `DeviceSetup` twin).
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    ExpIcons.uiDeviceOffline,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    OnboardingCopy.DEVICES_NONE,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                    textAlign = TextAlign.Center,
+                )
+            }
         } else {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 rows.forEach { device ->

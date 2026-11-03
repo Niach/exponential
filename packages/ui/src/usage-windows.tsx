@@ -113,9 +113,10 @@ export function UsageWindows({
       {windows.map((window) => (
         <div key={window.key} className="space-y-1">
           <div className="flex items-baseline gap-2">
-            <span className="min-w-0 flex-1 truncate text-xs">{window.label}</span>
+            {/* EXP-1627: the title never truncates; the reset caption gives way. */}
+            <span className="flex-1 whitespace-nowrap text-xs">{window.label}</span>
             {window.caption && (
-              <span className="min-w-0 shrink-0 truncate text-[11px] text-muted-foreground">
+              <span className="min-w-0 truncate text-[11px] text-muted-foreground">
                 {window.caption}
               </span>
             )}

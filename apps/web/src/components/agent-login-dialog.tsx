@@ -247,9 +247,12 @@ export function AgentLoginDialog({
   }, [open, failure])
 
   // The ONE status line, byte-identical ×4: who is signing in where, and what
-  // is happening right now — never a paragraph.
+  // is happening right now — never a paragraph. EXP-1627: the waiting copy is
+  // the fixture's `signInWaiting` (devices-list.json), muted, and it WRAPS.
   const statusText = state.pending
-    ? `Waiting for ${label} to publish the ${agentLabel(agent)} sign-in link…`
+    ? DEVICES_LIST_COPY.signInWaiting
+        .replace(`{device}`, label)
+        .replace(`{agent}`, agentLabel(agent))
     : `${agentLabel(agent)} on ${label}`
 
   return (
@@ -260,13 +263,17 @@ export function AgentLoginDialog({
         aria-describedby={undefined}
       >
         <DialogHeader>
-          <DialogTitle>Sign in</DialogTitle>
+          <DialogTitle>{DEVICES_LIST_COPY.signInTitle}</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-2">
           {/* Who is signing in where — it stays put through every phase. */}
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {state.pending && <Spinner />}
-            {statusText}
+          <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
+            {state.pending && (
+              <span className="flex h-4 shrink-0 items-center">
+                <Spinner />
+              </span>
+            )}
+            <span className="min-w-0 break-words">{statusText}</span>
           </p>
           {longLived && !signedIn && (
             <p className="text-xs text-muted-foreground" data-slot="persist-note">

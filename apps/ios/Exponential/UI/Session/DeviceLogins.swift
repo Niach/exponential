@@ -163,9 +163,10 @@ struct DeviceLogins: View {
     private func menuHeader(_ row: AgentProfileUsageRow, item: DevicesList.AttentionItem?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             VStack(alignment: .leading, spacing: 2) {
+                // EXP-1627: the foreground colour at medium weight.
                 Text(row.email ?? AgentAccountsRows.loginLabel(row))
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(GlassMenuTokens.textOpacity))
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(DesignTokens.Palette.foreground)
                     .lineLimit(1)
                     .truncationMode(.middle)
                 if let plan = row.plan, row.email != nil {

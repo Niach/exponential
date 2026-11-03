@@ -827,6 +827,30 @@ async function recipeOpenGettingStarted(page: Page): Promise<void> {
 }
 
 /**
+ * The phone web's Getting started entry (#EXP-1632): the Team page's
+ * `Getting started` row (the natives' Settings row) opens the same block, in
+ * the bottom sheet DialogContent becomes at phone width. Runs on
+ * `/t/$teamSlug/team`; the row carries getting-started.json's `entry` id and
+ * hides once every step is done, like the sidebar entry.
+ */
+async function recipeOpenGettingStartedPhone(page: Page): Promise<void> {
+  const trigger = page.getByTestId(`getting-started-entry`).filter({ visible: true })
+  if (!(await appears(trigger, 15_000))) {
+    throw new Error(
+      `no "Getting started" row on the Team page: EXP-548 hides it once every ` +
+        `step is complete. Re-seed so at least one stays open: ` +
+        `bun run seed:screenshots`
+    )
+  }
+  await trigger.first().scrollIntoViewIfNeeded()
+  await trigger.first().click()
+  await page
+    .getByRole(`dialog`)
+    .getByTestId(`getting-started`)
+    .waitFor({ timeout: 15_000 })
+}
+
+/**
  * Settings → Boards lists the team's boards since EXP-1383 (each row opens
  * its own page); the `settings-boards` view photographs ONE board's page, so
  * open the first row (`boards-section.tsx` `boards-list-row-{id}`).
@@ -895,6 +919,7 @@ export const RECIPES: Record<string, Recipe> = {
   openAddServer: recipeOpenAddServer,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,
+  openGettingStartedPhone: recipeOpenGettingStartedPhone,
   typeIssueRef: recipeTypeIssueRef,
   openComposerMenuTemporary: recipeOpenComposerMenuTemporary,
   openComposerSkillsMenu: recipeOpenComposerSkillsMenu,

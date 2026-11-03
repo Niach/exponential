@@ -14,7 +14,7 @@ import XCTest
 /// `packages/view-catalog/src/views.test.ts` gates both directions, and
 /// additionally requires the iOS and Android `sg_*` sets to be IDENTICAL.
 ///
-///   sg_sign-in · sg_onboarding-create-team ·
+///   sg_sign-in ·
 ///   sg_board-empty ·
 ///   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
 ///   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
@@ -22,7 +22,8 @@ import XCTest
 ///   sg_machine-settings · sg_settings-team-agent · sg_settings-assistant · sg_threads ·
 ///   sg_session-row · sg_pr-row ·
 ///   sg_settings-root · sg_settings-team ·
-///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
+///   sg_settings-account · sg_onboarding · sg_onboarding-create-team ·
+///   sg_invite-accept · sg_onboarding-invite ·
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
 ///   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
@@ -78,10 +79,11 @@ import XCTest
 /// starter identity, relaunched with `-uiTestingOnboardingStep invite` so the
 /// wizard parks on step 3 without anything being submitted.
 ///
-/// EXP-698 r5 added `sg_onboarding-create-team`: the create-or-join team form
-/// is reachable from a "New team" row (the Team tab's teams group since
-/// EXP-1373) instead of only from the zero-team empty state a seeded account
-/// never shows. #EXP-1384 retired `sg_board-switcher` with the sheet it
+/// EXP-698 r5 added `sg_onboarding-create-team`: the create-or-join team
+/// form. It used to be photographed in the New team sheet; it is now the
+/// newcomer's wizard page (Create a team pushed off the choice page), the
+/// full-screen step card web draws, beside `sg_onboarding-join`.
+/// #EXP-1384 retired `sg_board-switcher` with the sheet it
 /// photographed (the board menu is `sg_phone-board-menu`).
 ///
 /// EXP-642 reshuffled the front of the set: the old `sg_instance-picker` shot
@@ -278,52 +280,6 @@ final class StyleguideScreenshots: XCTestCase {
             "Issue list never synced (missing showcase issue \(Self.showcaseTitle))"
         )
         if !injected { dismissSavePasswordSheet(timeout: 3) }
-
-        // ── sg_onboarding-create-team: the create-or-join team form ──────────
-        // EXP-1373: a team is created (and switched) on the Team tab, whose
-        // teams group ends on the "New team" row.
-        let teamTabForNew = app.buttons["tab-team"]
-        expect(teamTabForNew, within: Wait.nav, "Team tab missing")
-        teamTabForNew.tap()
-        let newTeamRow = app.buttons["board-switcher-new-team"]
-        expect(newTeamRow, within: Wait.nav, "The Team tab has no New team row")
-        // The sheet is fitted to its content, so the row is on screen for the
-        // seeded team — scroll it up only if a longer board list ever pushes it
-        // under the fold.
-        scrollUntilVisible(app, newTeamRow, attempts: 3)
-        newTeamRow.tap()
-        let teamSetupSheet = app.descendants(matching: .any)["team-setup-sheet"].firstMatch
-        expect(
-            teamSetupSheet,
-            within: Wait.nav,
-            "New team row did not open the team setup sheet"
-        )
-        // The sheet opens on the choice page (polish round ×4); its "Create
-        // a team" button PUSHES the create form this view photographs. Gate
-        // on real content, not the container.
-        let createTeamChoice = app.buttons["team-setup-create"]
-        expect(
-            createTeamChoice,
-            within: Wait.nav,
-            "Team setup sheet never rendered its Create a team choice"
-        )
-        createTeamChoice.tap()
-        expect(
-            app.staticTexts["Team name"],
-            within: Wait.nav,
-            "Create a team never pushed its form"
-        )
-        snapshot("sg_onboarding-create-team", settle: 1)
-        // Nothing was submitted, so no team is created and the next steps start
-        // from the same board list. The switcher is already gone — this only
-        // has to close the setup sheet.
-        dismissSheet(app, whileVisible: app.staticTexts["Set up a team"].firstMatch)
-        showBoard(app)
-        expect(
-            showcaseRowTitle,
-            within: Wait.nav,
-            "Dismissing the team setup sheet did not return to the board list"
-        )
 
         // ── sg_board-empty: a board with no issues on it ─────────────────────
         // The seed's second board ("Launch Marketing") is created empty for
@@ -1067,6 +1023,19 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_onboarding", settle: 2)
 
+        // ── sg_onboarding-create-team: the choice page's Create a team (web's
+        // wizard CreateTeamStep), the newcomer's full-screen step card, never
+        // the New team sheet. Nothing is typed or submitted; Back returns to
+        // the choice page for the join shot.
+        if ScreenshotShots.isWanted("sg_onboarding-create-team") {
+            app.buttons["team-setup-create"].tap()
+            expect(app.staticTexts["Team name"].firstMatch, within: Wait.nav, "Create a team never pushed its form")
+            dismissKeyboard(app)
+            snapshot("sg_onboarding-create-team", settle: 2)
+            app.buttons["Back"].firstMatch.tap()
+            expect(app.buttons["team-setup-join"], within: Wait.nav, "Back never returned to the choice page")
+        }
+
         // ── sg_onboarding-join: the choice page's Join a team (web's
         // `openOnboardingJoin`): the invite-link form. Nothing is pasted or
         // submitted; the relaunch below leaves it.
@@ -1075,6 +1044,27 @@ final class StyleguideScreenshots: XCTestCase {
             expect(app.staticTexts["Invite link"].firstMatch, within: Wait.nav, "Join a team never pushed its invite-link form")
             dismissKeyboard(app)
             snapshot("sg_onboarding-join", settle: 2)
+        }
+
+        // ── sg_invite-accept (#EXP-1632): the newcomer opening the seeded
+        // invite link (`screenshots-demo-invite`, the token web and desktop
+        // photograph) mid-wizard: the landing card, read and shown, NEVER
+        // accepted (Accept would burn the token). The capture hook
+        // `-uiTestingOpenInvite` routes the token through the deep-link bus
+        // exactly as a tapped `exponential://invite/<token>` would.
+        if ScreenshotShots.isWanted("sg_invite-accept") {
+            launchSignedIn(
+                app,
+                email: ScreenshotSeed.newcomerEmail,
+                password: ScreenshotSeed.newcomerPassword,
+                extraArguments: ["-uiTestingOpenInvite", "screenshots-demo-invite"]
+            )
+            expect(
+                app.buttons["invite-accept"],
+                within: Wait.sync,
+                "The invite landing card never rendered its Accept invite button — reseed with `bun run seed:screenshots`"
+            )
+            snapshot("sg_invite-accept", settle: 2)
         }
 
         // ── sg_onboarding-invite / sg_onboarding-devices ─────────────────────

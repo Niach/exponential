@@ -151,19 +151,25 @@ internal fun AgentLoginSheet(
     val state = commandStates[agentLoginCommandKey(device.deviceId, target.agent, target.profileId)]
     val codeState = commandStates[agentLoginCodeCommandKey(device.deviceId, target.agent, target.profileId)]
     GlassSheet(
-        title = "Sign in",
+        title = DevicesList.Copy.SIGN_IN_TITLE,
         onDismiss = onDismiss,
         modifier = Modifier.testTag("agent-login-sheet"),
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-            Text(
-                "${agentLabel(target.agent)} signs in on " +
-                    "${device.deviceLabel.ifBlank { device.deviceId }}.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            )
+            // EXP-1627: while the link is on its way the waiting line is the
+            // dialog's ONE status line (it names the device itself).
+            val waiting = state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running
+            if (!waiting) {
+                Text(
+                    "${agentLabel(target.agent)} signs in on " +
+                        "${device.deviceLabel.ifBlank { device.deviceId }}.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                )
+            }
             LoginResultCaption(
                 agent = target.agent,
+                deviceLabel = device.deviceLabel.ifBlank { device.deviceId },
                 state = state,
                 codeState = codeState,
                 // EXP-765: claude's browser hands a code back; the machine has
@@ -211,6 +217,7 @@ internal fun AgentLoginSheet(
 @Composable
 internal fun LoginResultCaption(
     agent: String,
+    deviceLabel: String,
     state: DeviceCommandUiState?,
     codeState: DeviceCommandUiState?,
     canEnterCode: Boolean,
@@ -219,11 +226,16 @@ internal fun LoginResultCaption(
     val login = (state as? DeviceCommandUiState.Done)?.let { parseAgentLoginResult(it.message) }
     when {
         state is DeviceCommandUiState.Sending || state is DeviceCommandUiState.Running ->
+            // EXP-1627 (`copy.signInWaiting`): ONE muted body-small line that
+            // names the device and WRAPS, never cut off (iOS `statusLine`).
             Text(
-                "Waiting for the sign-in link…",
-                style = MaterialTheme.typography.labelSmall,
+                DevicesList.Copy.SIGN_IN_WAITING
+                    .replace("{device}", deviceLabel)
+                    .replace("{agent}", agentLabel(agent)),
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier.padding(top = 4.dp),
+                softWrap = true,
+                modifier = Modifier.fillMaxWidth(),
             )
         login != null -> {
             val uriHandler = LocalUriHandler.current
