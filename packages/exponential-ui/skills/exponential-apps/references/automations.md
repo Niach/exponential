@@ -44,7 +44,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 - **Verification:** header `exponential-signature: t=<unix seconds>,v1=<hex HMAC-SHA256(secret, "<t>." + raw body)>` (Stripe's scheme; several `v1` may ride along). In order: body > 64 KB = 413, no header = 401, malformed = 401, `|now − t|` > 300 s = 401 (`stale`), no matching `v1` = 401, the signature already seen (the nonce cache: every accepted signature for 2 × the window, table `app_hook_nonces`, pruned by the watchdog) = 409 (`replayed`), not JSON = 400. The body is parsed only after the signature verifies. A verified delivery answers 202 with each run's status.
 - **Payload:** the run's event = `{hook, body}`: `${event.body.<path>}` in the run (and in an agent hand-off's data block, never its instructions, §12.1).
 - **Rate and audit:** at most 60 deliveries per hook per minute (429 beyond, not audited, so a flood never fills the audit table). Every delivery under the cap is one `mcp_calls` row: the run's (`automation:<name>`), or a refusal audited `denied` with its code (`badSignature`, `stale`, `replayed`, …) as the publisher.
-- 🆕 Settings ×4: the hook's URL (copy) and the owner's mint / rotate with the secret shown once (the second A3 PR). The trigger line "On webhook <name>" is ✅ ×4.
+- ✅ Settings ×4 (#VAPP-238, `apps.json` `webhookRowCases`): the Webhooks group under Automations, one row per hook with its URL (Copy URL), a Ready / No secret pill and the owner's Create secret / Rotate secret (the `rotate-webhook-secret` prompt first); the answer's secret is shown once under its hook (Copy secret), held in memory only. The trigger line "On webhook <name>" is ✅ ×4.
 
 ### 7.3 Agent hand-off (✅ A2, #VAPP-236)
 
