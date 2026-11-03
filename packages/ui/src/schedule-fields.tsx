@@ -17,7 +17,8 @@ import {
 
 import { cn } from "./cn"
 import { Input } from "./input"
-import { Picker, PickerTrigger } from "./picker"
+import { conceptIcon } from "./icons.generated"
+import { PICKER_INLINE_TRIGGER, Picker, PickerTrigger } from "./picker"
 
 // NEW-2: THE schedule picker ×4 (`fixtures/schedule-picker.json`; desktop
 // `schedule_fields.rs`, iOS ExpUI `ScheduleFields.swift`, Android
@@ -81,6 +82,8 @@ export function validateScheduleDraft(draft: ScheduleDraft): ScheduleDraftError[
   }
   return draft.cron.trim().split(/\s+/).length === 5 ? [] : [{ field: `cron`, message: COPY.errors.cron }]
 }
+
+const ChevronRightGlyph = conceptIcon(`ui-chevron-right`)
 
 const pad2 = (value: number) => String(value).padStart(2, `0`)
 const range = (count: number, from = 0) => Array.from({ length: count }, (_, index) => index + from)
@@ -299,9 +302,11 @@ export function ScheduleFields({
   )
 }
 
-/** The Time row ×4: the 24h `HH:mm`, its hour and its minute each a Picker
- *  (every hour, every minute) — never the locale-dependent browser time
- *  control. */
+/** The Time row ×4: ONE disclosure row like its siblings — `Time` leading,
+ *  the 24h `HH:mm` trailing at 70%, the row's chevron at 50% (desktop
+ *  `time_picker`, iOS `GlassTimeRow`, Android `ScheduleFields.kt`). Its hour
+ *  and its minute are each a Picker opened from their own digits (every
+ *  hour, every minute) — never the locale-dependent browser time control. */
 export function ScheduleTimeRow({
   hour,
   minute,
@@ -313,17 +318,26 @@ export function ScheduleTimeRow({
   onChange: (hour: number, minute: number) => void
   disabled?: boolean
 }) {
+  const digits = (label: string, value: number) => (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-label={`${label} ${pad2(value)}`}
+      className={cn(PICKER_INLINE_TRIGGER, `tabular-nums`)}
+    >
+      {pad2(value)}
+    </button>
+  )
   return (
     <div
-      className="flex w-full items-center gap-3 px-4 py-3 text-sm"
+      className={cn(`flex w-full items-center gap-3 px-4 py-3`, disabled && `opacity-50`)}
       data-testid={TEST_IDS.time}
       aria-label={`${COPY.rows.time} ${scheduleTimeLabel(hour, minute)}`}
     >
-      <span className="shrink-0 text-foreground">{COPY.rows.time}</span>
-      <span className="ml-auto flex items-center gap-0.5 text-foreground/70 tabular-nums">
+      <span className="shrink-0 text-sm text-foreground">{COPY.rows.time}</span>
+      <span className="ml-auto flex items-center text-sm text-foreground/70 tabular-nums">
         <Picker
           mode="single"
-          triggerVariant="inline"
           // EXP-1363: the 24/60 rows open in THEIR OWN scrolling popover
           // (a sheet on phones), never disclosed inline inside the row.
           presentation="popover"
@@ -334,14 +348,12 @@ export function ScheduleTimeRow({
           onChange={(picked) => {
             if (picked !== null) onChange(Number(picked), minute)
           }}
+          trigger={digits(`Hour`, hour)}
           disabled={disabled}
         />
         <span aria-hidden>:</span>
         <Picker
           mode="single"
-          triggerVariant="inline"
-          // EXP-1363: the 24/60 rows open in THEIR OWN scrolling popover
-          // (a sheet on phones), never disclosed inline inside the row.
           presentation="popover"
           mobileTitle="Minute"
           width="sm"
@@ -350,9 +362,11 @@ export function ScheduleTimeRow({
           onChange={(picked) => {
             if (picked !== null) onChange(hour, Number(picked))
           }}
+          trigger={digits(`Minute`, minute)}
           disabled={disabled}
         />
       </span>
+      <ChevronRightGlyph aria-hidden className="size-3.5 shrink-0 text-foreground/50" />
     </div>
   )
 }
