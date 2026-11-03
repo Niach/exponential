@@ -4068,6 +4068,72 @@
       }
     },
     {
+      "id": "exponential-ui-choice-tiles",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · ChoiceTiles",
+      "blurb": "Picture tiles picking one or many values; options show `image` and `description`. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/choice-tiles/.",
+      "order": 108,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-choice-tiles",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-choice-tiles"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-choice-tiles",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-choice-tiles",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "exponential-ui-search-list",
+      "group": "exponential-ui-catalog",
+      "title": "Exponential UI · SearchList",
+      "blurb": "A search field over rows: typing filters, arrows move, Enter picks. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/search-list/.",
+      "order": 109,
+      "web": {
+        "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-search-list",
+        "anchor": {
+          "testId": "exponential-ui-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 600
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "exponential-ui-search-list"
+        },
+        "anchorDelayMs": 800
+      },
+      "ios": {
+        "shot": "exponential-ui-search-list",
+        "lane": "package"
+      },
+      "android": {
+        "shot": "exponential-ui-search-list",
+        "lane": "package"
+      },
+      "notes": {
+        "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
       "id": "exponential-ui-qr-scanner",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · QrScanner",
