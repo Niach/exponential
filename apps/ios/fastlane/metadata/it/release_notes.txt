@@ -38,3 +38,5 @@
 - Competenze del team: scegli dal menu + quelle con cui gira una sessione
 - Le app hanno una scheda Dati che segue la regola dei record di ogni tipo
 - Un'app legge un campo mancante come vuoto invece di far fallire la vista
+- Le modifiche a un'app sono bozze finché qualcuno non preme Pubblica
+- I proprietari impostano il fuso orario del team; le app leggono le date in esso

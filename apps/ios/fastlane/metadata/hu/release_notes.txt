@@ -38,3 +38,5 @@
 - Csapatkészségek: a + menüben válaszd ki egy munkamenet készségeit
 - Az appok Adatok lapja követi az egyes fajták rekordszabályát
 - Az app a hiányzó mezőt üresnek olvassa, ahelyett hogy a nézet hibára futna
+- Az app módosításai piszkozatok, amíg valaki meg nem nyomja a Közzététel gombot
+- A tulajdonosok beállítják a csapat időzónáját; az appok abban olvassák a dátumokat

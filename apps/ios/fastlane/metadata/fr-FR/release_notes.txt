@@ -38,3 +38,5 @@
 - Compétences d'équipe : choisissez dans le menu + celles d'une session
 - Les apps ont un onglet Données qui suit la règle d'enregistrements de chaque type
 - Une app lit un champ manquant comme vide au lieu de faire échouer la vue
+- Les modifications d'une app sont des brouillons jusqu'à ce que quelqu'un appuie sur Publier
+- Les propriétaires règlent le fuseau horaire de l'équipe ; les apps y lisent les dates

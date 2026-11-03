@@ -38,3 +38,5 @@
 - Teamvaardigheden: kies in het +-menu de vaardigheden van een sessie
 - Apps hebben een tabblad Gegevens dat de recordregel van elk soort volgt
 - Een app leest een ontbrekend veld als leeg in plaats van de weergave te laten mislukken
+- Wijzigingen aan een app zijn concepten tot iemand op Publiceren drukt
+- Eigenaren stellen de tijdzone van het team in; apps lezen datums daarin

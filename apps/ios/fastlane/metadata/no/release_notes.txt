@@ -38,3 +38,5 @@
 - Teamferdigheter: velg i +-menyen ferdighetene en økt kjører med
 - Apper har en Data-fane som følger hver types postregel
 - En app leser et manglende felt som tomt i stedet for at visningen feiler
+- Endringer i en app er utkast til noen trykker Publiser
+- Eiere velger teamets tidssone; apper leser datoer i den

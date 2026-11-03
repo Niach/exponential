@@ -38,3 +38,5 @@
 - Týmové dovednosti: v nabídce + vyberte dovednosti, se kterými relace běží
 - Aplikace mají kartu Data, která se řídí pravidly záznamů každého druhu
 - Aplikace čte chybějící pole záznamu jako prázdné, místo aby selhalo zobrazení
+- Úpravy aplikace jsou koncepty, dokud někdo nestiskne Publikovat
+- Vlastníci nastaví časové pásmo týmu; aplikace v něm čtou data

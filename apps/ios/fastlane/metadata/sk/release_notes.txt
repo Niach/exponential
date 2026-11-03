@@ -38,3 +38,5 @@
 - Tímové zručnosti: v ponuke + vyberte zručnosti, s ktorými relácia beží
 - Aplikácie majú kartu Údaje, ktorá sa riadi pravidlom záznamov každého druhu
 - Aplikácia číta chýbajúce pole ako prázdne namiesto zlyhania zobrazenia
+- Úpravy aplikácie sú koncepty, kým niekto nestlačí Zverejniť
+- Vlastníci nastavia časové pásmo tímu; aplikácie v ňom čítajú dátumy

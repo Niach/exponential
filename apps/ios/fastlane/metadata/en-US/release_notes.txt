@@ -38,3 +38,5 @@
 - Team skills: pick the skills a session runs with in the + menu
 - Apps have a Data tab that follows each kind's record policy
 - An app reads a record's missing field as empty instead of failing the view
+- App edits are drafts until someone presses Publish
+- Owners set the team's time zone; apps read dates in it
