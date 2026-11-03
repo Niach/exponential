@@ -43,10 +43,9 @@ import XCTest
 /// `sg_run-changes` and `sg_trigger-editor`. EXP-1309 then moved every
 /// Threads v2 shot off its hand-written specimen onto the LIVE app over the
 /// seed web/desktop photograph, so they cannot drift from it again:
-///   * `sg_agent-home` = the dawn home the app lands on (`agent-page`), and
-///     `sg_session-row` = the SAME screen gated on THE session row in its
-///     Running band (web/desktop photograph a styleguide island of the row;
-///     the phone's one honest instance of it is the seeded band);
+///   * `sg_agent-home` = the dawn home the app lands on (`agent-page`)
+///     (`sg_session-row` is a specimen since thread 20b7fdc2: the island's
+///     rows, `walkSpecimens`; it used to photograph the Chats tab);
 ///   * `sg_threads` = the Threads tab (Agents band, Needs you · Running ·
 ///     Recent, each row's quiet word off its pull requests);
 ///     `sg_agent-channel` = the Triage agent's channel off its Agents row;
@@ -233,20 +232,6 @@ final class StyleguideScreenshots: XCTestCase {
             "The home drew no composer"
         )
         snapshot("sg_agent-home", settle: 2)
-
-        // ── sg_session-row: THE session row (EXP-1248/1309) ─────────────────
-        // EXP-1316: Home lost its Running band — the rows live on the Threads
-        // tab. Gate on the cold-start thread's row there (it waits on me),
-        // with the private spike and the busy ones beside it.
-        let threadsTab = app.buttons["tab-threads"]
-        expect(threadsTab, within: Wait.sync, "Threads tab missing")
-        threadsTab.tap()
-        expect(
-            threadRow(app, containing: Self.coldStartThreadTitle),
-            within: Wait.sync,
-            "The Threads tab never listed the cold-start thread — reseed with `bun run seed:screenshots`"
-        )
-        snapshot("sg_session-row", settle: 2)
 
         // ── sg_apps · sg_app: the team's Apps off the Threads header, then
         // the Team dashboard editor (VAPP-110, DEMO_APP_SLUG) on its Chat tab.
@@ -1198,7 +1183,7 @@ final class StyleguideScreenshots: XCTestCase {
         "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript",
         "chat-menus", "chat-selection", "schedule-picker", "mention-pill", "voice-call",
         "call-controls", "device-readiness", "session-xref", "story-ring", "story-viewer",
-        "story-tab", "sealed-locked", "plan-page", "pr-row", "pr-checks",
+        "story-tab", "sealed-locked", "plan-page", "pr-row", "pr-checks", "session-row",
     ]
 
     /// A scoped run that wants only specimens (`--views sealed-locked`)
@@ -1233,6 +1218,8 @@ final class StyleguideScreenshots: XCTestCase {
             case "sealed-locked": snapshot("sg_sealed-locked", settle: 2)
             case "plan-page": snapshot("sg_plan-page", settle: 2)
             case "pr-row": snapshot("sg_pr-row", settle: 2)
+            // Thread 20b7fdc2: THE session row (web's `session-row` island).
+            case "session-row": snapshot("sg_session-row", settle: 2)
             // #EXP-1611: the four Merge pills + the open Checks submenu.
             case "pr-checks": snapshot("sg_pr-checks", settle: 2)
             default: snapshot("sg_schedule-picker", settle: 2)
