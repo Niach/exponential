@@ -5,7 +5,7 @@ description: "Write Exponential UI (A2UI v0.9) surfaces: the component model, bi
 
 # Exponential UI
 
-> Generated from the eUI prompt and catalog (eUI 0.8.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
+> Generated from the eUI prompt and catalog (eUI 0.9.0) — do not edit; regenerate with packages/exponential-ui/scripts/generate-skills.ts.
 
 Exponential UI (eUI) paints A2UI v0.9 surfaces the same on web, desktop, iOS and Android: an `exponential_show` card, an app template and every other surface use this one model.
 
