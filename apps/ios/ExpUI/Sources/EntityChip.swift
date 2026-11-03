@@ -63,6 +63,8 @@ public struct ChipBox<Leading: View>: View {
     let title: String?
     let titleColor: Color
     let bodySize: CGFloat?
+    /// The title's own size (nil = the body size, like the identifier).
+    let titleSize: CGFloat?
     let showsRemoveGlyph: Bool
     /// SLOP-16: stretch the box (paint + border) over the whole frame the
     /// parent offers, content at the leading edge, the title truncating: the
@@ -75,10 +77,12 @@ public struct ChipBox<Leading: View>: View {
         title: String?,
         titleColor: Color = Color(MarkdownStyle.textColor),
         bodySize: CGFloat? = nil,
+        titleSize: CGFloat? = nil,
         showsRemoveGlyph: Bool = false,
         fillsFrame: Bool = false,
         @ViewBuilder leading: @escaping () -> Leading
     ) {
+        self.titleSize = titleSize
         self.identifier = identifier
         self.title = title
         self.titleColor = titleColor
@@ -101,7 +105,7 @@ public struct ChipBox<Leading: View>: View {
             }
             if let title, !title.isEmpty {
                 Text(title)
-                    .font(.system(size: pointSize, weight: .medium))
+                    .font(.system(size: titleSize ?? pointSize, weight: .medium))
                     .foregroundStyle(titleColor)
                     .lineLimit(1)
                     .truncationMode(.tail)

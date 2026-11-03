@@ -50,6 +50,9 @@ public struct IssueChip: View {
     private let iconName: String?
     private let statusColor: Color?
     private let bodySize: CGFloat?
+    /// EXP-1649: the title's own size when it differs from `bodySize` (web's
+    /// out-of-prose chip: a text-xs box with a 13px title).
+    private let titleSize: CGFloat?
     private let size: IssueChipSize
     private let fillsFrame: Bool
     private let onTap: (() -> Void)?
@@ -71,6 +74,7 @@ public struct IssueChip: View {
         iconName: String?,
         statusColor: Color?,
         bodySize: CGFloat? = nil,
+        titleSize: CGFloat? = nil,
         size: IssueChipSize = .md,
         fillsFrame: Bool = false,
         onTap: (() -> Void)? = nil,
@@ -78,6 +82,7 @@ public struct IssueChip: View {
         removeLabel: String? = nil,
         removeIdentifier: String? = nil
     ) {
+        self.titleSize = titleSize
         self.identifier = identifier
         self.title = title
         self.iconName = iconName
@@ -123,6 +128,7 @@ public struct IssueChip: View {
         title: String?,
         status: IssueStatus,
         bodySize: CGFloat? = nil,
+        titleSize: CGFloat? = nil,
         size: IssueChipSize = .md,
         fillsFrame: Bool = false,
         onTap: (() -> Void)? = nil,
@@ -136,6 +142,7 @@ public struct IssueChip: View {
             iconName: status.iconName,
             statusColor: status.color,
             bodySize: bodySize,
+            titleSize: titleSize,
             size: size,
             fillsFrame: fillsFrame,
             onTap: onTap,
@@ -206,6 +213,7 @@ public struct IssueChip: View {
             identifier: identifier,
             title: size == .sm ? nil : chipTitle,
             bodySize: bodySize,
+            titleSize: titleSize,
             showsRemoveGlyph: onRemove != nil,
             fillsFrame: fillsFrame
         ) {
