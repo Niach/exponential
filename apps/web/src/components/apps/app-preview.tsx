@@ -4,7 +4,10 @@ import { DEFAULT_THEME_ID, type AppPackage } from "@exponential_app/eui"
 import { HostSurface } from "@exponential_app/eui-react"
 import { APPS_COPY, APPS_PREVIEW, APPS_TEST_IDS, previewTemplate } from "@exp/domain-contract/apps"
 import { appReactExtension, conceptIcon, EmptyState } from "@exp/ui"
-import { ConsentCard, HostBanner, createAppHost, createConsentGate } from "@/lib/exponential-ui-host"
+import { ConsentCard, HostBanner, createAppHost, createConsentGate, type AppHostOptions } from "@/lib/exponential-ui-host"
+
+/** VAPP-198: who the preview runs as. */
+export type AppRunAs = NonNullable<AppHostOptions[`runAs`]>
 import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 
 // VAPP-110: the editor's PREVIEW: the package's first template rendered
@@ -18,15 +21,15 @@ import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 const NavAppsIcon = conceptIcon(`nav-apps`)
 const EXTENSIONS = [appReactExtension]
 
-function PackageSurface({ pkg, templateId, mode, appId, teamId, me, grantedTools }: { pkg: AppPackage; templateId: string | null; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null; grantedTools: readonly string[] }) {
+function PackageSurface({ pkg, templateId, mode, appId, teamId, me, grantedTools, runAs }: { pkg: AppPackage; templateId: string | null; mode: `light` | `dark`; appId: string | null; teamId: string | null; me: string | null; grantedTools: readonly string[]; runAs: AppRunAs | null }) {
   const router = useRouter()
   const consent = useMemo(createConsentGate, [])
   // VAPP-120: the grants follow the synced row without remounting the host.
   const grants = useRef(grantedTools)
   grants.current = grantedTools
   const host = useMemo(
-    () => createAppHost({ consent, navigate: (href) => router.history.push(href), packages: [pkg], appId, teamId, me, grantedTools: () => grants.current }),
-    [consent, router, pkg, appId, teamId, me]
+    () => createAppHost({ consent, navigate: (href) => router.history.push(href), packages: [pkg], appId, teamId, me, grantedTools: () => grants.current, runAs }),
+    [consent, router, pkg, appId, teamId, me, runAs]
   )
   const plugin = useMemo(() => ({ icons: exponentialUiIcons }), [])
   useEffect(() => {
@@ -64,6 +67,7 @@ export function AppPreview({
   teamId = null,
   me = null,
   grantedTools = [],
+  runAs = null,
 }: {
   pkg: Record<string, unknown> | null
   /** VAPP-179: the picked template (null or missing = the first by id). */
@@ -78,6 +82,8 @@ export function AppPreview({
   me?: string | null
   /** VAPP-120: the typed actions the app may run without asking. */
   grantedTools?: readonly string[]
+  /** VAPP-198: preview as another member (owners; null = me). */
+  runAs?: AppRunAs | null
 }) {
   const templateId = previewTemplate(pkg as { templates?: Record<string, unknown> } | null, template)
   // The key = the package's identity + the template: either mounts a fresh host.
@@ -93,7 +99,7 @@ export function AppPreview({
       data-testid={APPS_TEST_IDS.preview}
     >
       {pkg ? (
-        <PackageSurface key={`${templateId ?? ``}:${key}`} pkg={pkg as unknown as AppPackage} templateId={templateId} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} />
+        <PackageSurface key={`${templateId ?? ``}:${runAs?.id ?? ``}:${key}`} pkg={pkg as unknown as AppPackage} templateId={templateId} mode={mode} appId={appId} teamId={teamId} me={me} grantedTools={grantedTools} runAs={runAs} />
       ) : (
         <div className="flex h-full min-h-48 items-center justify-center">
           <EmptyState icon={NavAppsIcon} title={APPS_COPY.previewEmpty} size="page" />

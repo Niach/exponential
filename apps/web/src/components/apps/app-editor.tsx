@@ -10,6 +10,7 @@ import {
   isDraftApp,
   previewTemplate,
   previewTemplates,
+  runAsOptions,
   versionLabel,
   type AppEditorSheet,
   type AppEditorTab,
@@ -43,7 +44,7 @@ import {
   userMessageCaption,
 } from "@exp/ui"
 import type { SyncedAppVersion, User } from "@/db/schema"
-import { AppPreview } from "@/components/apps/app-preview"
+import { AppPreview, type AppRunAs } from "@/components/apps/app-preview"
 import { AppSettingsTab } from "@/components/apps/app-settings-tab"
 import { AppDataTab } from "@/components/apps/app-data-tab"
 import type { AppAccessLevel } from "@exponential_app/eui/host"
@@ -260,6 +261,31 @@ export function AppEditor({
       live = false
     }
   }, [app?.id])
+  // VAPP-198: Run as <member> (owners; the preview toolbar only).
+  const runAsChoices = useMemo(
+    () => runAsOptions(members.map((m) => ({ userId: m.userId, role: m.role, name: (users as User[]).find((u) => u.id === m.userId)?.name ?? null })), me ?? null, myRole),
+    [members, users, me, myRole]
+  )
+  const [runAsId, setRunAsId] = useState(``)
+  const [levels, setLevels] = useState<Record<string, AppAccessLevel>>({})
+  useEffect(() => {
+    setRunAsId(``)
+    if (!app?.id || myRole !== `owner`) return
+    let live = true
+    trpc.appAccess.levels
+      .query({ appId: app.id }, SKIP_ERROR_TOAST)
+      .then((r) => live && setLevels(r.levels))
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [app?.id, myRole])
+  const runAs = useMemo<AppRunAs | null>(() => {
+    const member = runAsId ? members.find((m) => m.userId === runAsId) : undefined
+    if (!member) return null
+    const name = runAsChoices?.find((o) => o.value === runAsId)?.label ?? runAsId
+    return { id: member.userId, name, role: member.role, access: levels[member.userId] ?? `write` }
+  }, [runAsId, members, runAsChoices, levels])
   const { root, teamSessions } = useEditorSession(teamId, app.id, me)
   const messages = useTreeMessages(root?.id)
   const follow = useFollowScroll([messages, root?.id])
@@ -484,6 +510,20 @@ export function AppEditor({
           options={(APPS_PREVIEW.frames as PreviewFrame[]).map((id) => ({ value: id, label: APPS_COPY.frame[id] }))}
         />
       </div>
+      {runAsChoices && (
+        <Select value={runAsId || `me`} onValueChange={(v) => setRunAsId(v === `me` ? `` : v)}>
+          <SelectTrigger className="min-w-0" data-testid={APPS_TEST_IDS.previewRunAs}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {runAsChoices.map((o) => (
+              <SelectItem key={o.value || `me`} value={o.value || `me`}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
       <div className="flex-1" />
       {templates.length > 1 && shownTemplate !== null && (
         <Select value={shownTemplate} onValueChange={setPickedTemplate}>
@@ -520,7 +560,7 @@ export function AppEditor({
         </div>
       )}
       {/* A grant is about the HEAD package: an old version previews asking for everything. */}
-      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} appId={app.id} teamId={teamId} me={me} grantedTools={viewing !== null ? [] : (app.row?.grantedTools ?? [])} />
+      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} appId={app.id} teamId={teamId} me={me} grantedTools={viewing !== null ? [] : (app.row?.grantedTools ?? [])} runAs={isMobile ? null : runAs} />
     </div>
   )
 

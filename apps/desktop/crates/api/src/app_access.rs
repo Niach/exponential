@@ -88,6 +88,23 @@ pub fn mine(trpc: &TrpcClient, app_id: &str) -> Result<MineOut, ApiError> {
     trpc.query_with_input("appAccess.mine", &Input { app_id })
 }
 
+/// VAPP-198: every member's non-Full level for an app (`appAccess.levels`, owners).
+#[derive(Debug, Clone, Deserialize)]
+pub struct LevelsOut {
+    #[serde(default)]
+    pub levels: std::collections::HashMap<String, String>,
+}
+
+/// `appAccess.levels` — query (owners; the server checks).
+pub fn levels(trpc: &TrpcClient, app_id: &str) -> Result<LevelsOut, ApiError> {
+    #[derive(Serialize)]
+    #[serde(rename_all = "camelCase")]
+    struct Input<'a> {
+        app_id: &'a str,
+    }
+    trpc.query_with_input("appAccess.levels", &Input { app_id })
+}
+
 /// `appAccess.setToolEnabled` — mutation (owners; the server checks).
 pub fn set_tool_enabled(trpc: &TrpcClient, app_id: &str, tool: &str, enabled: bool) -> Result<(), ApiError> {
     #[derive(Serialize)]

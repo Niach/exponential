@@ -171,6 +171,31 @@ pub(crate) struct HostScope {
     /// Release train 2026-10-25: the row's grants apply (the HEAD package);
     /// an older version's preview runs with none, like the web.
     pub(crate) grants: bool,
+    /// VAPP-198: the editor preview's "Run as <member>" (owners), else `None`.
+    pub(crate) run_as: Option<RunAs>,
+}
+
+/// VAPP-198 (apps.json `runAs`): who the preview runs as: `me` is them,
+/// the records are what their role and app access may read (eUI
+/// record-policy.json), and every write or host call is refused with
+/// `copy.runAs.writesOff`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct RunAs {
+    pub(crate) id: String,
+    pub(crate) name: String,
+    pub(crate) role: String,
+    pub(crate) access: Option<String>,
+    /// The package's `records` (each kind's policy), as JSON text.
+    pub(crate) kinds: String,
+}
+
+/// VAPP-198: a function refused under Run as (a toast, nothing happens).
+fn run_as_refused_fn(name: String) -> HostFunction {
+    eui_gpui::runtime::sync_function(move |_, _, cx| {
+        let text = domain::apps::APPS.copy.run_as.writes_off.replace("{name}", &name);
+        crate::toast::show_in_active_window(Toast::info(text.clone()), cx);
+        Err(text)
+    })
 }
 
 /// One synced `app_records` row as the cache holds it (timestamps as the
@@ -581,7 +606,18 @@ fn refresh_records(feeds: &Rc<RefCell<Feeds>>, cx: &App) {
         .iter()
         .map(|u| (u.id.clone(), u.name.clone().unwrap_or_default()))
         .collect();
-    let me = crate::queries::active_account(cx).map(|a| a.user_id);
+    let mut me = crate::queries::active_account(cx).map(|a| a.user_id);
+    let mut records = records;
+    // VAPP-198: Run as: their `me`, and only the rows they may read.
+    if let Some(run_as) = feeds.borrow().records.scope.as_ref().and_then(|s| s.run_as.clone()) {
+        let kinds: Value = serde_json::from_str(&run_as.kinds).unwrap_or(Value::Null);
+        let viewer = eui_core::host::RecordViewer { id: Some(&run_as.id), role: Some(&run_as.role), access: run_as.access.as_deref() };
+        records.retain(|r| {
+            let row = json!({"authorId": r.author_id, "createdBy": r.created_by});
+            eui_core::host::record_refusal(&eui_core::host::record_policy(kinds.get(&r.kind)), eui_core::host::RecordOp::Read, &viewer, Some(&row)).is_none()
+        });
+        me = Some(run_as.id.clone());
+    }
     let mut f = feeds.borrow_mut();
     let next = RecordsFeed { scope: f.records.scope.clone(), me, records, apps, names };
     if f.records != next {
@@ -1203,6 +1239,14 @@ impl IdeHost {
                 functions.insert(name.clone(), action_fn(target));
             }
         }
+        // VAPP-198: under Run as only the toast and navigation run.
+        if let Some(run_as) = scope.as_ref().and_then(|s| s.run_as.clone()) {
+            for (name, function) in functions.iter_mut() {
+                if !matches!(name.as_str(), "harness.toast" | "harness.openIssue" | "harness.openDevice") {
+                    *function = run_as_refused_fn(run_as.name.clone());
+                }
+            }
+        }
         let mut sources: HashMap<String, SourceResolver> = HashMap::new();
         sources.insert("exp".into(), exp_resolver(Rc::downgrade(&feeds)));
         // VAPP-161: `records:<kind>?…`, the app's own records.
@@ -1227,7 +1271,7 @@ impl IdeHost {
                     ask: Some(vec!["harness.mcp".into(), "exponential.*".into()]),
                     ..Default::default()
                 }),
-                on_function_call: Some(consent_hook(scope)),
+                on_function_call: Some(consent_hook(scope.clone())),
                 urls: Some(UrlPolicy {
                     base_url: instance.clone(),
                     allow_private: allow_private.clone(),
@@ -1245,9 +1289,9 @@ impl IdeHost {
                 .or_else(|| eui_core::themes::builtin_theme(THEME_ID)),
             mode,
             plugin: Rc::new(IdePlugin { media_origin }),
-            me: sync::Store::try_global(cx)
-                .and_then(|_| crate::queries::active_account(cx))
-                .map(|a| a.user_id),
+            me: scope.as_ref().and_then(|s| s.run_as.as_ref()).map(|r| r.id.clone()).or_else(|| {
+                sync::Store::try_global(cx).and_then(|_| crate::queries::active_account(cx)).map(|a| a.user_id)
+            }),
             zone: Some(Arc::new(local_offset_minutes)),
             on_action_failed: Some(action_failed_hook()),
             ..HostOptions::default()
@@ -1360,7 +1404,7 @@ mod tests {
 
     fn records_feed() -> RecordsFeed {
         RecordsFeed {
-            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true }),
+            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None }),
             me: Some("u1".into()),
             records: vec![record("r1", "a1", 3, "u1"), record("r2", "a2", 4, "u2"), record("r3", "a3", 5, "u2")],
             apps: vec![
@@ -1478,7 +1522,7 @@ mod tests {
             ]), cx);
         });
         let ide = cx.update(|cx| {
-            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true };
+            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None };
             IdeHost::with_packages(Mode::Dark, &[], None, Some(scope), cx)
         });
         let feeds = ide._feeds.clone();
