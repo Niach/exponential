@@ -1,0 +1,36 @@
+---
+/* The weak points the numbers exposed (findings.json). */
+import { findings, formatMetric, manifest, metricsOf, rendererLabel, type Finding, type Kind } from "./bench.ts"
+
+const rows = findings as Finding[]
+const kindOf = (f: Finding) => (metricsOf(manifest.scenarios.find((s) => s.id === f.scenario) ?? { metrics: [] }).find((m) => m.id === f.metric)?.kind ?? `ms`) as Kind
+---
+
+{
+  rows.length === 0 ? (
+    <p>None recorded yet.</p>
+  ) : (
+    <div class="eui-table-wrap">
+      <table>
+        <thead>
+          <tr><th>Renderer</th><th>Scenario · metric</th><th>Value</th><th>Suspected cause</th></tr>
+        </thead>
+        <tbody>
+          {rows.map((f) => (
+            <tr>
+              <td>{rendererLabel(f.renderer)}</td>
+              <td>
+                {f.scenario} · <code>{f.metric}</code>
+              </td>
+              <td class="eui-num">
+                {formatMetric(f.value, kindOf(f))}
+                {kindOf(f) === `ms` ? ` ms` : ``} ({f.machine})
+              </td>
+              <td>{f.cause}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}

@@ -1,0 +1,37 @@
+---
+title: Prompts
+description: Prompts are saved team instructions you run from the / menu to start or steer a session.
+---
+
+import { Aside } from "@astrojs/starlight/components"
+import PlatformShots from "../../../../components/PlatformShots.astro"
+
+A prompt is a name, an icon and a markdown body, saved for the whole team. Write it once, then run it from the `/` menu. The session it starts picks its device, agent and repository like any other [session](/docs/using/sessions/).
+
+## Settings → Prompts
+
+<PlatformShots view="settings-prompts" />
+
+**Settings → Prompts** lists the team's prompts. **New prompt** opens the editor: the icon and name over the body, then **Create prompt**. Opening a row opens the same page with **Save changes** and **Delete prompt**.
+
+Owners create, edit and delete prompts. Every member can read and run them.
+
+## Start a session with a prompt
+
+<PlatformShots view="composer-slash-menu" platforms={["web"]} />
+
+In the **Agent** page's composer, type `/` to list the team's prompts, keep typing to filter, then press **Enter** or click one. The prompt becomes the session's subject, and sending starts a new session with its body followed by what you typed.
+
+## Use a prompt in a live session
+
+<PlatformShots view="session-slash-menu" platforms={["web"]} />
+
+In a running session, `/` lists `/compact`, `/new`, `/model` and `/effort` first, then the prompts. Picking a prompt puts its body in your draft to edit before you send.
+
+## Prompts over MCP
+
+Agents read prompts with the [`exponential_prompts`](/docs/build/mcp/) tool (`list`, `get`; owners also `create`, `update`, `delete`). `exponential_sessions_send` takes a `promptId` to start a session with a prompt's body first.
+
+<Aside>
+Prompts run when someone picks them. To run work on a schedule or when an event happens, give an agent a trigger: see [Sessions](/docs/using/sessions/).
+</Aside>

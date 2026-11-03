@@ -1,0 +1,99 @@
+/* eui-reference: classes prefixed eui- (themes, conformance, numbers, eval) */
+
+/* Wide tables scroll inside their own box. */
+.eui-table-wrap {
+  overflow-x: auto;
+  margin-block: 1rem;
+}
+.eui-table-wrap table {
+  display: table;
+  width: 100%;
+  margin: 0;
+}
+.sl-markdown-content .eui-table-wrap td,
+.sl-markdown-content .eui-table-wrap th {
+  vertical-align: top;
+}
+.eui-num {
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  white-space: nowrap;
+}
+.eui-metric-list {
+  margin: 0;
+  padding-inline-start: 1rem;
+  font-size: var(--sl-text-sm);
+}
+
+/* Themes: one card per built-in, each stage on its theme's ground. */
+.eui-theme-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
+  gap: 1rem;
+  margin-block: 1.5rem;
+}
+.eui-theme-card {
+  margin: 0;
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+.eui-theme-card figcaption {
+  display: flex;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--sl-color-hairline);
+  font-size: var(--sl-text-sm);
+}
+.eui-theme-stage {
+  background: var(--eui-ground-dark, transparent);
+  overflow: hidden;
+}
+
+/* Token values: a swatch per mode beside the value. */
+.eui-token-table code {
+  font-size: var(--sl-text-xs);
+  white-space: nowrap;
+}
+.eui-token-moded {
+  display: flex;
+  gap: 0.375rem;
+  align-items: center;
+}
+.eui-token-moded + .eui-token-moded {
+  margin-top: 0.25rem;
+}
+.eui-swatch,
+.eui-shadow {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 0.25rem;
+  border: 1px solid var(--sl-color-hairline);
+}
+.eui-swatch.is-light,
+.eui-shadow.is-light {
+  background: #ffffff;
+}
+.eui-swatch.is-dark,
+.eui-shadow.is-dark {
+  background: #0a0a0a;
+}
+.eui-swatch > span {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+.eui-shadow {
+  width: 1.75rem;
+  height: 1.75rem;
+}
+.eui-shadow > span {
+  width: 0.875rem;
+  height: 0.875rem;
+  border-radius: 0.1875rem;
+  background: inherit;
+}

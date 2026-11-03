@@ -1,0 +1,48 @@
+---
+/* Download: one card per platform, straight to the asset or the store. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import Duo from "../components/landing/Duo.astro"
+import PlatformLogo from "../components/landing/PlatformLogo.astro"
+import { LINKS } from "../components/landing/links.ts"
+import { seoHead } from "../components/landing/seo.ts"
+import { shot } from "../components/landing/shots.ts"
+
+const PLATFORMS = [
+  { id: `macos`, name: `macOS`, requirement: `Apple Silicon · macOS 13+`, href: LINKS.downloads.macos },
+  { id: `windows`, name: `Windows`, requirement: `x86_64 · portable .exe`, href: LINKS.downloads.windows },
+  { id: `linux`, name: `Linux`, requirement: `x86_64 AppImage · glibc 2.39+ (Ubuntu 24.04+)`, href: LINKS.downloads.linux },
+  { id: `ios`, name: `iOS`, requirement: `iOS 17.4+ · App Store`, href: LINKS.downloads.ios },
+  { id: `android`, name: `Android`, requirement: `Android 8+ · Google Play`, href: LINKS.downloads.android },
+] as const
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `Get Exponential`,
+    description: `Get Exponential on every platform: the native Rust desktop IDE for macOS, Windows and Linux, plus iOS and Android companions.`,
+    template: `splash`,
+    head: seoHead({ title: `Download Exponential`, ogImage: `/og/og-download.png` }),
+    hero: { tagline: `Native on every platform.` },
+  }}
+>
+  <div class="exp-landing">
+    <section class="exp-section not-content">
+      <div class="exp-platform-grid">
+        {
+          PLATFORMS.map((p) => (
+            <a class="exp-platform" href={p.href}>
+              <PlatformLogo id={p.id} />
+              <span class="exp-platform-name">{p.name}</span>
+              <span class="exp-platform-req">{p.requirement}</span>
+            </a>
+          ))
+        }
+      </div>
+      <p class="exp-fine">
+        Web: <a href={LINKS.app.login}>app.exponential.at</a> · Terminal: <a href="/docs/build/cli/">the CLI</a> · Checksums and past versions: <a href={LINKS.github.releases}>GitHub Releases</a>
+      </p>
+    </section>
+
+    <Duo desktop={shot(`board`, `desktop`, `A board in the desktop app`)} phone={shot(`board`, `android`, `The same board on Android`)} />
+  </div>
+</StarlightPage>

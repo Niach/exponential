@@ -1,0 +1,130 @@
+/* exponential.at's brand on Starlight: the zinc ladder of
+   packages/site-shell/styles/tokens.css (dark, the default) and
+   apps/marketing/ui/src/styles/scheme.css (light), mapped onto Starlight's
+   variables. Accent = the app's near-white primary (dark) / near-black
+   (light), as on the current site. */
+:root {
+  --sl-font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --sl-font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --sl-color-white: #fafafa;
+  --sl-color-gray-1: #e5e5e5;
+  --sl-color-gray-2: #a1a1a1;
+  --sl-color-gray-3: #848484;
+  --sl-color-gray-4: #525252;
+  --sl-color-gray-5: #262626;
+  --sl-color-gray-6: #171717;
+  --sl-color-black: #050507;
+
+  --sl-color-accent-low: #262626;
+  --sl-color-accent: #e5e5e5;
+  --sl-color-accent-high: #fafafa;
+  --sl-color-text-accent: #fafafa;
+
+  --sl-color-bg-nav: color-mix(in oklab, #050507 82%, transparent);
+  --sl-color-bg-sidebar: #050507;
+  --sl-color-hairline-light: rgba(255, 255, 255, 0.08);
+  --sl-color-hairline: rgba(255, 255, 255, 0.1);
+  --sl-color-hairline-shade: rgba(255, 255, 255, 0.15);
+
+  --exp-card: oklch(1 0 0 / 4%);
+  --exp-card-stroke: oklch(1 0 0 / 10%);
+  --exp-radius-card: 16px;
+}
+
+:root[data-theme="light"] {
+  --sl-color-white: #0a0a0a;
+  --sl-color-gray-1: #18181b;
+  --sl-color-gray-2: #52525b;
+  --sl-color-gray-3: #63636b;
+  --sl-color-gray-4: #a1a1aa;
+  --sl-color-gray-5: #e4e4e7;
+  --sl-color-gray-6: #f4f4f5;
+  --sl-color-gray-7: #fafafa;
+  --sl-color-black: #ffffff;
+
+  --sl-color-accent-low: #e4e4e7;
+  --sl-color-accent: #18181b;
+  --sl-color-accent-high: #0a0a0a;
+  --sl-color-text-accent: #0a0a0a;
+
+  --sl-color-bg-nav: color-mix(in oklab, #fafafa 85%, transparent);
+  --sl-color-bg-sidebar: #fafafa;
+  --sl-color-hairline-light: rgba(0, 0, 0, 0.07);
+  --sl-color-hairline: rgba(0, 0, 0, 0.1);
+  --sl-color-hairline-shade: rgba(0, 0, 0, 0.16);
+
+  --exp-card: oklch(0 0 0 / 2.5%);
+  --exp-card-stroke: oklch(0 0 0 / 10%);
+}
+
+/* The glass top bar of the current site. */
+header.header {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Solid accent buttons carry the background colour as text. */
+.sl-link-button.primary {
+  color: var(--sl-color-black);
+}
+
+h1, h2, h3 {
+  letter-spacing: -0.02em;
+}
+
+/* Product pages (template: splash). */
+.exp-figure {
+  margin: 1.5rem 0;
+  border: 1px solid var(--exp-card-stroke);
+  border-radius: var(--exp-radius-card);
+  background: var(--exp-card);
+  overflow: hidden;
+}
+.exp-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.exp-figure figcaption {
+  padding: 0.5rem 1rem;
+  font-size: var(--sl-text-sm);
+  color: var(--sl-color-gray-3);
+  border-top: 1px solid var(--exp-card-stroke);
+}
+.exp-platforms {
+  display: grid;
+  grid-template-columns: repeat(var(--exp-cols, 4), minmax(0, 1fr));
+  gap: 0.75rem;
+  max-width: calc(var(--exp-cols, 4) * 18rem);
+}
+/* A wide (web / desktop) capture on its own takes the full width. */
+.exp-platforms:has(> .exp-figure:only-child img:is([src$="/web.webp"], [src$="/desktop.webp"])) {
+  max-width: none;
+}
+.exp-platforms .exp-figure {
+  margin: 0;
+}
+.exp-live {
+  padding: 1.25rem;
+  border: 1px solid var(--exp-card-stroke);
+  border-radius: var(--exp-radius-card);
+  background: var(--exp-card);
+  margin: 1.5rem 0;
+}
+.exp-live-label {
+  display: block;
+  margin-bottom: 0.75rem;
+  font-size: var(--sl-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sl-color-gray-3);
+}
+
+/* Asides in the zinc ladder (Starlight's defaults are blue/purple). */
+.starlight-aside--note,
+.starlight-aside--tip {
+  --sl-color-asides-text-accent: var(--sl-color-white);
+  --sl-color-asides-border: var(--sl-color-gray-4);
+  background-color: var(--exp-card);
+}

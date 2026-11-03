@@ -1,0 +1,37 @@
+---
+/* The catalog prompt's variants and their size (report.json `prompt`). */
+import { n } from "./lib.ts"
+import { report } from "./eval.ts"
+
+const p = report.prompt
+const rows: [string, string | number, string, string][] = [
+  [`catalogPrompt()`, p.full.components, n(p.full.chars), n(p.full.tokens)],
+  [`{ terse: true }`, p.terse.components, n(p.terse.chars), n(p.terse.tokens)],
+  [`{ lite: true }`, p.lite.components, n(p.lite.chars), n(p.lite.tokens)],
+  [`{ sections: ["rules", "index", "functions", "style"] }`, `${p.index.components} as one line each`, n(p.index.chars), n(p.index.tokens)],
+  [`{ sections: ["rules"] }`, `–`, n(p.rules.chars), n(p.rules.tokens)],
+  [`componentPrompt(name)`, 1, `${p.perComponent.mean} on average, ${p.perComponent.max} at most`, `${p.perComponent.meanTokens} on average`],
+]
+---
+
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Variant</th><th>Components</th><th>Characters</th><th>Tokens (≈)</th></tr>
+    </thead>
+    <tbody>
+      {
+        rows.map(([variant, components, chars, tokens]) => (
+          <tr>
+            <td>
+              <code>{variant}</code>
+            </td>
+            <td>{components}</td>
+            <td class="eui-num">{chars}</td>
+            <td class="eui-num">{tokens}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>

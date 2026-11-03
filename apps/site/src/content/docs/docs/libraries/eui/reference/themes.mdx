@@ -1,0 +1,28 @@
+---
+title: Themes
+description: eUI's built-in themes painting the same surface, and every token a theme defines with each built-in's values.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components"
+import themesDoc from "@exponential_app/eui/docs/themes.generated.json"
+import ThemeGallery from "../../../../../../components/eui/reference/ThemeGallery.astro"
+import ThemeTokens from "../../../../../../components/eui/reference/ThemeTokens.astro"
+
+export const tokenCount = Object.values(themesDoc.tokens).reduce((total, rows) => total + rows.length, 0)
+
+eUI ships {themesDoc.themes.length} built-in themes: {themesDoc.themes.map((t) => t.id).join(`, `)}. Each one below paints the same surface (the demo fixture, [`fixtures/demo-surface.json`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/fixtures/demo-surface.json)), rendered at build time in the dark mode.
+
+<ThemeGallery />
+
+## Tokens
+
+A theme defines {tokenCount} tokens in {Object.keys(themesDoc.tokens).length} groups. A surface references them as `$<group>.<name>` (for example `$color.background`, `$spacing.lg`). Colours and shadows carry one value per mode. The tables list each built-in's values, generated into [`docs/themes.generated.json`](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/docs/themes.generated.json).
+
+<ThemeTokens />
+
+## Your own theme
+
+<CardGrid>
+  <LinkCard title="Write a theme" href="/docs/libraries/eui/guides/themes/" />
+  <LinkCard title="Theme builder" href="/docs/libraries/eui/tools/theme-builder/" />
+</CardGrid>

@@ -1,0 +1,31 @@
+---
+/* One example file of apps/marketing/ui/guides/** on a guide page: read at
+   build time, exactly what CI compiles (guides/check.ts) (no pasted copies). */
+import { existsSync, readFileSync } from "node:fs"
+import { join } from "node:path"
+import { Code } from "@astrojs/starlight/components"
+
+interface Props {
+  /** The file under apps/marketing/ui/guides/, e.g. `react/src/App.tsx`. */
+  path: string
+}
+const { path } = Astro.props
+
+const LANGUAGES: [RegExp, string][] = [
+  [/\.tsx$/, `tsx`],
+  [/\.ts$/, `ts`],
+  [/\.json$/, `json`],
+  [/\.swift$/, `swift`],
+  [/\.kts?$/, `kotlin`],
+  [/\.rs$/, `rust`],
+  [/\.toml$/, `toml`],
+  [/\.html$/, `html`],
+]
+
+const file = join(process.cwd(), `../marketing/ui/guides`, path)
+if (!existsSync(file)) throw new Error(`GuideFile: no guides/${path} (looked for ${file})`)
+const code = readFileSync(file, `utf8`).replace(/\n+$/, ``)
+const lang = LANGUAGES.find(([re]) => re.test(path))?.[1] ?? `txt`
+---
+
+<Code code={code} lang={lang} title={`guides/${path}`} />

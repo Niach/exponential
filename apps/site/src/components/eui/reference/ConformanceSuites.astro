@@ -1,0 +1,41 @@
+---
+/* The conformance suites, from the generated manifest
+   (packages/exponential-ui/conformance/manifest.json): id, unit, case count
+   and what a runner checks per case. */
+import manifest from "@exponential_app/eui/conformance/manifest.json"
+import { n, repo, ticks } from "./lib.ts"
+
+const total = manifest.suites.reduce((sum, s) => sum + s.cases, 0)
+---
+
+<div class="eui-table-wrap">
+  <table class="eui-conf-suites">
+    <thead>
+      <tr>
+        <th>Suite</th>
+        <th>Unit</th>
+        <th>Cases</th>
+        <th>A runner checks, per case</th>
+      </tr>
+    </thead>
+    <tbody>
+      {
+        manifest.suites.map((s) => (
+          <tr>
+            <td>
+              <a href={repo(`packages/exponential-ui/${s.files[0]}`)}>
+                <code>{s.id}</code>
+              </a>
+            </td>
+            <td>{s.unit}</td>
+            <td class="eui-num">{n(s.cases)}</td>
+            <td set:html={ticks(s.check)} />
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+<p>
+  Total: <strong>{n(total)}</strong> cases in {manifest.suites.length} suites (manifest version {manifest.version}).
+</p>

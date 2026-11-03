@@ -1,0 +1,27 @@
+---
+/* One view from the shot store (shots/<view>/<platform>.webp) on every
+   platform it was captured on, side by side. */
+import { existsSync } from "node:fs"
+import { join } from "node:path"
+
+interface Props {
+  view: string
+  /** Which captures, in order (default: every one in the store). */
+  platforms?: string[]
+}
+const { view, platforms: only } = Astro.props
+const LABELS: Record<string, string> = { web: `Web`, ios: `iOS`, android: `Android`, desktop: `Desktop` }
+const root = join(process.cwd(), `../../shots`, view)
+const platforms = (only ?? Object.keys(LABELS)).filter((p) => existsSync(join(root, `${p}.webp`)))
+if (!platforms.length) throw new Error(`no shots for ${view}`)
+---
+
+<div class="exp-platforms" style={`--exp-cols:${platforms.length}`}>
+  {
+    platforms.map((p) => (
+      <figure class="exp-figure">
+        <img src={`/shots/${view}/${p}.webp`} alt={`${view} on ${LABELS[p]}`} loading="lazy" decoding="async" />
+      </figure>
+    ))
+  }
+</div>

@@ -1,0 +1,44 @@
+---
+title: Render A2UI in gpui
+description: Add the crates, give the SurfaceView a host plugin and paint natively on the desktop.
+---
+
+import GuideFile from "../../../../../../components/eui/GuideFile.astro"
+
+## Install
+
+Two crates: `eui-core` (the core) and `eui-gpui` (the painter and host runtime). The painter depends on gpui and gpui-component as git dependencies, which crates.io refuses, so an app takes both crates from the release tag. Your app links the same gpui as the painter: the same gpui-component rev, zed locked at the SDK's rev and the ztracing patch, all copied from one tag (the [gpui revision policy](https://github.com/Niach/exponential/blob/master/apps/desktop/crates/eui-gpui/README.md)). gpui needs Rust 1.96: pin it in `rust-toolchain.toml`.
+
+```toml
+[dependencies]
+eui-core = { git = "https://github.com/Niach/exponential", tag = "eui-v0.7.0" }
+eui-gpui = { git = "https://github.com/Niach/exponential", tag = "eui-v0.7.0" }
+gpui = { version = "0.2.2", git = "https://github.com/zed-industries/zed" }
+gpui-component = { git = "https://github.com/longbridge/gpui-component", rev = "da4f93696dc2b2b4d91bcc42412b9053a3d24de8" }
+
+[patch."https://github.com/zed-industries/zed"]
+ztracing = { git = "https://github.com/Niach/exponential", tag = "eui-v0.7.0" }
+ztracing_macro = { git = "https://github.com/Niach/exponential", tag = "eui-v0.7.0" }
+```
+
+```sh
+cargo update gpui --precise cc053a4a6fa2fd0e8793201ed9099466af1be0b1
+```
+
+The guide's manifest uses path dependencies in place of the git ones:
+
+<GuideFile path="gpui/Cargo.toml" />
+
+## Paint a surface
+
+The host is a gpui entity. `host.surface(id)` returns the surface's view once the agent has created it; it is full width and as tall as its content, so wrap it in your own scroller.
+
+<GuideFile path="gpui/src/main.rs" />
+
+## Host plugin
+
+Underneath, a `SurfaceView` takes a `HostPlugin` implementation: catalog icon names to SVG asset paths, font families, actions and input. Register the theme's fonts with the text system before the first frame, and extension natives with `register_painter`. Details in the [gpui painter's README](https://github.com/Niach/exponential/blob/master/apps/desktop/crates/eui-gpui/README.md).
+
+## Compiled in CI
+
+`bun apps/marketing/ui/guides/check.ts gpui` builds [guides/gpui](https://github.com/Niach/exponential/blob/master/apps/marketing/ui/guides/gpui) in an empty directory against the path crates.

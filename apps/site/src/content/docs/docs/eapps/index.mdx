@@ -1,0 +1,46 @@
+---
+title: What eApps are
+description: eApps are small tools your team describes, an agent builds, and everyone opens on web, desktop, iOS and Android.
+---
+
+import { CardGrid, LinkCard } from "@astrojs/starlight/components"
+import PlatformShots from "../../../../components/PlatformShots.astro"
+
+An eApp is a small tool your team uses every day: a working-hours tracker, a release checklist, an admin console over an API, a dashboard over a board. You describe it, an agent builds it, and everyone on the team opens it inside Exponential.
+
+![Hours, a time tracker eApp: a month of logged hours as a bar chart over the entries](/eapps/time-tracker.webp)
+
+## One package, every platform
+
+![Hours on a phone: the month's entries as rows with a Log hours button](/eapps/time-tracker-phone.webp)
+
+An app is one declarative JSON package: screens built from [eUI](/docs/libraries/eui/) components, bindings that fill them with live data, the app's own records, and the list of functions its buttons may call. It carries no scripts. The same eUI renderers paint it natively on the web, the desktop app, iOS and Android, so every app looks like the rest of Exponential.
+
+Each package is stored per team and versioned: every change is a new version you can preview and restore.
+
+## Where apps live
+
+<PlatformShots view="apps" platforms={["web", "ios"]} />
+
+Apps sit in the sidebar's **Apps** group, between Agents and Boards; on the phones, Apps is its own tab. The group lists only your team's apps.
+
+## What runs an app
+
+- **The client**, while someone looks at the app: bindings, queries, buttons and forms, over the data already synced to the device.
+- **The server**, for the MCP tools an app exposes, so no device has to be online.
+- **An agent**, when the work needs judgement: it builds the app and fills its data over MCP.
+
+Code that must always run lives behind an upstream MCP server your team already runs (your own API, Stripe, GitHub). The app calls it by name, with each member's own account.
+
+![An admin console eApp over Stripe and GitHub: revenue tiles, failed payments and the connected upstreams](/eapps/admin-console.webp)
+
+## Apps as MCP tools
+
+![The consent dialog: Claude Code asks to use the team's apps, each set to Off, Read only or Full](/eapps/mcp-consent.webp)
+
+An app can also offer MCP tools, such as `hours__log_hours`. Claude Code, Codex or any MCP client calls them as you, after one consent that sets each app to **Off**, **Read only** or **Full**. Tools that delete are never exposed.
+
+<CardGrid>
+  <LinkCard title="Build an eApp" href="/docs/eapps/build/" />
+  <LinkCard title="Package reference" href="/docs/eapps/reference/" />
+</CardGrid>

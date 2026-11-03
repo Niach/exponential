@@ -1,0 +1,42 @@
+---
+title: Mobile apps
+description: Native iOS and Android apps for your boards, your inbox and the sessions running on your machines.
+---
+
+import { Aside, LinkButton } from "@astrojs/starlight/components"
+import PlatformShots from "../../../../components/PlatformShots.astro"
+
+Exponential runs natively on iOS 17.4+ and Android 8+, synced in real time with the web and desktop apps, for one team at a time.
+
+<LinkButton href="https://apps.apple.com/app/exponential-vibecode-together/id6788189402">App Store</LinkButton>
+<LinkButton href="https://play.google.com/store/apps/details?id=at.exponential" variant="secondary">Google Play</LinkButton>
+
+## The board
+
+<PlatformShots view="board" platforms={["ios", "android"]} />
+
+The bar along the bottom holds **Board**, **Chats**, **Apps** and **Team**. Board is named after the board you are on, with **All issues**, **My issues** and **Drafts** as chips under the title. Every page has round search and inbox buttons. Beside the bar, the chat button opens the Agent composer and the pencil files a new issue. Long-press an issue for its menu, or select several and the bulk bar takes the tab bar's place.
+
+<PlatformShots view="phone-board-menu" platforms={["ios", "android"]} />
+
+Tap **Board** again to switch boards or add one with **New board**. **Team**, named after the active team, switches teams and holds the team's settings, your devices and your account.
+
+## Steer from anywhere
+
+<PlatformShots view="threads" platforms={["ios", "android"]} />
+
+**Chats** lists every chat with the agents as bubbles on top and their stories in rings. Open one to watch the agent work live and steer it: answer its question, approve a plan, add a constraint. The feed and your messages travel straight between the phone and the machine running the session, end-to-end encrypted.
+
+<PlatformShots view="steering" platforms={["ios", "android"]} />
+
+A chat is one screen paged by its strip: the **Conversation**, each linked issue and each session's work. Questions and plans float above the composer and open as a sheet. The top bar carries **Merge PR** while the pull request is open, and **Stop** ends the chat. Long-press a chat in the list to stop or delete it.
+
+You can start sessions here too: the composer's **+** menu, `/` for prompts, `@` for a teammate and `#` for an issue work as on the desktop. The full flow is in [Sessions](/docs/using/sessions/).
+
+## Push notifications
+
+<PlatformShots view="inbox" platforms={["ios", "android"]} />
+
+Everything that lands in your inbox (assignments, comments, mentions, status changes, PRs, feedback, reporter replies, and questions or plans from your chats) arrives as a push. Tapping one opens the issue or chat. **Settings → Notifications** applies to push too.
+
+<Aside>The store apps push only for cloud accounts. A self-hosted server reaches you through web, desktop and email notifications instead: see [Self-host](/docs/get-started/self-host/#limitations).</Aside>

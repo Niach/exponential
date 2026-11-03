@@ -1,0 +1,5 @@
+dist/
+.astro/
+# Reference pages generated from repo markdown (scripts/sync-reference.ts)
+*.gen.md
+*.gen.mdx

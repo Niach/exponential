@@ -1,0 +1,88 @@
+---
+/* The rewrite gap list (eval/rewrite-gaps.json): classes, candidate
+   macros, what landed, every screen. */
+import { componentPath } from "./lib.ts"
+import { CLASS_LABEL, evalLink, gaps, SOLID_GAP_CLASSES } from "./eval.ts"
+
+const solidCandidates = gaps.renderers.solid.candidates as string[]
+const solidScreens = gaps.screens.filter((s) => SOLID_GAP_CLASSES.includes(s.class)).length
+---
+
+<p>
+  Every screen of the Exponential app, classified by what the catalog needs before it could be written as a surface. <a href={evalLink(`rewrite-gaps.json`)}>The list</a> stays in lockstep with the view catalog.
+</p>
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Class</th><th>Screens</th></tr>
+    </thead>
+    <tbody>
+      {
+        gaps.classes.map((c) => (
+          <tr>
+            <td>{CLASS_LABEL[c] ?? c}</td>
+            <td class="eui-num">{gaps.screens.filter((s) => s.class === c).length}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+<p>
+  Two of the classes also concern the Solid renderer: an app extension component exists for React only and needs a Solid twin; a new native is a painter every renderer adds. A macro expands in the shared reducer, so it costs no renderer work. {solidScreens} screens are in those two classes. The <code>&lt;exponential-surface&gt;</code> element paints with Solid's painter and inherits exactly these gaps, with none of its own.
+</p>
+
+<h3 id="candidate-macros">The candidate macros</h3>
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Macro</th><th>What it is</th><th>Solid</th></tr>
+    </thead>
+    <tbody>
+      {
+        Object.entries(gaps.candidates).map(([k, v]) => (
+          <tr>
+            <td>
+              <code>{k}</code>
+            </td>
+            <td>{v}</td>
+            <td>{solidCandidates.includes(k) ? `a Solid painter too` : `reducer only`}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+<p>Candidates that already landed in the catalog:</p>
+<ul>
+  {
+    Object.entries(gaps.landed as Record<string, string>).map(([c, what]) => (
+      <li>
+        <a href={componentPath(c)}>{c}</a>: {what}
+      </li>
+    ))
+  }
+</ul>
+
+<h3 id="every-screen">Every screen</h3>
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Screen</th><th>Class</th><th>With</th><th>Solid</th></tr>
+    </thead>
+    <tbody>
+      {
+        gaps.screens.map((s) => (
+          <tr>
+            <td>
+              <code>{s.id}</code>
+            </td>
+            <td>{CLASS_LABEL[s.class] ?? s.class}</td>
+            <td>{s.with}</td>
+            <td>{SOLID_GAP_CLASSES.includes(s.class) ? `yes` : `–`}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>

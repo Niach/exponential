@@ -1,0 +1,36 @@
+---
+/* The components the corpus used, and the ones it never used. */
+import { componentPath } from "./lib.ts"
+import { aggregate as a } from "./eval.ts"
+---
+
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Component</th><th>Surfaces</th><th>Uses</th></tr>
+    </thead>
+    <tbody>
+      {
+        a.vocabulary.map((v) => (
+          <tr>
+            <td>
+              <a href={componentPath(v.component)}>{v.component}</a>
+            </td>
+            <td class="eui-num">{v.surfaces}</td>
+            <td class="eui-num">{v.uses}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+<p>
+  Never used by the corpus ({a.unused.length}): {
+    a.unused.map((c, i) => (
+      <>
+        {i ? `, ` : ``}
+        <a href={componentPath(c)}>{c}</a>
+      </>
+    ))
+  }.
+</p>

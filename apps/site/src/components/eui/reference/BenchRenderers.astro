@@ -1,0 +1,24 @@
+---
+/* What one pass is, per renderer (the bench manifest). */
+import { manifest } from "./bench.ts"
+---
+
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Renderer</th><th>One pass is</th></tr>
+    </thead>
+    <tbody>
+      {
+        manifest.renderers.map((r) => (
+          <tr>
+            <td>
+              <strong>{r.label}</strong> <code>{r.id}</code>
+            </td>
+            <td>{r.pass}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>

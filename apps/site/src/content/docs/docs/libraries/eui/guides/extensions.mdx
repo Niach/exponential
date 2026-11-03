@@ -1,0 +1,39 @@
+---
+title: Write an extension
+description: Custom components as a catalog schema plus a painter per platform, or as a macro alone.
+---
+
+import GuideFile from "../../../../../../components/eui/GuideFile.astro"
+
+## The catalog
+
+An extension catalog has its own id, extends the core and adds components. Its names must differ from every core name. Each component has a model-facing description and props, like the core catalog. This one adds a native `TrendLine` and a macro `Metric`:
+
+<GuideFile path="react/src/trendline.extension.json" />
+
+A **macro** expands into existing components in the reducer, on every platform, so `Metric` needs no painter anywhere. If your component can be built from core components, a macro is all you need. Every part of a macro stays themable through recipes.
+
+## A painter per platform
+
+A **native** needs a painter on each platform you ship. On React, a component receives the resolved props, the theme and the mode, and spreads `rootProps` on its root element:
+
+<GuideFile path="react/src/TrendLine.tsx" />
+
+| Platform | Register |
+|---|---|
+| React | `defineReactExtension({ catalog, components })` · `registerExtension(…)` |
+| Solid | `defineSolidExtension({ catalog, components })` · `registerExtension(…)` |
+| Web component | `defineElementExtension({ catalog, components })` · `el.extensions = […]` |
+| SwiftUI | `ExponentialUI.register(extension: json, painters: [kind: painter])` |
+| Compose | `ExponentialUi.register(extensionJson, mapOf(kind to painter))` |
+| gpui | `view.register_painter("TrendLine", Box::new(MyTrendLine))` |
+
+Native painters answer `measure` (the box the layout uses) and `paint` (the content inside the frame the core gives them). A painter for a *core* component name overrides that component, as long as it keeps the measure contract.
+
+## Teach the model
+
+Pass the extension to the prompt (`catalogPrompt({ extensions: [metricsCatalog] })`) and to the host (`new ExponentialHost({ extensions: [metricsCatalog] })`), so the client advertises its id and the model knows the new components. The Exponential app's issue rows, session rows and chips are an extension built exactly this way.
+
+## Compiled in CI
+
+`bun apps/marketing/ui/guides/check.ts react` builds [guides/react](https://github.com/Niach/exponential/blob/master/apps/marketing/ui/guides/react) and reduces this extension and its macro against the packed package.

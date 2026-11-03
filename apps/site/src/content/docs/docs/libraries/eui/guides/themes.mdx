@@ -1,0 +1,44 @@
+---
+title: Write your own theme
+description: Tokens, recipes and an extends chain in one JSON file that every renderer loads at runtime.
+---
+
+import GuideFile from "../../../../../../components/eui/GuideFile.astro"
+
+## The theme file
+
+A theme is one JSON file. Start from a built-in with `extends` and override only what changes: colours per mode, a few tokens, and recipes for the parts you want to look different.
+
+<GuideFile path="theme/brand.theme.json" />
+
+The `$schema` gives your editor completion and validation ([theme.schema.json](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/catalog/theme.schema.json)).
+
+## Tokens
+
+Tokens are the named values every component uses: `$color.primary`, `$spacing.md`, `$radius.lg`, type sizes and line heights, control heights, shadows, borders and motion. Colours and shadows live under `modes.light` and `modes.dark`; everything else under `tokens`. Colours are `#rrggbb` or `#rrggbbaa` only; the [theme builder](/docs/libraries/eui/tools/theme-builder/) converts oklch, hsl and rgb when it imports a shadcn `globals.css`.
+
+Fonts are referenced by family name. Each platform registers the files (the host's job), and `fonts` says what to fall back to.
+
+## Recipes
+
+A recipe styles one **part** of a component (`Button.root`, `Switch.thumb`, `Tabs.tab`) as a list of rules. A rule applies when every entry of its `when` matches: recipe props like `variant` and `size`, and states (`hover`, `pressed`, `focus`, `disabled`, `checked`, `open`, `selected`).
+
+Rules merge by specificity: one point per condition, later wins on ties. A child theme's base rule therefore keeps its parent's hover and variant rules in force. The [Themes reference](/docs/libraries/eui/reference/themes/) lists every component's parts, and the [theme builder](/docs/libraries/eui/tools/theme-builder/) shows them live.
+
+## Load it
+
+Themes load at runtime, so the file can come from your bundle, a URL or an app package. Every loader flattens the `extends` chain and reports every problem at once (an unknown token, a key outside the whitelist, a misspelled part) and keeps running.
+
+| Platform | Load |
+|---|---|
+| React | `<HostSurface theme={brandJson} … />` |
+| Solid | `<ExponentialSurface theme={brandJson} … />` |
+| Web component | `<exponential-surface theme="orange">` · `el.theme = brandJson` |
+| TypeScript | `validateTheme(json)` · `loadTheme(json, { themes: BUILTIN_THEMES })` |
+| SwiftUI | `ThemeHandle.load(json:)` · `model.setTheme(…)` |
+| Compose | `ThemeHandle.load(json, parents)` · `model.setTheme(…)` |
+| gpui / Rust | `eui_core::theme::load_theme(&json, &options)` |
+
+## Compiled in CI
+
+`bun apps/marketing/ui/guides/check.ts theme` runs `validateTheme` and `loadTheme` over [guides/theme](https://github.com/Niach/exponential/blob/master/apps/marketing/ui/guides/theme) and the built-ins and fails on any issue.

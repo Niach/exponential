@@ -1,0 +1,11 @@
+---
+/* The playground island for the docs page. starlight-llms-txt renders every
+   docs entry again for /llms*.txt in a container without the React renderer;
+   there (the route ends in .txt) it renders nothing. Otherwise: prerendered
+   with the first example, hydrated on load. */
+import PlaygroundApp from "./PlaygroundApp.tsx"
+
+const llms = Astro.url.pathname.endsWith(`.txt`)
+---
+
+{!llms && <PlaygroundApp client:load />}

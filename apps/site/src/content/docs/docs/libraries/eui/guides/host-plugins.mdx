@@ -1,0 +1,35 @@
+---
+title: Write a host plugin
+description: Functions behind a policy gate, data bindings by source URI, and the URL and media policy.
+---
+
+import GuideFile from "../../../../../../components/eui/GuideFile.astro"
+import coreCatalog from "@exponential_app/eui/catalog/core.catalog.json"
+
+export const FUNCTION_COUNT = coreCatalog.functions.names.length
+
+## The plugin
+
+A host plugin is what your app lends a surface: **functions** it may call, **sources** its data model may follow, and the **policy** that gates both. All three are plain options of `ExponentialHost`:
+
+<GuideFile path="react/src/host-plugin.ts" />
+
+## Functions
+
+A surface calls a function with `{"functionCall": {"call": "cart.add", "args": {…}}}` on an event. The catalog's {FUNCTION_COUNT} functions are built in; any other name is namespaced (`cart.add`), must be registered, and passes the gate first: **deny** wins, then **allow**, then **ask** (your `onFunctionCall` consent hook), then `default`. Patterns are exact names or prefixes ending in `*`. A function may be async; the button stays pending until it settles.
+
+## Data bindings
+
+`bindDataModel` points a path at a source URI, `<scheme>:<name>?k=v`. The host parses it and calls your resolver for the scheme, which emits values whenever it likes (a poll, a socket, a local store) and returns a cancel function. Each emit lands at the bound path, and the surface repaints.
+
+## URL and media policy
+
+`openUrl` and `Link` go through the URL policy: allowed schemes (default `https http mailto tel`; `schemes: ["https"]` for https only), an optional host allowlist, relative URLs against a base. Media rules add headers to matching image requests, for example an authorization header for your own API and nothing for anyone else's.
+
+Private hosts are denied by default, for links and media alike: `localhost`, `*.local`, loopback, link-local (the cloud metadata address included) and the private IPv4 and IPv6 ranges. A host opts names back in with `allowPrivate: ["localhost"]` (a dev setup) or `["*"]`; a `hosts` allowlist alone leaves them denied. The check is on the literal address after URL normalization and resolves no names. The whole model, limits included, is on the [security page](/docs/libraries/eui/reference/security/).
+
+The rules are the same on every platform: they are written once in [host.json](https://github.com/Niach/exponential/blob/master/packages/exponential-ui/catalog/host.json) and replayed from fixtures by every renderer. The Exponential web app is a host built on exactly this API: `harness.*` functions, an `exp:` source scheme over its synced data, a consent card for `ask`.
+
+## Compiled in CI
+
+`bun apps/marketing/ui/guides/check.ts react` builds [guides/react](https://github.com/Niach/exponential/blob/master/apps/marketing/ui/guides/react), this plugin included, in an empty directory from the packed packages.

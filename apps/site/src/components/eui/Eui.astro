@@ -1,0 +1,23 @@
+---
+/* EuiSurface for docs pages (MDX) and any Astro component a docs page uses.
+   starlight-llms-txt renders every docs entry again for /llms*.txt in a
+   container without the React renderer; there (the route ends in .txt) the
+   surface renders nothing, so llms.txt keeps the page's text and tables.
+   `hydrate` = a client:visible island; without it the surface is HTML at
+   build time, zero JS. */
+import EuiSurface, { type IconMap } from "./EuiSurface.tsx"
+import type { NestedNode } from "@exponential_app/eui"
+
+interface Props {
+  id: string
+  tree: NestedNode
+  data?: Record<string, unknown>
+  theme?: string
+  hydrate?: boolean
+  icons?: IconMap
+}
+const { hydrate, ...props } = Astro.props
+const llms = Astro.url.pathname.endsWith(`.txt`)
+---
+
+{!llms && (hydrate ? <EuiSurface client:visible {...props} /> : <EuiSurface {...props} />)}

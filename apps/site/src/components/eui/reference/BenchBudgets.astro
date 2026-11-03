@@ -1,0 +1,15 @@
+---
+/* The machines budgets.json gates. */
+import { budgets } from "./bench.ts"
+
+const machines = Object.keys(budgets.machines)
+---
+
+<p>
+  Budgeted machines today: {machines.length ? machines.map((m, i) => (
+    <>
+      {i ? `, ` : ``}
+      <code>{m}</code>
+    </>
+  )) : `none yet`}.
+</p>

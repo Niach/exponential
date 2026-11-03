@@ -1,0 +1,21 @@
+---
+/* A conformant report for the current manifest (report.schema.json),
+   its counts filled from the manifest. */
+import { Code } from "@astrojs/starlight/components"
+import manifest from "@exponential_app/eui/conformance/manifest.json"
+
+const [first, second] = manifest.suites
+const code = `{
+  "renderer": "my-renderer",
+  "platform": "web",
+  "version": "0.7.0",
+  "conformanceVersion": ${manifest.version},
+  "suites": {
+    "${first.id}": { "cases": ${first.cases}, "passed": ${first.cases}, "failed": [] },
+    "${second.id}": { "cases": ${second.cases}, "passed": ${second.cases}, "failed": [] },
+    …
+  }
+}`
+---
+
+<Code code={code} lang="json" title="report.json" />

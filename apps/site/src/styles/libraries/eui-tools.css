@@ -1,0 +1,420 @@
+/* eui-tools: classes prefixed eui-. The playground and the theme builder
+   (docs/libraries/eui/tools/*). Built on Starlight's variables, so both
+   follow the site's theme; the surfaces carry their own theme. The
+   builder's chrome is its own scoped `.xb` sheet (packages/exponential-ui/
+   builder/builder.css, imported by ThemeBuilder.astro); the rules here
+   frame it and pin it under the site's header. */
+
+/* The tools want width: the docs column widens on these pages (no TOC). */
+:root:has(.eui-playground, .eui-builder) {
+  --sl-content-width: 84rem;
+}
+
+.eui-playground {
+  --eui-fg: var(--sl-color-white);
+  --eui-fg-muted: var(--sl-color-gray-2);
+  --eui-fg-dim: var(--sl-color-gray-3);
+  --eui-line: var(--sl-color-hairline);
+  --eui-line-strong: var(--sl-color-hairline-shade);
+  --eui-fill: var(--exp-card);
+  --eui-radius: 10px;
+  --eui-radius-section: 14px;
+  --eui-warn: #fcd34d;
+  color: var(--eui-fg);
+  font-size: 13px;
+}
+:root[data-theme="light"] .eui-playground {
+  --eui-warn: #92400e;
+}
+
+/* ─── Shared controls ─── */
+.eui-grow {
+  flex: 1;
+}
+.eui-note {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--eui-fg-muted);
+}
+.eui-dim {
+  color: var(--eui-fg-dim);
+}
+.eui-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+}
+.eui-inline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--eui-fg-muted);
+}
+.eui-select {
+  appearance: none;
+  min-width: 0;
+  font: inherit;
+  font-size: 13px;
+  color: var(--eui-fg);
+  background-color: var(--eui-fill);
+  border: 1px solid var(--eui-line-strong);
+  border-radius: var(--eui-radius);
+  padding: 6px 28px 6px 10px;
+  outline: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--eui-fg-muted) 50%), linear-gradient(135deg, var(--eui-fg-muted) 50%, transparent 50%);
+  background-position:
+    calc(100% - 14px) 50%,
+    calc(100% - 10px) 50%;
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+.eui-select option {
+  background: var(--sl-color-black);
+  color: var(--eui-fg);
+}
+.eui-select:focus {
+  border-color: var(--eui-fg-dim);
+}
+.eui-seg {
+  display: inline-flex;
+  padding: 2px;
+  gap: 2px;
+  border: 1px solid var(--eui-line-strong);
+  border-radius: var(--eui-radius);
+  background: var(--eui-fill);
+}
+.eui-seg button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--eui-fg-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.eui-seg button:hover {
+  color: var(--eui-fg);
+}
+.eui-seg button[aria-pressed="true"] {
+  background: var(--sl-color-accent);
+  color: var(--sl-color-black);
+}
+.eui-btn {
+  appearance: none;
+  border: 0;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--eui-radius);
+  background: var(--sl-color-accent);
+  color: var(--sl-color-black);
+  cursor: pointer;
+}
+.eui-btn:hover {
+  background: var(--sl-color-accent-high);
+}
+.eui-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--eui-fg-muted);
+  cursor: pointer;
+}
+.eui-link {
+  appearance: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--eui-fg);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.eui-tabs button:focus-visible,
+.eui-seg button:focus-visible,
+.eui-btn:focus-visible,
+.eui-link:focus-visible {
+  outline: 2px solid var(--eui-fg);
+  outline-offset: 1px;
+}
+
+/* ─── Layout ─── */
+.eui-playground-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 16px;
+  align-items: start;
+}
+.eui-editor-col,
+.eui-render-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.eui-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--eui-line);
+}
+.eui-tabs button {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--eui-fg-muted);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 7px 12px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+.eui-tabs button[aria-selected="true"] {
+  color: var(--eui-fg);
+  border-bottom-color: var(--eui-fg);
+}
+.eui-editor {
+  width: 100%;
+  min-height: 560px;
+  resize: vertical;
+  font-family: var(--sl-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  tab-size: 2;
+  color: var(--eui-fg);
+  background: var(--sl-color-black);
+  border: 1px solid var(--eui-line-strong);
+  border-radius: var(--eui-radius-section);
+  padding: 14px 16px;
+  outline: none;
+  white-space: pre;
+  overflow: auto;
+}
+.eui-editor:focus {
+  border-color: var(--eui-fg-dim);
+}
+.eui-editor-col .eui-note {
+  margin: 0;
+}
+
+/* ─── The stage a surface paints on ─── */
+.eui-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 160px;
+  font-size: 12px;
+  color: var(--eui-fg-dim);
+  border-radius: var(--eui-radius-section);
+  background: repeating-linear-gradient(135deg, transparent 0 10px, oklch(0.5 0 0 / 6%) 10px 20px);
+}
+/* The theme's two grounds ride as --eui-ground-light/-dark; a picked mode
+   (is-light / is-dark) wins, `is-auto` follows the site's data-theme. */
+.eui-stage {
+  position: relative;
+  min-height: 560px;
+  padding: 16px;
+  border: 1px solid var(--eui-line-strong);
+  border-radius: var(--eui-radius-section);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 16px;
+  color-scheme: dark;
+  background: var(--eui-ground-dark, #0a0a0a);
+}
+.eui-stage.is-light,
+:root[data-theme="light"] .eui-stage.is-auto {
+  background: var(--eui-ground-light, #ffffff);
+  color-scheme: light;
+}
+.eui-stage.is-dark {
+  background: var(--eui-ground-dark, #0a0a0a);
+  color-scheme: dark;
+}
+.eui-stage .eui-placeholder {
+  min-height: 520px;
+}
+.eui-stage.is-light .eui-placeholder,
+:root[data-theme="light"] .eui-stage.is-auto .eui-placeholder {
+  color: #737373;
+}
+.eui-stage.is-dark .eui-placeholder {
+  color: #8a8a8a;
+}
+.eui-playground-surface {
+  min-width: 0;
+}
+.eui-surface-label {
+  font-family: var(--sl-font-mono);
+  font-size: 10.5px;
+  color: #8a8a8a;
+  margin-bottom: 6px;
+}
+
+/* ─── Issues + actions ─── */
+.eui-issues,
+.eui-actions-log {
+  border: 1px solid var(--eui-line);
+  border-radius: var(--eui-radius-section);
+  background: var(--eui-fill);
+  padding: 10px 12px;
+  font-size: 12.5px;
+}
+.eui-issues.has-issues {
+  border-color: color-mix(in oklab, #f59e0b 45%, transparent);
+}
+.eui-issues-head {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--eui-fg);
+}
+.eui-issues ul,
+.eui-actions-log ul {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 200px;
+  overflow: auto;
+  color: var(--eui-fg-muted);
+}
+.eui-issues code,
+.eui-actions-log code {
+  font-family: var(--sl-font-mono);
+  font-size: 11.5px;
+  color: var(--eui-fg);
+}
+.eui-issue-kind {
+  font-family: var(--sl-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--eui-warn);
+  margin-right: 4px;
+}
+
+/* ─── System prompt ─── */
+.eui-pg-prompt {
+  margin-top: 36px;
+}
+.eui-pg-prompt h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0 8px 0 0;
+  color: var(--eui-fg);
+}
+.eui-pg-prompt-placeholder {
+  min-height: 420px;
+}
+.eui-code {
+  border: 1px solid var(--eui-line-strong);
+  border-radius: var(--eui-radius-section);
+  background: var(--sl-color-black);
+  overflow: hidden;
+}
+.eui-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--eui-line);
+  font-family: var(--sl-font-mono);
+  font-size: 11px;
+  color: var(--eui-fg-dim);
+}
+.eui-code-copy {
+  appearance: none;
+  border: 1px solid var(--eui-line-strong);
+  background: none;
+  color: var(--eui-fg-muted);
+  font: inherit;
+  padding: 2px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.eui-code pre {
+  margin: 0;
+  padding: 14px 16px;
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--sl-font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--eui-fg);
+}
+
+/* ─── Theme builder (the builder's own chrome is .xb, scoped, from
+   builder.css; .xb.eui-builder outranks it) ─── */
+.xb.eui-builder {
+  border: 1px solid var(--sl-color-hairline);
+  border-radius: 12px;
+  overflow: clip;
+}
+/* Base select: as wide before its options arrive as after. */
+.xb.eui-builder #base {
+  min-width: 190px;
+}
+/* Sticky under the site's header. */
+.xb.eui-builder .bar {
+  top: var(--sl-nav-height);
+  flex-wrap: wrap;
+}
+.xb.eui-builder .layout {
+  min-height: calc(100vh - var(--sl-nav-height) - 46px);
+}
+.xb.eui-builder .panel {
+  top: calc(var(--sl-nav-height) + 46px);
+  height: calc(100vh - var(--sl-nav-height) - 46px);
+}
+/* The kitchen sink's overlays (toasts, dialogs) position `fixed`: the
+   transform makes the preview their containing block. */
+.xb.eui-builder .preview {
+  transform: translateZ(0);
+}
+.eui-builder-loading {
+  padding: 12px;
+  margin: 0;
+  color: var(--sl-color-gray-3);
+}
+
+/* ─── Narrow screens ─── */
+@media (max-width: 960px) {
+  .eui-playground-grid {
+    grid-template-columns: 1fr;
+  }
+  .eui-editor,
+  .eui-stage {
+    min-height: 380px;
+  }
+  .eui-stage .eui-placeholder {
+    min-height: 340px;
+  }
+  .xb.eui-builder .layout {
+    grid-template-columns: 1fr;
+  }
+  .xb.eui-builder .panel {
+    position: static;
+    height: auto;
+    max-height: 50vh;
+    border-right: 0;
+    margin-bottom: 8px;
+  }
+}

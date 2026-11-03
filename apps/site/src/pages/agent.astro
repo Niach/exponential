@@ -1,0 +1,36 @@
+---
+/* eAgent's product page. The docs: /docs/libraries/eagent/. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import Diagram from "../components/libraries/Diagram.astro"
+import Figure from "../components/libraries/Figure.astro"
+import { AGENT_FLOW } from "../components/libraries/trees.ts"
+import PlatformShots from "../components/PlatformShots.astro"
+import "../styles/libraries-other.css"
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `eAgent`,
+    description: `Runs your own Claude Code or Codex: spawns the unmodified CLI over ACP, streams what it does and wires its MCP servers.`,
+    template: `splash`,
+    hero: {
+      tagline: `Your Claude Code or Codex, inside your app.`,
+      actions: [
+        { text: `Get started`, link: `/docs/libraries/eagent/guides/`, icon: `right-arrow` },
+        { text: `Docs`, link: `/docs/libraries/eagent/`, variant: `minimal` },
+      ],
+    },
+  }}
+>
+  <h2>The vendor's own CLI, your own login</h2>
+  <Diagram id="agent-flow" tree={AGENT_FLOW} />
+
+  <h2>Every step, streamed</h2>
+  <Figure src="/shots/trace/web.webp" alt="A coding session's trace: commands, their output, a subagent and a to-do list" width={1800} height={1200} />
+
+  <h2>Pick the agent per device</h2>
+  <Figure src="/shots/machine-settings/desktop.webp" alt="Device settings: Claude Code or Codex, model, effort" width={1800} height={1126} />
+
+  <h2>On every screen</h2>
+  <PlatformShots view="session" platforms={[`ios`, `android`]} />
+</StarlightPage>
