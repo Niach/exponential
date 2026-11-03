@@ -94,6 +94,9 @@ pub struct TeamsUpdateInput {
     /// every member and auto-merges every PR an agent opens.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub yolo_mode: Option<bool>,
+    /// VAPP-201: the team time zone (`Patch::Null` = each device's own).
+    #[serde(skip_serializing_if = "Patch::is_omit")]
+    pub time_zone: Patch<String>,
 }
 
 impl TeamsUpdateInput {
@@ -105,6 +108,7 @@ impl TeamsUpdateInput {
             estimation_type: None,
             agent_prompt: None,
             yolo_mode: None,
+            time_zone: Patch::Omit,
         }
     }
 }

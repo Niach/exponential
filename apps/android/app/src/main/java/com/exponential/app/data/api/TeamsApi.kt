@@ -4,6 +4,12 @@ import com.exponential.app.data.db.TeamEntity
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 // `team` is null when the user has no non-feedback membership — signup no
 // longer auto-creates a team (EXP-188), so callers route null to the
@@ -45,6 +51,17 @@ data class UpdateTeamInput(
     val yoloMode: Boolean? = null,
     val agentPrompt: String? = null,
 )
+
+/**
+ * VAPP-201: `teams.update {teamId, timeZone}`. The router applies a field only
+ * when its key is PRESENT, so clearing the zone has to travel as a literal
+ * `null`, which the shared Json's `explicitNulls = false` would drop off a
+ * `@Serializable` class (the `updateBoardBranchInput` story).
+ */
+internal fun updateTeamTimeZoneInput(teamId: String, timeZone: String?): JsonObject = buildJsonObject {
+    put("teamId", teamId)
+    put("timeZone", timeZone?.let(::JsonPrimitive) ?: JsonNull)
+}
 
 @Serializable
 private data class TeamIdInput(val teamId: String)
@@ -98,6 +115,16 @@ class TeamsApi @Inject constructor(private val trpc: TrpcClient) {
             path = "teams.update",
             input = input,
             inputSerializer = UpdateTeamInput.serializer(),
+        )
+    }
+
+    /** VAPP-201: set (or, null, clear) the team time zone; owners only. */
+    suspend fun updateTimeZone(accountId: String, teamId: String, timeZone: String?) {
+        trpc.mutationUnit(
+            accountId,
+            path = "teams.update",
+            input = updateTeamTimeZoneInput(teamId, timeZone),
+            inputSerializer = JsonElement.serializer(),
         )
     }
 

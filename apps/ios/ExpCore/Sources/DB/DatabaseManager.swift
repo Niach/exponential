@@ -3040,6 +3040,25 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v95 (#VAPP-201): `teams.time_zone` (the team time zone app hosts
+        // read dates in; NULL = the device's). The teams cursor resets only
+        // when the column was added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v95_team_time_zone") { db in
+            guard try db.tableExists("teams") else { return }
+            let existing = Set(try db.columns(in: "teams").map(\.name))
+            guard !existing.contains("time_zone") else { return }
+            try db.alter(table: "teams") { t in
+                t.add(column: "time_zone", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'teams'
+                    """)
+            }
+        }
+
         return migrator
     }
 

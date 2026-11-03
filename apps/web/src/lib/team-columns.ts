@@ -18,6 +18,8 @@ export const teamColumns = {
   endSessionsOnMerge: teams.endSessionsOnMerge,
   yoloMode: teams.yoloMode,
   estimationType: teams.estimationType,
+  // VAPP-201: the team time zone (NULL = each device's own).
+  timeZone: teams.timeZone,
   createdAt: teams.createdAt,
   updatedAt: teams.updatedAt,
 } as const

@@ -151,32 +151,11 @@ public struct ScheduleFields: View {
     }
 
     private var timeZoneRow: some View {
-        let names = DomainContract.timeZoneNames
-        // A stored zone off the list is offered as its own (first) row.
-        let zones = names.contains(draft.tz) ? names : [draft.tz] + names
-        return GlassPicker(
-            items: zones.map { zone in
-                PickerItem(
-                    value: zone,
-                    label: zone,
-                    keywords: [
-                        zone,
-                        zone.replacingOccurrences(of: "_", with: " ")
-                            .replacingOccurrences(of: "/", with: " "),
-                    ]
-                )
-            },
-            mode: .single,
-            value: [draft.tz],
-            onChange: { picked in
-                if let zone = picked.first { draft.tz = zone }
-            },
-            search: true,
+        ScheduleZonePicker(
             title: Copy.rowTimeZone,
-            searchPlaceholder: Copy.timeZonePlaceholder
-        ) {
-            GlassPickerRowLabel(Copy.rowTimeZone, value: draft.tz)
-        }
+            value: draft.tz,
+            onChange: { zone in if let zone { draft.tz = zone } }
+        )
         .accessibilityIdentifier(Ids.timeZone)
     }
 
@@ -197,5 +176,67 @@ public struct ScheduleFields: View {
         .textInputAutocapitalization(.never)
         .autocorrectionDisabled()
         .font(.system(.body, design: .monospaced))
+    }
+}
+
+/// THE schedule zone picker: the searchable `GlassPicker` over contract
+/// `timeZones.names` behind a `GlassPickerRowLabel`. The schedule's Time zone
+/// row and (VAPP-201) Settings › General's team Time zone row, whose
+/// `nullLabel` row (value nil = the device's zone) comes first.
+public struct ScheduleZonePicker: View {
+    let title: String
+    let value: String?
+    var nullLabel: String?
+    var disabled = false
+    let onChange: (String?) -> Void
+
+    public init(
+        title: String,
+        value: String?,
+        nullLabel: String? = nil,
+        disabled: Bool = false,
+        onChange: @escaping (String?) -> Void
+    ) {
+        self.title = title
+        self.value = value
+        self.nullLabel = nullLabel
+        self.disabled = disabled
+        self.onChange = onChange
+    }
+
+    /// The nil row's picker value (never a zone name).
+    private static let none = ""
+
+    public var body: some View {
+        let names = DomainContract.timeZoneNames
+        // A stored zone off the list is offered as its own (first) row.
+        let zones = value.map { names.contains($0) ? names : [$0] + names } ?? names
+        let zoneItems = zones.map { zone in
+            PickerItem(
+                value: zone,
+                label: zone,
+                keywords: [
+                    zone,
+                    zone.replacingOccurrences(of: "_", with: " ")
+                        .replacingOccurrences(of: "/", with: " "),
+                ]
+            )
+        }
+        let items = nullLabel.map { [PickerItem(value: Self.none, label: $0, keywords: [$0])] + zoneItems } ?? zoneItems
+        return GlassPicker(
+            items: items,
+            mode: .single,
+            value: [value ?? Self.none],
+            onChange: { picked in
+                guard let zone = picked.first else { return }
+                onChange(zone == Self.none ? nil : zone)
+            },
+            search: true,
+            title: title,
+            disabled: disabled,
+            searchPlaceholder: SchedulePicker.Copy.timeZonePlaceholder
+        ) {
+            GlassPickerRowLabel(title, value: value ?? nullLabel ?? "", enabled: !disabled)
+        }
     }
 }

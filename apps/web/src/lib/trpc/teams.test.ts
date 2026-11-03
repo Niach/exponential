@@ -310,6 +310,7 @@ describe(`teams.update`, () => {
       `prOpenedAutomation`,
       `prOpenedStatusId`,
       `slug`,
+      `timeZone`,
       `updatedAt`,
       `yoloMode`,
     ])

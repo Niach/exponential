@@ -161,29 +161,12 @@ internal fun ScheduleFields(
     // keeps whatever zone is stored).
     if (SchedulePicker.showsTimeZone(schedule?.repeat)) {
     GroupDivider()
-    val zoneItems = remember(draft.tz) {
-        if (TIME_ZONE_ITEMS.any { it.value == draft.tz }) {
-            TIME_ZONE_ITEMS
-        } else {
-            listOf(timeZoneItem(draft.tz)) + TIME_ZONE_ITEMS
-        }
-    }
-    Picker(
-        items = zoneItems,
-        mode = PickerMode.Single,
-        value = setOf(draft.tz),
-        onChange = { picked -> picked.firstOrNull()?.let { onChange(draft.copy(tz = it)) } },
-        search = true,
-        searchPlaceholder = ScheduleCopy.TIME_ZONE_PLACEHOLDER,
+    ScheduleZonePicker(
         title = ScheduleCopy.ROW_TIME_ZONE,
-    ) { open ->
-        PickerValueRow(
-            label = ScheduleCopy.ROW_TIME_ZONE,
-            value = draft.tz,
-            onClick = open,
-            modifier = Modifier.testTag(SchedulePicker.TEST_ID_TIME_ZONE),
-        )
-    }
+        value = draft.tz,
+        onChange = { zone -> zone?.let { onChange(draft.copy(tz = it)) } },
+        modifier = Modifier.testTag(SchedulePicker.TEST_ID_TIME_ZONE),
+    )
     }
 
     if (schedule == null) {
@@ -269,4 +252,51 @@ private fun ScheduleTimeRow(
 @Composable
 fun ScheduleFieldsSpecimen(draft: ScheduleDraft, onChange: (ScheduleDraft) -> Unit) {
     OptionGroup { ScheduleFields(draft, onChange) }
+}
+
+/** The null row's picker value (never a zone name). */
+private const val NO_ZONE = ""
+
+/**
+ * THE schedule zone picker: the searchable [Picker] over contract
+ * `timeZones.names` behind a [PickerValueRow]. The schedule's Time zone row
+ * and (VAPP-201) Settings › General's team Time zone row, whose [nullLabel]
+ * row (value null = the device's zone) comes first.
+ */
+@Composable
+internal fun ScheduleZonePicker(
+    title: String,
+    value: String?,
+    onChange: (String?) -> Unit,
+    modifier: Modifier = Modifier,
+    nullLabel: String? = null,
+    enabled: Boolean = true,
+) {
+    val items = remember(value, nullLabel) {
+        // A stored zone off the list is offered as its own (first) row.
+        val zones = if (value == null || TIME_ZONE_ITEMS.any { it.value == value }) {
+            TIME_ZONE_ITEMS
+        } else {
+            listOf(timeZoneItem(value)) + TIME_ZONE_ITEMS
+        }
+        nullLabel?.let { listOf(PickerItem(value = NO_ZONE, label = it, keywords = listOf(it))) + zones } ?: zones
+    }
+    Picker(
+        items = items,
+        mode = PickerMode.Single,
+        value = setOf(value ?: NO_ZONE),
+        onChange = { picked -> picked.firstOrNull()?.let { onChange(it.takeIf { zone -> zone != NO_ZONE }) } },
+        search = true,
+        searchPlaceholder = ScheduleCopy.TIME_ZONE_PLACEHOLDER,
+        title = title,
+        enabled = enabled,
+    ) { open ->
+        PickerValueRow(
+            label = title,
+            value = value ?: nullLabel.orEmpty(),
+            onClick = open,
+            enabled = enabled,
+            modifier = modifier,
+        )
+    }
 }

@@ -73,6 +73,10 @@ pub struct Team {
     /// how a value reads (t-shirt = XS…XL over the fibonacci points).
     #[serde(default)]
     pub estimation_type: Option<String>,
+    /// VAPP-201 (team-zone.json): the team time zone app hosts read dates
+    /// in (an IANA name); `None` = each device's own zone.
+    #[serde(default)]
+    pub time_zone: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
@@ -105,6 +109,7 @@ impl Team {
             end_sessions_on_merge: None,
             yolo_mode: None,
             estimation_type: None,
+            time_zone: None,
             created_at: None,
             updated_at: None,
         }

@@ -605,6 +605,21 @@ class TeamSettingsViewModel @Inject constructor(
         _yoloBusy.value = false
     }
 
+    private val _zoneBusy = MutableStateFlow(false)
+    val zoneBusy: StateFlow<Boolean> = _zoneBusy
+
+    /** VAPP-201 (team-zone.json): the team time zone (null = each device's
+     *  own), saved at once (owner-only); a failure = the failed-action toast. */
+    fun setTimeZone(timeZone: String?): Job = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val team = state.value.team ?: return@launch
+        if (timeZone == team.timeZone) return@launch
+        _zoneBusy.value = true
+        runCatching { teamsApi.updateTimeZone(accountId, team.id, timeZone) }
+            .onFailure { fail("save", "the time zone", it) { setTimeZone(timeZone) } }
+        _zoneBusy.value = false
+    }
+
     /** EXP-1025: the team prompt editor (server-only text, fetched on open). */
     data class TeamPromptState(
         /** Null = loading (or failed: [loadFailed]). */

@@ -27,6 +27,8 @@ const TEAM_COLUMNS = [
   `yolo_mode`,
   // EXP-630 — the estimate scale (`none` = off).
   `estimation_type`,
+  // VAPP-201 — the team time zone app hosts read dates in (NULL = the device's).
+  `time_zone`,
   `created_at`,
   `updated_at`,
 ]

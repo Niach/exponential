@@ -46,6 +46,7 @@ import { RECORDS_SCHEME, parseRecordsQuery, recordAuthor, recordsValue, type Rec
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { APPS_COPY, appMediaAllowed } from "@exp/domain-contract/apps"
+import { hostZone } from "@exp/domain-contract/team-zone"
 import { readableRows, type AppAccessLevel } from "@exponential_app/eui/host"
 import { grantableTools } from "@/lib/app-grants"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -306,6 +307,20 @@ function teamSource(source: ParsedSource, emit: SourceEmit, scope: RecordsScope)
   return () => team.unsubscribe()
 }
 
+/** VAPP-201: the team zone's offset at an instant (the device's without a
+ *  team zone); one offset function per zone name, so a formatter is not
+ *  rebuilt on every date. */
+const zoneFns = new Map<string, (ms: number) => number>()
+function teamZoneOffset(teamId: string | null, ms: number): number {
+  const name = (teamId ? teamCollection.get(teamId)?.timeZone : null) ?? ``
+  let fn = zoneFns.get(name)
+  if (!fn) {
+    fn = hostZone(name)
+    zoneFns.set(name, fn)
+  }
+  return fn(ms)
+}
+
 /** The app whose records `records:` reads: the hosting app, or (`app=`)
  *  another app of the same team by slug. */
 export interface RecordsScope {
@@ -551,7 +566,9 @@ export function createAppHost(options: AppHostOptions): AppHost {
   return new AppHost({
     transport: options.transport,
     me: scope.me,
-    zone: (ms) => -new Date(ms).getTimezoneOffset(),
+    // VAPP-201 (team-zone.json): dates in the TEAM zone (read live off the
+    // synced team), else the device's.
+    zone: (ms) => teamZoneOffset(scope.teamId, ms),
     onActionFailed: ({ message }) => void failedAction(`save`, `the record`, undefined, { description: message }),
     extensions: [appExtensionCatalog],
     packages: options.packages ?? [],

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { contract } from "@exp/domain-contract"
 import { issueEstimationSchema } from "@/lib/domain"
+import { timeZoneSchema } from "@exp/db-schema/domain"
 import { TRPCError } from "@trpc/server"
 import {
   router,
@@ -179,6 +180,9 @@ export const teamsRouter = router({
         // EXP-630: the estimate scale; `none` switches estimates off (values
         // already set stay on the rows, hidden until a scale is picked again).
         estimationType: issueEstimationSchema.optional(),
+        // VAPP-201: the team time zone app hosts read dates in (null = each
+        // device's own).
+        timeZone: timeZoneSchema.nullable().optional(),
         // EXP-1025: the team prompt (raw markdown, UTF-8 bytes capped by the
         // contract, never trimmed server-side beyond the trailing whitespace
         // the launcher would drop anyway). Empty string = no team prompt.

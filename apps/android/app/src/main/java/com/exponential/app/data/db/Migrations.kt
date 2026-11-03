@@ -144,3 +144,18 @@ val MIGRATION_111_112: Migration = object : Migration(111, 112) {
         )
     }
 }
+
+/**
+ * v113 (#VAPP-201): `teams.time_zone` (an IANA name app hosts read dates in;
+ * NULL = each device's own). Only the teams shape refetches, so synced rows
+ * re-arrive carrying it.
+ */
+val MIGRATION_112_113: Migration = object : Migration(112, 113) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `teams` ADD COLUMN `time_zone` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'teams'",
+        )
+    }
+}

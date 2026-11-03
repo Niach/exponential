@@ -2,6 +2,7 @@ package com.exponential.app.ui.settings
 
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
+import com.exponential.app.domain.TeamZone
 import com.exponential.app.ui.components.SectionBand
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.withStyle
@@ -108,6 +109,7 @@ import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.ScheduleZonePicker
 import com.exponential.app.ui.components.InlineStatus
 import com.exponential.app.ui.components.InlineStatusState
 import com.exponential.app.ui.components.SwitchRow
@@ -277,6 +279,7 @@ private fun TeamGeneral(state: TeamSettingsState, viewModel: TeamSettingsViewMod
     val team = state.team ?: return
     val nameSaving by viewModel.teamNameSaving.collectAsStateWithLifecycle()
     val yoloBusy by viewModel.yoloBusy.collectAsStateWithLifecycle()
+    val zoneBusy by viewModel.zoneBusy.collectAsStateWithLifecycle()
     val prompt by viewModel.prompt.collectAsStateWithLifecycle()
     val focus = LocalFocusManager.current
     var name by remember(team.id, team.name) { mutableStateOf(team.name) }
@@ -295,6 +298,17 @@ private fun TeamGeneral(state: TeamSettingsState, viewModel: TeamSettingsViewMod
                     onFocusLost = { viewModel.renameTeam(name) },
                     trailing = if (nameSaving) ({ InlineStatus(InlineStatusState.Saving) }) else null,
                     modifier = Modifier.testTag("team-name"),
+                )
+                // VAPP-201 (team-zone.json): THE schedule zone picker,
+                // `Device time zone` (= null) first; owners only.
+                GroupDivider()
+                ScheduleZonePicker(
+                    title = TeamZone.Copy.ROW,
+                    value = team.timeZone,
+                    nullLabel = TeamZone.Copy.DEVICE,
+                    onChange = { viewModel.setTimeZone(it) },
+                    enabled = state.isOwner && !zoneBusy,
+                    modifier = Modifier.testTag(TeamZone.TEST_ID_ROW),
                 )
             }
         }
