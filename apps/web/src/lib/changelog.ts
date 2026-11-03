@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-voice-works-on-windows`,
+    date: `2026-11-03`,
+    title: `Voice works on Windows`,
+    summary: `Voice loads on every Windows machine again, Stop silences a spoken reply at once, and calls tell your voice from the speaker's echo better.`,
+    body: `- **Windows**: voice loads on Windows again; it never started on any Windows machine before.
+- **Stop**: Stop silences a spoken reply right away, like talking over it.
+- **Talking over a reply**: the call learns how loud your speaker's echo is, so you can interrupt sooner, and a quick answer right after a question is no longer dropped as echo.
+- **Microphone**: a microphone that never opens now shows an error instead of hanging.
+- **Slow start**: a slow voice warm-up is retried instead of switching to the CPU for good.`,
+  },
+  {
     id: `2026-11-02-app-actions-all-or-nothing`,
     date: `2026-11-02`,
     title: `App actions save all or nothing`,
