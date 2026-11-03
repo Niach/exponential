@@ -3,6 +3,7 @@ import { CORE_CATALOG_ID, DEFAULT_THEME_ID } from "@exponential_app/eui"
 import type { NestedNode } from "@exponential_app/eui"
 import specimens from "@exponential_app/eui/fixtures/specimens.json"
 import { ExponentialSurface, useSurface, type HostPlugin } from "@exponential_app/eui-react"
+import { specimenSampleUrl } from "@exp/ui"
 import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 
 // VAPP-93: one specimens.json entry painted alone on the page ground (the
@@ -30,6 +31,8 @@ function SpecimenSurface({ id, theme, mode, width, rtl }: Props) {
   const host = useMemo<HostPlugin>(
     () => ({
       icons: exponentialUiIcons,
+      // EXP-1654: an example src paints its committed sample picture.
+      resolveUrl: specimenSampleUrl,
       onAction: (e) => {
         console.info(`[exponential-ui] action`, e.name, e.componentId, e.context, e.payload)
         return new Promise((r) => setTimeout(r, 150))

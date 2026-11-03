@@ -4,8 +4,8 @@
 //! specimen case's ring, the IDE's `wide` frame (the web specimen's card),
 //! no PR block, every story INLINE (#EXP-1462) behind THE kind badge
 //! (#EXP-1493): a plan = its counts line (+ its pictures). The pictures are
-//! placeholders: the thumbnail's muted fill alone (as web, iOS and Android
-//! draw them). #EXP-1553: like web's `StoryTabSpecimen` (no `surfaceFor`) no
+//! the committed samples (EXP-1654: [`crate::specimen_pictures`] seeds the
+//! entry's cache, nothing is fetched). #EXP-1553: like web's `StoryTabSpecimen` (no `surfaceFor`) no
 //! surface draws inline, so the card closes after "First draft".
 
 use gpui::{px, App, Div, ParentElement as _, Styled as _, Window};
@@ -30,8 +30,14 @@ fn case_card(_story: &Story, _cx: &App) -> Option<Value> {
 
 pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let ring = story_tab_specimen();
-    let images = window.use_keyed_state("sg-story-tab-images", cx, |_, _| ImageCache::new(None)).clone();
-    let tab_body = crate::story_tab::TabBody { images: &images, load_pictures: false, card_for: &case_card };
+    let images = window
+        .use_keyed_state("sg-story-tab-images", cx, |_, _| {
+            let mut cache = ImageCache::new(None);
+            crate::specimen_pictures::seed_attachments(&mut cache);
+            cache
+        })
+        .clone();
+    let tab_body = crate::story_tab::TabBody { images: &images, card_for: &case_card };
     let body = crate::story_tab::story_tab_body(Some(&ring), None, &tab_body, Some(std::rc::Rc::new(|_, _, _, _| {})), window, cx);
     let background = cx.theme().background;
     v_flex().items_start().child(

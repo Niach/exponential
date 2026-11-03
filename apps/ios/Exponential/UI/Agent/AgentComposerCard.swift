@@ -386,6 +386,10 @@ struct AgentComposerCard: View {
 /// tenths (web `StartingRow`).
 struct ComposerStartingRow: View {
     let starting: AgentComposerModel.Starting
+    /// EXP-1654: a frozen reading for the styleguide specimen (web's
+    /// `feedback-specimen` pins 1.4 s): the live row ticks from the press,
+    /// so a capture would read however long the screen took to settle.
+    var frozenElapsed: TimeInterval? = nil
 
     var body: some View {
         HStack(spacing: 8) {
@@ -396,14 +400,22 @@ struct ComposerStartingRow: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 8)
-            TimelineView(.periodic(from: starting.since, by: 0.1)) { context in
-                Text(Self.elapsed(context.date.timeIntervalSince(starting.since)))
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            if let frozenElapsed {
+                elapsedText(frozenElapsed)
+            } else {
+                TimelineView(.periodic(from: starting.since, by: 0.1)) { context in
+                    elapsedText(context.date.timeIntervalSince(starting.since))
+                }
             }
         }
         .accessibilityElement(children: .combine)
         .accessibilityIdentifier(FeedbackStates.TestId.starting)
+    }
+
+    private func elapsedText(_ seconds: TimeInterval) -> some View {
+        Text(Self.elapsed(seconds))
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 
     /// "1.4 s" (web `startingElapsed`).

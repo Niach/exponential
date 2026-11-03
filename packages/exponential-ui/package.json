@@ -19,6 +19,7 @@
     "./web/primitives/*": "./src/web/primitives/*.ts",
     "./catalog/*": "./catalog/*",
     "./fixtures/*": "./fixtures/*",
+    "./samples/*": "./samples/*",
     "./docs/*": "./docs/*",
     "./vendor/*": "./vendor/*",
     "./themes/*": "./themes/*",

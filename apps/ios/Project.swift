@@ -7,6 +7,9 @@ let sharedSources: SourceFilesList = ["Exponential/**"]
 // `AppHostResources` loads it by name). Exponential ships no built-in apps.
 let appHostResources: [ResourceFileElement] = [
     "../../packages/ui/exponential-ui/extension.json",
+    // EXP-1654: the styleguide specimens' sample pictures (`SpecimenSamples`,
+    // read only under `-uiTestingStyleguide`), bundled as the `samples` folder.
+    .folderReference(path: "../../packages/exponential-ui/samples"),
 ]
 // GoogleService-Info.plist is per-target now (prod and staging are separate
 // Firebase apps: at.exponential vs at.exponential.staging). Each iOS app target

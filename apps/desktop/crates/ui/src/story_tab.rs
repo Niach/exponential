@@ -42,8 +42,6 @@ use crate::markdown::{ImageCache, ImageSlot};
 pub(crate) struct TabBody<'a> {
     /// The pictures' cache.
     pub images: &'a Entity<ImageCache>,
-    /// `false` = the thumbnails' muted fill alone (the styleguide).
-    pub load_pictures: bool,
     /// The story's raw show card (its message's `card`), `None` = unknown.
     pub card_for: &'a dyn Fn(&Story, &App) -> Option<serde_json::Value>,
 }
@@ -86,7 +84,7 @@ pub(crate) fn story_tile(
     window: &mut Window,
     cx: &mut App,
 ) -> AnyElement {
-    let images = body.load_pictures.then_some(body.images);
+    let images = Some(body.images);
     let tile = &STORIES.tab.tile;
     let theme = cx.theme();
     let muted = theme.muted_foreground;

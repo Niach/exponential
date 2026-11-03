@@ -5,6 +5,7 @@ import type { NestedNode } from "@exponential_app/eui"
 import kitchenSink from "@exponential_app/eui/fixtures/kitchen-sink.json"
 import kitchenSinkData from "@exponential_app/eui-react/fixtures/kitchen-sink.data.json"
 import { ExponentialSurface, useSurface, type HostPlugin } from "@exponential_app/eui-react"
+import { specimenSampleUrl } from "@exp/ui"
 import { exponentialUiIcons } from "@/lib/exponential-ui-icons"
 import { pageTitle } from "@/lib/page-title"
 import { ExponentialUiSpecimen, isSpecimenId } from "@/components/exponential-ui-specimen"
@@ -52,6 +53,8 @@ function KitchenSink({ theme, mode, width, rtl }: Omit<SinkSearch, `specimen`>) 
   const host = useMemo<HostPlugin>(
     () => ({
       icons: exponentialUiIcons,
+      // EXP-1654: an example src paints its committed sample picture.
+      resolveUrl: specimenSampleUrl,
       onAction: (e) => {
         console.info(`[exponential-ui] action`, e.name, e.componentId, e.context, e.payload)
         return new Promise((r) => setTimeout(r, 150))

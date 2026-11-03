@@ -29,6 +29,11 @@ val copyFixtureAssets by tasks.registering(Copy::class) {
     from(File(repoRoot, "packages/exponential-ui/eval")) {
         include("eval-specimens.json")
     }
+    // EXP-1654: the sample pictures the examples' srcs resolve to (`samples.json`).
+    from(File(repoRoot, "packages/exponential-ui/samples")) {
+        include("samples.json", "*.png")
+        into("samples")
+    }
     into(fixtureAssets)
 }
 

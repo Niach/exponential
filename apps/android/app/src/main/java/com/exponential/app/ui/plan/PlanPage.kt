@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.exponential.app.ui.components.LocalSpecimenPicture
 import com.exponential.app.domain.AskDock
 import com.exponential.app.domain.Dock
 import com.exponential.app.domain.PlanCard
@@ -380,13 +381,13 @@ private fun groupAspect(picture: PlanPage.Picture?, card: JsonObject): Float {
 }
 
 /** One plan picture fitted (contain) on black; the muted fill while it loads
- *  (and on the specimen's placeholders). */
+ *  (a styleguide specimen paints its sample, [LocalSpecimenPicture]). */
 @Composable
 internal fun PlanPictureImage(src: String, modifier: Modifier = Modifier, contentScale: ContentScale = ContentScale.Fit) {
     var loaded by remember(src) { mutableStateOf(false) }
     Box(modifier.background(if (loaded) Color.Black else DesignTokens.Palette.Muted)) {
         AsyncImage(
-            model = src,
+            model = LocalSpecimenPicture.current?.invoke(src) ?: src,
             contentDescription = null,
             contentScale = contentScale,
             onSuccess = { loaded = true },

@@ -352,11 +352,13 @@ struct PlanPictureImage: View {
 }
 
 /// Styleguide captures only: an attachment id `specimen-<n>` paints a
-/// generated tile (the captures run without a server).
+/// generated tile, one in `samples.json` its bundled sample
+/// (`SpecimenSamples`, EXP-1654); the captures run without a server.
 enum SpecimenPicture {
     private static let hues: [Double] = [0.62, 0.38, 0.08, 0.55, 0.75, 0.3]
 
     static func image(_ src: String) -> UIImage? {
+        if let sample = SpecimenSamples.image(src) { return sample }
         guard let range = src.range(of: "specimen-") else { return nil }
         let n = Int(src[range.upperBound...].prefix { $0.isNumber }) ?? 0
         let size = CGSize(width: 480, height: 300)

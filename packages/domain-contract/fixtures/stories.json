@@ -1993,7 +1993,7 @@
       "leadGap": 24
     },
     "specimen": {
-      "$comment": "THE styleguide specimen ×4 (story-tab) draws tabCases[1] (input + expected), hardcoded identically: the thread's Stories tab body, wide (md+ / IDE) and phone, no PR block.",
+      "$comment": "THE styleguide specimen ×4 (story-tab) draws tabCases[1] (input + expected), hardcoded identically: the thread's Stories tab body, wide (md+ / IDE) and phone, no PR block Its pictures = THE committed sample pictures (EXP-1654: packages/exponential-ui/samples, samples.json `attachments` maps att-w, att-i), painted from bundled bytes ×4, never fetched.",
       "case": 1
     }
   },

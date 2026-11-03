@@ -166,6 +166,28 @@ pub(crate) fn parse(value: Option<&serde_json::Value>) -> Option<DeviceDoctor> {
     })
 }
 
+/// DEV-ONLY `EXP_DEV_DOCTOR_CASE=<case name>` (EXP-1654): THIS device's
+/// readiness block (Settings → Tools, the first-run devices step) reads that
+/// case of the contract fixture `device-doctor.json` instead of the capture
+/// Mac's own doctor run (its git, its agent logins, its disk are no fact of
+/// the product). An unknown name = the live block. Unset in every real build.
+pub(crate) fn dev_doctor_case() -> Option<DeviceDoctor> {
+    static CASE: std::sync::OnceLock<Option<DeviceDoctor>> = std::sync::OnceLock::new();
+    CASE.get_or_init(|| {
+        let name = std::env::var("EXP_DEV_DOCTOR_CASE").ok()?;
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/device-doctor.json"
+        ))
+        .ok()?;
+        let case = fixture["cases"]
+            .as_array()?
+            .iter()
+            .find(|case| case["name"].as_str() == Some(name.trim()))?;
+        parse(Some(&case["doctor"]))
+    })
+    .clone()
+}
+
 /// NEW-78 / NEW-55: the voice rows THIS device adds, read on the main thread.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct VoiceRows {

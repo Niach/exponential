@@ -128,6 +128,11 @@ impl HostPlugin for DevHost {
         log::warn!("[exponential-ui kitchen sink] unknown component {} ({})", node.component, node.id);
     }
 
+    /// EXP-1654: an example src paints its bundled sample picture.
+    fn resolve_url(&self, src: &str) -> String {
+        crate::specimen_pictures::resolve_url(src)
+    }
+
     /// Round 2 `scrollToIndex` on a list windowed against the pane: the
     /// pane scrolls (the surface fills it from its top-left).
     fn scroll_surface(&self, x: f32, y: f32, cx: &mut App) {
@@ -582,6 +587,11 @@ impl HostPlugin for SpecimenHost {
 
     fn on_unknown(&self, node: &PlacedNode) {
         log::warn!("[exponential-ui specimen] unknown component {} ({})", node.component, node.id);
+    }
+
+    /// EXP-1654: an example src paints its bundled sample picture.
+    fn resolve_url(&self, src: &str) -> String {
+        crate::specimen_pictures::resolve_url(src)
     }
 }
 

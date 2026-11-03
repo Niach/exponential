@@ -3,8 +3,12 @@ package com.exponential.app.ui.styleguide
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import com.exponential.app.ui.components.LocalSpecimenPicture
+import com.exponential.app.ui.components.SpecimenSamples
 import com.exponential.app.domain.PlanPage
 import com.exponential.app.domain.SessionTree
 import com.exponential.app.ui.plan.PlanPageContent
@@ -16,7 +20,8 @@ import kotlinx.serialization.json.jsonObject
 
 // #EXP-1493 THE styleguide specimen ×4 (`plan-page`, plan-page.json
 // `specimen`): this card, waiting, drawn phone (the document from its top,
-// the DockCard at the foot; pictures = placeholders, the muted fill). Web
+// the DockCard at the foot; pictures = the committed samples, EXP-1654
+// `SpecimenSamples`). Web
 // `PlanPageSpecimen`, iOS ChatSpecimens `plan-page`, desktop plan_page.rs.
 
 const val PlanPageSpecimenTestId = "plan-page-specimen"
@@ -53,7 +58,9 @@ internal fun planPageSpecimenState(card: JsonObject = PlanPageSpecimenCard): Pla
 /** `plan-page`: THE plan page, phone, over the specimen card. */
 @Composable
 fun PlanPageSpecimenScreen() {
+    val samples = SpecimenSamples.resolver(LocalContext.current)
     AppBackground(Modifier.testTag(PlanPageSpecimenTestId)) {
+        CompositionLocalProvider(LocalSpecimenPicture provides samples) {
         Box(Modifier.fillMaxSize()) {
             PlanPageContent(
                 state = planPageSpecimenState(),
@@ -62,6 +69,7 @@ fun PlanPageSpecimenScreen() {
                 chatName = PlanPage.Specimen.CHAT_NAME,
                 activeSection = PlanPage.Specimen.ACTIVE_SECTION,
             )
+        }
         }
     }
 }

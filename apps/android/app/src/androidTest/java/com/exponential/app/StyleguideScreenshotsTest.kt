@@ -218,8 +218,9 @@ class StyleguideScreenshotsTest {
 
         /** The catalog shots [captureOnlyScreens] owns (no server, no sign-in). */
         private val CAPTURE_SHOTS = setOf(
-            "sg_feedback-states", "sg_work-card",
-            "sg_script-card", "sg_comment-call-card",
+            // EXP-1654: sg_work-card + sg_script-card left for the live
+            // session walk (in the transcript, as web and desktop shoot them).
+            "sg_feedback-states", "sg_comment-call-card",
             "sg_trace", "sg_code-block", "sg_ask-dock", "sg_dock-card", "sg_plan-card",
             // S-3: THE inter-session link line.
             "sg_session-xref",
@@ -350,6 +351,12 @@ class StyleguideScreenshotsTest {
         private const val NAV_TIMEOUT = ScreenshotFlow.NAV_TIMEOUT
         private const val SYNC_TIMEOUT = ScreenshotFlow.SYNC_TIMEOUT
         private const val FIRST_SYNC_TIMEOUT = ScreenshotFlow.FIRST_SYNC_TIMEOUT
+
+        /** EXP-1654: the board gate's hard ceiling while the first sync still moves. */
+        private const val FIRST_SYNC_CEILING_MS = 180_000L
+
+        /** EXP-1654: no new issue row for this long (and no Syncing pill) = settled. */
+        private const val FIRST_SYNC_STALL_MS = 15_000L
         private const val NETWORK_TIMEOUT = ScreenshotFlow.NETWORK_TIMEOUT
     }
 
@@ -485,10 +492,30 @@ class StyleguideScreenshotsTest {
         // --- Board: wait out session fetch + first Electric sync, then let the
         // transient "Syncing…" pill clear (it photobombed a board shot once —
         // EXP-348).
+        //
+        // EXP-1654: this is the walk's FIRST-SYNC gate, and every board-chain
+        // step after it leans on it (their own waits are SYNC_TIMEOUT). A
+        // fixed 60 s failed twice with a parallel lane loading the shared
+        // backend, so [waitForFirstBoardSync] keeps waiting while the sync
+        // visibly progresses and fails fast once it settled without APP-5.
+        // The retry re-enters through the board root: a second Board-tab tap
+        // on the board view opens the board menu instead.
         step("board") {
             flow.waitFor(hasTestTag(Chats.TestIds.TAB_BOARD), SYNC_TIMEOUT)
-            composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
-            flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE), FIRST_SYNC_TIMEOUT)
+            // DISPLAYED, not merely composed: the walk arrives here from the
+            // Threads tab, where the board's chips can still sit in the tree.
+            val onBoardRoot = runCatching {
+                composeRule.onAllNodes(hasTestTag(BOARD_ROOT_TAG)).onFirst().assertIsDisplayed()
+            }.isSuccess
+            if (!onBoardRoot) {
+                composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
+                flow.settle()
+            }
+            if (flow.exists(hasTestTag(Chats.TestIds.BOARD_MENU))) {
+                Espresso.pressBack()
+                flow.waitForGone(hasTestTag(Chats.TestIds.BOARD_MENU), NAV_TIMEOUT)
+            }
+            waitForFirstBoardSync()
             flow.waitForGone(hasText("Syncing", substring = true), FIRST_SYNC_TIMEOUT)
             flow.settle()
         }
@@ -1222,6 +1249,43 @@ class StyleguideScreenshotsTest {
             flow.waitFor(hasTestTag("feed-question"), NETWORK_TIMEOUT)
             flow.settle(longer = true)
             flow.screenshot("sg_session")
+            // --- sg_script-card · sg_work-card (EXP-1654): the SAME relay
+            // feed web and desktop photograph, scrolled up from its tail to
+            // the code-mode call's Script card, then the `cold-start-review`
+            // workflow's Work card above it — in the session, never isolated.
+            // Real drags: a programmatic scroll is re-pinned to the tail.
+            if (ScreenshotFlow.anyRequested("sg_script-card", "sg_work-card")) {
+                val feed = hasTestTag("agent-feed")
+                // Short drags, a settle after each: a full-height fling (what
+                // `waitForInList` swipes) carried the lazy feed past the card
+                // between two polls.
+                fun revealFeedCard(tag: String) {
+                    // The feed holds more than one Work card: name the workflow's.
+                    val card = if (tag == "work-card") {
+                        hasTestTag(tag) and hasAnyDescendant(hasText("cold-start-review"))
+                    } else {
+                        hasTestTag(tag)
+                    }
+                    var drags = 0
+                    while (drags < 24) {
+                        val shown = runCatching {
+                            composeRule.onAllNodes(card).onFirst().assertIsDisplayed()
+                        }.isSuccess
+                        if (shown) break
+                        composeRule.onNode(feed)
+                            .performTouchInput { swipeDown(startY = centerY, endY = centerY + 300f, durationMillis = 400) }
+                        flow.settle()
+                        drags++
+                    }
+                    flow.waitFor(card, SYNC_TIMEOUT)
+                    flow.settle()
+                }
+                // The names stay literal: views.test.ts reads them off the source.
+                revealFeedCard("script-card")
+                flow.screenshot("sg_script-card")
+                revealFeedCard("work-card")
+                flow.screenshot("sg_work-card")
+            }
             // Session → Threads: the session page is a page OF the thread (its
             // strip stays on screen), so one Back leaves the thread.
             Espresso.pressBack()
@@ -1590,10 +1654,8 @@ class StyleguideScreenshotsTest {
         fun showThreadCards(kind: ThreadCardsKind) {
             show(kind.testId) { ThreadCardsScreen(kind) }
         }
-        showThreadCards(ThreadCardsKind.Work)
-        flow.screenshot("sg_work-card")
-        showThreadCards(ThreadCardsKind.Script)
-        flow.screenshot("sg_script-card")
+        // EXP-1654: sg_work-card + sg_script-card are the live session
+        // walk's (step "thread"); only the comment card stays capture-only.
         showThreadCards(ThreadCardsKind.Comment)
         flow.screenshot("sg_comment-call-card")
 
@@ -1792,6 +1854,60 @@ class StyleguideScreenshotsTest {
             flow.settle()
         }
     }
+
+    /**
+     * EXP-1654: the first sync's showcase row (APP-5) on the board. The base
+     * budget is [FIRST_SYNC_TIMEOUT]; past it the wait goes on (up to
+     * [FIRST_SYNC_CEILING_MS]) only while the sync is still visibly moving —
+     * the "Syncing" pill is up, no issue row has landed yet, or the row count
+     * grew in the last [FIRST_SYNC_STALL_MS]. A board that settled WITHOUT
+     * the showcase (a wrong board, a seed without APP-5) fails at once with
+     * what it saw, never after the ceiling; an EMPTY board (the persisted
+     * last board left on Launch Marketing) is switched back once first.
+     */
+    private fun waitForFirstBoardSync() {
+        val showcase = hasText(SHOWCASE_ISSUE_TITLE)
+        val start = System.currentTimeMillis()
+        if (flow.waitForOptional(showcase, FIRST_SYNC_TIMEOUT)) return
+        val ceiling = start + FIRST_SYNC_CEILING_MS
+        var lastRows = issueRowCount()
+        var lastGrowth = System.currentTimeMillis()
+        var switchedBack = false
+        while (true) {
+            if (flow.waitForOptional(showcase, 2_000L)) return
+            val now = System.currentTimeMillis()
+            val rows = issueRowCount()
+            if (rows > lastRows) {
+                lastRows = rows
+                lastGrowth = now
+            }
+            val syncing = flow.exists(hasText("Syncing", substring = true))
+            val emptyBoard = flow.exists(hasText("No issues yet"))
+            // A run that died inside board-empty leaves Launch Marketing as
+            // the persisted last board: switch back once, then judge again.
+            if (emptyBoard && !syncing && !switchedBack) {
+                switchedBack = true
+                switchBoard(TEAM_BOARD_NAME)
+                lastGrowth = System.currentTimeMillis()
+                continue
+            }
+            val moving = syncing || (rows == 0 && !emptyBoard) || now - lastGrowth < FIRST_SYNC_STALL_MS
+            if (!moving || now > ceiling) {
+                throw androidx.compose.ui.test.ComposeTimeoutException(
+                    "Showcase issue \"$SHOWCASE_ISSUE_TITLE\" missing after ${(now - start) / 1000}s — " +
+                        "$rows issue rows, syncing=$syncing, emptyBoard=$emptyBoard " +
+                        (if (now > ceiling) "(still syncing at the ceiling)" else "(the sync settled without it: wrong board or seed?)"),
+                )
+            }
+        }
+    }
+
+    private fun issueRowCount(): Int =
+        composeRule.onAllNodes(
+            SemanticsMatcher("is an issue-row-*") { node ->
+                node.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("issue-row-") == true
+            },
+        ).fetchSemanticsNodes().size
 
     /** EXP-1558: the Board tab's root on the demo board, whatever a failed
      *  step left it on. */

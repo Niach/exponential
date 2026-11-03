@@ -392,6 +392,14 @@ fn launch_registered() -> std::sync::MutexGuard<'static, std::collections::BTree
     }
 }
 
+/// DEV-ONLY `EXP_DEV_NO_REGISTER=1` (EXP-1654): never write this machine's
+/// `devices` row (`devices.register`), so a capture launch stays out of the
+/// fleet it photographs. Heartbeats only update an existing row, so nothing
+/// else creates one.
+fn dev_no_register() -> bool {
+    std::env::var("EXP_DEV_NO_REGISTER").is_ok_and(|value| value.trim() == "1")
+}
+
 fn register_device(
     trpc: Arc<api::TrpcClient>,
     account_id: String,
@@ -405,6 +413,13 @@ fn register_device(
     voice: crate::device_readiness::VoiceRows,
     executor: &gpui::BackgroundExecutor,
 ) {
+    // EXP-1654: DEV-ONLY. The shots lane photographs the seeded demo fleet
+    // (Alex's MacBook Pro + the team server), the same rows web and the
+    // natives show; a capture launch that registered itself added the
+    // capture Mac as a second "My devices" card. Unset in every real build.
+    if dev_no_register() {
+        return;
+    }
     let agents = advertisement.agents.clone();
     let unauthed_agents = advertisement.unauthed_agents.clone();
     // EXP-749: which of those speak ACP here. Sent even when empty — the

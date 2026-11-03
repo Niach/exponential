@@ -444,7 +444,7 @@ impl McpPane {
 
     fn render_endpoint(&self, cx: &mut gpui::Context<Self>) -> gpui::Stateful<gpui::Div> {
         let url = queries::active_account(cx)
-            .map(|account| endpoint_url(&account.instance_url))
+            .map(|account| endpoint_url(&queries::display_instance_url(&account.instance_url)))
             .unwrap_or_else(|| SETTINGS_MCP.endpoint_path.to_string());
         let mono = cx.theme().mono_font_family.clone();
         let copy_url = url.clone();

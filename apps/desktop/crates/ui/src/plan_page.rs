@@ -266,8 +266,6 @@ pub(crate) struct PlanPageProps<'a> {
     pub chat_name: SharedString,
     pub text: &'a ThreadText,
     pub images: &'a Entity<ImageCache>,
-    /// The styleguide specimen: every picture = the muted placeholder.
-    pub placeholders: bool,
     pub scroll: &'a ScrollHandle,
     /// The outline's active row; `None` = the scroll-spy's.
     pub active: Option<String>,
@@ -326,7 +324,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
             crate::image_preview::open_picture_gallery((*pictures).clone(), index, images.clone(), window, cx);
         })
     };
-    let open_picture = (!props.placeholders).then_some(open_picture);
+    let open_picture = Some(open_picture);
 
     // ── the header ──
     let header = h_flex()
@@ -460,8 +458,7 @@ pub(crate) fn plan_page(props: PlanPageProps, window: &Window, cx: &mut App) -> 
                         }
                     }) as crate::mosaic::OnMosaicOpen
                 });
-                let images = (!props.placeholders).then_some(props.images);
-                crate::mosaic::mosaic(&format!("{message_id}-{ix}"), &urls, images, on_open, cx)
+                crate::mosaic::mosaic(&format!("{message_id}-{ix}"), &urls, Some(props.images), on_open, cx)
             }
             PlanBlock::Markdown { text } => {
                 let mut prose = v_flex().w_full().min_w_0().gap(px(layout.block_gap));
@@ -554,14 +551,14 @@ fn lone_picture(
     cx: &mut App,
 ) -> AnyElement {
     let spec = &PLAN_PAGE.mosaic;
-    let slot = (!props.placeholders).then(|| props.images.update(cx, |cache, cx| cache.slot(src, cx)));
+    let slot = props.images.update(cx, |cache, cx| cache.slot(src, cx));
     let natural = attachment_natural_size(src, cx).or_else(|| match &slot {
-        Some(ImageSlot::Ready(image)) => image.decoded_size().map(|(w, h)| (w as f32, h as f32)),
+        ImageSlot::Ready(image) => image.decoded_size().map(|(w, h)| (w as f32, h as f32)),
         _ => None,
     });
     let aspect = natural.filter(|(w, h)| *w > 0. && *h > 0.).map_or(spec.aspect, |(w, h)| w / h);
     let picture = match slot {
-        Some(ImageSlot::Ready(image)) => Some(img(image).size_full().object_fit(ObjectFit::Cover).into_any_element()),
+        ImageSlot::Ready(image) => Some(img(image).size_full().object_fit(ObjectFit::Cover).into_any_element()),
         _ => None,
     };
     let src = src.to_string();
@@ -646,7 +643,6 @@ impl Render for PlanPageView {
                 chat_name,
                 text: &text,
                 images: &self.images,
-                placeholders: false,
                 scroll: &self.scroll,
                 active: None,
                 on_back: Some(action(true, &self.session_id)),

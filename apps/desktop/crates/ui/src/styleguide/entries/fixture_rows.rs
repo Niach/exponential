@@ -8,8 +8,6 @@ use domain::rows::{Issue, MessageRow, PullRequestIssueRow, PullRequestRow};
 use serde::de::DeserializeOwned;
 use serde_json::{json, Value};
 
-pub(crate) const SESSION_CARD_JSON: &str =
-    include_str!("../../../../../../../packages/domain-contract/fixtures/session-card.json");
 pub(crate) const SESSION_THREAD_JSON: &str =
     include_str!("../../../../../../../packages/domain-contract/fixtures/session-thread.json");
 pub(crate) const THREADS_LIST_JSON: &str =

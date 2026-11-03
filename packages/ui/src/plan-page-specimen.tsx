@@ -1,13 +1,13 @@
+import { useMemo } from "react"
 import { PLAN_PAGE_SPECIMEN } from "@exp/domain-contract/plan-page"
 import { threadAskRow, type TreeMessage } from "@exp/domain-contract/session-tree"
 import { PlanPage } from "./plan-page"
+import { useSpecimenAttachmentSrc } from "./specimen-samples"
 
 // #EXP-1493: THE plan page's styleguide specimen (plan-page.json
 // `specimen`), wide and phone, drawn by the `plan-page` entry and the app's
-// DEV-ONLY capture. Pictures = placeholders (a transparent pixel over the
-// tiles' muted fill).
-
-const PLACEHOLDER = `data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7`
+// DEV-ONLY capture. Pictures = the committed samples (EXP-1654,
+// specimen-samples.ts), never fetched.
 
 const message: TreeMessage = {
   id: `plan-specimen`,
@@ -22,8 +22,6 @@ const message: TreeMessage = {
   authorSessionId: `plan-specimen-session`,
 }
 const row = threadAskRow(message) as Extract<ReturnType<typeof threadAskRow>, { type: `plan` }>
-// The specimen's pictures are placeholders: every attachment url → the fill.
-const plan = { ...row, plan: row.plan.replace(/\/api\/attachments\/[\w-]+/g, PLACEHOLDER) }
 
 const text = (markdown: string) => (
   <div className="flex flex-col gap-2">
@@ -51,6 +49,9 @@ const text = (markdown: string) => (
 
 export function PlanPageSpecimen({ size = `wide` }: { size?: `wide` | `phone` }) {
   const wide = size === `wide`
+  // Every attachment url → its sample picture.
+  const attachmentSrc = useSpecimenAttachmentSrc()
+  const plan = useMemo(() => ({ ...row, plan: row.plan.replace(/\/api\/attachments\/([\w-]+)/g, (_, id: string) => attachmentSrc(id)) }), [attachmentSrc])
   return (
     <div
       data-testid="plan-page-specimen"
@@ -62,6 +63,7 @@ export function PlanPageSpecimen({ size = `wide` }: { size?: `wide` | `phone` })
         chatName={PLAN_PAGE_SPECIMEN.chatName}
         mobile={!wide}
         renderText={text}
+        attachmentSrc={attachmentSrc}
         busy={false}
         onDecide={() => {}}
         onBack={() => {}}
