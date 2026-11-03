@@ -88,10 +88,27 @@ pub const ECHO_INITIAL_FLOOR_DB: f32 = 0.0;
 pub const CONVERGED_FLOOR_DB: f32 = -20.0;
 pub const UNCONVERGED_BARGE_IN_MS: usize = 500;
 /// #1281 review: before convergence a frame counts when the cancelled
-/// microphone reaches this ABSOLUTE level (dBFS): the reference's level and
+/// microphone reaches an ABSOLUTE level (dBFS): the reference's level and
 /// the microphone's sit on unrelated gains (output volume, microphone gain)
-/// until the floor has measured their relation.
+/// until the floor has measured their relation. #NEW-98: that bar is
+/// calibrated per device ([`EchoGate::mic_bar`]): this until
+/// [`ECHO_FLOOR_MIN_FRAMES`] audible frames were heard (tuned on one rig,
+/// a laptop's speaker next to its microphone)...
 pub const UNCONVERGED_MIC_DB: f32 = -16.0;
+/// ...then the echo's measured level (the [`ECHO_LEVEL_QUANTILE`] of the
+/// cancelled microphone over the last [`ECHO_FLOOR_FRAMES`] audible frames
+/// that were the echo) plus this margin...
+pub const UNCONVERGED_MIC_MARGIN_DB: f32 = 6.0;
+/// ...clamped to this range (a loud speaker's echo raises the bar, at most
+/// to the max; a quiet one lowers it so a quiet talker barges in, at most
+/// to the min). RETUNE these from a real speaker's `echo_check` run (its
+/// summary prints the calibrated bar).
+pub const UNCONVERGED_MIC_MIN_DB: f32 = -30.0;
+pub const UNCONVERGED_MIC_MAX_DB: f32 = -10.0;
+/// The echo's level = this quantile of those frames' levels (the element at
+/// index `floor(length × quantile)` of the sorted history): speech has
+/// gaps, so the median would sit under the echo's words.
+pub const ECHO_LEVEL_QUANTILE: f32 = 0.9;
 /// #NEW-92: an utterance is the reply's echo when at least this share of
 /// its words appear, in order, in one sentence of the reply (or two
 /// neighbouring ones).
@@ -131,6 +148,24 @@ pub struct EchoGate {
     /// Level after the canceller minus the reference's envelope, per
     /// audible frame (the last [`ECHO_FLOOR_FRAMES`]).
     history: std::collections::VecDeque<f32>,
+    /// #NEW-98: the level after the canceller (dBFS), per audible frame
+    /// that was the echo (the last [`ECHO_FLOOR_FRAMES`]).
+    mic: std::collections::VecDeque<f32>,
+}
+
+/// Push `value` onto a history of at most [`ECHO_FLOOR_FRAMES`].
+fn remember(history: &mut std::collections::VecDeque<f32>, value: f32) {
+    history.push_back(value);
+    if history.len() > ECHO_FLOOR_FRAMES {
+        history.pop_front();
+    }
+}
+
+/// The element at index `floor(length × quantile)` of the sorted history.
+fn quantile(history: &std::collections::VecDeque<f32>, quantile: f32) -> f32 {
+    let mut sorted: Vec<f32> = history.iter().copied().collect();
+    sorted.sort_by(f32::total_cmp);
+    sorted[((sorted.len() as f32 * quantile) as usize).min(sorted.len() - 1)]
 }
 
 impl EchoGate {
@@ -139,9 +174,23 @@ impl EchoGate {
         if self.history.len() < ECHO_FLOOR_MIN_FRAMES {
             return ECHO_INITIAL_FLOOR_DB;
         }
-        let mut sorted: Vec<f32> = self.history.iter().copied().collect();
-        sorted.sort_by(f32::total_cmp);
-        sorted[sorted.len() / 2]
+        quantile(&self.history, 0.5)
+    }
+
+    /// #NEW-98: whether the unconverged bar was measured on this device.
+    pub fn calibrated(&self) -> bool {
+        self.mic.len() >= ECHO_FLOOR_MIN_FRAMES
+    }
+
+    /// #NEW-98: before convergence a frame counts at or above this level
+    /// after the canceller (dBFS): [`UNCONVERGED_MIC_DB`] until calibrated,
+    /// then the echo's level + [`UNCONVERGED_MIC_MARGIN_DB`], clamped to
+    /// [`UNCONVERGED_MIC_MIN_DB`] ..= [`UNCONVERGED_MIC_MAX_DB`].
+    pub fn mic_bar(&self) -> f32 {
+        if !self.calibrated() {
+            return UNCONVERGED_MIC_DB;
+        }
+        (quantile(&self.mic, ECHO_LEVEL_QUANTILE) + UNCONVERGED_MIC_MARGIN_DB).clamp(UNCONVERGED_MIC_MIN_DB, UNCONVERGED_MIC_MAX_DB)
     }
 
     pub fn converged(&self) -> bool {
@@ -151,21 +200,26 @@ impl EchoGate {
     /// Whether a frame (speech `probability`, its level after the canceller
     /// in dBFS) counts towards barge-in; `utterance` = the frames the open
     /// utterance has run (`None` = none open: nothing counts). An audible
-    /// frame joins the floor unless it counted within [`ECHO_FLOOR_HOLD_MS`].
+    /// frame joins the floor and the echo's level unless it counted within
+    /// [`ECHO_FLOOR_HOLD_MS`] (the member). #NEW-98: while the echo's level
+    /// is not calibrated it joins that one anyway: the call's greeting,
+    /// which nobody talks over, calibrates it, and a loud speaker's echo
+    /// that counts at [`UNCONVERGED_MIC_DB`] lifts the bar over itself
+    /// before it makes a barge-in.
     pub fn frame(&mut self, probability: f32, level_db: f32, echo: EchoState, utterance: Option<usize>) -> bool {
         let voiced = probability >= THRESHOLD && utterance.is_some();
         if !echo.replying() {
             return voiced;
         }
         let above = level_db - echo.reference_db;
-        let clears = if self.converged() { above >= self.floor() + ECHO_MARGIN_DB } else { level_db >= UNCONVERGED_MIC_DB };
+        let clears = if self.converged() { above >= self.floor() + ECHO_MARGIN_DB } else { level_db >= self.mic_bar() };
         let counts = voiced && clears;
-        if counts && utterance.is_some_and(|run| run < frames(ECHO_FLOOR_HOLD_MS)) {
-            return true;
+        let member = counts && utterance.is_some_and(|run| run < frames(ECHO_FLOOR_HOLD_MS));
+        if !member || !self.calibrated() {
+            remember(&mut self.mic, level_db);
         }
-        self.history.push_back(above);
-        if self.history.len() > ECHO_FLOOR_FRAMES {
-            self.history.pop_front();
+        if !member {
+            remember(&mut self.history, above);
         }
         counts
     }
@@ -668,6 +722,11 @@ pub struct Call {
     /// text rule; empty outside a local call), and the utterances it dropped.
     spoken: Vec<String>,
     echo_dropped: usize,
+    /// #NEW-98: [`Call::set_spoken`]'s sentences as they stood when the
+    /// open utterance began (`None` = none open): the reply's hold runs to
+    /// the utterance's START, so its closing silence and its transcription
+    /// never count against the member.
+    spoken_at_start: Option<Vec<String>>,
     /// The absolute sample count at the last partial decode.
     partial_at: usize,
     last_partial: String,
@@ -695,6 +754,7 @@ impl Call {
             gate: EchoGate::default(),
             spoken: Vec::new(),
             echo_dropped: 0,
+            spoken_at_start: None,
             partial_at: 0,
             last_partial: String::new(),
         }
@@ -714,9 +774,11 @@ impl Call {
     /// own is its echo, unless it barged in over the reply: that one is the
     /// member's, whatever it repeats. (Heard over the reply and never
     /// barged in = never transcribed at all; so the rule reads what came
-    /// after a reply, within its hold.)
+    /// after a reply, within its hold.) #NEW-98: the reply's sentences as
+    /// they stood when the utterance began.
     fn echo_text(&self, text: &str) -> bool {
-        !(self.over_reply && self.announced) && echo_of(text, &self.spoken)
+        let spoken = self.spoken_at_start.as_ref().unwrap_or(&self.spoken);
+        !(self.over_reply && self.announced) && echo_of(text, spoken)
     }
 
     /// #NEW-92: the utterances the echo text rule dropped (`echo_check`).
@@ -789,7 +851,11 @@ impl Call {
                 self.announced = false;
                 self.barging = 0;
                 self.over_reply = false;
+                self.spoken_at_start = None;
                 continue;
+            }
+            if self.spoken_at_start.is_none() {
+                self.spoken_at_start = Some(self.spoken.clone());
             }
             self.over_reply |= self.echo.replying();
             if counts {
@@ -1174,6 +1240,10 @@ mod tests {
         assert_eq!(c["bargeInMs"], etalk::BARGE_IN_MS);
         assert_eq!(c["unconvergedBargeInMs"], UNCONVERGED_BARGE_IN_MS);
         assert_eq!(f(&c["unconvergedMicDb"]), UNCONVERGED_MIC_DB);
+        assert_eq!(f(&c["unconvergedMicMarginDb"]), UNCONVERGED_MIC_MARGIN_DB);
+        assert_eq!(f(&c["unconvergedMicMinDb"]), UNCONVERGED_MIC_MIN_DB);
+        assert_eq!(f(&c["unconvergedMicMaxDb"]), UNCONVERGED_MIC_MAX_DB);
+        assert_eq!(f(&c["echoLevelQuantile"]), ECHO_LEVEL_QUANTILE);
         assert_eq!(f(&c["echoTextCoverage"]), ECHO_TEXT_COVERAGE);
         assert_eq!(c["echoTextMinWords"], ECHO_TEXT_MIN_WORDS);
         assert_eq!(c["spokenHoldMs"].as_u64().unwrap() as u128, crate::SPOKEN_HOLD.as_millis());
@@ -1272,6 +1342,112 @@ mod tests {
             feed(&mut call, -70.0, reference, 30);
             assert_eq!(said, expected, "{heard} over {reference:?}");
         }
+    }
+
+    /// #NEW-98: the reply's hold runs to the utterance's START: an answer
+    /// that repeats the reply's words and began after the hold is said
+    /// (even if `spoken` still held the reply when it closed), and one that
+    /// began within the hold is dropped (even if the hold ran out before it
+    /// closed).
+    #[test]
+    fn the_spoken_hold_is_read_when_the_utterance_begins() {
+        struct Fixed;
+        impl Transcriber for Fixed {
+            fn transcribe(&mut self, _pcm: &[f32], _language: &str) -> Result<String, String> {
+                Ok("deploy it to production".to_string())
+            }
+            fn partials(&self) -> bool {
+                false
+            }
+        }
+        let frame = |level_db: f32| -> Vec<f32> {
+            let amplitude = std::f32::consts::SQRT_2 * 10f32.powf(level_db / 20.0);
+            (0..FRAME).map(|at| amplitude * (std::f32::consts::TAU * 440.0 * at as f32 / RATE as f32).sin()).collect()
+        };
+        let reply = vec!["Should I deploy it to production?".to_string()];
+        // (spoken when the answer begins, spoken when it closes, said)
+        for (at_start, at_end, expected) in [(Vec::new(), reply.clone(), true), (reply.clone(), Vec::new(), false), (Vec::new(), Vec::new(), true)] {
+            let mut call = Call::new("c1", "en");
+            let mut vad = EnergyVad(Vec::new());
+            let mut said = false;
+            call.set_spoken(at_start.clone());
+            for _ in 0..20 {
+                call.feed(&frame(-20.0), &mut vad, &mut Fixed, &mut |event| said |= matches!(event, Event::Said { .. })).unwrap();
+            }
+            call.set_spoken(at_end.clone());
+            for _ in 0..30 {
+                call.feed(&frame(-70.0), &mut vad, &mut Fixed, &mut |event| said |= matches!(event, Event::Said { .. })).unwrap();
+            }
+            assert_eq!(said, expected, "{at_start:?} then {at_end:?}");
+        }
+
+        // The worker's side: a reply counts while it plays and for
+        // SPOKEN_HOLD after it ended, no longer.
+        let now = std::time::Instant::now();
+        let ended = |ms: u64| Some(now - std::time::Duration::from_millis(ms));
+        assert_eq!(crate::SPOKEN_HOLD, std::time::Duration::from_millis(500));
+        assert_eq!(crate::still_spoken(&[(reply.clone(), None)], now), reply);
+        assert_eq!(crate::still_spoken(&[(reply.clone(), ended(400))], now), reply);
+        assert!(crate::still_spoken(&[(reply.clone(), ended(500))], now).is_empty());
+        // "deploy it to production" 1 s after the reply: the member's (it
+        // was dropped as echo under the 3 s hold).
+        let after = crate::still_spoken(&[(reply.clone(), ended(1000))], now);
+        assert!(after.is_empty());
+        assert!(!echo_of("deploy it to production", &after));
+        assert!(echo_of("deploy it to production", &reply));
+    }
+
+    /// #NEW-98: the unconverged bar, calibrated from synthetic echo levels.
+    #[test]
+    fn the_unconverged_bar_is_calibrated_per_device() {
+        let reply = EchoState { reference_db: -20.0 };
+        // Echo frames teach it: unvoiced, outside an utterance.
+        let teach = |gate: &mut EchoGate, levels: &[f32]| {
+            for level in levels {
+                gate.frame(0.1, *level, reply, None);
+            }
+        };
+        // -16 dBFS until echoFloorMinFrames frames were heard.
+        let mut gate = EchoGate::default();
+        teach(&mut gate, &[-30.0; ECHO_FLOOR_MIN_FRAMES - 1]);
+        assert_eq!(gate.mic_bar(), UNCONVERGED_MIC_DB);
+        teach(&mut gate, &[-30.0]);
+        assert_eq!(gate.mic_bar(), -24.0);
+        // The 0.9 quantile, not the median: the echo's words, not its gaps.
+        let mut gate = EchoGate::default();
+        let mut levels = vec![-50.0; 18];
+        levels.extend([-24.0, -23.0]);
+        teach(&mut gate, &levels);
+        assert_eq!(gate.mic_bar(), -18.0);
+        // Clamped both ways.
+        let mut gate = EchoGate::default();
+        teach(&mut gate, &[-60.0; 16]);
+        assert_eq!(gate.mic_bar(), UNCONVERGED_MIC_MIN_DB);
+        let mut gate = EchoGate::default();
+        teach(&mut gate, &[-8.0; 16]);
+        assert_eq!(gate.mic_bar(), UNCONVERGED_MIC_MAX_DB);
+        // It follows the last echoFloorFrames frames (the speaker got louder).
+        let mut gate = EchoGate::default();
+        teach(&mut gate, &[-40.0; ECHO_FLOOR_FRAMES]);
+        assert_eq!(gate.mic_bar(), UNCONVERGED_MIC_MIN_DB);
+        teach(&mut gate, &[-20.0; ECHO_FLOOR_FRAMES]);
+        assert_eq!(gate.mic_bar(), -14.0);
+        // A quiet talker (-25 dBFS) counts against a quiet echo, and once
+        // calibrated never raises the bar against themself.
+        let mut gate = EchoGate::default();
+        teach(&mut gate, &[-36.0; 16]);
+        assert!(!gate.converged());
+        for run in 1..=40 {
+            assert!(gate.frame(0.9, -25.0, reply, Some(run)), "frame {run}");
+        }
+        assert_eq!(gate.mic_bar(), -30.0);
+        // Uncalibrated, a loud echo counts at -16 dBFS but lifts the bar
+        // over itself before 500 ms of it counted.
+        let mut gate = EchoGate::default();
+        let counted = (1..=60).filter(|run| gate.frame(0.9, -12.0, EchoState { reference_db: -6.0 }, Some(*run))).count();
+        assert_eq!(counted, ECHO_FLOOR_MIN_FRAMES);
+        assert!(counted < frames(UNCONVERGED_BARGE_IN_MS));
+        assert_eq!(gate.mic_bar(), UNCONVERGED_MIC_MAX_DB);
     }
 
     #[test]

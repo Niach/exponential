@@ -193,9 +193,26 @@ struct CallOut {
     stream: Arc<dyn sink::Stream>,
 }
 
-/// #NEW-92: how long after a reply ended its words still count as echo
-/// (its echo tail, the segment's closing silence, a CPU transcription).
-pub(crate) const SPOKEN_HOLD: Duration = Duration::from_secs(3);
+/// #NEW-92: how long after a reply ended its words still count as echo for
+/// an utterance that BEGINS by then. #NEW-98: its echo tail only (the
+/// canceller's `echo::TAIL_MS` of 300 ms plus the devices' latencies, as
+/// `listen::ECHO_WINDOW_MS` covers them): the utterance's closing silence
+/// and its transcription no longer count, since the call reads the reply's
+/// sentences as they stood when the utterance began (`listen::Call`). It
+/// was 3 s and dropped "deploy it to production" answered within 3 s of
+/// "Should I deploy it to production?". RETUNE from a real speaker.
+pub const SPOKEN_HOLD: Duration = Duration::from_millis(500);
+
+/// #NEW-92: the sentences of `spoken` (a reply's, and when it ended) a
+/// local call may still hear at `now`: a reply still playing, or one that
+/// ended less than [`SPOKEN_HOLD`] ago.
+pub(crate) fn still_spoken(spoken: &[(Vec<String>, Option<Instant>)], now: Instant) -> Vec<String> {
+    spoken
+        .iter()
+        .filter(|(_, ended)| ended.is_none_or(|ended| now.saturating_duration_since(ended) < SPOKEN_HOLD))
+        .flat_map(|(sentences, _)| sentences.iter().cloned())
+        .collect()
+}
 
 impl Shared {
     fn new(listening: Arc<listener::Listening>, emit: Emitter) -> Self {
@@ -321,11 +338,7 @@ impl Shared {
     /// #NEW-92: what a local call may still hear of the latest reply.
     fn spoken(&self) -> Vec<String> {
         let spoken = self.spoken.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        spoken
-            .iter()
-            .filter(|(_, ended)| ended.is_none_or(|ended| ended.elapsed() < SPOKEN_HOLD))
-            .flat_map(|(sentences, _)| sentences.iter().cloned())
-            .collect()
+        still_spoken(&spoken, Instant::now())
     }
 
     /// A reply starts: its sentences join the previous reply's (whose

@@ -305,7 +305,7 @@ fn main() {
         let reply_sentences = {
             let spoken = spoken.lock().unwrap();
             match spoken.1 {
-                Some(ended) if ended.elapsed() >= Duration::from_secs(3) => Vec::new(),
+                Some(ended) if ended.elapsed() >= etalk_engine::SPOKEN_HOLD => Vec::new(),
                 _ => spoken.0.clone(),
             }
         };
@@ -369,11 +369,12 @@ fn main() {
     }
     if let Some(metrics) = echo.metrics() {
         println!(
-            "canceller: delay {:?} samples, ERLE {:.1} dB, divergence resets {}; the gate's echo floor {:.1} dB",
+            "canceller: delay {:?} samples, ERLE {:.1} dB, divergence resets {}; the gate's echo floor {:.1} dB, unconverged bar {:.1} dBFS",
             metrics.delay_samples,
             metrics.canceller.erle_db,
             metrics.canceller.divergence_resets,
-            gated.echo_gate().floor()
+            gated.echo_gate().floor(),
+            gated.echo_gate().mic_bar()
         );
     }
     for name in ["gated", "ungated"] {
