@@ -10,6 +10,7 @@
 import {
   STEER_CONN_STATS,
   steerConnEventValid,
+  steerViewErrorClass,
   type SteerConnData,
   type SteerConnEvent,
   type SteerConnPath,
@@ -91,7 +92,9 @@ export class SteerViewStats implements FeedStats {
   constructor(
     private readonly record: (event: SteerConnEvent) => void,
     private readonly now: () => number = Date.now,
-    private readonly settleAfterMs = STEER_CONN_STATS.settleAfterMs
+    private readonly settleAfterMs = STEER_CONN_STATS.settleAfterMs,
+    // #EXP-1678: a hidden page's view that fails says so (`background`).
+    private readonly background: () => boolean = () => globalThis.document?.visibilityState === `hidden`
   ) {}
 
   /** The view opened (its first dial); later calls are no-ops. */
@@ -147,16 +150,18 @@ export class SteerViewStats implements FeedStats {
 
   private outcome(): Omit<SteerConnData, `phase`> {
     const base = { platform: `web`, version: WEB_APP_VERSION }
-    if (this.path !== undefined) {
+    const ok = this.path !== undefined
+    const errorClass = steerViewErrorClass({ ok, lastError: this.lastError, background: !ok && this.background() })
+    if (ok) {
       return {
         ...base,
         outcome: `ok`,
         path: this.path,
         firstFrameMs: this.firstFrameMs,
-        ...(this.lastError ? { errorClass: this.lastError } : {}),
+        ...(errorClass ? { errorClass } : {}),
       }
     }
-    return { ...base, outcome: `failed`, errorClass: this.lastError ?? `other` }
+    return { ...base, outcome: `failed`, errorClass }
   }
 
   private emit(data: SteerConnData) {

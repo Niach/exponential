@@ -263,7 +263,7 @@
     }
   ],
   "connStats": {
-    "$comment": "CONNECTION ANALYTICS (privacy-safe: no content, no user, team, session or device id ever leaves). Every viewer (web, desktop, iOS, Android) and every device serving a feed records eCore event envelopes (packages/ecore `envelope`: {v:1, id, kind, at, source, data}, sessionId OMITTED) and posts them in batches (<= `batchMax`, every `flushMs` and on app background / page hide) to tRPC `connStats.record {events}`; the server validates each against `fields`, drops what fails, stores accepted rows in `steer_connection_events` (no user column) and deletes rows older than `retentionDays`. KINDS: `steer.view` = one per viewer OPEN of a session feed (source `steer-viewer`), recorded twice: phase `settled` once the first frame is applied or `settleAfterMs` passed without one (outcome `ok` | `failed`), and phase `ended` when the viewer closes (with durationMs, fallbacks, reconnects, failures; a view killed with the app has only `settled`). `steer.serve` = one per feed a DEVICE served (source `steer-device`), phase `ended`, path = the carrier it served on. FIELDS: platform (`web` | `desktop` | `ios` | `android` | `cli`), version (the app version string), path (`direct` = an eNet direct iroh path, `iroh_relay` = eNet through an iroh relay, `server_fallback` = the sealed relay tunnel; the carrier that delivered the FIRST frame; absent on a failed settle), firstFrameMs (open -> the first applied frame), errorClass (the LAST failure: `errorClasses`), fallbacks (times the relay leg opened), reconnects (feed restarts after a first frame), durationMs, failures ({errorClass: count}). DASHBOARD (admin, web-only): per platform and version over a window (24h / 7d / 30d): views (settled), success rate (ok / settled), p50 and p95 firstFrameMs of ok settles, fallback rate (ended views with fallbacks > 0, plus settles whose path is server_fallback, over views). Targets: success >= 99%, p95 first frame < 2000 ms, fallback rare.",
+    "$comment": "CONNECTION ANALYTICS (privacy-safe: no content, no user, team, session or device id ever leaves). Every viewer (web, desktop, iOS, Android) and every device serving a feed records eCore event envelopes (packages/ecore `envelope`: {v:1, id, kind, at, source, data}, sessionId OMITTED) and posts them in batches (<= `batchMax`, every `flushMs` and on app background / page hide) to tRPC `connStats.record {events}`; the server validates each against `fields`, drops what fails, stores accepted rows in `steer_connection_events` (no user column) and deletes rows older than `retentionDays`. KINDS: `steer.view` = one per viewer OPEN of a session feed (source `steer-viewer`), recorded twice: phase `settled` once the first frame is applied or `settleAfterMs` passed without one (outcome `ok` | `failed`), and phase `ended` when the viewer closes (with durationMs, fallbacks, reconnects, failures; a view killed with the app has only `settled`). `steer.serve` = one per feed a DEVICE served (source `steer-device`), phase `ended`, path = the carrier it served on. FIELDS: platform (`web` | `desktop` | `ios` | `android` | `cli`), version (the app version string), path (`direct` = an eNet direct iroh path, `iroh_relay` = eNet through an iroh relay, `server_fallback` = the sealed relay tunnel; the carrier that delivered the FIRST frame; absent on a failed settle), firstFrameMs (open -> the first applied frame), errorClass (`errorClasses`; reference `steerViewErrorClass`, cases `errorClassCases` {phase, ok, lastError, background} -> errorClass, #EXP-1678: a FAILED view (settled or ended, no first frame) ALWAYS carries one, never empty and never `other` for want of a failure: `background` when the app or page is in the background at that moment (the OS cut or froze the carriers, which count no failure meanwhile), else the LAST carrier failure, else `dialing` (nothing answered and nothing failed yet: discovery, the eNet join and the relay leg are all still in flight); an OK view carries its last failure, if any, and `background` never), fallbacks (times the relay leg opened), reconnects (feed restarts after a first frame), durationMs, failures ({errorClass: count}). DASHBOARD (admin, web-only): per platform and version over a window (24h / 7d / 30d): views (settled), success rate (ok / settled), p50 and p95 firstFrameMs of ok settles, fallback rate (ended views with fallbacks > 0, plus settles whose path is server_fallback, over views). Targets: success >= 99%, p95 first frame < 2000 ms, fallback rare.",
     "kinds": ["steer.view", "steer.serve"],
     "sources": ["steer-viewer", "steer-device"],
     "phases": ["settled", "ended"],
@@ -284,7 +284,20 @@
       "device_unsupported",
       "ticket_failed",
       "relay_closed",
-      "other"
+      "other",
+      "dialing",
+      "background"
+    ],
+    "errorClassCases": [
+      { "name": "an ok settle carries no class", "phase": "settled", "ok": true, "lastError": null, "background": false, "errorClass": null },
+      { "name": "an ok view that ended after a failure keeps it", "phase": "ended", "ok": true, "lastError": "stale", "background": false, "errorClass": "stale" },
+      { "name": "an ok view that ended in the background keeps its last failure", "phase": "ended", "ok": true, "lastError": null, "background": true, "errorClass": null },
+      { "name": "a failed settle names the last carrier failure", "phase": "settled", "ok": false, "lastError": "join_timeout", "background": false, "errorClass": "join_timeout" },
+      { "name": "a failed settle with nothing failed yet is still dialing", "phase": "settled", "ok": false, "lastError": null, "background": false, "errorClass": "dialing" },
+      { "name": "a failed settle in the background", "phase": "settled", "ok": false, "lastError": null, "background": true, "errorClass": "background" },
+      { "name": "the background wins over an earlier failure", "phase": "settled", "ok": false, "lastError": "no_endpoint", "background": true, "errorClass": "background" },
+      { "name": "a view parked before its first frame", "phase": "ended", "ok": false, "lastError": null, "background": true, "errorClass": "background" },
+      { "name": "a view closed while still dialing", "phase": "ended", "ok": false, "lastError": null, "background": false, "errorClass": "dialing" }
     ],
     "settleAfterMs": 10000,
     "flushMs": 60000,
@@ -313,6 +326,45 @@
           "at": 1793500000000,
           "source": "steer-viewer",
           "data": { "phase": "settled", "platform": "web", "version": "0.20.8", "outcome": "failed", "errorClass": "join_timeout" }
+        },
+        "valid": true
+      },
+      {
+        "name": "a failed settle still dialing (#EXP-1678)",
+        "event": {
+          "v": 1,
+          "id": "e2b",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "data": {
+            "phase": "settled",
+            "platform": "android",
+            "version": "0.14.102",
+            "outcome": "failed",
+            "errorClass": "dialing"
+          }
+        },
+        "valid": true
+      },
+      {
+        "name": "an ended view parked in the background (#EXP-1678)",
+        "event": {
+          "v": 1,
+          "id": "e2c",
+          "kind": "steer.view",
+          "at": 1793500000000,
+          "source": "steer-viewer",
+          "data": {
+            "phase": "ended",
+            "platform": "ios",
+            "version": "0.14.90",
+            "outcome": "failed",
+            "errorClass": "background",
+            "durationMs": 7000,
+            "fallbacks": 0,
+            "reconnects": 0
+          }
         },
         "valid": true
       },

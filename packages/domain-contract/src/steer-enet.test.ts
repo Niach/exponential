@@ -11,6 +11,7 @@ import {
   steerCarrierStep,
   steerConnAggregate,
   steerConnEventValid,
+  steerViewErrorClass,
   type SteerConnRow,
   steerBatches,
   steerOfflineRedial,
@@ -76,6 +77,11 @@ describe(`sealed relay fallback + connection analytics (fixtures/steer-enet.json
   for (const c of fixture.connStats.validCases) {
     test(`connStats valid: ${c.name}`, () => {
       expect(steerConnEventValid(c.event)).toBe(c.valid)
+    })
+  }
+  for (const c of fixture.connStats.errorClassCases) {
+    test(`connStats errorClass: ${c.name}`, () => {
+      expect(steerViewErrorClass(c) ?? null).toBe(c.errorClass)
     })
   }
   for (const c of fixture.connStats.aggregateCases) {

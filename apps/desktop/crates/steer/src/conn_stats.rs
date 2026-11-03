@@ -50,6 +50,8 @@ pub const ERROR_CLASSES: &[&str] = &[
     "ticket_failed",
     "relay_closed",
     "other",
+    "dialing",
+    "background",
 ];
 /// A view with no first frame by then settles `failed`.
 pub const SETTLE_AFTER: Duration = Duration::from_millis(10_000);
@@ -292,6 +294,20 @@ pub fn error_class(name: &str) -> &'static str {
     ERROR_CLASSES.iter().copied().find(|class| *class == name).unwrap_or("other")
 }
 
+/// #EXP-1678 (`errorClassCases`, TS `steerViewErrorClass`): a FAILED view
+/// always names a class: `background` while the app is in the background,
+/// else the last carrier failure, else `dialing` (nothing answered or failed
+/// yet). An OK view keeps its last failure, if any.
+pub fn view_error_class(ok: bool, last_error: Option<&'static str>, background: bool) -> Option<&'static str> {
+    if ok {
+        return last_error;
+    }
+    if background {
+        return Some("background");
+    }
+    Some(last_error.unwrap_or("dialing"))
+}
+
 /// The eNet path a chat link runs on, as the schema names it.
 pub fn enet_path(path: Option<enet_core::ChatPath>) -> &'static str {
     match path {
@@ -368,5 +384,16 @@ mod tests {
         };
         assert!(event_valid(&envelope(KIND_SERVE, SOURCE_DEVICE, &failed)));
         assert_eq!(error_class("a prompt"), "other");
+    }
+
+    #[test]
+    fn a_failed_view_always_names_its_class() {
+        let cases = fixture()["errorClassCases"].as_array().unwrap().clone();
+        assert!(!cases.is_empty());
+        for c in cases {
+            let last = c["lastError"].as_str().map(error_class);
+            let got = view_error_class(c["ok"].as_bool().unwrap(), last, c["background"].as_bool().unwrap());
+            assert_eq!(got, c["errorClass"].as_str(), "{}", c["name"]);
+        }
     }
 }

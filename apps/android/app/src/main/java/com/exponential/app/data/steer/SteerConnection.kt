@@ -378,7 +378,7 @@ class SteerConnection internal constructor(
         get() = !closed && _phase.value is AgentPhase.Ended && _history.value == HistoryState.DeviceOffline
 
     /** EXP-1529: the open `steer.view`; the carriers report fallbacks and failures into it. */
-    private val viewStats = stats?.let { SteerViewStats(it, version, nowMs) }
+    private val viewStats = stats?.let { SteerViewStats(it, version, nowMs, background = { background }) }
     private var settleJob: Job? = null
 
     /** EXP-1529: when the last dial's carriers were both down (the lostBanner clock), when it knew. */

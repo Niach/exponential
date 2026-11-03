@@ -24,6 +24,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.boolean
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -100,6 +101,39 @@ class SteerFallbackTest {
             val name = case["name"]!!.jsonPrimitive.content
             assertEquals(name, case["valid"]!!.jsonPrimitive.boolean, steerConnEventValid(case["event"]!!))
         }
+    }
+
+    /** #EXP-1678: a failed view always names its class. */
+    @Test
+    fun connStatsErrorClassCasesReplay() {
+        val cases = fixture["connStats"]!!.jsonObject["errorClassCases"]!!.jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val name = case["name"]!!.jsonPrimitive.content
+            val expected = case["errorClass"]!!.jsonPrimitive.contentOrNull
+            val got = steerViewErrorClass(
+                ok = case["ok"]!!.jsonPrimitive.boolean,
+                lastError = case["lastError"]!!.jsonPrimitive.contentOrNull,
+                background = case["background"]!!.jsonPrimitive.boolean,
+            )
+            assertEquals(name, expected, got)
+        }
+    }
+
+    @Test
+    fun aViewWithNoFailureSettlesDialingAndParksBackground() {
+        val events = mutableListOf<JsonObject>()
+        var now = 0L
+        var away = false
+        val view = SteerViewStats({ events += it }, "1.2.3", { now }, background = { away })
+        view.open()
+        now = 10_000
+        view.settleTimeout()
+        away = true
+        view.close()
+        assertEquals("dialing", events[0]["data"]!!.jsonObject["errorClass"]!!.jsonPrimitive.content)
+        assertEquals("background", events[1]["data"]!!.jsonObject["errorClass"]!!.jsonPrimitive.content)
+        assertTrue(events.all(::steerConnEventValid))
     }
 
     // ── the tunnel ──────────────────────────────────────────────────────
