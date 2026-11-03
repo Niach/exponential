@@ -158,8 +158,16 @@ export function parseTimestamp(text: string): number | null {
 
 const pad = (n: number, w: number) => String(n).padStart(w, `0`)
 
+/** The days a date may be: 0000-01-01 .. 9999-12-31 (checked BEFORE the
+ *  calendar maths, so a huge or non-finite day never reaches it). */
+const MIN_DAY = -719_528
+const MAX_DAY = 2_932_896
+/** The most calendar steps (days) any `dateAdd` can take and stay in range. */
+const MAX_CALENDAR_STEPS = 4_000_000
+
 /** An instant as `YYYY-MM-DDTHH:MM:SS.sssZ` (JS `toISOString`), years 0..9999. */
 export function formatTimestamp(ms: number): string {
+  if (!(ms >= MIN_DAY * DAY_MS && ms < (MAX_DAY + 1) * DAY_MS)) fail(`date out of range`)
   const day = Math.floor(ms / DAY_MS)
   const tod = ms - day * DAY_MS
   const d = dayFromNumber(day)
@@ -168,6 +176,7 @@ export function formatTimestamp(ms: number): string {
 }
 
 function dayText(day: number): string {
+  if (!(day >= MIN_DAY && day <= MAX_DAY)) fail(`date out of range`)
   const d = dayFromNumber(day)
   if (d.y < 0 || d.y > 9999) fail(`date out of range`)
   return formatDay(d)
@@ -218,6 +227,7 @@ function addMonths(day: number, months: number): number {
 }
 
 function addCalendar(day: number, n: number, unit: string): number {
+  if (!(Math.abs(n) <= MAX_CALENDAR_STEPS)) fail(`date out of range`)
   if (unit === `day`) return day + n
   if (unit === `week`) return day + 7 * n
   return addMonths(day, n * (unit === `month` ? 1 : unit === `quarter` ? 3 : 12))

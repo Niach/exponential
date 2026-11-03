@@ -41,7 +41,7 @@ import { trpc } from "@/lib/trpc-client"
 // skill in the MCP server row's layout (glyph, name + Default pill, the
 // description as its caption, the owners' "…" menu); a row opens the skill's
 // page, built like the prompt page (name, description, the mono body, the
-// "On by default" switch, Delete behind THE Prompt). Members read every page.
+// "Pre-select in new sessions" switch, Delete behind THE Prompt). Members read every page.
 
 const COPY = SKILLS.list
 const PAGE = SKILLS.page

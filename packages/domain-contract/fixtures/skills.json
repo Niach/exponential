@@ -25,7 +25,7 @@
       { "id": "name", "label": "Name", "placeholder": "review-checklist" },
       { "id": "description", "label": "Description", "placeholder": "What the skill does and when to use it" },
       { "id": "body", "label": "Instructions", "placeholder": "The SKILL.md body, in markdown" },
-      { "id": "enabledByDefault", "label": "On by default" },
+      { "id": "enabledByDefault", "label": "Pre-select in new sessions" },
       { "id": "delete", "label": "Delete skill", "ownerOnly": true }
     ],
     "save": "Save",
