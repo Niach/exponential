@@ -107,7 +107,10 @@ private enum AppExportError: LocalizedError {
 /// opened by the Apps band's `Import…` pill): paste or choose an
 /// app file; as the text changes (debounced) the SERVER lists its issues as
 /// `path: message` rows; Import (enabled only with none) creates the app
-/// and opens its editor.
+/// and opens its editor. VAPP-234 (fixtures/app-templates.json): the
+/// TEMPLATES step above the field: one row per signed template (a tap =
+/// `apps.importTemplate` at once, then its editor) and the sample-records
+/// switch row.
 struct AppImportStep: View {
     let teamId: String
     /// The imported app's id.
@@ -122,12 +125,16 @@ struct AppImportStep: View {
     @State private var issues: [ImportIssue]?
     @State private var choosing = false
     @State private var importing = false
+    @State private var withRecords = false
+    /// The template being imported (every row waits).
+    @State private var picking: String?
 
     var body: some View {
         GlassSheetChrome(
             title: AppExport.Copy.importTitle,
             content: {
                 VStack(alignment: .leading, spacing: 8) {
+                    templates
                     GlassTextField(
                         AppExport.Copy.importPlaceholder,
                         text: Binding(get: { text }, set: { text = Self.typed($0, after: text) }),
@@ -180,6 +187,68 @@ struct AppImportStep: View {
         .fileImporter(isPresented: $choosing, allowedContentTypes: [.json]) { result in
             guard case let .success(url) = result else { return }
             Task { await read(url) }
+        }
+    }
+
+    /// VAPP-234: the band, one row per template (glyph, name over the muted
+    /// description), then the sample-records switch row.
+    private var templates: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            GlassSectionBand(AppTemplates.Copy.title)
+            VStack(spacing: 0) {
+                ForEach(Array(AppTemplates.templates.enumerated()), id: \.element.id) { index, template in
+                    if index > 0 { GlassDivider() }
+                    Button {
+                        Task { await pickTemplate(template.id) }
+                    } label: {
+                        HStack(spacing: 10) {
+                            AgentRowIcon(icon: template.icon, color: template.color)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(template.name)
+                                    .font(.subheadline.weight(.medium))
+                                    .foregroundStyle(.white)
+                                    .lineLimit(1)
+                                Text(template.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                    .lineLimit(1)
+                            }
+                            Spacer(minLength: 0)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(picking != nil || importing)
+                    .accessibilityIdentifier("\(AppTemplates.TestIds.row)-\(template.id)")
+                }
+            }
+            .glassSection()
+            GlassToggleRow(AppTemplates.Copy.includeRecords, isOn: $withRecords)
+                .font(.subheadline)
+                .disabled(picking != nil)
+                .accessibilityIdentifier(AppTemplates.TestIds.records)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                .glassRow()
+        }
+        .padding(.bottom, 4)
+    }
+
+    private func pickTemplate(_ template: String) async {
+        guard picking == nil, !importing else { return }
+        picking = template
+        do {
+            let created = try await deps.appsApi.importTemplate(accountId: accountId, teamId: teamId, template: template, includeRecords: withRecords)
+            dismiss()
+            onImported(created.id)
+        } catch {
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "import", thing: "the template"),
+                description: error.trpcUserMessage
+            )
+            picking = nil
         }
     }
 

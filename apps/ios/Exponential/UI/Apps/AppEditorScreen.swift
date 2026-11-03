@@ -51,7 +51,10 @@ struct AppEditorScreen: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.pushRoute) private var pushRoute
     @State private var model = AppEditorModel()
+    /// VAPP-234: the draft's "Start from a template" = the import sheet.
+    @State private var importing = false
     @State private var tab: Tab = .chat
     /// The version shown in the Preview instead of the head (nil = head).
     @State private var viewing: Int?
@@ -210,6 +213,16 @@ struct AppEditorScreen: View {
         }
         .background {
             Color.clear
+                .sheet(isPresented: $importing) {
+                    if let teamId = model.app?.teamId {
+                        AppImportStep(teamId: teamId) { imported in
+                            pushRoute(.app(accountId: accountId, appId: imported))
+                        }
+                    }
+                }
+        }
+        .background {
+            Color.clear
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
                 .glassAlert(isPresented: $deleteOpen) {
@@ -352,6 +365,12 @@ struct AppEditorScreen: View {
             GlassPill(text, size: .md, mode: .action { sendStarter(text) }, enabled: enabled)
                 .accessibilityIdentifier(Apps.TestIds.starter)
         }
+        // VAPP-234: never disabled (an import needs no device).
+        let fromTemplate = GlassPill(AppTemplates.Copy.fromTemplate, size: .md, mode: .action {
+            UIApplication.endEditing()
+            importing = true
+        })
+        .accessibilityIdentifier(AppTemplates.TestIds.fromTemplate)
         return GeometryReader { geometry in
             ScrollView {
                 EmptyState(title: Apps.Copy.starterTitle, icon: AppIcons.navApps, size: .page) {
@@ -359,9 +378,11 @@ struct AppEditorScreen: View {
                         VStack(spacing: 8) {
                             HStack(spacing: 8) { pills[0]; pills[1] }
                             HStack(spacing: 8) { pills[2]; pills[3] }
+                            fromTemplate
                         }
                         VStack(spacing: 8) {
                             ForEach(pills.indices, id: \.self) { pills[$0] }
+                            fromTemplate
                         }
                     }
                 }

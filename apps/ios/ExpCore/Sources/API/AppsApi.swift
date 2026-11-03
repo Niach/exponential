@@ -88,6 +88,13 @@ public struct AppImportCheck: Decodable, Sendable, Equatable {
     public let records: Int
 }
 
+/// VAPP-234 `apps.importTemplate` input (fixtures/app-templates.json).
+private struct AppImportTemplateInput: Encodable {
+    let teamId: String
+    let template: String
+    let includeRecords: Bool
+}
+
 private struct AppImportResult: Decodable {
     let app: AppCreated
 }
@@ -412,6 +419,18 @@ public final class AppsApi: Sendable {
     public func importApp(accountId: String, teamId: String, text: String) async throws -> AppCreated {
         let result: AppImportResult = try await trpc.mutation(
             accountId: accountId, path: "apps.import", input: AppImportInput(teamId: teamId, text: text)
+        )
+        return result.app
+    }
+
+    /// VAPP-234 `apps.importTemplate`: a new app out of a signed gallery
+    /// template (v1 published, its sample records when asked); the editor
+    /// opens on it like an import.
+    public func importTemplate(accountId: String, teamId: String, template: String, includeRecords: Bool) async throws -> AppCreated {
+        let result: AppImportResult = try await trpc.mutation(
+            accountId: accountId,
+            path: "apps.importTemplate",
+            input: AppImportTemplateInput(teamId: teamId, template: template, includeRecords: includeRecords)
         )
         return result.app
     }
