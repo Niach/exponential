@@ -5,6 +5,8 @@ export const USING = {
     { label: `Sessions`, link: `/docs/using/sessions/` },
     { label: `Feedback`, link: `/docs/using/feedback/` },
     { label: `Widget`, link: `/docs/using/widget/` },
+    { label: `Voice`, link: `/docs/using/voice/` },
+    { label: `Desktop app`, link: `/docs/using/desktop-app/` },
     { label: `Mobile apps`, link: `/docs/using/mobile-apps/` },
   ],
 }

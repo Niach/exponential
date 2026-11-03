@@ -144,6 +144,7 @@ release after that removes the shim crate and the old tag pattern.
 | ePilot | 0.1.0 | GitHub release (git dependencies on the tag) | `epilot-v0.1.0` |
 | eNet | 0.1.0 | crates.io `enet-core` (the bindings are not published yet) | `enet-v0.1.0` |
 | eUI (old name) | 0.1.1 | npm `@exponential_app/ui*` (deprecated), crates.io `exponential-ui`, Maven `at.exponential:ui-compose*` | `ui-v0.1.1` |
-| agent-runtime (now eAgent) | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |
+| eAgent | 0.1.0 (`exponential-agent-runtime` = its one-release re-export shim) | GitHub release (git dependency on the tag) | `eagent-v0.1.0` |
+| agent-runtime (old name of eAgent) | 0.1.0 | GitHub release (git dependency on the tag) | `agent-runtime-v0.1.0` |
 | eMCP | 0.2.0 | GitHub release (git dependency on the tag) | `emcp-v0.2.0` |
 | eCore | unreleased | none (built: `ecore` + the generated TS/Swift/Kotlin) | none |

@@ -1,0 +1,27 @@
+---
+title: Desktop app
+description: "The native desktop app for macOS, Windows and Linux runs your sessions, keeps itself up to date and raises system notifications."
+---
+
+import { LinkButton } from "@astrojs/starlight/components"
+import PlatformShots from "../../../../components/PlatformShots.astro"
+
+<PlatformShots view="steering" platforms={["desktop"]} />
+
+The desktop app runs your [sessions](/docs/using/sessions/) and the git tools around them, on macOS, Windows and Linux. Sign in to the cloud or to your [self-hosted](/docs/get-started/self-host/) server.
+
+<LinkButton href="/download/">Download</LinkButton>
+
+It updates itself in the background and restarts once its sessions pause between turns. **Restart to update** in the banner does it at once.
+
+## Notifications
+
+<PlatformShots view="settings-notifications" platforms={["desktop"]} />
+
+Whatever lands in your inbox also arrives as a system notification. A burst arrives as one, and nothing pops up for an issue you already have open. **Settings → Notifications → Desktop notifications** switches them for this computer, and the switches for each type apply too.
+
+## Voice
+
+<PlatformShots view="settings-assistant" platforms={["desktop"]} />
+
+The desktop your Assistant runs on is your voice device: it listens and speaks for you. Its tray holds push to talk, the wake word and a call to your Assistant. See [Voice](/docs/using/voice/).
