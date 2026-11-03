@@ -5,6 +5,8 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.semantics.getOrNull
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
@@ -2042,7 +2044,10 @@ class StyleguideScreenshotsTest {
         val devices = Chats.Copy.HEADERS.getValue("devices")
         val row = hasTestTag(SettingsNav.ROW_TEST_ID) and
             (hasText(devices) or hasAnyDescendant(hasText(devices)))
-        composeRule.onAllNodes(row).onFirst().performScrollTo().performClick()
+        // The row can sit under the floating tab bar once scrolled to (the
+        // Apps row pushed it down): click through semantics, not a touch.
+        composeRule.onAllNodes(row).onFirst().performScrollTo()
+            .performSemanticsAction(SemanticsActions.OnClick)
         flow.waitFor(hasTestTag(SettingsNav.PAGE_TEST_ID), NAV_TIMEOUT)
     }
 }

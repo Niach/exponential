@@ -494,8 +494,9 @@ final class StyleguideScreenshots: XCTestCase {
             let draftsChip = app.buttons["board-chip-drafts"]
             expect(draftsChip, within: Wait.nav, "The board has no Drafts chip — reseed with `bun run seed:screenshots` (the demo user's drafts)")
             draftsChip.tap()
+            // EXP-1647: a draft row is ONE combined button (title + age).
             expect(
-                app.staticTexts[Self.draftTitle].firstMatch,
+                anyElement(app, containing: Self.draftTitle),
                 within: Wait.sync,
                 "The Drafts chip never listed the seeded draft \"\(Self.draftTitle)\""
             )
