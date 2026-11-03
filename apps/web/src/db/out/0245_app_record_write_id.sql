@@ -1,0 +1,2 @@
+ALTER TABLE "app_record_events" ADD COLUMN "write_id" uuid;--> statement-breakpoint
+CREATE INDEX "idx_app_record_events_write" ON "app_record_events" USING btree ("app_id","write_id") WHERE write_id IS NOT NULL;

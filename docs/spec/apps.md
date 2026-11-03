@@ -181,7 +181,7 @@ Needs: C2, C13.
 | C21 | Public / guest links (submit-only form, read-only view) | ❌ (#VAPP-24 cancelled, #YO-27 parked) | 🆕 P1 |
 | C22 | Inbound webhooks | ❌ | 🆕 A3 |
 | C23 | Run-as identity for unattended runs | ❌ | 🆕 A1 |
-| C24 | Offline outbox for record writes | 🟡 natives read offline, writes need the network | 🆕 O1 |
+| C24 | Offline outbox for record writes | 🟡 server dedupe + reference ✅, the hosts ×3 in progress | 🟡 O1 |
 | C25 | `eapps` crate (host, query, store, broker executor) | 🟡 the query + `RecordStore` live in eUI (S1 ✅ #VAPP-189); the crate itself is open (#EXP-1420) | S2 |
 | C26 | Widget templates + slots (eDE, home screen) | ❌ | #VAPP-64, NEW-107 |
 | C27 | Form-factor / responsive templates | 🟡 `@media` conditions, `Sidebar.collapseBelow` | 🆕 U1 |
@@ -774,13 +774,17 @@ Self-hosted gets everything: the broker is the same image (`ghcr.io/niach/expone
 | Spezl | Local sqlite + eNet records space | Local first | #YO-32 |
 | eDE | Through the `eapps` crate (Exponential or Spezl store) | Same | 🆕 S4 |
 
-**🆕 O1, the outbox.** On desktop and the natives, a record write is applied locally at once and queued:
+**🟡 O1, the outbox** (#VAPP-235, fixture `app-records.json` `outbox`, TS reference `@exp/domain-contract/app-records` `outbox*`). On desktop and the natives, every record write an app makes (`records.upsert`, `records.delete`, `records.batch`) is applied locally at once and queued:
 
-- **Ids:** the client generates the uuid, so a retry is idempotent.
-- **Patches:** shallow (field-level). The server merges them **last writer wins per field**, ordered by server receive time.
-- **Delete wins** over a concurrent update.
-- **Refusals:** a write the server refuses (policy, schema, quota, transition) rolls back locally and shows a toast naming the record.
-- **What can't queue:** `exponential.*` actions and upstream calls. Their buttons are disabled offline, with the reason in the tooltip.
+- **The entry:** one per call (a package action's batch stays one entry: all or nothing), persisted per account in the host's store (desktop sync sqlite, GRDB, Room), so it survives a restart. The visible rows = the synced rows with every entry laid over them, oldest first.
+- **Ids:** the client generates the uuid of every create (`newId`) and of every write (`writeId`, the idempotency key). The records service answers a `writeId` it already logged (`app_record_events.write_id`, same app and actor) with the first write's result and writes nothing again ✅.
+- **Order:** FIFO, one request at a time, on every write, when the connection comes back and at launch. A transport failure or a server error stops the flush; nothing overtakes it.
+- **Patches:** shallow (field-level). The server merges them **last writer wins per field**, ordered by server receive time, and logs the R4 history event like any write.
+- **Delete wins** over a concurrent update: a single update or delete answered NOT_FOUND is dropped silently.
+- **Refusals:** a write the server refuses (policy, schema, quota, transition) rolls back locally (its entry leaves) and shows the failed-action toast.
+- **Acked entries** keep overlaying until the shape reflects them (or 30 s).
+- **Pending:** while an app has unsent writes, its header shows the existing `ui-offline` glyph, labelled `{n} changes waiting to sync`.
+- **What can't queue:** `exponential.*` actions and upstream calls. Their buttons are disabled offline, with the reason in the tooltip (🆕).
 
 The web stays online-only. Issue and comment writes have their own NEW-13.
 

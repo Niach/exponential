@@ -2554,9 +2554,16 @@ export const appRecordEvents = pgTable(
     via: varchar({ length: 16 }).$type<`editor` | `app` | `mcp` | `action` | `import`>().notNull(),
     patch: jsonb().$type<AppRecordData>(),
     before: jsonb().$type<AppRecordData>(),
+    // VAPP-235 (O1): the client write id of an outbox replay (the dedupe key:
+    // the same app + actor + write id answers the first write's result).
+    writeId: uuid(`write_id`),
     createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [index(`idx_app_record_events_record`).on(table.recordId, table.createdAt), index(`idx_app_record_events_created`).on(table.createdAt)]
+  (table) => [
+    index(`idx_app_record_events_record`).on(table.recordId, table.createdAt),
+    index(`idx_app_record_events_created`).on(table.createdAt),
+    index(`idx_app_record_events_write`).on(table.appId, table.writeId).where(sql`write_id IS NOT NULL`),
+  ]
 )
 
 // A session's issues (n ↔ n: an issue may sit in several sessions). NEW-1:

@@ -363,6 +363,50 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(row!.deletedAt).not.toBeNull()
   })
 
+  // VAPP-235 (O1, app-records.json `outbox`): a native outbox replays a write
+  // with its client write id; the server answers the FIRST result and writes
+  // nothing again (one history event), per app and actor; a create brings its
+  // client id, a taken id = CONFLICT.
+  it(`records: an outbox replay is deduped on its write id`, async () => {
+    const w = await world()
+    const appId = (await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })).app.id
+    const api = caller(w.mate).records
+    const newId = crypto.randomUUID()
+    const writeId = crypto.randomUUID()
+    const first = await api.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 3 }, newId, writeId })
+    expect(first).toMatchObject({ id: newId, created: true })
+    const again = await api.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 3 }, newId, writeId })
+    expect(again).toMatchObject({ id: newId, created: true, eventId: first.eventId })
+    // A taken client id without the write id = CONFLICT.
+    await expect(api.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-05`, hours: 1 }, newId })).rejects.toMatchObject({ code: `CONFLICT` })
+    // An update replayed twice patches once.
+    const patchId = crypto.randomUUID()
+    const patched = await api.upsert({ id: appId, kind: `entry`, data: { hours: 4 }, recordId: newId, writeId: patchId })
+    await caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: { hours: 9 }, recordId: newId })
+    expect((await api.upsert({ id: appId, kind: `entry`, data: { hours: 4 }, recordId: newId, writeId: patchId })).eventId).toBe(patched.eventId)
+    let [row] = await db.select().from(appRecords).where(eq(appRecords.id, newId))
+    expect(row!.data).toMatchObject({ hours: 9 })
+    // A batch replays its ids and events; a delete replays its event.
+    const batchId = crypto.randomUUID()
+    const batchNew = crypto.randomUUID()
+    const batch = await api.batch({ id: appId, writes: [{ op: `upsert`, kind: `entry`, data: { date: `2026-10-06`, hours: 1 }, newId: batchNew }, { op: `upsert`, kind: `entry`, data: { note: `x` }, id: newId }], writeId: batchId })
+    expect(batch.ids).toEqual([batchNew, newId])
+    expect(await api.batch({ id: appId, writes: [{ op: `upsert`, kind: `entry`, data: { date: `2026-10-06`, hours: 1 }, newId: batchNew }], writeId: batchId })).toMatchObject({ ids: batch.ids, eventIds: batch.eventIds })
+    const deleteId = crypto.randomUUID()
+    const gone = await api.delete({ id: appId, recordId: batchNew, writeId: deleteId })
+    expect((await api.delete({ id: appId, recordId: batchNew, writeId: deleteId })).eventId).toBe(gone.eventId)
+    // A plain second delete (no write id) is NOT_FOUND, as before.
+    await expect(api.delete({ id: appId, recordId: batchNew })).rejects.toMatchObject({ code: `NOT_FOUND` })
+    // One event per first write: create, update (mate), update (owner), batch update.
+    const { events } = await api.history({ id: appId, recordId: newId })
+    expect(events.map((e) => e.op)).toEqual([`update`, `update`, `update`, `create`])
+    // Another member's same write id is their own write (the key is per actor).
+    const theirs = await caller(w.owner).records.upsert({ id: appId, kind: `entry`, data: { date: `2026-10-07`, hours: 2 }, writeId })
+    expect(theirs.id).not.toBe(newId)
+    ;[row] = await db.select().from(appRecords).where(eq(appRecords.id, theirs.id))
+    expect(row!.createdBy).toBe(w.owner)
+  })
+
   // VAPP-187 (app-records.json `ownership`): only the record's author or a
   // team owner patches or deletes it; anyone else = FORBIDDEN, row untouched.
   it(`records: only the author or a team owner may patch or delete a record`, async () => {

@@ -292,14 +292,32 @@ interface EventInput {
 
 /** VAPP-215: append the writes' events in `tx` (already under the role,
  *  `eapps.write = on`); their ids in order. */
-async function logEvents(tx: Tx, app: Pick<App, `id` | `teamId`>, actor: string, via: RecordWriteVia, events: readonly EventInput[]): Promise<string[]> {
+async function logEvents(tx: Tx, app: Pick<App, `id` | `teamId`>, actor: string, via: RecordWriteVia, events: readonly EventInput[], writeId?: string): Promise<string[]> {
   if (events.length === 0) return []
   const rows = await tx
     .insert(appRecordEvents)
-    .values(events.map((e) => ({ ...e, appId: app.id, teamId: app.teamId, actor, via })))
+    .values(events.map((e) => ({ ...e, appId: app.id, teamId: app.teamId, actor, via, writeId: writeId ?? null })))
     .returning({ id: appRecordEvents.id })
   return rows.map((r) => r.id)
 }
+
+/** VAPP-235 (O1, app-records.json `outbox`): an outbox replay. Holds the
+ *  write id's lock for the transaction, then answers the events the FIRST
+ *  write with this id logged (same app and actor), in write order; null = a
+ *  first write. Runs before `asEapps` (the main role reads the events). */
+async function priorWrite(tx: Tx, appId: string, actor: string, writeId: string | undefined) {
+  if (!writeId) return null
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${`app_record_write:${writeId}`}))`)
+  const rows = await tx
+    .select({ id: appRecordEvents.id, recordId: appRecordEvents.recordId, op: appRecordEvents.op })
+    .from(appRecordEvents)
+    .where(and(eq(appRecordEvents.appId, appId), eq(appRecordEvents.writeId, writeId), eq(appRecordEvents.actor, actor)))
+    .orderBy(asc(appRecordEvents.seq))
+  return rows.length > 0 ? rows : null
+}
+
+/** VAPP-235: a client id (`newId`) that names an existing row. */
+const idTaken = () => new TRPCError({ code: `CONFLICT`, message: `A record with this id already exists` })
 
 // ── tRPC `apps.records.*` (and the MCP records_* ops through it) ──────────
 
@@ -334,9 +352,10 @@ export async function listRecords(
 export async function upsertRecord(
   userId: string,
   ref: AppRef,
-  input: { kind: string; data: Record<string, unknown>; recordId?: string; author?: string; via?: RecordWriteVia; viaAppId?: string },
+  input: { kind: string; data: Record<string, unknown>; recordId?: string; newId?: string; writeId?: string; author?: string; via?: RecordWriteVia; viaAppId?: string },
   executor: Executor = defaultDb
 ): Promise<{ txid: number; id: string; created: boolean; eventId: string }> {
+  if (input.recordId && input.newId) throw new TRPCError({ code: `BAD_REQUEST`, message: `Pass recordId (an update) or newId (a create), not both` })
   const app = await loadApp(executor, ref)
   const viewer = await viewerOf(executor, app, userId)
   assertCanWrite(viewer)
@@ -351,9 +370,12 @@ export async function upsertRecord(
   const members = onBehalf ? await teamMemberIds(executor, app.teamId) : []
   const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
   await assertTeamRefs(executor, app, input.kind, input.data)
-  let written: Record<string, unknown> = {}
+  let written: Record<string, unknown> | null = null
   const out = await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
+    // VAPP-235: an outbox replay answers the first write's result.
+    const prior = await priorWrite(tx, app.id, userId, input.writeId)
+    if (prior) return { txid: txId, id: prior[0]!.recordId, created: prior[0]!.op === `create`, eventId: prior[0]!.id }
     // VAPP-221: files only from this app (reads `attachments`: before the role).
     await assertRecordAttachments(tx, app, schemas.map((schema) => ({ schema, data: input.data })))
     if (input.recordId) {
@@ -380,9 +402,14 @@ export async function upsertRecord(
           .update(appRecords)
           .set({ data, ...(reassign ? { authorId: input.author } : {}), updatedBy: userId, updatedAt: new Date() })
           .where(eq(appRecords.id, existing.id))
-        const [eventId] = await logEvents(tx, app, userId, input.via ?? `app`, [
-          { recordId: existing.id, kind: existing.kind, op: `update`, author: reassign ? input.author! : recordAuthor(existing), patch: input.data, before: existing.data },
-        ])
+        const [eventId] = await logEvents(
+          tx,
+          app,
+          userId,
+          input.via ?? `app`,
+          [{ recordId: existing.id, kind: existing.kind, op: `update`, author: reassign ? input.author! : recordAuthor(existing), patch: input.data, before: existing.data }],
+          input.writeId
+        )
         written = data
         return { txid: txId, id: existing.id, created: false, eventId: eventId! }
       })
@@ -400,17 +427,26 @@ export async function upsertRecord(
       const [row] = await tx
         .insert(appRecords)
         // VAPP-229: an app's tool (the broker, never a client) = "via <app>".
-        .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId, viaAppId: input.viaAppId ?? null })
+        // VAPP-235: an outbox create brings its client id (`newId`).
+        .values({ ...(input.newId ? { id: input.newId } : {}), appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId, viaAppId: input.viaAppId ?? null })
+        .onConflictDoNothing({ target: appRecords.id })
         .returning({ id: appRecords.id })
-      const [eventId] = await logEvents(tx, app, userId, input.via ?? `app`, [
-        { recordId: row!.id, kind: input.kind, op: `create`, author: input.author ?? userId, patch: data, before: null },
-      ])
+      if (!row) throw idTaken()
+      const [eventId] = await logEvents(
+        tx,
+        app,
+        userId,
+        input.via ?? `app`,
+        [{ recordId: row.id, kind: input.kind, op: `create`, author: input.author ?? userId, patch: data, before: null }],
+        input.writeId
+      )
       written = data
-      return { txid: txId, id: row!.id, created: true, eventId: eventId! }
+      return { txid: txId, id: row.id, created: true, eventId: eventId! }
     })
   })
-  // #VAPP-220: a committed write fires the app's record automations.
-  afterRecordWrite(app, input.kind, out.created ? `create` : `update`, { ...written, id: out.id })
+  // #VAPP-220: a committed write fires the app's record automations (a
+  // VAPP-235 replay wrote nothing: it fires nothing).
+  if (written) afterRecordWrite(app, input.kind, out.created ? `create` : `update`, { ...(written as Record<string, unknown>), id: out.id })
   return out
 }
 
@@ -420,7 +456,8 @@ export async function deleteRecord(
   ref: AppRef,
   recordId: string,
   executor: Executor = defaultDb,
-  via: RecordWriteVia = `app`
+  via: RecordWriteVia = `app`,
+  writeId?: string
 ): Promise<{ txid: number; eventId: string }> {
   const app = await loadApp(executor, ref)
   const viewer = await viewerOf(executor, app, userId)
@@ -428,6 +465,8 @@ export async function deleteRecord(
   let gone: { kind: string; data: Record<string, unknown> } | null = null
   const out = await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
+    const prior = await priorWrite(tx, app.id, userId, writeId)
+    if (prior) return { txid: txId, eventId: prior[0]!.id }
     return asEapps(tx, { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }, async (tx) => {
       const [existing] = await tx
         .select({ id: appRecords.id, kind: appRecords.kind, data: appRecords.data, authorId: appRecords.authorId, createdBy: appRecords.createdBy })
@@ -442,9 +481,14 @@ export async function deleteRecord(
         .update(appRecords)
         .set({ deletedAt: sql`now()`, updatedBy: userId, updatedAt: new Date() })
         .where(eq(appRecords.id, existing.id))
-      const [eventId] = await logEvents(tx, app, userId, via, [
-        { recordId: existing.id, kind: existing.kind, op: `delete`, author: recordAuthor(existing), patch: null, before: existing.data },
-      ])
+      const [eventId] = await logEvents(
+        tx,
+        app,
+        userId,
+        via,
+        [{ recordId: existing.id, kind: existing.kind, op: `delete`, author: recordAuthor(existing), patch: null, before: existing.data }],
+        writeId
+      )
       gone = { kind: existing.kind, data: existing.data }
       return { txid: txId, eventId: eventId! }
     })
@@ -456,7 +500,7 @@ export async function deleteRecord(
 
 /** VAPP-194: one write of a package action's plan (`@exponential_app/eui`
  *  `ActionWrite`): a create, a patch (`id`) or a delete. */
-export type RecordBatchWrite = { op: `upsert`; kind: string; data: Record<string, unknown>; id?: string } | { op: `delete`; id: string }
+export type RecordBatchWrite = { op: `upsert`; kind: string; data: Record<string, unknown>; id?: string; newId?: string } | { op: `delete`; id: string }
 
 /** VAPP-194 (eApps E1): a package action's record writes as ONE Postgres
  *  transaction, all or nothing (docs/spec/apps.md §4.5): every write runs the
@@ -469,7 +513,8 @@ export async function commitRecordBatch(
   userId: string,
   ref: AppRef,
   writes: readonly RecordBatchWrite[],
-  executor: Executor = defaultDb
+  executor: Executor = defaultDb,
+  writeId?: string
 ): Promise<{ txid: number; ids: string[]; eventIds: string[] }> {
   const app = await loadApp(executor, ref)
   const viewer = await viewerOf(executor, app, userId)
@@ -490,6 +535,9 @@ export async function commitRecordBatch(
   const fired: { kind: string; op: RecordTriggerOp; record: Record<string, unknown> }[] = []
   const out = await executor.transaction(async (tx) => {
     const txId = await generateTxId(tx)
+    // VAPP-235: an outbox replay answers the first write's ids and events.
+    const prior = await priorWrite(tx, app.id, userId, writeId)
+    if (prior) return { txid: txId, ids: prior.map((e) => e.recordId), eventIds: prior.map((e) => e.id) }
     await assertRecordAttachments(tx, app, writes.flatMap((w, i) => (w.op === `upsert` ? schemas[i]!.map((schema) => ({ schema, data: w.data })) : [])))
     if (creates > 0) await lockAndCheckQuota(tx, app.teamId, creates)
     return asEapps(tx, scope, async (tx) => {
@@ -537,16 +585,18 @@ export async function commitRecordBatch(
           await assertRecordRefs(tx, app, w.kind, data)
           const [row] = await tx
             .insert(appRecords)
-            .values({ appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: userId, updatedBy: userId })
+            .values({ ...(w.newId ? { id: w.newId } : {}), appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: userId, updatedBy: userId })
+            .onConflictDoNothing({ target: appRecords.id })
             .returning({ id: appRecords.id })
-          fired.push({ kind: w.kind, op: `create`, record: { ...data, id: row!.id } })
-          ids.push(row!.id)
-          events.push({ recordId: row!.id, kind: w.kind, op: `create`, author: userId, patch: data, before: null })
+          if (!row) throw idTaken()
+          fired.push({ kind: w.kind, op: `create`, record: { ...data, id: row.id } })
+          ids.push(row.id)
+          events.push({ recordId: row.id, kind: w.kind, op: `create`, author: userId, patch: data, before: null })
         } catch (e) {
           at(i, e)
         }
       }
-      const eventIds = await logEvents(tx, app, userId, `action`, events)
+      const eventIds = await logEvents(tx, app, userId, `action`, events, writeId)
       return { txid: txId, ids, eventIds }
     })
   })
