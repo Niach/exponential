@@ -130,9 +130,9 @@ function appsSkill(): Files {
   )
   ref(
     `references/automations.md`,
-    `Automations: schedule, record and event triggers; agent hand-off`,
-    `docs/spec/apps.md §7.1, §7.3`,
-    [section(spec, `7.1 Triggers`), section(spec, `7.3 Agent hand-off (✅ A2, #VAPP-236)`)].join(`\n`)
+    `Automations: schedule, record, event and webhook triggers; agent hand-off`,
+    `docs/spec/apps.md §7.1-§7.3`,
+    [section(spec, `7.1 Triggers`), section(spec, `7.2 Webhooks (✅ A3 server, #VAPP-237)`), section(spec, `7.3 Agent hand-off (✅ A2, #VAPP-236)`)].join(`\n`)
   )
 
   const examples = SAMPLE_APPS.map((id) => {

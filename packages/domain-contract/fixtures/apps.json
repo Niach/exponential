@@ -81,6 +81,7 @@
       "update": "When a {kind} is updated",
       "delete": "When a {kind} is deleted",
       "event": "On {event}",
+      "webhook": "On webhook {name}",
       "paused": "Paused",
       "failed": "Failed",
       "ok": "OK",
@@ -834,8 +835,9 @@
     ]
   },
   "automationRowCases": {
-    "$comment": "#VAPP-220: automationRow(row) = {trigger, status, label}. trigger: a schedule = `copy.automations.schedule` (or `scheduleZone` with its tz) filled with the cron; a record trigger = `copy.automations.<op>` with the kind; an event = `copy.automations.event`. status = `paused` when the row names a pause (the sponsor is gone or read-only: the automation does not run), else `never` without a last run, else `failed` when the LAST run's status is not `ok`, else `ok`; label = `copy.automations.<status>`.",
+    "$comment": "#VAPP-220: automationRow(row) = {trigger, status, label}. trigger: a schedule = `copy.automations.schedule` (or `scheduleZone` with its tz) filled with the cron; a record trigger = `copy.automations.<op>` with the kind; an event = `copy.automations.event`; a webhook (#VAPP-237, `{webhook: {name}}`) = `copy.automations.webhook` with the hook name. status = `paused` when the row names a pause (the sponsor is gone or read-only: the automation does not run), else `never` without a last run, else `failed` when the LAST run's status is not `ok`, else `ok`; label = `copy.automations.<status>`.",
     "cases": [
+        {"name": "a webhook that failed", "row": {"name": "stripe_paid", "on": {"webhook": {"name": "stripe"}}, "paused": null, "lastStatus": "denied"}, "expected": {"trigger": "On webhook stripe", "status": "failed", "label": "Failed"}},
       {
         "name": "a schedule that ran",
         "row": {

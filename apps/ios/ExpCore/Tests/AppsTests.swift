@@ -208,6 +208,8 @@ final class AppsTests: XCTestCase {
                 trigger = .schedule(cron: try XCTUnwrap(schedule["cron"] as? String), tz: schedule["tz"] as? String)
             } else if let record = on["record"] as? [String: Any] {
                 trigger = .record(kind: try XCTUnwrap(record["kind"] as? String), op: try XCTUnwrap(record["op"] as? String))
+            } else if let webhook = on["webhook"] as? [String: Any] {
+                trigger = .webhook(try XCTUnwrap(webhook["name"] as? String))
             } else {
                 trigger = .event(try XCTUnwrap(on["event"] as? String))
             }

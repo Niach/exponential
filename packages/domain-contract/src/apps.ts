@@ -230,7 +230,7 @@ export function runAsOptions(members: readonly { userId: string; name?: string |
  *  Automations group, from tRPC `appAccess.appTools` `automations`. */
 export interface AutomationRowInput {
   name: string
-  on: { schedule: { cron: string; tz?: string } } | { record: { kind: string; op: `create` | `update` | `delete` } } | { event: string }
+  on: { schedule: { cron: string; tz?: string } } | { record: { kind: string; op: `create` | `update` | `delete` } } | { event: string } | { webhook: { name: string } }
   paused: string | null
   lastStatus: string | null
 }
@@ -246,7 +246,9 @@ export function automationRow(row: AutomationRowInput): { trigger: string; statu
       ? fill(on.schedule.tz ? copy.scheduleZone : copy.schedule, { cron: on.schedule.cron, tz: on.schedule.tz ?? `` })
       : `record` in on
         ? fill(copy[on.record.op], { kind: on.record.kind })
-        : fill(copy.event, { event: on.event })
+        : `webhook` in on
+          ? fill(copy.webhook, { name: on.webhook.name })
+          : fill(copy.event, { event: on.event })
   const status: AutomationStatus = row.paused ? `paused` : row.lastStatus === null ? `never` : row.lastStatus !== `ok` ? `failed` : `ok`
   return { trigger, status, label: copy[status] }
 }

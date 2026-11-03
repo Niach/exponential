@@ -159,6 +159,9 @@ data class AppAutomationDto(
                     record["op"].text() ?: return null,
                 )
             }
+            obj["webhook"] is JsonObject -> com.exponential.app.domain.Apps.AutomationTrigger.Webhook(
+                (obj["webhook"] as JsonObject)["name"].text() ?: return null,
+            )
             else -> com.exponential.app.domain.Apps.AutomationTrigger.Event(obj["event"].text() ?: return null)
         }
         return com.exponential.app.domain.Apps.AutomationRowInput(name, trigger, paused, lastStatus)

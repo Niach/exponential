@@ -15,6 +15,7 @@ export type AutomationTrigger =
   | { schedule: { cron: string; tz?: string } }
   | { record: { kind: string; op: `create` | `update` | `delete` } }
   | { event: string }
+  | { webhook: { name: string } }
 
 export interface Automation {
   name: string
@@ -24,7 +25,7 @@ export interface Automation {
   sponsor?: string
 }
 
-export type TriggerKind = `schedule` | `record` | `event`
+export type TriggerKind = `schedule` | `record` | `event` | `webhook`
 
 export interface AutomationError {
   index: number | null
@@ -151,6 +152,7 @@ export function validateAutomations(list: unknown, ctx: AutomationContext): Auto
   const errors: AutomationError[] = []
   if (list.length > fixture.limits.maxAutomations) errors.push({ index: null, code: `tooMany` })
   const seen = new Set<string>()
+  const hooks = new Set<string>()
   list.forEach((item, index) => {
     const fail = (code: string) => void errors.push({ index, code })
     if (!isObject(item)) return fail(`shape`)
@@ -168,6 +170,11 @@ export function validateAutomations(list: unknown, ctx: AutomationContext): Auto
       const record = on.record
       if (!isObject(record) || typeof record.op !== `string` || !RECORD_OPS.includes(record.op)) return fail(`on`)
       if (typeof record.kind !== `string` || !ctx.kinds.includes(record.kind)) fail(`kind`)
+    } else if (kind === `webhook`) {
+      // #VAPP-237 (A3): a hook name, unique among the app's webhooks.
+      const hook = isObject(on.webhook) ? on.webhook.name : undefined
+      if (typeof hook !== `string` || !NAME.test(hook) || hook.length > fixture.limits.nameMax || hooks.has(hook)) fail(`webhook`)
+      else hooks.add(hook)
     } else if (typeof on.event !== `string` || !EVENT.test(on.event) || on.event.length > fixture.limits.eventMax) fail(`event`)
     if (item.sponsor !== undefined && (typeof item.sponsor !== `string` || !item.sponsor.includes(`@`))) fail(`sponsor`)
     const run = item.run
@@ -181,9 +188,10 @@ export function validateAutomations(list: unknown, ctx: AutomationContext): Auto
   return errors
 }
 
-/** The trigger a record write or an event is, for `matchAutomations`;
- *  `byAgent` = the slug of the agent whose session tree caused it. */
-export type FiredBy = ({ record: { kind: string; op: string } } | { event: string }) & { byAgent?: string | null }
+/** The trigger a record write, an event or a webhook delivery is, for
+ *  `matchAutomations`; `byAgent` = the slug of the agent whose session
+ *  tree caused it. */
+export type FiredBy = ({ record: { kind: string; op: string } } | { event: string } | { webhook: string }) & { byAgent?: string | null }
 
 /** The automations a record write or event fires, in package order. LOOP
  *  GUARD: a write or event caused by an automation run fires nothing; one
@@ -198,6 +206,7 @@ export function matchAutomations(list: unknown, firedBy: FiredBy, fromAutomation
     const on = item.on as Record<string, unknown>
     if (kind === `record` && `record` in firedBy && isObject(on.record) && on.record.kind === firedBy.record.kind && on.record.op === firedBy.record.op) out.push(item.name)
     else if (kind === `event` && `event` in firedBy && on.event === firedBy.event) out.push(item.name)
+    else if (kind === `webhook` && `webhook` in firedBy && isObject(on.webhook) && on.webhook.name === firedBy.webhook) out.push(item.name)
   }
   return out
 }

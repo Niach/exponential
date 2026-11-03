@@ -85,7 +85,7 @@ class AppsTest {
             "title" to Apps.AutomationsCopy.TITLE, "schedule" to Apps.AutomationsCopy.SCHEDULE,
             "scheduleZone" to Apps.AutomationsCopy.SCHEDULE_ZONE, "create" to Apps.AutomationsCopy.CREATE,
             "update" to Apps.AutomationsCopy.UPDATE, "delete" to Apps.AutomationsCopy.DELETE,
-            "event" to Apps.AutomationsCopy.EVENT, "paused" to Apps.AutomationsCopy.PAUSED,
+            "event" to Apps.AutomationsCopy.EVENT, "webhook" to Apps.AutomationsCopy.WEBHOOK, "paused" to Apps.AutomationsCopy.PAUSED,
             "failed" to Apps.AutomationsCopy.FAILED, "ok" to Apps.AutomationsCopy.OK, "never" to Apps.AutomationsCopy.NEVER,
         )
         assertEquals(copy.keys, expectedCopy.keys)
@@ -105,6 +105,7 @@ class AppsTest {
                 "record" in on -> on["record"]!!.jsonObject.let {
                     Apps.AutomationTrigger.Record(it["kind"]!!.jsonPrimitive.content, it["op"]!!.jsonPrimitive.content)
                 }
+                "webhook" in on -> Apps.AutomationTrigger.Webhook(on["webhook"]!!.jsonObject["name"]!!.jsonPrimitive.content)
                 else -> Apps.AutomationTrigger.Event(on["event"]!!.jsonPrimitive.content)
             }
             val got = Apps.automationRow(

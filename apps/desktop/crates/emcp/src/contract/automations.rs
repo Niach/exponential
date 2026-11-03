@@ -16,7 +16,7 @@ pub const MIN_SCHEDULE_GAP_MINUTES: u32 = 15;
 pub const EVENT_MAX: usize = 128;
 pub const RUNS_PER_MINUTE: u32 = 30;
 pub const CLIENT_PREFIX: &str = "automation:";
-pub const TRIGGER_KINDS: &[&str] = &["schedule", "record", "event"];
+pub const TRIGGER_KINDS: &[&str] = &["schedule", "record", "event", "webhook"];
 pub const RECORD_TRIGGER_OPS: &[&str] = &["create", "update", "delete"];
 
 fn segment_ok(text: &str) -> bool {
@@ -126,7 +126,7 @@ pub fn schedule_error(schedule: &Value) -> Option<&'static str> {
 fn roots(kind: &str) -> &'static [&'static str] {
     match kind {
         "record" => &["record", "firedAt"],
-        "event" => &["event", "firedAt"],
+        "event" | "webhook" => &["event", "firedAt"],
         _ => &["firedAt"],
     }
 }
@@ -202,6 +202,7 @@ pub fn validate_automations(list: &Value, ctx: &ExposeContext) -> Vec<ExposeErro
         errors.push(ExposeError { index: None, code: "tooMany" });
     }
     let mut seen = HashSet::new();
+    let mut hooks = HashSet::new();
     for (index, item) in list.iter().enumerate() {
         let mut fail = |code: &'static str| errors.push(ExposeError { index: Some(index), code });
         if !item.is_object() {
@@ -236,6 +237,13 @@ pub fn validate_automations(list: &Value, ctx: &ExposeContext) -> Vec<ExposeErro
                 }
                 if !record["kind"].as_str().is_some_and(|k| ctx.kinds.iter().any(|d| d == k)) {
                     fail("kind");
+                }
+            }
+            "webhook" => {
+                // #VAPP-237 (A3): a hook name, unique among the app's webhooks.
+                match on["webhook"].get("name").and_then(Value::as_str) {
+                    Some(hook) if name_ok(hook) && hooks.insert(hook.to_string()) => {}
+                    _ => fail("webhook"),
                 }
             }
             _ => {
@@ -288,6 +296,7 @@ pub fn automation_expose(name: &str, run: &Value) -> Value {
 pub enum FiredBy<'a> {
     Record { kind: &'a str, op: &'a str },
     Event(&'a str),
+    Webhook(&'a str),
 }
 
 /// The automations a record write or event fires, in package order. LOOP
@@ -314,6 +323,7 @@ pub fn match_automations_by(list: &Value, fired_by: &FiredBy<'_>, from_automatio
         let hit = match (trigger_kind(on), fired_by) {
             (Some("record"), FiredBy::Record { kind, op }) => on["record"]["kind"] == *kind && on["record"]["op"] == *op,
             (Some("event"), FiredBy::Event(event)) => on["event"] == *event,
+            (Some("webhook"), FiredBy::Webhook(hook)) => on["webhook"]["name"] == *hook,
             _ => false,
         };
         if hit {

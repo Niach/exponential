@@ -11,6 +11,7 @@ import { connectionFor } from "@/lib/emcp/upstream/credentials"
 import { authedProcedure, router } from "@/lib/trpc"
 import { invalidateAppShapeRules } from "@/lib/apps/records-shape"
 import { automationRows } from "@/lib/apps/automations"
+import { hookRows, rotateHookSecret } from "@/lib/apps/webhooks"
 
 // #VAPP-183: who may use which app's MCP tools (@exp/emcp access.json).
 // The member × app POLICY (Settings › MCP Access): owners set a level per
@@ -173,8 +174,25 @@ export const appAccessRouter = router({
       // #VAPP-220: the published package's automations with their last run
       // and last failure (their mcp_calls rows) and a live pause reason.
       automations: await automationRows(app),
+      // #VAPP-237: the published package's webhooks (URL, minted or not).
+      hooks: await hookRows({ id: input.appId, package: app.package }),
     }
   }),
+
+  /** #VAPP-237: mint (or rotate) a webhook's secret (owners); the secret
+   *  is answered ONCE and stored only vault-sealed. */
+  rotateHook: authedProcedure
+    .input(z.object({ appId: uuid, name: z.string().min(1).max(40) }))
+    .mutation(async ({ ctx, input }) => {
+      const [app] = await ctx.db
+        .select({ id: apps.id, teamId: apps.teamId, package: apps.package })
+        .from(apps)
+        .where(and(eq(apps.id, input.appId), isNull(apps.deletedAt)))
+        .limit(1)
+      if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
+      await memberOrNotFound(ctx.session.user.id, app.teamId)
+      return rotateHookSecret(ctx.session.user.id, app, input.name)
+    }),
 
   /** Switch an exposed tool off (or back on) for every client (owners). */
   setToolEnabled: authedProcedure

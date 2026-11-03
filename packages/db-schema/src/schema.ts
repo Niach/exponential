@@ -3752,6 +3752,44 @@ export const appAccess = pgTable(
   ]
 )
 
+// #VAPP-237 (eApps A3): an app's inbound webhook secrets, one per hook (app
+// + the `on.webhook.name` of its automations). SERVER-ONLY, never a shape:
+// `secret_ciphertext` = the vault-sealed (ev1, slot
+// `app_hooks.secret_ciphertext.<id>`) HMAC secret, minted and rotated by a
+// team owner (shown once), re-sealed by the vault sweep.
+export const appHooks = pgTable(
+  `app_hooks`,
+  {
+    id: uuidPk(),
+    appId: uuid(`app_id`)
+      .notNull()
+      .references(() => apps.id, { onDelete: `cascade` }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    name: varchar({ length: 40 }).notNull(),
+    secretCiphertext: text(`secret_ciphertext`).notNull(),
+    rotatedBy: text(`rotated_by`).references(() => users.id, { onDelete: `set null` }),
+    ...timestamps,
+  },
+  (table) => [unique(`app_hooks_app_name_unique`).on(table.appId, table.name)]
+)
+
+// #VAPP-237: the replay cache: every accepted delivery's signature (its
+// nonce) per hook, kept 2 x the timestamp window, pruned by the watchdog.
+// SERVER-ONLY.
+export const appHookNonces = pgTable(
+  `app_hook_nonces`,
+  {
+    hookId: uuid(`hook_id`)
+      .notNull()
+      .references(() => appHooks.id, { onDelete: `cascade` }),
+    nonce: varchar({ length: 64 }).notNull(),
+    createdAt: timestamp(`created_at`, { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [primaryKey({ columns: [table.hookId, table.nonce] }), index(`idx_app_hook_nonces_created`).on(table.createdAt)]
+)
+
 // #EXP-1491: the eMCP audit, one row per MCP tool call on /api/mcp (and the
 // coming /api/mcp/apps), written after the call by lib/emcp/audit.ts and
 // never in its way. SERVER-ONLY, never a shape. The columns are

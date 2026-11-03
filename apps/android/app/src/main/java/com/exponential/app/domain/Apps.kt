@@ -78,6 +78,7 @@ object Apps {
         const val UPDATE = "When a {kind} is updated"
         const val DELETE = "When a {kind} is deleted"
         const val EVENT = "On {event}"
+        const val WEBHOOK = "On webhook {name}"
         const val PAUSED = "Paused"
         const val FAILED = "Failed"
         const val OK = "OK"
@@ -232,6 +233,8 @@ object Apps {
         data class Schedule(val cron: String, val tz: String? = null) : AutomationTrigger
         data class Record(val kind: String, val op: String) : AutomationTrigger
         data class Event(val event: String) : AutomationTrigger
+        /** #VAPP-237: a webhook delivery (the hook name). */
+        data class Webhook(val name: String) : AutomationTrigger
     }
 
     data class AutomationRowInput(
@@ -262,6 +265,7 @@ object Apps {
                 else -> AutomationsCopy.DELETE
             }.replace("{kind}", on.kind)
             is AutomationTrigger.Event -> AutomationsCopy.EVENT.replace("{event}", on.event)
+            is AutomationTrigger.Webhook -> AutomationsCopy.WEBHOOK.replace("{name}", on.name)
         }
         val status = when {
             !row.paused.isNullOrEmpty() -> AutomationStatus.PAUSED

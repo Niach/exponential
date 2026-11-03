@@ -13,7 +13,8 @@ import { and, eq, isNotNull, or, sql, type SQL } from "drizzle-orm"
 import type { PgColumn } from "drizzle-orm/pg-core"
 import { db } from "@/db/connection"
 import { accounts } from "@/db/auth-schema"
-import { mcpCredentials, mcpOauthClients, mcpOauthFlows } from "@/db/schema"
+import { appHooks, mcpCredentials, mcpOauthClients, mcpOauthFlows } from "@/db/schema"
+import { hookSlot } from "@/lib/apps/hook-slot"
 import { reportSchedulerRun } from "@/lib/metrics/registry"
 import {
   accountSlot,
@@ -94,6 +95,30 @@ export async function sweepMcpCredentials(database: Db = db): Promise<VaultSweep
           .update(mcpCredentials)
           .set({ ciphertext: next })
           .where(and(eq(mcpCredentials.id, row.id), eq(mcpCredentials.ciphertext, row.ciphertext)))
+      }
+      return tally(next)
+    }
+  )
+}
+
+/** #VAPP-237: the apps' webhook secrets (always `ev1`, no legacy form). */
+export async function sweepAppHooks(database: Db = db): Promise<VaultSweepResult> {
+  return sweepTable(
+    (after) =>
+      database
+        .select({ id: appHooks.id, secret: appHooks.secretCiphertext })
+        .from(appHooks)
+        .where(and(staleCondition(appHooks.secretCiphertext), sql`${appHooks.id}::text > ${after}`))
+        .orderBy(sql`${appHooks.id}::text`)
+        .limit(BATCH),
+    async (row) => {
+      const plain = isSealed(row.secret) ? openSecret(row.secret, hookSlot(row.id)) : null
+      const next = plain === null ? null : sealSecret(plain, hookSlot(row.id))
+      if (next !== null) {
+        await database
+          .update(appHooks)
+          .set({ secretCiphertext: next })
+          .where(and(eq(appHooks.id, row.id), eq(appHooks.secretCiphertext, row.secret)))
       }
       return tally(next)
     }
@@ -210,6 +235,7 @@ export async function runVaultSweep(database: Db = db): Promise<VaultSweepResult
     mcp_credentials: await sweepMcpCredentials(database),
     mcp_oauth_clients: await sweepMcpOauthClients(database),
     mcp_oauth_flows: await sweepMcpOauthFlows(database),
+    app_hooks: await sweepAppHooks(database),
   }
   const values = Object.values(byTable)
   return {
