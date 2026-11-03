@@ -40,3 +40,5 @@
 - En app læser et manglende felt i en post som tomt i stedet for at fejle visningen
 - Ændringer i en app er kladder, indtil nogen trykker Udgiv
 - Ejere vælger teamets tidszone; apps læser datoer i den
+- Fortryd ændringer af app-poster i 10 sekunder; hver post har en historik, du kan gendanne fra
+- Apps kan beregne felter og forbinde poster med hinanden

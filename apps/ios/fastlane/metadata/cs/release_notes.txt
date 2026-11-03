@@ -40,3 +40,5 @@
 - Aplikace čte chybějící pole záznamu jako prázdné, místo aby selhalo zobrazení
 - Úpravy aplikace jsou koncepty, dokud někdo nestiskne Publikovat
 - Vlastníci nastaví časové pásmo týmu; aplikace v něm čtou data
+- Změny záznamů aplikace lze 10 sekund vrátit; každý záznam má obnovitelnou historii
+- Aplikace umí počítat pole a propojovat záznamy

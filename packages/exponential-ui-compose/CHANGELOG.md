@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.10.0 (2026-11-03)
+
+- No changes of its own; released with the SDK (refs + expand, history and files landed in the core).
+
 ## 0.9.0 (2026-11-03)
 
 - No API of its own; carries the core's computed fields (VAPP-214) and sorted install issues (VAPP-201).

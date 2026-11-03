@@ -40,3 +40,5 @@
 - Un'app legge un campo mancante come vuoto invece di far fallire la vista
 - Le modifiche a un'app sono bozze finché qualcuno non preme Pubblica
 - I proprietari impostano il fuso orario del team; le app leggono le date in esso
+- Annulla le modifiche ai record per 10 secondi; ogni record conserva una cronologia ripristinabile
+- Le app possono calcolare campi e collegare i record tra loro
