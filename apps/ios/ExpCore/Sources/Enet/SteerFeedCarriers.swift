@@ -361,7 +361,7 @@ public final class SteerFeedCarriers {
         guard !finished, relayLink == nil, !relayDialing else { return }
         guard let tunnel, !relayKnownUnavailable else {
             // #EXP-1678: a leg known unavailable for any reason but `no_key` was available.
-            if tunnel != nil, relayKnownUnavailable, !relayNoKey { onSignal(.fallback) }
+            if self.tunnel != nil, relayKnownUnavailable, !relayNoKey { onSignal(.fallback) }
             Task { @MainActor [weak self] in self?.handle(.relayUnavailable) }
             return
         }
