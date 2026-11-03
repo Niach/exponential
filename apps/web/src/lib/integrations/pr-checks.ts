@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm"
+import { and, desc, eq, gt, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm"
 import {
   aggregateChecksState,
   checkConclusionFromGithub,
@@ -16,6 +16,7 @@ import { messages, pullRequestChecks, pullRequests, repositories, sessions } fro
 import { githubApiHeaders, resolveRepoInstallationToken } from "@/lib/integrations/github-app"
 import {
   githubBudgetKey,
+  githubBudgetLowForToken,
   githubFetch,
   type GithubClientDeps,
   isGithubRateLimited,
@@ -531,7 +532,7 @@ export async function repairPullRequestChecks(
       // No run at the head at all: nothing known (an older head's rows go).
       if (runs && runs.checks.length === 0) {
         await db.delete(pullRequestChecks).where(eq(pullRequestChecks.pullRequestId, row.id))
-        await db.update(pullRequests).set({ checksState: `none` }).where(and(eq(pullRequests.id, row.id), ne(pullRequests.checksState, `none`)))
+        await db.update(pullRequests).set({ checksState: `none`, updatedAt: new Date() }).where(and(eq(pullRequests.id, row.id), ne(pullRequests.checksState, `none`)))
       }
       return
     }
@@ -569,6 +570,67 @@ export async function repairPullRequestChecksIfStale(
   if (!stale) return false
   await repairPullRequestChecks(pullRequestId, now, { headSha })
   return true
+}
+
+// The watchdog's CI sweep (fixtures/pr-checks.json SWEEP). A live PR whose
+// checks are pending is re-read while it moved in the last PENDING window; a
+// PR with none known only right after it opened or was pushed (no CI may
+// exist at all).
+export const CHECKS_SWEEP_PENDING_MS = 6 * 60 * 60_000
+export const CHECKS_SWEEP_NONE_MS = 30 * 60_000
+export const CHECKS_SWEEP_BATCH = 50
+
+/**
+ * Batch 3 (CI wake reliability): the App's check_run/check_suite/
+ * workflow_run deliveries are an install-time grant a person accepts, and
+ * without them the ONLY writer was the next `exponential_pr` op: a thread
+ * that ended its turn as told never heard its CI go green (0f6fb188: #1714
+ * green 02:34, its line 03:00 off a merge call). So every watchdog tick
+ * repairs the unsettled live PRs itself (throttled per PR, skipped on a low
+ * installation budget); the webhook stays the fast path. → PRs re-read.
+ */
+export async function sweepUnsettledChecks(now: Date = new Date()): Promise<number> {
+  const rows = await db
+    .select({
+      id: pullRequests.id,
+      head: pullRequests.head,
+      fullName: repositories.fullName,
+      installationId: repositories.installationId,
+    })
+    .from(pullRequests)
+    .innerJoin(repositories, eq(repositories.id, pullRequests.repositoryId))
+    .where(
+      and(
+        inArray(pullRequests.state, [...LIVE_PR_STATES]),
+        or(
+          and(
+            eq(pullRequests.checksState, `pending`),
+            gt(pullRequests.updatedAt, new Date(now.getTime() - CHECKS_SWEEP_PENDING_MS))
+          ),
+          and(
+            eq(pullRequests.checksState, `none`),
+            gt(pullRequests.updatedAt, new Date(now.getTime() - CHECKS_SWEEP_NONE_MS))
+          )
+        )
+      )
+    )
+    .orderBy(desc(pullRequests.updatedAt))
+    .limit(CHECKS_SWEEP_BATCH)
+  let swept = 0
+  for (const row of rows) {
+    const last = lastRepair.get(row.id)
+    if (last !== undefined && now.getTime() - last < REPAIR_THROTTLE_MS) continue
+    try {
+      const token = await resolveRepoInstallationToken(row.fullName, { fallbackInstallationId: row.installationId })
+      // Interactive reads (an agent's op, a person's merge) keep the rest.
+      if (!token || checksDenied(token, now.getTime()) || githubBudgetLowForToken(token, now.getTime())) continue
+    } catch {
+      continue
+    }
+    await repairPullRequestChecks(row.id, now.getTime())
+    swept++
+  }
+  return swept
 }
 
 /** What `exponential_pr` returns as `checks`. A live PR whose state is not
