@@ -1,5 +1,6 @@
 import ExpCore
 import ExpUI
+import GRDB
 import PhotosUI
 import SwiftUI
 import UIKit
@@ -49,6 +50,9 @@ struct AgentComposerCard: View {
     @State private var showMcpPicker = false
     /// The team's MCP servers (`mcpServers.list`), read once per team.
     @State private var mcpServers: [McpServerRow] = []
+    /// #EXP-1661: the team's skills (synced), and their picker.
+    @State private var skills: [SkillEntity] = []
+    @State private var showSkillsPicker = false
     /// Review #19 (D8): the starting row shows only once the start has been
     /// pending `FeedbackStates.Pending.delayMs`, like every client's.
     @State private var startingShown = false
@@ -112,6 +116,7 @@ struct AgentComposerCard: View {
                 ComposerPlusMenu(
                     model: model,
                     mcpServers: mcpServers,
+                    skills: skills,
                     onPick: { id in
                         menuPick = id
                         showMenu = false
@@ -121,6 +126,7 @@ struct AgentComposerCard: View {
             }
             .background { effortPicker }
             .background { mcpPicker }
+            .background { skillsPicker }
             .photosPicker(
                 isPresented: $showPhotoPicker,
                 selection: $photoItems,
@@ -173,6 +179,8 @@ struct AgentComposerCard: View {
         .pendingDelay(model.starting != nil, shown: $startingShown)
         // EXP-792: the team's MCP servers, and the pick they seed.
         .task(id: model.teamId) { await loadMcpServers() }
+        // #EXP-1661: the team's skills, and the pick they seed.
+        .task(id: model.teamId) { await observeSkills() }
         // EXP-1249 (web M12 rule ×4): the per-run computer use is the
         // person's explicit FLIP, nil = untouched — the toggle shows the
         // machine's current default and the start omits the key, so the
@@ -195,6 +203,7 @@ struct AgentComposerCard: View {
             withTransaction(transaction) { showAttachMenu = true }
         case .effort: showEffortPicker = true
         case .mcpServers: showMcpPicker = true
+        case .skills: showSkillsPicker = true
         // Issue and the runner submenus are pages of the sheet itself.
         case .implementIssue, .prompts, .device, .account, .model, .repository, .subagents, .ultracode, .computerUse: break
         }
@@ -238,6 +247,38 @@ struct AgentComposerCard: View {
         let rows = (try? await McpServersApi(trpc: deps.trpc).list(accountId: accountId, teamId: teamId)) ?? []
         mcpServers = rows
         model.launch.mcpServerIds = McpServers.preselect(rows, saved: nil)
+    }
+
+    private var skillsPicker: some View {
+        let launch = model.launch
+        return SkillPicker(
+            skills: skills,
+            value: launch.skillIds,
+            onChange: { launch.skillIds = $0 },
+            open: $showSkillsPicker,
+            hideTrigger: true,
+            trigger: { EmptyView() }
+        )
+    }
+
+    /// The team's skills off the store. The first non-empty read seeds the
+    /// pick (`Skills.preselectSkillIds`, no saved pick on phones, like MCP);
+    /// later reads clamp it to the skills that still exist.
+    private func observeSkills() async {
+        skills = []
+        guard let teamId = model.teamId, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db in
+            try SkillEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        }.removeDuplicates()
+        var seeded = false
+        do {
+            for try await rows in observation.values(in: pool) {
+                skills = rows
+                let launch = model.launch
+                launch.skillIds = Skills.preselectSkillIds(rows, saved: seeded ? launch.skillIds : nil)
+                if !rows.isEmpty { seeded = true }
+            }
+        } catch {}
     }
 
     // MARK: - Leading

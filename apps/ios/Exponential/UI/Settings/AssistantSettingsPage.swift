@@ -120,7 +120,10 @@ private struct AssistantSettingsContent: View {
                     draft: draft,
                     voice: voice,
                     devices: devices,
-                    onCheckIn: { setCheckIn($0) }
+                    onCheckIn: { setCheckIn($0) },
+                    teamId: teamId,
+                    agentId: agentId,
+                    skillIds: agent?.skillIds ?? []
                 )
             }
         }
@@ -253,6 +256,10 @@ struct AssistantSettingsForm: View {
     @Bindable var voice: VoiceSettingsModel
     let devices: [SteerDevice]
     var onCheckIn: (AgentSettings.AssistantScheduleId) -> Void = { _ in }
+    /// #EXP-1661: the Skills row (nil hides it: the capture seam).
+    var teamId: String? = nil
+    var agentId: String? = nil
+    var skillIds: [String] = []
 
     private var device: SteerDevice? {
         devices.first { $0.deviceId == draft.deviceId }
@@ -277,6 +284,11 @@ struct AssistantSettingsForm: View {
                 errorLine("device")
                 AgentAccountRow(draft: draft, device: device, canEdit: true, title: label("account"))
                 modelRow
+                // #EXP-1661 (skills.json `agentRow`): no Instructions here, so
+                // the last row of Runs on; the member owns their Assistant.
+                if let teamId, let agentId {
+                    AgentSkillsRow(teamId: teamId, agentId: agentId, skillIds: skillIds, canEdit: true)
+                }
             } header: {
                 GlassSectionHeader(AgentSettings.AssistantCopy.runsOn)
             }

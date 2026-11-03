@@ -355,11 +355,11 @@ public final class SyncManager: @unchecked Sendable {
     // MARK: - Per-account shape launch
 
     private func launchPipeline(accountId: String, pool: DatabasePool) {
-        logger.info("Launching live shape sync (33 shapes) for account \(accountId, privacy: .public)")
+        logger.info("Launching live shape sync (34 shapes) for account \(accountId, privacy: .public)")
         // A visible "we got past pool open + migrations and started polling"
         // marker in the diagnostics log — the positive counterpart to the
         // fatal path above (§9.1: pipeline launched must never be ambiguous).
-        SyncDebug.shared.log("[pipeline] launched 33 shapes")
+        SyncDebug.shared.log("[pipeline] launched 34 shapes")
         SyncDebug.shared.clearFatal()
 
         let auth = self.auth
@@ -591,6 +591,13 @@ public final class SyncManager: @unchecked Sendable {
         tasks.append(makeShapeTask(
             name: "pull-request-checks", path: "/api/shapes/pull-request-checks", table: "pull_request_checks",
             type: PullRequestCheckEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
+            session: session
+        ))
+        // #EXP-1661: the team's skills (34th shape; `body` stays server-only):
+        // Settings › Skills, the + menu pick, the agent page.
+        tasks.append(makeShapeTask(
+            name: "skills", path: "/api/shapes/skills", table: "skills",
+            type: SkillEntity.self, accountId: accountId, pool: pool, baseUrl: baseUrl, token: token,
             session: session
         ))
 

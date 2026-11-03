@@ -20,7 +20,8 @@ final class SessionsApiWireTests: XCTestCase {
             deviceId: "dev-1",
             options: SessionLaunchOptions(
                 cli: "claude", account: "p-1", model: "fable", effort: "",
-                computerUse: false, ultracode: true, subagentModel: "opus", mcpServerIds: ["m-1"]
+                computerUse: false, ultracode: true, subagentModel: "opus", mcpServerIds: ["m-1"],
+                skillIds: ["s-1"]
             ),
             text: "Fix it",
             attachmentIds: ["att-1"],
@@ -31,9 +32,10 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(
             full.keys.sorted(),
             ["account", "attachmentIds", "cli", "computerUse", "deviceId", "effort",
-             "issueIds", "mcpServerIds", "model", "promptId", "repositoryId", "subagentModel",
+             "issueIds", "mcpServerIds", "model", "promptId", "repositoryId", "skillIds", "subagentModel",
              "teamId", "text", "ultracode"]
         )
+        XCTAssertEqual(full["skillIds"] as? [String], ["s-1"])
         XCTAssertEqual(full["subagentModel"] as? String, "opus")
         XCTAssertEqual(full["issueIds"] as? [String], ["i-1", "i-2"])
         XCTAssertEqual(full["promptId"] as? String, "p-1")
@@ -45,6 +47,12 @@ final class SessionsApiWireTests: XCTestCase {
             teamId: "t-1", deviceId: "dev-1", options: SessionLaunchOptions(model: "", effort: ""), text: "Go"
         ))
         XCTAssertEqual(blank.keys.sorted(), ["deviceId", "effort", "teamId", "text"])
+
+        // #EXP-1661: an empty skill pick never rides the wire.
+        let noSkills = try json(SessionsSendInput.newThread(
+            teamId: "t-1", deviceId: "dev-1", options: SessionLaunchOptions(skillIds: []), text: "Go"
+        ))
+        XCTAssertEqual(noSkills.keys.sorted(), ["deviceId", "teamId", "text"])
     }
 
     /// NEW-2: a message to an agent names the agent and nothing of a runner
@@ -206,6 +214,14 @@ final class SessionsApiWireTests: XCTestCase {
         XCTAssertEqual(moved["deviceId"] as? String, "dev-2")
         XCTAssertEqual(moved["account"] as? String, "p-2")
         XCTAssertEqual(moved["sortOrder"] as? Double, 3)
+
+        // #EXP-1661: the whole skill list, an EMPTY one included ("none").
+        let skills = try json(UpdateAgentInput(id: "ag-1", patch: AgentPatch(skillIds: ["s-1", "s-2"])))
+        XCTAssertEqual(skills.keys.sorted(), ["id", "skillIds"])
+        XCTAssertEqual(skills["skillIds"] as? [String], ["s-1", "s-2"])
+        let none = try json(UpdateAgentInput(id: "ag-1", patch: AgentPatch(skillIds: [])))
+        XCTAssertEqual((none["skillIds"] as? [Any])?.count, 0)
+        XCTAssertFalse(AgentPatch(skillIds: []).isEmpty)
     }
 
     func testPullRequestMergeOmitsAnUnsetStack() throws {

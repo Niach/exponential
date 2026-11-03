@@ -140,7 +140,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks", "v91_app_record_ownership"]
+             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills"]
         )
     }
 
@@ -202,7 +202,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks", "v91_app_record_ownership"]
+             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills"]
         )
     }
 
@@ -736,7 +736,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks", "v91_app_record_ownership"]
+             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -846,7 +846,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v83_session_background", "v84_session_read_archived_at", "v85_agent_role",
              "v86_session_read_story_seen_at", "v87_session_seal",
              "v88_comment_via_app", "v89_notification_device_id",
-             "v90_pull_request_checks", "v91_app_record_ownership"]
+             "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1900,7 +1900,13 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "agents"),
             ["id", "team_id", "name", "icon", "color", "triggers", "device_id", "cli",
              "account", "model", "owner_id", "sort_order", "created_at", "updated_at",
-             "instructions_updated_at", "role"]
+             "instructions_updated_at", "role", "skill_ids"]
+        )
+        // #EXP-1661: the skills shape allowlist (`body` never).
+        XCTAssertEqual(
+            try columnNames(pool, "skills"),
+            ["id", "team_id", "name", "description", "enabled_by_default", "created_by_id",
+             "created_at", "updated_at"]
         )
         XCTAssertEqual(
             try columnNames(pool, "events"),
@@ -3832,6 +3838,56 @@ final class DatabaseMigrationTests: XCTestCase {
         try pool.write { db in try row.save(db) }
         let read = try pool.read { db in try AppRecordEntity.fetchOne(db, key: "r1") }
         XCTAssertEqual(read, row)
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
+    }
+
+    // #EXP-1661: v92 adds the `skills` table + `agents.skill_ids` (existing
+    // rows = []), resetting ONLY the agents cursor.
+    func testSkillsAdded() throws {
+        let pool = try makePool("exp1661-skills")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v91_app_record_ownership")
+        try pool.write { db in
+            try db.execute(sql: """
+                INSERT INTO "agents" ("id", "team_id", "name", "created_at", "updated_at")
+                VALUES ('ag1', 't', 'Triage', 'x', 'x')
+                """)
+            for shape in ["agents", "prompts"] {
+                try db.execute(sql: """
+                    INSERT INTO "electric_offsets"
+                        ("shape", "handle", "offset", "needs_refetch", "is_live")
+                    VALUES (?, 'h', '0_0', 0, 1)
+                    ON CONFLICT("shape") DO UPDATE SET "handle" = 'h', "offset" = '0_0',
+                        "needs_refetch" = 0, "is_live" = 1
+                    """, arguments: [shape])
+            }
+        }
+        XCTAssertFalse(try pool.read { db in try db.tableExists("skills") })
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v92_skills"))
+        try pool.read { db in
+            XCTAssertTrue(try db.tableExists("skills"))
+            let reset = try String.fetchAll(
+                db,
+                sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
+            )
+            XCTAssertEqual(reset, ["agents"])
+            XCTAssertEqual(try AgentDefinitionEntity.fetchOne(db, key: "ag1")?.skillIds, [])
+        }
+        let wire = Data("""
+            {"id":"s1","team_id":"t","name":"review-checklist","description":"Run the checklist",
+             "enabled_by_default":"t","created_by_id":"u1","created_at":"x","updated_at":"x"}
+            """.utf8)
+        let row = try JSONDecoder().decode(SkillEntity.self, from: wire)
+        XCTAssertTrue(row.enabledByDefault)
+        try pool.write { db in try row.save(db) }
+        let read = try pool.read { db in try SkillEntity.fetchOne(db, key: "s1") }
+        XCTAssertEqual(read, row)
+        let agent = try JSONDecoder().decode(AgentDefinitionEntity.self, from: Data("""
+            {"id":"ag2","team_id":"t","name":"Ops","skill_ids":["s1"],"created_at":"x","updated_at":"x"}
+            """.utf8))
+        XCTAssertEqual(agent.skillIds, ["s1"])
+        try pool.write { db in try agent.save(db) }
+        XCTAssertEqual(try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "ag2")?.skillIds }, ["s1"])
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 

@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-team-skills-phones`,
+    date: `2026-11-03`,
+    title: `Team skills on your phone`,
+    summary: `Settings › Skills lists your team's skills on iPhone and Android, and the + menu and the agent page pick which skills a run gets.`,
+    body: `- **Settings › Skills**: read every team skill on your phone: its name, what it is for, and its instructions.
+- **Pick per run**: the composer's + menu has Skills, preselected with the team's default skills.
+- **Pick per agent**: an agent's page has a Skills row under Device; owners choose the skills its runs start with.`,
+  },
+  {
     id: `2026-11-03-voice-works-on-windows`,
     date: `2026-11-03`,
     title: `Voice works on Windows`,

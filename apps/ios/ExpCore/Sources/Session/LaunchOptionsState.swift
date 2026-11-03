@@ -255,7 +255,9 @@ public final class LaunchOptionsState {
             subagentModel: isClaude && LaunchVocabulary.supportsSubagentModel(agent) && !subagentModel.isEmpty
                 ? subagentModel : nil,
             // EXP-792: omitted when nothing is picked.
-            mcpServerIds: mcpServerIds.isEmpty ? nil : mcpServerIds
+            mcpServerIds: mcpServerIds.isEmpty ? nil : mcpServerIds,
+            // #EXP-1661: omitted when nothing is picked.
+            skillIds: skillIds.isEmpty ? nil : skillIds
         )
     }
 
@@ -269,6 +271,9 @@ public final class LaunchOptionsState {
 
     /// The team MCP servers this run gets (`McpServers.preselect` seeds it).
     public var mcpServerIds: [String] = []
+    /// #EXP-1661: the team skills this run gets (`Skills.preselectSkillIds`
+    /// seeds it).
+    public var skillIds: [String] = []
     /// Per-run computer use: the person's explicit flip; nil = untouched =
     /// the device's own default (and the key stays off the wire).
     public var computerUse: Bool?

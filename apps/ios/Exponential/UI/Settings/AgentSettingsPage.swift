@@ -330,7 +330,10 @@ struct AgentSettingsPage: View {
                     writeTriggers(draft.settingEnabled(trigger, enabled), verb: "save")
                 },
                 onDeleteTrigger: { pendingTriggerDelete = $0 },
-                onDelete: isOwner && agentId != nil ? { showDelete = true } : nil
+                onDelete: isOwner && agentId != nil ? { showDelete = true } : nil,
+                teamId: teamId,
+                agentId: agentId,
+                skillIds: agent?.skillIds ?? []
             )
         }
         // EXP-1554: only a NEW agent has a submit; an existing one saves
@@ -578,6 +581,10 @@ struct AgentSettingsForm: View {
     var onDeleteTrigger: (AgentTrigger) -> Void = { _ in }
     /// nil hides the Delete row (members, or an agent not created yet).
     var onDelete: (() -> Void)? = nil
+    /// #EXP-1661: the Skills row (an existing agent only; nil hides it).
+    var teamId: String? = nil
+    var agentId: String? = nil
+    var skillIds: [String] = []
 
     private var device: SteerDevice? {
         devices.first { $0.deviceId == draft.deviceId }
@@ -594,6 +601,10 @@ struct AgentSettingsForm: View {
                 errorLine("identity")
                 deviceRow
                 errorLine("device")
+                // #EXP-1661 (skills.json `agentRow`): right under Device.
+                if let teamId, let agentId {
+                    AgentSkillsRow(teamId: teamId, agentId: agentId, skillIds: skillIds, canEdit: canEdit)
+                }
             }
             .listRowBackground(glassFormRowFill)
 
@@ -767,6 +778,97 @@ struct AgentDeviceRow: View {
         )
         .disabled(!canEdit)
         .accessibilityIdentifier("agent-device-row")
+    }
+}
+
+/// #EXP-1661 (skills.json `agentRow`): the skills the agent's runs start
+/// with, `Skills.agentSkillsValue` (the picked names as the picker summary,
+/// None muted at zero) opening THE skill
+/// picker; each change saves the whole list (`agents.update {skillIds}`).
+/// Owners edit, members read (the Device row's gate).
+struct AgentSkillsRow: View {
+    let teamId: String
+    let agentId: String
+    /// The synced row's pick.
+    let skillIds: [String]
+    let canEdit: Bool
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @Environment(\.toaster) private var toaster
+    @State private var skills: [SkillEntity] = []
+    /// The pick while its write is in flight, until the row echoes it.
+    @State private var pending: [String]?
+
+    /// The pick clamped to the skills that still exist, in list order.
+    private var picked: [String] {
+        Skills.preselectSkillIds(skills, saved: pending ?? skillIds)
+    }
+
+    var body: some View {
+        SkillPicker(
+            skills: skills,
+            value: picked,
+            onChange: { save($0) },
+            trigger: { label }
+        )
+        .disabled(!canEdit)
+        .accessibilityIdentifier("agent-skills-row")
+        .task(id: "\(accountId)/\(teamId)") { await observe() }
+        .onChange(of: skillIds) { _, synced in
+            if synced == pending { pending = nil }
+        }
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        let names = picked.compactMap { id in skills.first { $0.id == id }?.name }
+        if !names.isEmpty {
+            GlassPickerRowLabel(Skills.agentRowLabel, value: Skills.agentSkillsValue(names))
+        } else {
+            // The Account row's muted `Last used` look.
+            HStack(spacing: 8) {
+                Text(Skills.agentRowLabel)
+                    .foregroundStyle(.white.opacity(TextOpacity.primary))
+                Spacer(minLength: 8)
+                Text(Skills.agentSkillsValue([]))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                AppIcon(AppIcons.uiChevronRight, size: 14)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+            .contentShape(Rectangle())
+        }
+    }
+
+    private func observe() async {
+        guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let teamId = teamId
+        let observation = ValueObservation.tracking { db in
+            try SkillEntity.filter(Column("team_id") == teamId).fetchAll(db)
+        }.removeDuplicates()
+        do {
+            for try await rows in observation.values(in: pool) {
+                skills = rows
+            }
+        } catch {}
+    }
+
+    private func save(_ next: [String]) {
+        guard canEdit else { return }
+        let previous = pending
+        pending = next
+        Task {
+            do {
+                try await deps.agentsApi.update(accountId: accountId, id: agentId, patch: AgentPatch(skillIds: next))
+            } catch {
+                if pending == next { pending = previous }
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "save", thing: "the skills"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
     }
 }
 

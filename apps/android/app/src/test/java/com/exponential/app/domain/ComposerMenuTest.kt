@@ -67,6 +67,7 @@ class ComposerMenuTest {
                     subagentModel = b("subagentModel"),
                     ultracode = b("ultracode"),
                     mcp = b("mcp"),
+                    skills = b("skills"),
                     computerUse = b("computerUse"),
                     prompts = b("prompts"),
                 ),

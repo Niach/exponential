@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-team-skills-phones",
+    date: "2026-11-03",
+    title: "Team skills on your phone",
+    summary: "Settings › Skills lists your team's skills on iPhone and Android, and the + menu and the agent page pick which skills a run gets.",
+    body: r#"- **Settings › Skills**: read every team skill on your phone: its name, what it is for, and its instructions.
+- **Pick per run**: the composer's + menu has Skills, preselected with the team's default skills.
+- **Pick per agent**: an agent's page has a Skills row under Device; owners choose the skills its runs start with."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_177: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-voice-works-on-windows",
     date: "2026-11-03",
     title: "Voice works on Windows",

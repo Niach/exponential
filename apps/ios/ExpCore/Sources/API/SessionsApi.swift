@@ -32,6 +32,9 @@ public struct SessionLaunchOptions: Sendable, Equatable {
     public var subagentModel: String?
     /// The team MCP servers the session gets; nil = none picked.
     public var mcpServerIds: [String]?
+    /// #EXP-1661: the team skills the session runs with; nil or empty = none
+    /// (never sent).
+    public var skillIds: [String]?
 
     public init(
         cli: String? = nil,
@@ -41,7 +44,8 @@ public struct SessionLaunchOptions: Sendable, Equatable {
         computerUse: Bool? = nil,
         ultracode: Bool? = nil,
         subagentModel: String? = nil,
-        mcpServerIds: [String]? = nil
+        mcpServerIds: [String]? = nil,
+        skillIds: [String]? = nil
     ) {
         self.cli = cli
         self.account = account
@@ -51,6 +55,7 @@ public struct SessionLaunchOptions: Sendable, Equatable {
         self.ultracode = ultracode
         self.subagentModel = subagentModel
         self.mcpServerIds = mcpServerIds
+        self.skillIds = skillIds
     }
 }
 
@@ -104,7 +109,7 @@ public enum SessionsSendInput: Sendable, Equatable {
 extension SessionsSendInput: Encodable {
     private enum Keys: String, CodingKey {
         case teamId, sessionId, parentId, deviceId
-        case cli, account, model, effort, computerUse, ultracode, subagentModel, mcpServerIds
+        case cli, account, model, effort, computerUse, ultracode, subagentModel, mcpServerIds, skillIds
         case text, attachmentIds, issueIds, promptId, repositoryId, agentId, appId
     }
 
@@ -119,6 +124,8 @@ extension SessionsSendInput: Encodable {
             try c.encodeIfPresent(options.ultracode, forKey: .ultracode)
             try c.encodeIfPresent(options.subagentModel.flatMap { $0.isEmpty ? nil : $0 }, forKey: .subagentModel)
             try c.encodeIfPresent(options.mcpServerIds, forKey: .mcpServerIds)
+            // #EXP-1661: only while the pick is non-empty.
+            try c.encodeIfPresent(options.skillIds.flatMap { $0.isEmpty ? nil : $0 }, forKey: .skillIds)
         }
         switch self {
         case let .newThread(teamId, deviceId, options, text, attachmentIds, issueIds, promptId, repositoryId):

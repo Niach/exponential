@@ -962,6 +962,25 @@ final class StyleguideScreenshots: XCTestCase {
             goBack(app)
         }
 
+        // ── sg_settings-skills · sg_settings-skill: Settings → Skills ───────
+        // #EXP-1661: the read-only list (skills.json `list`), then the first
+        // row's read-only page when the seed has a skill. Nothing is saved.
+        if ScreenshotShots.isWanted("sg_settings-skills") || ScreenshotShots.isWanted("sg_settings-skill") {
+            let skillsRow = teamSettingsRow(app, "Skills")
+            scrollUntilVisible(app, skillsRow, attempts: 4)
+            skillsRow.tap()
+            expect(anyElement(app, identified: "settings-skills-page"), within: Wait.sync, "Settings › Skills did not open")
+            snapshot("sg_settings-skills", settle: 2)
+            let firstSkill = anyElement(app, identified: "settings-skills-row")
+            if ScreenshotShots.isWanted("sg_settings-skill"), firstSkill.waitForExistence(timeout: 2) {
+                firstSkill.tap()
+                expect(anyElement(app, identified: "skill-form"), within: Wait.nav, "A skill row did not open its page")
+                snapshot("sg_settings-skill", settle: 2)
+                goBack(app)
+            }
+            goBack(app)
+        }
+
         // ── sg_settings-account: the account / server detail ──────────────────
         // There is no separate profile screen (EXP-311): the signed-in
         // identity, sign out and delete account live on the server row's

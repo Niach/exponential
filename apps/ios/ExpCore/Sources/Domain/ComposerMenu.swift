@@ -37,6 +37,8 @@ public enum ComposerMenu {
         case subagents
         case ultracode
         case mcpServers = "mcp-servers"
+        /// #EXP-1661: the team's skills as a multi picker (skills.json `menuRow`).
+        case skills
         case computerUse = "computer-use"
     }
 
@@ -48,7 +50,7 @@ public enum ComposerMenu {
 
     /// One fixture `conditions` key.
     public enum Condition: String, Equatable, Sendable, CaseIterable {
-        case temporary, device, account, model, repositories, subagentModel, ultracode, mcp, computerUse, prompts
+        case temporary, device, account, model, repositories, subagentModel, ultracode, mcp, skills, computerUse, prompts
     }
 
     /// When a conditional row shows (fixture `conditions`).
@@ -73,6 +75,8 @@ public enum ComposerMenu {
         public var ultracode: Bool
         /// The team has at least one MCP server.
         public var mcp: Bool
+        /// #EXP-1661: the team has at least one skill.
+        public var skills: Bool
         /// The picked device advertises `computerUseRunCap`.
         public var computerUse: Bool
         /// #EXP-1434: the team has at least one prompt (the `/` menu lists it).
@@ -87,6 +91,7 @@ public enum ComposerMenu {
             subagentModel: Bool = false,
             ultracode: Bool = false,
             mcp: Bool = false,
+            skills: Bool = false,
             computerUse: Bool = false,
             prompts: Bool = false
         ) {
@@ -98,6 +103,7 @@ public enum ComposerMenu {
             self.subagentModel = subagentModel
             self.ultracode = ultracode
             self.mcp = mcp
+            self.skills = skills
             self.computerUse = computerUse
             self.prompts = prompts
         }
@@ -112,6 +118,7 @@ public enum ComposerMenu {
             case .subagentModel: subagentModel
             case .ultracode: ultracode
             case .mcp: mcp
+            case .skills: skills
             case .computerUse: computerUse
             case .prompts: prompts
             }
@@ -157,6 +164,7 @@ public enum ComposerMenu {
         Row(id: .ultracode, kind: .toggle, label: "Ultracode", codexLabel: nil, icon: "action-default", surfaces: [.launch], when: [.temporary, .ultracode]),
         nil,
         Row(id: .mcpServers, kind: .submenu, label: "MCP servers", codexLabel: nil, icon: "ui-mcp", surfaces: [.launch], when: [.temporary, .mcp]),
+        Row(id: .skills, kind: .submenu, label: "Skills", codexLabel: nil, icon: "ui-docs", surfaces: [.launch], when: [.temporary, .skills]),
         Row(id: .computerUse, kind: .toggle, label: "Computer use", codexLabel: nil, icon: "nav-computer", surfaces: [.launch], when: [.temporary, .computerUse]),
     ]
 

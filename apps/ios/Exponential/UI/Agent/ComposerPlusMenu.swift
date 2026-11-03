@@ -22,6 +22,8 @@ struct ComposerPlusMenu: View {
     let model: AgentComposerModel
     /// The team's MCP servers (empty = the row hides).
     let mcpServers: [McpServerRow]
+    /// #EXP-1661: the team's skills (empty = the row hides).
+    let skills: [SkillEntity]
     /// A hand-off row was picked: the host closes the sheet and opens what
     /// the row names.
     let onPick: (ComposerMenu.RowId) -> Void
@@ -48,6 +50,7 @@ struct ComposerPlusMenu: View {
             subagentModel: temporary && LaunchVocabulary.supportsSubagentModel(launch.agent),
             ultracode: launch.agent == "claude",
             mcp: !mcpServers.isEmpty,
+            skills: !skills.isEmpty,
             computerUse: model.device?.canToggleComputerUse == true,
             prompts: !model.prompts.isEmpty
         )
@@ -238,6 +241,8 @@ struct ComposerPlusMenu: View {
             launch.effort == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel(launch.effort)
         case .mcpServers:
             McpServers.pickedValue(launch.mcpServerIds)
+        case .skills:
+            Skills.skillMenuValue(launch.skillIds.count)
         default:
             nil
         }

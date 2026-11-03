@@ -95,6 +95,7 @@ import com.exponential.app.ui.components.modelOptionsFor
 import com.exponential.app.domain.ComposerMenuRowId
 import androidx.compose.foundation.lazy.LazyListScope
 import com.exponential.app.domain.mcpPickValue
+import com.exponential.app.domain.skillsMenuValue
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.DEFAULT_AGENT
 import com.exponential.app.ui.components.effortLabel
@@ -103,6 +104,7 @@ import com.exponential.app.ui.components.subagentModelLabel
 import com.exponential.app.ui.components.subagentModelOptions
 import com.exponential.app.ui.components.supportsSubagentModel
 import com.exponential.app.ui.components.picker.McpServerPicker
+import com.exponential.app.ui.components.picker.SkillPicker
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerItem
 import com.exponential.app.ui.components.picker.PickerMode
@@ -215,6 +217,9 @@ fun AgentScreen(
     // EXP-1249: the "+" menu's MCP servers pick and per-run computer use.
     val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
     val mcpServerIds by viewModel.mcpServerIds.collectAsStateWithLifecycle()
+    // #EXP-1661: the "+" menu's Skills pick.
+    val skills by viewModel.skills.collectAsStateWithLifecycle()
+    val skillIds by viewModel.skillIds.collectAsStateWithLifecycle()
     val computerUse by viewModel.computerUse.collectAsStateWithLifecycle()
     // EXP-1270: whether Getting started still follows the card (no board yet).
     val teamHasBoard by viewModel.teamHasBoard.collectAsStateWithLifecycle()
@@ -539,6 +544,7 @@ fun AgentScreen(
     var plusMenuOpen by remember { mutableStateOf(false) }
     var effortPickerOpen by remember { mutableStateOf(false) }
     var mcpPickerOpen by remember { mutableStateOf(false) }
+    var skillPickerOpen by remember { mutableStateOf(false) }
 
     AgentPageFrame(
         onBack = onBack,
@@ -785,6 +791,7 @@ fun AgentScreen(
                     // EXP-1291: actions no longer carry their own MCP list, so
                     // no subject owns it — the team's servers alone decide.
                     mcp = mcpServers.isNotEmpty(),
+                    skills = skills.isNotEmpty(),
                     computerUse = device?.canToggleComputerUse == true,
                     prompts = teamPrompts.isNotEmpty(),
                 ),
@@ -804,6 +811,7 @@ fun AgentScreen(
                     ComposerMenuRowId.AddFile -> filePicker.launch(arrayOf("*/*"))
                     ComposerMenuRowId.Effort -> effortPickerOpen = true
                     ComposerMenuRowId.McpServers -> mcpPickerOpen = true
+                    ComposerMenuRowId.Skills -> skillPickerOpen = true
                     // The submenus push their page inside the menu.
                     else -> Unit
                 }
@@ -831,6 +839,7 @@ fun AgentScreen(
                 }
             },
             values = mapOf(
+                ComposerMenuRowId.Skills to skillsMenuValue(skillIds.size),
                 ComposerMenuRowId.Device to device?.let(::deviceOptionLabel),
                 ComposerMenuRowId.Account to account?.toPickerAccount()?.email,
                 ComposerMenuRowId.Model to modelLabel(launch.model),
@@ -925,6 +934,15 @@ fun AgentScreen(
             onToggle = viewModel::toggleMcpServer,
             open = true,
             onOpenChange = { open -> if (!open) mcpPickerOpen = false },
+        )
+    }
+    if (skillPickerOpen) {
+        SkillPicker(
+            skills = skills,
+            value = skillIds,
+            onToggle = viewModel::toggleSkill,
+            open = true,
+            onOpenChange = { open -> if (!open) skillPickerOpen = false },
         )
     }
 

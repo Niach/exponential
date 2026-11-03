@@ -687,6 +687,26 @@ interface PromptDao {
     suspend fun clear()
 }
 
+// #EXP-1661: the team skills (Settings › Skills, the + menu pick, the agent
+// page), sorted by name (skills.json `sortSkills`; names are [a-z0-9-]).
+@Dao
+interface SkillDao {
+    @Query("SELECT * FROM skills WHERE team_id = :teamId ORDER BY name")
+    fun observeByTeam(teamId: String): Flow<List<SkillEntity>>
+
+    @Query("SELECT * FROM skills WHERE id = :id LIMIT 1")
+    fun observeById(id: String): Flow<SkillEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(item: SkillEntity)
+
+    @Query("DELETE FROM skills WHERE id = :id")
+    suspend fun deleteById(id: String)
+
+    @Query("DELETE FROM skills")
+    suspend fun clear()
+}
+
 // EXP-1291: pull requests (all PR + branch state).
 @Dao
 interface PullRequestDao {

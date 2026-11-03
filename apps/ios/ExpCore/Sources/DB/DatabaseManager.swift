@@ -2978,7 +2978,42 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v92 (#EXP-1661): team skills — the brand-new synced `skills` table
+        // (no cursor yet) and `agents.skill_ids` (jsonb text, "[]" = none).
+        // The agents cursor resets only when the column was added, so synced
+        // definitions re-arrive carrying it.
+        migrator.registerMigration("v92_skills") { db in
+            try createSkillsTable(db)
+            guard try db.tableExists("agents") else { return }
+            guard try db.columns(in: "agents").contains(where: { $0.name == "skill_ids" }) == false else { return }
+            try db.alter(table: "agents") { t in
+                t.add(column: "skill_ids", .text).notNull().defaults(to: "[]")
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'agents'
+                    """)
+            }
+        }
+
         return migrator
+    }
+
+    /// #EXP-1661: the `skills` table, mirroring the shape allowlist
+    /// (`/api/shapes/skills`); the SKILL.md `body` never arrives.
+    static func createSkillsTable(_ db: Database) throws {
+        try db.create(table: "skills", ifNotExists: true) { t in
+            t.primaryKey("id", .text)
+            t.column("team_id", .text).notNull().indexed()
+            t.column("name", .text).notNull().defaults(to: "")
+            t.column("description", .text).notNull().defaults(to: "")
+            t.column("enabled_by_default", .boolean).notNull().defaults(to: false)
+            t.column("created_by_id", .text)
+            t.column("created_at", .text).notNull()
+            t.column("updated_at", .text).notNull()
+        }
     }
 
     /// #EXP-1611: the `pull_request_checks` table, mirroring the shape
@@ -3282,6 +3317,8 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM agents")
             try db.execute(sql: "DELETE FROM events")
             try db.execute(sql: "DELETE FROM prompts")
+            // #EXP-1661: the team's skills.
+            try db.execute(sql: "DELETE FROM skills")
             try db.execute(sql: "DELETE FROM notifications")
             try db.execute(sql: "DELETE FROM issue_events")
             try db.execute(sql: "DELETE FROM issue_subscribers")

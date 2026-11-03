@@ -745,7 +745,14 @@ data class AgentDefinitionEntity(
     @ColumnInfo(name = "instructions_updated_at") @SerialName("instructions_updated_at") @JsonNames("instructionsUpdatedAt") val instructionsUpdatedAt: String? = null,
     // S-3: contract `agentRole` (assistant | agent); tolerant: missing = agent.
     @ColumnInfo(name = "role") val role: String? = null,
+    // #EXP-1661: the skills every run of the agent starts with (raw jsonb
+    // TEXT, a string array; [skillIdList] reads it).
+    @ColumnInfo(name = "skill_ids") @SerialName("skill_ids")
+    @Serializable(with = JsonAsStringSerializer::class) val skillIds: String? = null,
 ) {
+    /** #EXP-1661: [skillIds] as ids (null / malformed = none). */
+    val skillIdList: List<String> get() = parseJsonStringList(skillIds)
+
     /** S-3: the member's own Assistant (brand mark, orchestrator + voice). */
     val isAssistant: Boolean get() = role == com.exponential.app.domain.DomainContract.agentRoleAssistant
 }
@@ -857,6 +864,25 @@ data class PromptEntity(
     val name: String = "",
     val icon: String? = null,
     @ColumnInfo(name = "sort_order") @SerialName("sort_order") @JsonNames("sortOrder") val sortOrder: Double = 0.0,
+    @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
+    @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
+)
+
+// #EXP-1661: a team SKILL (fixtures/skills.json): name, description, the
+// Default flag; the SKILL.md body is server-only (tRPC `skills.get`).
+@Entity(
+    tableName = "skills",
+    indices = [Index("team_id")],
+)
+@Serializable
+data class SkillEntity(
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "team_id") @SerialName("team_id") @JsonNames("teamId") val teamId: String = "",
+    val name: String = "",
+    val description: String = "",
+    @ColumnInfo(name = "enabled_by_default", defaultValue = "0") @SerialName("enabled_by_default")
+    @JsonNames("enabledByDefault") val enabledByDefault: PgBool = false,
+    @ColumnInfo(name = "created_by_id") @SerialName("created_by_id") @JsonNames("createdById") val createdById: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",
 )
