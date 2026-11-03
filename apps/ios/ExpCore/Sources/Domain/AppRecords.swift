@@ -82,6 +82,71 @@ public enum AppRecords {
         return author == viewer
     }
 
+    // MARK: - Per-kind policy + app access (eApps R3)
+
+    /// eApps R3: who may read, create, update and delete a kind's records
+    /// under the member's app access: a hand port of eUI's
+    /// `src/host/record-policy.ts` (packages/exponential-ui
+    /// fixtures/record-policy.json is the spec; `AppRecordsTests` replays it).
+    public enum Policy {
+        public static let ops = ["read", "create", "update", "delete"]
+        public static let levels = ["member", "author", "owners"]
+        public static let access = ["none", "read", "write"]
+        public static let defaults: [String: String] = ["read": "member", "create": "member", "update": "author", "delete": "author"]
+
+        public enum Copy {
+            public static let none = "You have no access to this app"
+            public static let readOnly = "You have read-only access to this app"
+            public static let author: [String: String] = [
+                "read": "Only the record's author or a team owner can read it",
+                "update": "Only the record's author or a team owner can change it",
+                "delete": "Only the record's author or a team owner can change it",
+            ]
+            public static let owners: [String: String] = [
+                "read": "Only team owners can read these records",
+                "create": "Only team owners can add these records",
+                "update": "Only team owners can change these records",
+                "delete": "Only team owners can change these records",
+            ]
+        }
+
+        /// A kind's effective policy (its `policy` over the defaults; an
+        /// invalid entry keeps the default). `kind` = the package's
+        /// `records.<kind>` object.
+        public static func effective(_ kind: CardJSON?) -> [String: String] {
+            var out = defaults
+            guard let policy = kind?.objectValue?["policy"]?.objectValue else { return out }
+            for op in ops {
+                guard case let .string(level)? = policy[op], levels.contains(level), !(op == "create" && level == "author") else { continue }
+                out[op] = level
+            }
+            return out
+        }
+
+        /// The policy of `kind` in a package (`records.<kind>`).
+        public static func of(package: CardJSON?, kind: String) -> [String: String] {
+            effective(package?.objectValue?["records"]?.objectValue?[kind])
+        }
+
+        /// Why `viewer` (team `role`, nil = not a member; app `access`, nil =
+        /// write) may NOT `op` a record (`row` for read/update/delete), or nil.
+        public static func refusal(_ policy: [String: String], op: String, viewer: String?, role: String?, access: String? = nil, row: Row? = nil) -> String? {
+            let access = access ?? "write"
+            guard viewer != nil, role != nil, access != "none" else { return Copy.none }
+            if access == "read", op != "read" { return Copy.readOnly }
+            if role == "owner" { return nil }
+            let level = policy[op] ?? defaults[op] ?? "member"
+            if level == "member" { return nil }
+            if level == "owners" || op == "create" { return Copy.owners[op] }
+            if let row, let author = recordAuthor(row), author == viewer { return nil }
+            return Copy.author[op]
+        }
+
+        public static func allowed(_ policy: [String: String], op: String, viewer: String?, role: String?, access: String? = nil, row: Row? = nil) -> Bool {
+            refusal(policy, op: op, viewer: viewer, role: role, access: access, row: row) == nil
+        }
+    }
+
     // MARK: - On-behalf writes (VAPP-188)
 
     /// The fixture `onBehalf` block: the server's refusals (FORBIDDEN /

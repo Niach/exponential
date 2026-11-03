@@ -40,6 +40,37 @@ final class AppRecordsTests: XCTestCase {
         XCTAssertEqual(ownership["refusal"] as? String, AppRecords.Ownership.refusal)
     }
 
+    // eApps R3: packages/exponential-ui fixtures/record-policy.json (eUI's
+    // rule, hand-ported in `AppRecords.Policy`).
+    func testRecordPolicyFixture() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("packages/exponential-ui/fixtures/record-policy.json")
+        let f = try XCTUnwrap(try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any])
+        XCTAssertEqual(f["ops"] as? [String], AppRecords.Policy.ops)
+        XCTAssertEqual(f["levels"] as? [String], AppRecords.Policy.levels)
+        XCTAssertEqual(f["access"] as? [String], AppRecords.Policy.access)
+        XCTAssertEqual(f["defaults"] as? [String: String], AppRecords.Policy.defaults)
+        let copy = try XCTUnwrap(f["copy"] as? [String: Any])
+        XCTAssertEqual(copy["none"] as? String, AppRecords.Policy.Copy.none)
+        XCTAssertEqual(copy["readOnly"] as? String, AppRecords.Policy.Copy.readOnly)
+        XCTAssertEqual(copy["author"] as? [String: String], AppRecords.Policy.Copy.author)
+        XCTAssertEqual(copy["owners"] as? [String: String], AppRecords.Policy.Copy.owners)
+        for item in try XCTUnwrap(f["validateCases"] as? [[String: Any]]) {
+            let kind = CardJSON(any: ["policy": item["policy"] ?? NSNull()])
+            XCTAssertEqual(AppRecords.Policy.effective(kind), item["effective"] as? [String: String], item["name"] as? String ?? "")
+        }
+        for item in try XCTUnwrap(f["allowCases"] as? [[String: Any]]) {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let op = try XCTUnwrap(item["op"] as? String)
+            let policy = AppRecords.Policy.effective(item["policy"].flatMap { CardJSON(any: ["policy": $0]) })
+            let row = op == "create" ? nil : AppRecords.Row(id: "r", kind: "k", data: [:], createdBy: item["createdBy"] as? String, authorId: item["author"] as? String, createdAt: "", updatedAt: "")
+            let got = AppRecords.Policy.refusal(policy, op: op, viewer: item["viewer"] as? String, role: item["role"] as? String, access: item["access"] as? String, row: row)
+            XCTAssertEqual(got, item["refusal"] as? String, name)
+        }
+    }
+
     func testCanChangeCases() throws {
         let ownership = try XCTUnwrap(try fixture()["ownership"] as? [String: Any])
         let list = try XCTUnwrap(ownership["canChangeCases"] as? [[String: Any]])

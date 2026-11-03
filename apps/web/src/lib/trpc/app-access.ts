@@ -83,6 +83,21 @@ export const appAccessRouter = router({
     return { canEdit: owner, apps: toolApps, rows }
   }),
 
+  /** eApps R3: the caller's OWN level for one app (no row = write): the
+   *  clients disable what the records service would refuse at `read`
+   *  (record-policy.json). An app at `none` is not synced to them at all. */
+  mine: authedProcedure.input(z.object({ appId: uuid })).query(async ({ ctx, input }) => {
+    const [app] = await ctx.db.select({ teamId: apps.teamId }).from(apps).where(and(eq(apps.id, input.appId), isNull(apps.deletedAt))).limit(1)
+    if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
+    await memberOrNotFound(ctx.session.user.id, app.teamId)
+    const [row] = await ctx.db
+      .select({ level: appAccess.level })
+      .from(appAccess)
+      .where(and(eq(appAccess.appId, input.appId), eq(appAccess.userId, ctx.session.user.id)))
+      .limit(1)
+    return { level: memberPolicy(row?.level as Level | undefined) }
+  }),
+
   /** Set one member's level for one app (owners). Full removes the row. */
   set: authedProcedure
     .input(z.object({ appId: uuid, userId: z.string().min(1), level: levelSchema }))
