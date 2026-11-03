@@ -1,6 +1,14 @@
 package com.exponential.app.ui.issue
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Alignment
+import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.TextEmphasis
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -65,14 +73,15 @@ data class IssuePropertySubject(
  * chips replacing the stacked property/times cards + labels section: Status,
  * Priority, Assignee (hidden on solo teams, EXP-50), Due date (only when set),
  * Estimate (EXP-630: only while the team's scale is not `none`; reads
- * "Estimate" until set), one chip per assigned label, and a "+" chip. Chip taps open the per-property
- * sheets; the box background (FlowRow gaps included) and "+" open the combined
- * Properties sheet. Non-moderators see it dimmed and inert.
+ * "Estimate" until set) and ONE labels chip (EXP-1647: web `LabelPicker`'s
+ * trigger — tag glyph, up to three colour dots, the names; "Label" when
+ * none). Chip taps open the per-property sheets; the box background (FlowRow
+ * gaps included) opens the combined Properties sheet. No "+" chip: web draws
+ * none. Non-moderators see it dimmed and inert.
  *
  * EXP-1170: with no Properties sheet ([onOpenProperties] null, the New issue
- * page) there is no box tap and no "+"; the empty Labels + Due date chips show
- * instead, in the ×4 page order status · priority · assignee · labels · due
- * date · board.
+ * page) there is no box tap; the empty Due date chip shows too, in the ×4
+ * page order status · priority · assignee · labels · due date · board.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -178,8 +187,9 @@ fun IssuePropertyChips(
         }
         // P46: ONE order ×4 — status · priority · assignee · labels · due
         // date · board (the estimate, where the team keeps one, after the
-        // due date). The face shows no empty Labels / Due date chips.
-        LabelChips(issueLabels, isModerator, onOpenLabels, showEmpty = pageMode)
+        // due date). The face shows no empty Due date chip; the labels chip
+        // is always there (web's is).
+        LabelsChip(issueLabels, isModerator, onOpenLabels)
         DueDateChip(subject.dueDate, isModerator, onOpenDueDate, showEmpty = pageMode)
         if (!pageMode && estimatesOn) {
             GlassPill(
@@ -203,16 +213,6 @@ fun IssuePropertyChips(
                 icon = if (boardEntity == null) ExpIcons.navBoards else null,
                 maxLines = 1,
                 modifier = Modifier.testTag("issue-board-chip"),
-            )
-        }
-        if (isModerator && onOpenProperties != null) {
-            GlassPill(
-                "",
-                size = PillSize.Sm,
-                onClick = onOpenProperties,
-                icon = ExpIcons.uiAdd,
-                // The glyph IS the label here, so it carries the name.
-                contentDescription = "Edit properties",
             )
         }
     }
@@ -251,27 +251,57 @@ private fun DueDateChip(dueDate: String?, isModerator: Boolean, onClick: () -> U
     }
 }
 
+/**
+ * EXP-1647: THE labels chip — web `LabelPicker`'s trigger ×4: the tag glyph,
+ * then (when labelled) up to three overlapping 8dp colour dots ringed in the
+ * page background and the names joined ", " (one line, ellipsized); an
+ * unlabelled issue reads tag + "Label". One chip, one tap: the label sheet.
+ */
 @Composable
-private fun LabelChips(labels: List<LabelEntity>, isModerator: Boolean, onClick: () -> Unit, showEmpty: Boolean) {
-    labels.forEach { label ->
-        GlassPill(
-            label.name,
-            size = PillSize.Sm,
-            enabled = isModerator,
-            onClick = onClick,
-            dot = parseColor(label.color),
-        )
-    }
-    if (labels.isEmpty() && showEmpty) {
-        GlassPill(
-            IssuePropertyChipCopy.EMPTY_LABEL,
-            size = PillSize.Sm,
-            enabled = isModerator,
-            onClick = onClick,
-            icon = ExpIcons.settingsLabels,
-        )
-    }
+private fun LabelsChip(labels: List<LabelEntity>, isModerator: Boolean, onClick: () -> Unit) {
+    val fg = MaterialTheme.colorScheme.onSurface.copy(
+        alpha = if (isModerator) TextEmphasis.Secondary else TextEmphasis.Quaternary,
+    )
+    GlassPill(
+        if (labels.isEmpty()) IssuePropertyChipCopy.EMPTY_LABEL else labels.joinToString(", ") { it.name },
+        size = PillSize.Sm,
+        enabled = isModerator,
+        onClick = onClick,
+        maxLines = 1,
+        shrinkLabel = labels.isNotEmpty(),
+        modifier = Modifier.testTag("issue-labels-chip"),
+        leading = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(GlassPillDefaults.SmSpacing),
+            ) {
+                Icon(
+                    ExpIcons.settingsLabels,
+                    contentDescription = null,
+                    tint = fg,
+                    modifier = Modifier.size(GlassPillDefaults.SmGlyphSize),
+                )
+                if (labels.isNotEmpty()) {
+                    // web `-space-x-0.5`: each dot overlaps the previous by 2dp.
+                    Row(horizontalArrangement = Arrangement.spacedBy((-2).dp)) {
+                        labels.take(3).forEach { label ->
+                            Box(
+                                Modifier
+                                    .size(LabelDotSize)
+                                    .background(DesignTokens.Palette.Background, CircleShape)
+                                    .padding(1.dp)
+                                    .background(parseColor(label.color), CircleShape),
+                            )
+                        }
+                    }
+                }
+            }
+        },
+    )
 }
+
+/** web `h-2 w-2` + its `ring-1`: the 1dp ring is drawn inside these 10dp. */
+private val LabelDotSize = 10.dp
 
 /** The empty chips' copy ×4 (P45, web `assignee-picker` / `label-picker`). */
 object IssuePropertyChipCopy {
