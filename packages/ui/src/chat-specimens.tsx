@@ -49,6 +49,9 @@ const BUBBLES = chats.bubbleCases[0]!.expected as AgentBubble[]
 /** S-3: the pinned agent rows (`agentRowCases[0]`: the Assistant first). */
 const AGENT_ROWS = chats.agentRowCases[0]!.expected as AgentChatRow[]
 
+// EXP-1647: the phone column is 390px at the PHONE root (16px) = 24.375rem:
+// the wide web root is 18.5px (styles.css), so a px column held the
+// rem-sized chips 16% too tight and the last chip clipped ("Unrea…").
 export function ChatListSpecimen() {
   const [filter, setFilter] = useState<ChatFilter>(`all`)
   const rows = LIST_ROWS.filter(
@@ -61,7 +64,7 @@ export function ChatListSpecimen() {
   return (
     <div
       data-testid="chat-list-specimen"
-      className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
+      className="flex w-[24.375rem] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
       <ChatsHeader inboxUnread />
       {/* S-3 (stories.json specimen): Triage + Designer wear their rings,
@@ -101,7 +104,7 @@ export function ChatSelectionSpecimen() {
   return (
     <div
       data-testid="chat-selection-specimen"
-      className="flex w-[390px] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
+      className="flex w-[24.375rem] max-w-full flex-col gap-4 overflow-hidden rounded-xl bg-background p-4 max-md:rounded-none max-md:p-0"
     >
       <ChatFilterChips value="all" counts={LIST.counts} onChange={noop} />
       <ChatList
