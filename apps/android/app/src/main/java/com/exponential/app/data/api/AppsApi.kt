@@ -163,6 +163,10 @@ data class AppValidateImportResult(
     val records: Int = 0,
 )
 
+/** VAPP-234 `apps.importTemplate` (fixtures/app-templates.json). */
+@Serializable
+private data class AppImportTemplateInput(val teamId: String, val template: String, val includeRecords: Boolean)
+
 @Serializable
 data class AppImportResult(val app: AppRow, val records: Int = 0, val txid: Long? = null)
 
@@ -340,6 +344,17 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
             input = AppImportInput(teamId, text),
             inputSerializer = AppImportInput.serializer(),
             outputSerializer = AppValidateImportResult.serializer(),
+        )
+
+    /** VAPP-234: a new app out of the signed gallery template [template]
+     *  (its sample records when [includeRecords]). */
+    suspend fun importTemplate(accountId: String, teamId: String, template: String, includeRecords: Boolean): AppImportResult =
+        trpc.mutation(
+            accountId,
+            path = "apps.importTemplate",
+            input = AppImportTemplateInput(teamId, template, includeRecords),
+            inputSerializer = AppImportTemplateInput.serializer(),
+            outputSerializer = AppImportResult.serializer(),
         )
 
     /** VAPP-121: create the app [text] describes (package as v1, its records). */

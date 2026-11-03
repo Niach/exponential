@@ -137,7 +137,7 @@ Needs: C24 offline outbox, C25 the `eapps` crate, C26 widget templates + slots (
 
 - A public leave-request form.
 - A read-only dashboard link for a customer.
-- "Start from a template" in the gallery.
+- "Start from a template" in the gallery (✅ #VAPP-234: time tracker, CRM and standup; leave and on-call later).
 - A signed catalog shared with Spezl (#YO-18).
 
 Needs: C21 public links, C28 templates gallery, C30 signed catalog. Signing is already ✅ (#VAPP-161).
@@ -185,7 +185,7 @@ Needs: C2, C13.
 | C25 | `eapps` crate (host, query, store, broker executor) | 🟡 the query + `RecordStore` live in eUI (S1 ✅ #VAPP-189); the crate itself is open (#EXP-1420) | S2 |
 | C26 | Widget templates + slots (eDE, home screen) | ❌ | #VAPP-64, NEW-107 |
 | C27 | Form-factor / responsive templates | 🟡 `@media` conditions, `Sidebar.collapseBelow` | 🆕 U1 |
-| C28 | Template gallery | 🟡 four editor starters | 🆕 P2 |
+| C28 | Template gallery | ✅ #VAPP-234: `samples/apps/*.app.json`, signed by the pinned Exponential key; "Start from a template" in the import dialog and a draft's starters (`fixtures/app-templates.json`) | Leave, On-call |
 | C29 | Calendar / timeline view | ❌ (no component) | 🆕 U3 (styleguide first) |
 | C30 | Marketplace (signed static catalog) | ❌ | #YO-18 |
 
@@ -891,7 +891,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 7: Sharing**
 
 - **P1** Public links (`submit` / `view`). (C21)
-- **P2** Template gallery (Time tracker, CRM, Leave, On-call, Standup as signed `.app.json` files in the repo). (C28)
+- **P2** ✅ #VAPP-234 Template gallery: Time tracker, CRM and Standup ship as signed `.app.json` app files in `samples/apps` (the package-format signature, verified server-side against the pinned key in `fixtures/app-templates.json`; `bun packages/domain-contract/scripts/sign-app-templates.ts` re-signs them with `EXP_APP_TEMPLATES_SEED`). The import dialog/sheet opens with a "Start from a template" list (glyph, name, one line) and an "Include sample records" switch; a draft's starters add a "Start from a template" pill opening it. A pick = `apps.importTemplate` = the import (v1 published, sample records optional), then its editor ×4. Leave and On-call follow. (C28)
 - **P3** A signed catalog shared with Spezl (#YO-18). (C30)
 
 ```

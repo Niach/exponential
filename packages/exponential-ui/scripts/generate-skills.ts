@@ -136,8 +136,9 @@ function appsSkill(): Files {
   )
 
   const examples = SAMPLE_APPS.map((id) => {
-    const text = read(`samples/apps/${id}.app.json`)
-    const app = JSON.parse(text) as {
+    // VAPP-234: a sample is a signed app file (the template gallery); the
+    // worked example is its package.
+    const app = (JSON.parse(read(`samples/apps/${id}.app.json`)) as { package: unknown }).package as {
       name: string
       description?: string
       records?: Record<string, { policy?: Record<string, string> }>
@@ -147,7 +148,7 @@ function appsSkill(): Files {
       templates: Record<string, unknown>
     }
     const path = `examples/${id}.app.json`
-    files.set(path, text.endsWith(`\n`) ? text : `${text}\n`)
+    files.set(path, `${JSON.stringify(app, null, 2)}\n`)
     const kinds = Object.entries(app.records ?? {}).map(([kind, def]) => (def.policy ? `${kind} (policy ${Object.entries(def.policy).map(([k, v]) => `${k} ${v}`).join(`, `)})` : kind))
     const parts = [
       `kinds ${kinds.join(`, `) || `none`}`,

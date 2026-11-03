@@ -19,7 +19,8 @@
 //! `user_id` = me), the app's glyph as the agent's mark, the first send
 //! `sessions.send({appId, text, deviceId})` on the caller's default device.
 //! VAPP-176: a DRAFT's empty chat = the page-size EmptyState `starterTitle`
-//! whose `starters` pills SEND their text through that same first send, the
+//! whose `starters` pills SEND their text through that same first send (and,
+//! VAPP-234, a `Start from a template` pill opens the import dialog), the
 //! composer focused with `draftPlaceholder`.
 
 use std::collections::HashSet;
@@ -356,8 +357,20 @@ impl AgentScreenView {
             .disabled(disabled)
             .on_click(cx.listener(move |this, _, window, cx| this.send_starter(starter.clone(), window, cx)))
         });
+        // VAPP-234: one more pill opens the import dialog's templates step
+        // (an import needs no device: never disabled).
+        let team_id = self.subject_team_id();
+        let from_template = team_id.map(|team_id| {
+            crate::surface::glass_pill_button(
+                SharedString::from(domain::app_templates::APP_TEMPLATES_TEST_IDS.from_template.clone()),
+                crate::surface::PillSize::Md,
+                cx,
+            )
+            .label(domain::app_templates::APP_TEMPLATES_COPY.from_template.clone())
+            .on_click(move |_, window, cx| crate::app_import_dialog::open(window, cx, team_id.clone()))
+        });
         crate::controls::empty_state(Icon::new(registry::NAV_APPS), copy.starter_title.clone(), None, cx)
-            .child(crate::controls::empty_state_actions().children(pills))
+            .child(crate::controls::empty_state_actions().children(pills).children(from_template))
     }
 
     /// #EXP-1380: one [`Self::refresh`] per effect cycle, however many

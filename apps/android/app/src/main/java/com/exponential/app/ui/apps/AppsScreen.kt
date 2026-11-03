@@ -38,6 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import at.exponential.ui.primitives.EmptyStateSize
 import com.exponential.app.domain.AppExport
+import com.exponential.app.domain.AppTemplates
 import com.exponential.app.domain.Apps
 import com.exponential.app.domain.Chats
 import com.exponential.app.ui.components.BottomBarInset
@@ -51,6 +52,9 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.GroupDivider
+import com.exponential.app.ui.components.OptionGroup
+import com.exponential.app.ui.components.SwitchRow
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetPrimaryAction
@@ -158,6 +162,12 @@ fun AppsScreen(
             onValidate = viewModel::validateImport,
             onImport = { text ->
                 viewModel.importApp(text) { id ->
+                    importing = false
+                    onOpenApp(id)
+                }
+            },
+            onTemplate = { template, includeRecords ->
+                viewModel.importTemplate(template, includeRecords) { id ->
                     importing = false
                     onOpenApp(id)
                 }
@@ -301,13 +311,16 @@ private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onExport: () -> Un
 }
 
 /** VAPP-121 / VAPP-176: Import… = its own sheet, the import step: the
- *  monospace field, Choose file, the server's issues and Import. */
+ *  monospace field, Choose file, the server's issues and Import. VAPP-234
+ *  (fixtures/app-templates.json): the templates step above it (a row =
+ *  [onTemplate] at once, the sample-records switch). */
 @Composable
 fun AppImportSheet(
     busy: Boolean,
     onDismiss: () -> Unit,
     onValidate: suspend (String) -> List<AppExport.Issue>?,
     onImport: (text: String) -> Unit,
+    onTemplate: (template: String, includeRecords: Boolean) -> Unit = { _, _ -> },
 ) {
     // Plain remember: an import may be up to 4 MB, far past the Binder limit for saved state.
     var text by remember { mutableStateOf("") }
@@ -324,7 +337,61 @@ fun AppImportSheet(
             testTag = "app-import-confirm",
         ),
     ) {
+        AppTemplatesStep(busy = busy, onTemplate = onTemplate)
+        Spacer(Modifier.height(12.dp))
         AppImportStep(text = text, onTextChange = { text = it }, issues = issues)
         Spacer(Modifier.height(8.dp))
+    }
+}
+
+/** VAPP-234: the templates step: the band, one row per signed template
+ *  (glyph, name over the muted description), the sample-records switch. */
+@Composable
+fun AppTemplatesStep(busy: Boolean, onTemplate: (template: String, includeRecords: Boolean) -> Unit) {
+    var withRecords by rememberSaveable { mutableStateOf(false) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        SectionHeader(AppTemplates.Copy.TITLE, modifier = Modifier.padding(horizontal = 16.dp))
+        OptionGroup {
+            AppTemplates.TEMPLATES.forEachIndexed { index, template ->
+                if (index > 0) GroupDivider()
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("${AppTemplates.TestIds.ROW}-${template.id}")
+                        .clickable(enabled = !busy) { onTemplate(template.id, withRecords) }
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                ) {
+                    AppGlyph(template.icon, template.color)
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            template.name,
+                            fontWeight = FontWeight.Medium,
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            template.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        OptionGroup {
+            SwitchRow(
+                title = AppTemplates.Copy.INCLUDE_RECORDS,
+                checked = withRecords,
+                onCheckedChange = { withRecords = it },
+                enabled = !busy,
+                modifier = Modifier.testTag(AppTemplates.TestIds.RECORDS),
+            )
+        }
     }
 }

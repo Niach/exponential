@@ -57,6 +57,8 @@ import type { AppAccessLevel } from "@exponential_app/eui/host"
 import { SessionComposer } from "@/components/session-composer"
 import { HEADER_BUTTON_CLASS, MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import { AppExportDialog } from "@/components/apps/app-export-dialog"
+import { AppImportDialog } from "@/components/apps/app-import-dialog"
+import { APP_TEMPLATES_COPY, APP_TEMPLATES_TEST_IDS } from "@exp/domain-contract/app-templates"
 import { relativeTime } from "@/components/comment-rows/format"
 import { renderThreadText } from "@/components/thread/thread-markdown"
 import { useAnswerMessage, useConversationRows } from "@/hooks/use-answer-message"
@@ -429,7 +431,14 @@ export function AppEditor({
     </Pill>
   )
   const showPublish = canWrite && canPublish(app)
-  const exportDialog = <AppExportDialog app={exportOpen ? app : null} onOpenChange={setExportOpen} />
+  // VAPP-234: a draft's "Start from a template" opens the import dialog.
+  const [importing, setImporting] = useState(false)
+  const exportDialog = (
+    <>
+      <AppExportDialog app={exportOpen ? app : null} onOpenChange={setExportOpen} />
+      <AppImportDialog open={importing} onOpenChange={setImporting} teamId={teamId} teamSlug={teamSlug} />
+    </>
+  )
 
   // A version's Preview: the Preview tab showing it (phones: the sheet closes).
   const previewVersion = (number: number) => {
@@ -497,6 +506,12 @@ export function AppEditor({
                 {text}
               </Pill>
             ))}
+          {/* VAPP-234: the template gallery (the import dialog's templates step). */}
+          {isMember && (
+            <Pill mode="action" size="md" onClick={() => setImporting(true)} data-testid={APP_TEMPLATES_TEST_IDS.fromTemplate}>
+              {APP_TEMPLATES_COPY.fromTemplate}
+            </Pill>
+          )}
         </EmptyState>
       </div>
     ) : (

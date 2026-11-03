@@ -199,6 +199,14 @@ class AppsViewModel @Inject constructor(
         }
     }
 
+    /** VAPP-234: a signed gallery template as a new app (v1 published). */
+    fun importTemplate(template: String, includeRecords: Boolean, onCreated: (String) -> Unit) {
+        val team = selection.selectedId.value ?: return
+        write("import", { importTemplate(template, includeRecords, onCreated) }) { accountId ->
+            onCreated(api.importTemplate(accountId, team, template, includeRecords).app.id)
+        }
+    }
+
     private fun write(verb: String, retry: () -> Unit, call: suspend (accountId: String) -> Unit) {
         if (_busy.value) return
         val accountId = auth.activeAccountId.value ?: return
