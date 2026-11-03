@@ -20,3 +20,5 @@
 - Úpravy aplikace provedené offline se odešlou, jakmile budete zase online
 - Aplikace mohou mít více obrazovek a importovat tabulku jako záznamy
 - Plovoucí lišta drží hovor po ruce, zatímco používáte aplikaci
+- Aplikace se z postranního panelu otevírají na celou obrazovku; editor je pod ozubeným kolem
+- Vložené obrázky se v chatu zobrazují jako náhledy

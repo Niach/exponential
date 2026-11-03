@@ -20,3 +20,5 @@
 - Ändringar gjorda offline skickas när du är online igen
 - Appar kan ha flera skärmar och importera ett kalkylark
 - En flytande knapp håller samtalet nära till hands
+- Appar öppnas i helskärm från sidofältet; redigeraren ligger bakom kugghjulet
+- Inklistrade bilder visas som miniatyrer i chattar

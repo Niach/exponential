@@ -20,3 +20,5 @@
 - Úpravy urobené offline sa odošlú, keď budete znova online
 - Aplikácie môžu mať viac obrazoviek a importovať tabuľku
 - Plávajúca lišta drží hovor poruke
+- Aplikácie sa z bočného panela otvárajú na celú obrazovku; editor je pod ozubeným kolieskom
+- Vložené obrázky sa v chate zobrazujú ako náhľady

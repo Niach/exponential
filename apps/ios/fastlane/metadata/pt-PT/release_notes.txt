@@ -20,3 +20,5 @@
 - As alterações feitas offline são enviadas quando voltar a estar online
 - As apps podem ter vários ecrãs e importar uma folha de cálculo
 - Uma pílula flutuante mantém a chamada à mão
+- As apps abrem em ecrã inteiro a partir da barra lateral; o editor está atrás da roda dentada
+- As imagens coladas aparecem como miniaturas

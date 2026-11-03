@@ -20,3 +20,5 @@
 - Offline gemaakte wijzigingen worden verstuurd zodra je weer online bent
 - Apps kunnen meerdere schermen hebben en een spreadsheet importeren
 - Een zwevende pil houdt je gesprek binnen handbereik
+- Apps openen schermvullend vanuit de zijbalk; de editor zit achter het tandwiel
+- Geplakte afbeeldingen verschijnen als miniaturen in chats

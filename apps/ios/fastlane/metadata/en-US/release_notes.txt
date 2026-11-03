@@ -20,3 +20,5 @@
 - App edits made offline are sent once you are back online
 - Apps can have several screens, and import a spreadsheet as records
 - A floating pill keeps your call within reach while you use the app
+- Apps open full screen from the sidebar; the editor is behind the gear
+- Pasted images show as thumbnails in chats

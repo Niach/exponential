@@ -20,3 +20,5 @@
 - Offline gemachte App-Änderungen werden gesendet, sobald du wieder online bist
 - Apps können mehrere Bildschirme haben und eine Tabelle als Einträge importieren
 - Eine schwebende Leiste hält deinen Anruf griffbereit, während du die App nutzt
+- Apps öffnen sich aus der Seitenleiste im Vollbild; der Editor liegt hinter dem Zahnrad
+- Eingefügte Bilder erscheinen im Chat als Vorschaubilder

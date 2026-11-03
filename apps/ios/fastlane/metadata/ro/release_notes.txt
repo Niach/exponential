@@ -20,3 +20,5 @@
 - Modificările făcute offline sunt trimise când revii online
 - Aplicațiile pot avea mai multe ecrane și importa o foaie de calcul
 - O pastilă plutitoare îți ține apelul la îndemână
+- Aplicațiile se deschid pe tot ecranul din bara laterală; editorul e în spatele rotiței
+- Imaginile lipite apar ca miniaturi în chat

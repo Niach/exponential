@@ -20,3 +20,5 @@
 - App-ændringer foretaget offline sendes, når du er online igen
 - Apps kan have flere skærme og importere et regneark som poster
 - En svævende pille holder dit opkald inden for rækkevidde
+- Apps åbner i fuld skærm fra sidebjælken; editoren ligger bag tandhjulet
+- Indsatte billeder vises som miniaturer i chats

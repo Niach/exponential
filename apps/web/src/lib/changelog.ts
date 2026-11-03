@@ -25,6 +25,14 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-04-pasted-images`,
+    date: `2026-11-04`,
+    title: `Pasted images reach the agent and show in chats`,
+    summary: `Images you paste travel with the message when an agent hands work on, and chat messages with text and images show their thumbnails.`,
+    body: `- **Handed-on images**: when an agent delegates a task, the images you pasted go with it by reference, instead of being lost or re-uploaded.
+- **Thumbnails**: a chat message with text and images shows the images as thumbnails under the text, on every app.`,
+  },
+  {
     id: `2026-11-03-apps-run-full-screen`,
     date: `2026-11-03`,
     title: `Apps open full screen`,

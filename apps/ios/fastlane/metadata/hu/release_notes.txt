@@ -20,3 +20,5 @@
 - Az offline módosítások elküldésre kerülnek, amint újra online vagy
 - Az appok több képernyősek lehetnek és táblázatot importálhatnak
 - Egy lebegő gomb kéznél tartja a hívást
+- Az appok az oldalsávból teljes képernyőn nyílnak; a szerkesztő a fogaskerék mögött van
+- A beillesztett képek bélyegképként jelennek meg
