@@ -2563,5 +2563,13 @@
         "stage": "qualified"
       }
     }
-  ]
+  ],
+  "author": {
+    "name": "Exponential",
+    "key": "ed25519:gnJbl7QgSXJ3pH1V_YRf3PulSYjFm2mSfsEJHPVOdEs"
+  },
+  "signature": {
+    "alg": "ed25519",
+    "value": "Z-ddPMcDdoMhjSugiO1OGdQegcD7E5DErdQmRhZkJ5nAkqTXAHf_1O-t2Bk9r4fzA1tp1x8Wuw037Cw8jOgoBA"
+  }
 }
