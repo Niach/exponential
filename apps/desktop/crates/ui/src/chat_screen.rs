@@ -1066,7 +1066,7 @@ impl ChatScreenView {
         }
     }
 
-    /// THE `/` menu inside the card, above the field (the session
+    /// THE `/` menu over the card (the session
     /// composer's [`crate::composer::session_slash_menu`]).
     fn render_slash(&self, window: &Window, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let (items, selected) = self.slash.as_ref()?;
@@ -2532,9 +2532,9 @@ impl ChatScreenView {
         .loading(self.sending || self.start_pending.shown())
         .on_click(cx.listener(|this, _: &ClickEvent, window, cx| this.send(window, cx)));
         // EXP-1019: the subject CHIPS moved out of the card into the
-        // headline (NEW-2: a prompt has no typed inputs). NEW-2: the `/`
-        // menu leads the card, above the field.
-        let leading: Option<AnyElement> = self.render_slash(window, cx);
+        // headline (NEW-2: a prompt has no typed inputs). EXP-1649: the `/`
+        // menu is the web's popover ABOVE the card, left-aligned with it.
+        let slash: Option<AnyElement> = self.render_slash(window, cx);
         let strip = (!self.images.is_empty()).then(|| {
             self.images
                 .render_strip("chat-pending-remove", self.sending, Self::remove_image, cx)
@@ -2549,7 +2549,7 @@ impl ChatScreenView {
                 v_flex().w_full().min_w_0().gap_1().children(strip).child(picker).into_any_element(),
             ),
         };
-        let mut composer = crate::composer::GlassComposer::new(
+        let composer = crate::composer::GlassComposer::new(
             div()
                 .w_full()
                 .min_w_0()
@@ -2567,9 +2567,6 @@ impl ChatScreenView {
         // EXP-1249: the ONE tool — the "+" menu (the `ui-add` plus ×4).
         .tool(self.plus_tool(window, cx))
         .submit(submit);
-        if let Some(leading) = leading {
-            composer = composer.leading(leading);
-        }
         let headline = self.render_headline(cx);
         // EXP-1271: while a start is on its way the options line is the
         // STARTING row: the mark, "Starting on <device>", the elapsed time.
@@ -2640,8 +2637,11 @@ impl ChatScreenView {
             // composer; a play button's seed starts it on Temporary session).
             .child(self.render_agent_row(cx))
             .child(
-                crate::composer::glass_composer(composer)
-                    .capture_action(cx.listener(Self::on_paste)),
+                div().relative().w_full().min_w_0().child(
+                    crate::composer::glass_composer(composer)
+                        .capture_action(cx.listener(Self::on_paste)),
+                )
+                .children(slash),
             )
             .children(options)
             .child(notes)

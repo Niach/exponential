@@ -286,8 +286,9 @@ pub(crate) struct SessionComposerBox {
     /// The mention-capable field ([`session_composer_field`]); its
     /// placeholder lives on the textarea state.
     pub(crate) mention: Entity<crate::mention_input::MentionInput>,
-    /// Inside the card, above the field (the steer view's `/` menu).
-    pub(crate) above_field: Option<AnyElement>,
+    /// The popover over the card (the steer view's `/` menu,
+    /// `TypeaheadArm::AboveHost`): a child of the card's `relative` wrapper.
+    pub(crate) above_card: Option<AnyElement>,
     /// Applied to the field's wrapper div (key context + captured actions).
     pub(crate) field_hook: Option<DivHook>,
     /// The pending attachment strip.
@@ -312,7 +313,7 @@ impl SessionComposerBox {
     ) -> Self {
         Self {
             mention,
-            above_field: None,
+            above_card: None,
             field_hook: None,
             strip: None,
             tools: Vec::new(),
@@ -328,8 +329,8 @@ impl SessionComposerBox {
         self
     }
 
-    pub(crate) fn above_field(mut self, element: Option<AnyElement>) -> Self {
-        self.above_field = element;
+    pub(crate) fn above_card(mut self, element: Option<AnyElement>) -> Self {
+        self.above_card = element;
         self
     }
 
@@ -395,7 +396,7 @@ pub(crate) fn session_composer_field(
 pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyElement {
     let SessionComposerBox {
         mention,
-        above_field,
+        above_card,
         field_hook,
         strip,
         tools,
@@ -415,7 +416,6 @@ pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyE
         gpui_component::v_flex()
             .w_full()
             .min_w_0()
-            .children(above_field)
             .child(field_wrap.child(mention))
             .into_any_element(),
     )
@@ -472,7 +472,7 @@ pub(crate) fn session_composer_card(props: SessionComposerBox, cx: &App) -> AnyE
         .w_full()
         .min_w_0()
         .children(replies.map(|replies| div().w_full().min_w_0().pb_2().child(replies)))
-        .child(card)
+        .child(div().relative().w_full().min_w_0().child(card).children(above_card))
         .into_any_element()
 }
 
@@ -670,7 +670,9 @@ pub(crate) fn session_context_ring(props: ContextRingProps, cx: &App) -> Option<
     )
 }
 
-/// EXP-724 — THE `/` command menu INSIDE the composer card, above the field:
+/// EXP-724 — THE `/` command menu; EXP-1649: the web's popover ABOVE the
+/// composer card (`TypeaheadArm::AboveHost`: the host adds it to the card's
+/// `relative` wrapper):
 /// mono name, muted argument hint, muted description; NEW-2: then the team's
 /// prompts, icon + name. Hovering MOVES the
 /// selection (`on_hover(view, index)`), a press accepts it
@@ -758,7 +760,7 @@ pub(crate) fn session_slash_menu<V: 'static>(
     // EXP-970: the ONE typeahead surface, in the composer card's flow.
     crate::controls::typeahead_menu(
         id,
-        crate::controls::TypeaheadArm::Inline,
+        crate::controls::TypeaheadArm::AboveHost,
         rows,
         scroll,
         window,
