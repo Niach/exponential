@@ -146,12 +146,6 @@ pub(crate) struct AppDataTab {
 const TABLE_ROW_PADDING_PX: f32 = 32.;
 
 impl AppDataTab {
-    /// VAPP-200: the viewer's app access (`appAccess.mine`; `None` until
-    /// known = write): the preview paints read-only at `read`.
-    pub(crate) fn access(&self) -> Option<&str> {
-        self.access.as_deref()
-    }
-
     pub(crate) fn new(app_id: String, cx: &mut gpui::Context<Self>) -> Self {
         let mut subscriptions = Vec::new();
         if let Some(collections) = Store::try_global(cx).map(|store| store.collections().clone()) {
