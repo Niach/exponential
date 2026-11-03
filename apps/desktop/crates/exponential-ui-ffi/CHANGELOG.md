@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.11.0 (2026-11-03)
+
 - VAPP-222: `transition_refusal_json`, `transitions_from_json`, `validate_record_transitions_json`; `records_value_json`'s context takes `transitions` + `role`.
 
 ## 0.10.0 (2026-11-03)

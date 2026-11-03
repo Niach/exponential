@@ -42,3 +42,4 @@
 - Ejere vælger teamets tidszone; apps læser datoer i den
 - Fortryd ændringer af app-poster i 10 sekunder; hver post har en historik, du kan gendanne fra
 - Apps kan beregne felter og forbinde poster med hinanden
+- App-ændringer foretaget offline sendes, når du er online igen

@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.11.0 (2026-11-03)
+
 - VAPP-222: `RecordTransitions.refusal/from/validate` and `RecordsQuery.value(…, transitions, role)` + `RecordsQuery.transitions(records, kind)`; `RecordTransitionsTest` replays `record-transitions.json`.
 
 ## 0.10.0 (2026-11-03)

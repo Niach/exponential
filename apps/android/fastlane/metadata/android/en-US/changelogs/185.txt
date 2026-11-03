@@ -1,0 +1,4 @@
+- Live sessions reconnect only the screens you can see when you come back to the app
+- A thread keeps one live stream for its queue; a refused connection no longer retries in a loop
+- App edits made offline are sent once you are back online
+- Apps can run automations and move records through states

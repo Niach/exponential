@@ -42,3 +42,4 @@
 - Vlasnici postavljaju vremensku zonu tima; aplikacije u njoj čitaju datume
 - Poništite izmjene zapisa 10 sekundi; svaki zapis čuva povijest za vraćanje
 - Aplikacije mogu računati polja i povezivati zapise
+- Izmjene napravljene izvan mreže šalju se kad se ponovno povežete

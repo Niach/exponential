@@ -42,3 +42,4 @@
 - Os proprietários definem o fuso horário da equipa; as apps leem as datas nele
 - Anule alterações de registos durante 10 segundos; cada registo guarda um histórico restaurável
 - As apps podem calcular campos e ligar registos entre si
+- As alterações feitas offline são enviadas quando voltar a estar online

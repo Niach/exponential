@@ -25,6 +25,17 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-steadier-live-sessions`,
+    date: `2026-11-03`,
+    title: `Steadier live sessions, apps that work offline`,
+    summary: `Live sessions on Android reconnect only what you are looking at, app edits made offline are sent when you are back, and apps can run automations and step records through states.`,
+    body: `- **Live sessions on Android**: coming back to the app reconnects only the screens you can see, a thread keeps one live stream for its queue, and a refused connection no longer retries in a loop.
+- **Offline app edits**: records you add or change in an app without a connection are kept and sent once you are back online, exactly once.
+- **Automations**: an app can run actions on a schedule or when a record changes; its Settings tab lists them.
+- **States**: an app can move a record through states (open, in review, done) with rules for who may make each step.
+- **Record migrations**: publishing a new app version can rename, fill or convert the fields of existing records.`,
+  },
+  {
     id: `2026-11-03-record-history`,
     date: `2026-11-03`,
     title: `Undo and history for app records`,

@@ -42,3 +42,4 @@
 - Los propietarios fijan la zona horaria del equipo; las apps leen las fechas en ella
 - Deshaz cambios de registros durante 10 segundos; cada registro guarda un historial restaurable
 - Las apps pueden calcular campos y enlazar registros entre sí
+- Los cambios hechos sin conexión se envían al volver a estar en línea
