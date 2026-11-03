@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
-// NEW-4: the noun router — 16 tools, `op` routes to the per-operation
+// NEW-4: the noun router — 21 tools (EXP-1657: 7 groups), `op` routes to the per-operation
 // definitions, their STRICT schemas validate the flat arguments, an op the
 // caller lacks errors instead of vanishing, the display rows are the
 // contract's. The per-operation handlers themselves are tools.test.ts's.
@@ -66,9 +66,11 @@ import {
   coerceScalars,
   displayRowNames,
   legacyNameOfRow,
+  NOUN_GROUPS,
   NOUN_TOOLS,
   opSignature,
   registerNounTools,
+  RETIRED_ROW_ALIASES,
   scalarKinds,
 } from "./nouns"
 import { ALL_MCP_TOOL_GATES } from "./gates"
@@ -91,10 +93,11 @@ function surface(gates = ALL_MCP_TOOL_GATES) {
 const text = (result: { content: { text?: string }[] }) => result.content[0]?.text ?? ``
 
 describe(`registerNounTools`, () => {
-  it(`registers the 16 tools, every caller alike`, () => {
+  it(`registers the 21 tools, every caller alike`, () => {
     const names = [...surface().keys()]
     expect(names).toEqual(NOUN_TOOLS.map((spec) => `exponential_${spec.name}`))
-    expect(names).toHaveLength(16)
+    expect(names).toHaveLength(21)
+    expect(names).not.toContain(`exponential_team_config`)
     const headerless = [...surface({ inSession: false, unattended: false, agent: false }).keys()]
     expect(headerless).toEqual(names)
   })
@@ -186,11 +189,35 @@ describe(`registerNounTools`, () => {
 
   it(`the display rows are exactly the contract's, each routing to a recorded tool name`, () => {
     const rows = displayRowNames()
-    expect([...rows].sort()).toEqual(contract.expToolDisplay.tools.map((row) => row.name).sort())
-    expect([...rows].sort()).toEqual(contract.expToolPreview.tools.map((row) => row.name).sort())
+    // EXP-1657: the retired team_config rows stay in the contract as aliases
+    // (old transcripts render ×4); the live rows are exactly the surface's.
+    const live = contract.expToolDisplay.tools.filter((row) => !(`aliasOf` in row))
+    const aliases = contract.expToolDisplay.tools.filter((row) => `aliasOf` in row)
+    expect([...rows].sort()).toEqual(live.map((row) => row.name).sort())
+    expect(Object.fromEntries(aliases.map((row) => [row.name, (row as { aliasOf?: string }).aliasOf]))).toEqual(
+      RETIRED_ROW_ALIASES
+    )
+    for (const target of Object.values(RETIRED_ROW_ALIASES)) expect(rows).toContain(target)
+    const previewed = contract.expToolPreview.tools.map((row) => row.name)
+    expect([...previewed].sort()).toEqual([...rows, ...Object.keys(RETIRED_ROW_ALIASES)].sort())
     for (const row of rows) expect(legacyNameOfRow(row), row).toMatch(/^exponential_[a-z_]+$/)
     expect(legacyNameOfRow(`issues_labels_add`)).toBe(`exponential_issue_labels_add`)
     expect(legacyNameOfRow(`sessions_send`)).toBe(`exponential_sessions_send`)
     expect(legacyNameOfRow(`nope`)).toBeNull()
+    expect(legacyNameOfRow(`mcp_servers_create`)).toBe(`exponential_mcp_servers_add`)
+    expect(legacyNameOfRow(`team_config_labels_list`)).toBeNull()
+  })
+
+  // EXP-1657: the groups are the contract's, in order, and every tool sits
+  // in exactly the group its spec names (NOUN_TOOLS order = group order).
+  it(`the tool groups are exactly the contract's`, () => {
+    expect(contract.expToolDisplay.groups.map((group) => group.id)).toEqual([...NOUN_GROUPS])
+    for (const group of contract.expToolDisplay.groups) {
+      expect(group.tools, group.id).toEqual(NOUN_TOOLS.filter((spec) => spec.group === group.id).map((spec) => spec.name))
+    }
+    expect(NOUN_TOOLS.map((spec) => spec.name)).toEqual(contract.expToolDisplay.groups.flatMap((group) => group.tools))
+    expect(contract.expToolDisplay.groups.find((group) => group.id === `work`)?.tools).toEqual(
+      NOUN_TOOLS.filter((spec) => spec.alwaysLoad).map((spec) => spec.name)
+    )
   })
 })

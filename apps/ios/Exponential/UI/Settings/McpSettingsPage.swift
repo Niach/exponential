@@ -435,46 +435,63 @@ struct McpSettingsPage: View {
 
     // MARK: - Built-in
 
-    @ViewBuilder
+    /// #EXP-1657: ONE band per contract tool group. The first VISIBLE band's
+    /// header carries the filter (one structural slot, so typing never drops
+    /// its focus); every band filtered away = the one empty state under the
+    /// old "Built-in Exponential tools" label.
     private var builtinSection: some View {
-        let shown = McpSettings.filterBuiltinTools(McpSettings.builtinTools, query: builtinQuery)
-        VStack(alignment: .leading, spacing: 0) {
-            GlassSectionBand(McpSettings.Section.builtin.label)
-            GlassSheetSearchField(
-                placeholder: McpSettings.builtinFilterPlaceholder,
-                text: $builtinQuery,
-                accessibilityIdentifier: "mcp-builtin-tools-filter"
-            )
-            .padding(.bottom, 8)
-            Group {
-                if shown.isEmpty {
-                    EmptyState(.builtinToolsNoMatch)
-                } else {
-                    LazyVStack(spacing: 0) {
-                        ForEach(shown) { tool in
-                            HStack(spacing: 8) {
-                                ExpLogoMark(size: 12, color: .white.opacity(TextOpacity.tertiary))
-                                Text(tool.title)
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(.white)
-                                    .lineLimit(1)
-                                    .fixedSize()
-                                Text(tool.blurb)
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                    .lineLimit(1)
-                                Spacer(minLength: 0)
-                            }
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                        }
+        let bands = McpSettings.builtinToolBands(query: builtinQuery)
+        let first = bands.first
+        return VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand(first?.label ?? McpSettings.Section.builtin.label)
+                GlassSheetSearchField(
+                    placeholder: McpSettings.builtinFilterPlaceholder,
+                    text: $builtinQuery,
+                    accessibilityIdentifier: "mcp-builtin-tools-filter"
+                )
+                .padding(.bottom, 8)
+                Group {
+                    if let first {
+                        builtinRows(first.tools)
+                    } else {
+                        EmptyState(.builtinToolsNoMatch)
                     }
                 }
+                .glassSection()
             }
-            .glassSection()
+            ForEach(bands.dropFirst()) { band in
+                VStack(alignment: .leading, spacing: 0) {
+                    GlassSectionBand(band.label)
+                    builtinRows(band.tools).glassSection()
+                }
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(McpSettings.Section.builtin.testId)
+    }
+
+    /// One band's rows, exactly as the built-in rows always were.
+    private func builtinRows(_ tools: [McpSettings.BuiltinTool]) -> some View {
+        LazyVStack(spacing: 0) {
+            ForEach(tools) { tool in
+                HStack(spacing: 8) {
+                    ExpLogoMark(size: 12, color: .white.opacity(TextOpacity.tertiary))
+                    Text(tool.title)
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                        .fixedSize()
+                    Text(tool.blurb)
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+            }
+        }
     }
 
     // MARK: - Chrome + data

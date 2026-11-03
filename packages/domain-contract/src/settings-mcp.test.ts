@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import fixture from "../fixtures/settings-mcp.json" with { type: "json" }
-import { activityCaption, clientCaption, levelLabel, toolCountLabel, usedByCaption, type McpScope } from "./settings-mcp"
+import { activityCaption, builtinToolBands, clientCaption, levelLabel, toolCountLabel, usedByCaption, type McpScope } from "./settings-mcp"
+import contract from "../contract.json" with { type: "json" }
 
 describe(`settings-mcp.json (VAPP-185)`, () => {
   it.each(fixture.usedByCases)(`usedBy: $name`, ({ apps, expected }) => {
@@ -11,6 +12,22 @@ describe(`settings-mcp.json (VAPP-185)`, () => {
   })
   it.each(fixture.activityCaptionCases)(`activity caption: $name`, ({ owner, call, expected }) => {
     expect(activityCaption(owner, call)).toBe(expected)
+  })
+  // EXP-1657: the built-in section = one band per contract tool group.
+  it.each(fixture.builtinCases)(`builtin bands: $name`, ({ query, expected }) => {
+    const bands = builtinToolBands(query)
+    expect(bands.map((b) => ({ id: b.id, label: b.label, count: b.tools.length }))).toEqual(
+      expected.map((e) => ({ id: e.id, label: e.label, count: e.count }))
+    )
+    expected.forEach((e, i) => {
+      if (`rows` in e) expect(bands[i].tools.map((t) => t.name)).toEqual(e.rows)
+    })
+  })
+  it(`builtin bands list every live row once and never an alias`, () => {
+    const listed = builtinToolBands(``).flatMap((b) => b.tools.map((t) => t.name))
+    const live = contract.expToolDisplay.tools.filter((t) => !(`aliasOf` in t)).map((t) => `exponential_${t.name}`)
+    expect([...listed].sort()).toEqual([...live].sort())
+    expect(listed.some((n) => n.includes(`team_config`))).toBe(false)
   })
   it(`labels`, () => {
     expect(toolCountLabel(1)).toBe(`1 tool`)

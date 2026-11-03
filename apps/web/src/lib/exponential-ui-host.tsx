@@ -44,7 +44,7 @@ import {
 } from "@/lib/collections"
 import { RECORDS_SCHEME, parseRecordsQuery, recordAuthor, recordsValue, type RecordRow } from "@exponential_app/eui/host/query"
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
-import { APP_ACTIONS, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
+import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { appMediaAllowed } from "@exp/domain-contract/apps"
 import { grantableTools } from "@/lib/app-grants"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -549,9 +549,10 @@ export function createAppHost(options: AppHostOptions): AppHost {
       "harness.openDevice": ({ id, label }) => (options.openDevice ? options.openDevice(String(id)) : toast(String(label ?? id ?? ``))),
       "harness.mcp": ({ tool, arguments: args }) => callMcp(String(tool), (args ?? {}) as Record<string, unknown>),
       // VAPP-120: every MCP operation as a typed function (fixtures/app-actions.json):
-      // the same tools/call as the viewer, `op` + the args.
+      // the same tools/call as the viewer, `op` + the args. EXP-1657: the
+      // aliases too, so a package published before the split keeps working.
       ...Object.fromEntries(
-        APP_ACTIONS.map((name) => {
+        [...APP_ACTIONS, ...Object.keys(APP_ACTION_ALIASES)].map((name) => {
           const target = parseActionName(name)!
           return [name, (args: Record<string, unknown>) => callMcp(target.tool, target.op ? { ...args, op: target.op } : args)]
         })

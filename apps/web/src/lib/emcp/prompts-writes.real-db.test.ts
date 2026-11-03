@@ -7,8 +7,8 @@ import { probeRealDb } from "@/test/real-db"
 import type { McpUser } from "./server"
 import { FULL_ACCESS } from "./scope"
 
-// Saved-prompt writes over MCP (`exponential_team_config` prompts_create /
-// prompts_update / prompts_delete) against the REAL migrated Postgres,
+// Saved-prompt writes over MCP (`exponential_prompts` create / update /
+// delete; EXP-1657, once team_config) against the REAL migrated Postgres,
 // through the noun router (its strict op schema) into the same tRPC router
 // Settings → Prompts uses: a team owner writes, a member or an outsider is
 // refused, and an owner of ANOTHER team cannot touch this team's prompt by id.
@@ -46,12 +46,12 @@ async function team(owner: McpUser, member?: McpUser): Promise<string> {
   return teamId
 }
 
-/** `exponential_team_config` as this user sees it (a full-access key). */
-function teamConfig(u: McpUser) {
+/** `exponential_prompts` as this user sees it (a full-access key). */
+function promptsTool(u: McpUser) {
   let handler: ((args: Record<string, unknown>, extra?: unknown) => Promise<ToolResult>) | undefined
   const server = {
     registerTool: (name: string, _def: unknown, h: typeof handler) => {
-      if (name === `exponential_team_config`) handler = h
+      if (name === `exponential_prompts`) handler = h
     },
   }
   registerNounTools(server as never, u, new Request(`https://x.test/api/mcp`), FULL_ACCESS)
@@ -77,24 +77,24 @@ describe.skipIf(!ready.ok)(`MCP saved-prompt writes (real db)`, () => {
   it(`an owner creates, updates and deletes a prompt`, async () => {
     const owner = await user()
     const teamId = await team(owner)
-    const call = teamConfig(owner)
+    const call = promptsTool(owner)
 
     const created = payload(
-      await call({ op: `prompts_create`, teamId, name: `Release all`, body: `# Release\n`, icon: `rocket` })
+      await call({ op: `create`, teamId, name: `Release all`, body: `# Release\n`, icon: `rocket` })
     )
     expect(created).toMatchObject({ teamId, name: `Release all`, body: `# Release\n`, icon: `rocket` })
     const id = created.id as string
 
-    const updated = payload(await call({ op: `prompts_update`, id, name: `Pre-cleanup release`, body: `# v2` }))
+    const updated = payload(await call({ op: `update`, id, name: `Pre-cleanup release`, body: `# v2` }))
     expect(updated).toMatchObject({ id, name: `Pre-cleanup release`, body: `# v2`, icon: `rocket` })
-    expect(payload(await call({ op: `prompts_update`, id, icon: null }))).toMatchObject({ id, icon: null })
+    expect(payload(await call({ op: `update`, id, icon: null }))).toMatchObject({ id, icon: null })
 
     // A second prompt can't take the first one's name (the app's rule).
-    const clash = await call({ op: `prompts_create`, teamId, name: `Pre-cleanup release`, body: `x` })
+    const clash = await call({ op: `create`, teamId, name: `Pre-cleanup release`, body: `x` })
     expect(clash.isError).toBe(true)
     expect(clash.content[0]!.text).toContain(`already exists`)
 
-    expect(payload(await call({ op: `prompts_delete`, id }))).toEqual({ ok: true, id })
+    expect(payload(await call({ op: `delete`, id }))).toEqual({ ok: true, id })
     expect(await db.select().from(prompts).where(eq(prompts.id, id))).toHaveLength(0)
   })
 
@@ -103,14 +103,14 @@ describe.skipIf(!ready.ok)(`MCP saved-prompt writes (real db)`, () => {
     const mate = await user()
     const outsider = await user()
     const teamId = await team(owner, mate)
-    const id = payload(await teamConfig(owner)({ op: `prompts_create`, teamId, name: `Keep`, body: `body` })).id as string
+    const id = payload(await promptsTool(owner)({ op: `create`, teamId, name: `Keep`, body: `body` })).id as string
 
     for (const u of [mate, outsider]) {
-      const call = teamConfig(u)
+      const call = promptsTool(u)
       for (const args of [
-        { op: `prompts_create`, teamId, name: `Nope`, body: `x` },
-        { op: `prompts_update`, id, body: `hijacked` },
-        { op: `prompts_delete`, id },
+        { op: `create`, teamId, name: `Nope`, body: `x` },
+        { op: `update`, id, body: `hijacked` },
+        { op: `delete`, id },
       ]) {
         const result = await call(args)
         expect(result.isError, `${u.id} ${args.op}`).toBe(true)
@@ -125,12 +125,12 @@ describe.skipIf(!ready.ok)(`MCP saved-prompt writes (real db)`, () => {
     const otherOwner = await user()
     const teamId = await team(owner)
     await team(otherOwner)
-    const id = payload(await teamConfig(owner)({ op: `prompts_create`, teamId, name: `Mine`, body: `body` })).id as string
+    const id = payload(await promptsTool(owner)({ op: `create`, teamId, name: `Mine`, body: `body` })).id as string
 
-    const call = teamConfig(otherOwner)
-    expect((await call({ op: `prompts_update`, id, name: `Theirs` })).isError).toBe(true)
-    expect((await call({ op: `prompts_delete`, id })).isError).toBe(true)
-    expect((await call({ op: `prompts_create`, teamId, name: `Theirs`, body: `x` })).isError).toBe(true)
+    const call = promptsTool(otherOwner)
+    expect((await call({ op: `update`, id, name: `Theirs` })).isError).toBe(true)
+    expect((await call({ op: `delete`, id })).isError).toBe(true)
+    expect((await call({ op: `create`, teamId, name: `Theirs`, body: `x` })).isError).toBe(true)
     const [row] = await db.select({ name: prompts.name }).from(prompts).where(eq(prompts.id, id))
     expect(row).toEqual({ name: `Mine` })
   })
@@ -138,16 +138,16 @@ describe.skipIf(!ready.ok)(`MCP saved-prompt writes (real db)`, () => {
   it(`validates lengths like the app (name 255, body 64KB, blank body)`, async () => {
     const owner = await user()
     const teamId = await team(owner)
-    const call = teamConfig(owner)
+    const call = promptsTool(owner)
     for (const args of [
       { name: `n`.repeat(256), body: `x` },
       { name: `n`, body: `b`.repeat(64 * 1024 + 1) },
       { name: `n`, body: `   ` },
       { name: `   `, body: `x` },
     ]) {
-      expect((await call({ op: `prompts_create`, teamId, ...args })).isError, JSON.stringify(args).slice(0, 60)).toBe(true)
+      expect((await call({ op: `create`, teamId, ...args })).isError, JSON.stringify(args).slice(0, 60)).toBe(true)
     }
-    expect(payload(await call({ op: `prompts_create`, teamId, name: `n`.repeat(255), body: `b`.repeat(64 * 1024) })).name).toHaveLength(255)
+    expect(payload(await call({ op: `create`, teamId, name: `n`.repeat(255), body: `b`.repeat(64 * 1024) })).name).toHaveLength(255)
     expect(await db.select().from(prompts).where(eq(prompts.teamId, teamId))).toHaveLength(1)
   })
 })

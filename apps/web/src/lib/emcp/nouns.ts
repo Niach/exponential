@@ -7,10 +7,12 @@ import type { McpUser } from "./server"
 import type { McpAccess } from "./scope"
 import { err } from "./helpers"
 
-// NEW-4 (plan 3.11): the MCP surface is 16 tools, the SAME set for every
+// NEW-4 (plan 3.11): the MCP surface is 21 tools, the SAME set for every
 // caller, no conditional registration. ONE tool per noun takes an `op` and
-// that op's parameters flat beside it (`{op: "get", id: "EXP-42"}`); three
-// verbs stay whole (`sessions_send`, S-3's `show`: 16 tools; `guide_write` retired by stories). The 79 per-operation
+// that op's parameters flat beside it (`{op: "get", id: "EXP-42"}`); two
+// verbs stay whole (`sessions_send`, S-3's `show`). EXP-1657 split the old
+// `team_config` into its nouns (labels, statuses, prompts, agents,
+// mcp_servers, repositories) with uniform verbs, in 7 groups. The 79 per-operation
 // tools of EXP-988 become the ops: `registerExponentialTools` still defines
 // every one of them (their zod schemas, access checks and handlers are
 // untouched), a recorder captures them instead of the server, and each noun
@@ -53,14 +55,23 @@ export interface NounSpec {
   /** A verb tool registered whole under this name. */
   verb?: string
   alwaysLoad?: boolean
+  /** EXP-1657: the group (`contract.expToolDisplay.groups[].id`). */
+  group: NounGroup
 }
 
 const PREFIX = `exponential_`
 
-/** The 16. Order = the order the tools list. */
+/** EXP-1657: the groups the tools sit in, in order (`contract.expToolDisplay.groups`:
+ *  Settings › MCP lists one band per group ×4). `skills` joins `agents` later. */
+export const NOUN_GROUPS = [`work`, `tracker`, `team`, `agents`, `sessions`, `apps`, `activity`] as const
+export type NounGroup = (typeof NOUN_GROUPS)[number]
+
+/** The 21. Order = the order the tools list = the group order. */
 export const NOUN_TOOLS: readonly NounSpec[] = [
+  // ── Work (always loaded) ──
   {
     name: `issues`,
+    group: `work`,
     blurb: `Issues (id = UUID or identifier like EXP-12; list = open only unless includeClosed or a status filter; widget = reporter data). create links only via sessionId or link: true.`,
     alwaysLoad: true,
     ops: {
@@ -83,22 +94,33 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   },
   {
     name: `comments`,
+    group: `work`,
     blurb: `Comments on an issue (plain GFM; threads one level deep; audience reporter emails a widget reporter; a report's reporter sees only that thread).`,
     alwaysLoad: true,
     ops: { list: `comments_list`, create: `comments_create`, update: `comments_update`, delete: `comments_delete` },
   },
   {
-    name: `attachments`,
-    blurb: `Files on an issue: list, get (metadata + contents or a signed URL), upload (bytes now, or a signed uploadUrl then finalize; no issueId = a loose file for sessions_send attachmentIds), delete.`,
+    name: `pr`,
+    group: `work`,
+    blurb: `Pull requests (name one by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR): open, merge, close, retarget, update, unlink an issue, files. Every reply carries checks (the PR's CI); CI finishing wakes the PR's session, so never poll GitHub.`,
+    alwaysLoad: true,
     ops: {
-      list: `attachments_list`,
-      get: `attachments_get`,
-      upload: `attachments_upload`,
-      delete: `attachments_delete`,
+      open: `pr_open`,
+      merge: `pr_merge`,
+      close: `pr_close`,
+      retarget: `pr_retarget`,
+      update: `pr_update`,
+      unlink: `pr_unlink`,
+      files: `pr_files`,
     },
   },
+  { name: `sessions_send`, group: `work`, blurb: ``, verb: `sessions_send`, alwaysLoad: true },
+  // S-3: show / ask / plan = ONE card verb, always loaded.
+  { name: `show`, group: `work`, blurb: ``, verb: `show`, alwaysLoad: true },
+  // ── Tracker ──
   {
     name: `boards`,
+    group: `tracker`,
     blurb: `Boards of a team: list, get, create, update, delete (trash), set_repository.`,
     ops: {
       list: `boards_list`,
@@ -110,12 +132,49 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     },
   },
   {
+    name: `labels`,
+    group: `tracker`,
+    blurb: `A team's issue labels: list, get, create, update, delete.`,
+    ops: {
+      list: `labels_list`,
+      get: `labels_get`,
+      create: `labels_create`,
+      update: `labels_update`,
+      delete: `labels_delete`,
+    },
+  },
+  {
+    name: `statuses`,
+    group: `tracker`,
+    blurb: `A team's issue statuses (each in an anchor category): list, create, update, delete.`,
+    ops: {
+      list: `statuses_list`,
+      create: `statuses_create`,
+      update: `statuses_update`,
+      delete: `statuses_delete`,
+    },
+  },
+  {
+    name: `attachments`,
+    group: `tracker`,
+    blurb: `Files on an issue: list, get (metadata + contents or a signed URL), upload (bytes now, or a signed uploadUrl then finalize; no issueId = a loose file for sessions_send attachmentIds), delete.`,
+    ops: {
+      list: `attachments_list`,
+      get: `attachments_get`,
+      upload: `attachments_upload`,
+      delete: `attachments_delete`,
+    },
+  },
+  // ── Team ──
+  {
     name: `teams`,
+    group: `team`,
     blurb: `Teams you are a member of: list, get, create, update.`,
     ops: { list: `teams_list`, get: `teams_get`, create: `teams_create`, update: `teams_update` },
   },
   {
     name: `people`,
+    group: `team`,
     blurb: `A team's members and invites: list/add members, invites_list/invites_create/invites_revoke.`,
     ops: {
       list: `members_list`,
@@ -126,48 +185,46 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
     },
   },
   {
-    name: `team_config`,
-    blurb: `A team's configuration: labels, issue statuses, saved prompts, agents, MCP servers and repositories (each noun_op).`,
+    name: `repositories`,
+    group: `team`,
+    blurb: `A team's GitHub repositories: list, create (connect one the team's GitHub App can see).`,
+    ops: { list: `repositories_list`, create: `repositories_add` },
+  },
+  {
+    name: `devices`,
+    group: `team`,
+    blurb: `Devices (machines running sessions): list, account_login (sign a device's agent login in).`,
+    ops: { list: `devices_list`, account_login: `devices_account_login` },
+  },
+  // ── Agents (EXP-1663: skills joins here) ──
+  {
+    name: `agents`,
+    group: `agents`,
+    blurb: `A team's agents (message one with exponential_sessions_send {agentId}): list, get.`,
+    ops: { list: `agents_list`, get: `agents_get` },
+  },
+  {
+    name: `prompts`,
+    group: `agents`,
+    blurb: `A team's saved prompts (run one with exponential_sessions_send {promptId}): list, get, create, update, delete.`,
     ops: {
-      labels_list: `labels_list`,
-      labels_get: `labels_get`,
-      labels_create: `labels_create`,
-      labels_update: `labels_update`,
-      labels_delete: `labels_delete`,
-      statuses_list: `statuses_list`,
-      statuses_create: `statuses_create`,
-      statuses_update: `statuses_update`,
-      statuses_delete: `statuses_delete`,
-      prompts_list: `prompts_list`,
-      prompts_get: `prompts_get`,
-      prompts_create: `prompts_create`,
-      prompts_update: `prompts_update`,
-      prompts_delete: `prompts_delete`,
-      agents_list: `agents_list`,
-      mcp_servers_list: `mcp_servers_list`,
-      mcp_servers_add: `mcp_servers_add`,
-      mcp_servers_remove: `mcp_servers_remove`,
-      repositories_list: `repositories_list`,
-      repositories_add: `repositories_add`,
+      list: `prompts_list`,
+      get: `prompts_get`,
+      create: `prompts_create`,
+      update: `prompts_update`,
+      delete: `prompts_delete`,
     },
   },
   {
-    name: `apps`,
-    blurb: `Exponential apps (a team's declarative Exponential UI packages, rendered in every client): list, get (the head or a version's package), upsert (= a new version; creates the app on a new slug), delete, catalog (the components, bindings, functions and records a package may use), records_list / records_upsert / records_delete (an app's own data).`,
-    ops: {
-      list: `apps_list`,
-      get: `apps_get`,
-      upsert: `apps_upsert`,
-      delete: `apps_delete`,
-      catalog: `apps_catalog`,
-      records_list: `apps_records_list`,
-      records_upsert: `apps_records_upsert`,
-      records_delete: `apps_records_delete`,
-    },
+    name: `mcp_servers`,
+    group: `agents`,
+    blurb: `A team's MCP servers for coding sessions (never .mcp.json): list, create, delete.`,
+    ops: { list: `mcp_servers_list`, create: `mcp_servers_add`, delete: `mcp_servers_remove` },
   },
-  { name: `sessions_send`, blurb: ``, verb: `sessions_send`, alwaysLoad: true },
+  // ── Sessions ──
   {
     name: `sessions`,
+    group: `sessions`,
     blurb: `Sessions (threads, agents, children): get a tree (no id = yours), list, link/unlink issues, configure (model, account, effort; no message), escalate a waiting card to the managing agent's conversation, end one.`,
     ops: {
       get: `sessions_get`,
@@ -181,6 +238,7 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
   },
   {
     name: `session_self`,
+    group: `sessions`,
     blurb: `Your own session: suggest replies or tasks, compact your context, report_bug when Exponential itself misbehaves (cards, questions and plans: exponential_show).`,
     ops: {
       suggest: `sessions_suggest`,
@@ -188,38 +246,62 @@ export const NOUN_TOOLS: readonly NounSpec[] = [
       report_bug: `report_bug`,
     },
   },
-  // S-3: show / ask / plan = ONE card verb, always loaded.
-  { name: `show`, blurb: ``, verb: `show`, alwaysLoad: true },
+  // ── Apps ──
   {
-    name: `pr`,
-    blurb: `Pull requests (name one by pullRequestId, issueId or repositoryId + prNumber; default = your session's newest open PR): open, merge, close, retarget, update, unlink an issue, files. Every reply carries checks (the PR's CI); CI finishing wakes the PR's session, so never poll GitHub.`,
-    alwaysLoad: true,
+    name: `apps`,
+    group: `apps`,
+    blurb: `Exponential apps (a team's declarative Exponential UI packages, rendered in every client): list, get (the head or a version's package), upsert (= a new version; creates the app on a new slug), delete, catalog (the components, bindings, functions and records a package may use), records_list / records_upsert / records_delete (an app's own data).`,
     ops: {
-      open: `pr_open`,
-      merge: `pr_merge`,
-      close: `pr_close`,
-      retarget: `pr_retarget`,
-      update: `pr_update`,
-      unlink: `pr_unlink`,
-      files: `pr_files`,
+      list: `apps_list`,
+      get: `apps_get`,
+      upsert: `apps_upsert`,
+      delete: `apps_delete`,
+      catalog: `apps_catalog`,
+      records_list: `apps_records_list`,
+      records_upsert: `apps_records_upsert`,
+      records_delete: `apps_records_delete`,
     },
   },
-  {
-    name: `devices`,
-    blurb: `Devices (machines running sessions): list, account_login (sign a device's agent login in).`,
-    ops: { list: `devices_list`, account_login: `devices_account_login` },
-  },
+  // ── Activity ──
   {
     name: `events`,
+    group: `activity`,
     blurb: `The team's event stream: emit one (every agent with a trigger on that name wakes), list recent ones.`,
     ops: { emit: `events_emit`, list: `events_list` },
   },
   {
     name: `notifications`,
+    group: `activity`,
     blurb: `Your notifications: list, mark_read (one or all).`,
     ops: { list: `notifications_list`, mark_read: `notifications_mark_read` },
   },
 ]
+
+/** EXP-1657: the retired `team_config` tool's display rows → the row each
+ *  became. The contract keeps the old rows (`aliasOf`) so a transcript from
+ *  before the split still renders ×4; nothing registers them. */
+export const RETIRED_ROW_ALIASES: Readonly<Record<string, string>> = {
+  team_config_labels_list: `labels_list`,
+  team_config_labels_get: `labels_get`,
+  team_config_labels_create: `labels_create`,
+  team_config_labels_update: `labels_update`,
+  team_config_labels_delete: `labels_delete`,
+  team_config_statuses_list: `statuses_list`,
+  team_config_statuses_create: `statuses_create`,
+  team_config_statuses_update: `statuses_update`,
+  team_config_statuses_delete: `statuses_delete`,
+  team_config_prompts_list: `prompts_list`,
+  team_config_prompts_get: `prompts_get`,
+  team_config_prompts_create: `prompts_create`,
+  team_config_prompts_update: `prompts_update`,
+  team_config_prompts_delete: `prompts_delete`,
+  team_config_agents_list: `agents_list`,
+  team_config_mcp_servers_list: `mcp_servers_list`,
+  team_config_mcp_servers_add: `mcp_servers_create`,
+  team_config_mcp_servers_remove: `mcp_servers_delete`,
+  team_config_repositories_list: `repositories_list`,
+  team_config_repositories_add: `repositories_create`,
+}
 
 /** The display row (`contract.expToolDisplay.tools[].name`) of every op
  *  and verb, in surface order: `<noun>_<op>`, the verbs by their own name.
@@ -378,7 +460,7 @@ function unknownOp(spec: NounSpec, op: string, ops: readonly string[]): string {
   return `Unknown op "${op}" for ${spec.name}; one of ${ops.join(`, `)}.`
 }
 
-/** Registers the 16 on the server for this caller. */
+/** Registers the 21 on the server for this caller. */
 export function registerNounTools(
   server: McpServer,
   user: McpUser,

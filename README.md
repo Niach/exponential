@@ -28,7 +28,7 @@
 - **Headless CLI**: `exponential` turns any Linux or macOS box into an always-on agent machine your team starts sessions on.
 - **Feedback widget**: a script tag for your site; reports with annotated screenshots land as issues, and the reporter keeps a conversation with your team through an emailed link.
 - **Sealed sessions**: session content is sealed on your devices and the server stores only ciphertext; watching and steering a session goes over eNet, straight to the machine it runs on.
-- **MCP server** at `/api/mcp` (16 tools) for Claude Code, Codex, ChatGPT, Cursor, or any MCP client, and your team's app tools at `/api/mcp/apps`.
+- **MCP server** at `/api/mcp` (21 tools) for Claude Code, Codex, ChatGPT, Cursor, or any MCP client, and your team's app tools at `/api/mcp/apps`.
 
 ## Libraries
 

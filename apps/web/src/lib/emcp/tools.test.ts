@@ -792,6 +792,33 @@ describe.each(descriptors)(
   }
 )
 
+// ── EXP-1657: agents get ────────────────────────────────────────────────────
+
+describe(`exponential_agents_get`, () => {
+  const OTHER_TEAM = `88888888-8888-8888-8888-888888888888`
+  const agentRow = { id: UUID, teamId: WS, name: `Triage`, role: `agent`, ownerId: `someone`, instructions: `# Triage`, triggerState: { x: 1 } }
+
+  it(`reads one agent with its instructions, never its trigger state`, async () => {
+    dbRows.current = [agentRow]
+    const { triggerState: _state, ...rest } = agentRow
+    expect(parseOk(await tool(`exponential_agents_get`)({ id: UUID }))).toEqual(rest)
+  })
+
+  it(`answers not found for a missing agent`, async () => {
+    dbRows.current = []
+    const result = await tool(`exponential_agents_get`)({ id: UUID })
+    expect(result.isError).toBe(true)
+  })
+
+  it(`refuses an agent of a team a confined grant does not reach`, async () => {
+    const scoped = collectTools(USER, null, ALL_MCP_TOOL_GATES, SCOPED_TO_WS)
+    dbRows.current = [{ ...agentRow, teamId: OTHER_TEAM }]
+    const result = await scoped.get(`exponential_agents_get`)!({ id: UUID })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not granted access`)
+  })
+})
+
 // ── prompts writes: the app's owner rule + validation, a confined grant ─────
 
 describe(`exponential_prompts_create / update / delete`, () => {
@@ -2079,7 +2106,9 @@ describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
     const routed = rows.map((row) => legacyNameOfRow(row)).sort()
     expect(routed).toEqual([...names].sort())
     const registered = [...rows].sort()
+    // EXP-1657: a retired row (`aliasOf`) only renders old transcripts.
     const described = contract.expToolDisplay.tools
+      .filter((row) => !row.aliasOf)
       .map((row) => row.name)
       .sort()
     expect(registered).toEqual(described)
@@ -2100,8 +2129,14 @@ describe(`expToolDisplay covers the whole tool surface (EXP-846)`, () => {
     }
     // Titles are the list's labels: two rows sharing one would read as a
     // duplicate entry.
-    const titles = contract.expToolDisplay.tools.map((row) => row.title)
+    // EXP-1657: an alias row repeats its live row's copy on purpose.
+    const live = contract.expToolDisplay.tools.filter((row) => !row.aliasOf)
+    const titles = live.map((row) => row.title)
     expect(new Set(titles).size).toBe(titles.length)
+    for (const row of contract.expToolDisplay.tools.filter((row) => row.aliasOf)) {
+      const target = live.find((other) => other.name === row.aliasOf)
+      expect(target?.title, row.name).toBe(row.title)
+    }
   })
 
   // EXP-948: a run of consecutive calls to the SAME tool renders the row's

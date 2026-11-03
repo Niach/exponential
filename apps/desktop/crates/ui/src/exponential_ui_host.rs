@@ -1195,8 +1195,10 @@ impl IdeHost {
         functions.insert("records.upsert".into(), records_upsert_fn(scope.clone()));
         functions.insert("records.delete".into(), records_delete_fn(scope.clone()));
         functions.insert("records.batch".into(), records_batch_fn(scope.clone()));
-        // VAPP-120: every MCP operation as a typed function.
-        for name in domain::app_actions::APP_ACTIONS.iter() {
+        // VAPP-120: every MCP operation as a typed function (+ EXP-1657's
+        // aliases, so a package published before the split keeps working).
+        let aliases = domain::app_actions::APP_ACTION_ALIASES.keys();
+        for name in domain::app_actions::APP_ACTIONS.iter().chain(aliases) {
             if let Some(target) = domain::app_actions::parse_action_name(name) {
                 functions.insert(name.clone(), action_fn(target));
             }

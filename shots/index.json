@@ -5591,15 +5591,15 @@
         "file": "shots/settings-mcp/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 55560,
-        "sha256": "cb6c8d8c02848a1aa44b3271c15a138b4b4c9288d48dd3a92b0940d6ccb41e5a"
+        "bytes": 53546,
+        "sha256": "9dec62470791722a31daea0baed3099b9fc47afc0e7daf2d3ab85565d02555d5"
       },
       "web-mobile": {
         "file": "shots/settings-mcp/web-mobile.webp",
         "width": 828,
         "height": 1800,
-        "bytes": 59876,
-        "sha256": "cfe14e802774731ad855f0d57104740ed4e1dd2c9232311f562316a7315a45e2"
+        "bytes": 59108,
+        "sha256": "c3e8803faf0ca1fa100a5738a33cf4ed884970d5b67ee9323b4a204168e77a35"
       }
     },
     "settings-mcp-activity": {

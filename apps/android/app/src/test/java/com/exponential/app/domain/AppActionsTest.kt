@@ -43,6 +43,13 @@ class AppActionsTest {
         assertEquals(strings(fixture["destructiveWords"]), AppActions.DESTRUCTIVE_WORDS)
         assertEquals(strings(fixture["ownerActions"]), AppActions.OWNER_ACTIONS)
         assertEquals(fixture["destructiveArgs"]!!.obj!!.mapValues { strings(it.value) }, AppActions.DESTRUCTIVE_ARGS)
+        // EXP-1657: the aliases match, are never offered and parse to their new name's target.
+        assertEquals(fixture["aliases"]!!.obj!!.mapValues { it.value.string!! }, AppActions.ALIASES)
+        for ((old, name) in AppActions.ALIASES) {
+            assert(old !in AppActions.ALL) { old }
+            assert(name in AppActions.ALL) { name }
+            assertEquals(old, AppActions.parseActionName(name), AppActions.parseActionName(old))
+        }
         for (excluded in strings(fixture["excluded"])) {
             assert(AppActions.ALL.none { it.startsWith("${AppActions.PREFIX}$excluded.") }) { excluded }
         }

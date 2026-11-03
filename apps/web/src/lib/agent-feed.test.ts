@@ -2181,7 +2181,8 @@ describe(`expToolDisplay`, () => {
 describe(`builtinExpTools`, () => {
   it(`lists every contract tool with its wire name, title and blurb`, () => {
     const tools = builtinExpTools()
-    expect(tools.length).toBe(contract.expToolDisplay.tools.length)
+    expect(tools.length).toBe(contract.expToolDisplay.tools.filter((row) => !row.aliasOf).length)
+    expect(tools.some((tool) => tool.name.includes(`team_config`))).toBe(false)
     expect(tools).toContainEqual({
       name: `exponential_issues_create`,
       title: `Create issue`,

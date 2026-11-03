@@ -124,23 +124,39 @@ describe(`TeamMcpServersSection`, () => {
     expect(screen.queryByRole(`button`, { name: `Refresh` })).toBeNull()
   })
 
-  it(`lists every built-in tool expanded, with an inline filter and no count`, async () => {
+  it(`lists every built-in tool expanded, one band per group, with one filter and no count`, async () => {
     // #VAPP-185: the group is Settings › MCP's last section, its own component.
+    // EXP-1657: one band per contract tool group; aliases never listed.
     const { container } = render(<BuiltinToolsGroup />)
-    const total = contract.expToolDisplay.tools.length
-    const band = screen.getByText(`Built-in Exponential tools`).closest(`[data-slot="glass-section-header"]`)!
-    expect(band.tagName).toBe(`DIV`)
-    expect(band.getAttribute(`aria-expanded`)).toBeNull()
-    expect(band.querySelector(`[data-part="count"]`)).toBeNull()
+    const total = contract.expToolDisplay.tools.filter((row) => !(`aliasOf` in row)).length
+    const labels = contract.expToolDisplay.groups.map((group) => group.label)
+    const bands = [...container.querySelectorAll(`[data-slot="glass-section-header"]`)]
+    expect(bands.map((band) => band.textContent?.replace(BUILTIN_TOOLS_FILTER_PLACEHOLDER, ``).trim())).toEqual(labels)
+    for (const band of bands) {
+      expect(band.tagName).toBe(`DIV`)
+      expect(band.getAttribute(`aria-expanded`)).toBeNull()
+      expect(band.querySelector(`[data-part="count"]`)).toBeNull()
+    }
+    expect(screen.getAllByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER).length).toBe(1)
+    expect(bands[0].querySelector(`[data-testid="mcp-builtin-tools-filter"]`)).toBeTruthy()
     expect(screen.getAllByTitle(/^exponential_/).length).toBe(total)
 
     const filter = screen.getByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER)
     fireEvent.change(filter, { target: { value: `issues_create` } })
     expect(screen.getAllByTitle(/^exponential_/).length).toBe(1)
     expect(screen.getByTitle(`exponential_issues_create`)).toBeTruthy()
+    expect(container.querySelectorAll(`[data-slot="glass-section-header"]`).length).toBe(1)
 
-    fireEvent.change(filter, { target: { value: `zzz-nothing` } })
+    // The filter rides the first VISIBLE band: an Activity-only match keeps it.
+    fireEvent.change(screen.getByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER), { target: { value: `notif` } })
+    const left = [...container.querySelectorAll(`[data-slot="glass-section-header"]`)]
+    expect(left.length).toBe(1)
+    expect(left[0].textContent).toContain(`Activity`)
+    expect(left[0].querySelector(`[data-testid="mcp-builtin-tools-filter"]`)).toBeTruthy()
+
+    fireEvent.change(screen.getByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER), { target: { value: `zzz-nothing` } })
     expect(screen.queryAllByTitle(/^exponential_/).length).toBe(0)
+    expect(screen.getByText(`Built-in Exponential tools`)).toBeTruthy()
     expect(container.querySelectorAll(`[data-slot="empty-state"][data-size="list"]`).length).toBe(1)
     expect(screen.getByText(`No tools match`)).toBeTruthy()
   })

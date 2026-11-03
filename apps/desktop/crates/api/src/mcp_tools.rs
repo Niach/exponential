@@ -186,7 +186,7 @@ pub fn teams_list(trpc: &TrpcClient) -> Result<Vec<RemoteTeam>, ApiError> {
     call_typed(trpc, "exponential_teams", &serde_json::json!({ "op": "list", "limit": MAX_PAGE }))
 }
 
-/// One `exponential_team_config {op: "agents_list"}` row (a team agent's
+/// One `exponential_agents {op: "list"}` row (a team agent's
 /// definition; its sessions list through [`SessionsQuery::agent_id`]).
 #[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -196,12 +196,13 @@ pub struct RemoteAgent {
     pub name: String,
 }
 
-/// `exponential_team_config {op: "agents_list"}` — one team's agents.
+/// `exponential_agents {op: "list"}` — one team's agents (EXP-1657: the
+/// retired `exponential_team_config {op: "agents_list"}`).
 pub fn agents_list(trpc: &TrpcClient, team_id: &str) -> Result<Vec<RemoteAgent>, ApiError> {
     call_typed(
         trpc,
-        "exponential_team_config",
-        &serde_json::json!({ "op": "agents_list", "teamId": team_id, "limit": MAX_PAGE }),
+        "exponential_agents",
+        &serde_json::json!({ "op": "list", "teamId": team_id, "limit": MAX_PAGE }),
     )
 }
 

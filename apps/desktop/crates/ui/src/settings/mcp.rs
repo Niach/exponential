@@ -30,7 +30,7 @@ use crate::queries;
 use crate::surface::{glass_pill, PillMode, PillSize};
 use crate::toast::Toast;
 
-use super::mcp_servers::{filter_builtin_tools, McpServersPane};
+use super::mcp_servers::McpServersPane;
 use super::{section, SettingsSection};
 
 // ---------------------------------------------------------------------------
@@ -112,6 +112,11 @@ const TEST_IDS: [(&str, &str); 7] = [
     ("builtin", "settings-mcp-builtin"),
     ("activity", "settings-mcp-activity"),
 ];
+
+/// EXP-1657 — `builtinFilter` (the filter field's placeholder) and its test
+/// id, the anchor every client's capture and test use.
+const BUILTIN_FILTER: &str = "Filter tools";
+const BUILTIN_FILTER_TEST_ID: &str = "mcp-builtin-tools-filter";
 
 fn lookup(table: &[(&'static str, &'static str)], key: &str) -> Option<&'static str> {
     table.iter().find(|(k, _)| *k == key).map(|(_, v)| *v)
@@ -247,7 +252,7 @@ pub struct McpPane {
 impl McpPane {
     pub fn new(nav: Entity<Navigation>, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let servers = cx.new(|cx| McpServersPane::new(nav.clone(), window, cx));
-        let tool_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tools"));
+        let tool_filter = cx.new(|cx| InputState::new(window, cx).placeholder(BUILTIN_FILTER));
         let subscriptions = vec![
             cx.observe(&nav, |_, _, cx| cx.notify()),
             cx.observe(&servers, |_, _, cx| cx.notify()),
@@ -724,15 +729,19 @@ impl McpPane {
         )
     }
 
-    /// EXP-862/1274 — the "Built-in Exponential tools" group, unchanged
-    /// (now the page's last section): a plain band with an inline filter
-    /// ([`filter_builtin_tools`]: title, blurb or wire name); no match = the
-    /// shared LIST empty state (`builtin-tools-no-match`). One row per
-    /// contract tool like the session feed's Exponential tool row; the raw
-    /// wire name is the row's TOOLTIP only.
+    /// EXP-862/1274/1657 — the built-in tools, the page's last section: ONE
+    /// glass section header band per contract tool group
+    /// ([`steer::exp_tool::builtin_tool_bands`], labels = the contract
+    /// `expToolDisplay.groups`), each over that group's rows. The one filter
+    /// field (title, blurb or wire name) sits at the trailing edge of the
+    /// FIRST VISIBLE band's header and filters every band; a band with no
+    /// match hides; nothing left = the shared LIST empty state
+    /// (`builtin-tools-no-match`) under a `labels.builtin` header carrying
+    /// the field. One row per contract tool like the session feed's
+    /// Exponential tool row; the raw wire name is the row's TOOLTIP only.
     fn render_builtin_tools(&self, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::Stateful<gpui::Div> {
         let query = self.tool_filter.read(cx).value().to_string();
-        let tools = filter_builtin_tools(steer::exp_tool::builtin_tools(), &query);
+        let bands = steer::exp_tool::builtin_tool_bands(&query);
         let muted = cx.theme().muted_foreground;
         let filter = crate::controls::search_field(
             &self.tool_filter,
@@ -740,53 +749,76 @@ impl McpPane {
             window,
             cx,
         );
-        let trailing = h_flex()
-            .gap_2()
-            .items_center()
-            .child(div().w(gpui::px(192.)).child(filter))
-            .into_any_element();
-        let band = crate::surface::glass_section_header(SETTINGS_MCP.labels.builtin, Some(trailing), cx);
-        let mut group = v_flex().id(test_id("builtin")).w_full().min_w_0().child(band);
-        if tools.is_empty() {
-            return group.child(crate::controls::empty_state_list(
-                Icon::new(registry::UI_EMPTY_SEARCH),
-                crate::empty_state_copy::BUILTIN_TOOLS_NO_MATCH,
-                cx,
-            ));
-        }
-        for (index, tool) in tools.into_iter().enumerate() {
-            group = group.child(
-                crate::surface::flat_row()
-                    .id(("mcp-builtin-tool", index))
-                    .flex()
+        let mut trailing = Some(
+            h_flex()
+                .id(BUILTIN_FILTER_TEST_ID)
+                .gap_2()
+                .items_center()
+                .child(div().w(gpui::px(192.)).child(filter))
+                .into_any_element(),
+        );
+        let mut section = v_flex().id(test_id("builtin")).w_full().min_w_0().gap_3();
+        if bands.is_empty() {
+            return section.child(
+                v_flex()
                     .w_full()
                     .min_w_0()
-                    .items_center()
-                    .gap_2()
-                    .px_3()
-                    .py_1p5()
-                    .tooltip({
-                        let name = SharedString::from(tool.name.clone());
-                        move |window, cx| gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx)
-                    })
-                    .child(
-                        Icon::from(crate::icons::ExpIcon::Logo)
-                            .xsmall()
-                            .flex_shrink_0()
-                            .text_color(muted),
-                    )
-                    .child(div().flex_shrink_0().text_sm().child(SharedString::from(tool.title)))
-                    .child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            .text_xs()
-                            .text_color(muted)
-                            .child(SharedString::from(tool.blurb)),
-                    ),
+                    .child(crate::surface::glass_section_header(
+                        SETTINGS_MCP.labels.builtin,
+                        trailing.take(),
+                        cx,
+                    ))
+                    .child(crate::controls::empty_state_list(
+                        Icon::new(registry::UI_EMPTY_SEARCH),
+                        crate::empty_state_copy::BUILTIN_TOOLS_NO_MATCH,
+                        cx,
+                    )),
             );
         }
-        group
+        let mut row_index = 0usize;
+        for (band_index, band) in bands.into_iter().enumerate() {
+            let header = crate::surface::glass_section_header(band.label, trailing.take(), cx);
+            let mut group = v_flex()
+                .id(("mcp-builtin-band", band_index))
+                .w_full()
+                .min_w_0()
+                .child(header);
+            for tool in band.tools {
+                group = group.child(
+                    crate::surface::flat_row()
+                        .id(("mcp-builtin-tool", row_index))
+                        .flex()
+                        .w_full()
+                        .min_w_0()
+                        .items_center()
+                        .gap_2()
+                        .px_3()
+                        .py_1p5()
+                        .tooltip({
+                            let name = SharedString::from(tool.name.clone());
+                            move |window, cx| gpui_component::tooltip::Tooltip::new(name.clone()).build(window, cx)
+                        })
+                        .child(
+                            Icon::from(crate::icons::ExpIcon::Logo)
+                                .xsmall()
+                                .flex_shrink_0()
+                                .text_color(muted),
+                        )
+                        .child(div().flex_shrink_0().text_sm().child(SharedString::from(tool.title)))
+                        .child(
+                            div()
+                                .min_w_0()
+                                .truncate()
+                                .text_xs()
+                                .text_color(muted)
+                                .child(SharedString::from(tool.blurb)),
+                        ),
+                );
+                row_index += 1;
+            }
+            section = section.child(group);
+        }
+        section
     }
 }
 
@@ -1005,6 +1037,7 @@ mod tests {
         assert_eq!(f["labels"]["clients"], s.labels.clients);
         assert_eq!(f["labels"]["access"], s.labels.access);
         assert_eq!(f["labels"]["builtin"], s.labels.builtin);
+        assert_eq!(f["builtinFilter"], BUILTIN_FILTER);
         assert_eq!(f["copy"], s.copy);
         assert_eq!(f["copied"], s.copied);
         assert_eq!(f["endpointPath"], s.endpoint_path);

@@ -48,6 +48,13 @@ final class AppActionsTests: XCTestCase {
         XCTAssertEqual(Set(try XCTUnwrap(fixture["destructiveWords"] as? [String])), AppActions.destructiveWords)
         XCTAssertEqual(try XCTUnwrap(fixture["destructiveArgs"] as? [String: [String]]), AppActions.destructiveArgs)
         XCTAssertEqual(Set(try XCTUnwrap(fixture["ownerActions"] as? [String])), AppActions.ownerActions)
+        XCTAssertEqual(try XCTUnwrap(fixture["aliases"] as? [String: String]), AppActions.aliases)
+        // EXP-1657: an alias is never offered and parses to its new name's target.
+        for (old, new) in AppActions.aliases {
+            XCTAssertFalse(AppActions.all.contains(old), old)
+            XCTAssertTrue(AppActions.all.contains(new), new)
+            XCTAssertEqual(AppActions.parseActionName(old), AppActions.parseActionName(new), old)
+        }
     }
 
     func testOwnerOnlyCases() throws {
