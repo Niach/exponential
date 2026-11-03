@@ -658,3 +658,43 @@ fn read_where_ge_is_a_text_order_superset() {
     // silently empty scan — the name is interpolated into the SQL.
     assert!(store.read_where_ge(events, "not_a_column", "x").is_err());
 }
+
+/// VAPP-235: the app record outbox survives a restart, oldest first; an ack
+/// and a removal persist.
+#[test]
+fn the_record_outbox_persists_in_order() {
+    use domain::app_records::{OutboxCall, OutboxEntry, OutboxState, OutboxWrite};
+    let db = TempDb::new();
+    let entry = |write_id: &str, call: OutboxCall, writes: Vec<OutboxWrite>| OutboxEntry {
+        write_id: write_id.into(),
+        app_id: "a1".into(),
+        call,
+        writes,
+        at: "2026-11-03T10:00:00.000Z".into(),
+        state: OutboxState::Pending,
+        acked_at: None,
+    };
+    let create = OutboxWrite::Create {
+        id: "n1".into(),
+        kind: "log".into(),
+        data: json!({"hours": 2}).as_object().unwrap().clone(),
+    };
+    let w1 = entry("w1", OutboxCall::Upsert, vec![create]);
+    let w2 = entry("w2", OutboxCall::Delete, vec![OutboxWrite::Delete { id: "r1".into() }]);
+    let w3 = entry("w3", OutboxCall::Delete, vec![OutboxWrite::Delete { id: "r2".into() }]);
+    {
+        let store = db.open();
+        assert!(store.outbox_entries().unwrap().is_empty());
+        store.outbox_push(&w2).unwrap();
+        store.outbox_push(&w1).unwrap();
+        store.outbox_push(&w3).unwrap();
+        // A replayed push keeps the first one's place.
+        store.outbox_push(&w2).unwrap();
+        store.outbox_ack("w2", "2026-11-03T10:00:05.000Z").unwrap();
+        store.outbox_remove(&["w3"]).unwrap();
+    }
+    let store = db.open();
+    let got = store.outbox_entries().unwrap();
+    let acked = OutboxEntry { state: OutboxState::Acked, acked_at: Some("2026-11-03T10:00:05.000Z".into()), ..w2 };
+    assert_eq!(got, vec![acked, w1]);
+}

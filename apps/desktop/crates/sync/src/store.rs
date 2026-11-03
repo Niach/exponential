@@ -35,6 +35,8 @@ use rusqlite::types::Value as SqlValue;
 use rusqlite::{params, Connection, OpenFlags, Row, TransactionBehavior};
 use serde_json::{Map, Value};
 
+use domain::app_records::{OutboxCall, OutboxEntry, OutboxState};
+
 use crate::protocol::{RowKey, ShapeMessage, ShapeState};
 use crate::shapes::{PkKind, ShapeSpec, SHAPES};
 
@@ -103,6 +105,21 @@ const OFFSETS_DDL: &str = r#"CREATE TABLE IF NOT EXISTS electric_offsets (
   is_live        INTEGER NOT NULL DEFAULT 0
 )"#;
 
+/// VAPP-235 (app-records.json `outbox`): the app record OUTBOX, local only
+/// (no shape): one row per queued host call (`records.upsert` / `delete` /
+/// `batch`), oldest first by `seq`, kept per account (this file) across a
+/// restart. `writes` = the entry's writes as JSON.
+const OUTBOX_DDL: &str = r#"CREATE TABLE IF NOT EXISTS app_record_outbox (
+  write_id  TEXT PRIMARY KEY,
+  seq       INTEGER NOT NULL,
+  app_id    TEXT NOT NULL,
+  call      TEXT NOT NULL,
+  writes    TEXT NOT NULL,
+  at        TEXT NOT NULL,
+  state     TEXT NOT NULL DEFAULT 'pending',
+  acked_at  TEXT
+)"#;
+
 /// The per-account SQLite store. One writer connection behind a `Mutex` (WAL
 /// single-writer) plus a separate read-only WAL connection for hydration
 /// queries that never block on the writer (§5.4).
@@ -129,6 +146,7 @@ impl ShapeStore {
             "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;",
         )?;
         writer.execute_batch(OFFSETS_DDL)?;
+        writer.execute_batch(OUTBOX_DDL)?;
         migrate_legacy_schema(&writer)?;
         for spec in &SHAPES {
             writer.execute_batch(&spec.ddl())?;
@@ -335,6 +353,82 @@ impl ShapeStore {
             out.push(row_to_map(row, &names)?);
         }
         Ok(out)
+    }
+
+    // -- the app record outbox (VAPP-235) --------------------------------------
+
+    /// Every outbox entry, oldest first (a row that no longer parses is
+    /// skipped).
+    pub fn outbox_entries(&self) -> Result<Vec<OutboxEntry>> {
+        let conn = self.reader.lock().expect("reader poisoned");
+        let mut stmt = conn.prepare_cached(
+            "SELECT write_id, app_id, call, writes, at, state, acked_at FROM app_record_outbox ORDER BY seq",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+                row.get::<_, Option<String>>(6)?,
+            ))
+        })?;
+        let mut out = Vec::new();
+        for row in rows {
+            let (write_id, app_id, call, writes, at, state, acked_at) = row?;
+            let (Some(call), Some(state), Ok(writes)) =
+                (OutboxCall::parse(&call), OutboxState::parse(&state), serde_json::from_str(&writes))
+            else {
+                continue;
+            };
+            out.push(OutboxEntry { write_id, app_id, call, writes, at, state, acked_at });
+        }
+        Ok(out)
+    }
+
+    /// Queue an entry behind every other one.
+    pub fn outbox_push(&self, entry: &OutboxEntry) -> Result<()> {
+        let writes = serde_json::to_string(&entry.writes).unwrap_or_else(|_| "[]".into());
+        let conn = self.writer.lock().expect("writer poisoned");
+        conn.execute(
+            "INSERT INTO app_record_outbox (write_id, seq, app_id, call, writes, at, state, acked_at)
+             VALUES (?1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM app_record_outbox), ?2, ?3, ?4, ?5, ?6, ?7)
+             ON CONFLICT(write_id) DO NOTHING",
+            params![
+                entry.write_id,
+                entry.app_id,
+                entry.call.as_str(),
+                writes,
+                entry.at,
+                entry.state.as_str(),
+                entry.acked_at
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// An entry landed: `acked` at `acked_at` (it keeps overlaying until the
+    /// shape reflects it).
+    pub fn outbox_ack(&self, write_id: &str, acked_at: &str) -> Result<()> {
+        let conn = self.writer.lock().expect("writer poisoned");
+        conn.execute(
+            "UPDATE app_record_outbox SET state = 'acked', acked_at = ?2 WHERE write_id = ?1",
+            params![write_id, acked_at],
+        )?;
+        Ok(())
+    }
+
+    /// Drop entries (refused, dropped or pruned).
+    pub fn outbox_remove(&self, write_ids: &[&str]) -> Result<()> {
+        let mut conn = self.writer.lock().expect("writer poisoned");
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        for write_id in write_ids {
+            tx.execute("DELETE FROM app_record_outbox WHERE write_id = ?1", params![write_id])?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// Row count of a shape table (read-only connection) — cheap UI/test probe.

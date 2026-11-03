@@ -241,6 +241,14 @@ pub struct RecordUpsertInput {
     /// = an app's own UI; `None` = omitted, the server says `app`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub via: Option<String>,
+    /// VAPP-235: a create's CLIENT id (the outbox's; `None` = the server
+    /// picks; a taken id = CONFLICT).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_id: Option<String>,
+    /// VAPP-235: the outbox entry's idempotency key (a replay answers the
+    /// first write's result).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_id: Option<String>,
 }
 
 /// `apps.records.upsert` output: the record's id, `created` = a new row.
@@ -264,6 +272,9 @@ struct RecordIdInput<'a> {
     record_id: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     via: Option<&'a str>,
+    /// VAPP-235: the outbox entry's idempotency key (delete only).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    write_id: Option<&'a str>,
 }
 
 /// `apps.records.delete` output: the write's event (VAPP-215).
@@ -314,7 +325,7 @@ struct RecordUndoInput<'a> {
 /// VAPP-215 `apps.records.history {recordId}`: the record's events (its
 /// read policy; read on demand, no synced shape).
 pub fn records_history(trpc: &TrpcClient, app_id: &str, record_id: &str) -> Result<RecordHistoryOutput, ApiError> {
-    trpc.query_with_input("apps.records.history", &RecordIdInput { id: app_id, record_id, via: None })
+    trpc.query_with_input("apps.records.history", &RecordIdInput { id: app_id, record_id, via: None, write_id: None })
 }
 
 /// VAPP-215 `apps.records.restore {recordId, eventId}`: the record as that
@@ -342,24 +353,29 @@ pub fn records_upsert(trpc: &TrpcClient, input: &RecordUpsertInput) -> Result<Re
     trpc.mutation("apps.records.upsert", input)
 }
 
-/// VAPP-122 `apps.records.delete`: the record's trash.
+/// VAPP-122 `apps.records.delete`: the record's trash. VAPP-235:
+/// `write_id` = the outbox entry's idempotency key.
 pub fn records_delete(
     trpc: &TrpcClient,
     app_id: &str,
     record_id: &str,
     via: Option<&str>,
+    write_id: Option<&str>,
 ) -> Result<RecordDeleteOutput, ApiError> {
-    trpc.mutation("apps.records.delete", &RecordIdInput { id: app_id, record_id, via })
+    trpc.mutation("apps.records.delete", &RecordIdInput { id: app_id, record_id, via, write_id })
 }
 
 /// VAPP-194 `apps.records.batch` input: a package action's writes, passed
-/// through unchanged (`{op: "upsert", kind, data, id?}` | `{op: "delete",
-/// id}`).
+/// through unchanged (`{op: "upsert", kind, data, id?|newId?}` | `{op:
+/// "delete", id}`; VAPP-235: `newId` = a create's client id).
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordsBatchInput<'a> {
     pub id: &'a str,
     pub writes: &'a [Value],
+    /// VAPP-235: the outbox entry's idempotency key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub write_id: Option<&'a str>,
 }
 
 /// `apps.records.batch` output: each write's record id, in order.
@@ -377,8 +393,13 @@ pub struct RecordsBatchOutput {
 
 /// VAPP-194 `apps.records.batch`: the writes as ONE transaction (all land
 /// or none; the server checks every one against its kind again).
-pub fn records_batch(trpc: &TrpcClient, app_id: &str, writes: &[Value]) -> Result<RecordsBatchOutput, ApiError> {
-    trpc.mutation("apps.records.batch", &RecordsBatchInput { id: app_id, writes })
+pub fn records_batch(
+    trpc: &TrpcClient,
+    app_id: &str,
+    writes: &[Value],
+    write_id: Option<&str>,
+) -> Result<RecordsBatchOutput, ApiError> {
+    trpc.mutation("apps.records.batch", &RecordsBatchInput { id: app_id, writes, write_id })
 }
 
 /// VAPP-230: the upstream read-binding contract (`upstream.json`
@@ -469,10 +490,26 @@ mod tests {
             record_id: None,
             author: None,
             via: None,
+            new_id: None,
+            write_id: None,
         };
         assert_eq!(
             serde_json::to_value(&upsert).unwrap(),
             serde_json::json!({"id": "app", "kind": "entry", "data": {"hours": 3}})
+        );
+        // VAPP-235: the outbox's replay carries the client id and the write id.
+        let replay = RecordUpsertInput { new_id: Some("n1".into()), write_id: Some("w1".into()), ..upsert.clone() };
+        assert_eq!(
+            serde_json::to_value(&replay).unwrap(),
+            serde_json::json!({"id": "app", "kind": "entry", "data": {"hours": 3}, "newId": "n1", "writeId": "w1"})
+        );
+        assert_eq!(
+            serde_json::to_value(RecordIdInput { id: "app", record_id: "r1", via: None, write_id: Some("w2") }).unwrap(),
+            serde_json::json!({"id": "app", "recordId": "r1", "writeId": "w2"})
+        );
+        assert_eq!(
+            serde_json::to_value(RecordsBatchInput { id: "app", writes: &[], write_id: Some("w3") }).unwrap(),
+            serde_json::json!({"id": "app", "writes": [], "writeId": "w3"})
         );
         let on_behalf = RecordUpsertInput { record_id: Some("r1".into()), author: Some("u2".into()), ..upsert };
         assert_eq!(
@@ -480,12 +517,12 @@ mod tests {
             serde_json::json!({"id": "app", "kind": "entry", "data": {"hours": 3}, "recordId": "r1", "author": "u2"})
         );
         assert_eq!(
-            serde_json::to_value(RecordIdInput { id: "app", record_id: "r1", via: None }).unwrap(),
+            serde_json::to_value(RecordIdInput { id: "app", record_id: "r1", via: None, write_id: None }).unwrap(),
             serde_json::json!({"id": "app", "recordId": "r1"})
         );
         // VAPP-215: the Data tab says `via: "editor"`; the write's event comes back.
         assert_eq!(
-            serde_json::to_value(RecordIdInput { id: "app", record_id: "r1", via: Some("editor") }).unwrap(),
+            serde_json::to_value(RecordIdInput { id: "app", record_id: "r1", via: Some("editor"), write_id: None }).unwrap(),
             serde_json::json!({"id": "app", "recordId": "r1", "via": "editor"})
         );
         assert_eq!(
@@ -504,7 +541,7 @@ mod tests {
             serde_json::json!({"op": "delete", "id": "r1"}),
         ];
         assert_eq!(
-            serde_json::to_value(RecordsBatchInput { id: "app", writes: &writes }).unwrap(),
+            serde_json::to_value(RecordsBatchInput { id: "app", writes: &writes, write_id: None }).unwrap(),
             serde_json::json!({"id": "app", "writes": [{"op": "upsert", "kind": "entry", "data": {"hours": 2}}, {"op": "delete", "id": "r1"}]})
         );
         let out: RecordsBatchOutput = serde_json::from_value(serde_json::json!({"txid": 4, "ids": ["n1", "r1"]})).unwrap();

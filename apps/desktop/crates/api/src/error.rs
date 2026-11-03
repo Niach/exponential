@@ -98,6 +98,38 @@ impl ApiError {
         matches!(self, ApiError::Http { status: 409, .. })
     }
 
+    /// VAPP-235: the server's tRPC error code, read off the HTTP status (tRPC's
+    /// own code → status table); `None` = no answer (transport, decode, a
+    /// local fault, a stale build). A 401 is `UNAUTHORIZED`.
+    pub fn trpc_code(&self) -> Option<&'static str> {
+        let status = match self {
+            ApiError::Unauthorized => return Some("UNAUTHORIZED"),
+            ApiError::Http { status, .. } => *status,
+            _ => return None,
+        };
+        Some(match status {
+            401 => "UNAUTHORIZED",
+            402 => "PAYMENT_REQUIRED",
+            403 => "FORBIDDEN",
+            404 => "NOT_FOUND",
+            405 => "METHOD_NOT_SUPPORTED",
+            408 => "TIMEOUT",
+            409 => "CONFLICT",
+            412 => "PRECONDITION_FAILED",
+            413 => "PAYLOAD_TOO_LARGE",
+            415 => "UNSUPPORTED_MEDIA_TYPE",
+            422 => "UNPROCESSABLE_CONTENT",
+            429 => "TOO_MANY_REQUESTS",
+            499 => "CLIENT_CLOSED_REQUEST",
+            501 => "NOT_IMPLEMENTED",
+            502 => "BAD_GATEWAY",
+            503 => "SERVICE_UNAVAILABLE",
+            504 => "GATEWAY_TIMEOUT",
+            s if s >= 500 => "INTERNAL_SERVER_ERROR",
+            _ => "BAD_REQUEST",
+        })
+    }
+
     /// What a USER should read. Server messages are already user-facing and
     /// win; transport/decode failures get a plain sentence instead of a
     /// library's internal text. Logging keeps [`Display`](fmt::Display).
@@ -380,5 +412,20 @@ mod tests {
         .is_conflict());
         assert!(!ApiError::transport("refused").is_conflict());
         assert!(!ApiError::Unauthorized.is_conflict());
+    }
+
+    /// VAPP-235: the outbox reads a refusal's tRPC code off the status.
+    #[test]
+    fn trpc_codes_follow_the_status() {
+        let http = |status| ApiError::Http { status, message: String::new() };
+        assert_eq!(http(400).trpc_code(), Some("BAD_REQUEST"));
+        assert_eq!(http(403).trpc_code(), Some("FORBIDDEN"));
+        assert_eq!(http(404).trpc_code(), Some("NOT_FOUND"));
+        assert_eq!(http(409).trpc_code(), Some("CONFLICT"));
+        assert_eq!(http(412).trpc_code(), Some("PRECONDITION_FAILED"));
+        assert_eq!(http(500).trpc_code(), Some("INTERNAL_SERVER_ERROR"));
+        assert_eq!(http(503).trpc_code(), Some("SERVICE_UNAVAILABLE"));
+        assert_eq!(ApiError::Unauthorized.trpc_code(), Some("UNAUTHORIZED"));
+        assert_eq!(ApiError::transport("refused").trpc_code(), None);
     }
 }

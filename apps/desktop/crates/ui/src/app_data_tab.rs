@@ -470,7 +470,7 @@ fn confirm_delete(app_id: String, record_id: String, window: &mut Window, cx: &m
                     .background_executor()
                     .spawn({
                         let app_id = app_id.clone();
-                        async move { api::apps::records_delete(&trpc, &app_id, &record_id, Some("editor")) }
+                        async move { api::apps::records_delete(&trpc, &app_id, &record_id, Some("editor"), None) }
                     })
                     .await;
                 let _ = cx.update(|cx| match result {
@@ -869,6 +869,8 @@ impl RecordFormView {
             record_id: self.record_id.clone(),
             author: self.author.as_ref().and_then(AuthorField::send),
             via: Some("editor".to_string()),
+            new_id: None,
+            write_id: None,
         };
         let app_id = self.app_id.clone();
         self.busy = true;
