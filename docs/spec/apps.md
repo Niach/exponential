@@ -233,16 +233,19 @@ A host refuses a newer `formatVersion` (✅ today), so old clients show "Update 
 
 Today:
 
-- ✅ Every `upsert` writes `app_versions.number` and becomes the head at once. Users see edits live, mid-edit.
+- ✅ Every `upsert` writes `app_versions.number` and becomes the head (the draft).
 - ✅ Restore makes a new head.
 - ✅ The editor session id is recorded on the version.
+- ✅ **Draft vs published** (V1, #VAPP-210/#VAPP-211, decided 2026-11-01; fixture `apps.json` `publishCases` ×4):
+  - `apps.package` is the PUBLISHED version's package (`published_version`, 0 = never published); `apps.draft_package` is the head's while it is ahead.
+  - Every version write (`apps upsert`, Restore) makes a draft. Members, the exposed MCP tools (the broker), record policies and automations run the published package.
+  - The editor's preview shows the head while the viewer's own editor session is live (or nothing is published), else the published version.
+  - "Publish" (the editor header; phones: the … menu; any Versions row; the viewing banner) or `exponential_apps {op: "publish", version?}` moves the pointer. An older version = a rollback. An imported app, or one created with a package, publishes v1 at once.
+  - Grants follow the published package: an owner's publish keeps the still-declared grants, anyone else's clears them.
+  - Records validate against the published kinds plus a draft's new kinds (so an editor can seed them before publishing).
 
 Proposed:
 
-- 🆕 **Draft vs published** (decided 2026-11-01): `apps.published_version`.
-  - Members see the published version. The editor and its preview see the head.
-  - A "Publish" button, or `exponential_apps {op: "publish"}`, moves the pointer.
-  - Exposed tools and automations always run the **published** version, so an agent mid-edit can't change what OpenClaw calls.
 - **`version` (SemVer)** is the author's label. **`number`** is the truth. A major bump with no `migrations` for a changed kind is refused (§3.6).
 
 ---
@@ -293,7 +296,7 @@ A per-member view groups by `author`, not `created_by`. That way a backfill an o
 Layers, all intersected:
 
 1. **Team membership** ✅. Only members, unless a public link applies (§9.4).
-2. **Per-app member policy** `app_access` none/read/write. ✅ (#VAPP-199) applied everywhere: MCP, the records service (none = NOT_FOUND, read = writes FORBIDDEN), the apps router, the apps / app-versions / app-records shapes (none = the app and its rows never sync), the RLS scope (`eapps.write`), and the clients (`appAccess.mine`; the Data tab disables writes). 🟡 An app's own inputs are not yet disabled at read (#VAPP-200): the server refuses the press with a toast.
+2. **Per-app member policy** `app_access` none/read/write. ✅ (#VAPP-199) applied everywhere: MCP, the records service (none = NOT_FOUND, read = writes FORBIDDEN), the apps router, the apps / app-versions / app-records shapes (none = the app and its rows never sync), the RLS scope (`eapps.write`), and the clients (`appAccess.mine`; the Data tab disables writes). An app's own writing controls paint disabled at read (#VAPP-200, the eUI `readOnly` host option ×7 renderers).
 3. **Per-kind policy** ✅ (R3, #VAPP-199, `packages/exponential-ui/fixtures/record-policy.json`, TS `host/record-policy.ts` + Rust `host::record_policy`, iOS/Android hand ports replaying the fixture):
 
 ```jsonc
@@ -399,7 +402,7 @@ To add, both as functions (`{"call": "mul", …}`) and as the compact string for
 
 The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <= == && || !`, calls). It is parsed once at package validation, has no loops and no user functions, and must terminate. The function form stays the A2UI wire form, and the string form compiles to it.
 
-- ✅ (Q2, #VAPP-191) The string form is a **CEL subset**, hand-written as TS (`src/cel.ts`) + Rust (`eui_core::cel`) twins replaying ONE fixture (`fixtures/expressions.json`; FFI `evaluate_expression_json` / `check_expression_json`, SDKs `Expressions.evaluate/check` (Swift; `Expression` on Compose)). cel-js / the `cel` crates were not used: CEL splits int/uint/double (JSON has one number), their error texts and date handling would differ between the twins, and they would bloat the eUI bundle. One number type (`7 / 2` = 3.5); a missing field reads null. It is used as `{"call": "expr", "args": {"expr": "…", "vars": {…}}}` anywhere a value may be bound, and the arithmetic, date and duration rows above are also plain A2UI functions (`{"call": "mul", …}`) running the same table. Every `expr` is type-checked by `validatePackage` against its vars (a literal, a records binding's kind schema, the template data), issues at the JSON pointer. Caps: 1000 characters, nesting 32, no nested comprehensions, 10 000 steps. The team zone is the surface zone the host passes (`Formatter.offsetMinutes`, `HostZone`); there is no team timezone setting yet (#VAPP-201), so hosts pass the platform zone today. Hardened by the CEL differential fuzz (`fixtures/cel-fuzz.json`, TS vs Rust, in CI): it found and fixed `dateAdd` overflowing on a huge `n` in both twins. The Arrays and Text rows stay open.
+- ✅ (Q2, #VAPP-191) The string form is a **CEL subset**, hand-written as TS (`src/cel.ts`) + Rust (`eui_core::cel`) twins replaying ONE fixture (`fixtures/expressions.json`; FFI `evaluate_expression_json` / `check_expression_json`, SDKs `Expressions.evaluate/check` (Swift; `Expression` on Compose)). cel-js / the `cel` crates were not used: CEL splits int/uint/double (JSON has one number), their error texts and date handling would differ between the twins, and they would bloat the eUI bundle. One number type (`7 / 2` = 3.5); a missing field reads null. It is used as `{"call": "expr", "args": {"expr": "…", "vars": {…}}}` anywhere a value may be bound, and the arithmetic, date and duration rows above are also plain A2UI functions (`{"call": "mul", …}`) running the same table. Every `expr` is type-checked by `validatePackage` against its vars (a literal, a records binding's kind schema, the template data), issues at the JSON pointer. Caps: 1000 characters, nesting 32, no nested comprehensions, 10 000 steps. The team zone is the zone the host passes (`HostZone`): ✅ #VAPP-201 `teams.time_zone` (Settings › General, owners; fixture `team-zone.json` ×4), else the device's zone. Hardened by the CEL differential fuzz (`fixtures/cel-fuzz.json`, TS vs Rust, in CI): it found and fixed `dateAdd` overflowing on a huge `n` in both twins. The Arrays and Text rows stay open.
 
 **Missing values are explicit (✅ E2, #VAPP-195):** a field that is not in its kind's `required`, and a var the checker cannot type, is typed `T?`. Arithmetic, comparisons and function arguments on a `T?` are install issues unless guarded: `has(r.f)`, `r.f == null ? … : …`, or `orElse(x, default)`. Every binding carries a fallback (`{"call": "expr", "args": {…, "default"}}`, shown when evaluation fails), so a renderer never paints undefined and never throws on a binding. Built (E2): `T?` is spelled `{"?": T}`; an unguarded use names its path (`entries.rows[0].hours may be missing: guard it with has(), a null check or orElse()`); `has()`, `!= null` / `== null` (through `&&`, `||`, `!`) and `orElse` narrow; `default` is required on every package `expr` binding and every bind-time call falls back to its `default` (TS `dynamic.ts`, Rust `data.rs`: all six renderers); fixture `expressions.json`, replayed ×4.
 
@@ -773,7 +776,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **U1** `screens` + `navigate` + deep links + phone bar + the `formFactor` condition. (C8, C27)
 - **U2** `RecordForm` and `RecordTable` macros: styleguide entry ×5 sites, eUI catalog, prompt budget trimmed to fit. (C9)
 - **R5** Refs + `expand`. **R6** Transitions. **R7** Files on records. (C3, C10, C20)
-- **V1** Draft vs published (`published_version`, Publish, tools and automations on published). (§2.3)
+- **V1** ✅ #VAPP-210 / #VAPP-211 Draft vs published (`published_version`, Publish, tools and automations on published). (§2.3)
 - **R8** Declarative migrations + the sweep. (§3.6)
 
 **Phase 4: Data in, and testing**
@@ -816,7 +819,7 @@ R3 ─ O1 · S1 ─ S2 ─ S3 / S4 · U3
 R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 ```
 
-**First milestone: R1, R2, S1, Q1 and Q2** ✅ (2026-11-02, plus the RLS scope #VAPP-193). Records with owners, on-behalf writes and one query evaluator on every platform: enough for real team tools such as the time-tracker example. Open from it: a team time-zone setting (hosts pass the device zone today), text `search` and a cursor in the query.
+**First milestone: R1, R2, S1, Q1 and Q2** ✅ (2026-11-02, plus the RLS scope #VAPP-193). Records with owners, on-behalf writes and one query evaluator on every platform: enough for real team tools such as the time-tracker example. Open from it: text `search` and a cursor in the query (the team time zone landed in Milestone G, #VAPP-201).
 
 ## 18. Decisions (Danny, 2026-11-01)
 
@@ -842,11 +845,11 @@ Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI 
 
 **Verdict: ready for real team apps on web and desktop, for teams that build with the editor and accept that an edit is live at once.** Records, policies, queries, actions and tests are trustworthy and enforced by the server. It is **not yet general-availability**. Before calling it that:
 
-1. **V1 draft vs published** (§2.3): every editor (or agent) upsert is live for every member immediately; one bad edit breaks the app for the team. This is the biggest gap for real teams.
+1. ✅ **V1 draft vs published** (§2.3, #VAPP-210/#VAPP-211): an edit is a draft until Publish; members and tools run the published version.
 2. ✅ **#VAPP-203**: install reduces every template as the renderer will (unknown components, missing/mistyped props, child ids naming nothing), issues at `/templates/<id>/components/<i>…` (TS + Rust twins, `host-router.json` `acme.badcomponents`). It found two real bugs: the built-in Devices template bound non-bindable `IconDisc`/`LiveDot` props (now bindable) and a desktop test package's `chevron: "always"`.
 3. ✅ **#VAPP-204**: the checker no longer trusts values that may be missing. A records value's `sum`/`month`/`groups`/`totals`/`before` follow the binding's query (left out = `T?`), every list index is `T?` and reads null past the end at run time, a map's field is `dyn?`, a row template's relative paths are typed by the list's records rows (a typo like `hourz` fails install at the var's path), `has(x)` hints `x != null`, and a press's `actions.<name>` args and a `bind`'s literal source are checked at install (TS + Rust twins; `expressions.json`, `actions.json`). The three sample apps still install unchanged.
-4. **#VAPP-201**: the team time zone (members in different zones bucket dates differently).
-5. **#VAPP-200**: an app's own inputs are not disabled at access `read`.
+4. ✅ **#VAPP-201**: the team time zone (`teams.time_zone`, Settings › General ×4; hosts read dates in it, else the device's zone; `team-zone.json` replays the tz databases ×4).
+5. ✅ **#VAPP-200**: an app's own writing controls paint disabled at access `read` (eUI `readOnly` ×7 renderers + the hosts ×4).
 
 Later, not blocking: **U1 screens** (single-screen apps work, as the CRM's tabs show, but navigation and deep links are missing), **O1 offline** (natives write online only), **#VAPP-202** (the local query over 25k rows on phones: optimised and in the eUI bench as `records-25k`; CI and mid-Android numbers owed), #VAPP-205/206/207/208 (authoring gaps and drift found while dogfooding), and the iOS/Android "Run as" (phones have no preview toolbar by design).
 
