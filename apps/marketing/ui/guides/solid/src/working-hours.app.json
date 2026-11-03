@@ -1,5 +1,5 @@
 {
-  "formatVersion": 2,
+  "formatVersion": 3,
   "id": "acme.working-hours",
   "name": "Working hours",
   "version": "1.4.0",

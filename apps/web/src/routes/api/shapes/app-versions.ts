@@ -1,6 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { buildWhereClause, getUserTeamIds } from "@/lib/team-membership"
 import { createShapeRouteHandler } from "@/lib/shape-route"
+import { andClauses } from "@/lib/auth/shape-where"
+import { appShapeRules, hiddenAppsClause } from "@/lib/apps/records-shape"
 
 // VAPP-110: an app's VERSIONS (the editor's Versions list). The allowlist
 // EXCLUDES `package`: an old version's package loads on demand (tRPC
@@ -25,7 +27,9 @@ export const Route = createFileRoute(`/api/shapes/app-versions`)({
         getWhere: async (userId) => {
           if (userId) {
             const teamIds = await getUserTeamIds(userId)
-            return buildWhereClause(`team_id`, teamIds)
+            // eApps R3: an app at access none is hidden.
+            const hidden = hiddenAppsClause(`app_id`, await appShapeRules(userId, teamIds))
+            return hidden ? andClauses(buildWhereClause(`team_id`, teamIds), hidden) : buildWhereClause(`team_id`, teamIds)
           }
           return buildWhereClause(`id`, [])
         },

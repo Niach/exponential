@@ -1941,7 +1941,7 @@
     {
       "name": "hours left: a records value and template data",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2021,7 +2021,7 @@
     {
       "name": "rows of a kind",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2098,7 +2098,7 @@
     {
       "name": "a typo in a field",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2180,7 +2180,7 @@
     {
       "name": "a typo in the records value",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2262,7 +2262,7 @@
     {
       "name": "a unit a date has not",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2344,7 +2344,7 @@
     {
       "name": "a timestamp field",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2421,7 +2421,7 @@
     {
       "name": "the Exponential spelling of a records binding",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2503,7 +2503,7 @@
     {
       "name": "a syntax error",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2580,7 +2580,7 @@
     {
       "name": "a name with no var",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2657,7 +2657,7 @@
     {
       "name": "a literal var",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2737,7 +2737,7 @@
     {
       "name": "a literal object var",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2815,7 +2815,7 @@
     {
       "name": "a relative path is open",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2892,7 +2892,7 @@
     {
       "name": "an unbound path is open",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -2969,7 +2969,7 @@
     {
       "name": "a call var is open",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3050,7 +3050,7 @@
     {
       "name": "template data types",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3136,7 +3136,7 @@
     {
       "name": "expr is a string",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3213,7 +3213,7 @@
     {
       "name": "vars is an object",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3293,7 +3293,7 @@
     {
       "name": "too long",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3370,7 +3370,7 @@
     {
       "name": "an expression anywhere in a component",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3464,7 +3464,7 @@
     {
       "name": "E2: an unguarded optional field names its path",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3546,7 +3546,7 @@
     {
       "name": "E2: an optional field in arithmetic",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3628,7 +3628,7 @@
     {
       "name": "E2: has() guards a ternary",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3705,7 +3705,7 @@
     {
       "name": "E2: a null check guards",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3782,7 +3782,7 @@
     {
       "name": "E2: orElse narrows",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3859,7 +3859,7 @@
     {
       "name": "E2: a required field needs no guard",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",
@@ -3936,7 +3936,7 @@
     {
       "name": "E2: an expression binding needs a default",
       "package": {
-        "formatVersion": 2,
+        "formatVersion": 3,
         "id": "acme.hours",
         "name": "Hours",
         "version": "1.0.0",

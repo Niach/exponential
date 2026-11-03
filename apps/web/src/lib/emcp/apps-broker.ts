@@ -291,12 +291,12 @@ async function runRecords(ctx: BrokerContext, tool: BrokerTool, input: Record<st
   const app = { id: tool.app.id, teamId: tool.app.teamId }
   if (run.op === `get`) {
     if (typeof resolved.id !== `string` || !UUID.test(resolved.id)) return brokerError(tool, `invalidArguments`, `a record id is a uuid`)
-    const row = await getAppRecord(app, run.kind, resolved.id)
+    const row = await getAppRecord(app, run.kind, resolved.id, ctx.user.id)
     return row ? answer(tool, { record: row }) : brokerError(tool, `toolError`, `record not found`)
   }
   if (run.op === `list`) {
     const where = resolved.where && typeof resolved.where === `object` && !Array.isArray(resolved.where) ? (resolved.where as Record<string, unknown>) : {}
-    const rows = await queryAppRecords(app, run.kind, where, typeof resolved.limit === `number` ? resolved.limit : undefined)
+    const rows = await queryAppRecords(app, run.kind, where, typeof resolved.limit === `number` ? resolved.limit : undefined, ctx.user.id)
     return answer(tool, { records: rows, count: rows.length })
   }
   // upsert: the records service's own validation, quota and patch merge.

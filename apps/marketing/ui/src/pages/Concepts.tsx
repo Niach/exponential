@@ -72,7 +72,7 @@ const EXTENSION = `{
 }`
 
 const PACKAGE = `{
-  "formatVersion": 2,
+  "formatVersion": 3,
   "id": "com.example.hello", "name": "Hello", "version": "1.0.0",
   "catalogId": "${CATALOG_ID}",
   "theme": "neutral",

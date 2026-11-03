@@ -18,6 +18,7 @@ pub mod expressions;
 pub mod package;
 pub mod policy;
 pub mod query;
+pub mod record_policy;
 pub mod record_store;
 pub mod records;
 pub mod router;
@@ -27,7 +28,7 @@ pub mod tests;
 pub mod tools;
 
 pub use actions::{
-    action_call_name, action_var_types, apply_record_batch, function_effect, is_action_name, run_action, validate_package_actions, validate_package_effects, ActionContext, ACTION_CALL_PREFIX, ACTION_LIMIT_ACTIONS, ACTION_LIMIT_MAX_STEPS, ACTION_LIMIT_STEPS, ACTION_NAME_PATTERN,
+    action_call_name, action_var_types, apply_record_batch, apply_record_batch_as, function_effect, is_action_name, run_action, validate_package_actions, validate_package_effects, ActionContext, ACTION_CALL_PREFIX, ACTION_LIMIT_ACTIONS, ACTION_LIMIT_MAX_STEPS, ACTION_LIMIT_STEPS, ACTION_NAME_PATTERN,
     ACTION_STEP_KINDS, RECORDS_BATCH_FUNCTION,
 };
 pub use contract::*;
@@ -47,12 +48,15 @@ pub use query::{
     expand_query_source, fill_query_templates, month_days, month_label, parse_records_json, parse_records_query, parse_records_source, records_value, records_value_owned, shift_month, RecordRow, RecordRowRef, RecordsAggregate, RecordsAggregateOp, RecordsBefore, RecordsContext, RecordsDay, RecordsFilter, RecordsFilterOp, RecordsFilterValue, RecordsGroupKey, RecordsMonthView, RecordsOrder, RecordsQueryIssue, RecordsRunning, RecordsRunningOp,
     RecordsQuery, RecordsSortKey, RECORDS_AGGREGATE_OPS, RECORDS_AGGREGATE_RESERVED, RECORDS_FILTER_OPS, RECORDS_MONTHS, RECORDS_OP_ALIASES, RECORDS_RUNNING_OPS, RECORDS_RESERVED_PARAMS, RECORDS_ROW_KEYS, RECORDS_SCHEME, RECORDS_WEEKDAYS,
 };
+pub use record_policy::{
+    readable_rows, record_allowed, record_author_of, record_policy, record_policy_copy, record_refusal, validate_record_policy, RecordOp, RecordPolicy, RecordViewer, APP_ACCESS_LEVELS, DEFAULT_RECORD_POLICY, RECORD_POLICY_LEVELS, RECORD_POLICY_OPS,
+};
 pub use record_store::RECORDS_FUNCTIONS;
 pub use records::{is_record_kind, validate_record, validate_record_schema, RECORD_FIELD_TYPES, RECORD_FORMATS, RECORD_RESERVED_KEYS};
 pub use signature::{canonical_json, package_file_signed_bytes, AUTHOR_KEY_PREFIX, AUTHOR_NAME_MAX, PACKAGE_FILE_SIGNATURE_ALG, PACKAGE_FILE_SIGNATURE_CONTEXT};
 pub use sources::{parse_source, source_with_params, ParsedSource};
 pub use tests::{
-    package_test_issues, run_package_tests, test_failure, test_matches, validate_package_tests, PackageTestResult, PACKAGE_TEST_DEFAULT_AS, PACKAGE_TEST_DEFAULT_NOW, PACKAGE_TEST_KINDS, PACKAGE_TEST_LIMIT_GOT_MAX, PACKAGE_TEST_LIMIT_TESTS,
+    package_test_issues, run_package_tests, test_failure, test_matches, validate_package_tests, PackageTestResult, PACKAGE_TEST_DEFAULT_AS, PACKAGE_TEST_DEFAULT_NOW, PACKAGE_TEST_DEFAULT_ROLE, PACKAGE_TEST_ROLES, PACKAGE_TEST_KINDS, PACKAGE_TEST_LIMIT_GOT_MAX, PACKAGE_TEST_LIMIT_TESTS,
 };
 pub use tools::{tool_call, tool_consent, tool_consent_key, validate_tools, ToolCall, ToolConsentRow, TOOL_KINDS};
 
