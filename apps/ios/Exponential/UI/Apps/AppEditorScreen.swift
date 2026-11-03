@@ -562,7 +562,7 @@ struct AppVersionsSheet: View {
         let author = version.createdBy.flatMap { id in model.users.first { $0.id == id } }
         let note = version.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let who = author?.name ?? Apps.Copy.byAgent
-        let when = RelativeTime.compact(wire: version.createdAt)
+        let when = RelativeTime.long(wire: version.createdAt)
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 8) {

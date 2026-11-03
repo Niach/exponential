@@ -2214,7 +2214,7 @@
         "web": "`$appSlug` = the seeded Working hours app (DEMO_APP_SLUG); `?tab=settings` opens the tab.",
         "web-mobile": "`?tab=settings` opens the … menu's Settings sheet over the Chat tab.",
         "desktop": "The settings nav's `app:<slug>` now opens the editor on its Settings tab.",
-        "ios": "The live walk: Apps → Working hours → … → Settings.",
+        "ios": "The live walk: Apps → Working hours → the Chat segment → … → Settings (the sheet over Chat, like web-mobile; #EXP-1650).",
         "android": "See ios: the same walk in StyleguideScreenshotsTest."
       }
     },
@@ -2376,7 +2376,7 @@
       "notes": {
         "ios": "VAPP-112: the LIVE walk: the Threads tab's Apps button (phones have no sixth tab), gated on the seeded Team dashboard row.",
         "android": "VAPP-116: the LIVE walk (signed in, the seeded demo apps): Threads → the header's Apps entry. The phone reaches Apps from the Threads tab (no sidebar).",
-        "desktop": "The IDE has no Apps page: the rail lists the apps as a group (like Agents), and Settings → Apps draws this list band, so EXP-1558 photographs that index (`EXP_DEV_SETTINGS=apps`, the `settings-apps` drive)."
+        "desktop": "#EXP-1650: the IDE's own Apps page (`Screen::Apps`, the rail's Apps label), the same band as web's /apps; `EXP_DEV_SCREEN=apps`."
       },
       "android": {
         "shot": "sg_apps",
@@ -2384,7 +2384,7 @@
       },
       "desktop": {
         "drive": {
-          "kind": "settings",
+          "kind": "screen",
           "value": "apps"
         }
       }
@@ -2520,7 +2520,7 @@
         "web": "`?tab=versions` opens the tab on the seeded Working hours app (three versions).",
         "web-mobile": "`?tab=versions` opens the … menu's Versions sheet.",
         "desktop": "`app:<slug>:<tab>` opens the editor on that tab.",
-        "ios": "The live walk: Apps → Working hours → … → Versions.",
+        "ios": "The live walk: Apps → Working hours → the Chat segment → … → Versions (the sheet over Chat, like web-mobile; #EXP-1650).",
         "android": "See ios: the same walk in StyleguideScreenshotsTest."
       }
     },
@@ -2596,6 +2596,16 @@
       "title": "App · consent card",
       "blurb": "VAPP-120: the consent card an app surface raises for a typed action nobody granted (fixtures/app-actions.json): the operation's own words (\"Allow this surface to comment on issue APP-15?\"), the arguments it would send, Deny and Allow. A granted action never shows it; a destructive one always does (the 2026-10-24 ruling).",
       "order": 41,
+      "web": {
+        "route": "/t/$teamSlug/apps/$appSlug",
+        "anchor": {
+          "testId": "exponential-ui-consent",
+          "timeoutMs": 30000
+        },
+        "recipe": "openAppConsent",
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_app-consent",
         "lane": "styleguide"
@@ -2605,11 +2615,11 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "Not captured (EXP-1558): the recipe `openAppConsent` raises the REAL card (ConsentCard in lib/exponential-ui-host.tsx: the seeded Working hours app, its 'docs, admin' entry on APP-15, the entry dialog's Post to the issue), but the card's Prompt (z-50) paints UNDER the surface's own eUI Dialog (z-51), so the shot shows the entry dialog. Wire `web` back once the card stacks above the surface's dialogs.",
+        "web": "The recipe `openAppConsent` raises the REAL card (ConsentCard in lib/exponential-ui-host.tsx): the seeded Working hours app, its 'docs, admin' entry on APP-15, the entry dialog's Post to the issue; the card stacks above the surface's own eUI Dialog (EXP-1631).",
         "desktop": "EXP-1558: the Working hours app screen (`EXP_DEV_SCREEN=app:working-hours`) with `EXP_DEV_DIALOG=app-consent`: the REAL consent window (exponential_ui_host.rs `consent_hook`, no grants) for the natives' call, exponential.comments.create on APP-15 with 'Logged 8 h: docs, admin'. Never answered.",
         "ios": "The capture-only specimen `-uiTestingStyleguide app-consent` (AppConsentSpecimens): the REAL AppConsentCard over a stand-in surface, asked for exponential.comments.create on APP-15 with the words of actionConsent. The painted app surface exposes no rows to XCUITest, so the live walk cannot raise it.",
         "android": "See ios: the capture-only AppConsentSpecimenScreen in captureOnlyScreens (the Compose painter's rows carry no text semantics for the test either).",
-        "web-mobile": "Not captured: the web card at the phone's width."
+        "web-mobile": "Inherits web at the phone's width."
       },
       "desktop": {
         "drive": {
@@ -6863,7 +6873,7 @@
       },
       "notes": {
         "web": "`$appSlug` = the seeded Working hours app (DEMO_APP_SLUG).",
-        "ios": "The live walk: the Apps list → the Working hours row's … menu → Export, Include records switched on.",
+        "ios": "The live walk: Apps → Working hours → the Chat segment → … → Export, Include records switched on (over the editor, like web; #EXP-1650).",
         "android": "See ios: the same walk in StyleguideScreenshotsTest.",
         "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-export:working-hours` over the app screen.",
         "web-mobile": "Inherits web at the phone's width."
@@ -6892,8 +6902,7 @@
         },
         "anchorDelayMs": 2500,
         "env": {
-          "EXP_DEV_SCREEN": "settings",
-          "EXP_DEV_SETTINGS": "apps"
+          "EXP_DEV_SCREEN": "apps"
         }
       },
       "ios": {
@@ -6908,7 +6917,7 @@
         "web": "The capture text comes from fixtures/app-export.json `capture.importText`.",
         "ios": "The live walk: the Apps list → the band's Import pill, the capture text typed into the field, the issue row from the server.",
         "android": "See ios: the same walk in StyleguideScreenshotsTest.",
-        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the import dialog with the capture text, over Settings → Apps (the IDE has no Apps page; VAPP-155).",
+        "desktop": "DEV-ONLY `EXP_DEV_DIALOG=app-import`: the import dialog with the capture text, over the Apps page (`EXP_DEV_SCREEN=apps`, #EXP-1650).",
         "web-mobile": "Inherits web at the phone's width."
       }
     },

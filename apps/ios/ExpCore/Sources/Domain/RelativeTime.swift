@@ -23,15 +23,23 @@ public enum RelativeTime {
         return compact(date, now: now)
     }
 
-    /// Long activity/comment caption: "5 minutes ago", "2 days ago".
-    /// Under a minute, or a future instant, reads "just now" ×4 (never the
-    /// formatter's "in 0 seconds").
+    /// Long activity/comment caption: "5 minutes ago", "10 days ago",
+    /// "1 month ago" — web's date-fns `formatDistanceToNowStrict` with
+    /// `addSuffix` (rounded units, no weeks; Android `longRelativeTime`).
+    /// Under a minute, or a future instant, reads "just now" ×4.
     public static func long(_ date: Date, now: Date = Date()) -> String {
-        if now.timeIntervalSince(date) < 60 { return "just now" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.locale = Locale(identifier: "en_US")
-        formatter.unitsStyle = .full
-        return formatter.localizedString(for: date, relativeTo: now)
+        let seconds = Int(max(0, now.timeIntervalSince(date)).rounded())
+        func unit(_ n: Int, _ name: String) -> String { "\(n) \(name)\(n == 1 ? "" : "s") ago" }
+        if seconds < 60 { return "just now" }
+        let minutes = Int((Double(seconds) / 60).rounded())
+        if minutes < 60 { return unit(minutes, "minute") }
+        let hours = Int((Double(minutes) / 60).rounded())
+        if hours < 24 { return unit(hours, "hour") }
+        let days = Int((Double(hours) / 24).rounded())
+        if days < 30 { return unit(days, "day") }
+        let months = Int((Double(days) / 30).rounded())
+        if months < 12 { return unit(months, "month") }
+        return unit(Int((Double(months) / 12).rounded()), "year")
     }
 
     /// Long caption off a synced wire timestamp; empty when it does not parse.

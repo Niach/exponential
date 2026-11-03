@@ -12,7 +12,7 @@
 
 use crate::controls::PointerMenuButtonExt as _;
 use gpui::{
-    div, App, ClickEvent, Entity, FontWeight, InteractiveElement as _, IntoElement,
+    div, App, AppContext as _, ClickEvent, Entity, FontWeight, InteractiveElement as _, IntoElement,
     MouseButton, ParentElement, Render, SharedString, StatefulInteractiveElement as _,
     Styled, Subscription, Window,
 };
@@ -385,19 +385,27 @@ pub(crate) fn can_manage(entry: &AppEntry, me: Option<&str>, owner: bool) -> boo
 }
 
 /// Settings → Apps, the index (the Agents index's twin): the list band.
+/// EXP-1650: the Apps page ([`AppsPage`]) holds one too.
 pub struct AppsIndexPane {
     nav: Entity<Navigation>,
+    /// Settings → Apps opens a row's editor on its Settings tab; the Apps
+    /// page its editor (default tab).
+    to_settings: bool,
     _subscriptions: Vec<Subscription>,
 }
 
 impl AppsIndexPane {
     pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
+        Self::with_target(nav, true, cx)
+    }
+
+    fn with_target(nav: Entity<Navigation>, to_settings: bool, cx: &mut gpui::Context<Self>) -> Self {
         let mut subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         if let Some(collections) = Store::try_global(cx).map(|store| store.collections().clone()) {
             subscriptions.push(cx.observe(&collections.apps, |_, _, cx| cx.notify()));
             subscriptions.push(cx.observe(&collections.team_members, |_, _, cx| cx.notify()));
         }
-        Self { nav, _subscriptions: subscriptions }
+        Self { nav, to_settings, _subscriptions: subscriptions }
     }
 }
 
@@ -417,9 +425,31 @@ impl Render for AppsIndexPane {
                 let me = crate::queries::active_account(cx).map(|account| account.user_id);
                 let owner = crate::settings::is_owner(cx, &team_id);
                 let entries = app_entries(&team_id, cx);
-                apps_list(Some(&team_id), &entries, me.as_deref(), owner, true, cx)
+                apps_list(Some(&team_id), &entries, me.as_deref(), owner, self.to_settings, cx)
             }
         }
+    }
+}
+
+/// EXP-1650: the Apps PAGE ([`Screen::Apps`], web `t/$teamSlug/apps`): the
+/// same list band in the full-page scaffold (`max-w-5xl`, `px-4 py-4`),
+/// opened from the rail's `Apps` label.
+pub struct AppsPage {
+    pane: Entity<AppsIndexPane>,
+    scroll: gpui::ScrollHandle,
+}
+
+impl AppsPage {
+    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        let nav = crate::navigation::nav_for_window(window, cx);
+        let pane = cx.new(|cx| AppsIndexPane::with_target(nav, false, cx));
+        Self { pane, scroll: gpui::ScrollHandle::new() }
+    }
+}
+
+impl Render for AppsPage {
+    fn render(&mut self, _window: &mut Window, _cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        crate::scroll_pane::page_scaffold("apps-screen-scroll", &self.scroll, v_flex().min_w_0().child(self.pane.clone()))
     }
 }
 

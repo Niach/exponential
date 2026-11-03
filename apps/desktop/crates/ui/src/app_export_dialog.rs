@@ -13,7 +13,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Disableable as _,
+    h_flex, v_flex, Disableable as _,
 };
 use sync::Store;
 
@@ -163,10 +163,8 @@ impl Render for AppExportView {
             })
             .child(div().flex_1())
             .child(
+                // EXP-1650: no hairline over the action (web parity).
                 h_flex()
-                    .pt_3()
-                    .border_t_1()
-                    .border_color(cx.theme().border)
                     .justify_end()
                     .child(
                         Button::new("app-export-confirm")

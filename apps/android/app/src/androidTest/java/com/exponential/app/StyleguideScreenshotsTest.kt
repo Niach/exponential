@@ -1061,6 +1061,23 @@ class StyleguideScreenshotsTest {
             flow.waitFor(hasTestTag(Apps.TestIds.PREVIEW), SYNC_TIMEOUT)
             flow.settle(longer = true)
             flow.screenshot("sg_app")
+            // --- sg_app-data (VAPP-178, app-records.json `dataTab` PHONES): the
+            // Data segment: the kind select + Add record over the picked kind's
+            // rows (Working hours' seeded records, newest first).
+            if (ScreenshotFlow.anyRequested("sg_app-data")) {
+                composeRule.onNode(hasTestTag("app-editor-tab-${Apps.EditorTabs.DATA}")).performClick()
+                flow.waitFor(hasTestTag(Apps.TestIds.DATA), NAV_TIMEOUT)
+                flow.waitFor(hasTestTag(AppRecords.DataTestIds.ROW), SYNC_TIMEOUT)
+                flow.settle()
+                flow.screenshot("sg_app-data")
+            }
+            // #EXP-1650: web-mobile opens the `…` menu's sheets and Export over
+            // the editor's Chat segment.
+            if (ScreenshotFlow.anyRequested("sg_app-versions", "sg_app-settings", "sg_app-export")) {
+                composeRule.onNode(hasTestTag("app-editor-tab-${Apps.EditorTabs.CHAT}")).performClick()
+                flow.waitFor(hasTestTag(Apps.TestIds.CHAT), NAV_TIMEOUT)
+                flow.settle()
+            }
             // --- sg_app-versions / sg_app-settings (VAPP-177, apps.json PHONES):
             // the header's `…` → Versions (Working hours' three versions, the
             // head row `Current`, the others Preview + Restore) and → Settings
@@ -1091,15 +1108,22 @@ class StyleguideScreenshotsTest {
                 flow.waitForGone(hasTestTag(Apps.TestIds.SETTINGS), NAV_TIMEOUT)
                 flow.settle()
             }
-            // --- sg_app-data (VAPP-178, app-records.json `dataTab` PHONES): the
-            // Data segment: the kind select + Add record over the picked kind's
-            // rows (Working hours' seeded records, newest first).
-            if (ScreenshotFlow.anyRequested("sg_app-data")) {
-                composeRule.onNode(hasTestTag("app-editor-tab-${Apps.EditorTabs.DATA}")).performClick()
-                flow.waitFor(hasTestTag(Apps.TestIds.DATA), NAV_TIMEOUT)
-                flow.waitFor(hasTestTag(AppRecords.DataTestIds.ROW), SYNC_TIMEOUT)
+            // --- sg_app-export (VAPP-121, app-export.json `capture`): the
+            // editor's `…` → Export with "Include records" switched on.
+            if (ScreenshotFlow.anyRequested("sg_app-export")) {
+                composeRule.onNode(hasTestTag(Apps.TestIds.MENU)).performClick()
+                flow.waitFor(hasTestTag("app-editor-export"), NAV_TIMEOUT)
+                composeRule.onNode(hasTestTag("app-editor-export")).performClick()
+                flow.waitFor(hasTestTag("app-export-dialog"), NAV_TIMEOUT)
+                flow.waitFor(hasTestTag("app-export-records"), SYNC_TIMEOUT)
+                composeRule.onNode(hasTestTag("app-export-records")).performClick()
                 flow.settle()
-                flow.screenshot("sg_app-data")
+                flow.screenshot("sg_app-export")
+                Espresso.pressBack()
+                flow.settle()
+                if (flow.exists(hasTestTag("app-export-dialog"))) Espresso.pressBack()
+                flow.waitForGone(hasTestTag("app-export-dialog"), NAV_TIMEOUT)
+                flow.settle()
             }
             Espresso.pressBack()
             flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
@@ -1127,25 +1151,9 @@ class StyleguideScreenshotsTest {
                 flow.settle()
             }
 
-            // --- sg_app-export / sg_app-import (VAPP-121, app-export.json
-            // `capture`): Working hours' row menu → Export with "Include records"
-            // switched on; the band's Import… holding the fixture's capture text
-            // and the server's ONE issue. A scoped run not naming them skips both.
-            if (ScreenshotFlow.anyRequested("sg_app-export")) {
-                composeRule.onNode(hasContentDescription("Menu for Working hours")).performClick()
-                flow.waitFor(hasText(AppExport.Copy.EXPORT), NAV_TIMEOUT)
-                composeRule.onNode(hasText(AppExport.Copy.EXPORT)).performClick()
-                flow.waitFor(hasTestTag("app-export-dialog"), NAV_TIMEOUT)
-                flow.waitFor(hasTestTag("app-export-records"), SYNC_TIMEOUT)
-                composeRule.onNode(hasTestTag("app-export-records")).performClick()
-                flow.settle()
-                flow.screenshot("sg_app-export")
-                Espresso.pressBack()
-                flow.settle()
-                if (flow.exists(hasTestTag("app-export-dialog"))) Espresso.pressBack()
-                flow.waitForGone(hasTestTag("app-export-dialog"), NAV_TIMEOUT)
-                flow.settle()
-            }
+            // --- sg_app-import (VAPP-121, app-export.json `capture`): the band's
+            // Import… holding the fixture's capture text and the server's ONE
+            // issue. A scoped run not naming it skips it.
             if (ScreenshotFlow.anyRequested("sg_app-import")) {
                 // VAPP-176: Import… is the list band's own pill (its own sheet).
                 composeRule.onNode(hasTestTag(Apps.TestIds.IMPORT_APP)).performClick()

@@ -719,6 +719,9 @@ pub(crate) struct AlertSpec {
     /// EXP-980: the OK button is SHOWN but not pressable: the answer stays
     /// visible (with a caption saying why it is off) instead of vanishing.
     ok_disabled: bool,
+    /// EXP-1650: drawn as web's prompt CARD (`PromptLayout`): no title band
+    /// and no ✕, the question leads (Escape and the scrim still dismiss).
+    card: bool,
     /// EXP-1212: which answer Enter gives. `Ok` is every alert before it;
     /// an alert whose default answer is NOT its primary (a destructive OK,
     /// a disabled primary) moves Enter to Cancel or the secondary.
@@ -750,6 +753,7 @@ impl AlertSpec {
             destructive: None,
             on_closed: None,
             ok_disabled: false,
+            card: false,
             enter: AlertEnter::Ok,
             on_ok: Rc::new(|_, _| true),
         }
@@ -877,6 +881,18 @@ impl AlertSpec {
         self
     }
 
+    /// EXP-1650: the prompt CARD shape (see [`AlertSpec::card`]).
+    pub(crate) fn as_card(mut self) -> Self {
+        self.card = true;
+        self
+    }
+
+    /// Whether the alert draws as the prompt card (the consent tests).
+    #[cfg(test)]
+    pub(crate) fn is_card(&self) -> bool {
+        self.card
+    }
+
     /// #EXP-1553: the bold question line over the description (web's
     /// `DialogTitle`); the window title stays the alert's short name.
     pub(crate) fn question(mut self, question: impl Into<SharedString>) -> Self {
@@ -938,7 +954,11 @@ pub(crate) fn open_alert(window: &mut Window, cx: &mut App, spec: AlertSpec) {
     // #EXP-1588: the panel hugs the alert (web's auto-height dialog).
     let dialog_size = size(spec.width, px(0.));
     let title = spec.title.clone();
-    push_layer(window, cx, DialogSpec::new(title, dialog_size).hug(), move |_, cx| {
+    let mut dialog = DialogSpec::new(title, dialog_size).hug();
+    if spec.card {
+        dialog = dialog.chromeless();
+    }
+    push_layer(window, cx, dialog, move |_, cx| {
         let on_closed = spec.on_closed.clone();
         let view = cx.new(|cx| {
             if let Some(on_closed) = on_closed {
@@ -1052,6 +1072,8 @@ impl Render for AlertView {
             .min_h_0()
             .px_4()
             .pb_4()
+            // EXP-1650: a card has no header band above it.
+            .when(self.spec.card, |this| this.pt_4())
             .gap_3()
             .child(
                 // gpui's own scroll + the overlay scrollbar (the create

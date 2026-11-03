@@ -979,7 +979,10 @@ fn consent_hook(scope: Option<HostScope>) -> ConsentHook {
         let args = consent_words(call).args.map(|a| consent_args_preview(&a));
         crate::navigation::on_active_window(cx, move |window, cx| {
             let (ok, closed) = (tx.clone(), tx);
+            // EXP-1650: THE prompt card ×4 (web `Prompt`): the question as
+            // its title, no window-title band, no ✕.
             let mut spec = crate::native_dialog::AlertSpec::from_prompt("Exponential UI", &prompt)
+                .as_card()
                 .on_ok(move |_, _| {
                     let _ = ok.try_send(true);
                     true

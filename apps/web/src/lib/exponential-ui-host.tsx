@@ -669,6 +669,9 @@ export function ConsentCard({ gate }: { gate: ConsentGate }) {
       open
       onOpenChange={(open) => !open && gate.answer(false)}
       data-testid="exponential-ui-consent"
+      // EXP-1631: above the surface's own eUI Dialog/Drawer (z-51), so a call
+      // raised from an app's entry dialog is answerable.
+      className="z-[52]"
       title={copy.title}
       body={copy.body}
       onDismiss={() => gate.answer(false)}

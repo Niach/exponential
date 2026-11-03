@@ -20,6 +20,11 @@ final class RelativeTimeTests: XCTestCase {
         XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-5 * 60), now: now), "5 minutes ago")
         XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-2 * 3600), now: now), "2 hours ago")
         XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-2 * 86400), now: now), "2 days ago")
+        XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-60), now: now), "1 minute ago")
+        XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-10 * 86400), now: now), "10 days ago")
+        XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-14 * 86400), now: now), "14 days ago")
+        XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-31 * 86400), now: now), "1 month ago")
+        XCTAssertEqual(RelativeTime.long(now.addingTimeInterval(-400 * 86400), now: now), "1 year ago")
     }
 
     func testWireFormParses() {

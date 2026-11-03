@@ -416,6 +416,10 @@ impl AgentScreenView {
                     window,
                     cx,
                 );
+                // EXP-1650: the editor's chat shows only "Session ended".
+                if matches!(self.subject, ChannelSubject::App(_)) {
+                    composer.update(cx, |composer, cx| composer.hide_empty_replay(cx));
+                }
                 self._subscriptions.push(cx.observe(&composer, |_, _, cx| cx.notify()));
                 self.composer = Some((conversation.id.clone(), composer));
                 // #EXP-1380 WINDOW: another conversation opens at its newest
