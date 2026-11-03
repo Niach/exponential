@@ -1088,7 +1088,7 @@ class StyleguideScreenshotsTest {
                 flow.waitFor(hasTestTag("app-editor-menu-versions"), NAV_TIMEOUT)
                 composeRule.onNode(hasTestTag("app-editor-menu-versions")).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.VERSIONS), NAV_TIMEOUT)
-                flow.waitFor(hasTestTag(Apps.TestIds.VERSION_RESTORE), SYNC_TIMEOUT)
+                flow.waitFor(hasTestTag("${Apps.TestIds.VERSION_ROW}-1"), SYNC_TIMEOUT)
                 flow.settle()
                 flow.screenshot("sg_app-versions")
                 Espresso.pressBack()
