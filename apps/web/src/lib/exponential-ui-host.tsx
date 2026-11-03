@@ -30,7 +30,7 @@ import { eq } from "@tanstack/react-db"
 import { ExponentialHost, isPrivateHost } from "@exponential_app/eui"
 import type { FunctionCallInfo, HostFunction, HostOptions, MediaRequest, ParsedSource, SourceEmit, Transport } from "@exponential_app/eui"
 import { useHostStatus } from "@exponential_app/eui-react"
-import { Button, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, toast } from "@exp/ui"
+import { Button, conceptIcon, CodeBlock, CodeBlockContent, Collapsible, CollapsibleContent, CollapsibleTrigger, Prompt, appExtensionCatalog, toast } from "@exp/ui"
 import type { AppPackage } from "@exponential_app/eui"
 import { getDeviceIconName } from "@exp/ui"
 import {
@@ -800,6 +800,9 @@ export function ConsentCard({ gate }: { gate: ConsentGate }) {
 
 /** `host_offline` and the catalog-update banner above a host's surfaces. */
 const NO_BANNERS: { server: string; text: string }[] = []
+const WarningIcon = conceptIcon(`ui-warning`)
+/** The banner's action (upstream.json `binding.connect`). */
+const UPSTREAM_CONNECT = UPSTREAM_BINDING.connect
 const noSubscribe = () => () => {}
 
 export function HostBanner({ host }: { host: ExponentialHost }) {
@@ -813,11 +816,13 @@ export function HostBanner({ host }: { host: ExponentialHost }) {
     return (
       <>
         {connect.map((banner) => (
-          <div key={banner.server} className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground" data-testid="exponential-ui-upstream-connect">
-            <span>{banner.text}</span>
+          // The amber notice of ×4 (the offline banner's tone, icon + one ghost action).
+          <div key={banner.server} role="status" className="flex items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-sm text-amber-600 dark:text-amber-300" data-testid="exponential-ui-upstream-connect">
+            <WarningIcon className="size-3.5 shrink-0" />
+            <span className="min-w-0 flex-1">{banner.text}</span>
             {slug ? (
-              <Button size="sm" variant="outline" onClick={() => window.location.assign(`/t/${slug}/settings/mcp`)}>
-                Connect
+              <Button variant="ghost" size="sm" className="h-6 px-2 text-amber-600 hover:bg-amber-500/15 dark:text-amber-300" onClick={() => window.location.assign(`/t/${slug}/settings/mcp`)}>
+                {UPSTREAM_CONNECT}
               </Button>
             ) : null}
           </div>

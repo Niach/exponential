@@ -69,7 +69,12 @@ private struct AppPackageSurface: View {
     var body: some View {
         Group {
             if let appHost {
-                HostSurface(host: appHost.host, surfaceId: Apps.Preview.surfaceId)
+                VStack(alignment: .leading, spacing: 12) {
+                    ForEach(appHost.upstreams.servers, id: \.self) { server in
+                        upstreamBanner(server)
+                    }
+                    HostSurface(host: appHost.host, surfaceId: Apps.Preview.surfaceId)
+                }
             } else {
                 Color.clear.frame(height: 1)
             }
@@ -80,6 +85,35 @@ private struct AppPackageSurface: View {
             appHost?.close()
             appHost = nil
         }
+    }
+
+    /// #VAPP-230: the viewer has no connection to an upstream the app reads
+    /// (`AppUpstream.bannerServers`): "Connect <server>" as the amber notice
+    /// of ×4 (upstream.json `binding`: `SyncHealthBanner`'s tone, the
+    /// warning icon, the text, one text action opening Settings › MCP).
+    private func upstreamBanner(_ server: String) -> some View {
+        HStack(spacing: 6) {
+            AppIcon(AppIcons.uiWarning, size: 11)
+            Text(AppUpstream.bannerText(server))
+                .font(.caption2)
+            Spacer(minLength: 8)
+            if let teamId {
+                Button(AppUpstream.connect) {
+                    pushRoute(.teamSettingsSection(accountId: accountId, teamId: teamId, section: .mcp))
+                }
+                .font(.caption2.weight(.semibold))
+                .buttonStyle(.plain)
+            }
+        }
+        .foregroundStyle(.white.opacity(0.9))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .frame(maxWidth: .infinity)
+        .background(.orange.opacity(0.35))
+        .background(.ultraThinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(AppUpstream.bannerTestId)
     }
 
     private func build() {

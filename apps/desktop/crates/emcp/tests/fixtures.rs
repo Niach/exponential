@@ -231,6 +231,51 @@ fn upstream_cases() {
     }
 }
 
+#[test]
+fn upstream_binding_cases() {
+    let b = &fixture::upstream()["binding"];
+    assert_eq!(b["scheme"], upstream::BINDING_SCHEME);
+    assert_eq!(b["cacheSeconds"].as_u64(), Some(upstream::CACHE_SECONDS));
+    assert_eq!(b["banner"], upstream::BANNER);
+    assert_eq!(b["connect"], upstream::CONNECT);
+    assert_eq!(b["errors"]["notReadOnly"], upstream::ERROR_NOT_READ_ONLY);
+    assert_eq!(b["errors"]["destructive"], upstream::ERROR_DESTRUCTIVE);
+    assert_eq!(b["errors"]["notDeclared"], upstream::ERROR_NOT_DECLARED);
+    assert_eq!(b["errors"]["invalid"], upstream::ERROR_INVALID);
+    for case in b["parseCases"].as_array().unwrap() {
+        let got = upstream::parse_upstream_source(s(&case["source"]))
+            .map(|p| serde_json::json!({"server": p.server, "tool": p.tool, "args": p.args}))
+            .unwrap_or(Value::Null);
+        assert_eq!(got, case["expected"], "{}", case["source"]);
+    }
+    for case in b["declareCases"].as_array().unwrap() {
+        let got: Vec<Value> = upstream::upstream_declare_issues(&strings(&case["sources"]), &strings(&case["upstreams"]))
+            .into_iter()
+            .map(|i| serde_json::json!({"index": i.index, "code": i.code}))
+            .collect();
+        assert_eq!(Value::Array(got), case["expected"], "{}", case["name"]);
+    }
+    for case in b["readCases"].as_array().unwrap() {
+        let got = upstream::upstream_read_error("crm", s(&case["tool"]), Some(&case["annotations"]), &strings(&case["sources"]));
+        assert_eq!(got, opt_str(&case["expected"]), "{}", case["name"]);
+    }
+    for case in b["cacheKeyCases"].as_array().unwrap() {
+        let got = upstream::upstream_cache_key(s(&case["member"]), s(&case["serverId"]), s(&case["tool"]), case["args"].as_object().unwrap());
+        assert_eq!(got, s(&case["expected"]));
+    }
+    for case in b["valueCases"].as_array().unwrap() {
+        let got = match upstream::upstream_binding_value(&case["result"]) {
+            Ok(value) => serde_json::json!({"value": value}),
+            Err(error) => serde_json::json!({"error": error}),
+        };
+        assert_eq!(got, case["expected"], "{}", case["name"]);
+    }
+    for case in b["bannerCases"].as_array().unwrap() {
+        let answers: Vec<upstream::UpstreamReadAnswer> = serde_json::from_value(case["answers"].clone()).unwrap();
+        assert_eq!(upstream::upstream_banners(&answers), strings(&case["expected"]), "{}", case["name"]);
+    }
+}
+
 // ---------------------------------------------------------------- exposes
 
 fn context(value: &Value) -> ExposeContext {
@@ -365,6 +410,10 @@ fn every_case_list_is_replayed() {
         (fixture::audit(), &["canonicalCases", "hashCases", "statusCases", "retentionCases"]),
         (fixture::access(), &["grantCases", "policyCases", "accessCases", "visibleCases"]),
         (fixture::upstream(), &["flowCases", "callableCases", "missingCases"]),
+        (
+            &fixture::upstream()["binding"],
+            &["parseCases", "declareCases", "readCases", "cacheKeyCases", "valueCases", "bannerCases"],
+        ),
         (
             fixture::exposes(),
             &[

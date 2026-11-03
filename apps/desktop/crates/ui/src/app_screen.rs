@@ -899,6 +899,48 @@ impl AppScreenView {
                 .text_color(amber)
                 .child("This surface needs a newer Exponential. Update the app to show it.")
         });
+        // VAPP-230 (the web's `HostBanner`, first; upstream.json `binding`
+        // ONE LOOK): one amber notice per upstream a binding reads without
+        // the viewer's connection (the shell's offline banner's tone and
+        // `ui-warning`), its ghost `Connect` opening Settings › MCP.
+        let upstream_banners = self.preview.as_ref().map(|p| p.ide.upstream_banners()).unwrap_or_default();
+        let host_banner = if upstream_banners.is_empty() {
+            host_banner.map(IntoElement::into_any_element)
+        } else {
+            Some(
+                v_flex()
+                    .gap_2()
+                    .children(upstream_banners.into_iter().enumerate().map(|(i, text)| {
+                        h_flex()
+                            .id(("exponential-ui-upstream-connect", i))
+                            .w_full()
+                            .items_center()
+                            .gap_2()
+                            .rounded_md()
+                            .px_3()
+                            .py_1()
+                            .bg(theme.warning.opacity(0.14))
+                            .child(Icon::new(registry::UI_WARNING).size_4().text_color(theme.warning))
+                            .child(div().flex_1().text_sm().child(text))
+                            .child(
+                                Button::new(("app-upstream-connect", i))
+                                    .ghost()
+                                    .small()
+                                    .cursor_pointer()
+                                    .label(api::apps::upstream_binding::CONNECT)
+                                    .on_click(|_, window, cx| {
+                                        crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
+                                        crate::sidebar::select_settings_section(
+                                            window,
+                                            cx,
+                                            crate::settings::SettingsSection::Mcp,
+                                        );
+                                    }),
+                            )
+                    }))
+                    .into_any_element(),
+            )
+        };
         let surface = host.and_then(|host| host.surface(surface_id));
         // EXP-1557 (web parity): `No version yet` is CENTRED in the frame,
         // so it fills the frame itself (a scroll pane's content has no

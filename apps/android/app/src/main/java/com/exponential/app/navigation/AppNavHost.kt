@@ -825,6 +825,8 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenSession = { id -> navController.navigate(Routes.session(id)) },
+                // #VAPP-230: Connect <server> opens the app team's Settings › MCP.
+                onOpenTeamSettings = openReadinessTeamSettings,
             )
         }
         composable("settings") {

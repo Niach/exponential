@@ -144,6 +144,9 @@ data class AppRecordBatchResult(
 // VAPP-121: `apps.validateImport` / `apps.import` (fixtures/app-export.json):
 // the SERVER is the one authority on a pasted app file or bare package.
 @Serializable
+private data class AppUpstreamReadInput(val id: String, val source: String)
+
+@Serializable
 private data class AppImportInput(val teamId: String, val text: String)
 
 @Serializable
@@ -306,6 +309,18 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
             input = AppRecordUndoInput(appId, eventIds, via),
             inputSerializer = AppRecordUndoInput.serializer(),
             outputSerializer = AppRecordEventsResult.serializer(),
+        )
+
+    /** VAPP-230: the broker's answer for an `upstream:<server>/<tool>?…`
+     *  binding [source] of app [appId], read as the viewer: `{ok: true,
+     *  value, meta}` | `{ok: false, error, server, message}`. */
+    suspend fun upstreamRead(accountId: String, appId: String, source: String): JsonObject =
+        trpc.query(
+            accountId,
+            path = "apps.upstreamRead",
+            input = AppUpstreamReadInput(appId, source),
+            inputSerializer = AppUpstreamReadInput.serializer(),
+            outputSerializer = JsonObject.serializer(),
         )
 
     /** VAPP-121: the server's issues with [text] (an app file or a bare

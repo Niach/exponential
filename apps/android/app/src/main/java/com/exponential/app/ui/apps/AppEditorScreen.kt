@@ -142,6 +142,8 @@ fun AppEditorScreen(
     onBack: () -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
     onOpenSession: (sessionId: String) -> Unit,
+    /** #VAPP-230: the upstream banner's Connect (Settings › MCP of the app's team). */
+    onOpenTeamSettings: (teamId: String, section: String) -> Unit = { _, _ -> },
     viewModel: AppEditorViewModel = hiltViewModel(),
 ) {
     val app by viewModel.app.collectAsStateWithLifecycle()
@@ -281,6 +283,7 @@ fun AppEditorScreen(
                         onRestore = viewModel::restore,
                         onHead = viewModel::clearViewing,
                         onOpenIssue = onOpenIssue,
+                        onOpenTeamSettings = onOpenTeamSettings,
                         appId = viewModel.appId,
                         teamId = entry.teamId,
                         me = me,
@@ -468,6 +471,7 @@ private fun AppPreviewPane(
     onRestore: () -> Unit,
     onHead: () -> Unit,
     onOpenIssue: (String) -> Unit,
+    onOpenTeamSettings: (teamId: String, section: String) -> Unit,
     appId: String,
     teamId: String?,
     me: String?,
@@ -513,7 +517,7 @@ private fun AppPreviewPane(
             if (pkg != null) {
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(Apps.Preview.PADDING.dp)) {
                     // A new package = a new host (the key): every synced upsert repaints.
-                    androidx.compose.runtime.key(pkg, viewing) { AppPackageSurface(pkg, onOpenIssue, appId, teamId, me, grants = grants, readOnly = readOnly) }
+                    androidx.compose.runtime.key(pkg, viewing) { AppPackageSurface(pkg, onOpenIssue, onOpenTeamSettings, appId, teamId, me, grants = grants, readOnly = readOnly) }
                 }
             } else {
                 EmptyState(
@@ -529,11 +533,13 @@ private fun AppPreviewPane(
 
 /** One package's default template (`Apps.previewTemplate`) on the app host (`applyTemplate`). */
 @Composable
-private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, appId: String, teamId: String?, me: String?, grants: Boolean, readOnly: Boolean) {
+private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit, onOpenTeamSettings: (teamId: String, section: String) -> Unit, appId: String, teamId: String?, me: String?, grants: Boolean, readOnly: Boolean) {
     val parsed = remember(packageJson) { runCatching { JsonValue.parse(packageJson) }.getOrNull() }
     val packageId = parsed?.get("id")?.string
     val templateId = parsed?.get("templates")?.obj?.keys?.let { Apps.previewTemplate(it) }
     val consent = remember { AppConsentGate() }
+    // #VAPP-230: the upstream reads' answers (the "Connect <server>" banners).
+    val upstreams = remember { AppUpstreamAnswers() }
     val host = rememberAppHost(
         packages = listOf(packageJson),
         consent = consent,
@@ -544,6 +550,7 @@ private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit
         themeId = parsed?.get("theme")?.string,
         grants = grants,
         readOnly = readOnly,
+        upstreams = upstreams,
     )
     LaunchedEffect(host, packageId, templateId) {
         if (packageId != null && templateId != null) {
@@ -564,7 +571,11 @@ private fun AppPackageSurface(packageJson: String, onOpenIssue: (String) -> Unit
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        AppHostBanner(host)
+        AppHostBanner(
+            host,
+            upstreams = upstreams,
+            onConnect = teamId?.let { team -> { onOpenTeamSettings(team, com.exponential.app.domain.SettingsNav.MCP) } },
+        )
         HostSurface(host, Apps.Preview.SURFACE_ID, Modifier.fillMaxWidth())
     }
     AppConsentCard(consent)

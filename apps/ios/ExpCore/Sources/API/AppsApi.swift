@@ -260,6 +260,21 @@ public struct AppRecordUpserted: Decodable, Sendable, Equatable {
     public let eventId: String?
 }
 
+/// #VAPP-230 `apps.upstreamRead {id, source}`.
+private struct AppUpstreamReadInput: Encodable {
+    let id: String
+    let source: String
+}
+
+/// `apps.upstreamRead`'s answer: `{ok: true, value, meta}` |
+/// `{ok: false, error, server, message}`.
+private struct AppUpstreamReadResult: Decodable {
+    let ok: Bool
+    let value: AnyJSON?
+    let error: String?
+    let server: String?
+}
+
 public final class AppsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -407,5 +422,17 @@ public final class AppsApi: Sendable {
         )
         guard let value = result.package?.value, value != .null else { return nil }
         return value.compactString
+    }
+
+    /// #VAPP-230 `apps.upstreamRead`: one `upstream:<server>/<tool>?…`
+    /// binding read through the server broker as the viewer (their own
+    /// connection; the server caches a good answer 60 s). A refusal is an
+    /// answer, not a throw; offline throws.
+    public func upstreamRead(accountId: String, appId: String, source: String) async throws -> AppUpstream.Answer {
+        let result: AppUpstreamReadResult = try await trpc.query(
+            accountId: accountId, path: "apps.upstreamRead", input: AppUpstreamReadInput(id: appId, source: source)
+        )
+        if result.ok { return .ok(result.value?.value ?? .null) }
+        return .refused(error: result.error ?? "", server: result.server ?? "")
     }
 }

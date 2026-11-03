@@ -3,7 +3,10 @@ package com.exponential.app.ui.apps
 import android.content.Context
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -28,6 +31,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.theme.glassRow
+import androidx.compose.material3.TextButton
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.PaddingValues
 import at.exponential.ui.extension.ExtensionContext
 import at.exponential.ui.extension.ExtensionLeaf
 import at.exponential.ui.extension.ExtensionPainter
@@ -68,6 +76,7 @@ import com.exponential.app.domain.AppHostValues
 import com.exponential.app.domain.AppRecords
 import com.exponential.app.domain.TeamZone
 import com.exponential.app.domain.AppSources
+import com.exponential.app.domain.AppUpstream
 import com.exponential.app.domain.Apps
 import com.exponential.app.ui.components.failedAction
 import com.exponential.app.domain.classifyAppLink
@@ -95,6 +104,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
@@ -120,6 +131,11 @@ import kotlinx.coroutines.launch
  *    team's synced rows, [AppSources]; VAPP-122 the format's
  *    `records:<kind>?…` over the hosting app's synced records (or the
  *    `app=<slug>` app of the same team), [AppRecords];
+ *  - VAPP-230 `upstream:<server>/<tool>?…`: tRPC `apps.upstreamRead` as
+ *    the viewer, re-read every [AppUpstream.CACHE_SECONDS] while bound; a
+ *    refusal or offline emits nothing (the template's default stays), a
+ *    disconnected server raises the "Connect <server>" banner
+ *    ([AppUpstreamAnswers], [AppHostBanner]);
  *  - VAPP-122 `records.upsert {kind, data, id?}` and `records.delete {id}`:
  *    tRPC `apps.records.*` as the viewer, no consent card
  *    (the app's own rows), a refusal = the failed-action toast;
@@ -249,10 +265,80 @@ fun AppConsentCard(gate: AppConsentGate) {
     )
 }
 
-/** The catalog-update banner above a host's surfaces (a local host has no
+/** #VAPP-230: every live upstream binding's last answer, for the banners
+ *  ([AppUpstream.banners]: one per server answering upstreamDisconnected;
+ *  the web's `UpstreamAnswers`). */
+class AppUpstreamAnswers {
+    private val answers = HashMap<Int, AppUpstream.Answer>()
+    private var nextId = 0
+
+    /** The banners to show, sorted by server. */
+    var banners: List<AppUpstream.Banner> by mutableStateOf(emptyList())
+        private set
+
+    /** A new binding's id. */
+    fun bind(): Int = synchronized(answers) { ++nextId }
+
+    /** Binding [id]'s latest answer (null = unbound). */
+    fun set(id: Int, answer: AppUpstream.Answer?) {
+        val next = synchronized(answers) {
+            if (answer != null) answers[id] = answer else answers.remove(id)
+            AppUpstream.banners(answers.values)
+        }
+        if (next != banners) banners = next
+    }
+}
+
+/** The banners above a host's surfaces: #VAPP-230 one "Connect <server>"
+ *  per disconnected upstream ([upstreams]; its Connect = [onConnect],
+ *  Settings › MCP), else the catalog-update banner (a local host has no
  *  transport, so no offline state). */
 @Composable
-fun AppHostBanner(host: ExponentialHost, modifier: Modifier = Modifier) {
+fun AppHostBanner(
+    host: ExponentialHost,
+    modifier: Modifier = Modifier,
+    upstreams: AppUpstreamAnswers? = null,
+    onConnect: (() -> Unit)? = null,
+) {
+    val connect = upstreams?.banners.orEmpty()
+    if (connect.isNotEmpty()) {
+        Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            connect.forEach { banner ->
+                // The amber notice of ×4 (upstream.json `binding`): the
+                // OfflineBanner row: the notice rung, the yellow warning
+                // icon, the text, one text action.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .glassRow(opaque = true)
+                        .padding(start = 14.dp, end = 6.dp, top = 4.dp, bottom = 4.dp)
+                        .testTag("exponential-ui-upstream-connect"),
+                ) {
+                    Icon(
+                        ExpIcons.uiWarning,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                        tint = DesignTokens.Semantic.Yellow,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        banner.text,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (onConnect != null) {
+                        Spacer(Modifier.width(4.dp))
+                        TextButton(onClick = onConnect, contentPadding = PaddingValues(horizontal = 12.dp)) {
+                            Text(AppUpstream.CONNECT, style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
     if (host.unsupportedCatalog == null) return
     val shape = RoundedCornerShape(8.dp)
     Text(
@@ -353,6 +439,8 @@ fun rememberAppHost(
     grants: Boolean = true,
     /** VAPP-200: the viewer's app access is `read`: the app's own writing controls paint disabled. */
     readOnly: Boolean = false,
+    /** #VAPP-230: the upstream reads' answers (the banners); null = untracked. */
+    upstreams: AppUpstreamAnswers? = null,
 ): ExponentialHost {
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -363,7 +451,7 @@ fun rememberAppHost(
     // instance link opens in-app, anything else in the Custom Tab; no
     // instance known = the SDK's system opener.
     val links = rememberAppLinkHandler()
-    val host = remember(packages, consent, themeId, links, appId, teamId, me, grants, readOnly) {
+    val host = remember(packages, consent, themeId, links, appId, teamId, me, grants, readOnly, upstreams) {
         val deps = EntryPointAccessors.fromApplication(context.applicationContext, AppHostEntryPoint::class.java)
         val auth = deps.authRepository()
         val db = accountDatabaseFlow(auth, deps.databaseHolder())
@@ -484,6 +572,35 @@ fun rememberAppHost(
             return@SourceResolver { job.cancel() }
         }
 
+        // #VAPP-230: `upstream:<server>/<tool>?…` → the broker's answer for
+        // the viewer, re-read every cacheSeconds while bound. A refusal or
+        // offline emits nothing (the path keeps the template's data: the
+        // binding's default); a disconnected one raises the banner.
+        val upstream = SourceResolver { source, emit ->
+            val id = upstreams?.bind()
+            val job = scope.launch {
+                while (isActive) {
+                    val account = auth.activeAccountId.value
+                    if (appId != null && account != null) {
+                        try {
+                            val json = deps.appsApi().upstreamRead(account, appId, source.uri)
+                            val answer = AppUpstream.Answer.of(JsonValue.parse(json.toString()))
+                            if (id != null) upstreams?.set(id, answer)
+                            if (answer.ok) emit(answer.value)
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            // Offline or refused: the binding keeps its default.
+                        }
+                    }
+                    delay(AppUpstream.CACHE_SECONDS * 1000L)
+                }
+            }
+            return@SourceResolver {
+                job.cancel()
+                if (id != null) upstreams?.set(id, null)
+            }
+        }
+
         val toast: HostFunction = { args, _ ->
             val text = args["message"]?.string.orEmpty()
             if (args["tone"]?.string == "error") toaster.error(text) else toaster.info(text)
@@ -576,7 +693,7 @@ fun rememberAppHost(
         ExponentialHost(
             HostOptions(
                 functions = functions,
-                sources = mapOf("exp" to exp, "records" to records),
+                sources = mapOf("exp" to exp, "records" to records, AppUpstream.SCHEME to upstream),
                 extensions = listOf(
                     HostExtension(
                         AppHostAssets.extensionJson(context),

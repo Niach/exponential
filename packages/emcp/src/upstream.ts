@@ -57,6 +57,7 @@ export const UPSTREAM_BINDING = {
   scheme: fixture.binding.scheme,
   cacheSeconds: fixture.binding.cacheSeconds,
   banner: fixture.binding.banner,
+  connect: fixture.binding.connect,
   errors: fixture.binding.errors,
 } as const
 

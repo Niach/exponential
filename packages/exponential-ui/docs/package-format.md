@@ -535,6 +535,17 @@ so no device has to be online and nothing is hosted. `upstreams: [name]`
 names the MCP servers the package's upstream bindings call; the host provides
 them (Exponential: the team's MCP servers, Settings › MCP).
 
+A template can also READ an upstream: a binding source
+`upstream:<server>/<tool>?<args>` (the name splits at its last `/`; each
+param is one argument, read as JSON when it is a number, `true`, `false`,
+`null`, an object or an array) follows one read-only tool of a declared
+upstream. The host runs it as the viewer (Exponential: the server broker, the
+viewer's own connection, cached 60 s) and writes its answer at the path:
+`structuredContent`, else the text as JSON, else the text. List it in
+`sources` (`upstream:crm/*`); a tool that sets no `readOnlyHint` reads only
+when `sources` names it exactly (`upstream:crm/mrr`). A viewer without a
+connection keeps the path's template data and sees "Connect <server>".
+
 ```jsonc
 "upstreams": ["crm"],
 "exposes": [

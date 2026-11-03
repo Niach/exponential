@@ -72,7 +72,7 @@ Each upstream is a team MCP server row, and **every member connects their own ac
 Needs:
 
 - C16 `exposes`;
-- C17 upstream reads inside templates (`upstream:` binding source, ❌);
+- C17 upstream reads inside templates (`upstream:` binding source, ✅ #VAPP-230);
 - C17b upstreams reachable only on the LAN (Home Assistant), which needs a device-routed upstream (❌, stdio is refused on the server today);
 - C22 a webhook (Stripe `invoice.payment_failed` → a record + a ping);
 - C19 agent hand-off.
@@ -173,7 +173,7 @@ Needs: C2, C13.
 | C14 | Package export/import, signed | ✅ | #VAPP-121, #VAPP-161 |
 | C15 | Broker `records` with the full query | ✅ Q4 (#VAPP-216) | |
 | C16 | `exposes` (records / action / upstream) | ✅ | #VAPP-180, #VAPP-181 |
-| C17 | `upstream:` read bindings in templates | 🟡 only `harness.mcp`, which always asks | 🆕 M1 |
+| C17 | `upstream:` read bindings in templates | ✅ #VAPP-230 (M1) | |
 | C17b | Device-routed upstreams (stdio, LAN-only) | ❌ | 🆕 M2 |
 | C18 | Schedules and record/event triggers | ❌ (agents only: `agentTrigger`) | 🆕 A1 |
 | C19 | Agent hand-off (`run.agent`) | ❌ | 🆕 A2 |
@@ -380,7 +380,7 @@ Today a binding is a URL (`records:entry?mine=1&by=date&sum=hours`). URLs stay a
 | Aggregates | ✅ Q1 `sum avg min max count countDistinct first last` (per group + `totals`) | |
 | Running values | ✅ Q1 `running: {field: "sum"}` (sum count avg min max, over groups, rows or month days) and `before: <date>` (totals up to a date, seeding the running values) | streaks |
 | Joins | ✅ R5 (#VAPP-219) `expand: ["customer"]` / `expand=customer` follows refs (one level): a record row, an issue summary `{id, identifier, title, status}`, a member `{id, name}`; dangling = null (TS + Rust, `records-query.json` ×4; the server's Q4 reads too) | There are no free joins. |
-| Sources | `records:<kind>`, `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments`, `exp:attachments`, `exp:devices` | The same query shape over every `exp:` source (group issues by status or week), + `exp:pullRequests`, `upstream:<server>/<tool>` (§6.3) |
+| Sources | `records:<kind>`, `exp:issues`, `exp:boards`, `exp:members`, `exp:sessions`, `exp:comments`, `exp:attachments`, `exp:devices`, ✅ `upstream:<server>/<tool>` (§6.3, the tool's answer, no query) | The same query shape over every `exp:` source (group issues by status or week), + `exp:pullRequests` |
 
 **One evaluator:**
 
@@ -490,13 +490,17 @@ The complete list: records writes, MCP operations, toasts, navigation and links.
 
 🆕 Add `navigate` (§5.1) and `handoff` (§7.3).
 
-### 6.3 Upstreams in the UI (🆕 M1)
+### 6.3 Upstreams in the UI (✅ M1, #VAPP-230)
 
-- Today a template can reach an upstream only through `harness.mcp`, which asks every time. That is fine for a rare action and useless for a dashboard.
-- Proposal: a read binding source `upstream:<server>/<tool>?args`:
-  - allowed only when the tool reports `readOnlyHint: true` and the server is in the package's `upstreams`;
-  - run by the **server broker** with the viewer's own credential (✅ `resolveForLaunch`);
-  - cached for 60 s per (member, tool, args).
+- `harness.mcp` asks every time: fine for a rare action, useless for a dashboard. So a template has a read binding source `upstream:<server>/<tool>?<args>` (`@exp/emcp` `upstream.json` `binding`, its `$comment` the spec):
+  - the name splits at its last `/`; each query param is one argument, read as JSON when it is a number, `true`/`false`/`null`, an object or an array, else the string (so a `bind` action's params drive it);
+  - the server must be in the package's `upstreams` (an install issue otherwise) and the source in its `sources` (`upstream:<server>/<tool>`, `upstream:<server>/*` or `upstream:*`);
+  - read-only only, checked at every call against the tool's live annotations: `readOnlyHint: true` reads; a tool with no hint reads only when `sources` lists it exactly (the author vouches); `readOnlyHint: false` and destructive tools never run;
+  - run by the **server broker** as the viewer with their own credential (`resolveForLaunch`), exactly one tool per read, never another app's upstreams, `_meta` provenance on the answer (§12.1);
+  - cached for 60 s per (member, server, tool, args); errors are never cached, and hosts re-read every 60 s while bound;
+  - the value = the result's `structuredContent`, else its text as JSON, else the text.
+- Hosts ×4 subscribe through one tRPC query, `apps.upstreamRead {id, source}`. A refusal or offline keeps the path's template data (the binding's default); a viewer not connected to the server gets one host banner per server, "Connect <server>", opening Settings › MCP.
+- Reads are not written to `mcp_calls` (a dashboard re-reads every minute); exposes calls still are.
 - Writes stay `exposes`-style named actions (`{"call": "upstream.stripe.retry_charge"}`). They are listed in `functions`, granted by an owner, and confirmed by the viewer the first time.
 
 ---
@@ -745,7 +749,7 @@ Added here:
 | Executor | Runs | When | Status |
 |---|---|---|---|
 | Client host ×4 (web, desktop, iOS, Android) | Bindings, queries, actions, forms | While the app is open | ✅ |
-| Server broker | `exposes`, upstream reads (M1), automations (A1), webhooks (A3), public links (P1) | Always (the web server process) | ✅ for exposes, 🆕 for the rest |
+| Server broker | `exposes`, upstream reads (M1), automations (A1), webhooks (A3), public links (P1) | Always (the web server process) | ✅ for exposes and upstream reads, 🆕 for the rest |
 | Agent | Anything that needs judgement (`run.agent`) | On trigger | 🆕 A2 |
 | Device | stdio/LAN upstreams (M2) | When the device is online | 🆕 |
 | Spezl (no server) | Everything above, in-app; automations only while the app runs (eagent-hub scheduler) | Local | #YO-32, 🆕 S3 |
@@ -848,7 +852,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **A1** Automations: schedule, record and event triggers, one run, a sponsor, audit. (C18, C23)
 - **A2** `run.agent` + the `handoff` action. (C19)
 - **A3** Inbound webhooks with vault-sealed secrets. (C22)
-- **M1** `upstream:` read bindings through the broker, with a 60 s cache. (C17)
+- ✅ **M1** `upstream:` read bindings through the broker, with a 60 s cache. (C17, #VAPP-230)
 - **M2** Device-routed (stdio/LAN) upstreams over eNet. (C17b)
 - **M3** ✅ #VAPP-229 `via_app_id` on issues, sessions and records ×4. (§9.3)
 
