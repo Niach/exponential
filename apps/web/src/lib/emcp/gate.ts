@@ -28,6 +28,7 @@ import {
 import { confineMcpAccessToActingSession } from "@/lib/sessions/acting"
 import { hostedByCondition } from "@/lib/sessions/host"
 import { touchSessionActivity } from "@/lib/sessions/watchdog"
+import { runAsSession } from "@/lib/apps/automation-scope"
 
 /** Who a request acts as, after the gate. */
 export interface EmcpCaller {
@@ -182,7 +183,9 @@ export async function serveMcp(
   const started = performance.now()
   try {
     await server.connect(transport)
-    const response = await transport.handleRequest(request)
+    // #VAPP-236: what this call writes or emits names the caller's own
+    // session (the agent loop guard of app automations).
+    const response = await runAsSession(caller.gates.inSession ? caller.sessionId : null, () => transport.handleRequest(request))
     if (audited) {
       const latencyMs = performance.now() - started
       void response

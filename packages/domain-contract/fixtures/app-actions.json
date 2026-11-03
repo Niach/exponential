@@ -34,6 +34,7 @@
     "exponential.apps.catalog",
     "exponential.apps.delete",
     "exponential.apps.get",
+    "exponential.apps.handoff",
     "exponential.apps.list",
     "exponential.apps.records_delete",
     "exponential.apps.records_list",
@@ -367,6 +368,10 @@
     "exponential.apps.catalog": {
       "tool": "exponential_apps",
       "op": "catalog"
+    },
+    "exponential.apps.handoff": {
+      "tool": "exponential_apps",
+      "op": "handoff"
     },
     "exponential.apps.records_list": {
       "tool": "exponential_apps",
@@ -712,6 +717,10 @@
   ],
   "grantableCases": [
     {
+      "name": "exponential.apps.handoff",
+      "expected": true
+    },
+    {
       "name": "exponential.issues.update",
       "expected": true
     },
@@ -828,6 +837,7 @@
         "exponential.apps.catalog",
         "exponential.apps.delete",
         "exponential.apps.get",
+        "exponential.apps.handoff",
         "exponential.apps.list",
         "exponential.apps.records_delete",
         "exponential.apps.records_list",
@@ -965,6 +975,22 @@
     }
   ],
   "consentCases": [
+    {
+      "name": "exponential.apps.handoff",
+      "args": {
+        "slug": "hours",
+        "tool": "ask_triage",
+        "input": {
+          "request": "r1"
+        }
+      },
+      "expected": {
+        "tool": "exponential_apps",
+        "title": "Allow this surface to hand off to an agent?",
+        "destructive": false,
+        "args": "{\"slug\":\"hours\",\"tool\":\"ask_triage\",\"input\":{\"request\":\"r1\"}}"
+      }
+    },
     {
       "name": "exponential.sessions.send",
       "args": {

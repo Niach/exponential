@@ -27,6 +27,7 @@ import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import { appAccess, apps, events, mcpCalls, teamMembers, teams, users, type App, type Event } from "@/db/schema"
 import { latestCronMatch, parseCron } from "@/lib/agents/cron"
+import { actingAgentSlug } from "@/lib/apps/agent-handoff"
 import { automationsOf, runInAutomation, type RecordTriggerOp } from "@/lib/apps/automation-scope"
 import { classifyAppToolResponse, runBrokerTool, type BrokerApp, type BrokerTool } from "@/lib/emcp/apps-broker"
 import { recordMcpCalls } from "@/lib/emcp/audit"
@@ -121,6 +122,12 @@ export interface AutomationInput {
   firedAt: string
 }
 
+/** #VAPP-236: an agent run's ref = a record trigger's record. */
+function handoffRef(automation: Automation, input: AutomationInput): { kind: string; id: string } | null {
+  if (!(`record` in automation.on) || typeof input.record?.id !== `string`) return null
+  return { kind: automation.on.record.kind, id: input.record.id }
+}
+
 /** One run: the rate cap, the sponsor, then the binding through the broker. */
 export async function runAutomation(app: AutomationApp, automation: Automation, input: AutomationInput): Promise<CallStatus> {
   const startedAt = Date.now()
@@ -157,7 +164,13 @@ export async function runAutomation(app: AutomationApp, automation: Automation, 
     queries: pkg.queries && typeof pkg.queries === `object` && !Array.isArray(pkg.queries) ? (pkg.queries as Record<string, unknown>) : undefined,
   }
   const tool: BrokerTool = { name: automation.name, app: brokerApp, expose: automationExpose(automation) }
-  const ctx = { user, request: new Request(`${appBaseUrl()}/api/mcp/apps`), teamId: app.teamId, teamSlug: team.slug }
+  const ctx = {
+    user,
+    request: new Request(`${appBaseUrl()}/api/mcp/apps`),
+    teamId: app.teamId,
+    teamSlug: team.slug,
+    handoff: { source: `automation ${automation.name}`, ref: handoffRef(automation, input) },
+  }
   let status: CallStatus
   let error: string | null
   try {
@@ -193,11 +206,18 @@ async function loadAutomationApp(appId: string): Promise<AutomationApp | null> {
 }
 
 /** A committed record write of the app (`afterRecordWrite`). */
-export async function fireRecordAutomations(appId: string, kind: string, op: RecordTriggerOp, record: Record<string, unknown>): Promise<number> {
+export async function fireRecordAutomations(
+  appId: string,
+  kind: string,
+  op: RecordTriggerOp,
+  record: Record<string, unknown>,
+  causingSessionId: string | null = null
+): Promise<number> {
   const app = await loadAutomationApp(appId)
   if (!app) return 0
   const list = publishedAutomations(app.package)
-  const names = matchAutomations(list, { record: { kind, op } }, false)
+  const byAgent = await actingAgentSlug(causingSessionId)
+  const names = matchAutomations(list, { record: { kind, op }, byAgent }, false)
   const firedAt = new Date().toISOString()
   for (const name of names) await runAutomation(app, list.find((a) => a.name === name)!, { record, firedAt })
   return names.length
@@ -207,7 +227,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 
 /** An `events` row (emitted inside a transaction): runs once the row is
  *  visible (committed); a rolled-back event runs nothing. */
-export async function fireEventAutomations(event: Event, appIds: readonly string[]): Promise<number> {
+export async function fireEventAutomations(event: Event, appIds: readonly string[], causingSessionId: string | null = null): Promise<number> {
   for (let attempt = 0; ; attempt++) {
     const [row] = await db.select({ id: events.id }).from(events).where(eq(events.id, event.id)).limit(1)
     if (row) break
@@ -216,11 +236,13 @@ export async function fireEventAutomations(event: Event, appIds: readonly string
   }
   let count = 0
   const firedAt = new Date().toISOString()
+  // #VAPP-236: the agent loop guard: the emitting session, else the call's.
+  const byAgent = await actingAgentSlug(event.sessionId ?? causingSessionId)
   for (const appId of appIds) {
     const app = await loadAutomationApp(appId)
     if (!app) continue
     const list = publishedAutomations(app.package)
-    for (const name of matchAutomations(list, { event: event.name }, false)) {
+    for (const name of matchAutomations(list, { event: event.name, byAgent }, false)) {
       await runAutomation(app, list.find((a) => a.name === name)!, { event: { ...(event.payload ?? {}), name: event.name }, firedAt })
       count += 1
     }

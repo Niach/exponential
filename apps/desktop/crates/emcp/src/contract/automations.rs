@@ -293,6 +293,13 @@ pub enum FiredBy<'a> {
 /// The automations a record write or event fires, in package order. LOOP
 /// GUARD: a write or event caused by an automation run fires nothing.
 pub fn match_automations(list: &Value, fired_by: &FiredBy<'_>, from_automation: bool) -> Vec<String> {
+    match_automations_by(list, fired_by, from_automation, None)
+}
+
+/// [`match_automations`] for a write or event caused from inside an
+/// agent's session tree (`by_agent` = its slug): no hand-off to that agent
+/// fires (#VAPP-236, the agent loop guard).
+pub fn match_automations_by(list: &Value, fired_by: &FiredBy<'_>, from_automation: bool, by_agent: Option<&str>) -> Vec<String> {
     let Some(list) = list.as_array() else { return Vec::new() };
     if from_automation {
         return Vec::new();
@@ -300,6 +307,9 @@ pub fn match_automations(list: &Value, fired_by: &FiredBy<'_>, from_automation: 
     let mut out = Vec::new();
     for item in list {
         let Some(name) = item.get("name").and_then(Value::as_str) else { continue };
+        if by_agent.is_some_and(|agent| item["run"]["agent"].as_str() == Some(agent)) {
+            continue;
+        }
         let on = &item["on"];
         let hit = match (trigger_kind(on), fired_by) {
             (Some("record"), FiredBy::Record { kind, op }) => on["record"]["kind"] == *kind && on["record"]["op"] == *op,
@@ -369,6 +379,7 @@ pub fn automation_tool(run: &Value) -> String {
             run["records"]["kind"].as_str().unwrap_or("")
         ),
         "action" => run["action"].as_str().unwrap_or("").to_string(),
+        "agent" => format!("{}{}", exposes::AGENT_AUDIT_PREFIX, run["agent"].as_str().unwrap_or("")),
         _ => format!("{}/{}", run["upstream"].as_str().unwrap_or(""), run["tool"].as_str().unwrap_or("")),
     }
 }

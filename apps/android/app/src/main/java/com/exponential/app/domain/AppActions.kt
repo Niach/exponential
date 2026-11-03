@@ -23,6 +23,7 @@ object AppActions {
         "exponential.apps.catalog" to Target("exponential_apps", "catalog"),
         "exponential.apps.delete" to Target("exponential_apps", "delete"),
         "exponential.apps.get" to Target("exponential_apps", "get"),
+        "exponential.apps.handoff" to Target("exponential_apps", "handoff"),
         "exponential.apps.list" to Target("exponential_apps", "list"),
         "exponential.apps.records_delete" to Target("exponential_apps", "records_delete"),
         "exponential.apps.records_list" to Target("exponential_apps", "records_list"),

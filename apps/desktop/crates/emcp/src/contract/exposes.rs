@@ -22,6 +22,11 @@ pub const SLUG_HASH_LENGTH: usize = 6;
 const RECORD_OPS: &[&str] = &["list", "get", "upsert"];
 const READ_RECORD_OPS: &[&str] = &["list", "get"];
 const READ_OP_WORDS: &[&str] = &["list", "get", "show", "catalog", "activity", "files"];
+/// #VAPP-236 (A2): the agent hand-off's limits (exposes.json `agent`).
+pub const AGENT_SLUG_MAX: usize = 64;
+pub const AGENT_PROMPT_MAX: usize = 4000;
+pub const AGENT_DEVICES: &[&str] = &["default"];
+pub const AGENT_AUDIT_PREFIX: &str = "agent:";
 
 /// The `_meta` provenance keys.
 pub const META_APP: &str = "at.exponential/app";
@@ -64,9 +69,35 @@ pub fn run_via(run: &Value) -> &'static str {
         "records"
     } else if run.get("action").is_some() {
         "action"
+    } else if run.get("agent").is_some() {
+        "agent"
     } else {
         "upstream"
     }
+}
+
+/// An agent slug (`agent.slugPattern`): lowercase ASCII words joined by `-`.
+pub fn agent_slug_ok(slug: &str) -> bool {
+    !slug.is_empty()
+        && slug.len() <= AGENT_SLUG_MAX
+        && slug.split('-').all(|word| !word.is_empty() && word.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit()))
+}
+
+/// An agent's slug from its name (`agentSlugCases`).
+pub fn agent_slug(name: &str) -> String {
+    let mut out = String::new();
+    for c in name.chars().flat_map(char::to_lowercase) {
+        if c.is_ascii_lowercase() || c.is_ascii_digit() {
+            out.push(c);
+        } else if !out.is_empty() && !out.ends_with('-') {
+            out.push('-');
+        }
+    }
+    let mut out: String = out.trim_end_matches('-').chars().take(AGENT_SLUG_MAX).collect();
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out
 }
 
 /// An action reads when the last word of its op is a read word.
@@ -255,7 +286,7 @@ pub fn validate_exposes(exposes: &[Value], ctx: &ExposeContext) -> Vec<ExposeErr
             fail("run");
             continue;
         }
-        let keys = ["records", "action", "upstream"].iter().filter(|key| run.get(**key).is_some()).count();
+        let keys = ["records", "action", "upstream", "agent"].iter().filter(|key| run.get(**key).is_some()).count();
         if keys != 1 {
             fail("run");
             continue;
@@ -305,6 +336,18 @@ pub fn validate_exposes(exposes: &[Value], ctx: &ExposeContext) -> Vec<ExposeErr
                     continue;
                 }
                 action_access(name)
+            }
+            "agent" => {
+                if !run["agent"].as_str().is_some_and(agent_slug_ok) {
+                    fail("agent");
+                }
+                if !run["prompt"].as_str().is_some_and(|p| !p.trim().is_empty() && p.encode_utf16().count() <= AGENT_PROMPT_MAX) {
+                    fail("prompt");
+                }
+                if run.get("device").is_some_and(|d| !d.as_str().is_some_and(|d| AGENT_DEVICES.contains(&d))) {
+                    fail("run");
+                }
+                ToolAccess::Write
             }
             _ => {
                 let upstream = run["upstream"].as_str();

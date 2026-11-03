@@ -3,7 +3,7 @@ import type { EventEmitter } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
 import { db } from "@/db/connection"
 import { apps, events, issues, type Event } from "@/db/schema"
-import { inAutomation } from "@/lib/apps/automation-scope"
+import { causingSessionId, inAutomation } from "@/lib/apps/automation-scope"
 import { fireEventTriggersInTx, type EventPrivateDetail } from "@/lib/agents/triggers"
 import type { Tx } from "@/lib/sessions/tx"
 
@@ -55,8 +55,9 @@ export async function emitEventInTx(tx: Tx, args: EmitEventArgs): Promise<Event>
       .from(apps)
       .where(and(eq(apps.teamId, args.teamId), isNull(apps.deletedAt), sql`${apps.package} @> ${JSON.stringify({ automations: [{ on: { event: args.name } }] })}::jsonb`))
     if (listening.length > 0) {
+      const causing = causingSessionId()
       void import(`@/lib/apps/automations`)
-        .then((m) => m.fireEventAutomations(row!, listening.map((a) => a.id)))
+        .then((m) => m.fireEventAutomations(row!, listening.map((a) => a.id), causing))
         .catch((err) => console.error(`[automations] event trigger failed:`, err))
     }
   }

@@ -79,7 +79,7 @@ connection keeps the path's template data and sees "Connect <server>".
 | `title` / `description` | non-blank, at most 80 / 1024 characters |
 | `input` | a JSON Schema `{type: "object", properties?}`: the tool's `inputSchema` |
 | `access` | `read` or `write`: who may see it (a read-only connection never lists a write tool) |
-| `run` | EXACTLY ONE of `records` / `action` / `upstream` |
+| `run` | EXACTLY ONE of `records` / `action` / `upstream` / `agent` |
 
 - `records: {op: list | get | upsert, kind, id?, where?, data?, limit?}` reads
   or writes the package's OWN records of a declared kind. A delete is
@@ -100,6 +100,20 @@ connection keeps the path's template data and sees "Connect <server>".
 - `upstream` (+ `tool`, `args`) calls a tool of one of the package's
   `upstreams` with the person's own credential. Its level is the tool's live
   annotations: it reads only with `readOnlyHint: true`.
+- `agent` (+ `prompt`, `device?`) hands judgement to a TEAM AGENT, named by
+  its slug (its name lower-cased, everything outside `a-z0-9` one `-`:
+  "Triage Bot" = `triage-bot`). The host starts or resumes the person's own
+  conversation with that agent (Exponential: `sessions.send`, the session
+  reading "via <app>") with the package's `prompt` (at most 4000
+  characters, frozen per version; `${input.x}` lands as inline data in
+  backticks) followed by the whole input as a fenced JSON DATA block,
+  never instructions. It always writes (`access: "write"`); `device` is
+  absent or `"default"` (the agent's own device). At most 10 hand-offs per
+  app a minute. The same form runs from an automation (as its sponsor,
+  "Automations") and from the `exponential.apps.handoff` action
+  (`{slug, tool, input, record?}`: a press runs one of the package's
+  `agent` exposes as the viewer, behind the consent card unless an owner
+  granted it).
 
 Every string in `run` may hold `${input.<path>}` (dotted keys into the
 call's input; the first key must be a declared input property). A string

@@ -6,7 +6,7 @@
 // (`contract/automations.rs`) replay the same cases.
 
 import fixture from "../fixtures/automations.json" with { type: "json" }
-import { resolveArgs, runVia, validateExposes, type Expose, type ExposeRun } from "./exposes"
+import { agentAuditTool, resolveArgs, runVia, validateExposes, type AgentRun, type Expose, type ExposeRun } from "./exposes"
 
 export const AUTOMATIONS_LIMITS = fixture.limits
 export const AUTOMATION_ERRORS: readonly string[] = fixture.errors
@@ -181,16 +181,19 @@ export function validateAutomations(list: unknown, ctx: AutomationContext): Auto
   return errors
 }
 
-/** The trigger a record write or an event is, for `matchAutomations`. */
-export type FiredBy = { record: { kind: string; op: string } } | { event: string }
+/** The trigger a record write or an event is, for `matchAutomations`;
+ *  `byAgent` = the slug of the agent whose session tree caused it. */
+export type FiredBy = ({ record: { kind: string; op: string } } | { event: string }) & { byAgent?: string | null }
 
 /** The automations a record write or event fires, in package order. LOOP
- *  GUARD: a write or event caused by an automation run fires nothing. */
+ *  GUARD: a write or event caused by an automation run fires nothing; one
+ *  caused from an agent's tree (`byAgent`) fires no hand-off to that agent. */
 export function matchAutomations(list: unknown, firedBy: FiredBy, fromAutomation: boolean): string[] {
   if (fromAutomation || !Array.isArray(list)) return []
   const out: string[] = []
   for (const item of list) {
     if (!isObject(item) || typeof item.name !== `string`) continue
+    if (firedBy.byAgent && isObject(item.run) && item.run.agent === firedBy.byAgent) continue
     const kind = triggerKind(item.on)
     const on = item.on as Record<string, unknown>
     if (kind === `record` && `record` in firedBy && isObject(on.record) && on.record.kind === firedBy.record.kind && on.record.op === firedBy.record.op) out.push(item.name)
@@ -244,6 +247,7 @@ export function automationTool(run: ExposeRun): string {
     return `records.${records.op}:${records.kind}`
   }
   if (via === `action`) return (run as { action: string }).action
+  if (via === `agent`) return agentAuditTool((run as AgentRun).agent)
   const upstream = run as { upstream: string; tool: string }
   return `${upstream.upstream}/${upstream.tool}`
 }

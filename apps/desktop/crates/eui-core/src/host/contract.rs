@@ -120,6 +120,7 @@ pub fn host_contract() -> Value {
                 "readOpWords": ex::EXPOSE_READ_OP_WORDS,
                 "destructiveWords": ex::EXPOSE_DESTRUCTIVE_WORDS,
                 "actionPattern": ex::EXPOSE_ACTION_PATTERN,
+                "agent": {"slugPattern": "^[a-z0-9]+(-[a-z0-9]+)*$", "slugMax": ex::EXPOSE_AGENT_SLUG_MAX, "promptMax": ex::EXPOSE_AGENT_PROMPT_MAX, "devices": ex::EXPOSE_AGENT_DEVICES},
             },
             "extensions": {"versionPattern": super::package::EXTENSION_VERSION_PATTERN},
             "signature": {"alg": sig::PACKAGE_FILE_SIGNATURE_ALG, "context": sig::PACKAGE_FILE_SIGNATURE_CONTEXT, "keyPrefix": sig::AUTHOR_KEY_PREFIX, "nameMax": sig::AUTHOR_NAME_MAX, "statuses": sig::PACKAGE_FILE_STATUSES},

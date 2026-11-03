@@ -12,7 +12,7 @@ public enum AppActions {
     /// Every function name, sorted (the fixture's `functions`).
     public static let all: [String] = [
         "exponential.agents.get", "exponential.agents.list",
-        "exponential.apps.catalog", "exponential.apps.delete", "exponential.apps.get", "exponential.apps.list", "exponential.apps.records_delete", "exponential.apps.records_list", "exponential.apps.records_upsert", "exponential.apps.upsert",
+        "exponential.apps.catalog", "exponential.apps.delete", "exponential.apps.get", "exponential.apps.handoff", "exponential.apps.list", "exponential.apps.records_delete", "exponential.apps.records_list", "exponential.apps.records_upsert", "exponential.apps.upsert",
         "exponential.attachments.delete", "exponential.attachments.get", "exponential.attachments.list", "exponential.attachments.upload",
         "exponential.boards.create", "exponential.boards.delete", "exponential.boards.get", "exponential.boards.list", "exponential.boards.set_repository", "exponential.boards.update",
         "exponential.comments.create", "exponential.comments.delete", "exponential.comments.list", "exponential.comments.update",

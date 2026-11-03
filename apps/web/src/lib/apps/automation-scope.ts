@@ -10,6 +10,23 @@ import { matchAutomations } from "@exp/emcp/automations"
 
 const scope = new AsyncLocalStorage<{ appId: string; name: string }>()
 
+// #VAPP-236 (A2): the AGENT LOOP GUARD's input. The MCP gate runs every
+// call inside the caller's own session (X-Exp-Session-Id, verified); a
+// record write or an event it causes names that session, and the executor
+// skips the hand-offs to that tree's acting agent (automations.json
+// `byAgent`).
+const causing = new AsyncLocalStorage<string>()
+
+/** Runs `fn` as caused by `sessionId` (null = by no session). */
+export function runAsSession<T>(sessionId: string | null, fn: () => Promise<T>): Promise<T> {
+  return sessionId ? causing.run(sessionId, fn) : fn()
+}
+
+/** The session the current call stack runs for, if any. */
+export function causingSessionId(): string | null {
+  return causing.getStore() ?? null
+}
+
 /** Whether the current call stack runs inside an automation. */
 export function inAutomation(): boolean {
   return scope.getStore() !== undefined
@@ -36,7 +53,8 @@ export function afterRecordWrite(
 ): void {
   if (inAutomation()) return
   if (matchAutomations(automationsOf(app.package), { record: { kind, op } }, false).length === 0) return
+  const sessionId = causingSessionId()
   void import(`@/lib/apps/automations`)
-    .then((m) => m.fireRecordAutomations(app.id, kind, op, record))
+    .then((m) => m.fireRecordAutomations(app.id, kind, op, record, sessionId))
     .catch((err) => console.error(`[automations] record trigger failed:`, err))
 }
