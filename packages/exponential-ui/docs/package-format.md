@@ -374,7 +374,7 @@ pointer) drops that part; the rest still runs.
 `host::calendar`, fixtures/records-query.json): the month view's `month`
 gains `weeks` (Monday-first, padding days included: `{key, days: 7 ×
 {date, day, weekday, initial, inMonth, weekend, today, selected, total,
-dots}, segments}`), `day` (the selected day) and `agenda` (`{date, label,
+dots: [{tone}]}, segments}`), `day` (the selected day) and `agenda` (`{date, label,
 count, items: [{id, tone, start, end, days, row}]}`). A segment is `{id,
 col (1 = Monday), span, lane, contL, contR, tone, more, row}`: the spans
 crossing the week take the lowest free lane (first day, then the longer

@@ -156,7 +156,7 @@ pub fn calendar_week(monday: i64, spans: &[CalendarSpan], o: &WeekOptions) -> Ma
             let n = monday + c as i64;
             let d = day_from_number(n);
             let covering: Vec<&&CalendarSpan> = placed.iter().filter(|s| s.start <= n && s.end >= n).collect();
-            let dots: Vec<&str> = covering.iter().take(3).map(|s| s.tone.as_str()).collect();
+            let dots: Vec<Value> = covering.iter().take(3).map(|s| json!({"tone": s.tone})).collect();
             json!({
                 "date": format_day(d), "day": d.d, "weekday": WEEKDAYS[c], "initial": &WEEKDAYS[c][..1],
                 "inMonth": o.month.map_or(true, |m| d.m == m), "weekend": c >= 5, "today": Some(n) == o.today,

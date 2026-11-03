@@ -158,7 +158,7 @@ pub fn validate_record_computed(kind: &Value, at: &str) -> Vec<PackageIssue> {
 
 /// eApps U3: a calendar day cell (calendar.rs).
 fn day_cell_type() -> Value {
-    json!({"date": "date", "day": "number", "weekday": "string", "initial": "string", "inMonth": "bool", "weekend": "bool", "today": "bool", "selected": "bool", "total": "number", "dots": ["string"]})
+    json!({"date": "date", "day": "number", "weekday": "string", "initial": "string", "inMonth": "bool", "weekend": "bool", "today": "bool", "selected": "bool", "total": "number", "dots": [{"tone": "string"}]})
 }
 
 /// eApps U3: a week segment (a "+N more" marker has no tone and no row).

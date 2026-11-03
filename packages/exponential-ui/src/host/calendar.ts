@@ -95,7 +95,7 @@ export interface CalendarDayCell {
   today: boolean
   selected: boolean
   total: number
-  dots: string[]
+  dots: { tone: string }[]
 }
 
 export interface CalendarWeek {
@@ -143,7 +143,7 @@ export function calendarWeek(monday: number, spans: readonly CalendarSpan[], o: 
       today: n === o.today,
       selected: n === o.selected,
       total: covering.length,
-      dots: covering.slice(0, 3).map((s) => s.tone),
+      dots: covering.slice(0, 3).map((s) => ({ tone: s.tone })),
     })
   }
   return { key: dayText(monday), days, segments }

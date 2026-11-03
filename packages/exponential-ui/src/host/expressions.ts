@@ -107,7 +107,7 @@ export function validateRecordComputed(kind: unknown, at: string): ExpressionIss
 }
 
 /** eApps U3: a calendar day cell and a segment (calendar.ts). */
-const DAY_CELL_TYPE: ExprType = { date: `date`, day: `number`, weekday: `string`, initial: `string`, inMonth: `bool`, weekend: `bool`, today: `bool`, selected: `bool`, total: `number`, dots: [`string`] }
+const DAY_CELL_TYPE: ExprType = { date: `date`, day: `number`, weekday: `string`, initial: `string`, inMonth: `bool`, weekend: `bool`, today: `bool`, selected: `bool`, total: `number`, dots: [{ tone: `string` }] }
 const segmentType = (row: ExprType): ExprType => ({ id: `string`, col: `number`, span: `number`, lane: `number`, contL: `bool`, contR: `bool`, tone: optionalType(`string`), more: `number`, row: optionalType(row) })
 
 /** A month view's value (`RecordsMonth`; eApps U3: + weeks, day, agenda). */
