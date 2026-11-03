@@ -330,6 +330,9 @@ export function VoiceSettingsCard({
               data-testid={VOICE_TEST_IDS.voiceDevice}
               value={settings.voiceDeviceId}
               items={deviceItems}
+              // #NEW-125: the row reads None while none is picked, and stays
+              // EMPTY while the stored device is not (yet) an option.
+              triggerLabel={settings.voiceDeviceId === null ? VOICE_COPY.voiceDeviceNone : undefined}
               noneLabel={VOICE_COPY.voiceDeviceNone}
               onNone={() => apply({ voiceDeviceId: null })}
               onChange={(voiceDeviceId) => apply({ voiceDeviceId })}

@@ -56,6 +56,7 @@ import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
@@ -91,7 +92,8 @@ fun AppVersionPill(app: AppListEntry) {
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppsScreen(
-    /** Null = the Apps TAB's root (#EXP-1384), no back control. */
+    /** Null = the Apps TAB's root (#EXP-1384), no back control; else
+     *  Settings › Apps (#EXP-1632), the same list under the settings bar. */
     onBack: (() -> Unit)?,
     onOpenApp: (appId: String) -> Unit,
     viewModel: AppsViewModel = hiltViewModel(),
@@ -107,17 +109,31 @@ fun AppsScreen(
     var deleting by remember { mutableStateOf<AppListEntry?>(null) }
     var exporting by remember { mutableStateOf<AppListEntry?>(null) }
 
-    Scaffold(containerColor = Color.Transparent) { padding ->
+    val title = Chats.Copy.HEADERS.getValue("apps")
+    Scaffold(
+        containerColor = Color.Transparent,
+        topBar = {
+            // #EXP-1632: Settings › Apps (settings-nav.json `apps`) is a
+            // settings page: the centred title + back of every Team row's page.
+            if (onBack != null) {
+                CenterAlignedTopAppBar(
+                    title = { TopBarTitle(title) },
+                    navigationIcon = { TopBarBackButton(onClick = onBack) },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
+                )
+            }
+        },
+    ) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = BottomBarInset)
+                .padding(bottom = if (onBack == null) BottomBarInset else 0.dp)
                 .testTag(Apps.TestIds.LIST),
         ) {
             // #EXP-1384 (chats.json `shell.header`): the Apps tab's page header.
-            PageHeader(title = Chats.Copy.HEADERS.getValue("apps"), onBack = onBack)
+            if (onBack == null) PageHeader(title = title)
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             AppsListContent(
                 apps = apps,

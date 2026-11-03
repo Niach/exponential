@@ -438,7 +438,9 @@ pub(crate) fn branch_value_menu<V: gpui::Render>(
         .text_color(cx.theme().foreground.opacity(0.7))
         // EXP-697: NOT `.label()` — upstream draws that in a `flex_none` box,
         // so a long branch name wraps onto a second line.
-        .child(crate::surface::picker_value_label(value.clone()));
+        .child(crate::surface::picker_value_label(value.clone()))
+        // A grouped picker row ends in chevron-right ×4.
+        .child(crate::surface::picker_row_chevron(cx));
     branch_dropdown(trigger, value, repo_default, disabled, branches, on_open, on_pick, cx)
 }
 

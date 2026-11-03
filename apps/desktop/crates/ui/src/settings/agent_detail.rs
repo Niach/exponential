@@ -38,7 +38,7 @@ use domain::agent_settings::{
 };
 use domain::rows::AgentDefRow;
 
-use crate::controls::{glass_input, WebControl as _};
+use crate::controls::{glass_input, PointerMenuButtonExt as _, WebControl as _};
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
@@ -539,17 +539,29 @@ impl AgentDetailPane {
 
     /// A trigger row's switch: only that trigger's `enabled` moves.
     fn set_trigger_enabled(&mut self, agent_id: String, trigger_id: String, enabled: bool, cx: &mut gpui::Context<Self>) {
+        let triggers = trigger_editor::triggers_with_enabled(
+            &trigger_editor::agent_triggers(&agent_id, cx),
+            &trigger_id,
+            enabled,
+        );
+        self.write_triggers(agent_id, triggers, if enabled { "resume" } else { "pause" }, cx);
+    }
+
+    /// A trigger row's ⋯ Delete (after THE prompt): the array without it.
+    fn delete_trigger(&mut self, agent_id: String, trigger_id: String, cx: &mut gpui::Context<Self>) {
+        let triggers =
+            trigger_editor::triggers_without(&trigger_editor::agent_triggers(&agent_id, cx), &trigger_id);
+        self.write_triggers(agent_id, triggers, "delete", cx);
+    }
+
+    /// One whole-array `agents.update({triggers})`; a failure toasts `verb`.
+    fn write_triggers(&mut self, agent_id: String, triggers: Vec<Value>, verb: &'static str, cx: &mut gpui::Context<Self>) {
         if self.trigger_writing {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
-        let triggers = trigger_editor::triggers_with_enabled(
-            &trigger_editor::agent_triggers(&agent_id, cx),
-            &trigger_id,
-            enabled,
-        );
         self.trigger_writing = true;
         cx.notify();
         let input = api::agents::UpdateInput {
@@ -566,7 +578,7 @@ impl AgentDetailPane {
                 match result {
                     Ok(_) => trigger_editor::note_triggers_written(&agent_id, triggers),
                     Err(err) => crate::action_error::failed_action_err(
-                        if enabled { "resume" } else { "pause" },
+                        verb,
                         "the trigger",
                         &err,
                         cx,
@@ -756,7 +768,7 @@ impl AgentDetailPane {
     /// "+ Add", then one row per trigger, its summary leading (opens the
     /// editor) and its switch trailing (pauses it); none = ONE row reading
     /// "Waits for messages" that opens the editor on a new trigger.
-    fn schedule_rows(&self, agent_id: &str, cx: &mut gpui::Context<Self>) -> Vec<gpui::Div> {
+    fn schedule_rows(&self, agent_id: &str, owner: bool, cx: &mut gpui::Context<Self>) -> Vec<gpui::Div> {
         let copy = &AGENT_SETTINGS.copy;
         let label = field_label("triggers");
         let triggers = trigger_editor::agent_triggers(agent_id, cx);
@@ -803,20 +815,63 @@ impl AgentDetailPane {
                 crate::trigger_dialog::open_edit(window, cx, edit_agent.clone(), edit_trigger.clone())
             });
             let toggle_agent = agent_id.to_string();
+            let toggle_trigger = trigger_id.clone();
             let switch = crate::controls::web_switch(("agent-detail-trigger-enabled", index))
                 .checked(enabled)
                 .disabled(self.trigger_writing)
                 .on_click(cx.listener(move |this, on: &bool, _, cx| {
-                    this.set_trigger_enabled(toggle_agent.clone(), trigger_id.clone(), *on, cx);
+                    this.set_trigger_enabled(toggle_agent.clone(), toggle_trigger.clone(), *on, cx);
                 }));
+            // Web `AgentTriggerRow`: owners get a ⋯ with Edit / Delete.
+            let menu = owner.then(|| self.trigger_menu(index, agent_id, &trigger_id, cx));
             Some(
                 crate::surface::glass_row_shell()
                     .text_sm()
                     .child(h_flex().flex_1().min_w_0().justify_start().child(summary))
-                    .child(switch),
+                    .child(h_flex().flex_shrink_0().items_center().gap_1().child(switch).children(menu)),
             )
         }));
         rows
+    }
+
+    /// A trigger row's ⋯ (web `AgentTriggerRow`): Edit opens the editor,
+    /// Delete runs THE prompts fixture's `delete-trigger` confirm.
+    fn trigger_menu(&self, index: usize, agent_id: &str, trigger_id: &str, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+        let (agent_id, trigger_id) = (agent_id.to_string(), trigger_id.to_string());
+        let view = cx.entity().downgrade();
+        crate::controls::ghost_icon_button(
+            SharedString::from(format!("agent-detail-trigger-menu-{index}")),
+            gpui_component::Icon::new(registry::UI_MORE),
+            cx,
+        )
+        .disabled(self.trigger_writing)
+        .pointer_menu(move |menu, _window, cx| {
+            let (edit_agent, edit_trigger) = (agent_id.clone(), trigger_id.clone());
+            let (delete_agent, delete_trigger) = (agent_id.clone(), trigger_id.clone());
+            let view = view.clone();
+            menu.item(
+                crate::controls::pointer_label_item("Edit", false)
+                    .icon(gpui_component::Icon::new(registry::UI_EDIT))
+                    .on_click(move |_, window, cx| {
+                        crate::trigger_dialog::open_edit(window, cx, edit_agent.clone(), edit_trigger.clone())
+                    }),
+            )
+            .item(
+                crate::controls::danger_menu_item("Delete", gpui_component::Icon::new(registry::UI_DELETE), cx)
+                    .on_click(move |_, window, cx| {
+                        let (agent_id, trigger_id, view) = (delete_agent.clone(), delete_trigger.clone(), view.clone());
+                        let spec = AlertSpec::from_prompt("Delete trigger", &domain::prompts::delete_trigger())
+                            .on_ok(move |_, cx| {
+                                let _ = view.update(cx, |this, cx| {
+                                    this.delete_trigger(agent_id.clone(), trigger_id.clone(), cx)
+                                });
+                                true
+                            });
+                        native_dialog::open_alert(window, cx, spec);
+                    }),
+            )
+        })
+        .into_any_element()
     }
 
     /// The Instructions card: the chrome-less textarea in a glass group, its
@@ -931,9 +986,11 @@ impl AgentDetailPane {
         let band = |text: &str, cx: &App| {
             crate::surface::glass_section_header(SharedString::from(text.to_string()), None, cx)
         };
-        // Identity: the brand mark (never a stored icon) + the name.
+        // Identity: the brand mark (never a stored icon) + the name. Web
+        // parity (`AssistantMark className="size-9"`): a 36px muted disc,
+        // the mark at three quarters of it.
         let mark = div()
-            .size(gpui::px(28.))
+            .size(gpui::px(36.))
             .flex_shrink_0()
             .rounded_full()
             .bg(cx.theme().muted)
@@ -942,7 +999,7 @@ impl AgentDetailPane {
             .justify_center()
             .child(
                 gpui_component::Icon::from(crate::icons::ExpIcon::Logo)
-                    .size(gpui::px(16.))
+                    .size(gpui::px(27.))
                     .text_color(cx.theme().foreground),
             );
         let identity_row = crate::surface::glass_row_shell().gap_2().child(mark).child(
@@ -1097,7 +1154,7 @@ impl Render for AgentDetailPane {
             );
 
         let mut runner_rows = vec![self.account_row(&agent, &devices, cx)];
-        runner_rows.extend(self.schedule_rows(&agent.id, cx));
+        runner_rows.extend(self.schedule_rows(&agent.id, owner, cx));
 
         let mut body = section(cx)
             .gap_4()

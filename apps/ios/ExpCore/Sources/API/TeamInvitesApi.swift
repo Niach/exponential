@@ -22,10 +22,25 @@ public struct CreateInviteInput: Encodable, Sendable {
     /// The server defaults to `member`; sent explicitly because the app never
     /// offers the owner role here.
     public let role: String
+    /// The recipient (Members' invite form): the server mails the link and
+    /// seats the person as a placeholder member at once (EXP-630).
+    public var email: String?
+    /// The placeholder's display name; nil = the mailbox local part.
+    public var name: String?
 
-    public init(teamId: String, role: String = "member") {
+    public init(teamId: String, role: String = "member", email: String? = nil, name: String? = nil) {
         self.teamId = teamId
         self.role = role
+        self.email = email
+        self.name = name
+    }
+}
+
+public struct RevokeInviteInput: Encodable, Sendable {
+    public let id: String
+
+    public init(id: String) {
+        self.id = id
     }
 }
 
@@ -34,9 +49,12 @@ public struct CreateInviteInput: Encodable, Sendable {
 /// allowlist deliberately drops.
 public struct CreateInviteResult: Decodable, Sendable {
     public let token: String
+    /// An emailed invite: whether the mail went out (nil = a link invite).
+    public let emailDelivered: Bool?
 
-    public init(token: String) {
+    public init(token: String, emailDelivered: Bool? = nil) {
         self.token = token
+        self.emailDelivered = emailDelivered
     }
 }
 
@@ -60,5 +78,20 @@ public final class TeamInvitesApi: Sendable {
             input: CreateInviteInput(teamId: teamId)
         )
         return result.token
+    }
+
+    /// Members' invite form (web `InviteMemberForm`): mail the link to
+    /// `email` and seat the placeholder member (owner-only server-side).
+    public func create(accountId: String, teamId: String, email: String, name: String?) async throws -> CreateInviteResult {
+        try await trpc.mutation(
+            accountId: accountId,
+            path: "teamInvites.create",
+            input: CreateInviteInput(teamId: teamId, email: email, name: name)
+        )
+    }
+
+    /// Revoke a pending invite (the Pending invites row's trash).
+    public func revoke(accountId: String, id: String) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "teamInvites.revoke", input: RevokeInviteInput(id: id))
     }
 }

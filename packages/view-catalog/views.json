@@ -2154,6 +2154,14 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_settings-apps",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_settings-apps",
+        "lane": "styleguide"
+      },
       "desktop": {
         "drive": {
           "kind": "settings",
@@ -2161,8 +2169,8 @@
         }
       },
       "notes": {
-        "ios": "Phones have no settings mirror in slice 1 (the Apps list is the management surface).",
-        "android": "Phones have no settings mirror in slice 1 (the Apps list is the management surface)."
+        "ios": "#EXP-1632 (approved 2026-11-03): the phone Team page's Apps row (settings-nav.json) opens this page, the Apps tab's list under the settings header.",
+        "android": "#EXP-1632 (approved 2026-11-03): the phone Team page's Apps row (settings-nav.json) opens this page, the Apps tab's list under the settings header."
       }
     },
     {

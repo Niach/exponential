@@ -301,7 +301,65 @@ fun BoardRepoField(
     }
 
     if (branchSheet && registry != null && repoDefault != null) {
-        val state = branchState[registry.id] ?: BoardBranchesViewModel.Branches(loading = true)
+        BranchPickerSheet(
+            accountId = accountId,
+            repositoryId = registry.id,
+            repoDefault = repoDefault,
+            branch = branch,
+            onPick = onBranchChange,
+            onDismiss = { branchSheet = false },
+            viewModel = viewModel,
+        )
+    }
+
+    if (showPicker) {
+        GithubRepoPickerSheet(
+            accountId = accountId,
+            teamId = teamId,
+            // The pick is a SELECTION here (the host decides whether it
+            // connects now or on submit), so the add never fails in the sheet.
+            onAdd = { repo ->
+                // An ALREADY-connected repo picked here is the registry row,
+                // not a second inline connect.
+                val known = repos.firstOrNull { it.fullName == repo.fullName }
+                onSelect(
+                    if (known != null) {
+                        BoardRepositoryChoice.Registry(known.id)
+                    } else {
+                        BoardRepositoryChoice.Inline(
+                            fullName = repo.fullName,
+                            defaultBranch = repo.defaultBranch,
+                            isPrivate = repo.isPrivate,
+                        )
+                    },
+                )
+            },
+            onDismiss = { showPicker = false },
+        )
+    }
+}
+
+/**
+ * THE branch sheet (EXP-712): the repo's branches from GitHub, [repoDefault]
+ * always pickable and marked `default`; picking the default hands back null
+ * (clear the pin). The board form's Branch row and the Repositories page's
+ * branch chip (web `BranchPicker`, EXP-462) both open it.
+ */
+@Composable
+fun BranchPickerSheet(
+    accountId: String,
+    repositoryId: String,
+    repoDefault: String,
+    branch: String?,
+    onPick: (String?) -> Unit,
+    onDismiss: () -> Unit,
+    viewModel: BoardBranchesViewModel = hiltViewModel(),
+) {
+    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    val branchState by viewModel.byRepo.collectAsStateWithLifecycle()
+    LaunchedEffect(repositoryId) { viewModel.load(accountId, repositoryId) }
+    run {
+        val state = branchState[repositoryId] ?: BoardBranchesViewModel.Branches(loading = true)
         // GitHub's list may not include the repo's default (a fresh repo the
         // token can't enumerate yet), and it must always be pickable.
         val options = if (state.branches.contains(repoDefault)) {
@@ -312,16 +370,16 @@ fun BoardRepoField(
         // FEED-79: the list loads when the sheet opens, so a failure is quiet:
         // the default alone + the Retry row; only a failed Retry tap toasts.
         val toaster = LocalToaster.current
-        var branchesRetried by remember(registry.id) { mutableStateOf(false) }
+        var branchesRetried by remember(repositoryId) { mutableStateOf(false) }
         val retryBranches = {
             branchesRetried = true
-            viewModel.load(accountId, registry.id, force = true)
+            viewModel.load(accountId, repositoryId, force = true)
         }
         LaunchedEffect(state.error) {
             val message = state.error ?: return@LaunchedEffect
             if (branchesRetried) toaster.failedAction("load", "the branches", message) { retryBranches() }
         }
-        GlassSheet(title = "Branch", onDismiss = { branchSheet = false }) {
+        GlassSheet(title = "Branch", onDismiss = onDismiss) {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = 12.dp),
@@ -359,11 +417,11 @@ fun BoardRepoField(
                             }
                         }),
                         onClick = {
-                            branchSheet = false
+                            onDismiss()
                             // Picking the repo's default CLEARS the pin, so the
                             // board keeps following the repo (a later repo-side
                             // rename or team pin carries over).
-                            onBranchChange(if (isDefault) null else name)
+                            onPick(if (isDefault) null else name)
                         },
                     )
                 }
@@ -380,31 +438,6 @@ fun BoardRepoField(
         }
     }
 
-    if (showPicker) {
-        GithubRepoPickerSheet(
-            accountId = accountId,
-            teamId = teamId,
-            // The pick is a SELECTION here (the host decides whether it
-            // connects now or on submit), so the add never fails in the sheet.
-            onAdd = { repo ->
-                // An ALREADY-connected repo picked here is the registry row,
-                // not a second inline connect.
-                val known = repos.firstOrNull { it.fullName == repo.fullName }
-                onSelect(
-                    if (known != null) {
-                        BoardRepositoryChoice.Registry(known.id)
-                    } else {
-                        BoardRepositoryChoice.Inline(
-                            fullName = repo.fullName,
-                            defaultBranch = repo.defaultBranch,
-                            isPrivate = repo.isPrivate,
-                        )
-                    },
-                )
-            },
-            onDismiss = { showPicker = false },
-        )
-    }
 }
 
 /**

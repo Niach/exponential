@@ -136,7 +136,7 @@ fun InviteLinkCard(
  * The card plus its keyed ViewModel — what both hosts actually mount.
  */
 @Composable
-fun InviteLinkCard(teamId: String, modifier: Modifier = Modifier) {
+fun InviteLinkCard(teamId: String, modifier: Modifier = Modifier, bare: Boolean = false) {
     val viewModel = hiltViewModel<InviteLinkViewModel>(key = "invite-link:$teamId")
     LaunchedEffect(teamId) { viewModel.bind(teamId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -147,5 +147,6 @@ fun InviteLinkCard(teamId: String, modifier: Modifier = Modifier) {
         state = state,
         onGenerate = viewModel::generate,
         modifier = modifier,
+        bare = bare,
     )
 }
