@@ -153,14 +153,14 @@ final class McpSettingsTests: XCTestCase {
         """.utf8))
         XCTAssertEqual(clients.clients.first?.id, "c1:u1")
         let access = try JSONDecoder().decode(McpAppAccess.self, from: Data("""
-        {"canEdit":false,"apps":[{"id":"a1","slug":"m5","name":"m5 admin","icon":null,"color":null,"toolCount":3}],"rows":[{"userId":"u1","name":"Mia","email":"m@x","image":null,"role":"member","levels":{"a1":"read"}}]}
+        {"canEdit":false,"apps":[{"id":"a1","slug":"customer-admin","name":"Customer admin","icon":null,"color":null,"toolCount":3}],"rows":[{"userId":"u1","name":"Mia","email":"m@x","image":null,"role":"member","levels":{"a1":"read"}}]}
         """.utf8))
         XCTAssertEqual(access.rows.first?.level("a1"), .read)
         XCTAssertEqual(access.rows.first?.level("other"), .write)
         let server = try JSONDecoder().decode(McpServerRow.self, from: Data("""
-        {"id":"s1","name":"Linear","url":"https://mcp.linear.app/sse","auth":"oauth","connection":{"status":"connected"},"usedBy":["m5 admin"]}
+        {"id":"s1","name":"Linear","url":"https://mcp.linear.app/sse","auth":"oauth","connection":{"status":"connected"},"usedBy":["Customer admin"]}
         """.utf8))
-        XCTAssertEqual(server.usedBy, ["m5 admin"])
+        XCTAssertEqual(server.usedBy, ["Customer admin"])
         let revoke = try JSONEncoder().encode(McpClientRevokeInput(clientId: "c1", teamId: "t1", userId: nil))
         XCTAssertFalse(String(decoding: revoke, as: UTF8.self).contains("userId"))
     }

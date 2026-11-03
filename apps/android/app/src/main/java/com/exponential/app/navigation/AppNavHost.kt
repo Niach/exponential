@@ -930,6 +930,12 @@ private fun AuthenticatedNav(
                     onBack = back,
                     onOpenSkill = { id -> navController.navigate(Routes.skillSettings(id)) },
                 )
+                // #EXP-1632: Settings › Apps = the Apps tab's list (band with
+                // Import… + New app, one row per app); a row opens the app.
+                SettingsNav.APPS -> AppsScreen(
+                    onBack = back,
+                    onOpenApp = { id -> navController.navigate(Routes.app(id)) },
+                )
                 else -> TeamSettingsScreen(onBack = back)
             }
             }

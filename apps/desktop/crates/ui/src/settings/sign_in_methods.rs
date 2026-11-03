@@ -594,8 +594,19 @@ impl Render for SignInMethodsSection {
             None,
             cx,
         ));
+        // Web parity: the band's trailing "Add passkey" pill. The desktop
+        // has no native WebAuthn ceremony, so the pill hands the errand to
+        // the web account page.
+        let add_passkey = manage_on_web(cx, &self.nav).map(|url| {
+            crate::surface::glass_pill_button("passkeys-add", crate::surface::PillSize::Sm, cx)
+                .label("Add passkey")
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    open_url(cx, url.clone());
+                }))
+                .into_any_element()
+        });
         let mut passkeys_section =
-            section(cx).child(crate::surface::glass_section_header("Passkeys", None, cx));
+            section(cx).child(crate::surface::glass_section_header("Passkeys", add_passkey, cx));
 
         let methods = match &self.load {
             Load::Ready(methods) => Some(methods.clone()),
@@ -650,26 +661,6 @@ impl Render for SignInMethodsSection {
                 methods_section = methods_section.child(settings_skeleton("sign-in-methods-skeleton", cx));
                 passkeys_section = passkeys_section.child(settings_skeleton("passkeys-skeleton", cx));
             }
-        }
-
-        // Passkeys are added on the web (no native WebAuthn ceremony here) —
-        // the same hand-off recipe as the widget pane (`widget.rs`).
-        let slug = super::active_team(cx, &self.nav).and_then(|team| team.slug);
-        if let (Some(slug), Some(account)) = (slug, queries::active_account(cx)) {
-            let url = manage_on_web_url(&account.instance_url, &slug);
-            passkeys_section = passkeys_section.child(
-                h_flex().child(
-                    Button::new("passkeys-manage")
-                        .outline()
-                        .cursor_pointer()
-                        .web_sm()
-                        .icon(registry::UI_EXTERNAL_LINK)
-                        .label("Manage on the web")
-                        .on_click(cx.listener(move |_, _, _, cx| {
-                            open_url(cx, url.clone());
-                        })),
-                ),
-            );
         }
 
         v_flex()
@@ -774,6 +765,15 @@ fn passkey_subtitle(passkey: &SignInPasskey, blocked: bool) -> String {
         subtitle.push_str(" · synced across your devices");
     }
     subtitle
+}
+
+/// The web account page for the active account + team, where the errands
+/// the desktop cannot run itself (adding a passkey, deleting the account)
+/// happen. `None` before a team or an account resolves.
+pub(super) fn manage_on_web(cx: &App, nav: &Entity<crate::navigation::Navigation>) -> Option<String> {
+    let slug = super::active_team(cx, nav).and_then(|team| team.slug)?;
+    let account = queries::active_account(cx)?;
+    Some(manage_on_web_url(&account.instance_url, &slug))
 }
 
 fn manage_on_web_url(instance_url: &str, team_slug: &str) -> String {

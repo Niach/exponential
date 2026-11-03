@@ -1,5 +1,5 @@
 // EXP-630: shared test fixtures — a small Linear snapshot shaped like the
-// Methode 5 workspace (two teams, one project, three custom states, a
+// Metric workspace (two teams, one project, three custom states, a
 // duplicate pair, an upload in a description and a threaded comment) and
 // the bundle it produces under team routing.
 import type { ImportBundle, ImportPreview } from "@/lib/import/bundle"
@@ -20,10 +20,10 @@ export function linearSnapshotFixture(): LinearSnapshot {
   return {
     version: 1,
     fetchedAt: `2026-09-23T12:00:00.000Z`,
-    organization: { id: `org`, name: `Methode 5`, urlKey: `methode5` },
+    organization: { id: `org`, name: `Metric`, urlKey: `metric` },
     viewer: { id: U_DENNIS, name: `Dennis`, email: `dennis@straehhuber.com` },
     teams: [
-      { id: T_MET, key: `MET`, name: `Methode 5`, estimationType: `tShirt` },
+      { id: T_MET, key: `MET`, name: `Metric`, estimationType: `tShirt` },
       { id: T_SOV, key: `SOV`, name: `soverius-ai` },
     ],
     states: [
@@ -49,7 +49,7 @@ export function linearSnapshotFixture(): LinearSnapshot {
       { id: U_HANNES, name: `Hannes Robier`, displayName: `hannes`, email: `hannes.robier@youspi.com`, active: true },
       { id: U_BOT, name: `Linear`, displayName: `linear`, email: `linear-org@linear.linear.app`, active: false },
     ],
-    projects: [{ id: P_MAINT, name: `M5 - Maintenance`, teamIds: [T_MET] }],
+    projects: [{ id: P_MAINT, name: `Q4 - Maintenance`, teamIds: [T_MET] }],
     issues: [
       {
         id: `is-1`,

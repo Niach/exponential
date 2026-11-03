@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.7.1 (2026-11-03)
+
+- No changes of its own; released with the SDK (#1742's specimen look parity and #1744's neutral example names).
+
 ## 0.7.0 (2026-11-03)
 
 - **Breaking** (through `eui-core`): `validate_package_json` requires `formatVersion: 3` and validates each kind's record `policy`; `dateAdd` out of range is an error (no overflow). No API change of its own.

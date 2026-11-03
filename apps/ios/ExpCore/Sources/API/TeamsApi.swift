@@ -75,6 +75,32 @@ public struct InviteCapacityResult: Decodable, Sendable {
     }
 }
 
+/// `teams.update`: owner-only, every field optional (nil = unchanged).
+public struct UpdateTeamInput: Encodable, Sendable {
+    public let teamId: String
+    public var name: String?
+    /// EXP-1105: yolo mode.
+    public var yoloMode: Bool?
+    /// EXP-1025: the team prompt (raw markdown; "" = none).
+    public var agentPrompt: String?
+
+    public init(teamId: String, name: String? = nil, yoloMode: Bool? = nil, agentPrompt: String? = nil) {
+        self.teamId = teamId
+        self.name = name
+        self.yoloMode = yoloMode
+        self.agentPrompt = agentPrompt
+    }
+}
+
+/// `teams.getAgentPrompt`: the server-only team prompt (not on the shape).
+public struct TeamAgentPromptResult: Decodable, Sendable {
+    public let agentPrompt: String
+
+    public init(agentPrompt: String) {
+        self.agentPrompt = agentPrompt
+    }
+}
+
 public final class TeamsApi: Sendable {
     private let trpc: TrpcClient
 
@@ -107,6 +133,23 @@ public final class TeamsApi: Sendable {
     public func create(accountId: String, name: String, iconUrl: String? = nil) async throws -> TeamResult {
         let result: CreateTeamResult = try await trpc.mutation(accountId: accountId, path: "teams.create", input: CreateTeamInput(name: name, iconUrl: iconUrl))
         return result.team
+    }
+
+    /// Owner-only `teams.update` (General: Name, Yolo mode, Team prompt).
+    /// The synced team row echoes name + yolo mode back.
+    public func update(accountId: String, _ input: UpdateTeamInput) async throws {
+        try await trpc.mutationVoid(accountId: accountId, path: "teams.update", input: input)
+    }
+
+    /// Member-readable `teams.getAgentPrompt` — the ONE read path of the
+    /// team prompt.
+    public func agentPrompt(accountId: String, teamId: String) async throws -> String {
+        let result: TeamAgentPromptResult = try await trpc.query(
+            accountId: accountId,
+            path: "teams.getAgentPrompt",
+            input: TeamIdInput(teamId: teamId)
+        )
+        return result.agentPrompt
     }
 
     public func delete(accountId: String, teamId: String) async throws {

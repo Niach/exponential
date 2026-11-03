@@ -5874,6 +5874,63 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(record.model, "opus");
     }
 
+    /// EXP-1669 (2026-11-03, the macbook): a session sent to a device whose
+    /// ACTIVE claude login sits at 100 % weekly starts on the sibling with
+    /// the most headroom, on every fresh launch through `prepare`: the
+    /// composer's pick naming the walled login, the device default (an
+    /// unpinned row resolves to the last used login), rotation off — and
+    /// the run's first turn says why.
+    #[test]
+    fn a_launch_on_the_walled_active_login_starts_on_the_most_headroom() {
+        let dir = temp_dir("walled-active");
+        let calls: Vec<(u16, String)> = (0..3)
+            .flat_map(|_| [(200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())])
+            .collect();
+        let base = canned_server(calls);
+        let mut deps = make_deps(&base, &dir.0, fake_worktrees(&dir.0.join("unused")));
+        let walled = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let more = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let most = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        crate::agent_profiles::note_last_used(&dir.0, CodingAgent::Claude, &walled.id).unwrap();
+        let mut cache = crate::usage_cache::load(&dir.0);
+        let reset = (chrono::Utc::now() + chrono::Duration::hours(14)).to_rfc3339();
+        for (id, weekly) in [(&walled.id, 100u8), (&more.id, 40), (&most.id, 33), (&crate::test_support::TEST_PROFILE.to_string(), 100)] {
+            cache.insert(
+                crate::usage_cache::entry_key("claude", id),
+                crate::usage_cache::AgentCacheEntry {
+                    account: Some(crate::agent_accounts::AgentAccount { signed_in: true, ..Default::default() }),
+                    health: Some("ok".to_string()),
+                    usage: Some(crate::agent_usage::AgentUsage {
+                        fetched_at: "NOW".to_string(),
+                        stale: false,
+                        windows: vec![crate::agent_usage::UsageWindow {
+                            key: "weekly".to_string(),
+                            label: "Week".to_string(),
+                            percent: weekly,
+                            resets_at: Some(reset.clone()),
+                        }],
+                    }),
+                    ..Default::default()
+                },
+            );
+        }
+        crate::usage_cache::save(&dir.0, &cache);
+
+        let cases = [("composer-pick", Some(walled.id.clone()), true), ("device-default", None, true), ("rotation-off", Some(walled.id.clone()), false)];
+        for (id, account, auto_rotate) in cases {
+            deps.settings.auto_rotate_accounts = auto_rotate;
+            let mut session = row(id, None);
+            session.account = account;
+            let prepared = ready(launch(session_request(session, &[]), &deps));
+            let record = crate::run_registry::get(&dir.0, id).expect("record");
+            assert_eq!(record.account().as_deref(), Some(most.id.as_str()), "{id}");
+            let pick = prepared.account_pick.as_ref().unwrap_or_else(|| panic!("{id}: no pick"));
+            assert_eq!(pick.from, walled.id, "{id}");
+            assert!(pick.message.contains("hit its weekly limit"), "{id}: {}", pick.message);
+            assert!(seed_prompt(&prepared).starts_with(&pick.run_note()), "{id}");
+        }
+    }
+
     /// EXP-849 — an account SWITCH (claude only, `options.account` on a
     /// resume): the resume runs on the target profile, the transcript is
     /// HANDED OVER into that profile's own `projects` tree, no credential

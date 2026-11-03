@@ -25,6 +25,7 @@ import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.TeamInvitesApi
 import com.exponential.app.data.api.TeamMembersApi
 import com.exponential.app.data.api.TeamsApi
+import com.exponential.app.data.api.UpdateTeamInput
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.GithubConnectStarter
 import com.exponential.app.data.push.DeepLinkBus
@@ -69,7 +70,7 @@ data class TeamSettingsState(
     /** In join order (EXP-1267 ×4, `membersInJoinOrder`). */
     val members: List<MemberRow> = emptyList(),
     /** The team's open invite links (unaccepted AND unexpired, `pendingInvites`),
-     *  oldest first — the owner-only "Pending invites" rows under the roster. */
+     *  newest first — the owner-only "Pending invites" rows under the roster. */
     val pendingInvites: List<TeamInviteEntity> = emptyList(),
     val labels: List<LabelEntity> = emptyList(),
     val boards: List<BoardEntity> = emptyList(),
@@ -398,10 +399,19 @@ class TeamSettingsViewModel @Inject constructor(
                         placeholders[m.userId],
                     )
                 },
+            // Web `useTeamInvites`: newest invite first, then id (EXP-668).
             pendingInvites = pendingInvites(invites)
-                .sortedWith(compareBy({ WireTimestamps.parseEpochMs(it.createdAt) ?: Long.MAX_VALUE }, { it.id })),
+                .sortedWith(
+                    compareByDescending<TeamInviteEntity> { WireTimestamps.parseEpochMs(it.createdAt) ?: Long.MIN_VALUE }
+                        .thenBy { it.id },
+                ),
             labels = labels,
-            boards = boards,
+            // Web `compareBoards` (EXP-525, the canonical order ×4):
+            // sortOrder, then createdAt (a missing one first), then id.
+            // Sorted here: `created_at` arrives as Postgres text OR ISO.
+            boards = boards.sortedWith(
+                compareBy<BoardEntity>({ it.sortOrder }, { WireTimestamps.parseEpochMs(it.createdAt) ?: Long.MIN_VALUE }, { it.id }),
+            ),
             repos = repos,
             reposLoaded = reposLoaded,
             resolvingRepoId = resolvingRepoId,
@@ -564,4 +574,237 @@ class TeamSettingsViewModel @Inject constructor(
         runCatching { boardsApi.setDefaultBranch(accountId, boardId, branch) }
             .onFailure { fail("set", "the branch", it) { setBoardBranch(boardId, branch) } }
     }
+
+    // --- General (web `TeamGeneralSection`): name, yolo mode, the team prompt.
+
+    /** EXP-818: the name row saves itself on blur / Done; blank keeps the old name. */
+    fun renameTeam(name: String): Job = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val team = state.value.team ?: return@launch
+        val next = name.trim()
+        if (next.isEmpty() || next == team.name) return@launch
+        _teamNameSaving.value = true
+        runCatching { teamsApi.update(accountId, UpdateTeamInput(teamId = team.id, name = next)) }
+            .onFailure { fail("save", "the team name", it) { renameTeam(name) } }
+        _teamNameSaving.value = false
+    }
+
+    private val _teamNameSaving = MutableStateFlow(false)
+    val teamNameSaving: StateFlow<Boolean> = _teamNameSaving
+
+    private val _yoloBusy = MutableStateFlow(false)
+    val yoloBusy: StateFlow<Boolean> = _yoloBusy
+
+    /** EXP-1105: yolo mode, a synced team flag (owner-only). */
+    fun setYoloMode(enabled: Boolean): Job = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val teamId = state.value.team?.id ?: return@launch
+        _yoloBusy.value = true
+        runCatching { teamsApi.update(accountId, UpdateTeamInput(teamId = teamId, yoloMode = enabled)) }
+            .onFailure { fail("update", "yolo mode", it) { setYoloMode(enabled) } }
+        _yoloBusy.value = false
+    }
+
+    /** EXP-1025: the team prompt editor (server-only text, fetched on open). */
+    data class TeamPromptState(
+        /** Null = loading (or failed: [loadFailed]). */
+        val text: String? = null,
+        val saved: String = "",
+        val loadFailed: Boolean = false,
+        val saving: Boolean = false,
+        val justSaved: Boolean = false,
+    )
+
+    private val _prompt = MutableStateFlow(TeamPromptState())
+    val prompt: StateFlow<TeamPromptState> = _prompt
+    private var promptTeamId: String? = null
+    private var promptSaveJob: Job? = null
+    private var promptFailedText: String? = null
+
+    init {
+        if (observes(SettingsNav.GENERAL)) {
+            viewModelScope.launch {
+                combine(auth.activeAccountId, selection.selectedId) { a, t -> a to t }
+                    .collectLatest { (accountId, teamId) -> loadPrompt(accountId, teamId, retried = false) }
+            }
+        }
+    }
+
+    /** FEED-79: the load runs on open, so a failure is quiet (the field's
+     *  Retry); only a failed Retry tap toasts. */
+    fun retryPromptLoad() {
+        viewModelScope.launch { loadPrompt(auth.activeAccountId.value, selection.selectedId.value, retried = true) }
+    }
+
+    private suspend fun loadPrompt(accountId: String?, teamId: String?, retried: Boolean) {
+        promptSaveJob?.cancel()
+        _prompt.value = TeamPromptState()
+        promptTeamId = null
+        if (accountId == null || teamId == null) return
+        runCatching { teamsApi.getAgentPrompt(accountId, teamId) }
+            .onSuccess {
+                promptTeamId = teamId
+                _prompt.value = TeamPromptState(text = it.agentPrompt, saved = it.agentPrompt)
+            }
+            .onFailure {
+                if (it is CancellationException) throw it
+                _prompt.value = TeamPromptState(loadFailed = true)
+                if (retried) fail("load", "the team prompt", it) { retryPromptLoad() }
+            }
+    }
+
+    /** D9: autosaves [TEAM_PROMPT_DEBOUNCE_MS] after the last keystroke. */
+    fun editPrompt(text: String) {
+        val current = _prompt.value
+        if (current.text == null) return
+        _prompt.value = current.copy(text = text)
+        promptSaveJob?.cancel()
+        promptSaveJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(TEAM_PROMPT_DEBOUNCE_MS)
+            savePrompt()
+        }
+    }
+
+    /** Blur / leaving the page: save a dirty, under-cap draft now. */
+    fun flushPrompt() {
+        promptSaveJob?.cancel()
+        viewModelScope.launch { savePrompt() }
+    }
+
+    private suspend fun savePrompt() {
+        val accountId = auth.activeAccountId.value ?: return
+        val teamId = promptTeamId ?: return
+        val current = _prompt.value
+        val text = current.text ?: return
+        if (text.trimEnd() == current.saved) return
+        if (text.toByteArray(Charsets.UTF_8).size > TEAM_PROMPT_MAX_BYTES) return
+        if (text == promptFailedText) return
+        _prompt.value = current.copy(saving = true, justSaved = false)
+        runCatching { teamsApi.update(accountId, UpdateTeamInput(teamId = teamId, agentPrompt = text)) }
+            .onSuccess {
+                promptFailedText = null
+                _prompt.value = _prompt.value.copy(saved = text.trimEnd(), saving = false, justSaved = true)
+                viewModelScope.launch {
+                    kotlinx.coroutines.delay(TEAM_PROMPT_SAVED_HOLD_MS)
+                    _prompt.value = _prompt.value.copy(justSaved = false)
+                }
+            }
+            .onFailure {
+                if (it is CancellationException) throw it
+                promptFailedText = text
+                _prompt.value = _prompt.value.copy(saving = false)
+                fail("save", "the team prompt", it) {
+                    promptFailedText = null
+                    flushPrompt()
+                }
+            }
+    }
+
+    override fun onCleared() {
+        // Leaving inside the debounce window must not drop the edit.
+        val accountId = auth.activeAccountId.value
+        val teamId = promptTeamId
+        val current = _prompt.value
+        val text = current.text
+        if (accountId != null && teamId != null && text != null && text.trimEnd() != current.saved &&
+            text.toByteArray(Charsets.UTF_8).size <= TEAM_PROMPT_MAX_BYTES && text != promptFailedText
+        ) {
+            teamPromptFlushScope.launch {
+                runCatching { teamsApi.update(accountId, UpdateTeamInput(teamId = teamId, agentPrompt = text)) }
+            }
+        }
+        super.onCleared()
+    }
+
+    // --- Members: invite by email / add without inviting (web `InviteMemberForm`).
+
+    data class InviteFormState(
+        val sending: Boolean = false,
+        val adding: Boolean = false,
+        /** The address the server refused, under the field. */
+        val emailError: String? = null,
+        /** A mail that could not go out: the link to share by hand. */
+        val inviteUrl: String? = null,
+        /** EXP-725: the team is at its seat cap — the form is gone. */
+        val capped: Boolean = false,
+        /** Bumped on a success: the form clears its fields. */
+        val sent: Int = 0,
+    )
+
+    private val _inviteForm = MutableStateFlow(InviteFormState())
+    val inviteForm: StateFlow<InviteFormState> = _inviteForm
+
+    fun clearInviteError() {
+        _inviteForm.value = _inviteForm.value.copy(emailError = null)
+    }
+
+    fun sendInvite(email: String, name: String, onToast: (String) -> Unit): Job = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val teamId = state.value.team?.id ?: return@launch
+        val to = email.trim()
+        if (to.isEmpty()) return@launch
+        _inviteForm.value = _inviteForm.value.copy(sending = true, emailError = null)
+        runCatching { invitesApi.createForEmail(accountId, teamId, to, name.trim().ifEmpty { null }) }
+            .onSuccess { result ->
+                if (result.emailDelivered == true) {
+                    onToast("Invite sent to $to")
+                    _inviteForm.value = _inviteForm.value.copy(sending = false, inviteUrl = null, sent = _inviteForm.value.sent + 1)
+                } else {
+                    _inviteForm.value = _inviteForm.value.copy(
+                        sending = false,
+                        inviteUrl = com.exponential.app.domain.WebLinks.invite(auth.instanceUrl.value, result.token),
+                    )
+                    fail("email", "the invite", null)
+                }
+            }
+            .onFailure { inviteFailure(it, "send", "the invite") }
+    }
+
+    fun addWithoutInviting(email: String, name: String, onToast: (String) -> Unit): Job = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        val teamId = state.value.team?.id ?: return@launch
+        val to = email.trim()
+        if (to.isEmpty()) return@launch
+        _inviteForm.value = _inviteForm.value.copy(adding = true, emailError = null)
+        runCatching { membersApi.addPlaceholder(accountId, teamId, to, name.trim().ifEmpty { null }) }
+            .onSuccess { added ->
+                onToast("Added $added to the team")
+                _inviteForm.value = _inviteForm.value.copy(adding = false, inviteUrl = null, sent = _inviteForm.value.sent + 1)
+            }
+            .onFailure { inviteFailure(it, "add", "the member") }
+    }
+
+    private fun inviteFailure(error: Throwable, verb: String, thing: String) {
+        if (error is CancellationException) throw error
+        val form = _inviteForm.value.copy(sending = false, adding = false)
+        _inviteForm.value = when {
+            com.exponential.app.data.api.isPlanLimitError(error) -> form.copy(capped = true)
+            (error as? com.exponential.app.data.api.TrpcException)?.code == "BAD_REQUEST" ->
+                form.copy(emailError = trpcErrorMessage(error, INVALID_EMAIL))
+            else -> {
+                fail(verb, thing, error)
+                form
+            }
+        }
+    }
+
+    // --- Repositories: the branch chip (EXP-462).
+
+    fun setRepoDefaultBranch(repositoryId: String, branch: String?): Job = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        runCatching { repositoriesApi.setDefaultBranch(accountId, repositoryId, branch) }
+            .onFailure { fail("set", "the default branch", it) { setRepoDefaultBranch(repositoryId, branch) } }
+        refreshRepos()
+    }
 }
+
+// Outlives the ViewModel (the voiceSettingsFlushScope idiom): the leave-page flush.
+private val teamPromptFlushScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+
+/** EXP-1025: the team prompt's cap in UTF-8 bytes (contract `team.agentPromptMaxBytes`). */
+const val TEAM_PROMPT_MAX_BYTES = 12288
+/** feedback-states.json `autosave`. */
+private const val TEAM_PROMPT_DEBOUNCE_MS = 800L
+private const val TEAM_PROMPT_SAVED_HOLD_MS = 2000L
+/** feedback-states.json's invalid-email input case. */
+private const val INVALID_EMAIL = "Enter a full email address"

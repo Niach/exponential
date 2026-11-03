@@ -17,8 +17,15 @@
 use std::ffi::OsStr;
 
 /// A `std::process::Command` that never flashes a console window on Windows.
-/// Use for every spawn whose output is captured or ignored; no-op difference
-/// on unix.
+/// Use for every spawn whose output is captured or ignored.
+///
+/// On unix the child starts with the termination signals at their DEFAULT
+/// action ([`DEFAULT_SIGNALS`]): an ignored disposition survives `exec`, and
+/// the desktop app runs with SIGTERM ignored. A git that dies (`fetch` of a
+/// ref origin lacks) SIGTERMs its `git-remote-https` from its exit handler
+/// and waits for it; an ignoring helper never exits, so every such fetch
+/// hung until the 180 s idle kill, which held every fresh session's launch
+/// for three minutes (`restore_wip` fetches a WIP ref a new branch never has).
 pub fn background_command(program: impl AsRef<OsStr>) -> std::process::Command {
     #[allow(unused_mut)]
     let mut cmd = std::process::Command::new(program);
@@ -28,8 +35,26 @@ pub fn background_command(program: impl AsRef<OsStr>) -> std::process::Command {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: only `signal(2)` runs between fork and exec; it is
+        // async-signal-safe and touches no memory of the parent.
+        unsafe {
+            cmd.pre_exec(|| {
+                for signal in DEFAULT_SIGNALS {
+                    libc::signal(signal, libc::SIG_DFL);
+                }
+                Ok(())
+            });
+        }
+    }
     cmd
 }
+
+/// The signals [`background_command`] resets to their default action.
+#[cfg(unix)]
+const DEFAULT_SIGNALS: [libc::c_int; 4] = [libc::SIGTERM, libc::SIGINT, libc::SIGHUP, libc::SIGQUIT];
 
 /// Re-read the machine+user `Path` from the registry and update this
 /// process's `PATH` so children inherit a fresh view (Windows only; no-op
@@ -175,6 +200,22 @@ fn merge_windows_path(system: &str, user: &str, process: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A SIGTERM this process ignores does not reach the child: it dies of
+    /// its own `kill -TERM $$` instead of printing.
+    #[cfg(unix)]
+    #[test]
+    fn a_child_gets_sigterm_back_even_when_the_host_ignores_it() {
+        use std::os::unix::process::ExitStatusExt;
+        let previous = unsafe { libc::signal(libc::SIGTERM, libc::SIG_IGN) };
+        let output = background_command("/bin/sh")
+            .args(["-c", "kill -TERM $$; echo alive"])
+            .output();
+        unsafe { libc::signal(libc::SIGTERM, previous) };
+        let output = output.expect("sh runs");
+        assert_eq!(output.status.signal(), Some(libc::SIGTERM));
+        assert!(output.stdout.is_empty());
+    }
 
     #[test]
     fn parses_reg_query_output() {

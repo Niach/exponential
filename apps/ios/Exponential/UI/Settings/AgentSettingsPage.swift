@@ -617,6 +617,11 @@ struct AgentSettingsForm: View {
             Section {
                 instructionsEditor
                 errorLine("instructions")
+            } footer: {
+                // Web's caption under the field.
+                Text(label("instructions"))
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .listRowBackground(glassFormRowFill)
 
@@ -671,49 +676,50 @@ struct AgentSettingsForm: View {
         AgentAccountRow(draft: draft, device: device, canEdit: canEdit, title: label("account"))
     }
 
-    /// One row per trigger (its summary + switch); none = the agent only
-    /// waits for messages.
+    /// Web's Triggers block: the "Triggers" row (`Waits for messages` while
+    /// there are none, the owner's "+ Add" pill trailing), then one row per
+    /// trigger (its summary + switch + ⋯ menu).
     @ViewBuilder
     private var scheduleRows: some View {
-        if draft.triggers.isEmpty {
-            Button { onOpenTrigger(nil) } label: {
-                GlassPickerRowLabel(label("triggers"), value: AgentSettings.Copy.noSchedule)
-            }
-            .buttonStyle(.plain)
-            .disabled(!canEdit)
-            .accessibilityIdentifier("agent-schedule-row")
-        } else {
-            ForEach(draft.triggers) { trigger in
-                triggerRow(trigger)
+        HStack(spacing: 8) {
+            Text(label("triggers"))
+                .foregroundStyle(.white.opacity(TextOpacity.primary))
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+            Spacer(minLength: 8)
+            if draft.triggers.isEmpty {
+                Text(AgentSettings.Copy.noSchedule)
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
             }
             if canEdit, draft.triggers.count < DomainContract.agentTriggerMaxPerAgent {
-                Button { onOpenTrigger(nil) } label: {
-                    HStack(spacing: 10) {
-                        AppIcon(AppIcons.uiAdd, size: AppIcon.Size.small)
-                        Text(AgentSettings.Copy.addTrigger)
-                        Spacer(minLength: 0)
-                    }
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(draft.triggerBusy)
+                GlassPill(AgentSettings.Copy.addTrigger, icon: AppIcons.uiAdd, mode: .action {
+                    onOpenTrigger(nil)
+                }, enabled: !draft.triggerBusy)
+                .fixedSize()
                 .accessibilityIdentifier("add-trigger")
             }
         }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("agent-schedule-row")
+        ForEach(draft.triggers) { trigger in
+            triggerRow(trigger)
+        }
     }
 
-    /// The row's body opens the editor; the switch sits BESIDE it (a control
-    /// nested in a button's label has its tap swallowed). Swipe deletes.
+    /// The row's body opens the editor; the switch and the ⋯ menu (Edit,
+    /// Delete) sit BESIDE it (a control nested in a button's label has its
+    /// tap swallowed).
     private func triggerRow(_ trigger: AgentTrigger) -> some View {
-        HStack(spacing: 12) {
+        let sentence = AgentSettings.triggerSummary(trigger)
+        return HStack(spacing: 8) {
             Button { onOpenTrigger(trigger) } label: {
-                HStack(spacing: 10) {
-                    AppIcon(TriggerGlyph.icon(for: trigger.when), size: AppIcon.Size.small)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    Text(AgentSettings.triggerSummary(trigger))
-                        .foregroundStyle(.white.opacity(TextOpacity.primary))
+                HStack(spacing: 0) {
+                    Text(sentence)
+                        .foregroundStyle(.white.opacity(trigger.enabled ? TextOpacity.primary : TextOpacity.tertiary))
                         .lineLimit(1)
+                        .truncationMode(.tail)
                     Spacer(minLength: 0)
                 }
                 .contentShape(Rectangle())
@@ -726,12 +732,20 @@ struct AgentSettingsForm: View {
                 set: { onToggleTrigger(trigger, $0) }
             ))
             .disabled(!canEdit || draft.triggerBusy)
-            .accessibilityLabel(AgentSettings.triggerSummary(trigger))
+            .accessibilityLabel("Enabled: \(sentence)")
             .accessibilityIdentifier("trigger-enabled")
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+
             if canEdit {
-                Button("Delete", role: .destructive) { onDeleteTrigger(trigger) }
+                GlassMenu {
+                    GlassMenuItem("Edit", icon: AppIcons.uiEdit) { onOpenTrigger(trigger) }
+                    GlassMenuItem("Delete", icon: AppIcons.uiDelete, destructive: true) {
+                        onDeleteTrigger(trigger)
+                    }
+                } label: {
+                    GhostIconLabel(AppIcons.uiMore)
+                        .accessibilityLabel("Trigger menu for \(sentence)")
+                }
+                .accessibilityIdentifier("trigger-menu")
             }
         }
         .accessibilityElement(children: .contain)
@@ -769,10 +783,10 @@ struct AgentDeviceRow: View {
             value: draft.deviceId,
             onChange: { draft.selectDevice($0, devices: devices) },
             trigger: {
+                // Web's row: the device's name as the value, no glyph.
                 GlassPickerRowLabel(
                     title,
-                    value: device.map(LaunchVocabulary.deviceName) ?? "",
-                    icon: device.map { DeviceIconDisplay.iconName(for: $0) }
+                    value: device.map(LaunchVocabulary.deviceName) ?? ""
                 )
             }
         )

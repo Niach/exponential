@@ -9,7 +9,9 @@
 //! first name, so the full name + email live HERE. EXP-369 adds the account's
 //! timezone row — the clock the daily digest's send hour is read in.
 //! EXP-1126 adds the Sign-in methods + Passkeys bands under the timezone
-//! picker row ([`super::sign_in_methods`]).
+//! picker row ([`super::sign_in_methods`]). Web parity closes the page with
+//! the Danger zone; deleting an account stays a web errand (EXP-69), so its
+//! Delete account hands off to the web account page.
 
 use gpui::{
     div, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render,
@@ -21,6 +23,7 @@ use gpui_component::{
 };
 
 use super::sign_in_methods::SignInMethodsSection;
+use crate::controls::WebControl as _;
 use super::spawn_trpc;
 use crate::navigation::Navigation;
 use crate::queries;
@@ -42,6 +45,7 @@ pub struct AccountPane {
     /// The account the timezone belongs to — a re-login must not show the
     /// previous account's value (same guard as the prefs pane).
     account_id: Option<String>,
+    nav: Entity<Navigation>,
     /// EXP-1126: Sign-in methods + Passkeys (server-only, tRPC).
     sign_in_methods: Entity<SignInMethodsSection>,
     /// FEED-79: the timezone read in flight is the person's Retry press (its
@@ -60,8 +64,9 @@ impl AccountPane {
             cx.observe(&users, |_, _, cx| cx.notify()),
             cx.observe(&avatar_cache, |_, _, cx| cx.notify()),
         ];
-        let sign_in_methods = cx.new(|cx| SignInMethodsSection::new(nav, cx));
+        let sign_in_methods = cx.new(|cx| SignInMethodsSection::new(nav.clone(), cx));
         Self {
+            nav,
             timezone: Timezone::Idle,
             timezone_generation: 0,
             account_id: None,
@@ -261,14 +266,18 @@ impl AccountPane {
             .map(|account| account.user_id.clone())
             .unwrap_or_default();
 
-        // EXP-818: the Linear profile card — one grouped row: the picture
+        // Web parity (`account-overview.tsx`): no card — the 48px picture
         // leading, the name over the address.
-        crate::surface::glass_group_rows(vec![crate::surface::glass_row_shell()
+        gpui_component::h_flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_3()
             .child(crate::user_avatar::user_avatar(
                 &user_id,
                 &full_name,
                 image_url.as_deref(),
-                gpui_component::Size::Medium,
+                gpui_component::Size::Size(gpui::px(48.)),
                 cx,
             ))
             .child(
@@ -277,19 +286,38 @@ impl AccountPane {
                     .gap_0()
                     .child(
                         div()
-                            .text_sm()
                             .font_weight(FontWeight::MEDIUM)
                             .truncate()
                             .child(full_name.clone()),
                     )
                     .children(sub_email.map(|email| {
                         div()
-                            .text_xs()
+                            .text_sm()
                             .text_color(cx.theme().muted_foreground)
                             .truncate()
                             .child(email)
                     })),
-            )])
+            )
+    }
+}
+
+impl AccountPane {
+    /// Web `DeleteAccountSection`'s band + row; the deletion itself runs on
+    /// the web account page (EXP-69 keeps it off the desktop).
+    fn render_danger_zone(&self, cx: &mut gpui::Context<Self>) -> Option<gpui::Div> {
+        let url = super::sign_in_methods::manage_on_web(cx, &self.nav)?;
+        Some(super::danger_zone(
+            "Permanently delete your account and every team where you are the only member.",
+            Button::new("account-delete")
+                .danger()
+                .web_xs()
+                .icon(crate::icons::registry::UI_DELETE)
+                .label("Delete account")
+                .on_click(cx.listener(move |_, _, _, cx| {
+                    super::open_url(cx, url.clone());
+                })),
+            cx,
+        ))
     }
 }
 
@@ -305,6 +333,7 @@ impl Render for AccountPane {
             // Web parity: the Timezone row sits right under the identity.
             .child(self.render_timezone(cx))
             .child(self.sign_in_methods.clone())
+            .children(self.render_danger_zone(cx))
     }
 }
 

@@ -36,11 +36,11 @@ import { LINKS } from "../lib/site"
 const TODAY = <StatusChip status="shipped">today</StatusChip>
 const COMING = <StatusChip status="planned">coming</StatusChip>
 
-/* The hero's package: Stunden, trimmed to what reads at a glance. */
+/* The hero's package: Hours, trimmed to what reads at a glance. */
 const PACKAGE = `{
   "formatVersion": 3,
-  "id": "acme.stunden",
-  "name": "Stunden",
+  "id": "acme.hours",
+  "name": "Hours",
   "records": {
     "entry": { "schema": { "date": "date",
                            "hours": "number" } }
@@ -103,12 +103,12 @@ const INPUTS: { icon: ReactNode; title: string; note: string; chip: ReactNode }[
 
 const OUTPUTS: { icon: ReactNode; title: string; note: string; chip: ReactNode }[] = [
   { icon: <Users size={14} />, title: `Your team`, note: `the same screens on four platforms`, chip: TODAY },
-  { icon: <Wrench size={14} />, title: `MCP tools`, note: `stunden__log_hours in Claude Code or OpenClaw`, chip: TODAY },
+  { icon: <Wrench size={14} />, title: `MCP tools`, note: `hours__log_hours in Claude Code or OpenClaw`, chip: TODAY },
   { icon: <Bot size={14} />, title: `An agent`, note: `"follow up with this customer"`, chip: COMING },
 ]
 
 const EXAMPLES: { icon: ReactNode; name: string; what: string; parts: string[]; chip: ReactNode }[] = [
-  { icon: <Clock size={15} />, name: `Stunden`, what: `Hours per day, totals per month.`, parts: [`records`, `Chart`, `exposes`], chip: TODAY },
+  { icon: <Clock size={15} />, name: `Hours`, what: `Hours per day, totals per month.`, parts: [`records`, `Chart`, `exposes`], chip: TODAY },
   { icon: <ListChecks size={15} />, name: `Release checklist`, what: `Steps per release, ticked by the team.`, parts: [`records`, `exp:issues`], chip: TODAY },
   { icon: <Server size={15} />, name: `Admin console`, what: `One screen over Stripe, GitHub and your API.`, parts: [`upstreams`, `exposes`], chip: TODAY },
   { icon: <Users size={15} />, name: `CRM`, what: `Contacts, companies, deals in stages.`, parts: [`relations`, `screens`], chip: COMING },
@@ -165,9 +165,9 @@ export default function Apps(_: PageProps) {
               </a>
             </div>
           </div>
-          <div className="ea-hero" role="img" aria-label="A package (records, templates, bindings, functions, exposes) on the left; the same package painted as the Stunden time tracker on a desktop and on a phone on the right">
+          <div className="ea-hero" role="img" aria-label="A package (records, templates, bindings, functions, exposes) on the left; the same package painted as the Hours time tracker on a desktop and on a phone on the right">
             <pre className="ea-pkg glass-card">
-              <span className="ea-pkg-file">stunden.app.json</span>
+              <span className="ea-pkg-file">hours.app.json</span>
               <code>{PACKAGE}</code>
             </pre>
             <span className="ea-arrow" aria-hidden>
@@ -175,8 +175,8 @@ export default function Apps(_: PageProps) {
               <IcArrow size={16} />
             </span>
             <div className="ea-shots">
-              <img className="ea-shot ea-shot-desktop" src="/eapps/time-tracker.webp" width={2360} height={1125} alt="" loading="eager" decoding="async" />
-              <img className="ea-shot ea-shot-phone" src="/eapps/time-tracker-phone.webp" width={780} height={736} alt="" loading="eager" decoding="async" />
+              <img className="ea-shot ea-shot-desktop" src="/eapps/time-tracker.webp" width={2360} height={1232} alt="" loading="eager" decoding="async" />
+              <img className="ea-shot ea-shot-phone" src="/eapps/time-tracker-phone.webp" width={780} height={824} alt="" loading="eager" decoding="async" />
             </div>
           </div>
         </div>
@@ -245,11 +245,11 @@ export default function Apps(_: PageProps) {
           </div>
           <figure className="ea-figure">
             <div className="ea-twin">
-              <img className="ea-shot" src="/eapps/time-tracker.webp" width={2360} height={1125} alt="Stunden on the web: a month of hours as a bar chart and a table" loading="lazy" decoding="async" />
-              <img className="ea-shot" src="/eapps/time-tracker-phone.webp" width={780} height={736} alt="Stunden on a phone: one row per day and a Log hours button" loading="lazy" decoding="async" />
+              <img className="ea-shot" src="/eapps/time-tracker.webp" width={2360} height={1232} alt="Hours on the web: a month of hours as a bar chart and a table" loading="lazy" decoding="async" />
+              <img className="ea-shot" src="/eapps/time-tracker-phone.webp" width={780} height={824} alt="Hours on a phone: one row per day and a Log hours button" loading="lazy" decoding="async" />
             </div>
             <figcaption>
-              <span className="ea-concept">concept</span> Stunden, a time tracker: one package, desktop and phone, drawn with eUI.
+              <span className="ea-concept">concept</span> Hours, a time tracker: one package, desktop and phone, drawn with eUI.
             </figcaption>
           </figure>
         </div>
@@ -283,7 +283,7 @@ export default function Apps(_: PageProps) {
             </div>
           </div>
           <figure className="ea-figure">
-            <img className="ea-shot" src="/eapps/m5-admin.webp" width={2560} height={976} alt="An admin console over Stripe, GitHub and Home Assistant, each member connected with their own account" loading="lazy" decoding="async" />
+            <img className="ea-shot" src="/eapps/admin-console.webp" width={2560} height={1080} alt="An admin console over Stripe, GitHub and Home Assistant, each member connected with their own account" loading="lazy" decoding="async" />
             <figcaption>
               <span className="ea-concept">concept</span> An admin console over three upstreams, each member on their own account.
             </figcaption>

@@ -93,7 +93,7 @@ mod tests {
         assert_eq!(captions["viaMcp"].as_str(), Some(VIA_MCP_CAPTION));
         assert_eq!(captions["viaApp"].as_str(), Some(VIA_APP_CAPTION));
         assert_eq!(captions["separator"].as_str(), Some(CAPTION_SEPARATOR));
-        assert_eq!(via_app_caption("m5 admin"), "via m5 admin");
+        assert_eq!(via_app_caption("Customer admin"), "via Customer admin");
     }
 
     #[test]

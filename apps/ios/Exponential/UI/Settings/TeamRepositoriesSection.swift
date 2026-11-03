@@ -166,84 +166,95 @@ struct TeamRepositoriesSection: View {
 
     // MARK: - Row
 
+    /// Web `RepoRow`: the GitHub glyph + name, the default-branch chip (a
+    /// picker for the sharer-or-owner, EXP-462), Private, the grey trash
+    /// (disabled while a board still uses the repo); under it, inset, "Used
+    /// by" + the board chips on one wrapping line (or "Not used by any
+    /// board"), then "· Shared by …".
     @ViewBuilder
     private func repoRow(_ repo: TeamRepo) -> some View {
+        let inUse = !repo.boards.isEmpty
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                AppIcon(AppIcons.uiRepository, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                githubGlyph
                 Text(repo.fullName)
-                    .font(.subheadline.monospaced())
+                    .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .truncationMode(.middle)
-                Spacer()
-                Text(repo.defaultBranch)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                if repo.isPrivate {
-                    AppIcon(AppIcons.uiPrivate, size: 11)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                Spacer(minLength: 8)
+                if canManage(repo) {
+                    RepoDefaultBranchChip(accountId: accountId, repo: repo) { branch in
+                        Task {
+                            await mutate(verb: "set", thing: "the default branch") {
+                                try await repositoriesApi.setDefaultBranch(
+                                    accountId: accountId,
+                                    repositoryId: repo.id,
+                                    branch: branch
+                                )
+                            }
+                        }
+                    }
+                } else {
+                    GlassPill(repo.defaultBranch)
+                        .monospaced()
+                        .fixedSize()
                 }
-                // Sharer-or-owner removal (EXP-557; the server refuses it
-                // while any board still points at the repo); the tap opens a
-                // confirmation.
-                // EXP-721: the shared chromed circle (Boards/Labels parity).
+                if repo.isPrivate {
+                    GlassPill("Private", icon: AppIcons.uiPrivate)
+                        .fixedSize()
+                }
+                // Sharer-or-owner removal (EXP-557); a repo still backing a
+                // board cannot go (the server refuses it too), so its trash
+                // is disabled, like web's.
                 if canManage(repo) {
                     GhostIconButton(
                         AppIcons.uiDelete,
                         accessibilityLabel: "Remove repository",
-                        tint: DesignTokens.Palette.destructive.opacity(0.7)
+                        enabled: !inUse
                     ) {
                         removeTarget = repo
                     }
                 }
             }
 
-            // Who shared the repo with the team (EXP-557, web parity).
-            if let sharer = repo.sharedBy {
-                Text("Shared by \(sharerLabel(sharer))")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-
-            // "Used by" board chips (v4 — computed from boards.repositoryId).
-            if !repo.boards.isEmpty {
-                Text("Used by")
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            FlowLayout(spacing: 6) {
-                if repo.boards.isEmpty {
-                    Text("Not used by any board")
-                        .font(.caption2)
+            FlowLayout(spacing: 6, centersLines: true) {
+                if inUse {
+                    Text("Used by")
+                        .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(.vertical, 4)
-                }
-                ForEach(repo.boards) { ref in
-                    // EXP-862: the board's OWN icon, tinted with its colour
-                    // (×4 — web `getBoardIcon`, desktop `icons::board_icon`,
-                    // Android's `BoardIcon`). A board the synced set has not
-                    // caught up with still draws the shared fallback glyph
-                    // rather than a bare chip.
-                    let board = boards.first { $0.id == ref.id }
-                    GlassPill(ref.name) {
-                        AppIcon(
-                            board.map { BoardTypeDisplay.iconName(for: $0) } ?? "square-kanban",
-                            size: GlassPillTokens.glyphSm
-                        )
-                        .foregroundStyle(
-                            Color(hex: board?.color ?? "#888888") ?? .gray
-                        )
+                    ForEach(repo.boards) { ref in
+                        // EXP-862: the board's OWN icon, tinted with its colour
+                        // (×4). A board the synced set has not caught up with
+                        // still draws the shared fallback glyph.
+                        let board = boards.first { $0.id == ref.id }
+                        GlassPill(ref.name) {
+                            AppIcon(
+                                board.map { BoardTypeDisplay.iconName(for: $0) } ?? "square-kanban",
+                                size: GlassPillTokens.glyphSm
+                            )
+                            .foregroundStyle(
+                                Color(hex: board?.color ?? "#888888") ?? .gray
+                            )
+                        }
                     }
+                } else {
+                    Text("Not used by any board")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
+                // Who shared the repo with the team (EXP-557, web parity).
+                if let sharer = repo.sharedBy {
+                    Text("· Shared by \(sharerLabel(sharer))")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                 }
             }
+            .padding(.leading, 24)
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        // EXP-818: the repositories are a LIST — flat rows under the band. The
-        // GitHub status/notice rows below stay carded: they are notices, not
-        // items of this list.
+        .padding(.vertical, 8)
+        // EXP-818: the repositories are a LIST — flat rows under the band.
         .flatRow()
     }
 
@@ -266,16 +277,14 @@ struct TeamRepositoriesSection: View {
             HStack(spacing: 8) {
                 githubGlyph
                 Text(GithubCopy.statusFailed)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Spacer()
                 GlassPill(GithubCopy.retry, icon: AppIcons.uiRefresh, mode: .action {
                     Task { await reload(retried: true) }
                 })
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .glassRow()
+            .padding(.vertical, 4)
         }
         // Loading → nothing.
     }
@@ -289,13 +298,11 @@ struct TeamRepositoriesSection: View {
         HStack(spacing: 8) {
             githubGlyph
             Text(text)
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassRow()
+        .padding(.vertical, 4)
     }
 
     // Not connected: ONE primary fix, the link-ticket hop.
@@ -303,7 +310,7 @@ struct TeamRepositoriesSection: View {
         HStack(spacing: 8) {
             githubGlyph
             Text(GithubCopy.notLinked)
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer(minLength: 8)
             GlassPill(
@@ -314,9 +321,7 @@ struct TeamRepositoriesSection: View {
                 enabled: !connecting
             )
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassRow()
+        .padding(.vertical, 4)
         .accessibilityIdentifier("github-connection-unlinked")
     }
 
@@ -326,7 +331,7 @@ struct TeamRepositoriesSection: View {
             AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                 .foregroundStyle(DesignTokens.Semantic.yellow)
             Text(GithubCopy.reconnectNeeded)
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer(minLength: 8)
             GlassPill(
@@ -338,9 +343,7 @@ struct TeamRepositoriesSection: View {
             )
             disconnectButton
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassRow()
+        .padding(.vertical, 4)
         .accessibilityIdentifier("github-connection-expired")
     }
 
@@ -355,7 +358,7 @@ struct TeamRepositoriesSection: View {
                     .fill(DesignTokens.Semantic.green)
                     .frame(width: 8, height: 8)
                 Text(status.login.map { GithubCopy.connectedAs($0) } ?? GithubCopy.connected)
-                    .font(.caption)
+                    .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -369,7 +372,7 @@ struct TeamRepositoriesSection: View {
                 if status.installations.isEmpty {
                     HStack(alignment: .top, spacing: 8) {
                         Text(GithubCopy.notInstalled)
-                            .font(.caption)
+                            .font(.subheadline)
                             .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         Spacer(minLength: 8)
                         if status.installUrl != nil {
@@ -397,9 +400,7 @@ struct TeamRepositoriesSection: View {
             }
             .padding(.leading, 16)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassRow()
+        .padding(.vertical, 4)
         .accessibilityIdentifier("github-connection-linked")
     }
 
@@ -423,7 +424,7 @@ struct TeamRepositoriesSection: View {
             AppIcon(AppIcons.uiWarning, size: AppIcon.Size.small)
                 .padding(.top, 1)
             Text(GithubCopy.suspendedLine(suspended.map { installationLabel($0) }))
-                .font(.caption)
+                .font(.subheadline)
             Spacer(minLength: 8)
             if let manage, let url = URL(string: manage) {
                 Link(destination: url) {
@@ -564,5 +565,67 @@ struct TeamRepositoriesSection: View {
         }
         removeTarget = nil
         await reload()
+    }
+}
+
+/// The repo row's default-branch chip as the shared `BranchPicker` (web
+/// `DefaultBranchMenu`, EXP-462): the monospace branch + a chevron; the
+/// branches load when the sheet opens. Picking GitHub's own default reports
+/// nil (the pin clears, the repo follows GitHub again).
+private struct RepoDefaultBranchChip: View {
+    let accountId: String
+    let repo: TeamRepo
+    let onPick: (String?) -> Void
+
+    @Environment(AppDependencies.self) private var deps
+    // FEED-79: a failed listing is the picker's empty state + Retry; only a
+    // failed Retry tap toasts.
+    @Environment(\.toaster) private var toaster
+    @State private var open = false
+    @State private var branches: [String]?
+    @State private var loadFailed = false
+
+    var body: some View {
+        BranchPicker(
+            branches: branches,
+            value: repo.defaultBranch,
+            repoDefault: repo.githubDefaultBranch,
+            onChange: onPick,
+            onRetry: loadFailed ? { Task { await load(retried: true) } } : nil,
+            open: $open
+        ) {
+            // The pill's own tap is off; the trigger takes it.
+            ZStack {
+                GlassPill(repo.defaultBranch) {
+                    EmptyView()
+                } trailing: {
+                    AppIcon(AppIcons.uiChevronDown, size: 12)
+                }
+                .monospaced()
+                .fixedSize()
+                .allowsHitTesting(false)
+            }
+            .contentShape(Capsule())
+        }
+        .accessibilityLabel("Default branch for \(repo.fullName)")
+        .onChange(of: open) { _, isOpen in
+            if isOpen { Task { await load() } }
+        }
+    }
+
+    private func load(retried: Bool = false) async {
+        if branches?.isEmpty == true { branches = nil }
+        loadFailed = false
+        do {
+            branches = try await deps.repositoriesApi.listBranches(accountId: accountId, repositoryId: repo.id)
+        } catch {
+            branches = []
+            loadFailed = true
+            guard retried else { return }
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "load", thing: "branches"),
+                description: error.trpcUserMessage
+            )
+        }
     }
 }

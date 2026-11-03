@@ -9,23 +9,33 @@ struct TeamMembersSection: View {
     let users: [UserEntity]
     /// The team's synced invites — the "Invited" / "Invite expired" / "Not
     /// invited" badge (EXP-630 placeholder members, EXP-1076 import seats) and
-    /// the owner's read-only "Pending invites" rows. Emailing, resending and
-    /// revoking stay web-only surfaces.
+    /// the owner's "Pending invites" rows (each with web's revoke trash).
     var invites: [TeamInviteEntity] = []
     let currentUserId: String?
     let membersApi: TeamMembersApi
     // Owner-only controls (role change / remove) are HIDDEN for non-owners —
     // full web parity, not greyed. Self-leave stays for anyone. Inviting is
-    // owner-only too (EXP-725): owners get the invite-LINK creator under the
-    // rows — and only while the team has free seats, since a seat cap must
-    // never surface purchase copy in an App Store build (3.1.1). Emailed
-    // invites stay web-only.
+    // owner-only too (EXP-725): owners get web's Invite members form (Send
+    // invite · Add without inviting), the invite-LINK creator (only while the
+    // team has free seats: a seat cap must never surface purchase copy in an
+    // App Store build, 3.1.1) and the Pending invites list.
     var isOwner: Bool = false
     /// The team's name, for the Leave prompt's title.
     var teamName: String?
 
     @State private var confirm: MemberConfirm?
+    @State private var inviteName = ""
+    @State private var inviteEmail = ""
+    @State private var sending = false
+    @State private var adding = false
+    /// A refused address (BAD_REQUEST) stays under the field.
+    @State private var emailError: String?
+    /// The link of an invite whose mail could not go out, shared by hand.
+    @State private var undeliveredURL: URL?
+    @State private var linkCopied = false
+    @State private var revoking: Set<String> = []
     @Environment(\.toaster) private var toaster
+    @Environment(AppDependencies.self) private var deps
 
     // Destructive/role actions are confirmed through a single alert.
     private enum MemberConfirm {
@@ -60,11 +70,19 @@ struct TeamMembersSection: View {
             }
 
             if isOwner {
-                InviteLinkCreator(accountId: accountId, teamId: teamId)
+                Rectangle()
+                    .fill(GlassTokens.strokeCard)
+                    .frame(height: GlassTokens.hairline)
+                    .padding(.vertical, 6)
 
-                // The still-open invites, web's "Pending invites" list.
-                // Read-only here: revoking stays a web surface.
-                let pending = PendingInvites.pending(invites)
+                inviteForm
+
+                // Web's outline "Generate invite link" (the hugging pill).
+                InviteLinkCreator(accountId: accountId, teamId: teamId, embedded: true)
+
+                // The still-open invites, web's "Pending invites" list in
+                // web's order (newest invite first, then id; EXP-668).
+                let pending = Self.webOrder(PendingInvites.pending(invites))
                 if !pending.isEmpty {
                     VStack(alignment: .leading, spacing: 0) {
                         GlassSectionBand("Pending invites")
@@ -72,6 +90,7 @@ struct TeamMembersSection: View {
                             inviteRow(invite)
                         }
                     }
+                    .padding(.top, 8)
                 }
             }
         }
@@ -197,6 +216,175 @@ struct TeamMembersSection: View {
         .fixedSize()
     }
 
+    // MARK: - Invite form
+
+    /// Web `InviteMemberForm` (Members settings): Name · email · Send invite
+    /// (the primary, mail glyph) · Add without inviting (the outline, FEED-108).
+    private var inviteForm: some View {
+        let hasEmail = !inviteEmail.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return VStack(alignment: .leading, spacing: 8) {
+            GlassSectionBand("Invite members")
+            GlassTextField("Name", text: $inviteName, accessibilityIdentifier: "invite-name")
+                .textInputAutocapitalization(.words)
+                .autocorrectionDisabled()
+            GlassTextField("teammate@example.com", text: Binding(
+                get: { inviteEmail },
+                set: { inviteEmail = $0; emailError = nil }
+            ), accessibilityIdentifier: "invite-email")
+                .keyboardType(.emailAddress)
+                .textContentType(.emailAddress)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.send)
+                .onSubmit { if !sending && !adding { Task { await sendInvite() } } }
+            if let emailError {
+                Text(emailError)
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .foregroundStyle(DesignTokens.Semantic.red)
+            }
+            Button { Task { await sendInvite() } } label: {
+                GlassSubmitLabel(
+                    "Send invite",
+                    enabled: hasEmail && !adding,
+                    loading: sending,
+                    pendingWord: FeedbackStates.Pending.invite
+                ) {
+                    AppIcon(AppIcons.uiMail, size: AppIcon.Size.small)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.pressScale)
+            .disabled(!hasEmail || adding || sending)
+            .accessibilityIdentifier("invite-send")
+
+            GlassOAuthButton("Add without inviting", action: { Task { await addWithoutInviting() } }) {
+                AppIcon(AppIcons.uiInvite, size: AppIcon.Size.small)
+            }
+            .disabled(!hasEmail || sending || adding)
+            .opacity(hasEmail && !sending ? 1 : 0.5)
+            .accessibilityIdentifier("invite-add-without-inviting")
+
+            if let undeliveredURL {
+                undeliveredLinkRow(undeliveredURL)
+            }
+        }
+    }
+
+    /// Web `InviteLinkRow`: the read-only link + Copy.
+    private func undeliveredLinkRow(_ url: URL) -> some View {
+        HStack(spacing: 8) {
+            Text(url.absoluteString)
+                .font(.caption.monospaced())
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .textSelection(.enabled)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            GhostIconButton(
+                linkCopied ? AppIcons.uiCheck : AppIcons.uiCopy,
+                accessibilityLabel: "Copy invite URL"
+            ) {
+                Platform.copyToPasteboard(url.absoluteString)
+                linkCopied = true
+                toaster.success("Invite link copied")
+            }
+        }
+        .accessibilityIdentifier("invite-url")
+    }
+
+    private var trimmedEmail: String {
+        inviteEmail.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedName: String? {
+        let name = inviteName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    private func sendInvite() async {
+        let to = trimmedEmail
+        guard !to.isEmpty, !sending else { return }
+        sending = true
+        emailError = nil
+        defer { sending = false }
+        do {
+            let result = try await deps.teamInvitesApi.create(
+                accountId: accountId, teamId: teamId, email: to, name: trimmedName
+            )
+            if result.emailDelivered == true {
+                toaster.success("Invite sent to \(to)")
+                inviteName = ""
+                inviteEmail = ""
+                undeliveredURL = nil
+            } else {
+                let instanceUrl = deps.auth.accounts.first { $0.id == accountId }?.instanceUrl
+                undeliveredURL = WebLinks.invite(instanceUrl: instanceUrl, token: result.token)
+                linkCopied = false
+                toaster.error("Couldn't email the invite. Copy the link below and share it instead.")
+            }
+        } catch {
+            if error.isPlanLimitError {
+                // App Store 3.1.1: no seat/purchase copy on iOS.
+                toaster.error(FeedbackStates.Errors.title(verb: "send", thing: "the invite"))
+            } else if error.trpcErrorCode == "BAD_REQUEST" {
+                emailError = error.trpcUserMessage
+            } else {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "send", thing: "the invite"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
+    private func addWithoutInviting() async {
+        let to = trimmedEmail
+        guard !to.isEmpty, !adding else { return }
+        adding = true
+        emailError = nil
+        defer { adding = false }
+        do {
+            let name = try await deps.teamMembersApi.addPlaceholder(
+                accountId: accountId, teamId: teamId, email: to, name: trimmedName
+            )
+            toaster.success("Added \(name) to the team")
+            inviteName = ""
+            inviteEmail = ""
+            undeliveredURL = nil
+        } catch {
+            if error.trpcErrorCode == "BAD_REQUEST" {
+                emailError = error.trpcUserMessage
+            } else {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "add", thing: "the member"),
+                    description: error.trpcUserMessage
+                )
+            }
+        }
+    }
+
+    private func revoke(_ invite: TeamInviteEntity) async {
+        revoking.insert(invite.id)
+        defer { revoking.remove(invite.id) }
+        do {
+            try await deps.teamInvitesApi.revoke(accountId: accountId, id: invite.id)
+        } catch {
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "revoke", thing: "the invite"),
+                description: error.trpcUserMessage
+            )
+        }
+    }
+
+    /// Web `useTeamInvites`' order: newest invite first, then id.
+    static func webOrder(_ invites: [TeamInviteEntity]) -> [TeamInviteEntity] {
+        invites.sorted { a, b in
+            let at = WireTimestamps.parse(a.createdAt) ?? .distantPast
+            let bt = WireTimestamps.parse(b.createdAt) ?? .distantPast
+            return at != bt ? at > bt : a.id < b.id
+        }
+    }
+
     // MARK: - Invite row
 
     /// ×4 anatomy: email or "Link invite" · role pill · "Expires Mon D"; a
@@ -220,9 +408,18 @@ struct TeamMembersSection: View {
                     .fixedSize()
             }
             Spacer(minLength: 0)
+            // Web's ghost trash: revoke at once (no confirm, like web).
+            GhostIconButton(
+                AppIcons.uiDelete,
+                accessibilityLabel: "Revoke invite",
+                enabled: !revoking.contains(invite.id)
+            ) {
+                Task { await revoke(invite) }
+            }
+            .accessibilityIdentifier("invite-revoke")
         }
         .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.vertical, 6)
         .flatRow()
     }
 

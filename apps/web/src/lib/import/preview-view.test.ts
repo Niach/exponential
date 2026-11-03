@@ -112,7 +112,7 @@ describe(`groupPreviewStatuses`, () => {
     expect(todo).toHaveLength(1)
     expect(todo[0]!.keys).toEqual([`state:st-todo`, `state:st-sov-todo`])
     // The hint names only the teams whose Todo is referenced on a visible
-    // board — the fixture's Methode 5 Todo holds no issue.
+    // board — the fixture's Metric Todo holds no issue.
     expect(todo[0]!.teamNames).toEqual([`soverius-ai`])
     expect(todo[0]!.id).toBe(`todo|unstarted`)
     // Both teams' Backlog holds no issue: the unused default state is noise

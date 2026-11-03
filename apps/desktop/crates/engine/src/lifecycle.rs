@@ -358,8 +358,25 @@ impl Attached {
         //    observer-based path, so the CLI's `registry::end_outcome_resolves`
         //    applies; an agent root idles (agents never end — the next
         //    message or trigger firing wakes the SAME row).
-        let end = (!ctx.replay)
-            .then(|| if released { Ok(()) } else { finish_row(ctx, &life.trpc, outcome, lost) });
+        // EXP-1669: a run that ended before its first turn (the CLI died on
+        // its handshake, or never answered it) FAILED to start: said in the
+        // conversation and flagged `Couldn't start`, never ended silently.
+        let failed_start = !released
+            && failed_start(
+                ctx.expects_first_turn(),
+                outcome,
+                ctx.outcome.lock().map(|slot| slot.is_some()).unwrap_or(true),
+                ctx.turns_started.load(Ordering::SeqCst),
+            );
+        let end = (!ctx.replay).then(|| {
+            if released {
+                Ok(())
+            } else if failed_start {
+                report_failed_start(ctx, &life.trpc, &failed_start_reason(error.as_deref(), outcome))
+            } else {
+                finish_row(ctx, &life.trpc, outcome, lost)
+            }
+        });
         // 6. EXP-758: this run's child (if it had one) is gone with the
         //    connection, so the record must stop naming it: a pid left here
         //    would make the next start's reaper sweep hunt a dead process,
@@ -460,6 +477,43 @@ fn finish_row(
         Some(lost) => coding::end_session_lost(trpc, &ctx.session_id, lost, mid_turn),
         None => coding::end_session(trpc, &ctx.session_id),
     }
+}
+
+/// EXP-1669: did this run fail to START? It expected a first turn
+/// (`expects_turn`: a seed prompt, not a replay), none ever opened, and
+/// nobody asked it to stop (a person's Stop, a kill, a suspend before the
+/// first turn are ends, not failures).
+pub(crate) fn failed_start(expects_turn: bool, outcome: &str, asked: bool, turns_started: u64) -> bool {
+    expects_turn && turns_started == 0 && !asked && outcome != SUSPEND_OUTCOME && outcome != RELEASED_OUTCOME
+}
+
+/// EXP-1669: what a failed start says: the transport's error (a handshake
+/// that failed or timed out), else how the agent went away.
+pub(crate) fn failed_start_reason(error: Option<&str>, outcome: &str) -> String {
+    if let Some(error) = error.map(str::trim).filter(|error| !error.is_empty()) {
+        return error.to_string();
+    }
+    match outcome.strip_prefix("exit:") {
+        Some(code) => format!("the agent exited (code {code}) before its first turn"),
+        None => "the agent exited before its first turn".to_string(),
+    }
+}
+
+/// EXP-1669: the failed start's writes, the shape every other failed start
+/// takes (`coding::pickup::start_failed_report`, EXP-1374/EXP-1536): the
+/// reason as the session's reply (it reaches the parent through the bus),
+/// then idle + blocked `start_failed`, so the row reads `Couldn't start`
+/// under Needs you and the next message starts it again. The reply goes
+/// out directly: the outbox is already closed.
+fn report_failed_start(ctx: &SessionCtx, trpc: &api::TrpcClient, reason: &str) -> Result<(), api::ApiError> {
+    log::warn!("engine: session {} failed to start: {reason}", ctx.session_id);
+    let text = coding::pickup::start_failure(reason);
+    let body = coding::sealing::seal_body_or_plain(&ctx.session_id, &text);
+    if let Err(err) = api::session_device::reply(trpc, &ctx.session_id, &body, None) {
+        log::warn!("engine: failed start of {} not replied: {err}", ctx.session_id);
+    }
+    let report = coding::pickup::start_failed_report(None, &coding::agent_accounts::now_iso());
+    api::session_device::report(trpc, &ctx.session_id, &report)
 }
 
 /// NEW-17: how long the end sequence waits for the ticker thread's
@@ -1268,6 +1322,26 @@ mod tests {
         assert_eq!(seen, 2);
         assert!(!missed_turn(&mut seen, 2, false), "reported once");
         assert!(missed_turn(&mut seen, 4, false), "two quick turns: one busy edge");
+    }
+
+    /// EXP-1669: a run that never got its first turn failed to START —
+    /// unless someone asked it to stop, it had no turn to open, or it was
+    /// only suspended/released.
+    #[test]
+    fn a_run_ended_before_its_first_turn_failed_to_start() {
+        assert!(failed_start(true, "ended", false, 0), "handshake timed out");
+        assert!(failed_start(true, "exit:1", false, 0), "the CLI died on its handshake");
+        assert!(!failed_start(true, "ended", false, 1), "a turn ran");
+        assert!(!failed_start(true, "killed", true, 0), "a person's Stop before the first turn");
+        assert!(!failed_start(false, "exit:1", false, 0), "a resume with no prompt");
+        assert!(!failed_start(true, SUSPEND_OUTCOME, false, 0));
+        assert!(!failed_start(true, RELEASED_OUTCOME, false, 0));
+        assert_eq!(
+            failed_start_reason(Some("claude did not answer for 3 minutes after it was launched"), "ended"),
+            "claude did not answer for 3 minutes after it was launched"
+        );
+        assert_eq!(failed_start_reason(None, "exit:1"), "the agent exited (code 1) before its first turn");
+        assert_eq!(failed_start_reason(Some("  "), "ended"), "the agent exited before its first turn");
     }
 
     #[test]

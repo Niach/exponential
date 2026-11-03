@@ -535,7 +535,7 @@ impl Render for StoragePane {
             crate::surface::PillSize::Sm,
             cx,
         )
-        .icon(Icon::from(ExpIcon::Trash2).xsmall())
+        .icon(Icon::from(crate::icons::registry::UI_CLEAN).xsmall())
         .label(SharedString::from(sweep_label))
         .disabled(candidates == 0 || self.busy)
         .on_click(cx.listener(move |this, _, window, cx| {

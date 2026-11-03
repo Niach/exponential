@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.7.1 (2026-11-03)
+
+- No changes of its own; released with the SDK (#1742's specimen look parity and #1744's neutral example names).
+
 ## 0.7.0 (2026-11-03)
 
 - VAPP-160: VoiceWave hardening. The rings are computed per frame in pure Kotlin (`VoiceWaveGeometry` + `VoiceWaveStyle` in the primitives: per-edge cos/sin tables, the points rewritten in place; no JSON, FFI call or parse per frame); same points (`VoiceWaveGeometryTest` holds the constants to catalog/style.json `voiceWave` and replays every `fixtures/voice-wave.json` case). The frame loop (rings and `variant: bars`) pauses while the wave is off screen (empty bounds in the window) or the host lifecycle is below STARTED, and resumes where it stopped.

@@ -41,6 +41,9 @@ public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
     public let id: String
     public let fullName: String
     public let defaultBranch: String
+    /// GitHub's own default (`githubDefaultBranch`): picking it clears the
+    /// pin. Older servers omit it = the effective branch.
+    public let githubDefaultBranch: String
     public let isPrivate: Bool
     public let boards: [RepoBoardSummary]
     public let sharedBy: RepoSharer?
@@ -50,13 +53,14 @@ public struct TeamRepo: Decodable, Sendable, Identifiable, Equatable {
         id = try c.decode(String.self, forKey: .id)
         fullName = try c.decode(String.self, forKey: .fullName)
         defaultBranch = (try? c.decode(String.self, forKey: .defaultBranch)) ?? "main"
+        githubDefaultBranch = (try? c.decode(String.self, forKey: .githubDefaultBranch)) ?? defaultBranch
         isPrivate = (try? c.decode(Bool.self, forKey: .isPrivate)) ?? false
         boards = (try? c.decode([RepoBoardSummary].self, forKey: .boards)) ?? []
         sharedBy = try c.decodeIfPresent(RepoSharer.self, forKey: .sharedBy)
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, fullName, defaultBranch, boards, sharedBy
+        case id, fullName, defaultBranch, githubDefaultBranch, boards, sharedBy
         case isPrivate = "private"
     }
 }
@@ -79,6 +83,19 @@ private struct AddRepoResult: Decodable {
 }
 
 private struct RepositoryIdInput: Encodable { let repositoryId: String }
+/// `branch: nil` is sent as an explicit null (follow GitHub's default again).
+private struct SetDefaultBranchInput: Encodable {
+    let repositoryId: String
+    let branch: String?
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(repositoryId, forKey: .repositoryId)
+        try c.encode(branch, forKey: .branch)
+    }
+
+    enum CodingKeys: String, CodingKey { case repositoryId, branch }
+}
 private struct RepoTeamIdInput: Encodable { let teamId: String }
 private struct AddRepoInput: Encodable {
     let teamId: String
@@ -141,6 +158,16 @@ public final class RepositoriesApi: Sendable {
             input: RepositoryIdInput(repositoryId: repositoryId)
         )
         return result.branches
+    }
+
+    /// Sharer-or-owner (EXP-462, web `DefaultBranchMenu`): pin the repo's
+    /// default branch; nil clears the pin (GitHub's default again).
+    public func setDefaultBranch(accountId: String, repositoryId: String, branch: String?) async throws {
+        try await trpc.mutationVoid(
+            accountId: accountId,
+            path: "repositories.setDefaultBranch",
+            input: SetDefaultBranchInput(repositoryId: repositoryId, branch: branch)
+        )
     }
 
     /// Sharer-or-owner (server-enforced, EXP-557): remove a repo. Blocked

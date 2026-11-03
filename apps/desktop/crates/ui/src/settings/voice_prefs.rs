@@ -1098,8 +1098,23 @@ fn modifier_events(capture: &CaptureState, modifiers: Modifiers) -> Vec<CaptureE
 
 #[cfg(test)]
 mod tests {
-    use super::{modifier_events, Field};
-    use etalk::voice::{capture_pending, capture_start, capture_step, CaptureEvent, CaptureStatus};
+    use super::{label_of, modifier_events, Field};
+    use etalk::voice::{
+        capture_pending, capture_start, capture_step, voice_device_options, CaptureEvent, CaptureStatus, VoiceDevice,
+    };
+
+    /// #NEW-125 (voice.json): the Voice device row reads the picked option's
+    /// label: None while none is picked, EMPTY while the stored device is not
+    /// (yet) among the options, never `…`.
+    #[test]
+    fn voice_device_value_is_none_or_empty() {
+        let mint = VoiceDevice { device_id: "d-mint".into(), name: "mint".into(), kind: "desktop".into() };
+        let options = voice_device_options(&[mint]);
+        assert_eq!(label_of(&options, None, "").as_ref(), "None");
+        assert_eq!(label_of(&options, Some("d-mint"), "").as_ref(), "mint");
+        assert_eq!(label_of(&options, Some("d-unsynced"), "").as_ref(), "");
+        assert_eq!(label_of(&voice_device_options(&[]), None, "").as_ref(), "None");
+    }
 
     /// S-3: gpui's modifier changes fold into the recorder like the
     /// fixture's `down` / `up` events.

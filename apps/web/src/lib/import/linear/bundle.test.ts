@@ -31,12 +31,12 @@ describe(`toLinearBundle (team routing)`, () => {
       `team:${T_SOV}`,
       `archive:${T_MET}`,
     ])
-    expect(bundle.boards[0]).toMatchObject({ name: `Methode 5`, prefix: `MET` })
+    expect(bundle.boards[0]).toMatchObject({ name: `Metric`, prefix: `MET` })
     const first = bundle.issues.find((issue) => issue.key === `issue:is-1`)!
     expect(first.boardKey).toBe(`team:${T_MET}`)
     expect(first.labelKeys).toContain(`project:${P_MAINT}`)
     expect(bundle.labels.find((label) => label.key === `project:${P_MAINT}`)).toMatchObject({
-      name: `M5 - Maintenance`,
+      name: `Q4 - Maintenance`,
     })
   })
 
@@ -61,7 +61,7 @@ describe(`toLinearBundle (team routing)`, () => {
     expect(first.createdAt).toBe(`2025-01-01T10:00:00.000Z`)
     expect(first.completedAt).toBe(`2025-06-01T10:00:00.000Z`)
     expect(first.externalRef).toBe(`MET-1`)
-    expect(first.externalUrl).toBe(`https://linear.app/methode5/issue/MET-1`)
+    expect(first.externalUrl).toBe(`https://linear.app/metric/issue/MET-1`)
     const second = bundle.issues.find((issue) => issue.key === `issue:is-2`)!
     expect(second.completedAt).toBe(`2025-02-02T10:00:00.000Z`)
     expect(second.dueDate).toBe(`2025-03-01`)
@@ -114,7 +114,7 @@ describe(`toLinearBundle (team routing)`, () => {
   it(`routes archived issues to the team's archive board, keeping the project as a label`, () => {
     expect(bundle.boards[2]).toEqual({
       key: `archive:${T_MET}`,
-      name: `Methode 5 Archive`,
+      name: `Metric Archive`,
       prefix: `META`,
       icon: `archive`,
       archive: true,
@@ -199,19 +199,19 @@ describe(`linearPreview`, () => {
   const preview = linearPreview(linearSnapshotFixture())
 
   it(`counts per team, project, status, label and user`, () => {
-    expect(preview.workspace).toEqual({ name: `Methode 5`, url: `https://linear.app/methode5` })
+    expect(preview.workspace).toEqual({ name: `Metric`, url: `https://linear.app/metric` })
     expect(preview.teams.map((team) => [team.prefix, team.issueCount])).toEqual([
       [`MET`, 3],
       [`SOV`, 0],
     ])
     expect(preview.projects).toEqual([
-      { key: `project:${P_MAINT}`, name: `M5 - Maintenance`, teamKey: `team:${T_MET}`, issueCount: 2 },
+      { key: `project:${P_MAINT}`, name: `Q4 - Maintenance`, teamKey: `team:${T_MET}`, issueCount: 2 },
     ])
     expect(preview.supportsProjectRouting).toBe(true)
     expect(preview.labels.some((label) => label.key.startsWith(`project:`))).toBe(false)
     expect(preview.counts).toEqual({ issues: 4, comments: 3, assets: 2, assetBytes: 85_285, events: 5 })
     expect(preview.archives).toEqual([
-      { key: `archive:${T_MET}`, teamKey: `team:${T_MET}`, name: `Methode 5 Archive`, prefix: `META`, issueCount: 1 },
+      { key: `archive:${T_MET}`, teamKey: `team:${T_MET}`, name: `Metric Archive`, prefix: `META`, issueCount: 1 },
     ])
     expect(preview.statuses.find((status) => status.key === `state:st-done`)).toMatchObject({
       teamKey: `team:${T_MET}`,

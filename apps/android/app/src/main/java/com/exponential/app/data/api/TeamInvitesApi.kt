@@ -48,6 +48,14 @@ data class CreateInviteResult(val token: String)
 @Serializable
 data class RevokeInviteInput(val id: String)
 
+/** EXP-630 (web `InviteMemberForm`): an invite by email = a placeholder
+ *  member on the roster now + the mailed link. */
+@Serializable
+data class CreateEmailInviteInput(val teamId: String, val email: String, val name: String? = null)
+
+@Serializable
+data class CreateEmailInviteResult(val token: String, val emailDelivered: Boolean? = null)
+
 @Singleton
 class TeamInvitesApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -60,6 +68,16 @@ class TeamInvitesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = CreateInviteInput.serializer(),
             outputSerializer = CreateInviteResult.serializer(),
         ).token
+
+    /** Owner-only: invite [email] (the placeholder member + the mail). */
+    suspend fun createForEmail(accountId: String, teamId: String, email: String, name: String?): CreateEmailInviteResult =
+        trpc.mutation(
+            accountId,
+            path = "teamInvites.create",
+            input = CreateEmailInviteInput(teamId, email, name),
+            inputSerializer = CreateEmailInviteInput.serializer(),
+            outputSerializer = CreateEmailInviteResult.serializer(),
+        )
 
     suspend fun accept(accountId: String, token: String): AcceptInviteResult =
         trpc.mutation(

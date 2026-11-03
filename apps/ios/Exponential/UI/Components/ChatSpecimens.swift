@@ -826,8 +826,8 @@ struct StorySpecimensScreen: View {
     }
 }
 
-/// The plan page one page deep in its own navigation stack (the back
-/// control the app's push draws).
+/// The plan page one page deep in its own navigation stack (the bare back
+/// arrow the app's push draws).
 private struct PlanPagePushedSpecimen: View {
     let card: TreeMessageCard?
     @State private var path: [Int] = []
@@ -840,6 +840,8 @@ private struct PlanPagePushedSpecimen: View {
                         sessionId: "apps", messageId: "plan", specimen: card,
                         specimenChatName: PlanPage.Specimen.chatName
                     )
+                    // The app's push draws the bare back arrow (EXP-1554).
+                    .bareBackButton()
                 }
         }
         .onAppear { if path.isEmpty { path = [1] } }

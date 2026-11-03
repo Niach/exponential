@@ -111,8 +111,8 @@ mod tests {
     #[test]
     fn short_name_drops_the_owner() {
         assert_eq!(
-            repo_short_name("m5software/m5-support").as_ref(),
-            "m5-support"
+            repo_short_name("acme/acme-support").as_ref(),
+            "acme-support"
         );
         assert_eq!(repo_short_name("bare").as_ref(), "bare");
     }

@@ -4,7 +4,7 @@
 // TOP-LEVEL connections (no nested pagination); an issue's history is nested
 // (first: 50) with a follow-up per issue only when it has more.
 //
-// Measured against the Methode 5 workspace on 2026-09-23: a 50-issue page
+// Measured against a real Linear workspace on 2026-09-23: a 50-issue page
 // with nested history cost 288 complexity, a 100-comment page 610, the
 // metadata query 4,300 — all well under the 10,000 per-query cap.
 import { z } from "zod"

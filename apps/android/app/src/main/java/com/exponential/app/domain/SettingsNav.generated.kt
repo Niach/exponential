@@ -26,6 +26,7 @@ object SettingsNav {
     const val AGENTS = "agents"
     const val MCP = "mcp"
     const val SKILLS = "skills"
+    const val APPS = "apps"
     const val DEVICES = "devices"
 
     val ROWS: List<Row> = listOf(
@@ -42,10 +43,11 @@ object SettingsNav {
         Row("agents", "Agents", "settings-agents", "agents", "all", true, "agents"),
         Row("mcp", "MCP", "settings-mcp", "agents", "all", true, null),
         Row("skills", "Skills", "ui-docs", "agents", "all", true, null),
+        Row("apps", "Apps", "nav-apps", "apps", "all", true, null),
         Row("devices", "Devices", "nav-devices", "devices", "all", true, null),
     )
 
-    val PHONE_ROWS: List<String> = listOf(GENERAL, MEMBERS, LABELS, REPOSITORIES, PROMPTS, BOARDS, AGENTS, MCP, SKILLS, DEVICES)
+    val PHONE_ROWS: List<String> = listOf(GENERAL, MEMBERS, LABELS, REPOSITORIES, PROMPTS, BOARDS, AGENTS, MCP, SKILLS, APPS, DEVICES)
 
     fun row(id: String): Row = ROWS.first { it.id == id }
 

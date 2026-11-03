@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.7.1 (2026-11-03)
+
+- No changes of its own; released with the SDK (#1742's specimen look parity and #1744's neutral example names).
+
 ## 0.7.0 (2026-11-03)
 
 - VAPP-160: `VoiceWave` hardening. The rings no longer round-trip JSON through the core every frame: `ExponentialUIPrimitives` gains `VoiceWaveGeometry` (the core's `voiceWave` in pure Swift: style.json's constants, per-edge trig tables cached by `VoiceWaveGeometryCache`, a per-frame `frame(activity:level:bands:elapsed:reducedMotion:)` rounded like JS `Math.round`), gated against style.json and replaying every fixtures/voice-wave.json case; the child box and `variant: bars` stay on the core. The rings and the bars stop animating while off screen or in the background. No visual change.

@@ -30,39 +30,37 @@ struct TeamLabelsSection: View {
                 EmptyState(.labels)
             }
 
-            ForEach(labels, id: \.id) { label in
-                HStack(spacing: 10) {
-                    Circle()
-                        .fill(Color(hex: label.color) ?? .gray)
-                        .frame(width: 14, height: 14)
+            // Web's order (`orderBy sortOrder`; unsorted rows last, id breaks ties).
+            ForEach(Self.webOrder(labels), id: \.id) { label in
+                HStack(spacing: 12) {
+                    // Web edits the name + colour in the row itself; here the
+                    // row opens the label editor (no pencil, ×4 = one trash).
+                    Button { editingLabel = label } label: {
+                        HStack(spacing: 12) {
+                            Circle()
+                                .fill(Color(hex: label.color) ?? .gray)
+                                .frame(width: 16, height: 16)
 
-                    Text(label.name)
-                        .font(.subheadline)
-                        .foregroundStyle(.white)
+                            Text(label.name)
+                                .font(.subheadline)
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
 
-                    Spacer()
-
-                    // Explicit edit entry (EXP-331 — Android parity; replaces
-                    // the undiscoverable tap-to-rename / swatch-menu recolor).
-                    // EXP-698: the shared chromed circle, but the `ui-edit`
-                    // pencil — this opens the editor straight away, so the
-                    // overflow glyph would promise a menu that never appears.
-                    GhostIconButton(AppIcons.uiEdit, accessibilityLabel: "Edit label") {
-                        editingLabel = label
+                            Spacer(minLength: 0)
+                        }
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Edit label \(label.name)")
 
                     // Delete (confirmed — labels stay member-level, so no owner
-                    // gating, only a confirmation).
-                    GhostIconButton(
-                        AppIcons.uiDelete,
-                        accessibilityLabel: "Delete label",
-                        tint: DesignTokens.Palette.destructive.opacity(0.7)
-                    ) {
+                    // gating, only a confirmation). Web's grey ghost trash.
+                    GhostIconButton(AppIcons.uiDelete, accessibilityLabel: "Delete label") {
                         deleteTarget = label
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 10)
+                .padding(.vertical, 6)
                 .flatRow()
             }
         }
@@ -108,6 +106,18 @@ struct TeamLabelsSection: View {
                     Task { await run(verb: "delete") { try await labelsApi.delete(accountId: accountId, teamId: teamId, labelId: label.id) } }
                 },
             ])
+        }
+    }
+
+    /// Web `labels` live query: `orderBy(sortOrder)`.
+    static func webOrder(_ labels: [LabelEntity]) -> [LabelEntity] {
+        labels.sorted { a, b in
+            switch (a.sortOrder, b.sortOrder) {
+            case let (x?, y?) where x != y: return x < y
+            case (_?, nil): return true
+            case (nil, _?): return false
+            default: return a.id < b.id
+            }
         }
     }
 

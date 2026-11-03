@@ -103,7 +103,7 @@ describe(`validateAppPackage: format version 3`, () => {
 // and the team's MCP servers.
 describe(`validateAppPackage: exposes`, () => {
   const records = { entry: { schema: { type: `object`, properties: { hours: { type: `number` } } } } }
-  const withExposes = (exposes: unknown[], upstreams: string[] = [`m5`]) => pkg({ records, upstreams, exposes })
+  const withExposes = (exposes: unknown[], upstreams: string[] = [`crm`]) => pkg({ records, upstreams, exposes })
 
   it.each(emcp.validateCases)(`$name`, (c) => {
     const records = Object.fromEntries(c.context.kinds.map((k) => [k, { schema: { type: `object`, properties: {} } }]))
@@ -121,9 +121,9 @@ describe(`validateAppPackage: exposes`, () => {
   })
 
   it(`upstreams name MCP servers of the app's team`, () => {
-    const valid = validateAppPackage(withExposes([], [`m5`, `github`]))
-    expect(upstreamIssues(valid, [`m5`, `github`])).toEqual([])
-    expect(upstreamIssues(valid, [`m5`])).toEqual([{ path: `/upstreams`, message: `upstreams github are not MCP servers of this team: the team has m5` }])
+    const valid = validateAppPackage(withExposes([], [`crm`, `github`]))
+    expect(upstreamIssues(valid, [`crm`, `github`])).toEqual([])
+    expect(upstreamIssues(valid, [`crm`])).toEqual([{ path: `/upstreams`, message: `upstreams github are not MCP servers of this team: the team has crm` }])
     expect(upstreamIssues(valid, [])[0]!.message).toMatch(/no MCP servers yet/)
   })
 

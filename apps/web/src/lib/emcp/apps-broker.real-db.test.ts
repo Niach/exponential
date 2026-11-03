@@ -64,7 +64,7 @@ async function client(userId: string): Promise<{ clientId: string; token: string
 
 const PACKAGE = {
   records: { entry: { schema: { type: `object`, properties: { day: { type: `string` }, hours: { type: `number` } } } } },
-  upstreams: [`m5`],
+  upstreams: [`crm`],
   exposes: [
     {
       name: `list_entries`,
@@ -93,10 +93,10 @@ const PACKAGE = {
     {
       name: `find_customer`,
       title: `Find a customer`,
-      description: `Search m5 customers.`,
+      description: `Search CRM customers.`,
       input: { type: `object`, properties: { q: { type: `string` } } },
       access: `read`,
-      run: { upstream: `m5`, tool: `search_customers`, args: { query: `\${input.q}` } },
+      run: { upstream: `crm`, tool: `search_customers`, args: { query: `\${input.q}` } },
     },
   ],
 }
@@ -318,7 +318,7 @@ describe.skipIf(!ready.ok)(`the apps consent (real db, VAPP-182)`, () => {
     const tree = await appsConsentTree(w.owner)
     const team = tree.find((t) => t.id === w.teamId)!
     expect(team.apps).toEqual([
-      expect.objectContaining({ id: w.appId, slug: `timesheet`, toolCount: 4, upstreams: [{ name: `m5`, serverId: null, auth: null, state: null }] }),
+      expect.objectContaining({ id: w.appId, slug: `timesheet`, toolCount: 4, upstreams: [{ name: `crm`, serverId: null, auth: null, state: null }] }),
     ])
 
     // A stranger's team and an unknown app id are clamped away.
@@ -376,6 +376,6 @@ describe.skipIf(!ready.ok)(`the member policy and the tool switch (real db, VAPP
     const tools = await member.appAccess.appTools({ appId: w.appId })
     expect(tools.canToggle).toBe(false)
     expect(tools.tools.find((t) => t.name === `add_entry`)).toMatchObject({ enabled: false, access: `write`, via: `records` })
-    expect(tools.upstreams).toEqual([{ name: `m5`, serverId: null, auth: null, state: null }])
+    expect(tools.upstreams).toEqual([{ name: `crm`, serverId: null, auth: null, state: null }])
   })
 })

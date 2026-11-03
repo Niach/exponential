@@ -57,6 +57,9 @@ data class TeamRepo(
     val boards: List<RepoBoardRef> = emptyList(),
     // EXP-557: who connected the repo (and thereby shared it with the team).
     val sharedBy: RepoSharedBy? = null,
+    // EXP-462: GitHub's own default (`defaultBranch` folds in the team pin);
+    // picking it in the branch chip clears the pin.
+    val githubDefaultBranch: String? = null,
 )
 
 @Serializable
@@ -165,6 +168,22 @@ class RepositoriesApi @Inject constructor(private val trpc: TrpcClient) {
      * the server's installation token — the option list for a board's Branch
      * picker. Throws `BAD_GATEWAY` when GitHub can't be reached.
      */
+    /**
+     * Sharer-or-owner (EXP-462, web `DefaultBranchMenu`): pin the branch the
+     * team treats as this repo's default; null clears the pin (follow
+     * GitHub). Hand-built input: the literal `null` must reach the server.
+     */
+    suspend fun setDefaultBranch(accountId: String, repositoryId: String, branch: String?) =
+        trpc.mutationUnit(
+            accountId,
+            path = "repositories.setDefaultBranch",
+            input = buildJsonObject {
+                put("repositoryId", repositoryId)
+                put("branch", branch?.let(::JsonPrimitive) ?: JsonNull)
+            },
+            inputSerializer = JsonElement.serializer(),
+        )
+
     suspend fun listBranches(accountId: String, repositoryId: String): List<String> =
         trpc.query(
             accountId,
