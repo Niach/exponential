@@ -11,7 +11,7 @@ use etalk::voice::VOICE;
 use etalk::call::{CallButton, VOICE_CALL};
 use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
 
-use etalk_gpui::voice_overlay::{call_pill, capsule, specimen_face, CallActions, Capsule};
+use etalk_gpui::voice_overlay::{call_pill, capsule, capsule_size, specimen_face, CallActions, Capsule};
 
 pub(crate) const ID: &str = "voice-call-overlay";
 pub(crate) const OWNER: &str = "NEW-77";
@@ -33,9 +33,12 @@ fn rows() -> Vec<Capsule> {
 }
 
 pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
-    let mut column = div().flex().flex_col().gap(px(12.));
+    // Each capsule hugs its words (web's entry; the overlay window's own
+    // `capsule_size`), never the column's width.
+    let mut column = div().flex().flex_col().items_start().gap(px(12.));
     for (i, row) in rows().iter().enumerate() {
-        column = column.child(capsule(("voice-overlay-specimen", i), row, cx));
+        let width = capsule_size(row, f32::MAX, cx).width;
+        column = column.child(capsule(("voice-overlay-specimen", i), row, cx).w(width));
     }
     let actions = CallActions::none();
     for (i, row) in VOICE_CALL.surface_specimens.iter().enumerate() {

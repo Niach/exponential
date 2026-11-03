@@ -465,6 +465,9 @@ public struct DockSheetSpecimenFrame<Body: View, Footer: View>: View {
     let row: Dock.Row
     var meta: String?
     var height: CGFloat
+    /// A plan's sheet: the header's `ui-fullscreen` (plan-page.json
+    /// `copy.openFull`), as the live sheet draws it.
+    var onOpenFull: (() -> Void)?
     let sheetBody: Body
     let footer: Footer
 
@@ -472,19 +475,21 @@ public struct DockSheetSpecimenFrame<Body: View, Footer: View>: View {
         row: Dock.Row,
         meta: String? = nil,
         height: CGFloat = 360,
+        onOpenFull: (() -> Void)? = nil,
         @ViewBuilder body: () -> Body,
         @ViewBuilder footer: () -> Footer
     ) {
         self.row = row
         self.meta = meta
         self.height = height
+        self.onOpenFull = onOpenFull
         self.sheetBody = body()
         self.footer = footer()
     }
 
     public var body: some View {
         VStack(spacing: 0) {
-            DockSheetHeader(row: row, meta: meta)
+            DockSheetHeader(row: row, meta: meta, onOpenFull: onOpenFull)
             ScrollView {
                 sheetBody
                     .frame(maxWidth: .infinity, alignment: .leading)

@@ -38,8 +38,10 @@ struct FeedbackStatesScreen: View {
                         HStack(spacing: 8) {
                             pendingButton("Start", loading: false)
                             pendingButton("Start", loading: true)
+                            // Pending = disabled (web `disabled:opacity-50`).
                             GlassPill(FeedbackStates.Pending.connect, size: .md) { InlineSpinner() }
                                 .fixedSize()
+                                .opacity(0.5)
                             Spacer(minLength: 0)
                         }
                     }
@@ -57,14 +59,22 @@ struct FeedbackStatesScreen: View {
                                 starting: .init(deviceLabel: "macbook", since: Date().addingTimeInterval(-1.4)),
                                 frozenElapsed: 1.4
                             )
-                            .padding(12)
-                            .glassCard()
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignTokens.Radius.xl)
+                                    .strokeBorder(DesignTokens.Palette.border, lineWidth: 1)
+                            )
                         }
                     }
                     card(5, "Blocking") {
-                        BlockingOverlay(FeedbackStates.Blocking.switchTeam("Personal"))
+                        BlockingOverlay(FeedbackStates.Blocking.switchTeam("Personal"), animated: false)
                             .frame(height: 160)
                             .clipShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.lg))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: DesignTokens.Radius.lg)
+                                    .strokeBorder(DesignTokens.Palette.border, lineWidth: 1)
+                            )
                     }
                     card(6, "Errors") {
                         VStack(alignment: .leading, spacing: 12) {
@@ -107,6 +117,8 @@ struct FeedbackStatesScreen: View {
             AppIcon(AppIcons.uiSubmit, size: AppIcon.Size.small)
         }
         .fixedSize()
+        // Pending = disabled (web `Button` `disabled:opacity-50`).
+        .opacity(loading ? 0.5 : 1)
     }
 
     private func card<Content: View>(
@@ -120,7 +132,11 @@ struct FeedbackStatesScreen: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
+        // Web `Kind`: `rounded-xl border border-border`, no fill.
+        .overlay(
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.xl)
+                .strokeBorder(DesignTokens.Palette.border, lineWidth: 1)
+        )
     }
 
     private func band<Trailing: View>(_ title: String, @ViewBuilder trailing: () -> Trailing) -> some View {
@@ -133,7 +149,8 @@ struct FeedbackStatesScreen: View {
         }
         .padding(.horizontal, 12)
         .frame(height: 40)
-        .background(GlassTokens.fillActive, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.md))
+        // Web `Band`: `bg-muted/40`.
+        .background(DesignTokens.Palette.muted.opacity(0.4), in: RoundedRectangle(cornerRadius: DesignTokens.Radius.md))
     }
 }
 

@@ -6943,11 +6943,11 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The DEV-ONLY `?dev=voice-call` on the Agent route (never parsed in a production build): `@exp/ui` `VoiceCallSpecimen` as web draws it (no speaker button): ringing, in call speaking, muted. A live call is the same `VoiceCallSurface`, a full-height overlay over the agent chat.",
+        "web": "The DEV-ONLY `?dev=voice-call` on the Agent route (never parsed in a production build): `@exp/ui` `VoiceCallSpecimen` as web draws it (no speaker button): all five `surfaceSpecimens`, each captioned with its name, in one row. A live call is the same `VoiceCallSurface`, a full-height overlay over the agent chat.",
         "ios": "The ExpUI specimen in StyleguideScreenshots, shot sg_voice-call: the four `surfaceSpecimens` on the live in-call card.",
         "android": "See ios: the same specimen in StyleguideScreenshotsTest.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:voice-call`: the IDE styleguide twin drawn full-window (S-3: the in-window call panel for each `surfaceSpecimens` row).",
-        "web-mobile": "Inherits web: the phone frame shows the first surface (ringing)."
+        "web-mobile": "Inherits web: the five surfaces stacked full width in one column, a caption under each."
       }
     },
     {
@@ -7011,7 +7011,7 @@
         "anchorDelayMs": 1500
       },
       "notes": {
-        "web": "The DEV-ONLY `?dev=voice-call-overlay`: `@exp/ui` `VoiceCallPillSpecimen`, the call pill for each `surfaceSpecimens` row (web itself never shows a pill; the push-to-talk capsules are the IDE's own).",
+        "web": "The DEV-ONLY `?dev=voice-call-overlay`: `@exp/ui` `VoiceOverlayCapsuleSpecimen` (the push-to-talk capsule for each voice.json `overlaySpecimens` row) then `VoiceCallPillSpecimen` (the call pill for each `surfaceSpecimens` row), as the styleguide entry and the IDE draw them (web itself never shows either).",
         "ios": "The ExpUI specimen of `voice-call-overlay` lands with the iOS call UI (S-3); until then the desktop twin is the picture.",
         "android": "See ios.",
         "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:voice-call-overlay`: the IDE styleguide twin drawn full-window (the capsules, then the call pills).",

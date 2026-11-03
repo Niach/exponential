@@ -1364,9 +1364,12 @@ struct ThreadAskCard: View {
             resolutionNote: card.feedback,
             richBody: true,
             headerTrailing: AnyView(HStack(spacing: 10) {
-                // #EXP-1493: THE plan page (plan-page.json `copy.openPlan`).
-                PlanPageOpenButton {
-                    pushRoute(.planPage(accountId: accountId, sessionId: card.sessionId, messageId: card.id))
+                // #EXP-1493: THE plan page (plan-page.json `copy.openPlan`);
+                // a superseded plan has none (web `headerAction`).
+                if card.decision != "superseded" {
+                    PlanPageOpenButton {
+                        pushRoute(.planPage(accountId: accountId, sessionId: card.sessionId, messageId: card.id))
+                    }
                 }
                 headerTrailing
                 dismissButton(card.id, waiting: !decided)

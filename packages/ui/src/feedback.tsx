@@ -109,14 +109,17 @@ const spansAt = (phase: number): MarkSpan[] => MARK.stripes.map((_, index) => ma
 /** D8.4 THE MARK: the logo disc (foreground) whose three cut stripes sweep in
  *  turn on a `mark.loopMs` loop; the cuts show the CALLER's ground (a mask).
  *  Static logo under reduce motion. `phase` freezes one frame of the loop
- *  (the styleguide's specimens) instead of animating. */
+ *  (the styleguide's specimens) instead of animating; `still` = the static
+ *  logo (the contained blocking specimen, as the natives' captures draw it). */
 export function FeedbackMark({
   size = 16,
   phase,
+  still = false,
   className,
 }: {
   size?: number
   phase?: number
+  still?: boolean
   className?: string
 }) {
   const id = useId()
@@ -124,8 +127,8 @@ export function FeedbackMark({
   const maskId = `mark-mask-${id}`
   const reduced = useMediaQuery(REDUCED_MOTION)
   const paths = useRef<(SVGPathElement | null)[]>([])
-  const frozen = phase !== undefined
-  const initial = reduced ? STATIC_SPANS : spansAt(phase ?? 0)
+  const frozen = phase !== undefined || still
+  const initial = reduced || still ? STATIC_SPANS : spansAt(phase ?? 0)
 
   useEffect(() => {
     if (reduced || frozen || typeof requestAnimationFrame !== `function`) return
@@ -190,7 +193,16 @@ export function BlockingOverlay({ open, label }: { open: boolean; label: string 
 
 /** The overlay's surface. `contained` fills the nearest positioned ancestor
  *  instead of the window (the styleguide's specimen). */
-export function BlockingSurface({ label, contained = false }: { label: string; contained?: boolean }) {
+export function BlockingSurface({
+  label,
+  contained = false,
+  still = false,
+}: {
+  label: string
+  contained?: boolean
+  /** The static logo instead of the sweep (the styleguide specimen). */
+  still?: boolean
+}) {
   const { blocking } = FEEDBACK_STATES
   return (
     <div
@@ -208,7 +220,7 @@ export function BlockingSurface({ label, contained = false }: { label: string; c
         backgroundColor: `color-mix(in oklab, var(--background) ${blocking.backdropOpacity * 100}%, transparent)`,
       }}
     >
-      <FeedbackMark size={blocking.markSize} />
+      <FeedbackMark size={blocking.markSize} still={still} />
       <p className="text-sm text-muted-foreground">{label}</p>
     </div>
   )

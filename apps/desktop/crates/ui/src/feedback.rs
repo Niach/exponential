@@ -585,19 +585,31 @@ pub(crate) fn starting_row(
     ground: Hsla,
     cx: &App,
 ) -> Div {
+    starting_row_frozen(id, device, since, ground, None, cx)
+}
+
+/// [`starting_row`] with its mark frozen at `phase` (None = the live loop;
+/// the styleguide specimen freezes it, web `FeedbackMark phase`).
+pub(crate) fn starting_row_frozen(
+    id: impl Into<ElementId>,
+    device: &str,
+    since: Instant,
+    ground: Hsla,
+    phase: Option<f64>,
+    cx: &App,
+) -> Div {
     let id: ElementId = id.into();
     let muted = cx.theme().muted_foreground;
+    let glyph = match phase {
+        Some(phase) => mark_at(MARK_INLINE_PX, phase, ground, cx),
+        None => mark(ElementId::NamedChild(std::sync::Arc::new(id.clone()), "mark".into()), MARK_INLINE_PX, ground, cx),
+    };
     h_flex()
         .w_full()
         .min_w_0()
         .items_center()
         .gap_2()
-        .child(mark(
-            ElementId::NamedChild(std::sync::Arc::new(id.clone()), "mark".into()),
-            MARK_INLINE_PX,
-            ground,
-            cx,
-        ))
+        .child(glyph)
         .child(
             div()
                 .flex_1()
@@ -666,7 +678,15 @@ impl Blocking {
 /// THE BLOCKING overlay: a full-window backdrop (the ground at 85 %) that
 /// swallows the mouse, the mark at 40px and ONE muted line.
 pub(crate) fn blocking_overlay(line: impl Into<SharedString>, cx: &App) -> AnyElement {
+    blocking_overlay_face(line, false, cx)
+}
+
+/// [`blocking_overlay`]; `still` = the static logo instead of the sweep
+/// (the styleguide specimen, web `BlockingSurface still`).
+pub(crate) fn blocking_overlay_face(line: impl Into<SharedString>, still: bool, cx: &App) -> AnyElement {
     let ground = cx.theme().background;
+    let glyph =
+        if still { mark_static(BLOCKING_MARK_PX, ground, cx) } else { mark("feedback-blocking-mark", BLOCKING_MARK_PX, ground, cx) };
     v_flex()
         .id("feedback-blocking")
         .absolute()
@@ -676,7 +696,7 @@ pub(crate) fn blocking_overlay(line: impl Into<SharedString>, cx: &App) -> AnyEl
         .justify_center()
         .gap(px(BLOCKING_GAP))
         .bg(ground.opacity(BLOCKING_BACKDROP_OPACITY))
-        .child(mark("feedback-blocking-mark", BLOCKING_MARK_PX, ground, cx))
+        .child(glyph)
         .child(
             div()
                 .text_sm()

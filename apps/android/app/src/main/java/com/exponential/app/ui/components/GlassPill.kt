@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
@@ -30,6 +31,9 @@ import com.exponential.app.ui.theme.PrimaryPressedAlpha
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.TintedStrokeAlpha
 import com.exponential.app.ui.theme.pressScale
+
+/** A primary pill in flight: web's disabled Button `opacity-50`. */
+private const val PendingPrimaryAlpha = 0.5f
 
 /** The two pill rungs — a 32dp control and a 24dp inline badge. */
 enum class PillSize { Md, Sm }
@@ -127,7 +131,10 @@ fun GlassPill(
     val active = enabled && mode == PillMode.Select && selected
     // The emphatic paint is for a LIVE call to action only: a disabled primary
     // capsule would read as tappable at full brightness.
-    val emphatic = enabled && primary
+    // A primary call IN FLIGHT ([loading]) keeps its solid fill, the whole
+    // capsule at the disabled opacity (web's pending Button, `opacity-50`).
+    val pendingPrimary = loading && primary
+    val emphatic = (enabled || pendingPrimary) && primary
     // A tone only paints on a live, non-emphatic capsule: a disabled or
     // primary pill already has one answer for its content colour.
     val toned = tint?.takeIf { enabled && !emphatic }
@@ -161,7 +168,11 @@ fun GlassPill(
     PillView(
         label = label,
         // EXP-1243 (D17): the primary capsule presses to 0.97.
-        modifier = if (emphatic) modifier.pressScale(pressed) else modifier,
+        modifier = when {
+            pendingPrimary -> modifier.alpha(PendingPrimaryAlpha)
+            emphatic -> modifier.pressScale(pressed)
+            else -> modifier
+        },
         style = GlassPillDefaults.pillStyle(
             size = size,
             label = fg,

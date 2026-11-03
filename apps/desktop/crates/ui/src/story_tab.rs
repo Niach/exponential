@@ -368,7 +368,7 @@ pub(crate) fn review_header(
 mod tests {
     use super::*;
 
-    /// web `storyThumbWidth`: by aspect at 400 tall, capped at 720; 4:3
+    /// web `storyThumbWidth`: by aspect at 240 tall, capped at 320; 4:3
     /// without a size.
     #[test]
     fn thumbs_size_by_aspect_capped() {
@@ -379,9 +379,9 @@ mod tests {
             height,
             caption: None,
         };
-        assert_eq!(story_thumb_width(&picture(Some(1600), Some(1000))), 640.);
-        assert_eq!(story_thumb_width(&picture(Some(1179), Some(2556))), 185.);
-        assert_eq!(story_thumb_width(&picture(Some(4000), Some(1000))), 720.);
-        assert_eq!(story_thumb_width(&picture(None, None)), 533.);
+        assert_eq!(story_thumb_width(&picture(Some(1000), Some(1000))), 240.);
+        assert_eq!(story_thumb_width(&picture(Some(1179), Some(2556))), 111.);
+        assert_eq!(story_thumb_width(&picture(Some(4000), Some(1000))), 320.);
+        assert_eq!(story_thumb_width(&picture(None, None)), 320.);
     }
 }
