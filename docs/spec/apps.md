@@ -1,6 +1,6 @@
 # Exponential apps (eApps): spec
 
-> Status: **approved 2026-11-01** (Danny; decisions in §18). Readiness verdict after batch 1: §20 (2026-11-03). Sources: the code at `e59ef9f4909`, epic #VAPP-110 (slice 1, done), #VAPP-175 (editor-first + eMCP), `packages/emcp`, eUI 0.3.0, the time-tracker check (thread 2db0b7d0), ExponentialOS plan v5 (thread 196b5162), Spezl #YO-32.
+> Status: **approved 2026-11-01** (Danny; decisions in §18). **General availability: §20 (Milestone G, released 2026-11-03).** Batch-1 readiness: §20.1. Sources: the code at `e59ef9f4909`, epic #VAPP-110 (slice 1, done), #VAPP-175 (editor-first + eMCP), `packages/emcp`, eUI 0.3.0, the time-tracker check (thread 2db0b7d0), ExponentialOS plan v5 (thread 196b5162), Spezl #YO-32.
 > Legend: ✅ exists · 🟡 partial · ❌ missing · 🆕 proposed here (no issue yet). The mocks are drawn with eUI (React harness, exponential theme, dark).
 
 ## 0. In one paragraph
@@ -841,7 +841,22 @@ R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 3. **A Postgres RLS backstop scoped to team + app** under one records service (§3.4 layer 5, §12.2). Ownership and policy stay in the service, not in RLS. The structured query becomes a parameterised query, so app text never becomes SQL.
 4. **eApps keeps no backwards compatibility** (until there are real apps): no compat shims, aliases or old-format fallbacks. A package names `formatVersion` and a host reads only its own; records have one spelling (`records:<kind>`, `records.*`; Exponential's `exp:records?kind=` and `harness.records.*` are gone); breaking checker changes (E2) refuse old packages on upsert, naming the path, and the editor agent fixes them.
 
-## 20. Readiness (batch 1, 2026-11-03)
+## 20. General availability (Milestone G, released 2026-11-03)
+
+**eApps is production-ready (GA)** on web, desktop, iOS and Android. Milestone G closed the five gaps the batch-1 verdict below named. Releases: web `5325cdb` (migrations 0238–0240), eUI 0.8.0, desktop/CLI 0.14.112, Android 0.14.100, iOS 0.14.94 (TestFlight). Follow-ups: eUI 0.9.0, desktop/CLI 0.14.113 and web 0.20.29 add Q3 computed fields and Q4 tools on the full query.
+
+What a team can rely on:
+
+- an edit is a draft until Publish, and members, tools and automations run the published version (V1);
+- install refuses broken surfaces and values that may be missing (#VAPP-203, #VAPP-204);
+- one team time zone (#VAPP-201);
+- read-only access is enforced and shown (#VAPP-199, #VAPP-200);
+- the local query is optimised and gated in the eUI bench (#VAPP-202; the CI and mid-phone numbers are still owed);
+- built-in skills teach agents the format (#VAPP-213).
+
+Rich apps continue in §17 order: R4 history, then U1 screens and the rest.
+
+### 20.1 Readiness (batch 1, 2026-11-03)
 
 Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI (#1719), R3 per-kind policies + `app_access` everywhere (#VAPP-199), "Run as" (#VAPP-198), authors in `.app.json` exports (#VAPP-192), the eApps real-DB suites run against Postgres 17 (all green), the §15 limits measured, and three real apps dogfooded on staging (time tracker, CRM, standup; `samples/apps/`, #VAPP-209). The dogfood found and fixed a desktop crash on every package action and a web/desktop disagreement on missing fields.
 
