@@ -443,7 +443,7 @@ fn visit(value: &Value, at: &str, scope: Option<&Scope>, ctx: &Ctx, issues: &mut
 /// Every `expr` call in a package's templates, checked.
 pub fn validate_package_expressions(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
     let mut issues = Vec::new();
-    for (id, template) in pkg.get("templates").and_then(Value::as_object).into_iter().flatten() {
+    for (id, template) in pkg.get("templates").and_then(Value::as_object).map(super::package::sorted_entries).into_iter().flatten() {
         let Some(template) = template.as_object() else { continue };
         let Some(components) = template.get("components").and_then(Value::as_array) else { continue };
         let ctx = Ctx { template, records: pkg.get("records"), queries: pkg.get("queries") };

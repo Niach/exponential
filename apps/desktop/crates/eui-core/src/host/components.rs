@@ -101,7 +101,7 @@ pub fn validate_package_components<S: AsRef<str>>(pkg: &Map<String, Value>, cata
         .is_some_and(|list| list.iter().filter_map(|e| e.get("id").and_then(Value::as_str)).any(|id| !id.is_empty() && !view.knows_catalog(id)));
     let open = !view.knows_catalog(catalog_id) || declared_unknown;
     let reduce_as = if view.knows_catalog(catalog_id) { catalog_id } else { CORE_CATALOG_ID };
-    for (id, template) in templates {
+    for (id, template) in super::package::sorted_entries(templates) {
         let Some(components) = template.as_object().and_then(|t| t.get("components")).and_then(Value::as_array) else { continue };
         let at = format!("/templates/{}/components", escape(id));
         let mut ids: HashSet<&str> = HashSet::new();

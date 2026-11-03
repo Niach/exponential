@@ -362,7 +362,7 @@ pub fn validate_package_effects(pkg: &Map<String, Value>) -> Vec<PackageIssue> {
     let Some(templates) = pkg.get("templates").and_then(Value::as_object) else { return issues };
     let empty = Map::new();
     let actions = pkg.get("actions").and_then(Value::as_object).unwrap_or(&empty);
-    for (id, template) in templates {
+    for (id, template) in super::package::sorted_entries(templates) {
         let Some(components) = template.as_object().and_then(|t| t.get("components")).and_then(Value::as_array) else { continue };
         for (i, c) in components.iter().enumerate() {
             let Some(c) = c.as_object() else { continue };
