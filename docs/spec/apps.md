@@ -842,7 +842,7 @@ Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI 
 **Verdict: ready for real team apps on web and desktop, for teams that build with the editor and accept that an edit is live at once.** Records, policies, queries, actions and tests are trustworthy and enforced by the server. It is **not yet general-availability**. Before calling it that:
 
 1. **V1 draft vs published** (§2.3): every editor (or agent) upsert is live for every member immediately; one bad edit breaks the app for the team. This is the biggest gap for real teams.
-2. **#VAPP-203**: install does not validate components/props, so an agent can publish a surface that renders broken. Small, and it pairs with V1.
+2. ✅ **#VAPP-203**: install reduces every template as the renderer will (unknown components, missing/mistyped props, child ids naming nothing), issues at `/templates/<id>/components/<i>…` (TS + Rust twins, `host-router.json` `acme.badcomponents`). It found two real bugs: the built-in Devices template bound non-bindable `IconDisc`/`LiveDot` props (now bindable) and a desktop test package's `chevron: "always"`.
 3. **#VAPP-204**: the checker trusts several values that may be missing (they fall to `default` at runtime instead of failing install).
 4. **#VAPP-201**: the team time zone (members in different zones bucket dates differently).
 5. **#VAPP-200**: an app's own inputs are not disabled at access `read`.

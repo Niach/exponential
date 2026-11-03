@@ -127,6 +127,14 @@ pub fn validate_package<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S]) -> Vec<Pa
 /// and components); `None` = a declared extension only has to be in
 /// `catalog_ids`.
 pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extensions: Option<&[AvailableExtension]>) -> Vec<PackageIssue> {
+    validate_package_in(pkg, catalog_ids, extensions, &crate::catalog::CatalogView::core())
+}
+
+/// [`validate_package_with`] reducing the templates against `view` (VAPP-203:
+/// the core plus the extensions the host has definitions for; the TS
+/// `AvailableExtension.def`). A catalog the view does not know leaves its
+/// component names open.
+pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extensions: Option<&[AvailableExtension]>, view: &std::sync::Arc<crate::catalog::CatalogView>) -> Vec<PackageIssue> {
     let mut issues = Vec::new();
     let Some(p) = pkg.as_object() else { return vec![issue("", "a package is an object")] };
     match p.get("formatVersion").map(|version| version.as_f64().filter(|v| v.fract() == 0.0 && *v >= 1.0)) {
@@ -301,6 +309,8 @@ pub fn validate_package_with<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], exte
             }
         }
     }
+    // VAPP-203: every template reduces clean, as the host will render it.
+    issues.extend(super::components::validate_package_components(p, catalog_ids, view));
     // VAPP-191: every expression in a template parses and type-checks.
     issues.extend(super::expressions::validate_package_expressions(p));
     // VAPP-194: bindings are pure; actions are checked step by step.

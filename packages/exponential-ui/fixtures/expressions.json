@@ -2001,21 +2001,19 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "formatDuration(target - entries.sum, 'h:mm')",
-                      "vars": {
-                        "target": {
-                          "path": "/target"
-                        },
-                        "entries": {
-                          "path": "/entries"
-                        }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "formatDuration(target - entries.sum, 'h:mm')",
+                    "vars": {
+                      "target": {
+                        "path": "/target"
                       },
-                      "default": null
-                    }
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -2081,18 +2079,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "entries.rows.filter(r, orElse(r.done, false)).map(r, r.hours)",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "entries.rows.filter(r, orElse(r.done, false)).map(r, r.hours)",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -2158,18 +2154,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "rows.map(r, r.hourz)",
-                      "vars": {
-                        "rows": {
-                          "path": "/entries/rows"
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "rows.map(r, r.hourz)",
+                    "vars": {
+                      "rows": {
+                        "path": "/entries/rows"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -2188,7 +2182,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "unknown field hourz"
         }
       ]
@@ -2240,18 +2234,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "entries.summ / 60",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "entries.summ / 60",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -2270,7 +2262,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "unknown field summ"
         }
       ]
@@ -2322,18 +2314,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "dateAdd(orElse(entries.rows[0].date, today()), 1, 'hour')",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "dateAdd(orElse(entries.rows[0].date, today()), 1, 'hour')",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -2352,7 +2342,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "unit hour needs a timestamp"
         }
       ]
@@ -2404,18 +2394,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "dateAdd(orElse(entries.rows[0].at, now()), 1, 'hour') > entries.rows[0].createdAt",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "dateAdd(orElse(entries.rows[0].at, now()), 1, 'hour') > entries.rows[0].createdAt",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -2481,18 +2469,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "entries.rows.map(r, r.hourz)",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "entries.rows.map(r, r.hourz)",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -2511,7 +2497,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "unknown field hourz"
         }
       ]
@@ -2563,13 +2549,11 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "1 +",
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "1 +",
+                    "default": null
                   }
                 }
               }
@@ -2588,7 +2572,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "at 3: unexpected end"
         }
       ]
@@ -2640,13 +2624,11 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "target * 2",
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "target * 2",
+                    "default": null
                   }
                 }
               }
@@ -2665,7 +2647,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "unknown name target"
         }
       ]
@@ -2717,16 +2699,14 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "x * 2",
-                      "vars": {
-                        "x": "a"
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "x * 2",
+                    "vars": {
+                      "x": "a"
+                    },
+                    "default": null
                   }
                 }
               }
@@ -2745,7 +2725,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "cannot apply * to string and number"
         }
       ]
@@ -2797,19 +2777,17 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "goal.hours * goal.weeks",
-                      "vars": {
-                        "goal": {
-                          "hours": 40,
-                          "weeks": 4
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "goal.hours * goal.weeks",
+                    "vars": {
+                      "goal": {
+                        "hours": 40,
+                        "weeks": 4
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -2875,18 +2853,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "orElse(row.anything, 0) + 1",
-                      "vars": {
-                        "row": {
-                          "path": "hours"
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "orElse(row.anything, 0) + 1",
+                    "vars": {
+                      "row": {
+                        "path": "hours"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -2952,18 +2928,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "orElse(x.y, 0) * 2",
-                      "vars": {
-                        "x": {
-                          "path": "/nowhere"
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "orElse(x.y, 0) * 2",
+                    "vars": {
+                      "x": {
+                        "path": "/nowhere"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -3029,22 +3003,20 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "orElse(x, 0) * 2",
-                      "vars": {
-                        "x": {
-                          "call": "add",
-                          "args": {
-                            "a": 1,
-                            "b": 2
-                          }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "orElse(x, 0) * 2",
+                    "vars": {
+                      "x": {
+                        "call": "add",
+                        "args": {
+                          "a": 1,
+                          "b": 2
                         }
-                      },
-                      "default": null
-                    }
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -3110,21 +3082,19 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "target + label",
-                      "vars": {
-                        "target": {
-                          "path": "/target"
-                        },
-                        "label": {
-                          "path": "/label"
-                        }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "target + label",
+                    "vars": {
+                      "target": {
+                        "path": "/target"
                       },
-                      "default": null
-                    }
+                      "label": {
+                        "path": "/label"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -3144,7 +3114,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "cannot apply + to number and string"
         }
       ]
@@ -3196,13 +3166,11 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": 5,
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": 5,
+                    "default": null
                   }
                 }
               }
@@ -3221,7 +3189,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "expr is a string"
         }
       ]
@@ -3273,16 +3241,14 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "1",
-                      "vars": [
-                        1
-                      ],
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "1",
+                    "vars": [
+                      1
+                    ],
+                    "default": null
                   }
                 }
               }
@@ -3301,7 +3267,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/vars",
+          "path": "/templates/month/components/0/text/args/vars",
           "message": "vars is an object"
         }
       ]
@@ -3353,13 +3319,11 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1    ",
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1    ",
+                    "default": null
                   }
                 }
               }
@@ -3378,7 +3342,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "expression is longer than 1000 characters"
         }
       ]
@@ -3430,15 +3394,6 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "1",
-                      "default": null
-                    }
-                  }
-                },
                 "visible": {
                   "call": "not",
                   "args": {
@@ -3454,6 +3409,13 @@
                         "default": null
                       }
                     }
+                  }
+                },
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "1",
+                    "default": null
                   }
                 }
               }
@@ -3524,18 +3486,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "entries.rows.filter(r, r.done).map(r, r.hours)",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "entries.rows.filter(r, r.done).map(r, r.hours)",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -3554,7 +3514,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "r.done may be missing: guard it with has(), a null check or orElse()"
         }
       ]
@@ -3606,18 +3566,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "entries.rows[0].hours * 60",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": 0
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "entries.rows[0].hours * 60",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": 0
                   }
                 }
               }
@@ -3636,7 +3594,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/expr",
+          "path": "/templates/month/components/0/text/args/expr",
           "message": "entries.rows[0].hours may be missing: guard it with has(), a null check or orElse()"
         }
       ]
@@ -3688,18 +3646,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "has(entries.rows[0].hours) ? entries.rows[0].hours * 60 : 0",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": 0
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "has(entries.rows[0].hours) ? entries.rows[0].hours * 60 : 0",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": 0
                   }
                 }
               }
@@ -3765,18 +3721,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "entries.rows.map(r, r.hours != null ? r.hours : 0)",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": null
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "entries.rows.map(r, r.hours != null ? r.hours : 0)",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": null
                   }
                 }
               }
@@ -3842,18 +3796,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "round(orElse(entries.rows[0].hours, 0) * 60)",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": 0
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "round(orElse(entries.rows[0].hours, 0) * 60)",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": 0
                   }
                 }
               }
@@ -3919,18 +3871,16 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "entries.rows.map(r, r.date)",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
-                      },
-                      "default": []
-                    }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "entries.rows.map(r, r.date)",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
+                      }
+                    },
+                    "default": []
                   }
                 }
               }
@@ -3996,15 +3946,13 @@
               {
                 "id": "root",
                 "component": "Text",
-                "props": {
-                  "text": {
-                    "call": "expr",
-                    "args": {
-                      "expr": "entries.count + 1",
-                      "vars": {
-                        "entries": {
-                          "path": "/entries"
-                        }
+                "text": {
+                  "call": "expr",
+                  "args": {
+                    "expr": "entries.count + 1",
+                    "vars": {
+                      "entries": {
+                        "path": "/entries"
                       }
                     }
                   }
@@ -4025,7 +3973,7 @@
       },
       "issues": [
         {
-          "path": "/templates/month/components/0/props/text/args/default",
+          "path": "/templates/month/components/0/text/args/default",
           "message": "an expression binding needs a default, shown when it fails"
         }
       ]
