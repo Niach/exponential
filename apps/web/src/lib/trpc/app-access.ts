@@ -98,6 +98,16 @@ export const appAccessRouter = router({
     return { level: memberPolicy(row?.level as Level | undefined) }
   }),
 
+  /** VAPP-198: every member's level for one app that is not Full (owners:
+   *  the editor's "Run as <member>" previews under the member's access). */
+  levels: authedProcedure.input(z.object({ appId: uuid })).query(async ({ ctx, input }) => {
+    const [app] = await ctx.db.select({ teamId: apps.teamId }).from(apps).where(and(eq(apps.id, input.appId), isNull(apps.deletedAt))).limit(1)
+    if (!app) throw new TRPCError({ code: `NOT_FOUND`, message: `App not found` })
+    assertOwner((await memberOrNotFound(ctx.session.user.id, app.teamId)).role)
+    const rows = await ctx.db.select({ userId: appAccess.userId, level: appAccess.level }).from(appAccess).where(eq(appAccess.appId, input.appId))
+    return { levels: Object.fromEntries(rows.map((r) => [r.userId, r.level as Level])) as Record<string, Level> }
+  }),
+
   /** Set one member's level for one app (owners). Full removes the row. */
   set: authedProcedure
     .input(z.object({ appId: uuid, userId: z.string().min(1), level: levelSchema }))

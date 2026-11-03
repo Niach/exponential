@@ -135,3 +135,26 @@ export function previewTemplate(pkg: { templates?: Record<string, unknown> } | n
   const list = previewTemplates(pkg)
   return picked !== null && list.includes(picked) ? picked : (list[0] ?? null)
 }
+
+/** VAPP-198: one Run as option (`value` "" = me). */
+export interface RunAsOption {
+  value: string
+  label: string
+}
+
+/** VAPP-198: the preview toolbar's Run as options (`runAsCases`): null
+ *  unless the viewer is a team owner with another member; else Me, then
+ *  every other member by name (case-insensitive, then id; no name = id). */
+export function runAsOptions(members: readonly { userId: string; name?: string | null; role: string }[], me: string | null, role: string | null): RunAsOption[] | null {
+  if (role !== `owner`) return null
+  const others = members
+    .filter((m) => m.userId !== me)
+    .map((m) => ({ value: m.userId, label: m.name?.trim() ? m.name : m.userId }))
+    .sort((a, b) => {
+      const x = a.label.toLowerCase()
+      const y = b.label.toLowerCase()
+      return x < y ? -1 : x > y ? 1 : a.value < b.value ? -1 : a.value > b.value ? 1 : 0
+    })
+  if (others.length === 0) return null
+  return [{ value: ``, label: fixture.copy.runAs.me }, ...others]
+}

@@ -94,7 +94,7 @@ final class AppsTests: XCTestCase {
             "versionPreview": Apps.TestIds.versionPreview, "versionRestore": Apps.TestIds.versionRestore,
             "data": Apps.TestIds.data,
             "previewToolbar": Apps.TestIds.previewToolbar, "previewFrame": Apps.TestIds.previewFrame,
-            "previewTemplate": Apps.TestIds.previewTemplate,
+            "previewTemplate": Apps.TestIds.previewTemplate, "previewRunAs": Apps.TestIds.previewRunAs,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])
