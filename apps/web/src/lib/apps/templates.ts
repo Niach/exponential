@@ -9,8 +9,9 @@ import { verifyPackageFile } from "@exponential_app/eui"
 import crm from "../../../../../samples/apps/crm.app.json" with { type: "json" }
 import standup from "../../../../../samples/apps/standup.app.json" with { type: "json" }
 import timeTracker from "../../../../../samples/apps/time-tracker.app.json" with { type: "json" }
+import leavePlanner from "../../../../../samples/apps/leave-planner.app.json" with { type: "json" }
 
-const FILES: Record<string, unknown> = { "time-tracker": timeTracker, crm, standup }
+const FILES: Record<string, unknown> = { "time-tracker": timeTracker, crm, standup, "leave-planner": leavePlanner }
 
 /** The text `apps.import` takes for template `id`, or why it cannot be
  *  imported (an unknown id, a signature that does not verify against the

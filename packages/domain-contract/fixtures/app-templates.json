@@ -38,6 +38,13 @@
       "icon": "users",
       "color": "#f59e0b",
       "description": "The async daily standup"
+    },
+    {
+      "id": "leave-planner",
+      "name": "Leave planner",
+      "icon": "calendar",
+      "color": "#0ea5e9",
+      "description": "Who is out: a leave calendar and timeline"
     }
   ],
   "importCases": [

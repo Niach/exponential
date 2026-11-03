@@ -2,16 +2,17 @@
 // The built-in skills with every file inlined (Vite ?raw), for the server.
 import s0 from "./exponential-apps/SKILL.md?raw"
 import s0f0 from "./exponential-apps/examples/crm.app.json?raw"
-import s0f1 from "./exponential-apps/examples/standup.app.json?raw"
-import s0f2 from "./exponential-apps/examples/time-tracker.app.json?raw"
-import s0f3 from "./exponential-apps/references/actions.md?raw"
-import s0f4 from "./exponential-apps/references/automations.md?raw"
-import s0f5 from "./exponential-apps/references/expressions.md?raw"
-import s0f6 from "./exponential-apps/references/import.md?raw"
-import s0f7 from "./exponential-apps/references/package.md?raw"
-import s0f8 from "./exponential-apps/references/records.md?raw"
-import s0f9 from "./exponential-apps/references/tests.md?raw"
-import s0f10 from "./exponential-apps/references/tools-and-exposes.md?raw"
+import s0f1 from "./exponential-apps/examples/leave-planner.app.json?raw"
+import s0f2 from "./exponential-apps/examples/standup.app.json?raw"
+import s0f3 from "./exponential-apps/examples/time-tracker.app.json?raw"
+import s0f4 from "./exponential-apps/references/actions.md?raw"
+import s0f5 from "./exponential-apps/references/automations.md?raw"
+import s0f6 from "./exponential-apps/references/expressions.md?raw"
+import s0f7 from "./exponential-apps/references/import.md?raw"
+import s0f8 from "./exponential-apps/references/package.md?raw"
+import s0f9 from "./exponential-apps/references/records.md?raw"
+import s0f10 from "./exponential-apps/references/tests.md?raw"
+import s0f11 from "./exponential-apps/references/tools-and-exposes.md?raw"
 import s1 from "./exponential-motion/SKILL.md?raw"
 import s1f0 from "./exponential-motion/examples/equalizer.json?raw"
 import s1f1 from "./exponential-motion/examples/error-x.json?raw"
@@ -50,16 +51,17 @@ export const BUILTIN_SKILL_SOURCES: BuiltinSkillSource[] = [
     skillMd: s0,
     files: [
       { path: "examples/crm.app.json", content: s0f0 },
-      { path: "examples/standup.app.json", content: s0f1 },
-      { path: "examples/time-tracker.app.json", content: s0f2 },
-      { path: "references/actions.md", content: s0f3 },
-      { path: "references/automations.md", content: s0f4 },
-      { path: "references/expressions.md", content: s0f5 },
-      { path: "references/import.md", content: s0f6 },
-      { path: "references/package.md", content: s0f7 },
-      { path: "references/records.md", content: s0f8 },
-      { path: "references/tests.md", content: s0f9 },
-      { path: "references/tools-and-exposes.md", content: s0f10 },
+      { path: "examples/leave-planner.app.json", content: s0f1 },
+      { path: "examples/standup.app.json", content: s0f2 },
+      { path: "examples/time-tracker.app.json", content: s0f3 },
+      { path: "references/actions.md", content: s0f4 },
+      { path: "references/automations.md", content: s0f5 },
+      { path: "references/expressions.md", content: s0f6 },
+      { path: "references/import.md", content: s0f7 },
+      { path: "references/package.md", content: s0f8 },
+      { path: "references/records.md", content: s0f9 },
+      { path: "references/tests.md", content: s0f10 },
+      { path: "references/tools-and-exposes.md", content: s0f11 },
     ],
   },
   {

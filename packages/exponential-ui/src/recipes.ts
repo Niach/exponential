@@ -29,6 +29,8 @@ function walkTemplate(tpl: MacroChild, parts: Set<string>, props: Set<string>): 
   for (const key of Object.keys(tpl.$recipe ?? {})) props.add(key)
   for (const child of tpl.children ?? []) walkTemplate(child, parts, props)
   for (const slot of Object.values(tpl.slots ?? {})) if (typeof slot !== `string`) walkTemplate(slot, parts, props)
+  // eApps U3: a data template's item is a part too.
+  if (tpl.$template) walkTemplate(tpl.$template.item, parts, props)
 }
 
 /** A macro's parts and recipe props, read off its template. */

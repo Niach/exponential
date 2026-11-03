@@ -343,6 +343,10 @@
       "contain",
       "cover",
       "fill"
+    ],
+    "calendarView": [
+      "month",
+      "week"
     ]
   },
   "defs": {
@@ -4379,6 +4383,69 @@
         "complete",
         "state"
       ]
+    },
+    "Calendar": {
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "children": "none",
+      "events": [
+        "select",
+        "open"
+      ],
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "view": {
+          "type": "enum",
+          "enum": "calendarView",
+          "default": "month"
+        },
+        "labelField": {
+          "type": "string",
+          "default": "title"
+        },
+        "detailField": {
+          "type": "string",
+          "default": "detail"
+        },
+        "metaField": {
+          "type": "string",
+          "default": "status"
+        },
+        "style": {
+          "type": "style"
+        }
+      }
+    },
+    "Timeline": {
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "children": "none",
+      "events": [
+        "open"
+      ],
+      "props": {
+        "source": {
+          "type": "string"
+        },
+        "labelField": {
+          "type": "string",
+          "default": "title"
+        },
+        "rowTitle": {
+          "type": "string"
+        },
+        "showCount": {
+          "type": "boolean",
+          "default": false
+        },
+        "style": {
+          "type": "style"
+        }
+      }
     }
   }
 }

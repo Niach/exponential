@@ -11901,6 +11901,94 @@
       }
     },
     {
+      "id": "exponential-ui-calendar",
+      "component": "Calendar",
+      "title": "Calendar",
+      "node": {
+        "id": "specimen-calendar",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-calendar-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-calendar-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-calendar",
+                "component": "Calendar",
+                "props": {
+                  "view": "month"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "exponential-ui-timeline",
+      "component": "Timeline",
+      "title": "Timeline",
+      "node": {
+        "id": "specimen-timeline",
+        "component": "Box",
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "gap": "$spacing.lg",
+          "padding": "$spacing.xl",
+          "maxWidth": 720
+        },
+        "children": [
+          {
+            "id": "specimen-timeline-case-0",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-timeline-case-0-label",
+                "component": "Text",
+                "props": {
+                  "text": "example",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c0-timeline",
+                "component": "Timeline",
+                "props": {
+                  "rowTitle": "Workstream"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
       "id": "exponential-ui-demo",
       "component": null,
       "title": "Demo",

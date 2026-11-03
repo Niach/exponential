@@ -6655,6 +6655,529 @@
               }
             }
           ]
+        },
+        "Calendar": {
+          "frame": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "head": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "weekdayName": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "weekdayInitial": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "shadeCell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "weekend": true
+              },
+              "style": {
+                "backgroundColor": "$color.card"
+              }
+            }
+          ],
+          "number": [
+            {
+              "style": {
+                "transition": "$motion.fast"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "numberText": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "inMonth": false
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "compact": [
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "compactNumber": [
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "compactNumberText": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "inMonth": false
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "entryTone": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "segment": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            },
+            {
+              "when": {
+                "marker": true
+              },
+              "style": {
+                "backgroundColor": "#00000000"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "color": "$color.infoForeground"
+              }
+            }
+          ],
+          "more": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "Timeline": {
+          "root": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "columnsRow": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "corner": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "columnsCorner": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "band": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "column": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "rowHead": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "cornerLabel": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "columnLabel": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.foreground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "bandLabel": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "barLabel": [
+            {
+              "style": {
+                "color": "$color.infoForeground"
+              }
+            }
+          ],
+          "now": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground"
+              }
+            }
+          ]
         }
       }
     },
@@ -13613,6 +14136,529 @@
             {
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "Calendar": {
+          "frame": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "head": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "weekdayName": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "weekdayInitial": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "shadeCell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "weekend": true
+              },
+              "style": {
+                "backgroundColor": "$color.card"
+              }
+            }
+          ],
+          "number": [
+            {
+              "style": {
+                "transition": "$motion.fast"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "numberText": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "inMonth": false
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "compact": [
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "compactNumber": [
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "compactNumberText": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "inMonth": false
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "entryTone": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "segment": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            },
+            {
+              "when": {
+                "marker": true
+              },
+              "style": {
+                "backgroundColor": "#00000000"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "color": "$color.infoForeground"
+              }
+            }
+          ],
+          "more": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "Timeline": {
+          "root": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "columnsRow": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "corner": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "columnsCorner": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "band": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "column": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "rowHead": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "cornerLabel": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "columnLabel": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.foreground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "bandLabel": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "barLabel": [
+            {
+              "style": {
+                "color": "$color.infoForeground"
+              }
+            }
+          ],
+          "now": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground"
               }
             }
           ]
@@ -20918,6 +21964,529 @@
               }
             }
           ]
+        },
+        "Calendar": {
+          "frame": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "head": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "weekdayName": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "weekdayInitial": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "shadeCell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "weekend": true
+              },
+              "style": {
+                "backgroundColor": "$color.card"
+              }
+            }
+          ],
+          "number": [
+            {
+              "style": {
+                "transition": "$motion.fast"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "numberText": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "inMonth": false
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "compact": [
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "compactNumber": [
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "compactNumberText": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "inMonth": false
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "entryTone": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "segment": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            },
+            {
+              "when": {
+                "marker": true
+              },
+              "style": {
+                "backgroundColor": "#00000000"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "color": "$color.infoForeground"
+              }
+            }
+          ],
+          "more": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "Timeline": {
+          "root": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "columnsRow": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "corner": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "columnsCorner": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "band": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "column": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "rowHead": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "cornerLabel": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "columnLabel": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.foreground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "bandLabel": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "barLabel": [
+            {
+              "style": {
+                "color": "$color.infoForeground"
+              }
+            }
+          ],
+          "now": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground"
+              }
+            }
+          ]
         }
       }
     },
@@ -27877,6 +29446,529 @@
             {
               "style": {
                 "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "Calendar": {
+          "frame": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "head": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "weekdayName": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "weekdayInitial": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "shadeCell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            },
+            {
+              "when": {
+                "weekend": true
+              },
+              "style": {
+                "backgroundColor": "$color.card"
+              }
+            }
+          ],
+          "number": [
+            {
+              "style": {
+                "transition": "$motion.fast"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "numberText": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "inMonth": false
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "compact": [
+            {
+              "when": {
+                "selected": true
+              },
+              "style": {
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "compactNumber": [
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "backgroundColor": "$color.primary"
+              }
+            }
+          ],
+          "compactNumberText": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            },
+            {
+              "when": {
+                "inMonth": false
+              },
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.primaryForeground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "entryTone": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "segment": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            },
+            {
+              "when": {
+                "marker": true
+              },
+              "style": {
+                "backgroundColor": "#00000000"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "color": "$color.infoForeground"
+              }
+            }
+          ],
+          "more": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "Timeline": {
+          "root": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "columnsRow": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "corner": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "columnsCorner": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "band": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "column": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "rowHead": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "cell": [
+            {
+              "style": {
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "cornerLabel": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "columnLabel": [
+            {
+              "style": {
+                "color": "$color.mutedForeground"
+              }
+            },
+            {
+              "when": {
+                "today": true
+              },
+              "style": {
+                "color": "$color.foreground",
+                "fontWeight": "$type.weight.medium"
+              }
+            }
+          ],
+          "bandLabel": [
+            {
+              "style": {
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "when": {
+                "tone": "chart1"
+              },
+              "style": {
+                "backgroundColor": "$color.chart1"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart2"
+              },
+              "style": {
+                "backgroundColor": "$color.chart2"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart3"
+              },
+              "style": {
+                "backgroundColor": "$color.chart3"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart4"
+              },
+              "style": {
+                "backgroundColor": "$color.chart4"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart5"
+              },
+              "style": {
+                "backgroundColor": "$color.chart5"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart6"
+              },
+              "style": {
+                "backgroundColor": "$color.chart6"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart7"
+              },
+              "style": {
+                "backgroundColor": "$color.chart7"
+              }
+            },
+            {
+              "when": {
+                "tone": "chart8"
+              },
+              "style": {
+                "backgroundColor": "$color.chart8"
+              }
+            }
+          ],
+          "barLabel": [
+            {
+              "style": {
+                "color": "$color.infoForeground"
+              }
+            }
+          ],
+          "now": [
+            {
+              "style": {
+                "backgroundColor": "$color.foreground"
               }
             }
           ]

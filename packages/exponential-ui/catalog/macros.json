@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-85: the ONE declarative macro table. A macro component (core.catalog.json `kind: macro`) expands into this template before painting; the TS reference expander (src/macros.ts) and the Rust core apply the same table and fixtures/catalog-macros.json locks the output. Template node = { part, component, props?, style?, children?, slots?, $if?, $any?, $each?, $as?, $on?, $context?, $set?, $recipe?, $a11y? }. Values: `\"{props.x}\"` alone = the raw prop (a data BINDING passes through untouched, so two-way binding survives); `\"{props.x|fallback}\"` = with a default; `{…}` inside a longer string interpolates; `{id}` = the macro node's id; `{len(props.rows)}` = an array length; `{range(props.max|5)}` = the indexes 0..n-1 (for `$each`); `{index}` = the current $each index; `{!path}` negates. Value objects: $map {from, cases, default}, $cond [condition, then, else], $eq [a, b] (a number equals a string spelling it), $lt [a, b], $add [a, b], $sub [a, b], $clamp [value, min, max] (a missing bound does not clamp), $percent [value, max] (→ \"N%\"), $coalesce [a, b, …], $text value (→ the value as a string, absent when missing), $not condition, $fill [template, {name: value}] (ALWAYS emits the core `fill` call: the template is usually a `$string.<id>` sentence with `{name}` placeholders the surface's string table resolves at bind time). Object KEYS interpolate too (`\"@media (max-width: $breakpoint.{props.collapseBelow|md})\"`). `$if` = a condition or an array of conditions (all must hold); `$any` = an array where one must hold. `$each` repeats a part per item of an array (`$as` names the item, default `item`). Children: `\"$children\"` splices the author's children, `\"$slot:name\"` splices an author slot in place; `slots: {\"trigger\": \"$slot:trigger\"}` copies an author slot, `slots: {\"footer\": {template node}}` builds one as a part. `$on: {\"press\": \"change\"}` routes the author's `on.change` handler to this part's `press` (merging `$context` into an event action's context); without `$on` the author's `on` map stays on the root. `$set: {\"press\": {\"prop\": \"open\", \"value\": \"{!props.open}\"}}` = TWO-WAY BINDING (round 1): when the author's `props.open` is a data binding `{path}`, this part's `press` action also carries `functionCall: {call: \"set\", args: {path, value}}` (the value evaluated like any template value, so usually a call), key order `event` then `functionCall`; a literal prop adds nothing (the host owns the state through the routed event); when the author's routed handler is itself a FUNCTION (an Action carries one), it wins, no `set` is added and the reducer reports an issue. `$a11y: {role, label, description, level, expanded, current, selected, pressed, checked, valueNow, valueMin, valueMax, hidden, autoFocus}` = the part's ACCESSIBILITY (docs/round-1-contract.md §6): evaluated like props (a bound input emits a call) into the expanded node's `accessibility`; `role` is one of catalog/a11y.json `roles`; on the root the author's `accessibility` label/description win. Ids: the root keeps the author's id, parts get `<id>.<part>` and `<id>.<part>.<index>` under `$each`. Every expanded node carries `recipe: {macro, part, props}` where props = `recipeProps` evaluated from the author's props (+ a part's `$recipe`); the THEME (VAPP-92) keys its visual recipes on that, so nothing here states a colour, a border or a font — only structure and token-named spacing, radius and control heights. VAPP-163: the expansion ROOT's recipe also carries `authored` = the top-level keys of the style written ON the macro node (condition blocks count as one key), SORTED, omitted when none; painters apply native recipe < node style < part recipe < those authored keys, so an author's colour or size on a Heading/Badge beats the theme's part recipe while the template's own structure does not (only the author's keys count: a macro node an outer template drew passes on just its root's `authored`, never template style). Macros may use other macros (Row → TreeGuides); expansion recurses until every node is native (innermost recipe wins). ROUND 1 (docs/round-1-contract.md §1, BOUND INPUTS): when an expression input is a data binding `{path}` or a function call, the expander does NOT evaluate — it EMITS an A2UI function call the renderer evaluates at bind time, over the core functions: interpolation → concat, `|fallback` → fallback (as an operand; a whole-string MEMBER of props/style/context passes the binding itself through, so two-way binding survives), `!` → not, len → len, $map → map, $cond → cond, $eq → eq, $lt → lt, $add → add, $sub → sub, $percent → percent, $text → text, $coalesce → coalesce, $not → not; a `$if`/`$any` whose conditions are bound emits the part WITH `visible` = the bound condition (`and{values}` over several bound `$if`s, `or{values}` over several bound `$any`s; literal conditions still decide at expansion); `$each` over a bound array emits nothing (use List with a template); a `$recipe` value may therefore be a call too (renderers resolve recipe props like props). RESPONSIVE PROPS: an author prop `{base, sm?, md?, lg?, xl?}` on a `responsive` prop is evaluated per breakpoint: a part's style is computed with the `base` values, then once per breakpoint named (ascending sm<md<lg<xl, each key inheriting the last smaller one) and every key that changed lands in a `\"@media (min-width: $breakpoint.<bp>)\"` block of that part; props and conditions see the `base` value. Strings of the form `$string.<id>` (catalog/strings.json) are built-in UI copy the renderer shows in the surface locale. Round 3 (VAPP-102): AFTER the table is applied the core runs ONE post-expansion pass, src/tree-guides.ts applyTreeGuides (Rust: tree_guides::apply): over every node's children in order, each Row root (`recipe.macro` Row, part root) contributes its numeric `recipe.props.depth` (anything else counts as depth 0 and ends every subtree), the ×4 treeGuides rule (elbow at depth-1, tee while a later sibling follows, pass-through for every ancestor level that continues) fills the Row's `guides` part (a TreeGuides) with `elbowAt`/`tee`/`passThrough`; fixtures/tree-guides.json locks the rule, catalog-macros.json the filled trees. EXP-1495 (docs/round-6-contract.md): Outline (the anchor list) and Mosaic (the wide picture group) are macros over Box/Text/Image.",
+  "$comment": "VAPP-85: the ONE declarative macro table. A macro component (core.catalog.json `kind: macro`) expands into this template before painting; the TS reference expander (src/macros.ts) and the Rust core apply the same table and fixtures/catalog-macros.json locks the output. Template node = { part, component, props?, style?, children?, slots?, $if?, $any?, $each?, $as?, $on?, $context?, $set?, $recipe?, $a11y? }. Values: `\"{props.x}\"` alone = the raw prop (a data BINDING passes through untouched, so two-way binding survives); `\"{props.x|fallback}\"` = with a default; `{…}` inside a longer string interpolates; `{id}` = the macro node's id; `{len(props.rows)}` = an array length; `{range(props.max|5)}` = the indexes 0..n-1 (for `$each`); `{index}` = the current $each index; `{!path}` negates. Value objects: $map {from, cases, default}, $cond [condition, then, else], $eq [a, b] (a number equals a string spelling it), $lt [a, b], $add [a, b], $sub [a, b], $clamp [value, min, max] (a missing bound does not clamp), $percent [value, max] (→ \"N%\"), $coalesce [a, b, …], $text value (→ the value as a string, absent when missing), $not condition, $fill [template, {name: value}] (ALWAYS emits the core `fill` call: the template is usually a `$string.<id>` sentence with `{name}` placeholders the surface's string table resolves at bind time). Object KEYS interpolate too (`\"@media (max-width: $breakpoint.{props.collapseBelow|md})\"`). `$if` = a condition or an array of conditions (all must hold); `$any` = an array where one must hold. `$each` repeats a part per item of an array (`$as` names the item, default `item`). Children: `\"$children\"` splices the author's children, `\"$slot:name\"` splices an author slot in place; `slots: {\"trigger\": \"$slot:trigger\"}` copies an author slot, `slots: {\"footer\": {template node}}` builds one as a part. `$on: {\"press\": \"change\"}` routes the author's `on.change` handler to this part's `press` (merging `$context` into an event action's context); without `$on` the author's `on` map stays on the root. `$set: {\"press\": {\"prop\": \"open\", \"value\": \"{!props.open}\"}}` = TWO-WAY BINDING (round 1): when the author's `props.open` is a data binding `{path}`, this part's `press` action also carries `functionCall: {call: \"set\", args: {path, value}}` (the value evaluated like any template value, so usually a call), key order `event` then `functionCall`; a literal prop adds nothing (the host owns the state through the routed event); when the author's routed handler is itself a FUNCTION (an Action carries one), it wins, no `set` is added and the reducer reports an issue. `$a11y: {role, label, description, level, expanded, current, selected, pressed, checked, valueNow, valueMin, valueMax, hidden, autoFocus}` = the part's ACCESSIBILITY (docs/round-1-contract.md §6): evaluated like props (a bound input emits a call) into the expanded node's `accessibility`; `role` is one of catalog/a11y.json `roles`; on the root the author's `accessibility` label/description win. Ids: the root keeps the author's id, parts get `<id>.<part>` and `<id>.<part>.<index>` under `$each`. Every expanded node carries `recipe: {macro, part, props}` where props = `recipeProps` evaluated from the author's props (+ a part's `$recipe`); the THEME (VAPP-92) keys its visual recipes on that, so nothing here states a colour, a border or a font — only structure and token-named spacing, radius and control heights. VAPP-163: the expansion ROOT's recipe also carries `authored` = the top-level keys of the style written ON the macro node (condition blocks count as one key), SORTED, omitted when none; painters apply native recipe < node style < part recipe < those authored keys, so an author's colour or size on a Heading/Badge beats the theme's part recipe while the template's own structure does not (only the author's keys count: a macro node an outer template drew passes on just its root's `authored`, never template style). Macros may use other macros (Row → TreeGuides); expansion recurses until every node is native (innermost recipe wins). ROUND 1 (docs/round-1-contract.md §1, BOUND INPUTS): when an expression input is a data binding `{path}` or a function call, the expander does NOT evaluate — it EMITS an A2UI function call the renderer evaluates at bind time, over the core functions: interpolation → concat, `|fallback` → fallback (as an operand; a whole-string MEMBER of props/style/context passes the binding itself through, so two-way binding survives), `!` → not, len → len, $map → map, $cond → cond, $eq → eq, $lt → lt, $add → add, $sub → sub, $percent → percent, $text → text, $coalesce → coalesce, $not → not; a `$if`/`$any` whose conditions are bound emits the part WITH `visible` = the bound condition (`and{values}` over several bound `$if`s, `or{values}` over several bound `$any`s; literal conditions still decide at expansion); `$each` over a bound array emits nothing (use List with a template); a `$recipe` value may therefore be a call too (renderers resolve recipe props like props). RESPONSIVE PROPS: an author prop `{base, sm?, md?, lg?, xl?}` on a `responsive` prop is evaluated per breakpoint: a part's style is computed with the `base` values, then once per breakpoint named (ascending sm<md<lg<xl, each key inheriting the last smaller one) and every key that changed lands in a `\"@media (min-width: $breakpoint.<bp>)\"` block of that part; props and conditions see the `base` value. Strings of the form `$string.<id>` (catalog/strings.json) are built-in UI copy the renderer shows in the surface locale. Round 3 (VAPP-102): AFTER the table is applied the core runs ONE post-expansion pass, src/tree-guides.ts applyTreeGuides (Rust: tree_guides::apply): over every node's children in order, each Row root (`recipe.macro` Row, part root) contributes its numeric `recipe.props.depth` (anything else counts as depth 0 and ends every subtree), the ×4 treeGuides rule (elbow at depth-1, tee while a later sibling follows, pass-through for every ancestor level that continues) fills the Row's `guides` part (a TreeGuides) with `elbowAt`/`tee`/`passThrough`; fixtures/tree-guides.json locks the rule, catalog-macros.json the filled trees. EXP-1495 (docs/round-6-contract.md): Outline (the anchor list) and Mosaic (the wide picture group) are macros over Box/Text/Image. eApps U3 (VAPP-232): `$template: {path, key?, item}` = a DATA TEMPLATE part: `path` (evaluated like any value; a data pointer, absolute or relative inside an outer template) names the array the part renders `item` once per entry of, keyed by `key`; the part gets `template: {component: <part id>.<item part>, path, key?}` and the item node (expanded like the root, tree guides filled) is lifted into the reducer's `templates` after the authored ones, in build order (the root's first); an empty or non-string path builds nothing. The item reads its entry through RELATIVE bindings (`{\"path\": \"date\"}`), and a routed `$on` handler runs in the item's scope, so an author's `{path: \"date\"}` reads the pressed day. Calendar and Timeline (catalog `kind: macro`) are built this way over a records calendar view; fixtures/template-items.json `reduce` (macro-template-*) locks the lifted items.",
   "macros": {
     "Stack": {
       "recipeProps": [],
@@ -4685,6 +4685,1495 @@
                 ]
               }
             ]
+          }
+        ]
+      }
+    },
+    "Calendar": {
+      "recipeProps": [
+        "view"
+      ],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "table"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "width": "100%",
+          "gap": "$spacing.none",
+          "@media (form-factor: phone)": {
+            "gap": "$spacing.md"
+          },
+          "minHeight": "$control.row"
+        },
+        "children": [
+          {
+            "part": "frame",
+            "component": "Box",
+            "$if": "props.source",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column",
+              "width": "100%",
+              "overflow": "hidden",
+              "borderRadius": "$radius.lg",
+              "borderWidth": "$border.hairline",
+              "@media (form-factor: phone)": {
+                "borderWidth": 0,
+                "borderRadius": 0
+              }
+            },
+            "children": [
+              {
+                "part": "head",
+                "component": "Box",
+                "style": {
+                  "display": "grid",
+                  "gridTemplateColumns": "repeat(7, minmax(0, 1fr))"
+                },
+                "$template": {
+                  "path": "{props.source}/month/weeks/0/days",
+                  "key": "date",
+                  "item": {
+                    "part": "weekday",
+                    "component": "Box",
+                    "style": {
+                      "paddingHorizontal": "$spacing.sm",
+                      "paddingVertical": "$spacing.xs",
+                      "@media (form-factor: phone)": {
+                        "display": "flex",
+                        "justifyContent": "center"
+                      }
+                    },
+                    "children": [
+                      {
+                        "part": "weekdayName",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "weekday"
+                          },
+                          "variant": "caption"
+                        },
+                        "style": {
+                          "@media (form-factor: phone)": {
+                            "display": "none"
+                          }
+                        }
+                      },
+                      {
+                        "part": "weekdayInitial",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "initial"
+                          },
+                          "variant": "caption"
+                        },
+                        "style": {
+                          "display": "none",
+                          "@media (form-factor: phone)": {
+                            "display": "flex"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "$if": {
+                  "$eq": [
+                    "{props.view|month}",
+                    "month"
+                  ]
+                }
+              },
+              {
+                "part": "head",
+                "component": "Box",
+                "style": {
+                  "display": "grid",
+                  "gridTemplateColumns": "repeat(7, minmax(0, 1fr))"
+                },
+                "$template": {
+                  "path": "{props.source}/week/days",
+                  "key": "date",
+                  "item": {
+                    "part": "weekday",
+                    "component": "Box",
+                    "style": {
+                      "paddingHorizontal": "$spacing.sm",
+                      "paddingVertical": "$spacing.xs",
+                      "@media (form-factor: phone)": {
+                        "display": "flex",
+                        "justifyContent": "center"
+                      }
+                    },
+                    "children": [
+                      {
+                        "part": "weekdayName",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "weekday"
+                          },
+                          "variant": "caption"
+                        },
+                        "style": {
+                          "@media (form-factor: phone)": {
+                            "display": "none"
+                          }
+                        }
+                      },
+                      {
+                        "part": "weekdayInitial",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "initial"
+                          },
+                          "variant": "caption"
+                        },
+                        "style": {
+                          "display": "none",
+                          "@media (form-factor: phone)": {
+                            "display": "flex"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                },
+                "$if": {
+                  "$eq": [
+                    "{props.view|month}",
+                    "week"
+                  ]
+                }
+              },
+              {
+                "part": "weeks",
+                "component": "Box",
+                "$if": {
+                  "$eq": [
+                    "{props.view|month}",
+                    "month"
+                  ]
+                },
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column"
+                },
+                "$template": {
+                  "path": "{props.source}/month/weeks",
+                  "key": "key",
+                  "item": {
+                    "part": "week",
+                    "component": "Box",
+                    "style": {
+                      "display": "grid",
+                      "gridTemplateColumns": "repeat(7, minmax(0, 1fr))",
+                      "minWidth": 0
+                    },
+                    "children": [
+                      {
+                        "part": "shade",
+                        "component": "Box",
+                        "style": {
+                          "display": "grid",
+                          "gridTemplateColumns": "repeat(7, minmax(0, 1fr))",
+                          "gridColumn": "1 / span 7",
+                          "gridRow": "1 / span 1",
+                          "@media (form-factor: phone)": {
+                            "display": "none"
+                          }
+                        },
+                        "$template": {
+                          "path": "days",
+                          "key": "date",
+                          "item": {
+                            "part": "shadeCell",
+                            "component": "Box",
+                            "$recipe": {
+                              "weekend": {
+                                "path": "weekend"
+                              }
+                            },
+                            "style": {
+                              "borderTopWidth": "$border.hairline",
+                              "borderRightWidth": "$border.hairline",
+                              "minWidth": 0
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "part": "cells",
+                        "component": "Box",
+                        "style": {
+                          "display": "grid",
+                          "gridTemplateColumns": "repeat(7, minmax(0, 1fr))",
+                          "gridColumn": "1 / span 7",
+                          "gridRow": "1 / span 1"
+                        },
+                        "$template": {
+                          "path": "days",
+                          "key": "date",
+                          "item": {
+                            "part": "day",
+                            "component": "Box",
+                            "props": {
+                              "pressable": true
+                            },
+                            "$on": {
+                              "press": "select"
+                            },
+                            "$a11y": {
+                              "role": "button",
+                              "label": {
+                                "path": "date"
+                              },
+                              "selected": {
+                                "path": "selected"
+                              }
+                            },
+                            "style": {
+                              "display": "flex",
+                              "flexDirection": "column",
+                              "alignItems": "flex-start",
+                              "padding": "$spacing.xs",
+                              "minHeight": "$control.textarea",
+                              "minWidth": 0,
+                              "@media (form-factor: phone)": {
+                                "alignItems": "stretch",
+                                "minHeight": 0,
+                                "padding": "$spacing.xxs"
+                              }
+                            },
+                            "children": [
+                              {
+                                "part": "number",
+                                "component": "Box",
+                                "$recipe": {
+                                  "inMonth": {
+                                    "path": "inMonth"
+                                  },
+                                  "today": {
+                                    "path": "today"
+                                  }
+                                },
+                                "style": {
+                                  "display": "flex",
+                                  "alignItems": "center",
+                                  "justifyContent": "center",
+                                  "minWidth": "$control.badge",
+                                  "height": "$control.badge",
+                                  "paddingHorizontal": "$spacing.xxs",
+                                  "borderRadius": "$radius.full",
+                                  "@media (form-factor: phone)": {
+                                    "display": "none"
+                                  }
+                                },
+                                "children": [
+                                  {
+                                    "part": "numberText",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": {
+                                        "path": "day"
+                                      },
+                                      "variant": "caption"
+                                    },
+                                    "$recipe": {
+                                      "inMonth": {
+                                        "path": "inMonth"
+                                      },
+                                      "today": {
+                                        "path": "today"
+                                      }
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "part": "compact",
+                                "component": "Box",
+                                "$recipe": {
+                                  "selected": {
+                                    "path": "selected"
+                                  }
+                                },
+                                "style": {
+                                  "display": "none",
+                                  "@media (form-factor: phone)": {
+                                    "display": "flex",
+                                    "flexDirection": "column",
+                                    "alignItems": "center",
+                                    "gap": "$spacing.xxs",
+                                    "paddingVertical": "$spacing.sm",
+                                    "borderRadius": "$radius.lg"
+                                  }
+                                },
+                                "children": [
+                                  {
+                                    "part": "compactNumber",
+                                    "component": "Box",
+                                    "$recipe": {
+                                      "inMonth": {
+                                        "path": "inMonth"
+                                      },
+                                      "today": {
+                                        "path": "today"
+                                      }
+                                    },
+                                    "style": {
+                                      "display": "flex",
+                                      "alignItems": "center",
+                                      "justifyContent": "center",
+                                      "minWidth": "$control.badge",
+                                      "height": "$control.badge",
+                                      "paddingHorizontal": "$spacing.xxs",
+                                      "borderRadius": "$radius.full"
+                                    },
+                                    "children": [
+                                      {
+                                        "part": "compactNumberText",
+                                        "component": "Text",
+                                        "props": {
+                                          "text": {
+                                            "path": "day"
+                                          },
+                                          "variant": "caption"
+                                        },
+                                        "$recipe": {
+                                          "inMonth": {
+                                            "path": "inMonth"
+                                          },
+                                          "today": {
+                                            "path": "today"
+                                          }
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  {
+                                    "part": "dots",
+                                    "component": "Box",
+                                    "style": {
+                                      "display": "flex",
+                                      "flexDirection": "row",
+                                      "gap": "$spacing.xxs",
+                                      "justifyContent": "center",
+                                      "height": "$spacing.sm"
+                                    },
+                                    "$template": {
+                                      "path": "dots",
+                                      "item": {
+                                        "part": "dot",
+                                        "component": "Box",
+                                        "$recipe": {
+                                          "tone": {
+                                            "path": "tone"
+                                          }
+                                        },
+                                        "style": {
+                                          "width": "$radius.sm",
+                                          "height": "$radius.sm",
+                                          "borderRadius": "$radius.full"
+                                        }
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "part": "bars",
+                        "component": "Box",
+                        "style": {
+                          "display": "grid",
+                          "gridTemplateColumns": "repeat(7, minmax(0, 1fr))",
+                          "gridColumn": "1 / span 7",
+                          "gridRow": "1 / span 1",
+                          "alignContent": "start",
+                          "rowGap": "$spacing.xxs",
+                          "paddingTop": "$spacing.xl2",
+                          "paddingBottom": "$spacing.xs",
+                          "@media (form-factor: phone)": {
+                            "display": "none"
+                          }
+                        },
+                        "$template": {
+                          "path": "segments",
+                          "key": "id",
+                          "item": {
+                            "part": "segment",
+                            "component": "Box",
+                            "props": {
+                              "pressable": true
+                            },
+                            "$on": {
+                              "press": "open"
+                            },
+                            "$recipe": {
+                              "tone": {
+                                "path": "tone"
+                              },
+                              "marker": {
+                                "$lt": [
+                                  0,
+                                  {
+                                    "path": "more"
+                                  }
+                                ]
+                              },
+                              "contL": {
+                                "path": "contL"
+                              },
+                              "contR": {
+                                "path": "contR"
+                              }
+                            },
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "height": "$control.badge",
+                              "minWidth": 0,
+                              "overflow": "hidden",
+                              "paddingHorizontal": "$spacing.xs",
+                              "borderRadius": "$radius.sm",
+                              "gridColumn": {
+                                "call": "concat",
+                                "args": {
+                                  "values": [
+                                    {
+                                      "path": "col"
+                                    },
+                                    " / span ",
+                                    {
+                                      "path": "span"
+                                    }
+                                  ]
+                                }
+                              },
+                              "gridRow": {
+                                "call": "concat",
+                                "args": {
+                                  "values": [
+                                    {
+                                      "call": "add",
+                                      "args": {
+                                        "a": {
+                                          "path": "lane"
+                                        },
+                                        "b": 1
+                                      }
+                                    },
+                                    " / span 1"
+                                  ]
+                                }
+                              },
+                              "marginLeft": {
+                                "$cond": [
+                                  {
+                                    "path": "contL"
+                                  },
+                                  0,
+                                  "$spacing.xxs"
+                                ]
+                              },
+                              "marginRight": {
+                                "$cond": [
+                                  {
+                                    "path": "contR"
+                                  },
+                                  0,
+                                  "$spacing.xxs"
+                                ]
+                              }
+                            },
+                            "children": [
+                              {
+                                "part": "label",
+                                "component": "Text",
+                                "$if": {
+                                  "$eq": [
+                                    {
+                                      "path": "more"
+                                    },
+                                    0
+                                  ]
+                                },
+                                "props": {
+                                  "text": {
+                                    "path": "row/{props.labelField|title}"
+                                  },
+                                  "variant": "caption",
+                                  "lines": 1
+                                }
+                              },
+                              {
+                                "part": "more",
+                                "component": "Text",
+                                "$if": {
+                                  "$lt": [
+                                    0,
+                                    {
+                                      "path": "more"
+                                    }
+                                  ]
+                                },
+                                "props": {
+                                  "text": {
+                                    "$fill": [
+                                      "$string.calendarMore",
+                                      {
+                                        "count": {
+                                          "path": "more"
+                                        }
+                                      }
+                                    ]
+                                  },
+                                  "variant": "caption",
+                                  "lines": 1
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              },
+              {
+                "part": "week",
+                "component": "Box",
+                "$if": {
+                  "$eq": [
+                    "{props.view|month}",
+                    "week"
+                  ]
+                },
+                "style": {
+                  "display": "grid",
+                  "gridTemplateColumns": "repeat(7, minmax(0, 1fr))",
+                  "minWidth": 0,
+                  "minHeight": "$control.toast"
+                },
+                "children": [
+                  {
+                    "part": "shade",
+                    "component": "Box",
+                    "style": {
+                      "display": "grid",
+                      "gridTemplateColumns": "repeat(7, minmax(0, 1fr))",
+                      "gridColumn": "1 / span 7",
+                      "gridRow": "1 / span 1",
+                      "@media (form-factor: phone)": {
+                        "display": "none"
+                      }
+                    },
+                    "$template": {
+                      "path": "{props.source}/week/days",
+                      "key": "date",
+                      "item": {
+                        "part": "shadeCell",
+                        "component": "Box",
+                        "$recipe": {
+                          "weekend": {
+                            "path": "weekend"
+                          }
+                        },
+                        "style": {
+                          "borderTopWidth": "$border.hairline",
+                          "borderRightWidth": "$border.hairline",
+                          "minWidth": 0
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "part": "cells",
+                    "component": "Box",
+                    "style": {
+                      "display": "grid",
+                      "gridTemplateColumns": "repeat(7, minmax(0, 1fr))",
+                      "gridColumn": "1 / span 7",
+                      "gridRow": "1 / span 1"
+                    },
+                    "$template": {
+                      "path": "{props.source}/week/days",
+                      "key": "date",
+                      "item": {
+                        "part": "day",
+                        "component": "Box",
+                        "props": {
+                          "pressable": true
+                        },
+                        "$on": {
+                          "press": "select"
+                        },
+                        "$a11y": {
+                          "role": "button",
+                          "label": {
+                            "path": "date"
+                          },
+                          "selected": {
+                            "path": "selected"
+                          }
+                        },
+                        "style": {
+                          "display": "flex",
+                          "flexDirection": "column",
+                          "alignItems": "flex-start",
+                          "padding": "$spacing.xs",
+                          "minHeight": "$control.textarea",
+                          "minWidth": 0,
+                          "@media (form-factor: phone)": {
+                            "alignItems": "stretch",
+                            "minHeight": 0,
+                            "padding": "$spacing.xxs"
+                          }
+                        },
+                        "children": [
+                          {
+                            "part": "number",
+                            "component": "Box",
+                            "$recipe": {
+                              "inMonth": {
+                                "path": "inMonth"
+                              },
+                              "today": {
+                                "path": "today"
+                              }
+                            },
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "justifyContent": "center",
+                              "minWidth": "$control.badge",
+                              "height": "$control.badge",
+                              "paddingHorizontal": "$spacing.xxs",
+                              "borderRadius": "$radius.full",
+                              "@media (form-factor: phone)": {
+                                "display": "none"
+                              }
+                            },
+                            "children": [
+                              {
+                                "part": "numberText",
+                                "component": "Text",
+                                "props": {
+                                  "text": {
+                                    "path": "day"
+                                  },
+                                  "variant": "caption"
+                                },
+                                "$recipe": {
+                                  "inMonth": {
+                                    "path": "inMonth"
+                                  },
+                                  "today": {
+                                    "path": "today"
+                                  }
+                                }
+                              }
+                            ]
+                          },
+                          {
+                            "part": "compact",
+                            "component": "Box",
+                            "$recipe": {
+                              "selected": {
+                                "path": "selected"
+                              }
+                            },
+                            "style": {
+                              "display": "none",
+                              "@media (form-factor: phone)": {
+                                "display": "flex",
+                                "flexDirection": "column",
+                                "alignItems": "center",
+                                "gap": "$spacing.xxs",
+                                "paddingVertical": "$spacing.sm",
+                                "borderRadius": "$radius.lg"
+                              }
+                            },
+                            "children": [
+                              {
+                                "part": "compactNumber",
+                                "component": "Box",
+                                "$recipe": {
+                                  "inMonth": {
+                                    "path": "inMonth"
+                                  },
+                                  "today": {
+                                    "path": "today"
+                                  }
+                                },
+                                "style": {
+                                  "display": "flex",
+                                  "alignItems": "center",
+                                  "justifyContent": "center",
+                                  "minWidth": "$control.badge",
+                                  "height": "$control.badge",
+                                  "paddingHorizontal": "$spacing.xxs",
+                                  "borderRadius": "$radius.full"
+                                },
+                                "children": [
+                                  {
+                                    "part": "compactNumberText",
+                                    "component": "Text",
+                                    "props": {
+                                      "text": {
+                                        "path": "day"
+                                      },
+                                      "variant": "caption"
+                                    },
+                                    "$recipe": {
+                                      "inMonth": {
+                                        "path": "inMonth"
+                                      },
+                                      "today": {
+                                        "path": "today"
+                                      }
+                                    }
+                                  }
+                                ]
+                              },
+                              {
+                                "part": "dots",
+                                "component": "Box",
+                                "style": {
+                                  "display": "flex",
+                                  "flexDirection": "row",
+                                  "gap": "$spacing.xxs",
+                                  "justifyContent": "center",
+                                  "height": "$spacing.sm"
+                                },
+                                "$template": {
+                                  "path": "dots",
+                                  "item": {
+                                    "part": "dot",
+                                    "component": "Box",
+                                    "$recipe": {
+                                      "tone": {
+                                        "path": "tone"
+                                      }
+                                    },
+                                    "style": {
+                                      "width": "$radius.sm",
+                                      "height": "$radius.sm",
+                                      "borderRadius": "$radius.full"
+                                    }
+                                  }
+                                }
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  {
+                    "part": "bars",
+                    "component": "Box",
+                    "style": {
+                      "display": "grid",
+                      "gridTemplateColumns": "repeat(7, minmax(0, 1fr))",
+                      "gridColumn": "1 / span 7",
+                      "gridRow": "1 / span 1",
+                      "alignContent": "start",
+                      "rowGap": "$spacing.xxs",
+                      "paddingTop": "$spacing.xl2",
+                      "paddingBottom": "$spacing.xs",
+                      "@media (form-factor: phone)": {
+                        "display": "none"
+                      }
+                    },
+                    "$template": {
+                      "path": "{props.source}/week/segments",
+                      "key": "id",
+                      "item": {
+                        "part": "segment",
+                        "component": "Box",
+                        "props": {
+                          "pressable": true
+                        },
+                        "$on": {
+                          "press": "open"
+                        },
+                        "$recipe": {
+                          "tone": {
+                            "path": "tone"
+                          },
+                          "marker": {
+                            "$lt": [
+                              0,
+                              {
+                                "path": "more"
+                              }
+                            ]
+                          },
+                          "contL": {
+                            "path": "contL"
+                          },
+                          "contR": {
+                            "path": "contR"
+                          }
+                        },
+                        "style": {
+                          "display": "flex",
+                          "alignItems": "center",
+                          "height": "$control.badge",
+                          "minWidth": 0,
+                          "overflow": "hidden",
+                          "paddingHorizontal": "$spacing.xs",
+                          "borderRadius": "$radius.sm",
+                          "gridColumn": {
+                            "call": "concat",
+                            "args": {
+                              "values": [
+                                {
+                                  "path": "col"
+                                },
+                                " / span ",
+                                {
+                                  "path": "span"
+                                }
+                              ]
+                            }
+                          },
+                          "gridRow": {
+                            "call": "concat",
+                            "args": {
+                              "values": [
+                                {
+                                  "call": "add",
+                                  "args": {
+                                    "a": {
+                                      "path": "lane"
+                                    },
+                                    "b": 1
+                                  }
+                                },
+                                " / span 1"
+                              ]
+                            }
+                          },
+                          "marginLeft": {
+                            "$cond": [
+                              {
+                                "path": "contL"
+                              },
+                              0,
+                              "$spacing.xxs"
+                            ]
+                          },
+                          "marginRight": {
+                            "$cond": [
+                              {
+                                "path": "contR"
+                              },
+                              0,
+                              "$spacing.xxs"
+                            ]
+                          }
+                        },
+                        "children": [
+                          {
+                            "part": "label",
+                            "component": "Text",
+                            "$if": {
+                              "$eq": [
+                                {
+                                  "path": "more"
+                                },
+                                0
+                              ]
+                            },
+                            "props": {
+                              "text": {
+                                "path": "row/{props.labelField|title}"
+                              },
+                              "variant": "caption",
+                              "lines": 1
+                            }
+                          },
+                          {
+                            "part": "more",
+                            "component": "Text",
+                            "$if": {
+                              "$lt": [
+                                0,
+                                {
+                                  "path": "more"
+                                }
+                              ]
+                            },
+                            "props": {
+                              "text": {
+                                "$fill": [
+                                  "$string.calendarMore",
+                                  {
+                                    "count": {
+                                      "path": "more"
+                                    }
+                                  }
+                                ]
+                              },
+                              "variant": "caption",
+                              "lines": 1
+                            }
+                          }
+                        ]
+                      }
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "part": "agenda",
+            "component": "Section",
+            "$if": [
+              "props.source",
+              {
+                "$eq": [
+                  "{props.view|month}",
+                  "month"
+                ]
+              }
+            ],
+            "props": {
+              "title": {
+                "path": "{props.source}/month/agenda/label"
+              },
+              "count": {
+                "path": "{props.source}/month/agenda/count"
+              }
+            },
+            "style": {
+              "display": "none",
+              "@media (form-factor: phone)": {
+                "display": "flex"
+              }
+            },
+            "$template": {
+              "path": "{props.source}/month/agenda/items",
+              "key": "id",
+              "item": {
+                "part": "entry",
+                "component": "Row",
+                "props": {
+                  "title": {
+                    "path": "row/{props.labelField|title}"
+                  },
+                  "subtitle": {
+                    "path": "row/{props.detailField|detail}"
+                  },
+                  "meta": {
+                    "path": "row/{props.metaField|status}"
+                  },
+                  "pressable": true
+                },
+                "$on": {
+                  "press": "open"
+                },
+                "slots": {
+                  "leading": {
+                    "part": "entryTone",
+                    "component": "Box",
+                    "$recipe": {
+                      "tone": {
+                        "path": "tone"
+                      }
+                    },
+                    "style": {
+                      "width": "$spacing.xs",
+                      "height": "$control.iconLg",
+                      "borderRadius": "$radius.full"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "Timeline": {
+      "recipeProps": [],
+      "root": {
+        "part": "root",
+        "component": "Box",
+        "$a11y": {
+          "role": "table"
+        },
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "width": "100%",
+          "overflow": "hidden",
+          "borderRadius": "$radius.lg",
+          "borderWidth": "$border.hairline",
+          "minHeight": "$control.row"
+        },
+        "children": [
+          {
+            "part": "bandsRow",
+            "component": "Box",
+            "$if": "props.source",
+            "style": {
+              "display": "flex",
+              "flexDirection": "row"
+            },
+            "children": [
+              {
+                "part": "corner",
+                "component": "Box",
+                "style": {
+                  "width": "18%",
+                  "flexShrink": 0,
+                  "minWidth": 0,
+                  "@media (form-factor: phone)": {
+                    "width": "30%"
+                  },
+                  "paddingHorizontal": "$spacing.sm",
+                  "paddingVertical": "$spacing.xs",
+                  "borderRightWidth": "$border.hairline"
+                },
+                "children": [
+                  {
+                    "part": "cornerLabel",
+                    "component": "Text",
+                    "$if": "props.rowTitle",
+                    "props": {
+                      "text": "{props.rowTitle}",
+                      "variant": "caption",
+                      "lines": 1
+                    }
+                  }
+                ]
+              },
+              {
+                "part": "bands",
+                "component": "Box",
+                "style": {
+                  "display": "grid",
+                  "gridTemplateColumns": {
+                    "call": "concat",
+                    "args": {
+                      "values": [
+                        "repeat(",
+                        {
+                          "call": "len",
+                          "args": {
+                            "value": {
+                              "path": "{props.source}/timeline/columns"
+                            }
+                          }
+                        },
+                        ", minmax(0, 1fr))"
+                      ]
+                    }
+                  },
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "$template": {
+                  "path": "{props.source}/timeline/bands",
+                  "key": "col",
+                  "item": {
+                    "part": "band",
+                    "component": "Box",
+                    "style": {
+                      "gridColumn": {
+                        "call": "concat",
+                        "args": {
+                          "values": [
+                            {
+                              "path": "col"
+                            },
+                            " / span ",
+                            {
+                              "path": "span"
+                            }
+                          ]
+                        }
+                      },
+                      "paddingHorizontal": "$spacing.sm",
+                      "paddingVertical": "$spacing.xs",
+                      "minWidth": 0,
+                      "borderLeftWidth": "$border.hairline"
+                    },
+                    "children": [
+                      {
+                        "part": "bandLabel",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "label"
+                          },
+                          "variant": "label",
+                          "lines": 1
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "part": "columnsRow",
+            "component": "Box",
+            "$if": "props.source",
+            "style": {
+              "display": "flex",
+              "flexDirection": "row",
+              "borderTopWidth": "$border.hairline"
+            },
+            "children": [
+              {
+                "part": "columnsCorner",
+                "component": "Box",
+                "style": {
+                  "width": "18%",
+                  "flexShrink": 0,
+                  "minWidth": 0,
+                  "@media (form-factor: phone)": {
+                    "width": "30%"
+                  },
+                  "borderRightWidth": "$border.hairline"
+                }
+              },
+              {
+                "part": "columns",
+                "component": "Box",
+                "style": {
+                  "display": "grid",
+                  "gridTemplateColumns": {
+                    "call": "concat",
+                    "args": {
+                      "values": [
+                        "repeat(",
+                        {
+                          "call": "len",
+                          "args": {
+                            "value": {
+                              "path": "{props.source}/timeline/columns"
+                            }
+                          }
+                        },
+                        ", minmax(0, 1fr))"
+                      ]
+                    }
+                  },
+                  "flexGrow": 1,
+                  "minWidth": 0
+                },
+                "$template": {
+                  "path": "{props.source}/timeline/columns",
+                  "key": "key",
+                  "item": {
+                    "part": "column",
+                    "component": "Box",
+                    "$recipe": {
+                      "today": {
+                        "path": "today"
+                      }
+                    },
+                    "style": {
+                      "paddingHorizontal": "$spacing.sm",
+                      "paddingVertical": "$spacing.xs",
+                      "minWidth": 0,
+                      "borderLeftWidth": "$border.hairline"
+                    },
+                    "children": [
+                      {
+                        "part": "columnLabel",
+                        "component": "Text",
+                        "$recipe": {
+                          "today": {
+                            "path": "today"
+                          }
+                        },
+                        "props": {
+                          "text": {
+                            "path": "label"
+                          },
+                          "variant": "caption",
+                          "lines": 1
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "part": "rows",
+            "component": "Box",
+            "$if": "props.source",
+            "style": {
+              "display": "flex",
+              "flexDirection": "column"
+            },
+            "$template": {
+              "path": "{props.source}/timeline/rows",
+              "key": "key",
+              "item": {
+                "part": "row",
+                "component": "Box",
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "row",
+                  "minWidth": 0,
+                  "borderTopWidth": "$border.hairline"
+                },
+                "children": [
+                  {
+                    "part": "rowHead",
+                    "component": "Box",
+                    "style": {
+                      "width": "18%",
+                      "flexShrink": 0,
+                      "minWidth": 0,
+                      "@media (form-factor: phone)": {
+                        "width": "30%"
+                      },
+                      "display": "flex",
+                      "flexDirection": "column",
+                      "justifyContent": "center",
+                      "gap": "$spacing.xxs",
+                      "paddingHorizontal": "$spacing.sm",
+                      "paddingVertical": "$spacing.xs",
+                      "borderRightWidth": "$border.hairline"
+                    },
+                    "children": [
+                      {
+                        "part": "rowLabel",
+                        "component": "Text",
+                        "props": {
+                          "text": {
+                            "path": "key"
+                          },
+                          "variant": "body",
+                          "lines": 1
+                        }
+                      },
+                      {
+                        "part": "rowCount",
+                        "component": "Text",
+                        "$if": "props.showCount",
+                        "props": {
+                          "text": {
+                            "$text": {
+                              "path": "count"
+                            }
+                          },
+                          "variant": "muted",
+                          "lines": 1
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "part": "track",
+                    "component": "Box",
+                    "style": {
+                      "display": "grid",
+                      "flexGrow": 1,
+                      "minWidth": 0,
+                      "position": "relative"
+                    },
+                    "children": [
+                      {
+                        "part": "cells",
+                        "component": "Box",
+                        "style": {
+                          "display": "grid",
+                          "gridTemplateColumns": {
+                            "call": "concat",
+                            "args": {
+                              "values": [
+                                "repeat(",
+                                {
+                                  "call": "len",
+                                  "args": {
+                                    "value": {
+                                      "path": "{props.source}/timeline/columns"
+                                    }
+                                  }
+                                },
+                                ", minmax(0, 1fr))"
+                              ]
+                            }
+                          },
+                          "gridColumn": "1 / span 1",
+                          "gridRow": "1 / span 1",
+                          "minWidth": 0
+                        },
+                        "$template": {
+                          "path": "{props.source}/timeline/columns",
+                          "key": "key",
+                          "item": {
+                            "part": "cell",
+                            "component": "Box",
+                            "style": {
+                              "minWidth": 0,
+                              "borderLeftWidth": "$border.hairline"
+                            }
+                          }
+                        }
+                      },
+                      {
+                        "part": "bars",
+                        "component": "Box",
+                        "style": {
+                          "display": "grid",
+                          "gridTemplateColumns": {
+                            "call": "concat",
+                            "args": {
+                              "values": [
+                                "repeat(",
+                                {
+                                  "call": "len",
+                                  "args": {
+                                    "value": {
+                                      "path": "{props.source}/timeline/columns"
+                                    }
+                                  }
+                                },
+                                ", minmax(0, 1fr))"
+                              ]
+                            }
+                          },
+                          "gridColumn": "1 / span 1",
+                          "gridRow": "1 / span 1",
+                          "alignContent": "center",
+                          "rowGap": "$spacing.xxs",
+                          "paddingVertical": "$spacing.sm",
+                          "minWidth": 0
+                        },
+                        "$template": {
+                          "path": "items",
+                          "key": "id",
+                          "item": {
+                            "part": "bar",
+                            "component": "Box",
+                            "props": {
+                              "pressable": true
+                            },
+                            "$on": {
+                              "press": "open"
+                            },
+                            "$recipe": {
+                              "tone": {
+                                "path": "tone"
+                              },
+                              "contL": {
+                                "path": "contL"
+                              },
+                              "contR": {
+                                "path": "contR"
+                              }
+                            },
+                            "style": {
+                              "display": "flex",
+                              "alignItems": "center",
+                              "height": "$control.badge",
+                              "minWidth": 0,
+                              "overflow": "hidden",
+                              "paddingHorizontal": "$spacing.xs",
+                              "borderRadius": "$radius.sm",
+                              "marginHorizontal": "$spacing.xxs",
+                              "gridColumn": {
+                                "call": "concat",
+                                "args": {
+                                  "values": [
+                                    {
+                                      "path": "col"
+                                    },
+                                    " / span ",
+                                    {
+                                      "path": "span"
+                                    }
+                                  ]
+                                }
+                              },
+                              "gridRow": {
+                                "call": "concat",
+                                "args": {
+                                  "values": [
+                                    {
+                                      "call": "add",
+                                      "args": {
+                                        "a": {
+                                          "path": "lane"
+                                        },
+                                        "b": 1
+                                      }
+                                    },
+                                    " / span 1"
+                                  ]
+                                }
+                              }
+                            },
+                            "children": [
+                              {
+                                "part": "barLabel",
+                                "component": "Text",
+                                "props": {
+                                  "text": {
+                                    "path": "row/{props.labelField|title}"
+                                  },
+                                  "variant": "caption",
+                                  "lines": 1
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "part": "now",
+                        "component": "Box",
+                        "$if": {
+                          "path": "{props.source}/timeline/now"
+                        },
+                        "style": {
+                          "position": "absolute",
+                          "top": 0,
+                          "bottom": 0,
+                          "width": "$control.hairline",
+                          "left": {
+                            "call": "concat",
+                            "args": {
+                              "values": [
+                                {
+                                  "path": "{props.source}/timeline/now/percent"
+                                },
+                                "%"
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
           }
         ]
       }

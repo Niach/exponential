@@ -173,6 +173,8 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   mosaic: `Surfaces`,
   [`zoomable-image`]: `Surfaces`,
   motion: `Feedback`,
+  calendar: `Surfaces`,
+  timeline: `Surfaces`,
   [`chat-list`]: `Lists & rows`,
   [`phone-tab-bar`]: `Surfaces`,
   [`phone-board-menu`]: `Inputs & pickers`,

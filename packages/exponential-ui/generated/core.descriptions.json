@@ -2668,6 +2668,55 @@
           }
         ]
       }
+    },
+    "Calendar": {
+      "props": {
+        "source": {
+          "description": "Where a records `by` binding lands (reads `month` or `week`)."
+        },
+        "view": {
+          "description": "Month grid or one week."
+        },
+        "labelField": {
+          "description": "The row field a bar shows."
+        },
+        "detailField": {
+          "description": "The agenda subtitle field."
+        },
+        "metaField": {
+          "description": "The agenda meta field."
+        },
+        "style": {
+          "description": "Frame styles."
+        }
+      },
+      "description": "A month or week of records: spans as chart-coloured bars in lanes; on phones dots and the day's agenda.",
+      "example": {
+        "view": "month"
+      }
+    },
+    "Timeline": {
+      "props": {
+        "source": {
+          "description": "Where a records `view=timeline` binding lands."
+        },
+        "labelField": {
+          "description": "The row field a bar shows."
+        },
+        "rowTitle": {
+          "description": "The row labels' heading."
+        },
+        "showCount": {
+          "description": "Each row's count under its label."
+        },
+        "style": {
+          "description": "Frame styles."
+        }
+      },
+      "description": "Records over time: rows of chart-coloured bars across week, month or quarter columns.",
+      "example": {
+        "rowTitle": "Workstream"
+      }
     }
   },
   "defs": {

@@ -32464,6 +32464,215 @@
       }
     },
     {
+      "name": "Calendar/example",
+      "input": {
+        "id": "calendar",
+        "component": "Calendar",
+        "props": {
+          "view": "month"
+        }
+      },
+      "expected": {
+        "id": "calendar",
+        "component": "Box",
+        "props": {},
+        "children": [],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "width": "100%",
+          "gap": "$spacing.none",
+          "@media (form-factor: phone)": {
+            "gap": "$spacing.md"
+          },
+          "minHeight": "$control.row"
+        },
+        "recipe": {
+          "macro": "Calendar",
+          "part": "root",
+          "props": {
+            "view": "month"
+          }
+        },
+        "accessibility": {
+          "role": "table"
+        }
+      }
+    },
+    {
+      "name": "Calendar/view=month",
+      "input": {
+        "id": "calendar",
+        "component": "Calendar",
+        "props": {
+          "view": "month"
+        }
+      },
+      "expected": {
+        "id": "calendar",
+        "component": "Box",
+        "props": {},
+        "children": [],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "width": "100%",
+          "gap": "$spacing.none",
+          "@media (form-factor: phone)": {
+            "gap": "$spacing.md"
+          },
+          "minHeight": "$control.row"
+        },
+        "recipe": {
+          "macro": "Calendar",
+          "part": "root",
+          "props": {
+            "view": "month"
+          }
+        },
+        "accessibility": {
+          "role": "table"
+        }
+      }
+    },
+    {
+      "name": "Calendar/view=week",
+      "input": {
+        "id": "calendar",
+        "component": "Calendar",
+        "props": {
+          "view": "week"
+        }
+      },
+      "expected": {
+        "id": "calendar",
+        "component": "Box",
+        "props": {},
+        "children": [],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "width": "100%",
+          "gap": "$spacing.none",
+          "@media (form-factor: phone)": {
+            "gap": "$spacing.md"
+          },
+          "minHeight": "$control.row"
+        },
+        "recipe": {
+          "macro": "Calendar",
+          "part": "root",
+          "props": {
+            "view": "week"
+          }
+        },
+        "accessibility": {
+          "role": "table"
+        }
+      }
+    },
+    {
+      "name": "Timeline/example",
+      "input": {
+        "id": "timeline",
+        "component": "Timeline",
+        "props": {
+          "rowTitle": "Workstream"
+        }
+      },
+      "expected": {
+        "id": "timeline",
+        "component": "Box",
+        "props": {},
+        "children": [],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "width": "100%",
+          "overflow": "hidden",
+          "borderRadius": "$radius.lg",
+          "borderWidth": "$border.hairline",
+          "minHeight": "$control.row"
+        },
+        "recipe": {
+          "macro": "Timeline",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "table"
+        }
+      }
+    },
+    {
+      "name": "Timeline/showCount=true",
+      "input": {
+        "id": "timeline",
+        "component": "Timeline",
+        "props": {
+          "rowTitle": "Workstream",
+          "showCount": true
+        }
+      },
+      "expected": {
+        "id": "timeline",
+        "component": "Box",
+        "props": {},
+        "children": [],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "width": "100%",
+          "overflow": "hidden",
+          "borderRadius": "$radius.lg",
+          "borderWidth": "$border.hairline",
+          "minHeight": "$control.row"
+        },
+        "recipe": {
+          "macro": "Timeline",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "table"
+        }
+      }
+    },
+    {
+      "name": "Timeline/showCount=false",
+      "input": {
+        "id": "timeline",
+        "component": "Timeline",
+        "props": {
+          "rowTitle": "Workstream",
+          "showCount": false
+        }
+      },
+      "expected": {
+        "id": "timeline",
+        "component": "Box",
+        "props": {},
+        "children": [],
+        "style": {
+          "display": "flex",
+          "flexDirection": "column",
+          "width": "100%",
+          "overflow": "hidden",
+          "borderRadius": "$radius.lg",
+          "borderWidth": "$border.hairline",
+          "minHeight": "$control.row"
+        },
+        "recipe": {
+          "macro": "Timeline",
+          "part": "root",
+          "props": {}
+        },
+        "accessibility": {
+          "role": "table"
+        }
+      }
+    },
+    {
       "name": "Stack/bound:direction",
       "input": {
         "id": "stack",

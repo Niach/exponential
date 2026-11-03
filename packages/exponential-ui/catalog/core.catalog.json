@@ -344,6 +344,10 @@
       "contain",
       "cover",
       "fill"
+    ],
+    "calendarView": [
+      "month",
+      "week"
     ]
   },
   "defs": {
@@ -819,7 +823,8 @@
       "weekday",
       "isoWeek",
       "hours",
-      "formatDuration", "orElse",
+      "formatDuration",
+      "orElse",
       "expr"
     ],
     "core": {
@@ -5791,6 +5796,88 @@
             ]
           }
         ]
+      }
+    },
+    "Calendar": {
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "children": "none",
+      "description": "A month or week of records: spans as chart-coloured bars in lanes; on phones dots and the day's agenda.",
+      "events": [
+        "select",
+        "open"
+      ],
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "Where a records `by` binding lands (reads `month` or `week`)."
+        },
+        "view": {
+          "type": "enum",
+          "enum": "calendarView",
+          "default": "month",
+          "description": "Month grid or one week."
+        },
+        "labelField": {
+          "type": "string",
+          "default": "title",
+          "description": "The row field a bar shows."
+        },
+        "detailField": {
+          "type": "string",
+          "default": "detail",
+          "description": "The agenda subtitle field."
+        },
+        "metaField": {
+          "type": "string",
+          "default": "status",
+          "description": "The agenda meta field."
+        },
+        "style": {
+          "type": "style",
+          "description": "Frame styles."
+        }
+      },
+      "example": {
+        "view": "month"
+      }
+    },
+    "Timeline": {
+      "kind": "macro",
+      "group": "data",
+      "lite": true,
+      "children": "none",
+      "description": "Records over time: rows of chart-coloured bars across week, month or quarter columns.",
+      "events": [
+        "open"
+      ],
+      "props": {
+        "source": {
+          "type": "string",
+          "description": "Where a records `view=timeline` binding lands."
+        },
+        "labelField": {
+          "type": "string",
+          "default": "title",
+          "description": "The row field a bar shows."
+        },
+        "rowTitle": {
+          "type": "string",
+          "description": "The row labels' heading."
+        },
+        "showCount": {
+          "type": "boolean",
+          "default": false,
+          "description": "Each row's count under its label."
+        },
+        "style": {
+          "type": "style",
+          "description": "Frame styles."
+        }
+      },
+      "example": {
+        "rowTitle": "Workstream"
       }
     }
   }

@@ -186,7 +186,7 @@ Needs: C2, C13.
 | C26 | Widget templates + slots (eDE, home screen) | ❌ | #VAPP-64, NEW-107 |
 | C27 | Form-factor / responsive templates | ✅ `@media (form-factor: …)` (U1), `@media` sizes, `Sidebar.collapseBelow` | U1 |
 | C28 | Template gallery | ✅ #VAPP-234: `samples/apps/*.app.json`, signed by the pinned Exponential key; "Start from a template" in the import dialog and a draft's starters (`fixtures/app-templates.json`) | Leave, On-call |
-| C29 | Calendar / timeline view | ❌ (no component) | 🆕 U3 (styleguide first) |
+| C29 | Calendar / timeline view | ✅ #VAPP-232 (U3) | |
 | C30 | Marketplace (signed static catalog) | ❌ | #YO-18 |
 
 ---
@@ -465,7 +465,7 @@ One language at two levels, on the Q2 core:
 | Forms and validation | ✅ `Form`, `FieldGroup`, `FormActions`, `checks` (required, email, length, regex, numeric), `validateOn` |
 | Form from a kind's schema | 🆕 U2: `RecordForm {kind, id?}` as an eUI **macro** expanding to Form + inputs (date → DatePicker, enum → Select, ref member → Select over `exp:members`, string[] of issues → ChipInput). The server re-validates the kind's schema. |
 | Table from a query | 🆕 U2: `RecordTable {query, columns?}` macro. Columns come from the schema, the row press opens `RecordForm` in a Drawer. |
-| Calendar / timeline (leave, on-call) | ❌ 🆕 U3: styleguide first, then eUI (`Calendar` month grid + `Timeline`). It is low-level, so it belongs in eUI. |
+| Calendar / timeline (leave, on-call) | ✅ U3 (#VAPP-232): eUI `Calendar` (month/week; phones: dots + the day's agenda) and `Timeline`, catalog macros over the records calendar views (`until`, `view=week|timeline`); styleguide entries `calendar` + `timeline`. |
 | Empty, loading and error states | ✅ `EmptyState`, `Skeleton`, toasts per `feedback-states.json` |
 
 ### 5.3 Responsive
@@ -895,7 +895,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **S2 ★** `eapps` crate + release (`eapps-v*`). (C25)
 - **S3** Spezl runs eApps: #YO-32 on S2 (keychain vault, loopback, `exponential` upstream).
 - **S4** eDE widgets + apps on the crate. Depends on #VAPP-64 and NEW-107. (C26)
-- **U3** `Calendar` / `Timeline`: styleguide first, then eUI. (C29)
+- ✅ **U3** `Calendar` / `Timeline` (C29, #VAPP-232, design approved by Danny 2026-11-03): eUI macros (no new primitive, no new token) over the records query's calendar views: the month view's `weeks` (lanes, "+N more"), the selected day's `agenda`, `view=week`, `view=timeline` (columns, bands, rows, now); bars in the full chart colour (`tone=<field>`); phones get the compact month with dots and the agenda. The macro rule `$template` builds data-template items. Sample: the leave planner (`samples/apps/leave-planner.app.json`).
 
 **Phase 7: Sharing**
 

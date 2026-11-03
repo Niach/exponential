@@ -40,6 +40,8 @@ interface Expansion {
   claimed: Set<string>
   /** Where expansion problems go (the reducer's issue list), if anyone listens. */
   issues?: ReduceIssue[]
+  /** eApps U3: the item nodes `$template` parts built, by id (expanded later). */
+  built: UiNode[]
 }
 
 function clone<T>(value: T): T {
@@ -261,6 +263,17 @@ function buildNode(
       if (built) (node.slots ??= {})[slot] = built
     }
   }
+  if (tpl.$template) {
+    // eApps U3: a data template: the item is built now, lifted into the
+    // reducer's `templates` (expandMacro expands it like any tree).
+    const path = evalValue(tpl.$template.path, ctx)
+    const key = tpl.$template.key === undefined ? undefined : evalValue(tpl.$template.key, ctx)
+    const [item] = typeof path === `string` && path ? expandTemplate(tpl.$template.item, exp, ctx, id) : []
+    if (item) {
+      exp.built.push(item)
+      node.template = typeof key === `string` && key ? { component: item.id, path: path as string, key } : { component: item.id, path: path as string }
+    }
+  }
   for (const child of tpl.children ?? []) {
     if (child === `$children`) {
       node.children.push(...exp.source.children)
@@ -280,12 +293,12 @@ function buildNode(
 }
 
 /** Expand one macro node (children already native) into its template. */
-function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogView, depth: number, issues?: ReduceIssue[]): UiNode {
+function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogView, depth: number, issues: ReduceIssue[] | undefined, templates: UiNode[]): UiNode {
   if (depth > MAX_DEPTH) throw new Error(`macro ${macro}: expansion deeper than ${MAX_DEPTH}`)
   const baseProps = propsAt(node.props, null)
   // Round 3: an `on.press` implies `pressable` on a macro that offers it (Row, Chip).
   if (node.on?.press && baseProps.pressable === undefined && view.components[macro]?.props.pressable) baseProps.pressable = true
-  const exp: Expansion = { view, macro, def, source: node, baseProps, variants: responsiveVariants(node.props), claimed: new Set(), issues }
+  const exp: Expansion = { view, macro, def, source: node, baseProps, variants: responsiveVariants(node.props), claimed: new Set(), issues, built: [] }
   const ctx: ExprContext = { id: node.id, props: baseProps, vars: {} }
   const [root] = expandTemplate(def.root, exp, ctx, node.id)
   root.style = mergeStyle(root.style, node.style)
@@ -307,18 +320,21 @@ function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogVi
   }
   if (Object.keys(remaining).length > 0) root.on = remaining
   else delete root.on
-  return expandTree(root, view, depth + 1, issues)
+  const expanded = expandTree(root, view, depth + 1, issues, templates)
+  // eApps U3: the data-template items, expanded like the root, in build order.
+  for (const item of exp.built) templates.push(expandTree(item, view, depth + 1, issues, templates))
+  return expanded
 }
 
-function expandTree(node: UiNode, view: CatalogView, depth: number, issues?: ReduceIssue[]): UiNode {
-  const out: UiNode = { ...node, children: node.children.map((c) => expandTree(c, view, depth, issues)) }
+function expandTree(node: UiNode, view: CatalogView, depth: number, issues: ReduceIssue[] | undefined, templates: UiNode[]): UiNode {
+  const out: UiNode = { ...node, children: node.children.map((c) => expandTree(c, view, depth, issues, templates)) }
   if (node.slots) {
     out.slots = {}
-    for (const [slot, child] of Object.entries(node.slots)) out.slots[slot] = expandTree(child, view, depth, issues)
+    for (const [slot, child] of Object.entries(node.slots)) out.slots[slot] = expandTree(child, view, depth, issues, templates)
   }
   const def = view.macros[out.component]
   if (def && view.components[out.component]?.kind === `macro`) {
-    return expandMacro(out, out.component, def, view, depth, issues)
+    return expandMacro(out, out.component, def, view, depth, issues, templates)
   }
   return out
 }
@@ -329,11 +345,16 @@ function expandTree(node: UiNode, view: CatalogView, depth: number, issues?: Red
  *  `options.issues` when given. */
 export function expandMacros(
   root: UiNode,
-  options: { extensions?: readonly ExtensionDef[]; issues?: ReduceIssue[] } = {}
+  options: { extensions?: readonly ExtensionDef[]; issues?: ReduceIssue[]; templates?: UiNode[] } = {}
 ): UiNode {
   // Round 3: the tree guides of nested Rows come from their siblings, so
   // they are filled AFTER the whole tree is native (src/tree-guides.ts).
-  return applyTreeGuides(expandTree(clone(root), sharedCatalogView(options.extensions), 0, options.issues))
+  // eApps U3: the items `$template` parts built land in `options.templates`
+  // (native, guides filled), for the reducer's `templates`.
+  const built: UiNode[] = []
+  const out = applyTreeGuides(expandTree(clone(root), sharedCatalogView(options.extensions), 0, options.issues, built))
+  for (const t of built) options.templates?.push(applyTreeGuides(t))
+  return out
 }
 
 /** True for a value the expander would keep (see expr.ts). */

@@ -79,6 +79,8 @@ import { entry as outline } from "./outline.tsx"
 import { entry as mosaic } from "./mosaic.tsx"
 import { entry as zoomableImage } from "./zoomable-image.tsx"
 import { entry as motion } from "./motion.tsx"
+import { entry as calendar } from "./calendar.tsx"
+import { entry as timeline } from "./timeline.tsx"
 import { entry as qrScanner } from "./qr-scanner.tsx"
 import { entry as navRail } from "./nav-rail.tsx"
 import { entry as sidebarRows } from "./sidebar-rows.tsx"
@@ -121,6 +123,8 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   mosaic,
   zoomableImage,
   motion,
+  calendar,
+  timeline,
   composerDialog,
   issueContextMenu,
   sessionRow,

@@ -141,6 +141,12 @@ export interface MacroTemplate {
    *  accessible name — evaluated like any template value (bound inputs emit
    *  calls) into the expanded node's `accessibility`. */
   $a11y?: Record<string, unknown>
+  /** eApps U3 (VAPP-232): a DATA TEMPLATE part: the part renders `item`
+   *  once per entry of the array at `path` (a data pointer, evaluated like
+   *  any value; absolute, or relative inside an outer template), keyed by
+   *  `key`. The item node (id `<part id>.<item part>`) is lifted into the
+   *  reducer's `templates`; it reads its entry through relative bindings. */
+  $template?: { path: unknown; key?: unknown; item: MacroTemplate }
 }
 
 export interface MacroDef {

@@ -24,5 +24,6 @@ object AppTemplates {
         Template("time-tracker", "Time tracker", "clock", "#10b981", "Hours per day and week against a monthly target"),
         Template("crm", "CRM", "briefcase", "#6366f1", "Companies, contacts and the deal pipeline"),
         Template("standup", "Standup", "users", "#f59e0b", "The async daily standup"),
+        Template("leave-planner", "Leave planner", "calendar", "#0ea5e9", "Who is out: a leave calendar and timeline"),
     )
 }

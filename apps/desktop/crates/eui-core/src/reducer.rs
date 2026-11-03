@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::basic_map::map_basic_component;
 use crate::limits;
 use crate::catalog::{CatalogView, A2UI_BASIC_CATALOG_ID, UNKNOWN_COMPONENT};
-use crate::macros::expand_macros_with_issues;
+use crate::macros::expand_macros_with_templates;
 use crate::types::{FlatChildren, FlatComponent, NestedNode, Props, ReduceIssue, UiNode};
 use crate::validate::validate_props;
 
@@ -305,10 +305,11 @@ fn validate_node(node: &UiNode, id: &str, options: &ReduceOptions, skip_unknown:
     }
 }
 
-fn expand(node: UiNode, issues: &mut Vec<ReduceIssue>, options: &ReduceOptions) -> UiNode {
-    match expand_macros_with_issues(&node, &options.view) {
-        Ok((expanded, expansion_issues)) => {
+fn expand(node: UiNode, issues: &mut Vec<ReduceIssue>, built: &mut Vec<UiNode>, options: &ReduceOptions) -> UiNode {
+    match expand_macros_with_templates(&node, &options.view) {
+        Ok((expanded, expansion_issues, templates)) => {
             issues.extend(expansion_issues);
+            built.extend(templates);
             expanded
         }
         Err(message) => {
@@ -323,25 +324,36 @@ fn expand(node: UiNode, issues: &mut Vec<ReduceIssue>, options: &ReduceOptions) 
 /// `maxDepth` bounds the reduced tree a host serializes, not the authored
 /// one).
 fn finish(root: UiNode, mut issues: Vec<ReduceIssue>, lifted: IndexMap<String, UiNode>, options: &ReduceOptions) -> ReduceResult {
-    let mut root = if options.expand { expand(root, &mut issues, options) } else { root };
+    // eApps U3: the items a macro's `$template` parts built join the lifted
+    // templates (after them, in build order: the root's first).
+    let mut built: Vec<UiNode> = Vec::new();
+    let mut root = if options.expand { expand(root, &mut issues, &mut built, options) } else { root };
     cap_depth(&mut root, 1, &mut issues, &options.catalog_id);
     // R8 F51: ONE budget over the expanded trees (the root's, then every
     // lifted template's): a macro's `$each` parts count.
     let mut budget = Budget { left: limits::MAX_COMPONENTS, reported: issues.iter().any(|i| i.message == limits::components_issue()) };
     budget.spend(&root.id, &mut issues);
     cap_components(&mut root, &mut budget, &mut issues);
-    let templates = (!lifted.is_empty()).then(|| {
-        lifted
-            .into_iter()
-            .map(|(id, n)| {
-                let mut n = if options.expand { expand(n, &mut issues, options) } else { n };
-                cap_depth(&mut n, 1, &mut issues, &options.catalog_id);
-                budget.spend(&n.id, &mut issues);
-                cap_components(&mut n, &mut budget, &mut issues);
-                (id, n)
-            })
-            .collect()
-    });
+    let mut templates: IndexMap<String, UiNode> = lifted
+        .into_iter()
+        .map(|(id, n)| {
+            let mut n = if options.expand { expand(n, &mut issues, &mut built, options) } else { n };
+            cap_depth(&mut n, 1, &mut issues, &options.catalog_id);
+            budget.spend(&n.id, &mut issues);
+            cap_components(&mut n, &mut budget, &mut issues);
+            (id, n)
+        })
+        .collect();
+    for mut n in built {
+        if templates.contains_key(&n.id) {
+            continue;
+        }
+        cap_depth(&mut n, 1, &mut issues, &options.catalog_id);
+        budget.spend(&n.id, &mut issues);
+        cap_components(&mut n, &mut budget, &mut issues);
+        templates.insert(n.id.clone(), n);
+    }
+    let templates = (!templates.is_empty()).then_some(templates);
     ReduceResult { root, issues, templates }
 }
 

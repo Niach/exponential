@@ -353,6 +353,20 @@ pub struct MacroTemplate {
     /// evaluated like `props`.
     #[serde(default, rename = "$a11y", skip_serializing_if = "Option::is_none")]
     pub a11y: Option<Props>,
+    /// eApps U3 (VAPP-232): a DATA TEMPLATE part: `item` renders once per
+    /// entry of the array at `path` (evaluated like any value), keyed by
+    /// `key`; the item node is lifted into the reducer's `templates`.
+    #[serde(default, rename = "$template", skip_serializing_if = "Option::is_none")]
+    pub template: Option<MacroDataTemplate>,
+}
+
+/// eApps U3: a macro part's `$template` (`MacroTemplate.$template` in types.ts).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MacroDataTemplate {
+    pub path: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<Value>,
+    pub item: Box<MacroTemplate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
