@@ -81,7 +81,7 @@ final class ConformanceTests: XCTestCase {
     func readOnlySuite() throws -> [Case] {
         try (Fixtures.json("read-only.json")["cases"]?.array ?? []).map { c in
             run(c["name"]?.string ?? "") {
-                func built(_ readOnly: Bool) throws -> [String: Bool] {
+                @MainActor func built(_ readOnly: Bool) throws -> [String: Bool] {
                     var o = SurfaceOptions(catalogId: coreCatalogId())
                     o.theme = nil
                     o.mode = .light
