@@ -28,7 +28,7 @@ export function toPage(entry: ReferenceSource, markdown: string): string {
   let body = markdown.replace(/^# .*\n+/, ``)
   if (entry.transform) body = entry.transform(body)
   const dir = posix.dirname(entry.source)
-  const linked = body.replace(/\]\((?!https?:|#|mailto:)([^)\s]+)\)/g, (_, href: string) => `](${BLOB}${posix.normalize(posix.join(dir, href))})`)
+  const linked = body.replace(/\]\((?!https?:|#|mailto:|/)([^)\s]+)\)/g, (_, href: string) => `](${BLOB}${posix.normalize(posix.join(dir, href))})`)
   const front = [
     `---`,
     `title: ${JSON.stringify(entry.title)}`,

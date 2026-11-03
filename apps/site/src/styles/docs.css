@@ -17,10 +17,6 @@
 
 /* A single web or desktop capture gets the column's full width (the
    shared 18rem-per-column cap suits phones). */
-.sl-markdown-content .exp-platforms:has(> .exp-figure:only-child img:is([src$="/web.webp"], [src$="/desktop.webp"])) {
-  max-width: none;
-}
-
 /* MCP op signatures (`list{a, b?, …}`) wrap inside their bullet. */
 .sl-markdown-content li > code:first-child {
   white-space: normal;

@@ -98,6 +98,10 @@ h1, h2, h3 {
   gap: 0.75rem;
   max-width: calc(var(--exp-cols, 4) * 18rem);
 }
+/* A wide (web / desktop) capture on its own takes the full width. */
+.exp-platforms:has(> .exp-figure:only-child img:is([src$="/web.webp"], [src$="/desktop.webp"])) {
+  max-width: none;
+}
 .exp-platforms .exp-figure {
   margin: 0;
 }
