@@ -23,6 +23,12 @@
 //!   tRPC `apps.records.batch` (one transaction); a press of
 //!   `actions.<name>` runs as the viewer (`me`) in the local zone, and an
 //!   action that lands nothing toasts the failed action with its reason;
+//! - VAPP-230 `upstream:<server>/<tool>?…`: tRPC `apps.upstreamRead` (the
+//!   server broker reads one read-only tool of a team MCP server as the
+//!   viewer), re-read every `CACHE_SECONDS` while bound; ok emits the value, a
+//!   refusal or offline emits nothing (the binding keeps its default); a read
+//!   answering `upstreamDisconnected` raises the host's `Connect <server>`
+//!   banner ([`IdeHost::upstream_banners`], the web's `HostBanner`);
 //! - VAPP-120 typed host actions: every `exponential.<noun>.<op>` of
 //!   `domain::app_actions::APP_ACTIONS`, the same `tools/call` as
 //!   `harness.mcp` with `{op, …args}` (no `op` for `exponential.sessions.send`);
@@ -57,9 +63,10 @@ use eui_gpui::runtime::{
     ConsentHook, Emit, ExponentialHost, FunctionCallInfo, HostFunction, HostOptions, HostPolicy,
     SourceResolver,
 };
+use api::apps::upstream_binding::{self, UpstreamReadAnswer};
 use gpui::{
-    div, px, svg, AnyElement, App, AppContext as _, Entity, Hsla, IntoElement, ParentElement as _,
-    SharedString, Styled as _, Subscription, Task, Window,
+    div, px, svg, AnyElement, App, AppContext as _, AsyncApp, Entity, Hsla, IntoElement, ParentElement as _,
+    SharedString, Styled as _, Subscription, Task, WeakEntity, Window,
 };
 use gpui_component::IconNamed as _;
 use serde_json::{json, Value};
@@ -319,11 +326,44 @@ struct Sub {
     last: Option<Value>,
 }
 
+/// VAPP-230: the live `upstream:` reads: each binding's last answer (for the
+/// banners) and its re-read loop (dropped = cancelled).
+#[derive(Default)]
+struct UpstreamFeed {
+    answers: BTreeMap<u64, UpstreamReadAnswer>,
+    banners: Vec<String>,
+    reads: HashMap<u64, Task<()>>,
+    /// The host to repaint when the banners move.
+    host: Option<WeakEntity<ExponentialHost>>,
+}
+
+impl UpstreamFeed {
+    /// Binding `id`'s answer (`None` = unbound); true when the banners moved.
+    fn set(&mut self, id: u64, answer: Option<UpstreamReadAnswer>) -> bool {
+        match answer {
+            Some(answer) => {
+                self.answers.insert(id, answer);
+            }
+            None => {
+                self.answers.remove(&id);
+            }
+        }
+        let all: Vec<UpstreamReadAnswer> = self.answers.values().cloned().collect();
+        let next = upstream_binding::upstream_banners(&all);
+        if next == self.banners {
+            return false;
+        }
+        self.banners = next;
+        true
+    }
+}
+
 /// The snapshot cache the resolver reads (it gets no `App`).
 struct Feeds {
     devices: Value,
     sources: SourcesFeed,
     records: RecordsFeed,
+    upstream: UpstreamFeed,
     subs: Vec<Sub>,
     next: u64,
 }
@@ -335,6 +375,7 @@ impl Default for Feeds {
             devices: json!({"rows": [], "count": 0, "online": 0}),
             sources: SourcesFeed::default(),
             records: RecordsFeed::default(),
+            upstream: UpstreamFeed::default(),
             subs: Vec::new(),
             next: 0,
         }
@@ -406,6 +447,73 @@ fn exp_resolver(feeds: Weak<RefCell<Feeds>>) -> SourceResolver {
         Box::new(move || {
             if let Some(shared) = feeds.upgrade() {
                 shared.borrow_mut().subs.retain(|s| s.id != id);
+            }
+        })
+    })
+}
+
+/// VAPP-230: repaint the host (its banners moved).
+fn notify_host(host: Option<WeakEntity<ExponentialHost>>, cx: &mut AsyncApp) {
+    if let Some(host) = host.and_then(|h| h.upgrade()) {
+        let _ = cx.update(|cx| host.update(cx, |_, cx| cx.notify()));
+    }
+}
+
+/// VAPP-230: `upstream:<server>/<tool>?…` = the broker's answer for the
+/// viewer (`apps.upstreamRead {id: app, source}`), re-read every
+/// `CACHE_SECONDS` while bound. Ok emits the value; a refusal or offline
+/// emits NOTHING (the path keeps the template's data). No app = no read.
+fn upstream_resolver(feeds: Weak<RefCell<Feeds>>, app_id: Option<String>, async_cx: AsyncApp) -> SourceResolver {
+    Box::new(move |source: ParsedSource, emit: Emit| {
+        let (Some(app_id), Some(shared)) = (app_id.clone(), feeds.upgrade()) else {
+            return Box::new(|| {});
+        };
+        let id = {
+            let mut f = shared.borrow_mut();
+            f.next += 1;
+            f.next
+        };
+        let weak = feeds.clone();
+        let uri = source.uri.clone();
+        let task = async_cx.spawn(async move |cx: &mut AsyncApp| loop {
+            if let Some(trpc) = cx.update(|cx| crate::queries::trpc_client(cx)) {
+                let (app, src) = (app_id.clone(), uri.clone());
+                let read = cx
+                    .background_executor()
+                    .spawn(async move { api::apps::upstream_read(&trpc, &app, &src) })
+                    .await;
+                let Some(shared) = weak.upgrade() else { return };
+                match read {
+                    Ok(answer) => {
+                        if answer.ok {
+                            emit(answer.value.clone());
+                        }
+                        let moved = shared.borrow_mut().upstream.set(id, Some(answer));
+                        if moved {
+                            let host = shared.borrow().upstream.host.clone();
+                            notify_host(host, cx);
+                        }
+                    }
+                    // Offline: the binding keeps its default.
+                    Err(err) => log::debug!("[exponential-ui host] upstream read {uri}: {err}"),
+                }
+            }
+            cx.background_executor().timer(Duration::from_secs(upstream_binding::CACHE_SECONDS)).await;
+        });
+        shared.borrow_mut().upstream.reads.insert(id, task);
+        let feeds = feeds.clone();
+        let async_cx = async_cx.clone();
+        Box::new(move || {
+            let Some(shared) = feeds.upgrade() else { return };
+            let (task, moved, host) = {
+                let mut f = shared.borrow_mut();
+                let task = f.upstream.reads.remove(&id);
+                let moved = f.upstream.set(id, None);
+                (task, moved, f.upstream.host.clone())
+            };
+            drop(task);
+            if moved {
+                async_cx.spawn(async move |cx: &mut AsyncApp| notify_host(host, cx)).detach();
             }
         })
     })
@@ -1227,7 +1335,7 @@ impl ExtensionPainter for LiveDotPainter {
 /// surfaces are on screen.
 pub(crate) struct IdeHost {
     pub(crate) host: Entity<ExponentialHost>,
-    _feeds: Rc<RefCell<Feeds>>,
+    feeds: Rc<RefCell<Feeds>>,
     _subscriptions: Vec<Subscription>,
     _tick: Task<()>,
 }
@@ -1330,6 +1438,11 @@ impl IdeHost {
         sources.insert("exp".into(), exp_resolver(Rc::downgrade(&feeds)));
         // VAPP-161: `records:<kind>?…`, the app's own records.
         sources.insert("records".into(), exp_resolver(Rc::downgrade(&feeds)));
+        // VAPP-230: `upstream:<server>/<tool>?…`, a team MCP server's read.
+        sources.insert(
+            upstream_binding::BINDING_SCHEME.into(),
+            upstream_resolver(Rc::downgrade(&feeds), scope.as_ref().map(|s| s.app_id.clone()), cx.to_async()),
+        );
         let extensions = match parse_extension(APP_EXTENSION_JSON) {
             Ok(ext) => vec![ext],
             Err(e) => {
@@ -1386,7 +1499,14 @@ impl IdeHost {
             }
             host
         });
-        Self { host, _feeds: feeds, _subscriptions: subscriptions, _tick: tick }
+        feeds.borrow_mut().upstream.host = Some(host.downgrade());
+        Self { host, feeds, _subscriptions: subscriptions, _tick: tick }
+    }
+
+    /// VAPP-230: the `Connect <server>` banners (upstream.json `bannerCases`):
+    /// one per server a live binding's read answered upstreamDisconnected.
+    pub(crate) fn upstream_banners(&self) -> Vec<String> {
+        self.feeds.borrow().upstream.banners.clone()
     }
 }
 
@@ -1468,6 +1588,21 @@ mod tests {
         // An unknown name emits null at once.
         let _ = resolver(parse("exp:nope"), emit);
         assert_eq!(got.lock().unwrap().last(), Some(&Value::Null));
+    }
+
+    #[test]
+    fn upstream_answers_raise_one_banner_per_disconnected_server() {
+        let answer = |v: Value| serde_json::from_value::<UpstreamReadAnswer>(v).unwrap();
+        let mut feed = UpstreamFeed::default();
+        assert!(!feed.set(1, Some(answer(json!({"ok": true, "value": 1})))));
+        assert!(feed.set(2, Some(answer(json!({"ok": false, "error": "upstreamDisconnected", "server": "stripe"})))));
+        assert!(feed.set(3, Some(answer(json!({"ok": false, "error": "upstreamDisconnected", "server": "crm"})))));
+        assert!(!feed.set(4, Some(answer(json!({"ok": false, "error": "upstreamDisconnected", "server": "crm"})))));
+        assert_eq!(feed.banners, vec!["Connect crm".to_string(), "Connect stripe".to_string()]);
+        // Unbinding one of two crm reads keeps its banner; the last one drops it.
+        assert!(!feed.set(3, None));
+        assert!(feed.set(4, None));
+        assert_eq!(feed.banners, vec!["Connect stripe".to_string()]);
     }
 
     fn record(id: &str, app: &str, hours: i64, by: &str) -> RecordLite {
@@ -1662,7 +1797,7 @@ mod tests {
             let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false, records: None };
             IdeHost::with_packages(Mode::Dark, &[], None, Some(scope), cx)
         });
-        let feeds = ide._feeds.clone();
+        let feeds = ide.feeds.clone();
         let resolver = exp_resolver(Rc::downgrade(&feeds));
         let bind = |uri: &str| {
             let got = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));

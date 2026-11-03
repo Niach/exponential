@@ -381,9 +381,44 @@ pub fn records_batch(trpc: &TrpcClient, app_id: &str, writes: &[Value]) -> Resul
     trpc.mutation("apps.records.batch", &RecordsBatchInput { id: app_id, writes })
 }
 
+/// VAPP-230: the upstream read-binding contract (`upstream.json`
+/// `binding`), for the hosts that call [`upstream_read`].
+pub use emcp::contract::upstream as upstream_binding;
+pub use emcp::contract::upstream::UpstreamReadAnswer;
+
+#[derive(Serialize)]
+struct UpstreamReadInput<'a> {
+    id: &'a str,
+    source: &'a str,
+}
+
+/// VAPP-230 `apps.upstreamRead {id, source}`: one `upstream:<server>/<tool>?…`
+/// binding read by the server broker as the viewer, `{ok: true, value, meta}`
+/// or `{ok: false, error, server, message}` (a refusal is an answer, not an
+/// error; an `Err` = offline or the app unreachable).
+pub fn upstream_read(trpc: &TrpcClient, app_id: &str, source: &str) -> Result<UpstreamReadAnswer, ApiError> {
+    trpc.query_with_input("apps.upstreamRead", &UpstreamReadInput { id: app_id, source })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn upstream_read_speaks_the_web_wire() {
+        assert_eq!(
+            serde_json::to_value(UpstreamReadInput { id: "app", source: "upstream:crm/search?q=a" }).unwrap(),
+            serde_json::json!({"id": "app", "source": "upstream:crm/search?q=a"})
+        );
+        let ok: UpstreamReadAnswer =
+            serde_json::from_value(serde_json::json!({"ok": true, "value": {"mrr": 1}, "meta": {"via": "upstream"}})).unwrap();
+        assert_eq!((ok.ok, ok.value), (true, serde_json::json!({"mrr": 1})));
+        let refused: UpstreamReadAnswer = serde_json::from_value(
+            serde_json::json!({"ok": false, "error": "upstreamDisconnected", "server": "crm", "message": "Connect crm"}),
+        )
+        .unwrap();
+        assert_eq!(upstream_binding::upstream_banners(&[refused]), vec!["Connect crm".to_string()]);
+    }
 
     #[test]
     fn inputs_serialize_like_the_web() {

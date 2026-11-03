@@ -24,6 +24,11 @@ import ExponentialUI
 //     the app's own rows; a refusal = the failed-action toast;
 //     VAPP-194 `records.batch` = a package action's writes as ONE
 //     `apps.records.batch`, its failure = `onActionFailed`'s toast);
+//   - #VAPP-230 upstream reads: `upstream:<server>/<tool>?…` through the
+//     server broker (`apps.upstreamRead`, re-read every 60 s while bound;
+//     ok emits the value, a refusal or offline emits nothing), the
+//     "Connect <server>" banner when the viewer is not connected
+//     (`AppUpstreamAnswers`, `AppUpstream.bannerServers`);
 //   - extensions: the app extension (`packages/ui/exponential-ui/extension.json`,
 //     bundled) with the `IconDisc` + `LiveDot` painters (Exponential ships
 //     no built-in apps: only the team's packages install);
@@ -88,6 +93,31 @@ final class AppConsentGate {
     }
 }
 
+/// #VAPP-230: every live upstream binding's last answer, for the banners
+/// (the web's `UpstreamAnswers`): one per server answering
+/// `upstreamDisconnected`, sorted (`AppUpstream.bannerServers`).
+@MainActor
+@Observable
+final class AppUpstreamAnswers {
+    /// The servers the viewer must connect (one banner each).
+    private(set) var servers: [String] = []
+    @ObservationIgnored private var answers: [Int: AppUpstream.Answer] = [:]
+    @ObservationIgnored private var ids = 0
+
+    /// A new binding's key.
+    func nextId() -> Int {
+        ids += 1
+        return ids
+    }
+
+    /// A binding's latest answer; nil = it unbound.
+    func set(_ id: Int, _ answer: AppUpstream.Answer?) {
+        answers[id] = answer
+        let next = AppUpstream.bannerServers(Array(answers.values))
+        if next != servers { servers = next }
+    }
+}
+
 /// THE consent card over the host's surface (the app's own `GlassAlert`,
 /// never a system dialog): Deny focused, Allow the explicit default (the
 /// destructive entry when the call sounds destructive), the call's
@@ -149,6 +179,8 @@ private let livenessTick: Duration = .seconds(30)
 @MainActor
 final class ExpAppHost {
     let host: ExponentialHost
+    /// #VAPP-230: the live upstream reads' last answers (the banners).
+    let upstreams: AppUpstreamAnswers
 
     /// The consent card's words for a host call (see [AppConsentWords]).
     nonisolated static func consentWords(name: String, args: [String: JSONValue]) -> AppConsentWords {
@@ -219,6 +251,8 @@ final class ExpAppHost {
         let installed = packages
         let scope = AppHostStore.RecordsScope(appId: appId, teamId: teamId, me: me, records: packages.first.map(JSONValue.parse)?["records"])
         let appsApi = deps.appsApi
+        let upstreams = AppUpstreamAnswers()
+        self.upstreams = upstreams
 
         // VAPP-157: `data` for the fixture's data image/audio/video (the
         // plugin's `resolveUrl` already narrowed every src to the media rule).
@@ -348,6 +382,13 @@ final class ExpAppHost {
                     }
                     return AppHostStore.records(pool: pool, scope: scope, query: query, emit: emit)
                 },
+                // #VAPP-230: `upstream:<server>/<tool>?…` (the broker's answer).
+                AppUpstream.scheme: { source, emit in
+                    ExpAppHost.upstream(
+                        source: source, emit: emit, appId: scope.appId, accountId: accountId,
+                        api: appsApi, answers: upstreams
+                    )
+                },
             ],
             extensions: extensions,
             packages: installed,
@@ -396,6 +437,43 @@ final class ExpAppHost {
                 )
             }
         ))
+    }
+
+    /// #VAPP-230: one upstream binding: the broker's answer for the viewer,
+    /// re-read every `cacheSeconds` while bound. Ok emits the value; a
+    /// refusal or offline emits NOTHING (the path keeps the template's
+    /// data: the binding's default); every answer feeds the banners.
+    static func upstream(
+        source: BindingSource,
+        emit: @escaping @MainActor (JSONValue?) -> Void,
+        appId: String?,
+        accountId: String,
+        api: AppsApi,
+        answers: AppUpstreamAnswers
+    ) -> (() -> Void)? {
+        guard let appId else { return nil }
+        let id = answers.nextId()
+        let uri = source.uri
+        let reads = Task { @MainActor in
+            while !Task.isCancelled {
+                do {
+                    let answer = try await api.upstreamRead(accountId: accountId, appId: appId, source: uri)
+                    guard !Task.isCancelled else { return }
+                    answers.set(id, answer)
+                    if case let .ok(value) = answer {
+                        emit(JSONValue.parse(value.compactString))
+                    }
+                } catch {
+                    // Offline or refused: the binding keeps its default.
+                }
+                try? await Task.sleep(for: .seconds(AppUpstream.cacheSeconds))
+            }
+        }
+        // The host unbinds on the main actor (the SDK host is MainActor).
+        return {
+            reads.cancel()
+            MainActor.assumeIsolated { answers.set(id, nil) }
+        }
     }
 
     /// Paint `templateId` of `packageId` into `surfaceId` (`applyTemplate`).
