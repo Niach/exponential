@@ -841,7 +841,7 @@ object AppRecords {
 
     /** RFC 4180 → the header + the data rows (`parseCases`). */
     fun csvParse(input: String): CsvTable {
-        val text = if (input.startsWith("﻿")) input.substring(1) else input
+        val text = if (input.startsWith("\uFEFF")) input.substring(1) else input
         val delimiter = csvDelimiter(text)
         val records = mutableListOf<List<String>>()
         var record = mutableListOf<String>()
