@@ -557,6 +557,8 @@ export const issuesRouter = router({
             // EXP-1231: the draft this create CONSUMES (its row goes below),
             // synced so a page still showing it elsewhere lands here.
             draftId: input.draftId && draftOwned ? input.draftId : null,
+            // VAPP-229: an app's tool (the broker's server context) = "via <app>".
+            viaAppId: ctx.viaAppId ?? null,
             creatorId: ctx.session.user.id,
             creatorAgentId: origin.agentId ?? null,
           })

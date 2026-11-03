@@ -285,7 +285,7 @@ export async function listRecords(
 export async function upsertRecord(
   userId: string,
   ref: AppRef,
-  input: { kind: string; data: Record<string, unknown>; recordId?: string; author?: string; via?: RecordWriteVia },
+  input: { kind: string; data: Record<string, unknown>; recordId?: string; author?: string; via?: RecordWriteVia; viaAppId?: string },
   executor: Executor = defaultDb
 ): Promise<{ txid: number; id: string; created: boolean; eventId: string }> {
   const app = await loadApp(executor, ref)
@@ -345,7 +345,8 @@ export async function upsertRecord(
     return asEapps(tx, scope, async (tx) => {
       const [row] = await tx
         .insert(appRecords)
-        .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId })
+        // VAPP-229: an app's tool (the broker, never a client) = "via <app>".
+        .values({ appId: app.id, teamId: app.teamId, kind: input.kind, data, createdBy: userId, authorId: input.author ?? userId, updatedBy: userId, viaAppId: input.viaAppId ?? null })
         .returning({ id: appRecords.id })
       const [eventId] = await logEvents(tx, app, userId, input.via ?? `app`, [
         { recordId: row!.id, kind: input.kind, op: `create`, author: input.author ?? userId, patch: data, before: null },

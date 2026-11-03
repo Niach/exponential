@@ -188,8 +188,10 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
     // A records write, then a read that sees it.
     const added = await rpc(token, `tools/call`, { name: `timesheet__add_entry`, arguments: { day: `2026-10-31`, hours: 3 } })
     expect(added.body.result?.isError, text(added.body)).toBeFalsy()
-    const [record] = await db.select({ data: appRecords.data }).from(appRecords).where(and(eq(appRecords.appId, w.appId), eq(appRecords.kind, `entry`)))
+    const [record] = await db.select({ data: appRecords.data, viaAppId: appRecords.viaAppId }).from(appRecords).where(and(eq(appRecords.appId, w.appId), eq(appRecords.kind, `entry`)))
     expect(record?.data).toEqual({ day: `2026-10-31`, hours: 3 })
+    // VAPP-229: the app's own exposed tool created it = "via Timesheet".
+    expect(record?.viaAppId).toBe(w.appId)
     const read = await rpc(token, `tools/call`, { name: `timesheet__list_entries`, arguments: { day: `2026-10-31` } })
     expect((read.body.result?.structuredContent as { count: number }).count).toBe(1)
     expect((read.body.result?._meta as Record<string, unknown>)[`at.exponential/tool`]).toBe(`list_entries`)
@@ -226,6 +228,45 @@ describe.skipIf(!ready.ok)(`/api/mcp/apps end to end (real db)`, () => {
       "timesheet__find_customer:upstream": `upstreamMissing`,
       "timesheet__add_entry:invalid": `invalidArguments`,
     })
+  })
+
+  // VAPP-229: an issue an app's granted action files reads "via <app>";
+  // the member's own create (no broker) carries none.
+  it(`an issue an app's action creates is stamped with the app`, async () => {
+    const w = await world()
+    const board = await createTestBoard({ teamId: w.teamId, prefix: `FIL` })
+    const [filer] = await db
+      .insert(apps)
+      .values({
+        teamId: w.teamId,
+        slug: `filer`,
+        name: `Filer`,
+        headVersion: 1,
+        createdBy: w.owner,
+        grantedTools: [`exponential.issues.create`],
+        package: {
+          functions: [`exponential.issues.create`],
+          exposes: [
+            {
+              name: `file_issue`,
+              title: `File an issue`,
+              description: `File an issue on a board.`,
+              input: { type: `object`, properties: { title: { type: `string` } }, required: [`title`] },
+              access: `write`,
+              run: { action: `exponential.issues.create`, args: { boardId: board.id, title: `\${input.title}` } },
+            },
+          ],
+        } as never,
+      })
+      .returning({ id: apps.id })
+    const { clientId, token } = await client(w.owner)
+    await grant(w.owner, clientId, w.teamId, `full`)
+    const filed = await rpc(token, `tools/call`, { name: `filer__file_issue`, arguments: { title: `From the app` } })
+    expect(filed.body.result?.isError, text(filed.body)).toBeFalsy()
+    const [issue] = await db.select({ viaAppId: issues.viaAppId, creatorId: issues.creatorId }).from(issues).where(and(eq(issues.boardId, board.id), eq(issues.title, `From the app`)))
+    expect(issue).toEqual({ viaAppId: filer!.id, creatorId: w.owner })
+    const [plain] = await db.select({ viaAppId: issues.viaAppId }).from(issues).where(eq(issues.id, w.issueId))
+    expect(plain!.viaAppId).toBeNull()
   })
 
   // VAPP-187: the broker's records patch runs the records router's ownership

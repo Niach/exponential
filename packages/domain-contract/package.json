@@ -63,6 +63,7 @@
     "./question-push": "./src/question-push.ts",
     "./steer-enet": "./src/steer-enet.ts",
     "./fixtures/*": "./fixtures/*",
-    "./team-zone": "./src/team-zone.ts"
+    "./team-zone": "./src/team-zone.ts",
+    "./via-app": "./src/via-app.ts"
   }
 }

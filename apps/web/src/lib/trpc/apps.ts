@@ -639,7 +639,7 @@ export const appsRouter = router({
      *  real writer. */
     upsert: authedProcedure
       .input(appRefSchema.and(z.object({ kind: kindSchema, data: recordDataSchema, recordId: uuid.optional(), author: z.string().min(1).max(64).optional(), via: clientVia })))
-      .mutation(({ ctx, input }) => upsertRecord(ctx.session.user.id, input, { ...input, via: writeVia(ctx, input.via) }, ctx.db)),
+      .mutation(({ ctx, input }) => upsertRecord(ctx.session.user.id, input, { ...input, via: writeVia(ctx, input.via), ...(ctx.viaAppId ? { viaAppId: ctx.viaAppId } : {}) }, ctx.db)),
 
     delete: authedProcedure
       .input(appRefSchema.and(z.object({ recordId: uuid, via: clientVia })))

@@ -28,6 +28,8 @@ export const issueWireColumns = {
   draftId: issues.draftId,
   assigneeAgentId: issues.assigneeAgentId,
   creatorAgentId: issues.creatorAgentId,
+  // VAPP-229: the app that created it ("via <app>").
+  viaAppId: issues.viaAppId,
   createdAt: issues.createdAt,
   updatedAt: issues.updatedAt,
 }

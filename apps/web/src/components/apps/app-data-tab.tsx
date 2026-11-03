@@ -1,3 +1,5 @@
+import { useAppNames } from "@/hooks/use-apps"
+import { withViaApp } from "@exp/domain-contract/via-app"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { APPS_COPY } from "@exp/domain-contract/apps"
@@ -81,6 +83,8 @@ interface DataRecord {
   data: Record<string, unknown>
   createdBy: string | null
   authorId: string | null
+  /** VAPP-229: the app whose tool created it ("via <app>"). */
+  viaAppId: string | null
   updatedAt: string
 }
 
@@ -121,6 +125,7 @@ export function AppDataTab({
         data: (row.data ?? {}) as Record<string, unknown>,
         createdBy: row.createdBy ?? null,
         authorId: row.authorId ?? null,
+        viaAppId: row.viaAppId ?? null,
         updatedAt: iso(row.updatedAt),
       })),
     [synced]
@@ -195,7 +200,9 @@ export function AppDataTab({
 
   // VAPP-188: the author, `{writer} for {author}` on an on-behalf row.
   const names = useMemo(() => Object.fromEntries(users.map((u) => [u.id, u.name])), [users])
-  const author = (record: DataRecord) => recordByline(record, names, APPS_COPY.byAgent)
+  // VAPP-229 (via-app.json): an app's tool wrote it = `· via <app>`.
+  const appNames = useAppNames()
+  const author = (record: DataRecord) => withViaApp(recordByline(record, names, APPS_COPY.byAgent), record.viaAppId ? appNames.get(record.viaAppId) : null)
 
   const grid = {
     gridTemplateColumns: [

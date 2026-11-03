@@ -602,7 +602,7 @@ The UI form is the `handoff` action: "Ask agent to follow up" in the Admin conso
 
 - ✅ `mcp_calls` (90 days, args hashed, never stored).
 - ✅ `app_record_events` (§3.5, #VAPP-215).
-- 🆕 Extend `via_app_id` from comments to issues, sessions and records, so every write an app causes reads "via <app>" ×4.
+- 🔨 (#VAPP-229, fixture `via-app.json`) `via_app_id` on comments (#VAPP-186), issues, sessions and `app_records`, so every write an app causes reads "via <app>" ×4. Only the server sets it, from the apps broker's own context: an exposed tool's `run.records` create, and the issues and sessions its `run.action` creates (later: automations, A1). An app's own UI writes as the viewer and carries none, because a client cannot claim an app. It shows on the issue detail's creation row (`created the issue · 2h · via Timesheet`), as one muted line in the session view's header, and in the Data tab's By cell (`Ana · via Timesheet`). A deleted app shows nothing. ✅ server + web; desktop, iOS and Android follow.
 
 ### 9.4 Public links (🆕 P1, decided: Phase 7)
 
@@ -797,7 +797,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **A3** Inbound webhooks with vault-sealed secrets. (C22)
 - **M1** `upstream:` read bindings through the broker, with a 60 s cache. (C17)
 - **M2** Device-routed (stdio/LAN) upstreams over eNet. (C17b)
-- **M3** `via_app_id` on issues, sessions and records ×4. (§9.3)
+- **M3** 🔨 #VAPP-229 `via_app_id` on issues, sessions and records ×4. (§9.3)
 
 **Phase 6: Everywhere**
 

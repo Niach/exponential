@@ -201,6 +201,8 @@ export const sessionsRouter = router({
         // so a person's text can never turn into "from session A".
         callerSessionId: ctx.request ? parseMcpSessionHeader(ctx.request) : null,
         viaMcp: ctx.viaMcp === true,
+        // VAPP-229: an app's tool (the broker) = "via <app>".
+        ...(ctx.viaAppId ? { viaAppId: ctx.viaAppId } : {}),
       })
     ),
 
