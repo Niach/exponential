@@ -71,9 +71,19 @@ data class AppListEntry(
     val headVersion: Int,
     val createdBy: String?,
     val teamId: String?,
-    /** The head package (JSON text); null = no version yet. */
+    /** eApps V1 (#VAPP-210): the PUBLISHED package (JSON text); null = never published. */
     val packageJson: String?,
-) : Apps.ListLike
+    /** eApps V1: the published version (0 = never published). */
+    val publishedVersion: Int = 0,
+    /** eApps V1: the head's package while it is ahead of the published one. */
+    val draftPackageJson: String? = null,
+) : Apps.ListLike {
+    /** eApps V1: the two pointers (`Apps.shownVersion`, `listPill`, …). */
+    val versions: Apps.Versions get() = Apps.Versions(headVersion, publishedVersion)
+
+    /** eApps V1: the HEAD's package (the draft, else the published one). */
+    val headPackageJson: String? get() = draftPackageJson ?: packageJson
+}
 
 fun AppEntity.toListEntry() = AppListEntry(
     id = id,
@@ -86,6 +96,8 @@ fun AppEntity.toListEntry() = AppListEntry(
     createdBy = createdBy,
     teamId = teamId,
     packageJson = packageJson?.takeIf { it.isNotBlank() && it != "null" },
+    publishedVersion = publishedVersion ?: 0,
+    draftPackageJson = draftPackageJson?.takeIf { it.isNotBlank() && it != "null" },
 )
 
 private fun Flow<ExponentialDatabase?>.isOwnerOf(team: Flow<String?>, userId: Flow<String?>): Flow<Boolean> =
@@ -337,14 +349,20 @@ class AppEditorViewModel @Inject constructor(
         }
     }
 
-    /** Preview version [number] (the head clears the pick). */
+    /** eApps V1: my editor session is live (its root exists, not ended), so
+     *  the preview follows the head (`Apps.shownVersion`). */
+    val editing: Boolean get() = root.value?.isEnded == false
+
+    /** Preview version [number] (the preview's default clears the pick; the
+     *  head's and the published package ride on the synced row). */
     fun pick(number: Int) {
-        val head = app.value?.headVersion ?: 0
-        if (number == head) {
+        val entry = app.value ?: return
+        if (number == Apps.shownVersion(entry.versions, editing, null)) {
             _viewing.value = null
             return
         }
         _viewing.value = AppViewing(number, null)
+        if (number == entry.headVersion || number == entry.publishedVersion) return
         val accountId = auth.activeAccountId.value ?: return
         viewModelScope.launch {
             try {
@@ -359,6 +377,31 @@ class AppEditorViewModel @Inject constructor(
 
     fun clearViewing() {
         _viewing.value = null
+    }
+
+    private val _publishing = MutableStateFlow<Int?>(null)
+    /** eApps V1: the version being published (null = none). */
+    val publishing: StateFlow<Int?> = _publishing
+
+    /** eApps V1 `apps.publish` of version [number] (the menu's head, a
+     *  Versions row's or the banner's): toast `copy.publishedToast`, the
+     *  preview back on its default; a failure = the failed-action toast. */
+    fun publish(number: Int) {
+        if (_publishing.value != null) return
+        val accountId = auth.activeAccountId.value ?: return
+        _publishing.value = number
+        viewModelScope.launch {
+            try {
+                val result = api.publish(accountId, appId, number)
+                _toast.value = Apps.publishedToast(result.published)
+                _viewing.value = null
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                _failure.value = FailedAction("publish", "the version", trpcErrorMessage(t, "")) { publish(number) }
+            } finally {
+                _publishing.value = null
+            }
+        }
     }
 
     /** Restore the viewed version as a NEW head (`apps.restore`). */
@@ -408,8 +451,9 @@ class AppEditorViewModel @Inject constructor(
     val grantBusy: StateFlow<String?> = _grantBusy
 
     /** VAPP-120 / VAPP-156: an owner's switch writes the WHOLE grant list
-     *  (grantable names only, VAPP-158) with the head version on screen; a
-     *  head published meanwhile refuses (CONFLICT, the toast) and resyncs. */
+     *  (grantable names only, VAPP-158) with the version on screen (eApps V1:
+     *  `Apps.grantVersion`, the published one, else the head); a version
+     *  published meanwhile refuses (CONFLICT, the toast) and resyncs. */
     fun setGrant(name: String, on: Boolean) {
         val entry = app.value ?: return
         if (!isOwner.value || !AppActions.actionGrantable(name) || _grantBusy.value != null) return
@@ -419,7 +463,7 @@ class AppEditorViewModel @Inject constructor(
         _grantBusy.value = name
         viewModelScope.launch {
             try {
-                api.update(accountId, AppUpdateInput(id = appId, headVersion = entry.headVersion, grantedTools = next))
+                api.update(accountId, AppUpdateInput(id = appId, headVersion = Apps.grantVersion(entry.versions), grantedTools = next))
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _failure.value = FailedAction("save", "the app", trpcErrorMessage(t, ""))

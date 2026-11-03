@@ -85,10 +85,12 @@ internal fun AppSettingsBody(
         if (trimmed.isEmpty()) name = app.name else if (trimmed != app.name) viewModel.update(name = trimmed)
     }
     val saveDescription = { if (description != app.description) viewModel.update(description = description) }
-    // VAPP-120: the typed actions the HEAD package declares; FEED-159: a
-    // stored grant that is no longer grantable reads as none.
-    val declared = remember(app.packageJson) {
-        val functions = app.packageJson
+    // VAPP-120: the typed actions the RUNNING package declares (eApps V1: the
+    // published one, else the head's); FEED-159: a stored grant that is no
+    // longer grantable reads as none.
+    val grantPackage = app.packageJson ?: app.draftPackageJson
+    val declared = remember(grantPackage) {
+        val functions = grantPackage
             ?.let { runCatching { JsonValue.parse(it) }.getOrNull() }
             ?.get("functions")?.array?.mapNotNull { it.string }
             .orEmpty()

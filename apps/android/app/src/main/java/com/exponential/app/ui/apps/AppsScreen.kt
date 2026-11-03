@@ -78,12 +78,13 @@ fun AppGlyph(icon: String?, color: String?, size: Dp = 16.dp, modifier: Modifier
     Icon(glyph, contentDescription = null, tint = tint, modifier = modifier.size(size))
 }
 
-/** The version pill: `v{n}`, or the muted "no version" copy. */
+/** The version pill = `Apps.listPill` (eApps V1, #VAPP-210: the PUBLISHED
+ *  version `v{n}`, or the muted `Draft` while nothing is published). */
 @Composable
 fun AppVersionPill(app: AppListEntry) {
-    val versioned = app.headVersion > 0
+    val versioned = app.publishedVersion > 0
     GlassPill(
-        Apps.versionLabel(app.headVersion),
+        Apps.listPill(app.versions),
         size = PillSize.Sm,
         contentColor = if (versioned) null else MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
     )
