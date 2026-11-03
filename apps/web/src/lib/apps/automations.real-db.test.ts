@@ -79,7 +79,7 @@ async function world() {
   return { owner, member, teamId, appId: app!.id }
 }
 
-const logs = (appId: string) => db.select({ data: appRecords.data, authorId: appRecords.authorId }).from(appRecords).where(and(eq(appRecords.appId, appId), eq(appRecords.kind, `log`)))
+const logs = (appId: string) => db.select({ data: appRecords.data, authorId: appRecords.authorId, viaAppId: appRecords.viaAppId }).from(appRecords).where(and(eq(appRecords.appId, appId), eq(appRecords.kind, `log`)))
 const calls = (appId: string) => db.select().from(mcpCalls).where(eq(mcpCalls.appId, appId))
 
 async function until<T>(read: () => Promise<T[]>, count: number): Promise<T[]> {
@@ -107,6 +107,8 @@ describe.skipIf(!ready.ok)(`app automations (real db)`, () => {
     const [log] = await until(() => logs(w.appId), 1)
     expect(log?.data.title).toBe(`Leave`)
     expect(log?.authorId).toBe(w.owner)
+    // M3 (#VAPP-229): the run's write reads "via <app>".
+    expect(log?.viaAppId).toBe(w.appId)
     const [call] = await until(() => calls(w.appId), 1)
     expect(call).toMatchObject({ clientId: `automation:log_request`, userId: w.owner, tool: `records.upsert:log`, status: `ok` })
     // The loop guard: `log_log` never ran on the automation's log write.
