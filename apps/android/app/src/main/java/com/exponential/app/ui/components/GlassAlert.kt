@@ -110,14 +110,7 @@ fun GlassAlert(
     ) {
         // The scrim is drawn here, so the window's own dim goes; the blur is
         // the platform's blur-behind where the device supports it (API 31+).
-        val window = (LocalView.current.parent as? DialogWindowProvider)?.window
-        SideEffect {
-            window?.setDimAmount(0f)
-            if (window != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-                window.attributes = window.attributes.apply { blurBehindRadius = ScrimBlurPx }
-            }
-        }
+        OverlayWindowBlur()
         // FEED-79: a failed action's toast draws above this alert.
         OverlayToastHost()
         val noRipple = remember { MutableInteractionSource() }
@@ -362,8 +355,28 @@ internal object GlassAlertDefaults {
     fun stackedWidth(natural: Int, width: Int): Int = natural.coerceAtMost(width)
 }
 
-/** Web's overlay `bg-black/60`. */
-private val ScrimColor = Color.Black.copy(alpha = 0.6f)
+/** Web's overlay `bg-black/60`: THE scrim of every phone overlay (the alert,
+ *  every [GlassSheet]). */
+internal val ScrimColor = Color.Black.copy(alpha = 0.6f)
 
 /** Web's overlay `backdrop-blur-sm` (4px) at a phone's ~3x density. */
 private const val ScrimBlurPx = 12
+
+/**
+ * The blur half of THE overlay scrim (web `backdrop-blur-sm`): the hosting
+ * dialog window's own dim goes (the caller draws [ScrimColor]) and, where the
+ * device supports it (API 31+), the platform blurs what is behind the window.
+ * Call it inside the overlay's content: the alert's [Dialog] and the
+ * [GlassSheet]'s ModalBottomSheet both host it in a [DialogWindowProvider].
+ */
+@Composable
+internal fun OverlayWindowBlur() {
+    val window = (LocalView.current.parent as? DialogWindowProvider)?.window
+    SideEffect {
+        window?.setDimAmount(0f)
+        if (window != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+            window.attributes = window.attributes.apply { blurBehindRadius = ScrimBlurPx }
+        }
+    }
+}
