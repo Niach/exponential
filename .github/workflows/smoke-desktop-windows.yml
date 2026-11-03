@@ -25,7 +25,6 @@ jobs:
     timeout-minutes: 20
     env:
       GH_TOKEN: ${{ github.token }}
-      EXP_DATA_DIR: ${{ runner.temp }}\expdata
     steps:
       - name: Download the exe
         shell: pwsh
@@ -40,6 +39,7 @@ jobs:
         shell: pwsh
         run: |
           $exe = (Get-ChildItem "$env:RUNNER_TEMP\exp\*-windows.exe").FullName
+          $env:EXP_DATA_DIR = "$env:RUNNER_TEMP\expdata"
           New-Item -ItemType Directory -Force $env:EXP_DATA_DIR | Out-Null
           $p = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\ide.out" -RedirectStandardError "$env:RUNNER_TEMP\ide.err"
           Start-Sleep -Seconds 90
