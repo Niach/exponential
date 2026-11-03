@@ -93,14 +93,17 @@ verifies every signed file on the server (`apps.validateImport`).
 
 Today:
 
-- ✅ Every `upsert` writes `app_versions.number` and becomes the head at once. Users see edits live, mid-edit.
+- ✅ Every `upsert` writes `app_versions.number` and becomes the head (the draft).
 - ✅ Restore makes a new head.
 - ✅ The editor session id is recorded on the version.
+- ✅ **Draft vs published** (V1, #VAPP-210/#VAPP-211, decided 2026-11-01; fixture `apps.json` `publishCases` ×4):
+  - `apps.package` is the PUBLISHED version's package (`published_version`, 0 = never published); `apps.draft_package` is the head's while it is ahead.
+  - Every version write (`apps upsert`, Restore) makes a draft. Members, the exposed MCP tools (the broker), record policies and automations run the published package.
+  - The editor's preview shows the head while the viewer's own editor session is live (or nothing is published), else the published version.
+  - "Publish" (the editor header; phones: the … menu; any Versions row; the viewing banner) or `exponential_apps {op: "publish", version?}` moves the pointer. An older version = a rollback. An imported app, or one created with a package, publishes v1 at once.
+  - Grants follow the published package: an owner's publish keeps the still-declared grants, anyone else's clears them.
+  - Records validate against the published kinds plus a draft's new kinds (so an editor can seed them before publishing).
 
 Proposed:
 
-- 🆕 **Draft vs published** (decided 2026-11-01): `apps.published_version`.
-  - Members see the published version. The editor and its preview see the head.
-  - A "Publish" button, or `exponential_apps {op: "publish"}`, moves the pointer.
-  - Exposed tools and automations always run the **published** version, so an agent mid-edit can't change what OpenClaw calls.
 - **`version` (SemVer)** is the author's label. **`number`** is the truth. A major bump with no `migrations` for a changed kind is refused (§3.6).

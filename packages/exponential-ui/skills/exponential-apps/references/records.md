@@ -143,7 +143,7 @@ Records have ONE spelling on every host: read `records:<kind>?q`, write
 Layers, all intersected:
 
 1. **Team membership** ✅. Only members, unless a public link applies (§9.4).
-2. **Per-app member policy** `app_access` none/read/write. ✅ (#VAPP-199) applied everywhere: MCP, the records service (none = NOT_FOUND, read = writes FORBIDDEN), the apps router, the apps / app-versions / app-records shapes (none = the app and its rows never sync), the RLS scope (`eapps.write`), and the clients (`appAccess.mine`; the Data tab disables writes). 🟡 An app's own inputs are not yet disabled at read (#VAPP-200): the server refuses the press with a toast.
+2. **Per-app member policy** `app_access` none/read/write. ✅ (#VAPP-199) applied everywhere: MCP, the records service (none = NOT_FOUND, read = writes FORBIDDEN), the apps router, the apps / app-versions / app-records shapes (none = the app and its rows never sync), the RLS scope (`eapps.write`), and the clients (`appAccess.mine`; the Data tab disables writes). An app's own writing controls paint disabled at read (#VAPP-200, the eUI `readOnly` host option ×7 renderers).
 3. **Per-kind policy** ✅ (R3, #VAPP-199, `packages/exponential-ui/fixtures/record-policy.json`, TS `host/record-policy.ts` + Rust `host::record_policy`, iOS/Android hand ports replaying the fixture):
 
 ```jsonc
