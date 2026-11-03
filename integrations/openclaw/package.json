@@ -4,7 +4,7 @@
   "description": "Exponential's issue tracker in OpenClaw over MCP, with MCP Apps views.",
   "type": "module",
   "license": "Apache-2.0",
-  "homepage": "https://exponential.at/docs/mcp/",
+  "homepage": "https://exponential.at/docs/build/mcp/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Niach/exponential.git",

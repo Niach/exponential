@@ -18,7 +18,7 @@ object GettingStartedCopy {
     const val METER = 160
     const val DOCS_LABEL = "Docs"
     const val DOCS_ICON = "ui-docs"
-    const val DOCS_URL = "https://exponential.at/docs/getting-started/"
+    const val DOCS_URL = "https://exponential.at/docs/get-started/"
 
     /** The expanded next row's trailing label. */
     const val NEXT_LABEL = "Next"

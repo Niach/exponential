@@ -152,7 +152,7 @@ public enum GettingStarted {
     public static let title = "Getting started"
     public static let docsLabel = "Docs"
     public static let docsIcon = "ui-docs"
-    public static let docsUrl = URL(string: "https://exponential.at/docs/getting-started/")!
+    public static let docsUrl = URL(string: "https://exponential.at/docs/get-started/")!
     /// The header's progress meter width.
     public static let meterWidth: Double = 160
     /// The small label trailing the expanded (next) row's title.
