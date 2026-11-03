@@ -41,7 +41,9 @@ log = "0.4"
 uuid = { workspace = true }
 # One private runtime per process (`runtime.rs`): every host of this crate is
 # blocking code, so the async SDK lives on emcp's own threads.
-tokio = { workspace = true }
+# `process`: VAPP-239's stdio upstreams (`Client::spawn`), over rmcp's
+# async read/write transport (already on through `server`).
+tokio = { workspace = true, features = ["process"] }
 # The loopback listener: rmcp's tower service under a bare hyper HTTP/1.1
 # server (no web framework), plus the bearer check and the raw routes.
 hyper = { version = "1", features = ["server", "http1"] }

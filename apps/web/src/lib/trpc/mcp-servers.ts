@@ -32,6 +32,7 @@ import {
   mcpCredentials,
   mcpOauthFlows,
   apps,
+  devices,
   mcpServers,
   sessions,
   teamMembers,
@@ -56,6 +57,8 @@ import { safeReturnTo } from "@/lib/emcp/upstream/urls"
 import { McpHttpError } from "@/lib/emcp/upstream/net"
 import { McpOauthError } from "@/lib/emcp/upstream/oauth-client"
 import { probeMcpServer, testMcpServer } from "@/lib/emcp/upstream/mcp-client"
+import { claimDeviceCall } from "@/lib/emcp/upstream/device-call"
+import { mcpUrlAllowed } from "@exp/emcp/upstream"
 
 export type { McpConnection, McpConnectionStatus } from "@/lib/emcp/upstream/credentials"
 export type {
@@ -78,6 +81,9 @@ export type McpServerListRow = McpServer & {
   /** #VAPP-185: the apps whose head package declares this server in
    * `upstreams` (names, alphabetical): Settings › MCP's "Used by". */
   usedBy: string[]
+  /** #VAPP-239: the device this server runs on for app calls (the Servers
+   * row's device chip), or null when the server broker calls it. */
+  device: { id: string; label: string; ownerId: string; kind: string; icon: string | null } | null
 }
 
 const nameSchema = z.string().trim().min(1).max(MAX_MCP_SERVER_NAME)
@@ -88,28 +94,14 @@ const scopesSchema = z.array(z.string().trim().min(1).max(64)).max(16)
 const argsSchema = z.array(z.string().max(1024)).max(64)
 
 // http servers reach the public internet, so plain http is refused — except
-// on the machine's own loopback (a local dev MCP), which never leaves it.
+// on the machine's own loopback (a local dev MCP) or (#VAPP-239) a LAN host a
+// device-routed server reaches (@exp/emcp upstream.json `device.urlCases`).
 const urlSchema = z
   .string()
   .trim()
   .min(1)
   .max(2048)
-  .refine(
-    (value) => {
-      let url: URL
-      try {
-        url = new URL(value)
-      } catch {
-        return false
-      }
-      if (url.protocol === `https:`) return true
-      return (
-        url.protocol === `http:` &&
-        (url.hostname === `localhost` || url.hostname === `127.0.0.1`)
-      )
-    },
-    { message: `The URL must be https:// (http:// only for localhost)` }
-  )
+  .refine(mcpUrlAllowed, { message: `The URL must be https:// (http:// only for localhost or a LAN host)` })
 
 const fieldsSchema = z.object({
   name: nameSchema,
@@ -294,6 +286,15 @@ export const mcpServersRouter = router({
           .map((app) => app.name)
           .sort((a, b) => a.localeCompare(b))
       const memberIds = new Set(members.map((member) => member.userId))
+      const deviceIds = [...new Set(rows.flatMap((row) => (row.deviceId ? [row.deviceId] : [])))]
+      const deviceRows =
+        deviceIds.length === 0
+          ? []
+          : await ctx.db
+              .select({ id: devices.id, label: devices.label, ownerId: devices.userId, kind: devices.kind, icon: devices.icon })
+              .from(devices)
+              .where(inArray(devices.id, deviceIds))
+      const deviceOf = (id: string | null) => deviceRows.find((device) => device.id === id) ?? null
       const now = new Date()
       return rows.map((row) => {
         const mine = credentials.find(
@@ -332,6 +333,7 @@ export const mcpServersRouter = router({
           sharedUserIds,
           connectedUserIds,
           usedBy: usedBy(row.name),
+          device: deviceOf(row.deviceId),
         }
       })
     }),
@@ -438,6 +440,58 @@ export const mcpServersRouter = router({
         return updated
       })
       return row!
+    }),
+
+  // #VAPP-239 (eApps M2): run this server ON a device for app calls (a
+  // stdio command, or an http URL only the device's network reaches). A team
+  // owner names a device of their OWN (a desktop app or CLI daemon): only
+  // their calls, and automations they sponsor, route there. Null = back to
+  // the server broker (http). Any owner may clear it.
+  setDevice: authedProcedure
+    .input(z.object({ id: z.string().uuid(), deviceId: z.string().uuid().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      await assertNotAgentKey(ctx)
+      const userId = ctx.session.user.id
+      const current = await loadServer(ctx.db, input.id)
+      await assertTeamOwner(userId, current.teamId)
+      if (input.deviceId) {
+        const [device] = await ctx.db
+          .select({ id: devices.id, kind: devices.kind })
+          .from(devices)
+          .where(and(eq(devices.id, input.deviceId), eq(devices.userId, userId)))
+          .limit(1)
+        if (!device) {
+          throw new TRPCError({ code: `NOT_FOUND`, message: `Pick one of your own devices` })
+        }
+        if (device.kind !== `desktop` && device.kind !== `daemon`) {
+          throw new TRPCError({ code: `BAD_REQUEST`, message: `Only a desktop app or a CLI daemon runs MCP servers` })
+        }
+      }
+      const [row] = await ctx.db
+        .update(mcpServers)
+        .set({ deviceId: input.deviceId, updatedAt: new Date() })
+        .where(eq(mcpServers.id, input.id))
+        .returning()
+      return row!
+    }),
+
+  // #VAPP-239: the device's half of a routed app call. The relay carried
+  // only `callId` down this device's control socket; the device claims it
+  // here, as itself (`deviceId` = its steer device id): the caller's own,
+  // unexpired, unclaimed call on that device, once — every miss is the same
+  // NOT_FOUND. The answer is the server with the caller's OWN credential
+  // resolved now (never stored with the call), the tool, the args, the
+  // veto and the reply key the device seals its answer to. The agent's key
+  // never claims (only the device's own process does).
+  claimDeviceCall: authedProcedure
+    .input(z.object({ callId: z.string().uuid(), deviceId: z.string().min(1).max(128) }))
+    .mutation(async ({ ctx, input }) => {
+      if (await isAgentApiKeySession(ctx.db, ctx.session)) {
+        throw new TRPCError({ code: `FORBIDDEN`, message: `An agent's key never claims device calls.` })
+      }
+      const claimed = await claimDeviceCall({ callId: input.callId, userId: ctx.session.user.id, steerDeviceId: input.deviceId })
+      if (!claimed) throw new TRPCError({ code: `NOT_FOUND`, message: `No such call` })
+      return claimed
     }),
 
   // Credentials and flows cascade with the server.

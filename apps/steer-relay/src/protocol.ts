@@ -5,7 +5,8 @@
 //   - a CONTROL socket announces its device (`online`), receives `check_in`,
 //     `kill {sessionId}`, `interrupt {sessionId}` and `compact_request` from
 //     the web server's admin routes, and answers the last with
-//     `compact_verdict`;
+//     `compact_verdict`; (VAPP-239) `upstream_call {callId}`, answered with
+//     `upstream_answer {callId, sealed}`;
 //   - a voice call's `caller` and `call_host` sockets (NEW-55) exchange the
 //     call frames below.
 // The session content frames (`CONTENT_FRAME_TYPES`: a session's activity,
@@ -880,6 +881,19 @@ export const compactVerdictFrame = z.object({
   refusedBecause: z.enum(COMPACT_REFUSALS).optional(),
 })
 
+// VAPP-239 (eApps M2, @exp/emcp upstream.json `device`), control → relay:
+// the device's answer to an `upstream_call`, SEALED to the call's reply key
+// (enet-core push_seal v1, base64url): the relay routes it by `callId` to the
+// web server's awaiting `POST /devices/:userId/:deviceId/upstream` and never
+// opens it. Only the control socket the call went down may answer it.
+export const UPSTREAM_ANSWER_MAX_CHARS = 524_288
+
+export const upstreamAnswerFrame = z.object({
+  t: z.literal(`upstream_answer`),
+  callId: z.string().min(1).max(64),
+  sealed: z.string().min(1).max(UPSTREAM_ANSWER_MAX_CHARS),
+})
+
 // NEW-55, caller → relay → host: the caller's microphone closed or opened
 // (replies keep playing either way). Forwarded verbatim.
 export const callMuteFrame = z.object({
@@ -936,6 +950,7 @@ export const clientFrame = z.discriminatedUnion(`t`, [
   tunnelDataFrame,
   tunnelCloseFrame,
   compactVerdictFrame,
+  upstreamAnswerFrame,
   callMuteFrame,
   callEventFrame,
   callEndFrame,
@@ -989,6 +1004,11 @@ export type ServerFrame =
   // agent's context; the host answers `compact_verdict` and does it at the
   // next turn boundary, or refuses. `keep` = what the summary must preserve.
   | { t: `compact_request`; sessionId: string; keep?: string }
+  // VAPP-239: relay → a device's CONTROL socket. The web server routed an app
+  // call to this device's upstream; the device claims `callId` over its own
+  // authenticated API, runs it and answers `upstream_answer`. Only the id
+  // crosses the relay.
+  | { t: `upstream_call`; callId: string }
   // EXP-481: fire-and-forget check-in nudge to a device's control socket —
   // the web server persisted new work (a queued command, edited launch
   // defaults) and an online device should heartbeat NOW instead of on its

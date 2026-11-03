@@ -141,6 +141,27 @@ interface CompactAsk {
   timer: ReturnType<typeof setTimeout>
 }
 
+/** VAPP-239: what `POST /devices/:userId/:deviceId/upstream` gets back.
+ *  `delivered: false` = the device's control socket is not connected
+ *  (`device_offline`), it never answered (`no_answer`) or the call id is
+ *  already waiting (`busy`). */
+export type UpstreamCallOutcome =
+  | { delivered: false; reason: `device_offline` | `no_answer` | `busy` }
+  | { delivered: true; sealed: string }
+
+interface UpstreamAsk {
+  control: Conn
+  ownerId: string
+  deviceId: string
+  resolve: (outcome: UpstreamCallOutcome) => void
+  timer: ReturnType<typeof setTimeout>
+}
+
+/** VAPP-239: how long an `upstream_call` may wait for the device's answer
+ *  (@exp/emcp upstream.json `device.answerTimeoutMs`; the web server's fetch
+ *  timeout sits above it). */
+export const UPSTREAM_ANSWER_TIMEOUT_MS = 25_000
+
 // A frame the schema rejects is dropped on the floor; without a log line a
 // client version skew is invisible from the relay side. One warning per
 // SOCKET per window keeps a chatty or hostile client from filling the log.
@@ -168,6 +189,8 @@ export class Hub {
   private devices = new Map<string, Map<string, Conn>>()
   /** EXP-936: sessionId → its ONE in-flight compaction ask. */
   private compactAsks = new Map<string, CompactAsk>()
+  /** VAPP-239: callId → its in-flight upstream call. */
+  private upstreamAsks = new Map<string, UpstreamAsk>()
   /** NEW-55: callId → call room, and the voice device (owner + deviceId) →
    *  its ONE running callId (a second caller reads `busy`). */
   private calls = new Map<string, CallRoom>()
@@ -185,6 +208,10 @@ export class Hub {
    *  the host never answered (a host older than the frame). */
   private compactRequests = 0
   private compactVerdictTimeouts = 0
+  /** VAPP-239: `upstream_call`s sent down a control socket, and how many
+   *  the device never answered. */
+  private upstreamCalls = 0
+  private upstreamTimeouts = 0
   /** NEW-55: calls rung, the three ways a ring fails, and the audio frames
    *  forwarded / dropped (wrong kind, oversized, not paired) / skipped (a
    *  saturated peer). */
@@ -212,6 +239,9 @@ export class Hub {
     }
     for (const sessionId of [...this.compactAsks.keys()]) {
       this.settleCompactAsk(sessionId, { delivered: false, reason: `device_offline` })
+    }
+    for (const callId of [...this.upstreamAsks.keys()]) {
+      this.settleUpstreamAsk(callId, { delivered: false, reason: `device_offline` })
     }
   }
 
@@ -388,6 +418,13 @@ export class Hub {
       }
     }
 
+    // VAPP-239: an upstream call that went down THIS socket is lost.
+    for (const [callId, ask] of [...this.upstreamAsks]) {
+      if (ask.control === conn) {
+        this.settleUpstreamAsk(callId, { delivered: false, reason: `device_offline` })
+      }
+    }
+
     // Device presence eviction.
     if (conn.deviceId) {
       const byDevice = this.devices.get(conn.claims.sub)
@@ -451,6 +488,18 @@ export class Hub {
                 refusedBecause: msg.refusedBecause ?? `cooldown`,
               }
         )
+        return
+      }
+
+      // VAPP-239: the device's sealed answer to ONE pending `upstream_call`,
+      // from the control socket it went down (same owner + deviceId); any
+      // other socket's answer, and an answer with no call open, is dropped.
+      case `upstream_answer`: {
+        if (conn.claims.role !== `control` || !conn.deviceId) return
+        const ask = this.upstreamAsks.get(msg.callId)
+        if (!ask || ask.control !== conn) return
+        if (ask.ownerId !== conn.claims.sub || ask.deviceId !== conn.deviceId) return
+        this.settleUpstreamAsk(msg.callId, { delivered: true, sealed: msg.sealed })
         return
       }
 
@@ -622,6 +671,31 @@ export class Hub {
     })
   }
 
+  /** VAPP-239: send `upstream_call {callId}` down the device's control
+   *  socket and wait for its sealed answer. */
+  requestUpstreamCall(device: DeviceRef, callId: string): Promise<UpstreamCallOutcome> {
+    const control = this.controlFor(device)
+    if (!control) return Promise.resolve({ delivered: false, reason: `device_offline` })
+    if (this.upstreamAsks.has(callId)) return Promise.resolve({ delivered: false, reason: `busy` })
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.upstreamTimeouts += 1
+        this.settleUpstreamAsk(callId, { delivered: false, reason: `no_answer` })
+      }, UPSTREAM_ANSWER_TIMEOUT_MS)
+      this.upstreamAsks.set(callId, { control, ownerId: device.userId, deviceId: device.deviceId, resolve, timer })
+      this.upstreamCalls += 1
+      control.sock.send(frame({ t: `upstream_call`, callId }))
+    })
+  }
+
+  private settleUpstreamAsk(callId: string, outcome: UpstreamCallOutcome) {
+    const ask = this.upstreamAsks.get(callId)
+    if (!ask) return
+    clearTimeout(ask.timer)
+    this.upstreamAsks.delete(callId)
+    ask.resolve(outcome)
+  }
+
   /** EXP-936: answer (or give up on) a session's pending compaction ask. A
    *  no-op when none is open, so every exit path may call it. */
   private settleCompactAsk(sessionId: string, outcome: CompactOutcome) {
@@ -648,6 +722,8 @@ export class Hub {
       contentFramesRefused: this.contentFramesRefused,
       compactRequests: this.compactRequests,
       compactVerdictTimeouts: this.compactVerdictTimeouts,
+      upstreamCalls: this.upstreamCalls,
+      upstreamTimeouts: this.upstreamTimeouts,
       callRings: this.callRings,
       callDeviceOffline: this.callDeviceOffline,
       callBusy: this.callBusy,

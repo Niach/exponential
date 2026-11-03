@@ -73,7 +73,7 @@ Needs:
 
 - C16 `exposes`;
 - C17 upstream reads inside templates (`upstream:` binding source, ✅ #VAPP-230);
-- C17b upstreams reachable only on the LAN (Home Assistant), which needs a device-routed upstream (❌, stdio is refused on the server today);
+- C17b upstreams reachable only on the LAN (Home Assistant), which needs a device-routed upstream (✅ M2, #VAPP-239: the server row names its owner's device, §8);
 - C22 a webhook (Stripe `invoice.payment_failed` → a record + a ping);
 - C19 agent hand-off.
 
@@ -174,7 +174,7 @@ Needs: C2, C13.
 | C15 | Broker `records` with the full query | ✅ Q4 (#VAPP-216) | |
 | C16 | `exposes` (records / action / upstream) | ✅ | #VAPP-180, #VAPP-181 |
 | C17 | `upstream:` read bindings in templates | ✅ #VAPP-230 (M1) | |
-| C17b | Device-routed upstreams (stdio, LAN-only) | ❌ | 🆕 M2 |
+| C17b | Device-routed upstreams (stdio, LAN-only) | ✅ | M2 (#VAPP-239) |
 | C18 | Schedules and record/event triggers | ❌ (agents only: `agentTrigger`) | 🆕 A1 |
 | C19 | Agent hand-off (`run.agent`) | ✅ A2 (#VAPP-236) | ✅ A2 |
 | C20 | Files on records | ✅ R7 (#VAPP-221) | `format: "attachment"` fields, `POST /api/apps/{id}/files` |
@@ -502,6 +502,7 @@ The complete list: records writes, MCP operations, toasts, navigation and links.
   - run by the **server broker** as the viewer with their own credential (`resolveForLaunch`), exactly one tool per read, never another app's upstreams, `_meta` provenance on the answer (§12.1);
   - cached for 60 s per (member, server, tool, args); errors are never cached, and hosts re-read every 60 s while bound;
   - the value = the result's `structuredContent`, else its text as JSON, else the text.
+- ✅ M2 (#VAPP-239): a server that names a device reads ON that device for its owner (§8 "Device-routed upstreams"), same rules, same cache; anyone else's read is refused `deviceNotOwned`, and an offline device answers `{ok: false, error: upstreamFailed, server, offline: <device>}`.
 - Hosts ×4 subscribe through one tRPC query, `apps.upstreamRead {id, source}`. A refusal or offline keeps the path's template data (the binding's default); a viewer not connected to the server gets one host banner per server, "Connect <server>", opening Settings › MCP.
 - Reads are not written to `mcp_calls` (a dashboard re-reads every minute); exposes calls still are.
 - Writes stay `exposes`-style named actions (`{"call": "upstream.stripe.retry_charge"}`). They are listed in `functions`, granted by an owner, and confirmed by the viewer the first time.
@@ -590,9 +591,16 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 | "via <app>" | 🟡 comments only | #VAPP-186 |
 | Broker `records` = full query | ✅ | Q4 #VAPP-216: `run.records` list + `records_list` `query` run the Q1 evaluator (`@exponential_app/eui/host/query`) over the caller's readable rows (read policy + RLS first, ≤ 25,000 rows read); `records-query.json` replays through the broker |
 | http upstreams | ✅ | |
-| stdio / LAN upstreams | ❌ 🆕 M2: route the call to a member's online device over eNet; the device runs it through the `emcp` client and answers. If the device is offline: `upstreamFailed` "runs on <device>, offline". |
+| stdio / LAN upstreams | ✅ M2 (#VAPP-239) | `@exp/emcp` upstream.json `device` (its `$comment` is the spec), `lib/emcp/upstream/device-call.ts`, the relay's `POST /devices/:userId/:deviceId/upstream`, `steer::upstream_call` + `emcp::device_call` on the device (below) |
 | eMCP local hub + codemode | in review | #EXP-1507 |
 | Spezl loopback broker | ❌ | #YO-32 |
+
+**Device-routed upstreams** (✅ M2, #VAPP-239): a team server row may name a device (`mcp_servers.device_id`: a desktop app or CLI daemon of a team OWNER, set with `mcpServers.setDevice`, only to a device of their own; a removed device clears it). It then runs THERE for app calls: a `stdio` command, or an `http` URL only that device's network reaches (plain `http://` is allowed on loopback and LAN hosts: private IPv4, `.local`, `.lan`, `.home.arpa`, `.internal`).
+
+- **Who:** only the device owner's own calls (exposes runs, M1 read bindings) and automations they sponsor route to it; anyone else's are refused `deviceNotOwned` (audited `denied`), so nobody spends a teammate's machine. A stdio server naming no device stays `upstreamFailed`.
+- **The path:** the broker writes one `mcp_device_calls` row (tool, args, the veto, a fresh X25519 reply key; 30 s, claimable once, no secret in it) and asks the steer relay to send `upstream_call {callId}` down the device's control socket (the same socket kill, interrupt and compact use). The device claims the call over its own authenticated API (`mcpServers.claimDeviceCall`: its own call on that device, else NOT_FOUND), which resolves the member's credential at claim time; it runs exactly that tool through the `emcp` client (http, or the command spawned over stdio), checking the tool's live annotations against the veto first, and answers `upstream_answer {callId, sealed}`, sealed to the reply key with eNet's sealed box (enet-core `push_seal`). The relay sees only the id and ciphertext and cannot forge an answer: the reply key never crosses it.
+- **Offline:** the relay's `device_offline` = `upstreamFailed` "<server> runs on <device>, offline"; a read keeps the binding's default and the host shows that banner (no action) beside the "Connect <server>" ones; a device that never answers (25 s) = "<server>: <device> did not answer".
+- **Grants, audit, cache:** exactly as for http upstreams; the answer's `_meta` adds `at.exponential/device` = the device's label.
 
 **The eMCP hub** (ExponentialOS v5): on a device, one loopback hub combines its servers (ePilot, eDE tools, Spezl apps) behind grants and audit. eApps plug into it as one more `ToolProvider`, using the same `<app>__<tool>` names and the same `exposes` rules, replayed from `packages/emcp` fixtures in Rust.
 
@@ -761,7 +769,7 @@ Added here:
 - **The vault:** `VAULT_KEY` with a kid, AES-256-GCM `ev1`, rotation by a daily re-seal ✅.
 - **What is sealed:** upstream credentials (one per member and server), better-auth tokens, webhook secrets ✅ (A3, `app_hooks`).
 - **No secrets in packages:** 🆕 the validator refuses string literals that match key patterns (`sk_live_`, `ghp_`, `xoxb-`, PEM).
-- **Natives:** upstream tokens never reach a client; the server broker or the device's keychain (Spezl, M2) uses them.
+- **Natives:** upstream tokens never reach a client; the server broker uses them, or (M2) the member's OWN device-routed server receives the member's own credential at claim time, never stored with the call (Spezl: the device's keychain).
 
 ---
 
@@ -772,7 +780,7 @@ Added here:
 | Client host ×4 (web, desktop, iOS, Android) | Bindings, queries, actions, forms | While the app is open | ✅ |
 | Server broker | `exposes`, upstream reads (M1), automations (A1), webhooks (A3), public links (P1) | Always (the web server process) | ✅ for exposes and upstream reads, 🆕 for the rest |
 | Agent | Anything that needs judgement (`run.agent`) | On trigger | ✅ A2 |
-| Device | stdio/LAN upstreams (M2) | When the device is online | 🆕 |
+| Device | stdio/LAN upstreams (M2) | When the device is online | ✅ (#VAPP-239) |
 | Spezl (no server) | Everything above, in-app; automations only while the app runs (eagent-hub scheduler) | Local | #YO-32, 🆕 S3 |
 
 **Hosted apps (#VAPP-101) stay cancelled.** Code that must always run lives in an **upstream MCP server** the team deploys: a company's own MCP, a small Bun service, a Home Assistant add-on. The app calls it by name. That keeps Exponential free of a sandbox, of a per-app process model and of billing for compute (decided 2026-11-01: for good).
@@ -878,7 +886,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 - **A2** ✅ #VAPP-236 `run.agent` + the `handoff` action: an automation, an exposed tool or a press hands judgement to a team agent through `sessions.send` (the brief = the frozen prompt + a fenced data block + the record ref), `via <app>`, 10 hand-offs a minute per app, the agent loop guard; `exposes.json` `agent` + `automations.json` (TS + Rust), `exponential.apps.handoff`. (C19)
 - **A3** #VAPP-237 Inbound webhooks with vault-sealed secrets: ✅ the contract (`automations.json` `webhook`: signature, window, replay), `POST /api/apps/hooks/<appId>/<name>`, the sealed per-hook secret, the nonce cache, the rate cap and audit; ✅ the Settings mint/rotate rows ×4 (#VAPP-238). (C22)
 - ✅ **M1** `upstream:` read bindings through the broker, with a 60 s cache. (C17, #VAPP-230)
-- **M2** Device-routed (stdio/LAN) upstreams over eNet. (C17b)
+- ✅ **M2** Device-routed (stdio/LAN) upstreams, routed down the device's control socket with the answer sealed by eNet's sealed box. (C17b, #VAPP-239)
 - **M3** ✅ #VAPP-229 `via_app_id` on issues, sessions and records ×4. (§9.3)
 
 **Phase 6: Everywhere**

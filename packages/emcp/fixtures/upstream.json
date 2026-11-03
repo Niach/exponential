@@ -105,5 +105,70 @@
       { "name": "one per server, sorted", "answers": [{ "ok": false, "error": "upstreamDisconnected", "server": "stripe" }, { "ok": false, "error": "upstreamDisconnected", "server": "crm" }, { "ok": false, "error": "upstreamDisconnected", "server": "stripe" }], "expected": ["Connect crm", "Connect stripe"] },
       { "name": "a missing server has no banner", "answers": [{ "ok": false, "error": "upstreamMissing", "server": "crm" }, { "ok": false, "error": "notReadOnly", "server": "github" }], "expected": [] }
     ]
+  },
+  "device": {
+    "$comment": "VAPP-239 (eApps M2, apps.md §6.3/§8/§13, C17b): A DEVICE-ROUTED UPSTREAM. A team MCP server row (`mcp_servers`) that names a `device_id` (a member's desktop app or CLI daemon, `devices.id`) runs ON THAT DEVICE: a `stdio` command, or an `http` URL only the device's network reaches (a LAN Home Assistant). The device's OWNER names it (Settings › MCP › Servers, tRPC `mcpServers.setDevice`: only a device of your own; the row's Servers line shows it with the existing device chip); a removed device clears it. ROUTE (`routeCases`, `upstreamRoute(server, callerId)`, run by the server broker before every exposes run, `upstream:` read binding and automation upstream run): no device + http = `server` (M1, unchanged); no device + stdio = `upstreamFailed` `noDevice`; a device = `device` ONLY when the caller IS its owner (a member's own call, an automation's sponsor), else `deviceNotOwned` `notOwner` (nobody spends another member's machine). URLS (`urlCases`, `mcpUrlAllowed`, the server row's check ×2 forms + tRPC): https anywhere; plain http only on loopback (`localhost`, `127.0.0.1`) or a LAN host (a private IPv4 literal: 10/8, 172.16/12, 192.168/16, or a name ending `.local`, `.lan`, `.home.arpa`, `.internal`), which the server broker never reaches (its SSRF guard) and only a device does. THE CALL (the server, `lib/emcp/upstream/device-call.ts`): one `mcp_device_calls` row {id, team, member, server, device, tool, args, veto, reply key}, live `ttlSeconds`, claimable ONCE; the server keeps a fresh X25519 reply secret in memory and POSTs `{callId}` to the relay (`POST /devices/:userId/:deviceId/upstream`), which sends `upstream_call {callId}` down that device's control socket and holds the request until the device's `upstream_answer {callId, sealed}` (the relay times out after `answerTimeoutMs` with `no_answer`). Only the id crosses the relay: the device CLAIMS the call over its own authenticated API (tRPC `mcpServers.claimDeviceCall {callId, deviceId}`, `claimCases`: the caller's own unexpired, unclaimed call on that device, else NOT_FOUND alike), which answers the server definition with the member's credential resolved at claim time (`resolveForLaunch`: headers for http, env for stdio), the tool, the args, the `veto` and the reply key. The device runs exactly that one tool through the `emcp` client (crates/emcp: http, or stdio by spawning the command), checks the tool's live annotations against the `veto` first (`read` = upstream_read_error with `sources`, `call` = upstream_call_error with `access`), and seals its answer (`answerCases` `answer`: `{ok: true, result}` | `{ok: false, reason: vetoed|refused|failed, error}`, at most `maxAnswerBytes` of JSON) to the reply key in enet-core's sealed-box format (push.rs `push_seal`, v1: the relay only carries opaque bytes and cannot forge an answer, the key never crossed it). OUTCOME (`answerCases`, `deviceCallOutcome`): relay `device_offline` = `upstreamFailed` with `offline` copy and `offline` = the device's label (the host banner, below); `no_answer` / `busy` / a relay error / an answer that does not open = `upstreamFailed` `noAnswer`; `vetoed` = its error (`notReadOnly`, `destructive`, `accessTooLow`; any other reads `notReadOnly`); `refused` = `upstreamDisconnected`; `failed` = `upstreamFailed`; ok = the result, with `_meta` provenance as for http (exposes.json keys) + `device` = the device's label. GRANTS AND AUDIT exactly as for http upstreams (exposes `mcp_calls` rows, automations' rows, reads unaudited); the M1 read cache holds a device answer the same 60 s. HOSTS ×4: a read answering `{ok: false, error: upstreamFailed, server, offline: <device>}` keeps the binding's default and shows ONE host banner per server, `offline` copy, no action, beside the `Connect <server>` ones (`bannerCases`, `upstreamHostBanners`: sorted by server, a server once; `connect` = whether the banner carries the Connect action).",
+    "ttlSeconds": 30,
+    "answerTimeoutMs": 25000,
+    "maxAnswerBytes": 262144,
+    "errors": {
+      "notOwner": "deviceNotOwned",
+      "noDevice": "upstreamFailed",
+      "offline": "upstreamFailed",
+      "noAnswer": "upstreamFailed"
+    },
+    "copy": {
+      "noDevice": "{server} runs on a device (stdio): its owner names the device in Settings › MCP",
+      "notOwner": "{server} runs on {device}: only its owner's calls reach it",
+      "offline": "{server} runs on {device}, offline",
+      "noAnswer": "{server}: {device} did not answer"
+    },
+    "routeCases": [
+      { "name": "an http server runs on the server", "server": { "name": "crm", "transport": "http", "device": null }, "caller": "u1", "expected": { "route": "server" } },
+      { "name": "a stdio server without a device is refused", "server": { "name": "ha", "transport": "stdio", "device": null }, "caller": "u1", "expected": { "error": "upstreamFailed", "message": "ha runs on a device (stdio): its owner names the device in Settings › MCP" } },
+      { "name": "a stdio server on the caller's own device", "server": { "name": "ha", "transport": "stdio", "device": { "id": "d1", "ownerId": "u1", "label": "Danny's MacBook" } }, "caller": "u1", "expected": { "route": "device", "deviceId": "d1" } },
+      { "name": "a LAN http server on the caller's own device", "server": { "name": "ha", "transport": "http", "device": { "id": "d1", "ownerId": "u1", "label": "homelab" } }, "caller": "u1", "expected": { "route": "device", "deviceId": "d1" } },
+      { "name": "another member's device is never spent", "server": { "name": "ha", "transport": "stdio", "device": { "id": "d1", "ownerId": "u1", "label": "homelab" } }, "caller": "u2", "expected": { "error": "deviceNotOwned", "message": "ha runs on homelab: only its owner's calls reach it" } },
+      { "name": "an automation routes as its sponsor", "server": { "name": "ha", "transport": "http", "device": { "id": "d1", "ownerId": "sponsor", "label": "homelab" } }, "caller": "sponsor", "expected": { "route": "device", "deviceId": "d1" } }
+    ],
+    "answerCases": [
+      { "name": "the device is offline", "server": "ha", "device": "homelab", "relay": { "delivered": false, "reason": "device_offline" }, "expected": { "error": "upstreamFailed", "message": "ha runs on homelab, offline", "offline": "homelab" } },
+      { "name": "the device never answered", "server": "ha", "device": "homelab", "relay": { "delivered": false, "reason": "no_answer" }, "expected": { "error": "upstreamFailed", "message": "ha: homelab did not answer" } },
+      { "name": "an answer that does not open", "server": "ha", "device": "homelab", "relay": { "delivered": true }, "answer": null, "expected": { "error": "upstreamFailed", "message": "ha: homelab did not answer" } },
+      { "name": "a good answer", "server": "ha", "device": "homelab", "relay": { "delivered": true }, "answer": { "ok": true, "result": { "content": [{ "type": "text", "text": "21.5" }] } }, "expected": { "result": { "content": [{ "type": "text", "text": "21.5" }] } } },
+      { "name": "the device vetoed a write", "server": "ha", "device": "homelab", "relay": { "delivered": true }, "answer": { "ok": false, "reason": "vetoed", "error": "notReadOnly" }, "expected": { "error": "notReadOnly", "message": "ha's tool is not read-only: it does not run here" } },
+      { "name": "the device vetoed a destructive tool", "server": "ha", "device": "homelab", "relay": { "delivered": true }, "answer": { "ok": false, "reason": "vetoed", "error": "destructive" }, "expected": { "error": "destructive", "message": "ha's tool is destructive: it does not run here" } },
+      { "name": "the device vetoed a write for a read-access tool", "server": "ha", "device": "homelab", "relay": { "delivered": true }, "answer": { "ok": false, "reason": "vetoed", "error": "accessTooLow" }, "expected": { "error": "accessTooLow", "message": "ha's tool is not read-only: it does not run here" } },
+      { "name": "an unknown veto reads as not read-only", "server": "ha", "device": "homelab", "relay": { "delivered": true }, "answer": { "ok": false, "reason": "vetoed", "error": "weird" }, "expected": { "error": "notReadOnly", "message": "ha's tool is not read-only: it does not run here" } },
+      { "name": "the upstream refused the credential", "server": "ha", "device": "homelab", "relay": { "delivered": true }, "answer": { "ok": false, "reason": "refused", "error": "HTTP 401" }, "expected": { "error": "upstreamDisconnected", "message": "ha refused your connection; reconnect" } },
+      { "name": "the upstream failed", "server": "ha", "device": "homelab", "relay": { "delivered": true }, "answer": { "ok": false, "reason": "failed", "error": "spawn failed" }, "expected": { "error": "upstreamFailed", "message": "ha: spawn failed" } }
+    ],
+    "claimCases": [
+      { "name": "the caller's own live call", "call": { "userId": "u1", "deviceId": "d1", "expiresInSeconds": 20, "claimed": false }, "claim": { "userId": "u1", "deviceId": "d1" }, "expected": true },
+      { "name": "claimed once", "call": { "userId": "u1", "deviceId": "d1", "expiresInSeconds": 20, "claimed": true }, "claim": { "userId": "u1", "deviceId": "d1" }, "expected": false },
+      { "name": "expired", "call": { "userId": "u1", "deviceId": "d1", "expiresInSeconds": 0, "claimed": false }, "claim": { "userId": "u1", "deviceId": "d1" }, "expected": false },
+      { "name": "another member", "call": { "userId": "u1", "deviceId": "d1", "expiresInSeconds": 20, "claimed": false }, "claim": { "userId": "u2", "deviceId": "d1" }, "expected": false },
+      { "name": "another device of the member", "call": { "userId": "u1", "deviceId": "d1", "expiresInSeconds": 20, "claimed": false }, "claim": { "userId": "u1", "deviceId": "d2" }, "expected": false }
+    ],
+    "urlCases": [
+      { "name": "https anywhere", "url": "https://mcp.linear.app/mcp", "expected": true },
+      { "name": "http on loopback", "url": "http://localhost:8080/mcp", "expected": true },
+      { "name": "http on 127.0.0.1", "url": "http://127.0.0.1:8080/mcp", "expected": true },
+      { "name": "http on a private address", "url": "http://192.168.1.20:8123/mcp", "expected": true },
+      { "name": "http on 10/8", "url": "http://10.0.0.5/mcp", "expected": true },
+      { "name": "http on 172.16/12", "url": "http://172.20.1.1/mcp", "expected": true },
+      { "name": "http outside 172.16/12", "url": "http://172.32.0.1/mcp", "expected": false },
+      { "name": "http on a .local name", "url": "http://homeassistant.local:8123/mcp", "expected": true },
+      { "name": "http on a .lan name", "url": "http://nas.lan/mcp", "expected": true },
+      { "name": "http on a .home.arpa name", "url": "http://ha.home.arpa/mcp", "expected": true },
+      { "name": "http on a public name", "url": "http://mcp.example.com/mcp", "expected": false },
+      { "name": "http on a public address", "url": "http://8.8.8.8/mcp", "expected": false },
+      { "name": "another scheme", "url": "ftp://nas.lan/mcp", "expected": false },
+      { "name": "not a URL", "url": "nas.lan", "expected": false }
+    ],
+    "bannerCases": [
+      { "name": "an offline device beside a connect", "answers": [{ "ok": false, "error": "upstreamFailed", "server": "ha", "offline": "homelab" }, { "ok": false, "error": "upstreamDisconnected", "server": "crm" }, { "ok": false, "error": "upstreamFailed", "server": "ha", "offline": "homelab" }], "expected": [{ "server": "crm", "text": "Connect crm", "connect": true }, { "server": "ha", "text": "ha runs on homelab, offline", "connect": false }] },
+      { "name": "a failure that is not offline shows none", "answers": [{ "ok": false, "error": "upstreamFailed", "server": "ha" }, { "ok": true, "value": 1 }], "expected": [] }
+    ]
   }
 }

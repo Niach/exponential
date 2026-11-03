@@ -27,6 +27,7 @@ pub mod client;
 #[cfg(feature = "codemode")]
 pub mod codemode;
 pub mod contract;
+pub mod device_call;
 pub mod hub;
 pub mod oauth;
 mod runtime;
@@ -36,5 +37,5 @@ pub mod server;
 /// through emcp and needs no second pin.
 pub use ecore;
 pub use ecore::{DeliveryVerdict, ErrorCode, Failure, SessionId, Token};
-pub use client::{Client, ClientError, Upstream};
+pub use client::{Client, ClientError, StdioUpstream, Upstream};
 pub use server::{Caller, RawRequest, RawResponse, RawRoute, Refusal, Server, ServerInfo, ToolProvider};

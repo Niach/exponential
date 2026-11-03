@@ -19,7 +19,8 @@
     "app": "at.exponential/app",
     "tool": "at.exponential/tool",
     "via": "at.exponential/via",
-    "upstream": "at.exponential/upstream"
+    "upstream": "at.exponential/upstream",
+    "device": "at.exponential/device"
   },
   "actionAccessCases": [
     { "name": "exponential.issues.list", "expected": "read" },

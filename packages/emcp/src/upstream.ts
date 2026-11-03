@@ -166,11 +166,133 @@ export function upstreamBindingValue(result: Record<string, unknown>): { value: 
 }
 
 /** One host answer of `apps.upstreamRead`. */
-export type UpstreamReadAnswer = { ok: true; value: unknown } | { ok: false; error: string; server: string }
+export type UpstreamReadAnswer = { ok: true; value: unknown } | { ok: false; error: string; server: string; offline?: string }
 
 /** The host's banners: one per server whose read answered
  *  upstreamDisconnected, sorted, each once. */
 export function upstreamBanners(answers: readonly UpstreamReadAnswer[]): string[] {
   const servers = new Set(answers.flatMap((a) => (!a.ok && a.error === UPSTREAM_ERRORS.disconnected ? [a.server] : [])))
   return [...servers].sort().map((server) => UPSTREAM_BINDING.banner.replace(`{server}`, server))
+}
+
+// VAPP-239 (eApps M2): device-routed upstreams (`device` in the fixture: its
+// `$comment` is the spec).
+
+const device = fixture.device
+
+export const UPSTREAM_DEVICE = {
+  ttlSeconds: device.ttlSeconds,
+  answerTimeoutMs: device.answerTimeoutMs,
+  maxAnswerBytes: device.maxAnswerBytes,
+  errors: device.errors,
+  copy: device.copy,
+} as const
+
+const fill = (template: string, vars: Record<string, string>): string => template.replace(/\{(\w+)\}/g, (m, k: string) => vars[k] ?? m)
+
+/** A server row as the router reads it: its transport and the device it
+ *  names (with the device's owner and label), if any. */
+export interface RoutedServer {
+  name: string
+  transport: string
+  device: { id: string; ownerId: string; label: string } | null
+}
+
+export type UpstreamRoute = { route: `server` } | { route: `device`; deviceId: string } | { error: string; message: string }
+
+/** Where one call to `server` by `callerId` (the member, or an automation's
+ *  sponsor) runs: the server, the owner's device, or a refusal. */
+export function upstreamRoute(server: RoutedServer, callerId: string): UpstreamRoute {
+  if (!server.device) {
+    if (server.transport === `http`) return { route: `server` }
+    return { error: device.errors.noDevice, message: fill(device.copy.noDevice, { server: server.name }) }
+  }
+  if (server.device.ownerId !== callerId) {
+    return { error: device.errors.notOwner, message: fill(device.copy.notOwner, { server: server.name, device: server.device.label }) }
+  }
+  return { route: `device`, deviceId: server.device.id }
+}
+
+/** What the relay answered `POST /devices/:userId/:deviceId/upstream` with. */
+export type DeviceRelayOutcome = { delivered: true } | { delivered: false; reason: string }
+
+/** The device's (opened) answer: the tool's result, or why it did not run. */
+export type DeviceAnswer = { ok: true; result: Record<string, unknown> } | { ok: false; reason: `vetoed` | `refused` | `failed`; error: string }
+
+export type DeviceCallOutcome = { result: Record<string, unknown> } | { error: string; message: string; offline?: string }
+
+/** One device call's outcome for the broker. `answer` = null when the relay
+ *  delivered nothing that opens. */
+export function deviceCallOutcome(server: string, deviceLabel: string, relay: DeviceRelayOutcome, answer: DeviceAnswer | null): DeviceCallOutcome {
+  const vars = { server, device: deviceLabel }
+  if (!relay.delivered && relay.reason === `device_offline`) {
+    return { error: device.errors.offline, message: fill(device.copy.offline, vars), offline: deviceLabel }
+  }
+  if (!relay.delivered || !answer) return { error: device.errors.noAnswer, message: fill(device.copy.noAnswer, vars) }
+  if (answer.ok) return { result: answer.result }
+  if (answer.reason === `vetoed`) {
+    const destructive = answer.error === UPSTREAM_BINDING.errors.destructive
+    const known = destructive || answer.error === `accessTooLow` || answer.error === UPSTREAM_BINDING.errors.notReadOnly
+    return {
+      error: known ? answer.error : UPSTREAM_BINDING.errors.notReadOnly,
+      message: `${server}'s tool is ${destructive ? `destructive` : `not read-only`}: it does not run here`,
+    }
+  }
+  if (answer.reason === `refused`) return { error: UPSTREAM_ERRORS.disconnected, message: `${server} refused your connection; reconnect` }
+  return { error: UPSTREAM_ERRORS.failed, message: `${server}: ${answer.error}` }
+}
+
+/** Whether a device may claim a call: the member's own, on that device,
+ *  unexpired (`expiresAt` ms) and not claimed yet. */
+export function deviceCallClaimable(
+  call: { userId: string; deviceId: string; expiresAt: number; claimed: boolean },
+  claim: { userId: string; deviceId: string },
+  now: number
+): boolean {
+  return !call.claimed && call.expiresAt > now && call.userId === claim.userId && call.deviceId === claim.deviceId
+}
+
+/** One host banner: its text and whether it carries the Connect action. */
+export interface UpstreamHostBanner {
+  server: string
+  text: string
+  connect: boolean
+}
+
+/** The host's banners ×4: `Connect <server>` for an upstreamDisconnected
+ *  read, the offline copy for a device that is offline; one per server,
+ *  sorted by server. */
+export function upstreamHostBanners(answers: readonly UpstreamReadAnswer[]): UpstreamHostBanner[] {
+  const byServer = new Map<string, UpstreamHostBanner>()
+  for (const a of answers) {
+    if (a.ok || byServer.has(a.server)) continue
+    if (a.error === UPSTREAM_ERRORS.disconnected) byServer.set(a.server, { server: a.server, text: UPSTREAM_BINDING.banner.replace(`{server}`, a.server), connect: true })
+    else if (a.error === device.errors.offline && a.offline) byServer.set(a.server, { server: a.server, text: fill(device.copy.offline, { server: a.server, device: a.offline }), connect: false })
+  }
+  return [...byServer.values()].sort((x, y) => (x.server < y.server ? -1 : x.server > y.server ? 1 : 0))
+}
+
+const LAN_SUFFIXES = [`.local`, `.lan`, `.home.arpa`, `.internal`]
+
+function privateIpv4(host: string): boolean {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host)
+  if (!m) return false
+  const [a, b] = [Number(m[1]), Number(m[2])]
+  if (m.slice(1).some((p) => Number(p) > 255)) return false
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)
+}
+
+/** A server row's URL rule: https anywhere; http on loopback or a LAN host
+ *  (a device-routed server's reach). */
+export function mcpUrlAllowed(value: string): boolean {
+  let url: URL
+  try {
+    url = new URL(value.trim())
+  } catch {
+    return false
+  }
+  if (url.protocol === `https:`) return true
+  if (url.protocol !== `http:`) return false
+  const host = url.hostname.toLowerCase()
+  return host === `localhost` || host === `127.0.0.1` || privateIpv4(host) || LAN_SUFFIXES.some((suffix) => host.endsWith(suffix))
 }

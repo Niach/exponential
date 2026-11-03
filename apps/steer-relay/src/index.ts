@@ -232,6 +232,32 @@ app.post(`/sessions/:id/compact`, async (c) => {
   return c.json({ ok: true, ...outcome })
 })
 
+// VAPP-239 (eApps M2): an app call routed to a device's upstream. The web
+// server names the call by id alone; the device claims it over its own API,
+// runs it and answers `upstream_answer` with a SEALED body, which is this
+// response (`{delivered: true, sealed}`). 200 with delivered=false when the
+// device is not connected (`device_offline`), never answered (`no_answer`) or
+// the id already waits (`busy`).
+app.post(`/devices/:userId/:deviceId/upstream`, async (c) => {
+  const userId = c.req.param(`userId`)
+  const deviceId = c.req.param(`deviceId`)
+  const body = (await c.req.json().catch(() => null)) as { callId?: unknown } | null
+  const callId = body?.callId
+  if (
+    userId.length === 0 ||
+    deviceId.length === 0 ||
+    userId.length > ID_MAX_CHARS ||
+    deviceId.length > ID_MAX_CHARS ||
+    typeof callId !== `string` ||
+    callId.length === 0 ||
+    callId.length > 64
+  ) {
+    return c.json({ error: `Bad request` }, 400)
+  }
+  const outcome = await hub.requestUpstreamCall({ userId, deviceId }, callId)
+  return c.json({ ok: true, ...outcome })
+})
+
 // ── WebSocket upgrade + handlers ──────────────────────────────────────────────
 
 interface WsData {

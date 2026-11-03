@@ -4,6 +4,7 @@
 // CALLER's own `connection` (the server holds each member's credential,
 // encrypted; nothing here ever sees one) and how many members connected.
 import type { McpAuth, McpTransport } from "@exp/db-schema/domain"
+import { mcpUrlAllowed } from "@exp/emcp/upstream"
 import type { trpc } from "@/lib/trpc-client"
 
 export type McpServerList = Awaited<
@@ -197,7 +198,8 @@ export function draftFromServer(server: McpServerRow): McpServerDraft {
  * mirrored so a chip is refused at the field rather than at submit. */
 export const MCP_VARIABLE_NAME_RE = /^[A-Za-z_][A-Za-z0-9_-]*$/
 
-/** A URL an HTTP server may live at: https, or http on loopback. Null = ok. */
+/** A URL an HTTP server may live at: https, or http on loopback or a LAN
+ * host (#VAPP-239, `device.urlCases`). Null = ok. */
 export function mcpUrlProblem(value: string): string | null {
   const url = value.trim()
   if (url.length === 0) return `Paste the server's URL.`
@@ -207,10 +209,8 @@ export function mcpUrlProblem(value: string): string | null {
   } catch {
     return `That URL does not parse.`
   }
-  const loopback =
-    parsed.hostname === `localhost` || parsed.hostname === `127.0.0.1`
-  if (parsed.protocol !== `https:` && !(parsed.protocol === `http:` && loopback)) {
-    return `The URL must be https:// (http:// only for localhost).`
+  if (parsed.protocol !== `https:` && !mcpUrlAllowed(url)) {
+    return `The URL must be https:// (http:// only for localhost or a LAN host).`
   }
   return null
 }

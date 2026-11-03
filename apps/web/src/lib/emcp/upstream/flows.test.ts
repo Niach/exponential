@@ -47,6 +47,7 @@ const server = (over: Partial<McpServer> = {}): McpServer => ({
   auth: `oauth`,
   enabledByDefault: true,
   createdById: `owner`,
+  deviceId: null,
   createdAt: new Date(0),
   updatedAt: new Date(0),
   ...over,

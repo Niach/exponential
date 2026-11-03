@@ -386,3 +386,44 @@ export async function relayPostNudge(
     return { delivered: false }
   }
 }
+
+/** VAPP-239: what `POST /devices/:userId/:deviceId/upstream` answers: the
+ * device's SEALED answer, or why there is none. */
+export type RelayUpstreamOutcome =
+  | { delivered: true; sealed: string }
+  | { delivered: false; reason: `device_offline` | `no_answer` | `busy` | `relay_error` }
+
+/** Sits above the relay's own 25 s wait (`device.answerTimeoutMs`), so the
+ * relay answers first with a structured `no_answer`. */
+const RELAY_UPSTREAM_TIMEOUT_MS = 28_000
+
+/**
+ * VAPP-239 (eApps M2): route one app call to a device's upstream. Only the
+ * call id crosses the relay; the device claims the call over its own API and
+ * its answer comes back sealed to the caller's reply key. Never throws.
+ */
+export async function relayPostUpstreamCall(
+  config: SteerRelayConfig,
+  device: RelayDevice,
+  callId: string,
+  fetchImpl: RelayFetch = globalThis.fetch
+): Promise<RelayUpstreamOutcome> {
+  try {
+    const res = await fetchImpl(
+      `${steerServerHttpBase(config)}/devices/${encodeURIComponent(device.userId)}/${encodeURIComponent(device.deviceId)}/upstream`,
+      {
+        method: `POST`,
+        headers: { "content-type": `application/json`, "x-relay-secret": config.secret },
+        body: JSON.stringify({ callId }),
+        signal: AbortSignal.timeout(RELAY_UPSTREAM_TIMEOUT_MS),
+      }
+    )
+    if (!res.ok) return { delivered: false, reason: `relay_error` }
+    const json = (await res.json().catch(() => null)) as { delivered?: unknown; sealed?: unknown; reason?: unknown } | null
+    if (json?.delivered === true && typeof json.sealed === `string`) return { delivered: true, sealed: json.sealed }
+    const reason = json?.reason
+    return { delivered: false, reason: reason === `device_offline` || reason === `no_answer` || reason === `busy` ? reason : `relay_error` }
+  } catch {
+    return { delivered: false, reason: `relay_error` }
+  }
+}

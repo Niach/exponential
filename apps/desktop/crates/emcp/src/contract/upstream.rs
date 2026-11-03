@@ -1,7 +1,8 @@
 //! One member's connection to one upstream
 //! (`packages/emcp/fixtures/upstream.json`): the states, the transitions,
 //! what is callable and the consent page's missing upstreams; VAPP-230:
-//! the `upstream:<server>/<tool>?<args>` read bindings (`binding`).
+//! the `upstream:<server>/<tool>?<args>` read bindings (`binding`); VAPP-239:
+//! device-routed upstreams (`device`).
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -336,6 +337,9 @@ pub struct UpstreamReadAnswer {
     pub server: Option<String>,
     #[serde(default)]
     pub message: Option<String>,
+    /// VAPP-239: the device a device-routed read runs on, when it is offline.
+    #[serde(default)]
+    pub offline: Option<String>,
 }
 
 /// The servers whose read answered upstreamDisconnected, sorted, each once.
@@ -352,4 +356,180 @@ pub fn upstream_banner_servers(answers: &[UpstreamReadAnswer]) -> Vec<String> {
 /// upstreamDisconnected, sorted, each once (`Connect <server>`).
 pub fn upstream_banners(answers: &[UpstreamReadAnswer]) -> Vec<String> {
     upstream_banner_servers(answers).iter().map(|server| BANNER.replace("{server}", server)).collect()
+}
+
+// ---------------------------------------------------------------- device (VAPP-239)
+
+/// How long a device call lives (`device.ttlSeconds`).
+pub const DEVICE_CALL_TTL_SECONDS: u64 = 30;
+/// How long the relay holds a call for the device's answer.
+pub const DEVICE_ANSWER_TIMEOUT_MS: u64 = 25_000;
+/// The largest answer (JSON bytes) a device seals.
+pub const DEVICE_MAX_ANSWER_BYTES: usize = 262_144;
+/// The refusal of a call to another member's device.
+pub const ERROR_DEVICE_NOT_OWNED: &str = "deviceNotOwned";
+
+/// The device copy (`device.copy`), `{server}` / `{device}` filled.
+pub const COPY_NO_DEVICE: &str = "{server} runs on a device (stdio): its owner names the device in Settings › MCP";
+pub const COPY_NOT_OWNER: &str = "{server} runs on {device}: only its owner's calls reach it";
+pub const COPY_OFFLINE: &str = "{server} runs on {device}, offline";
+pub const COPY_NO_ANSWER: &str = "{server}: {device} did not answer";
+
+fn fill(template: &str, server: &str, device: &str) -> String {
+    template.replace("{server}", server).replace("{device}", device)
+}
+
+/// The device a server row names: its id, its owner and its label.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RoutedDevice {
+    pub id: String,
+    pub owner_id: String,
+    pub label: String,
+}
+
+/// A server row as the router reads it.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+pub struct RoutedServer {
+    pub name: String,
+    pub transport: String,
+    pub device: Option<RoutedDevice>,
+}
+
+/// Where one call runs.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UpstreamRoute {
+    Server,
+    Device { device_id: String },
+    Refused { error: &'static str, message: String },
+}
+
+/// Where one call to `server` by `caller_id` (the member, or an automation's
+/// sponsor) runs: the server, the owner's device, or a refusal.
+pub fn upstream_route(server: &RoutedServer, caller_id: &str) -> UpstreamRoute {
+    match &server.device {
+        None if server.transport == "http" => UpstreamRoute::Server,
+        None => UpstreamRoute::Refused { error: ERROR_FAILED, message: fill(COPY_NO_DEVICE, &server.name, "") },
+        Some(device) if device.owner_id != caller_id => {
+            UpstreamRoute::Refused { error: ERROR_DEVICE_NOT_OWNED, message: fill(COPY_NOT_OWNER, &server.name, &device.label) }
+        }
+        Some(device) => UpstreamRoute::Device { device_id: device.id.clone() },
+    }
+}
+
+/// The device's answer, sealed to the call's reply key: the tool's result,
+/// or why it did not run (`reason` = `vetoed` | `refused` | `failed`).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum DeviceAnswer {
+    Ok { ok: bool, result: Value },
+    Err { ok: bool, reason: String, error: String },
+}
+
+impl DeviceAnswer {
+    pub fn ok(result: Value) -> Self {
+        DeviceAnswer::Ok { ok: true, result }
+    }
+    pub fn err(reason: &str, error: impl Into<String>) -> Self {
+        DeviceAnswer::Err { ok: false, reason: reason.to_string(), error: error.into() }
+    }
+}
+
+/// One device call's outcome for the broker.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DeviceCallOutcome {
+    Result(Value),
+    Error { error: &'static str, message: String, offline: Option<String> },
+}
+
+/// `relay_reason` = None when the relay delivered, else its reason;
+/// `answer` = None when what it delivered does not open.
+pub fn device_call_outcome(server: &str, device: &str, relay_reason: Option<&str>, answer: Option<&DeviceAnswer>) -> DeviceCallOutcome {
+    let error = |error: &'static str, message: String| DeviceCallOutcome::Error { error, message, offline: None };
+    if relay_reason == Some("device_offline") {
+        return DeviceCallOutcome::Error { error: ERROR_FAILED, message: fill(COPY_OFFLINE, server, device), offline: Some(device.to_string()) };
+    }
+    let Some(answer) = answer.filter(|_| relay_reason.is_none()) else {
+        return error(ERROR_FAILED, fill(COPY_NO_ANSWER, server, device));
+    };
+    match answer {
+        DeviceAnswer::Ok { result, .. } => DeviceCallOutcome::Result(result.clone()),
+        DeviceAnswer::Err { reason, error: why, .. } => match reason.as_str() {
+            "vetoed" if why == ERROR_DESTRUCTIVE => error(ERROR_DESTRUCTIVE, format!("{server}'s tool is destructive: it does not run here")),
+            "vetoed" if why == "accessTooLow" => error("accessTooLow", format!("{server}'s tool is not read-only: it does not run here")),
+            "vetoed" => error(ERROR_NOT_READ_ONLY, format!("{server}'s tool is not read-only: it does not run here")),
+            "refused" => error(ERROR_DISCONNECTED, format!("{server} refused your connection; reconnect")),
+            _ => error(ERROR_FAILED, format!("{server}: {why}")),
+        },
+    }
+}
+
+/// Whether a device may claim a call: the member's own, on that device,
+/// unexpired and not claimed yet.
+pub fn device_call_claimable(call_user: &str, call_device: &str, expires_in_ms: i64, claimed: bool, claim_user: &str, claim_device: &str) -> bool {
+    !claimed && expires_in_ms > 0 && call_user == claim_user && call_device == claim_device
+}
+
+/// One host banner: its text and whether it carries the Connect action.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct UpstreamHostBanner {
+    pub server: String,
+    pub text: String,
+    pub connect: bool,
+}
+
+/// The host's banners ×4: `Connect <server>` for an upstreamDisconnected
+/// read, the offline copy for a device that is offline; one per server,
+/// sorted by server.
+pub fn upstream_host_banners(answers: &[UpstreamReadAnswer]) -> Vec<UpstreamHostBanner> {
+    let mut by_server: std::collections::BTreeMap<String, UpstreamHostBanner> = Default::default();
+    for a in answers.iter().filter(|a| !a.ok) {
+        let Some(server) = a.server.as_ref() else { continue };
+        if by_server.contains_key(server) {
+            continue;
+        }
+        if a.error.as_deref() == Some(ERROR_DISCONNECTED) {
+            by_server.insert(server.clone(), UpstreamHostBanner { server: server.clone(), text: BANNER.replace("{server}", server), connect: true });
+        } else if let (Some(ERROR_FAILED), Some(device)) = (a.error.as_deref(), a.offline.as_ref()) {
+            by_server.insert(server.clone(), UpstreamHostBanner { server: server.clone(), text: fill(COPY_OFFLINE, server, device), connect: false });
+        }
+    }
+    by_server.into_values().collect()
+}
+
+const LAN_SUFFIXES: &[&str] = &[".local", ".lan", ".home.arpa", ".internal"];
+
+fn private_ipv4(host: &str) -> bool {
+    match host.parse::<std::net::Ipv4Addr>() {
+        Ok(ip) => {
+            let [a, b, ..] = ip.octets();
+            a == 10 || (a == 172 && (16..=31).contains(&b)) || (a == 192 && b == 168)
+        }
+        Err(_) => false,
+    }
+}
+
+/// A server row's URL rule (`device.urlCases`): https anywhere; http on
+/// loopback or a LAN host (a device-routed server's reach).
+pub fn mcp_url_allowed(value: &str) -> bool {
+    let value = value.trim();
+    let (scheme, rest) = match value.split_once("://") {
+        Some(parts) => parts,
+        None => return false,
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host_port = authority.rsplit('@').next().unwrap_or("");
+    let host = match host_port.rsplit_once(':') {
+        Some((host, port)) if !host.is_empty() && port.chars().all(|c| c.is_ascii_digit()) => host,
+        _ => host_port,
+    }
+    .to_ascii_lowercase();
+    if host.is_empty() {
+        return false;
+    }
+    match scheme.to_ascii_lowercase().as_str() {
+        "https" => true,
+        "http" => host == "localhost" || host == "127.0.0.1" || private_ipv4(&host) || LAN_SUFFIXES.iter().any(|s| host.ends_with(s)),
+        _ => false,
+    }
 }

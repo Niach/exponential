@@ -13,6 +13,14 @@ import {
   upstreamDeclareIssues,
   upstreamReadError,
   upstreamStep,
+  deviceCallClaimable,
+  mcpUrlAllowed,
+  deviceCallOutcome,
+  upstreamHostBanners,
+  upstreamRoute,
+  type DeviceAnswer,
+  type DeviceRelayOutcome,
+  type RoutedServer,
   type UpstreamEvent,
   type UpstreamState,
 } from "./upstream"
@@ -57,4 +65,20 @@ describe(`VAPP-230: upstream read bindings`, () => {
   for (const c of b.cacheKeyCases) test(`cache key ${c.expected.split(`\n`)[3]}`, () => expect(upstreamCacheKey(c.member, c.serverId, c.tool, c.args)).toBe(c.expected))
   for (const c of b.valueCases) test(`value: ${c.name}`, () => expect(upstreamBindingValue(c.result as never)).toEqual(c.expected as never))
   for (const c of b.bannerCases) test(`banner: ${c.name}`, () => expect(upstreamBanners(c.answers as never)).toEqual(c.expected))
+})
+
+describe(`VAPP-239: device-routed upstreams`, () => {
+  const d = fixture.device
+  for (const c of d.routeCases) test(`route: ${c.name}`, () => expect(upstreamRoute(c.server as RoutedServer, c.caller)).toEqual(c.expected as never))
+  for (const c of d.answerCases)
+    test(`answer: ${c.name}`, () =>
+      expect(deviceCallOutcome(c.server, c.device, c.relay as DeviceRelayOutcome, (c.answer ?? null) as DeviceAnswer | null)).toEqual(c.expected as never))
+  for (const c of d.claimCases)
+    test(`claim: ${c.name}`, () => {
+      const now = 1_000_000
+      const call = { ...c.call, expiresAt: now + c.call.expiresInSeconds * 1000 }
+      expect(deviceCallClaimable(call, c.claim, now)).toBe(c.expected)
+    })
+  for (const c of d.bannerCases) test(`banner: ${c.name}`, () => expect(upstreamHostBanners(c.answers as never)).toEqual(c.expected))
+  for (const c of d.urlCases) test(`url: ${c.name}`, () => expect(mcpUrlAllowed(c.url)).toBe(c.expected))
 })

@@ -1,6 +1,6 @@
 import { describe, expect, spyOn, test } from "bun:test"
 import type { SteerTicketClaims } from "@exp/steer-ticket"
-import { COMPACT_VERDICT_TIMEOUT_MS, Hub, type RelaySocket, TUNNEL_HIGH_WATER } from "./hub"
+import { COMPACT_VERDICT_TIMEOUT_MS, Hub, type RelaySocket, TUNNEL_HIGH_WATER, UPSTREAM_ANSWER_TIMEOUT_MS } from "./hub"
 import {
   CALL_IDLE_TIMEOUT_MS,
   CALL_MAX_FRAME_BYTES,
@@ -476,6 +476,58 @@ describe(`content refusal (VAPP-43)`, () => {
   })
 })
 
+// VAPP-239: an app call routed to a device's upstream: only the id goes
+// down; only the socket it went down may answer, sealed.
+describe(`upstream calls via the device's control socket`, () => {
+  const device = { userId: `owner`, deviceId: `dev-1` }
+
+  test(`the call id goes down and the sealed answer comes back`, async () => {
+    const hub = new Hub()
+    const desktop = connectDevice(hub)
+    const other = connectDevice(hub, `owner`, `dev-2`)
+    const pending = hub.requestUpstreamCall(device, `call-1`)
+    expect(desktop.lastFrame(`upstream_call`)).toEqual({ t: `upstream_call`, callId: `call-1` })
+    expect(await hub.requestUpstreamCall(device, `call-1`)).toEqual({ delivered: false, reason: `busy` })
+    // Another device's answer is dropped.
+    hub.onMessage(other, JSON.stringify({ t: `upstream_answer`, callId: `call-1`, sealed: `forged` }))
+    hub.onMessage(desktop, JSON.stringify({ t: `upstream_answer`, callId: `call-1`, sealed: `AQID` }))
+    expect(await pending).toEqual({ delivered: true, sealed: `AQID` })
+    expect(hub.counters().upstreamCalls).toBe(1)
+    hub.destroy()
+  })
+
+  test(`offline, dropped and silent devices`, async () => {
+    const hub = new Hub()
+    expect(await hub.requestUpstreamCall(device, `call-1`)).toEqual({ delivered: false, reason: `device_offline` })
+    const desktop = connectDevice(hub)
+    const dropped = hub.requestUpstreamCall(device, `call-2`)
+    hub.onClose(desktop)
+    expect(await dropped).toEqual({ delivered: false, reason: `device_offline` })
+
+    connectDevice(hub)
+    expect(UPSTREAM_ANSWER_TIMEOUT_MS).toBe(25_000)
+    const realSetTimeout = globalThis.setTimeout
+    let fire: (() => void) | null = null
+    globalThis.setTimeout = ((fn: () => void, ms: number) => {
+      if (ms === UPSTREAM_ANSWER_TIMEOUT_MS) {
+        fire = fn
+        return 0 as unknown as ReturnType<typeof setTimeout>
+      }
+      return realSetTimeout(fn, ms)
+    }) as typeof setTimeout
+    let pending: Promise<unknown>
+    try {
+      pending = hub.requestUpstreamCall(device, `call-3`)
+    } finally {
+      globalThis.setTimeout = realSetTimeout
+    }
+    fire!()
+    expect(await pending!).toEqual({ delivered: false, reason: `no_answer` })
+    expect(hub.counters().upstreamTimeouts).toBe(1)
+    hub.destroy()
+  })
+})
+
 describe(`stats counters (EXP-553)`, () => {
   test(`counters start at zero and track opens`, () => {
     const hub = new Hub()
@@ -484,6 +536,8 @@ describe(`stats counters (EXP-553)`, () => {
       contentFramesRefused: 0,
       compactRequests: 0,
       compactVerdictTimeouts: 0,
+      upstreamCalls: 0,
+      upstreamTimeouts: 0,
       callRings: 0,
       callDeviceOffline: 0,
       callBusy: 0,
