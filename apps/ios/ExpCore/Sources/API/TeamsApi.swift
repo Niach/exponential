@@ -83,12 +83,37 @@ public struct UpdateTeamInput: Encodable, Sendable {
     public var yoloMode: Bool?
     /// EXP-1025: the team prompt (raw markdown; "" = none).
     public var agentPrompt: String?
+    /// VAPP-201: the team time zone. nil = unchanged, `.some(nil)` = clear
+    /// it (sent as JSON null: each device's own zone).
+    public var timeZone: String??
 
-    public init(teamId: String, name: String? = nil, yoloMode: Bool? = nil, agentPrompt: String? = nil) {
+    public init(
+        teamId: String,
+        name: String? = nil,
+        yoloMode: Bool? = nil,
+        agentPrompt: String? = nil,
+        timeZone: String?? = nil
+    ) {
         self.teamId = teamId
         self.name = name
         self.yoloMode = yoloMode
         self.agentPrompt = agentPrompt
+        self.timeZone = timeZone
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case teamId, name, yoloMode, agentPrompt, timeZone
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(teamId, forKey: .teamId)
+        try c.encodeIfPresent(name, forKey: .name)
+        try c.encodeIfPresent(yoloMode, forKey: .yoloMode)
+        try c.encodeIfPresent(agentPrompt, forKey: .agentPrompt)
+        if let timeZone {
+            if let timeZone { try c.encode(timeZone, forKey: .timeZone) } else { try c.encodeNil(forKey: .timeZone) }
+        }
     }
 }
 
