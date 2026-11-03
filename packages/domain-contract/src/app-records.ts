@@ -368,3 +368,146 @@ export function undoTitle(write: `create` | `update` | `delete` | `batch`): stri
   const c = APP_HISTORY_COPY
   return write === `create` ? c.undoCreate : write === `update` ? c.undoUpdate : write === `delete` ? c.undoDelete : c.undoBatch
 }
+
+// VAPP-235 (O1) THE OFFLINE OUTBOX (fixture `outbox`): the desktop, iOS and
+// Android app hosts queue every record write, lay it over the synced rows
+// and replay it in order with an idempotency key; pure so the three hosts
+// replay the same cases (the web stays online-only).
+
+export const APP_RECORDS_OUTBOX = fixture.outbox
+export const APP_OUTBOX_COPY = fixture.outbox.copy
+
+export type OutboxCall = `upsert` | `delete` | `batch`
+export type OutboxWrite = { op: `create` | `update`; id: string; kind: string; data: Record<string, unknown> } | { op: `delete`; id: string }
+export interface OutboxEntry {
+  writeId: string
+  appId: string
+  call: OutboxCall
+  writes: OutboxWrite[]
+  /** ISO time the write was made. */
+  at: string
+  state: `pending` | `acked`
+  ackedAt?: string | null
+}
+/** A replay's answer: ok, no network, or the server's tRPC code. */
+export type OutboxResult = { ok: true } | { transport: true } | { code: string }
+export type OutboxOutcome = `done` | `retry` | `dropped` | `refused`
+
+type Obj = Record<string, unknown>
+const isObj = (v: unknown): v is Obj => typeof v === `object` && v !== null && !Array.isArray(v)
+
+/** A host call's writes (`writesCases`): a create takes the next client id. */
+export function outboxWrites(call: OutboxCall, args: Obj, newIds: readonly string[]): OutboxWrite[] {
+  let next = 0
+  const upsert = (w: Obj): OutboxWrite => {
+    const data = isObj(w.data) ? w.data : {}
+    const kind = typeof w.kind === `string` ? w.kind : ``
+    return typeof w.id === `string` ? { op: `update`, id: w.id, kind, data } : { op: `create`, id: newIds[next++] ?? ``, kind, data }
+  }
+  if (call === `upsert`) return [upsert(args)]
+  if (call === `delete`) return [{ op: `delete`, id: typeof args.id === `string` ? args.id : `` }]
+  const writes = Array.isArray(args.writes) ? args.writes.filter(isObj) : []
+  return writes.map((w) => (w.op === `delete` ? { op: `delete`, id: typeof w.id === `string` ? w.id : `` } : upsert(w)))
+}
+
+/** The replay request of an entry (`requestCases`); the host adds the app. */
+export function outboxRequest(entry: OutboxEntry): { call: OutboxCall; input: Obj } {
+  const { writeId } = entry
+  if (entry.call === `batch`) {
+    const writes = entry.writes.map((w) =>
+      w.op === `delete` ? { op: `delete`, id: w.id } : w.op === `create` ? { op: `upsert`, kind: w.kind, data: w.data, newId: w.id } : { op: `upsert`, kind: w.kind, data: w.data, id: w.id }
+    )
+    return { call: `batch`, input: { writes, writeId } }
+  }
+  const w = entry.writes[0]!
+  if (w.op === `delete`) return { call: `delete`, input: { recordId: w.id, writeId } }
+  return { call: `upsert`, input: { kind: w.kind, data: w.data, ...(w.op === `create` ? { newId: w.id } : { recordId: w.id }), writeId } }
+}
+
+/** The visible rows: the synced rows with every entry laid over them, oldest
+ *  first (`rowsCases`). */
+export function outboxRows(rows: readonly AppRecordRow[], entries: readonly OutboxEntry[], me: string | null): AppRecordRow[] {
+  const out = rows.map((r) => ({ ...r }))
+  for (const entry of entries) {
+    for (const w of entry.writes) {
+      const i = out.findIndex((r) => r.id === w.id)
+      if (w.op === `delete`) {
+        if (i >= 0) out.splice(i, 1)
+      } else if (i >= 0) {
+        out[i] = { ...out[i]!, data: { ...out[i]!.data, ...w.data } }
+      } else if (w.op === `create`) {
+        out.push({ id: w.id, kind: w.kind, data: { ...w.data }, createdBy: me, authorId: me, createdAt: entry.at, updatedAt: entry.at })
+      }
+    }
+  }
+  return out
+}
+
+/** What a replay's answer does to its entry (`outcomeCases`). */
+export function outboxOutcome(entry: OutboxEntry, result: OutboxResult): OutboxOutcome {
+  if (`ok` in result) return `done`
+  if (`transport` in result) return `retry`
+  if (APP_RECORDS_OUTBOX.retryCodes.includes(result.code)) return `retry`
+  if (result.code === `NOT_FOUND` && entry.writes.every((w) => w.op !== `create`) && entry.call !== `batch`) return `dropped`
+  return `refused`
+}
+
+/** The failed-action toast's verb for a refused entry. */
+export function outboxVerb(entry: OutboxEntry): `save` | `delete` {
+  return entry.writes.every((w) => w.op === `delete`) ? `delete` : `save`
+}
+
+/** One flush (`flushCases`): pending entries oldest first, one at a time;
+ *  a retry stops it; `results` = each write id's answer. */
+export function outboxFlush(
+  entries: readonly OutboxEntry[],
+  results: Record<string, OutboxResult>,
+  now: string
+): { sent: string[]; refused: { writeId: string; verb: `save` | `delete` }[]; after: OutboxEntry[] } {
+  const sent: string[] = []
+  const refused: { writeId: string; verb: `save` | `delete` }[] = []
+  const after: OutboxEntry[] = []
+  let stopped = false
+  for (const entry of entries) {
+    if (stopped || entry.state === `acked`) {
+      after.push(entry)
+      continue
+    }
+    sent.push(entry.writeId)
+    const outcome = outboxOutcome(entry, results[entry.writeId] ?? { transport: true })
+    if (outcome === `done`) after.push({ ...entry, state: `acked`, ackedAt: now })
+    else if (outcome === `retry`) {
+      stopped = true
+      after.push(entry)
+    } else if (outcome === `refused`) refused.push({ writeId: entry.writeId, verb: outboxVerb(entry) })
+  }
+  return { sent, refused, after }
+}
+
+/** Do the synced rows reflect an entry? */
+export function outboxReflected(entry: OutboxEntry, rows: readonly AppRecordRow[]): boolean {
+  return entry.writes.every((w) => {
+    const row = rows.find((r) => r.id === w.id)
+    if (w.op === `delete`) return row === undefined
+    return row !== undefined && Object.entries(w.data).every(([k, v]) => jsonEqual(row.data[k], v))
+  })
+}
+
+/** The entries that stay (`pruneCases`): pending ones, and acked ones the
+ *  rows don't reflect yet within the grace. */
+export function outboxPrune(entries: readonly OutboxEntry[], rows: readonly AppRecordRow[], now: string): OutboxEntry[] {
+  const grace = APP_RECORDS_OUTBOX.ackGraceSeconds * 1000
+  return entries.filter((e) => {
+    if (e.state !== `acked`) return true
+    if (outboxReflected(e, rows)) return false
+    return Date.parse(now) - Date.parse(e.ackedAt ?? e.at) < grace
+  })
+}
+
+/** The header glyph's label for an app's pending entries (`pendingCases`);
+ *  null = no glyph. */
+export function outboxPendingLabel(entries: readonly OutboxEntry[], appId: string): string | null {
+  const n = entries.filter((e) => e.appId === appId && e.state === `pending`).length
+  if (n === 0) return null
+  return n === 1 ? APP_OUTBOX_COPY.pendingOne : APP_OUTBOX_COPY.pending.replace(`{n}`, String(n))
+}

@@ -641,12 +641,18 @@ export const appsRouter = router({
      *  author, or an update's reassignment; created_by/updated_by stay the
      *  real writer. */
     upsert: authedProcedure
-      .input(appRefSchema.and(z.object({ kind: kindSchema, data: recordDataSchema, recordId: uuid.optional(), author: z.string().min(1).max(64).optional(), via: clientVia })))
+      .input(
+        appRefSchema.and(
+          // VAPP-235 (O1): an outbox replay brings its client write id
+          // (`writeId`, the dedupe key) and a create its client id (`newId`).
+          z.object({ kind: kindSchema, data: recordDataSchema, recordId: uuid.optional(), newId: uuid.optional(), writeId: uuid.optional(), author: z.string().min(1).max(64).optional(), via: clientVia })
+        )
+      )
       .mutation(({ ctx, input }) => upsertRecord(ctx.session.user.id, input, { ...input, via: writeVia(ctx, input.via), ...(ctx.viaAppId ? { viaAppId: ctx.viaAppId } : {}) }, ctx.db)),
 
     delete: authedProcedure
-      .input(appRefSchema.and(z.object({ recordId: uuid, via: clientVia })))
-      .mutation(({ ctx, input }) => deleteRecord(ctx.session.user.id, input, input.recordId, ctx.db, writeVia(ctx, input.via))),
+      .input(appRefSchema.and(z.object({ recordId: uuid, writeId: uuid.optional(), via: clientVia })))
+      .mutation(({ ctx, input }) => deleteRecord(ctx.session.user.id, input, input.recordId, ctx.db, writeVia(ctx, input.via), input.writeId)),
 
     /** VAPP-215 (R4, app-records.json `history`): a record's events, newest
      *  first (its read policy; a deleted record keeps its history). */
@@ -676,16 +682,17 @@ export const appsRouter = router({
             writes: z
               .array(
                 z.discriminatedUnion(`op`, [
-                  z.object({ op: z.literal(`upsert`), kind: kindSchema, data: recordDataSchema, id: uuid.optional() }),
+                  z.object({ op: z.literal(`upsert`), kind: kindSchema, data: recordDataSchema, id: uuid.optional(), newId: uuid.optional() }),
                   z.object({ op: z.literal(`delete`), id: uuid }),
                 ])
               )
               .min(1)
               .max(ACTION_LIMITS.steps),
+            writeId: uuid.optional(),
           })
         )
       )
-      .mutation(({ ctx, input }) => commitRecordBatch(ctx.session.user.id, input, input.writes, ctx.db)),
+      .mutation(({ ctx, input }) => commitRecordBatch(ctx.session.user.id, input, input.writes, ctx.db, input.writeId)),
   }),
 
   /** #VAPP-230 (eApps M1): one `upstream:<server>/<tool>?…` read binding,
