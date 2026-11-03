@@ -93,6 +93,25 @@ export interface TreeMessage {
   /** EXP-1459: sealed content this install cannot open (yet); `body` is
    *  empty and `card` its clear part (sealed-content.json `placeholder`). */
   locked?: LockedReason | null
+  /** #EXP-1682: the files the message carries in the clear
+   *  (`messages.attachment_ids`; absent = none). */
+  attachmentIds?: readonly string[] | null
+}
+
+/** #EXP-1682 (session-thread.json `$comment`, "ATTACHMENTS"): a message's
+ *  row body = its body, then a blank line and one
+ *  `![image](/api/attachments/<id>)` line per `attachmentIds` entry the body
+ *  does not already name (the steer image block, the shape the device
+ *  embeds for the agent). A sealed or main-composer message keeps its files
+ *  ONLY in `attachment_ids`, so without this its pictures never showed. */
+export function messageRowBody(body: string, attachmentIds: readonly string[] | null | undefined): string {
+  const missing = [...new Set(attachmentIds ?? [])].filter(
+    (id) => id !== `` && !body.includes(`/api/attachments/${id}`)
+  )
+  if (missing.length === 0) return body
+  const embeds = missing.map((id) => `![image](/api/attachments/${id})`).join(`\n`)
+  const text = body.trim()
+  return text ? `${text}\n\n${embeds}` : embeds
 }
 
 export interface TreePullRequest {
@@ -986,7 +1005,8 @@ export function buildSessionThread(input: {
         message.authorKind === `user` || message.authorKind === `agent`
           ? message.authorKind
           : `system`
-      if (!message.body.trim()) continue
+      const body = messageRowBody(message.body, message.attachmentIds)
+      if (!body.trim()) continue
       const divider = author === `user` ? commandDivider(message.body) : null
       if (divider) {
         rows.push({ type: `divider`, id: message.id, kind: divider, at: message.createdAt })
@@ -997,7 +1017,7 @@ export function buildSessionThread(input: {
         id: message.id,
         author,
         authorId: message.authorId,
-        body: message.body,
+        body,
         queued: author === `user` && message.consumedAt === null,
         authorSessionId: message.authorSessionId ?? null,
         xref:

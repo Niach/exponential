@@ -210,3 +210,18 @@ val MIGRATION_115_116: Migration = object : Migration(115, 116) {
         )
     }
 }
+
+/**
+ * v117 (#EXP-1682): `messages.attachment_ids` (the files a message carries in
+ * the clear; the thread row draws them as embeds). Only the messages shape
+ * refetches, so synced rows re-arrive carrying it.
+ */
+val MIGRATION_116_117: Migration = object : Migration(116, 117) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `messages` ADD COLUMN `attachment_ids` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'messages'",
+        )
+    }
+}

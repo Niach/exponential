@@ -117,7 +117,24 @@ object SessionTree {
          *  `noKey` | `unreadable` ([SealedPlaceholder]); [body] is empty and
          *  [card] its clear part. Null = opened or plaintext. */
         val locked: String? = null,
+        /** #EXP-1682: the files the message carries in the clear
+         *  (`messages.attachment_ids`; null = none). */
+        val attachmentIds: List<String>? = null,
     )
+
+    /** #EXP-1682 (session-thread.json `$comment`, "ATTACHMENTS"): a message's
+     *  row body = its body, then a blank line and one
+     *  `![image](/api/attachments/<id>)` line per [attachmentIds] entry the
+     *  body does not already name (the steer image block). A sealed or
+     *  main-composer message keeps its files ONLY in `attachment_ids`. */
+    fun messageRowBody(body: String, attachmentIds: List<String>?): String {
+        val missing = attachmentIds.orEmpty().distinct()
+            .filter { it.isNotEmpty() && !body.contains("/api/attachments/$it") }
+        if (missing.isEmpty()) return body
+        val embeds = missing.joinToString("\n") { "![image](/api/attachments/$it)" }
+        val text = body.trim()
+        return if (text.isNotEmpty()) "$text\n\n$embeds" else embeds
+    }
 
     /** [state] (NEW-1) = contract `prState`; only [treeState] reads it (null = unknown, never merged). */
     data class PullRequest(val id: String, val number: Int, val state: String? = null)
@@ -1110,7 +1127,8 @@ object SessionTree {
                     DomainContract.messageAuthorKindUser, DomainContract.messageAuthorKindAgent -> message.authorKind
                     else -> DomainContract.messageAuthorKindSystem
                 }
-                if (message.body.isBlank()) continue
+                val body = messageRowBody(message.body, message.attachmentIds)
+                if (body.isBlank()) continue
                 val divider = if (author == DomainContract.messageAuthorKindUser) Chats.commandDivider(message.body) else null
                 if (divider != null) {
                     rows.add(ThreadRow.Divider(message.id, divider, message.createdAt))
@@ -1121,7 +1139,7 @@ object SessionTree {
                         id = message.id,
                         author = author,
                         authorId = message.authorId,
-                        body = message.body,
+                        body = body,
                         queued = author == DomainContract.messageAuthorKindUser && message.consumedAt == null,
                         authorSessionId = message.authorSessionId,
                         xref = message.authorSessionId
@@ -1790,6 +1808,7 @@ object SessionTree {
             createdAt = row.createdAt,
             authorSessionId = row.authorSessionId,
             locked = opened.locked,
+            attachmentIds = row.attachmentIdList,
         )
     }
 

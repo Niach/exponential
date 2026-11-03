@@ -143,7 +143,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
-             "v98_app_version_migration"]
+             "v98_app_version_migration", "v99_message_attachment_ids"]
         )
     }
 
@@ -208,7 +208,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
-             "v98_app_version_migration"]
+             "v98_app_version_migration", "v99_message_attachment_ids"]
         )
     }
 
@@ -745,7 +745,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
-             "v98_app_version_migration"]
+             "v98_app_version_migration", "v99_message_attachment_ids"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -858,7 +858,7 @@ final class DatabaseMigrationTests: XCTestCase {
              "v90_pull_request_checks", "v91_app_record_ownership", "v92_skills",
              "v93_apps_published", "v94_skill_builtin",
              "v95_team_time_zone", "v96_via_app_id", "v97_app_record_outbox",
-             "v98_app_version_migration"]
+             "v98_app_version_migration", "v99_message_attachment_ids"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1937,7 +1937,7 @@ final class DatabaseMigrationTests: XCTestCase {
             try columnNames(pool, "messages"),
             ["id", "root_id", "team_id", "author_kind", "author_id",
              "body", "card", "answered_at", "consumed_at", "created_at", "updated_at",
-             "author_session_id", "conversation_id"]
+             "author_session_id", "conversation_id", "attachment_ids"]
         )
         XCTAssertEqual(
             try columnNames(pool, "session_reads"),
@@ -3237,7 +3237,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, ["sessions"])
+            XCTAssertEqual(reset, ["messages", "sessions"])
         }
         XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
@@ -3522,7 +3522,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, ["conversations"])
+            XCTAssertEqual(reset, ["conversations", "messages"])
         }
         let wire = Data("""
             {"id":"c-1","team_id":"t","kind":"session","session_id":"s-1","title":null,
@@ -3568,7 +3568,7 @@ final class DatabaseMigrationTests: XCTestCase {
                 db,
                 sql: "SELECT \"shape\" FROM \"electric_offsets\" WHERE \"offset\" = '-1' ORDER BY \"shape\""
             )
-            XCTAssertEqual(reset, ["sessions"])
+            XCTAssertEqual(reset, ["messages", "sessions"])
             XCTAssertEqual(try SessionEntity.fetchOne(db, key: "s-0")?.background, false)
         }
         for (wireValue, expected) in [("true", true), (#""t""#, true), (#""f""#, false)] {

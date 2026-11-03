@@ -556,6 +556,9 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
     /// EXP-1459: an escalated `ask` mirror's `sealedCard` (the origin card
     /// sealed to THIS tree), opened; nil = none or locked.
     public let escalated: TreeMessageCard?
+    /// #EXP-1682: the files the message carries in the clear
+    /// (`messages.attachment_ids`; empty = none).
+    public let attachmentIds: [String]
 
     /// The content is sealed and this install can't open it (yet).
     public var isLocked: Bool { !sealStatus.isReadable }
@@ -567,7 +570,8 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
         return TreeMessage(
             id: id, sessionId: sessionId, authorKind: authorKind, authorId: authorId,
             body: body, card: escalated, answeredAt: answeredAt, consumedAt: consumedAt,
-            createdAt: createdAt, authorSessionId: authorSessionId, sealStatus: .opened
+            createdAt: createdAt, authorSessionId: authorSessionId, sealStatus: .opened,
+            attachmentIds: attachmentIds
         )
     }
     /// Why (sealed-content.json `placeholder`); nil = readable.
@@ -585,11 +589,13 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
         createdAt: String,
         authorSessionId: String? = nil,
         sealStatus: SealStatus = .plain,
-        escalated: TreeMessageCard? = nil
+        escalated: TreeMessageCard? = nil,
+        attachmentIds: [String] = []
     ) {
         self.authorSessionId = authorSessionId
         self.sealStatus = sealStatus
         self.escalated = escalated
+        self.attachmentIds = attachmentIds
         self.id = id
         self.sessionId = sessionId
         self.authorKind = authorKind
@@ -600,6 +606,24 @@ public struct TreeMessage: Equatable, Sendable, Identifiable {
         self.consumedAt = consumedAt
         self.createdAt = createdAt
     }
+}
+
+/// #EXP-1682 (session-thread.json `$comment`, "ATTACHMENTS"): a message's
+/// row body = its body, then a blank line and one
+/// `![image](/api/attachments/<id>)` line per `attachmentIds` entry the body
+/// does not already name. A sealed or main-composer message keeps its files
+/// ONLY in `attachment_ids`, so without this its pictures never showed.
+public func messageRowBody(_ body: String, _ attachmentIds: [String]) -> String {
+    var seen = Set<String>()
+    var missing: [String] = []
+    for id in attachmentIds where !id.isEmpty && !seen.contains(id) {
+        seen.insert(id)
+        if !body.contains("/api/attachments/\(id)") { missing.append(id) }
+    }
+    if missing.isEmpty { return body }
+    let embeds = missing.map { "![image](/api/attachments/\($0))" }.joined(separator: "\n")
+    let text = body.trimmingCharacters(in: .whitespacesAndNewlines)
+    return text.isEmpty ? embeds : "\(text)\n\n\(embeds)"
 }
 
 public struct TreePullRequest: Equatable, Sendable, Identifiable {
@@ -1727,7 +1751,8 @@ public enum SessionTree {
                 let author = message.authorKind == "user" || message.authorKind == "agent"
                     ? message.authorKind
                     : "system"
-                if message.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
+                let body = messageRowBody(message.body, message.attachmentIds)
+                if body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { continue }
                 if author == "user", let divider = Chats.commandDivider(message.body) {
                     rows.append(.divider(id: message.id, kind: divider, at: message.createdAt))
                     continue
@@ -1736,7 +1761,7 @@ public enum SessionTree {
                     id: message.id,
                     author: author,
                     authorId: message.authorId,
-                    body: message.body,
+                    body: body,
                     queued: author == "user" && message.consumedAt == nil,
                     authorSessionId: message.authorSessionId,
                     xref: message.authorSessionId.flatMap { $0.isEmpty || $0 == root.id ? nil : xref(.message, $0) }

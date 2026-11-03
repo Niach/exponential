@@ -128,6 +128,7 @@ class SessionTreeTest {
         createdAt = json.str("createdAt")!!,
         authorSessionId = json.str("authorSessionId"),
         locked = json.str("locked"),
+        attachmentIds = (json["attachmentIds"] as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.content },
     )
 
     private fun pullRequest(json: JsonObject) = SessionTree.PullRequest(

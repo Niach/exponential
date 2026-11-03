@@ -130,7 +130,8 @@ final class SessionTreeTests: XCTestCase {
                 answeredAt: string($0["answeredAt"]),
                 consumedAt: string($0["consumedAt"]),
                 createdAt: try XCTUnwrap(string($0["createdAt"])),
-                authorSessionId: string($0["authorSessionId"])
+                authorSessionId: string($0["authorSessionId"]),
+                attachmentIds: ($0["attachmentIds"] as? [String]) ?? []
             )
         }
     }

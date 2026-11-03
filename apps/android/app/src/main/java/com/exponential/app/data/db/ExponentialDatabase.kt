@@ -73,7 +73,9 @@ import androidx.room.TypeConverters
     //      outbox, no shape), explicit [MIGRATION_114_115]; nothing refetches.
     // v116 (#VAPP-233): `app_versions.migration_*` (the record sweep's
     //      progress), explicit [MIGRATION_115_116]; app_versions refetches.
-    version = 116,
+    // v117 (#EXP-1682): messages.attachment_ids (a message's clear files),
+    //      explicit [MIGRATION_116_117]; only the messages shape refetches.
+    version = 117,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

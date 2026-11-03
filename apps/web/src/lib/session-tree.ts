@@ -120,6 +120,8 @@ function plainTreeMessage(row: MessageRow): TreeMessage {
     consumedAt: iso(row.consumedAt),
     createdAt: iso(row.createdAt) ?? new Date(0).toISOString(),
     authorSessionId: row.authorSessionId ?? null,
+    // #EXP-1682: the clear files ride the row's bubble as embeds.
+    attachmentIds: row.attachmentIds ?? [],
   }
 }
 
