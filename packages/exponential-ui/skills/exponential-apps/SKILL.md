@@ -11,7 +11,7 @@ An Exponential app is **data, never code**: a declarative package (manifest, eUI
 
 ## Workflow
 
-An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "<slug>"}; learn the components, bindings, host functions and records with exponential_apps {op: "catalog"}; save every change as a new draft version with exponential_apps {op: "upsert", slug: "<slug>", package, note} (members keep running the published version); publish with exponential_apps {op: "publish", slug: "<slug>"} only when the person asks (they also have a Publish button). An app keeps its own data as RECORDS (declare the kinds in the manifest, bind records:<kind>, write with records.upsert); seed or inspect them with exponential_apps {op: "records_upsert" | "records_list", slug: "<slug>", kind, data}. An app may also EXPOSE MCP tools (exposes: declarative bindings over its records, exponential.<noun>.<op> operations or a team MCP server in upstreams) that a member's MCP client runs as that member; the catalog documents the format.
+An app is a declarative Exponential UI package (manifest + A2UI templates + bindings + a function allowlist; data, never code). Read the current package with exponential_apps {op: "get", slug: "<slug>"}; learn the components, bindings, host functions and records with exponential_apps {op: "catalog"}; save every change as a new draft version with exponential_apps {op: "upsert", slug: "<slug>", package, note} (members keep running the published version); publish with exponential_apps {op: "publish", slug: "<slug>"} only when the person asks (they also have a Publish button). An app keeps its own data as RECORDS (declare the kinds in the manifest, bind records:<kind>, write with records.upsert); seed or inspect them with exponential_apps {op: "records_upsert" | "records_list", slug: "<slug>", kind, data}. An app may also EXPOSE MCP tools (exposes: declarative bindings over its records, exponential.<noun>.<op> operations or a team MCP server in upstreams) that a member's MCP client runs as that member; the catalog documents the format. A person may attach a spreadsheet (CSV, TSV or xlsx) to fill the app: follow the import recipe (the exponential-apps skill's references/import.md, docs/spec/apps.md §10.2): read it, map the columns onto a kind, show a dry run and ask, then records_upsert row by row in batches.
 
 Components and their props are NOT listed here: read exponential_apps {op: "catalog"} once (only: [names] for just a few), and the `exponential-ui` skill for the surface rules. Animations: the `exponential-motion` skill.
 
@@ -23,12 +23,14 @@ Components and their props are NOT listed here: read exponential_apps {op: "cata
 - A field not in `required` may be missing: guard it (`has(r.f)`, `orElse(r.f, d)`), else the upsert is refused at that path. Every `{call: "expr"}` has a `default`.
 - Writes that must land together are one action; check inputs with `require` steps.
 - Add a test for every expression, query and action: a failing test refuses the upsert as `/tests/<i>`.
+- A spreadsheet to import: `references/import.md` (map, dry run, ask, then write in batches).
 - Save a draft early and often; publish only when the person asks.
 
 ## References (read on demand)
 
 - `references/package.md` — The package and its versions.
 - `references/records.md` — Records: kinds, policies, queries, writes.
+- `references/import.md` — Importing a spreadsheet (CSV, TSV, xlsx) into records.
 - `references/expressions.md` — Expressions (CEL), functions and optional values.
 - `references/actions.md` — Actions: all-or-nothing writes, require.
 - `references/tests.md` — Package tests.
