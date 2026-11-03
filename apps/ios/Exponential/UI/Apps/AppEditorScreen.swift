@@ -1,5 +1,6 @@
 import ExpCore
 import ExpUI
+import ExponentialUI
 import SwiftUI
 
 /// VAPP-110 / VAPP-177 (fixtures/apps.json `editorTabs`): THE EDITOR on a
