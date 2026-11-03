@@ -48,7 +48,7 @@ function harness(responses: ReturnType<typeof response>[]) {
   return { client, calls, sleeps }
 }
 
-// Measured on the Methode 5 workspace (2026-09-23): a 50-issue page with
+// Measured on a real Linear workspace (2026-09-23): a 50-issue page with
 // nested history. The assertion pins it under the per-query cap.
 const MEASURED_ISSUE_PAGE_COMPLEXITY = 288
 

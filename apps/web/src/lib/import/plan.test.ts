@@ -22,7 +22,7 @@ describe(`buildDefaultPlan`, () => {
   it(`creates a board per Linear team with issues, skips empty teams, derives project prefixes`, () => {
     expect(plan.boards[`team:${T_MET}`]).toEqual({
       mode: `create`,
-      name: `Methode 5`,
+      name: `Metric`,
       prefix: `MET`,
       numbering: `preserve`,
     })
@@ -38,7 +38,7 @@ describe(`buildDefaultPlan`, () => {
   it(`creates an archive board per team with archived issues, adopting an earlier run's archived one`, () => {
     expect(plan.boards[`archive:${T_MET}`]).toEqual({
       mode: `create`,
-      name: `Methode 5 Archive`,
+      name: `Metric Archive`,
       prefix: `META`,
       numbering: `preserve`,
     })
@@ -47,8 +47,8 @@ describe(`buildDefaultPlan`, () => {
       previewFixture(),
       teamStateFixture({
         boards: [
-          { id: `board-met`, name: `Methode 5`, prefix: `MET`, issueCount: 3 },
-          { id: `board-meta`, name: `Methode 5 Archive`, prefix: `META`, issueCount: 1, archived: true },
+          { id: `board-met`, name: `Metric`, prefix: `MET`, issueCount: 3 },
+          { id: `board-meta`, name: `Metric Archive`, prefix: `META`, issueCount: 1, archived: true },
         ],
       })
     )
@@ -59,7 +59,7 @@ describe(`buildDefaultPlan`, () => {
     const archivedMet = buildDefaultPlan(
       previewFixture(),
       teamStateFixture({
-        boards: [{ id: `board-met`, name: `Methode 5`, prefix: `MET`, issueCount: 3, archived: true }],
+        boards: [{ id: `board-met`, name: `Metric`, prefix: `MET`, issueCount: 3, archived: true }],
       })
     )
     const entry = archivedMet.boards[`team:${T_MET}`]!
@@ -142,8 +142,8 @@ describe(`buildDefaultPlan`, () => {
 
 describe(`derivePrefix`, () => {
   it(`takes initials, letter-led, at most four chars, avoiding taken ones`, () => {
-    expect(derivePrefix(`M5 - Maintenance`, new Set())).toBe(`MM`)
-    expect(derivePrefix(`M5 Design Launch`, new Set([`MDL`]))).toBe(`M5DE`)
+    expect(derivePrefix(`Q4 - Maintenance`, new Set())).toBe(`QM`)
+    expect(derivePrefix(`Q4 Design Launch`, new Set([`QDL`]))).toBe(`Q4DE`)
     expect(derivePrefix(`123 only digits`, new Set())).toMatch(BOARD_PREFIX_PATTERN)
   })
 })
@@ -177,7 +177,7 @@ describe(`evaluatePlan`, () => {
     expect(result.warnings.join(`\n`)).toMatch(/1 comment\(s\) will carry an attribution line/)
     expect(result.warnings.join(`\n`)).not.toMatch(/Content by/)
     expect(result.warnings.join(`\n`)).not.toMatch(/Linear/)
-    expect(result.warnings.join(`\n`)).toMatch(/Archived issues go to "Methode 5 Archive", archived after the import/)
+    expect(result.warnings.join(`\n`)).toMatch(/Archived issues go to "Metric Archive", archived after the import/)
   })
 
   it(`counts and blocks only the people a non-skipped issue still references`, () => {
@@ -232,7 +232,7 @@ describe(`evaluatePlan`, () => {
 
   it(`lets a resume keep its "create" entries for boards the failed run already made`, () => {
     const resumed = teamStateFixture({
-      boards: [{ id: `board-met`, name: `Methode 5`, prefix: `MET`, issueCount: 900 }],
+      boards: [{ id: `board-met`, name: `Metric`, prefix: `MET`, issueCount: 900 }],
       importedBoards: new Map([[`team:${T_MET}`, `board-met`]]),
       importedIssueKeys: new Set([`issue:is-1`]),
     })

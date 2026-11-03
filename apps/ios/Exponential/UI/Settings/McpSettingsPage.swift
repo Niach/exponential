@@ -564,7 +564,7 @@ struct McpSettingsSpecimen: View {
             servers: [
                 McpServerRow(
                     id: "linear", name: "Linear", url: "https://mcp.linear.app/sse", enabledByDefault: true,
-                    connection: .init(status: "connected"), usedBy: ["m5 admin"]
+                    connection: .init(status: "connected"), usedBy: ["Customer admin"]
                 ),
                 McpServerRow(
                     id: "sentry", name: "Sentry", url: "https://mcp.sentry.dev/mcp",
@@ -583,10 +583,10 @@ struct McpSettingsSpecimen: View {
             ],
             access: McpAppAccess(
                 canEdit: true,
-                apps: [McpAppAccess.App(id: "m5", slug: "m5-admin", name: "m5 admin", icon: "server", color: "#3b82f6", toolCount: 3)],
+                apps: [McpAppAccess.App(id: "a-admin", slug: "customer-admin", name: "Customer admin", icon: "server", color: "#3b82f6", toolCount: 3)],
                 rows: [
                     .init(userId: "u-alex", name: "Alex", levels: [:]),
-                    .init(userId: "u-mia", name: "Mia", levels: ["m5": .read]),
+                    .init(userId: "u-mia", name: "Mia", levels: ["a-admin": .read]),
                 ]
             )
         )

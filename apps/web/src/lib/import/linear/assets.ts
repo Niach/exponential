@@ -1,7 +1,7 @@
 // EXP-630: Linear's uploads are auth-gated (a bare GET is a 401), and its
 // docs say to download and self-host — the SAME raw-key `Authorization`
 // header the GraphQL API takes works on `uploads.linear.app`. Verified with
-// a HEAD against the Methode 5 workspace on 2026-09-23.
+// a HEAD against a real Linear workspace on 2026-09-23.
 import type { FetchedAsset } from "@/lib/import/apply"
 import { readBodyBounded, type BoundedBodyResponse } from "@/lib/import/asset-body"
 import { IMPORT_ASSET_FETCH_TIMEOUT_MS, IMPORT_MAX_ASSET_BYTES } from "@/lib/import/limits"

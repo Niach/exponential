@@ -48,10 +48,10 @@
     { "state": "failed", "expected": false }
   ],
   "missingCases": [
-    { "name": "nothing declared", "declared": [[], []], "states": {}, "servers": ["m5"], "expected": [] },
-    { "name": "one app, not connected", "declared": [["m5"]], "states": {}, "servers": ["m5"], "expected": ["m5"] },
-    { "name": "two apps share an upstream, listed once and sorted", "declared": [["m5", "linear"], ["m5"]], "states": { "linear": "reconnect" }, "servers": ["m5", "linear"], "expected": ["linear", "m5"] },
-    { "name": "connected and expired are fine", "declared": [["m5", "linear"]], "states": { "m5": "connected", "linear": "expired" }, "servers": ["m5", "linear"], "expected": [] },
-    { "name": "a removed server is not offered", "declared": [["m5", "gone"]], "states": { "m5": "failed" }, "servers": ["m5"], "expected": ["m5"] }
+    { "name": "nothing declared", "declared": [[], []], "states": {}, "servers": ["crm"], "expected": [] },
+    { "name": "one app, not connected", "declared": [["crm"]], "states": {}, "servers": ["crm"], "expected": ["crm"] },
+    { "name": "two apps share an upstream, listed once and sorted", "declared": [["crm", "linear"], ["crm"]], "states": { "linear": "reconnect" }, "servers": ["crm", "linear"], "expected": ["crm", "linear"] },
+    { "name": "connected and expired are fine", "declared": [["crm", "linear"]], "states": { "crm": "connected", "linear": "expired" }, "servers": ["crm", "linear"], "expected": [] },
+    { "name": "a removed server is not offered", "declared": [["crm", "gone"]], "states": { "crm": "failed" }, "servers": ["crm"], "expected": ["crm"] }
   ]
 }

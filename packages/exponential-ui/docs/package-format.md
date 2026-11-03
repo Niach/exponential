@@ -38,7 +38,7 @@ renders against keeps its own version in its id (`catalogId`,
   "sources": ["records:*"],                         // allowlist for bindings, unset = any
   "records": { "entry": { "title": "Entry", "schema": { "type": "object", "properties": { "date": { "type": "string", "format": "date" } } } } },
   "tools": { "weather": { "kind": "mcp", "title": "Weather", "url": "https://mcp.example.com/weather" } },
-  "upstreams": ["m5"], "exposes": [/* MCP tools a host's broker runs: "Exposes" below */],
+  "upstreams": ["crm"], "exposes": [/* MCP tools a host's broker runs: "Exposes" below */],
   "queries": { "month": { "group": ["author"], "aggregate": { "hours": ["sum", "hours"] } } },
   "actions": { "log": { "params": { /* a records schema */ }, "steps": [/* "Actions" below */] } },
   "tests": [{ "name": "a duration", "expr": { "expr": "formatDuration(7.5, 'h:mm')" }, "expect": "7:30" }],
@@ -423,7 +423,7 @@ names the MCP servers the package's upstream bindings call; the host provides
 them (Exponential: the team's MCP servers, Settings › MCP).
 
 ```jsonc
-"upstreams": ["m5"],
+"upstreams": ["crm"],
 "exposes": [
   { "name": "list_entries", "title": "List entries", "description": "The time entries of a day.",
     "input": { "type": "object", "properties": { "day": { "type": "string" } } },
@@ -433,10 +433,10 @@ them (Exponential: the team's MCP servers, Settings › MCP).
     "input": { "type": "object", "properties": { "issue": { "type": "string" }, "hours": { "type": "number" } }, "required": ["issue", "hours"] },
     "access": "write",
     "run": { "action": "exponential.comments.create", "args": { "issueId": "${input.issue}", "body": "Logged ${input.hours} h" } } },
-  { "name": "find_customer", "title": "Find a customer", "description": "Search m5 customers.",
+  { "name": "find_customer", "title": "Find a customer", "description": "Search CRM customers.",
     "input": { "type": "object", "properties": { "q": { "type": "string" } } },
     "access": "read",
-    "run": { "upstream": "m5", "tool": "search_customers", "args": { "query": "${input.q}" } } }
+    "run": { "upstream": "crm", "tool": "search_customers", "args": { "query": "${input.q}" } } }
 ]
 ```
 

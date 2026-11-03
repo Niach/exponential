@@ -57,14 +57,14 @@
       {
         "source": "mcp",
         "audience": "team",
-        "viaAppName": "m5 admin",
-        "caption": "via m5 admin"
+        "viaAppName": "Customer admin",
+        "caption": "via Customer admin"
       },
       {
         "source": "mcp",
         "audience": "reporter",
-        "viaAppName": "m5 admin",
-        "caption": "to reporter · via m5 admin"
+        "viaAppName": "Customer admin",
+        "caption": "to reporter · via Customer admin"
       },
       {
         "source": "mcp",

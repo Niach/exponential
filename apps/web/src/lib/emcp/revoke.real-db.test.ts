@@ -171,7 +171,7 @@ describe.skipIf(!ready.ok)(`MCP revocation (real db, VAPP-184)`, () => {
     vi.stubGlobal(`fetch`, provider.fetch)
     const [server] = await db
       .insert(mcpServers)
-      .values({ teamId: w.teamId, name: `m5`, transport: `http`, url: MCP_URL, auth: `oauth` })
+      .values({ teamId: w.teamId, name: `crm`, transport: `http`, url: MCP_URL, auth: `oauth` })
       .returning()
     await storeOauthTokens(db, {
       serverId: server!.id,
@@ -222,9 +222,9 @@ describe.skipIf(!ready.ok)(`Settings › MCP reads (real db, VAPP-185)`, () => {
     expect(mine.calls.map((c) => c.tool)).toEqual([`notes__list`])
     await db.execute(sql`DELETE FROM mcp_calls WHERE team_id = ${w.teamId}`)
 
-    await db.insert(mcpServers).values({ teamId: w.teamId, name: `m5`, transport: `http`, url: MCP_URL, auth: `none` })
-    await db.update(apps).set({ package: sql`package || '{"upstreams":["m5"]}'::jsonb` }).where(eq(apps.id, w.appId))
+    await db.insert(mcpServers).values({ teamId: w.teamId, name: `crm`, transport: `http`, url: MCP_URL, auth: `none` })
+    await db.update(apps).set({ package: sql`package || '{"upstreams":["crm"]}'::jsonb` }).where(eq(apps.id, w.appId))
     const servers = await (await asUser(w.mate)).mcpServers.list({ teamId: w.teamId })
-    expect(servers.map((s) => [s.name, s.usedBy])).toEqual([[`m5`, [`Notes`]]])
+    expect(servers.map((s) => [s.name, s.usedBy])).toEqual([[`crm`, [`Notes`]]])
   })
 })

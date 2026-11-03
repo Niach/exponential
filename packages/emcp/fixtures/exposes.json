@@ -44,11 +44,11 @@
   "validateCases": [
     {
       "name": "a valid records read, action write and upstream binding",
-      "context": { "kinds": ["entry"], "upstreams": ["m5"] },
+      "context": { "kinds": ["entry"], "upstreams": ["crm"] },
       "exposes": [
         { "name": "list_entries", "title": "List entries", "description": "The time entries of a day.", "input": { "type": "object", "properties": { "day": { "type": "string" } } }, "access": "read", "run": { "records": { "op": "list", "kind": "entry", "where": { "day": "${input.day}" } } } },
         { "name": "log_comment", "title": "Log a comment", "description": "Comment the logged hours on an issue.", "input": { "type": "object", "properties": { "issue": { "type": "string" }, "hours": { "type": "number" } }, "required": ["issue", "hours"] }, "access": "write", "run": { "action": "exponential.comments.create", "args": { "issueId": "${input.issue}", "body": "Logged ${input.hours} h" } } },
-        { "name": "find_customer", "title": "Find a customer", "description": "Search m5 customers.", "input": { "type": "object", "properties": { "q": { "type": "string" } } }, "access": "read", "run": { "upstream": "m5", "tool": "search_customers", "args": { "query": "${input.q}" } } }
+        { "name": "find_customer", "title": "Find a customer", "description": "Search CRM customers.", "input": { "type": "object", "properties": { "q": { "type": "string" } } }, "access": "read", "run": { "upstream": "crm", "tool": "search_customers", "args": { "query": "${input.q}" } } }
       ],
       "expected": []
     },
@@ -92,9 +92,9 @@
     },
     {
       "name": "run holds exactly one target",
-      "context": { "kinds": ["entry"], "upstreams": ["m5"] },
+      "context": { "kinds": ["entry"], "upstreams": ["crm"] },
       "exposes": [
-        { "name": "both", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "action": "exponential.issues.create", "upstream": "m5", "tool": "x" } },
+        { "name": "both", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "action": "exponential.issues.create", "upstream": "crm", "tool": "x" } },
         { "name": "none", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": {} },
         { "name": "bad_op", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "records": { "op": "count", "kind": "entry" } } }
       ],
@@ -106,7 +106,7 @@
     },
     {
       "name": "templates name declared inputs, kinds and upstreams are the app's own",
-      "context": { "kinds": ["entry"], "upstreams": ["m5"] },
+      "context": { "kinds": ["entry"], "upstreams": ["crm"] },
       "exposes": [
         { "name": "by_day", "title": "A", "description": "A.", "input": { "type": "object", "properties": { "day": { "type": "string" } } }, "access": "read", "run": { "records": { "op": "list", "kind": "entry", "where": { "day": "${input.day}", "user": "${input.user.email}" } } } },
         { "name": "notes", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "read", "run": { "records": { "op": "list", "kind": "note" } } },
@@ -120,13 +120,13 @@
     },
     {
       "name": "destructive is never exposed",
-      "context": { "kinds": ["entry"], "upstreams": ["m5"] },
+      "context": { "kinds": ["entry"], "upstreams": ["crm"] },
       "exposes": [
         { "name": "drop_entry", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "records": { "op": "delete", "kind": "entry", "id": "x" } } },
         { "name": "drop_issue", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "action": "exponential.issues.delete", "args": {} } },
         { "name": "merge", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "action": "exponential.pr.merge", "args": {} } },
         { "name": "invite", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "action": "exponential.people.invites_create", "args": {} } },
-        { "name": "drop_customer", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "upstream": "m5", "tool": "delete_customer", "args": {} } },
+        { "name": "drop_customer", "title": "A", "description": "A.", "input": { "type": "object" }, "access": "write", "run": { "upstream": "crm", "tool": "delete_customer", "args": {} } },
         { "name": "stop_run", "title": "A", "description": "A.", "input": { "type": "object", "properties": { "session": { "type": "string" } } }, "access": "write", "run": { "action": "exponential.sessions.send", "args": { "sessionId": "${input.session}", "stop": true } } }
       ],
       "expected": [
@@ -208,6 +208,6 @@
   "metaCases": [
     { "slug": "timesheet", "expose": { "name": "list_entries", "run": { "records": { "op": "list", "kind": "entry" } } }, "expected": { "at.exponential/app": "timesheet", "at.exponential/tool": "list_entries", "at.exponential/via": "records" } },
     { "slug": "timesheet", "expose": { "name": "log_comment", "run": { "action": "exponential.comments.create", "args": {} } }, "expected": { "at.exponential/app": "timesheet", "at.exponential/tool": "log_comment", "at.exponential/via": "action" } },
-    { "slug": "crm", "expose": { "name": "find_customer", "run": { "upstream": "m5", "tool": "search_customers" } }, "expected": { "at.exponential/app": "crm", "at.exponential/tool": "find_customer", "at.exponential/via": "upstream", "at.exponential/upstream": "m5" } }
+    { "slug": "crm", "expose": { "name": "find_customer", "run": { "upstream": "crm", "tool": "search_customers" } }, "expected": { "at.exponential/app": "crm", "at.exponential/tool": "find_customer", "at.exponential/via": "upstream", "at.exponential/upstream": "crm" } }
   ]
 }
