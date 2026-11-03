@@ -178,7 +178,7 @@ async function assertSealedCardForTree(tx: Tx, rootId: string, card: MessageCard
   const value = parseSealedValue((card as unknown as { sealed: string }).sealed)
   if (value.kind !== `sealed`) return
   const [root] = await tx.select({ sealEpoch: sessions.sealEpoch }).from(sessions).where(eq(sessions.id, rootId)).limit(1)
-  if (root?.sealEpoch == null) throw bad(`This chat has no key for sealed messages yet`)
+  if (root?.sealEpoch == null) throw bad(`This chat has no key for encrypted messages yet`)
   if (value.epoch > root.sealEpoch) throw bad(`The chat's key is at epoch ${root.sealEpoch}`)
 }
 
@@ -585,7 +585,7 @@ export async function postShowCard(args: {
   sealed?: SealedShowExtras
 }): Promise<{ messageId: string; replaced: boolean; uploads: CardUpload[]; next?: string }> {
   const sealedCard = isSealedCard(args.card)
-  if (!sealedCard && args.sealed) throw bad(`askText and listenerCopies go with a sealed card`)
+  if (!sealedCard && args.sealed) throw bad(`askText and listenerCopies go with an encrypted card (sealedCard)`)
   // #EXP-1439: in a member's Assistant conversation a surface is THE live
   // status card (`statusCardTarget`, edited in place across turns until the
   // member writes).

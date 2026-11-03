@@ -58,7 +58,7 @@ export function answeredCard(card: MessageCard | null, input: CardAnswerInput): 
   // EXP-1458: a sealed card takes only a sealed answer, a plaintext card
   // only a plaintext one: plaintext answers never land in a sealed card.
   if (isSealedCard(card)) return answeredSealedCard(card, input)
-  if (input.sealedCard) return bad(`This card is not sealed: answer it with answer/answers/decision`)
+  if (input.sealedCard) return bad(`This card is not end-to-end encrypted: answer it with answer/answers/decision`)
   const issue = answerIssue(card as AskCardLike, input)
   if (issue) return bad(PLAN_CARD_COPY.answerIssues[issue])
   const surfaceData = input.surfaceData ?? null
@@ -102,13 +102,13 @@ export function answeredCard(card: MessageCard | null, input: CardAnswerInput): 
  *  the clear part is checked (the server never opens `sealed`): a valid
  *  envelope of the same kind, a plan's decision. The stored clear fields
  *  stay unless the answer sets them; `answered: true` marks it. */
-export const SEALED_CARD_PLAIN_ANSWER_MESSAGE = `This card is sealed: answer it with sealedCard (the card re-sealed with the answers)`
+export const SEALED_CARD_PLAIN_ANSWER_MESSAGE = `This card is end-to-end encrypted: answer it with sealedCard (the card re-encrypted with the answers)`
 
 function answeredSealedCard(card: MessageCard, input: CardAnswerInput): CardAnswerResult {
   const sealed = input.sealedCard
   if (!sealed) return bad(SEALED_CARD_PLAIN_ANSWER_MESSAGE)
   if (input.answer !== undefined || input.answers !== undefined || input.feedback !== undefined || input.surfaceData !== undefined) {
-    return bad(`This card is sealed: its answers go inside sealedCard, never beside it`)
+    return bad(`This card is end-to-end encrypted: its answers go inside sealedCard`)
   }
   if (!validSealedCard(sealed)) return bad(`sealedCard must be {kind, sealed: "v1:<epoch>:<b64url>"} plus clear fields only`)
   if (sealed.kind !== card.kind) return bad(`sealedCard is a ${sealed.kind} card; this one is a ${card.kind}`)

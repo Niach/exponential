@@ -124,14 +124,14 @@ function assertSealedCopy(
   card: MessageCard,
   target: Pick<Session, `sealEpoch`>
 ): void {
-  if (!isSealedCard(card)) throw bad(`This card is not sealed: escalate it without sealedCard`)
+  if (!isSealedCard(card)) throw bad(`This card is not end-to-end encrypted: escalate it without sealedCard`)
   if (!validSealedCard(sealedCard)) {
     throw bad(`sealedCard must be {kind, sealed: "v1:<epoch>:<b64url>"} plus clear fields only`)
   }
   if (sealedCard.kind !== card.kind) throw bad(`sealedCard is a ${sealedCard.kind} card; this one is a ${card.kind}`)
   const value = parseSealedValue(sealedCard.sealed as string)
   if (value.kind !== `sealed`) return
-  if (target.sealEpoch == null) throw bad(`The agent's conversation has no key for sealed cards yet`)
+  if (target.sealEpoch == null) throw bad(`The agent's conversation has no key for encrypted cards yet`)
   if (value.epoch > target.sealEpoch) throw bad(`The agent's conversation's key is at epoch ${target.sealEpoch}`)
 }
 

@@ -2633,7 +2633,7 @@ export function registerExponentialTools(
         }
         for (const copy of copies ?? []) {
           if (!(copy.sealedReport.kind === `report` && validSealedCard(copy.sealedReport))) {
-            throw new Error(`copies[].sealedReport must be a sealed report card.`)
+            throw new Error(`copies[].sealedReport must be an encrypted report card.`)
           }
         }
         await endSession({
@@ -2751,7 +2751,7 @@ export function registerExponentialTools(
       },
       async ({ tasks, replies, sealed }) => {
         try {
-          if (sealed && (tasks || replies)) throw new Error(`A sealed call carries tasks and replies inside sealed.`)
+          if (sealed && (tasks || replies)) throw new Error(`An encrypted call carries tasks and replies inside sealed.`)
           if (!sealed && !tasks?.length && !replies?.length) throw new Error(`Pass tasks, replies or both`)
           const own = await loadCallerSession()
           if (!own) throw new Error(noSessionMessage(`exponential_sessions_suggest`))
@@ -2854,7 +2854,7 @@ export function registerExponentialTools(
           if (sealedCard !== undefined || kind !== undefined || askText !== undefined || listenerCopies !== undefined) {
             // EXP-1458: everything but replace/story lives inside sealedCard.
             if (surface || title || ask || plan || pictures || description) {
-              throw new Error(`A sealed card carries surface, ask, plan, pictures, title and description inside sealedCard.`)
+              throw new Error(`An encrypted card carries surface, ask, plan, pictures, title and description inside sealedCard.`)
             }
             const extras = sealedShowExtrasSchema.parse({ sealedCard, kind, askText, listenerCopies })
             const card = buildSealedShowCard(extras.sealedCard, extras.kind)
@@ -2976,7 +2976,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_escalate`,
     {
-      description: `Show a waiting question/plan card (messageId; its ask mirror works too) in the team agent's conversation that manages its thread, so a person answers it there. The same card: an answer either side answers both. From inside that thread or from the agent's conversation. Idempotent. sealedCard: the card sealed to the target tree (sessions.escalateTarget).`,
+      description: `Show a waiting question/plan card (messageId; its ask mirror works too) in the team agent's conversation that manages its thread, so a person answers it there. The same card: an answer either side answers both. From inside that thread or from the agent's conversation. Idempotent. sealedCard: the card encrypted to the target tree (sessions.escalateTarget).`,
       inputSchema: strictInput({
         messageId: uuidString,
         // EXP-1458: a sealed origin card's copy for the target tree.
