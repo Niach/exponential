@@ -3926,11 +3926,13 @@ final class DatabaseMigrationTests: XCTestCase {
              "triggers":[],"sort_order":0,"created_at":"x","updated_at":"x"}
             """.utf8)
         let row = try JSONDecoder().decode(AgentDefinitionEntity.self, from: wire)
+        // The entity carries every later column (v92 `skill_ids`, #EXP-1661):
+        // migrate to the head before saving the current shape of the row.
+        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
         try pool.write { db in try row.save(db) }
         let read = try pool.read { db in try AgentDefinitionEntity.fetchOne(db, key: "as-1") }
         XCTAssertEqual(read?.role, "assistant")
         XCTAssertEqual(read?.isAssistant, true)
-        XCTAssertNoThrow(try DatabaseManager.runMigrations(on: pool))
     }
 
     func testFileURLUsesV5Suffix() throws {
