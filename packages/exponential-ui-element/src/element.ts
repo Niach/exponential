@@ -34,6 +34,7 @@ type Density = NonNullable<ExponentialSurfaceProps[`density`]>
 type Contrast = NonNullable<ExponentialSurfaceProps[`contrast`]>
 type Mode = ModeName | `system`
 type Direction = `ltr` | `rtl`
+type FormFactor = `phone` | `wide`
 
 /** attribute → property. */
 const ATTRIBUTES = {
@@ -44,6 +45,7 @@ const ATTRIBUTES = {
   locale: `locale`,
   "time-zone": `timeZone`,
   direction: `direction`,
+  "form-factor": `formFactor`,
   width: `width`,
   height: `height`,
   "surface-id": `surfaceId`,
@@ -88,6 +90,8 @@ export class ExponentialSurfaceElement extends HTMLElement {
   #locale = createSignal<string | undefined>(undefined)
   #timeZone = createSignal<string | undefined>(undefined)
   #direction = createSignal<string | undefined>(undefined)
+  /** VAPP-218: the host's form factor (`phone` | `wide`). */
+  #formFactor = createSignal<string | undefined>(undefined)
   #width = createSignal<number | string | undefined>(undefined)
   #height = createSignal<number | string | undefined>(undefined)
   #surfaceId = createSignal<string | undefined>(undefined)
@@ -148,6 +152,8 @@ export class ExponentialSurfaceElement extends HTMLElement {
         return this.#timeZone as never
       case `direction`:
         return this.#direction as never
+      case `formFactor`:
+        return this.#formFactor as never
       case `width`:
         return this.#width as never
       case `height`:
@@ -232,6 +238,14 @@ export class ExponentialSurfaceElement extends HTMLElement {
   }
   set direction(v: Direction | undefined | null) {
     this.#setAttrProp(`direction`, v)
+  }
+  /** VAPP-218: what `@media (form-factor: …)` matches; unset = derived from
+   *  the surface width against the theme's `$breakpoint.md`. */
+  get formFactor(): FormFactor | undefined {
+    return pick(this.#formFactor[0](), [`phone`, `wide`] as const)
+  }
+  set formFactor(v: FormFactor | undefined | null) {
+    this.#setAttrProp(`formFactor`, v)
   }
   get width(): number | string | undefined {
     return this.#width[0]()
@@ -672,6 +686,9 @@ export class ExponentialSurfaceElement extends HTMLElement {
       },
       get direction() {
         return pick(el.#direction[0](), [`ltr`, `rtl`] as const)
+      },
+      get formFactor() {
+        return el.formFactor
       },
       get width() {
         return lengthOf(el.#width[0]())

@@ -13,6 +13,8 @@ public struct SurfaceSettings: Sendable, Equatable {
     public enum ModeSetting: String, Sendable, CaseIterable { case light, dark, system }
     public enum Density: String, Sendable, CaseIterable { case compact, `default`, comfortable }
     public enum Contrast: String, Sendable, CaseIterable { case normal, high, system }
+    /// VAPP-218: what `@media (form-factor: …)` matches.
+    public enum FormFactor: String, Sendable, CaseIterable { case phone, wide }
 
     /// BCP 47 (`en-US` default): week start, text direction, formatters.
     public var locale: String
@@ -42,8 +44,12 @@ public struct SurfaceSettings: Sendable, Equatable {
     /// VAPP-200: the viewer may read, not write (an app at app access
     /// `read`): every writing control paints disabled.
     public var readOnly: Bool
+    /// VAPP-218: the HOST's form factor (an editor preview's phone frame, a
+    /// phone); nil = derived from the surface width (`phone` below the
+    /// theme's `$breakpoint.md`).
+    public var formFactor: FormFactor?
 
-    public init(locale: String = "en-US", strings: [String: String] = [:], mode: ModeSetting = .system, density: Density = .default, contrast: Contrast = .system, fontScale: Double? = nil, insets: EdgeInsets? = nil, hover: Bool? = nil, reducedMotion: Bool? = nil, today: String? = nil, hoverCloseMs: Int = 150, timeZone: String? = nil, readOnly: Bool = false) {
+    public init(locale: String = "en-US", strings: [String: String] = [:], mode: ModeSetting = .system, density: Density = .default, contrast: Contrast = .system, fontScale: Double? = nil, insets: EdgeInsets? = nil, hover: Bool? = nil, reducedMotion: Bool? = nil, today: String? = nil, hoverCloseMs: Int = 150, timeZone: String? = nil, readOnly: Bool = false, formFactor: FormFactor? = nil) {
         self.locale = locale
         self.strings = strings
         self.mode = mode
@@ -57,6 +63,7 @@ public struct SurfaceSettings: Sendable, Equatable {
         self.hoverCloseMs = hoverCloseMs
         self.timeZone = timeZone
         self.readOnly = readOnly
+        self.formFactor = formFactor
     }
 }
 
@@ -136,7 +143,8 @@ extension SurfaceSettings {
             today: today ?? localToday(),
             hoverCloseMs: UInt32(max(0, hoverCloseMs)),
             timeZone: timeZone ?? TimeZone.current.identifier,
-            readOnly: readOnly
+            readOnly: readOnly,
+            formFactor: formFactor?.rawValue
         )
     }
 }

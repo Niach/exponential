@@ -20,6 +20,7 @@ import { HostRouter } from "./router"
 import { parseSource, sourceWithParams } from "./sources"
 import { A2UI_VERSION } from "../catalog"
 import { RECORDS_BATCH_FUNCTION, actionCallName, runAction } from "./actions"
+import { NAVIGATE_FUNCTION, navigateTarget } from "./screens"
 import type { ActionPlan } from "./actions"
 import type { SourceResolvers } from "./sources"
 
@@ -73,6 +74,11 @@ export interface HostOptions {
   /** VAPP-194: a package action that landed nothing (a false require's
    *  message, a refused write): a failed action, so the host's toast. */
   onActionFailed?: (failure: { surfaceId: string; action: string; message: string }) => void
+  /** VAPP-218 (U1): open one of the surface's package screens (`navigate`,
+   *  a press or an action's call step, checked by `navigateTarget`). The
+   *  host's shell opens it (a deep link's same pair); unset = no shell, so
+   *  a navigate is refused. True when it navigated. */
+  navigate?: (target: { surfaceId: string; packageId: string; screen: string; params: Record<string, string> }) => boolean | void
   /** Every problem the host meets (a package that failed validation, an
    *  error it answered a message with, an invalid surface theme). A
    *  transport-less host has no server to tell: this is where they land. */
@@ -468,6 +474,7 @@ export class ExponentialHost {
       return { decision: this.openUrl(url) ? `allow` : `deny` }
     }
     if (call.name === `bind`) return { decision: this.bind(call.surfaceId, call.args) ? `allow` : `deny` }
+    if (call.name === NAVIGATE_FUNCTION) return this.navigate(call)
     const action = actionCallName(call.name)
     if (action !== null) return this.runPackageAction(call, action)
     const gate = await this.gate(call)
@@ -478,6 +485,8 @@ export class ExponentialHost {
   /** The policy gate and the consent hook: `allow`, or the refusal (sent
    *  as FUNCTION_NOT_FOUND / FUNCTION_DENIED). */
   private async gate(call: FunctionCallInfo): Promise<FunctionOutcome> {
+    // VAPP-218: navigate is always allowed (checked when it runs).
+    if (call.name === NAVIGATE_FUNCTION) return { decision: `allow` }
     let decision = this.decide(call.surfaceId, call.name)
     if (decision === `not_found`) {
       this.send(errorMessage(`FUNCTION_NOT_FOUND`, call.surfaceId, `no function ${call.name}`))
@@ -503,6 +512,7 @@ export class ExponentialHost {
   }
 
   private async run(call: FunctionCallInfo): Promise<FunctionOutcome> {
+    if (call.name === NAVIGATE_FUNCTION) return this.navigate(call)
     const fn = Object.prototype.hasOwnProperty.call(this.functions, call.name) ? this.functions[call.name] : undefined
     if (!fn) return { decision: `allow` }
     try {
@@ -559,6 +569,22 @@ export class ExponentialHost {
       if (outcome.error !== undefined) return { decision: `allow`, result: committed, error: outcome.error }
     }
     return { decision: `allow`, result: committed }
+  }
+
+  /** VAPP-218: `navigate {screen, params?}` → the host's shell, when the
+   *  surface's package has that screen. A refusal = FUNCTION_DENIED. */
+  navigate(call: FunctionCallInfo): FunctionOutcome {
+    const store = this.stores.get(call.surfaceId)
+    const pkg = store?.packageId ? this.router.package(store.packageId) : undefined
+    const target = pkg ? navigateTarget(pkg, call.args) : { error: `navigate: the surface has no package` }
+    const refuse = (message: string): FunctionOutcome => {
+      this.send(errorMessage(`FUNCTION_DENIED`, call.surfaceId, message))
+      return { decision: `deny`, error: message }
+    }
+    if (`error` in target) return refuse(target.error)
+    if (!this.options.navigate) return refuse(`navigate: this host has no screens`)
+    const ok = this.options.navigate({ surfaceId: call.surfaceId, packageId: pkg!.id, screen: target.screen, params: target.params })
+    return ok === false ? refuse(`navigate: ${target.screen} was not opened`) : { decision: `allow` }
   }
 
   /** VAPP-122: the `bind` action: re-follow `path` from `source` with

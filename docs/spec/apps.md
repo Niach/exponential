@@ -164,7 +164,7 @@ Needs: C2, C13.
 | C5 | Group-by on any field, avg/min/max/count, text search | ✅ group-by + aggregates; 🟡 text `search` open | #VAPP-190 |
 | C6 | Running sums and totals before a date | ✅ | #VAPP-190 |
 | C7 | mul/div/round, date maths (add, diff, startOf, weekday) | ✅ CEL subset, type-checked | #VAPP-191 |
-| C8 | Several screens per app with navigation and deep links | ❌ (the preview paints only the first template) | 🆕 U1 |
+| C8 | Several screens per app with navigation and deep links | ✅ U1 (#VAPP-218) | U1 |
 | C9 | Forms and tables generated from a kind's schema | 🟡 the Data tab does it in Exponential's own UI (#VAPP-178); nothing in eUI | 🆕 U2 |
 | C10 | Field state machine (allowed transitions) | ✅ R6 (#VAPP-222) | R6 |
 | C11 | Computed fields on a kind | ❌ | 🆕 Q3 |
@@ -184,7 +184,7 @@ Needs: C2, C13.
 | C24 | Offline outbox for record writes | ✅ desktop, iOS, Android (#VAPP-235) | ✅ O1 |
 | C25 | `eapps` crate (host, query, store, broker executor) | 🟡 the query + `RecordStore` live in eUI (S1 ✅ #VAPP-189); the crate itself is open (#EXP-1420) | S2 |
 | C26 | Widget templates + slots (eDE, home screen) | ❌ | #VAPP-64, NEW-107 |
-| C27 | Form-factor / responsive templates | 🟡 `@media` conditions, `Sidebar.collapseBelow` | 🆕 U1 |
+| C27 | Form-factor / responsive templates | ✅ `@media (form-factor: …)` (U1), `@media` sizes, `Sidebar.collapseBelow` | U1 |
 | C28 | Template gallery | ✅ #VAPP-234: `samples/apps/*.app.json`, signed by the pinned Exponential key; "Start from a template" in the import dialog and a draft's starters (`fixtures/app-templates.json`) | Leave, On-call |
 | C29 | Calendar / timeline view | ❌ (no component) | 🆕 U3 (styleguide first) |
 | C30 | Marketplace (signed static catalog) | ❌ | #YO-18 |
@@ -217,7 +217,7 @@ Caps (✅ `contract.json` `apps`): package ≤ 128 KB, ≤ 500 components per te
 
 | Key | Purpose | §  |
 |---|---|---|
-| `screens` | The navigation manifest: `[{template, title, icon, params?}]`, painted as a sidebar on desktop and a bottom bar on phones | 5.1 |
+| `screens` | ✅ U1 (#VAPP-218): the navigation manifest `[{template, title, icon?, params?}]` (≤ 5), painted by the host as a sidebar on wide frames and the phone bottom bar on phones | 5.1 |
 | `records.<kind>.policy` | ✅ R3 (#VAPP-199): read/create/update/delete per kind: `member` · `author` · `owners` (`role:<field>` waits for R6 transitions) | 3.4 |
 | `records.<kind>.refs` | Relations: `{field: {kind}}`, `{field: "issue"}`, `{field: "member"}` | 3.3 |
 | `records.<kind>.computed` | ✅ Q3 (#VAPP-214): expressions evaluated on read | 4.4 |
@@ -443,13 +443,14 @@ One language at two levels, on the Q2 core:
 
 ## 5. UI
 
-### 5.1 Screens and navigation (🆕 U1)
+### 5.1 Screens and navigation (✅ U1, #VAPP-218)
 
-- `screens` lists the templates a person can open. The host draws the shell from it: an eUI `Sidebar` (✅ component) on desktop and web ≥ md, and a bottom `Segmented variant="bar"` (✅) on phones.
+- `screens` lists the templates a person can open (1..5, keyed by the template; `title`, an eUI `icon`, default `params`). The host draws the shell from it with Exponential's EXISTING navigation: the sidebar row pattern on wide frames (desktop, web ≥ md, the preview's Desktop frame) and the phone bottom tab bar on phones (and the preview's Phone frame). No new component.
 - **The app draws no chrome of its own** for this, so every app navigates the same way.
-- A new host action `navigate {template, params}` and the route `/t/$team/apps/$slug/$template?…` give deep links that work ×4.
-- `params` become `/params/*` in the template data, and bindings interpolate them (`${params.month}`).
-- The editor preview gets a screen picker (#VAPP-179 in review: template picker + Desktop/Phone width).
+- The host function `app.navigate {screen, params?}` (a press, or an action's `call` step after its writes; always allowed) and the route `/t/$team/apps/$slug/$screen?…` give deep links that work ×4 (natives: the same path as an app link).
+- `params` become `/params/*` in the template data, and a binding source's `${params.month}` is filled (percent-encoded) when the screen opens.
+- Install refuses an unknown template, a duplicate, a sixth screen, a bad icon, a non-string param and a literal navigate target that is no screen.
+- ✅ Built as `src/host/screens.ts` (`validatePackageScreens`, `resolveScreen`, `navigateTarget`, `fillScreenParams`) + Rust `eui_core::host::screens` (FFI `resolve_screen_json`, `navigate_target_json`; SDKs `Screens`, `HostOptions.navigate` ×4), fixture `fixtures/host-router.json` (`screens`, `navigate`, `acme.badscreens`), the host contract `catalog/host.json` `package.screens`. The editor preview paints the screens in its frame (apps.json `screensCases`); with screens it replaces the template picker.
 
 ### 5.2 Templates and components
 
@@ -470,7 +471,7 @@ One language at two levels, on the Q2 core:
 ### 5.3 Responsive
 
 - ✅ Style `@media` conditions with breakpoint tokens, responsive props (`columns: {base: 2, md: 4}`), `Sidebar.collapseBelow`.
-- 🆕 U1 adds a `formFactor: phone | tablet | desktop | widget` style condition and an optional `screens[].phone` template override. Use it only when a layout truly differs (the time tracker's phone screen is a list of days, not a table).
+- ✅ U1 adds the `@media (form-factor: phone | wide)` style condition: the host's form factor (the preview frame, a phone), unset = the surface width against `$breakpoint.md`. Use it only when a layout truly differs (the time tracker's phone screen is a list of days, not a table). `tablet` / `widget` and a `screens[].phone` template override wait for a need.
 
 The two Hours mocks above are the same package. The phone picks the `month.phone` override: Rows per day and one wide primary button.
 
@@ -860,7 +861,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 **Phase 3: Multi-screen apps** (unblocks CRM, hiring, approvals)
 
-- **U1** `screens` + `navigate` + deep links + phone bar + the `formFactor` condition. (C8, C27)
+- ✅ **U1** (#VAPP-218) `screens` + `navigate` + deep links + phone bar + the `formFactor` condition. (C8, C27)
 - **U2** `RecordForm` and `RecordTable` macros: styleguide entry ×5 sites, eUI catalog, prompt budget trimmed to fit. (C9)
 - **R5** Refs + `expand` (✅ #VAPP-219). **R6** Transitions (✅ #VAPP-222). **R7** ✅ #VAPP-221 Files on records. (C3, C10, C20)
 - **V1** ✅ #VAPP-210 / #VAPP-211 Draft vs published (`published_version`, Publish, tools and automations on published). (§2.3)

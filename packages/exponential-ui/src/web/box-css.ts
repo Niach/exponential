@@ -6,7 +6,8 @@
 //      `width >= N`, `max-width` = `width < N`, `$breakpoint.*` resolved from
 //      the theme), height and orientation as attribute-gated rules the
 //      surface sets from its measured box (`data-xq`, a container query
-//      cannot ask an inline-size container for its height), `hover` and
+//      cannot ask an inline-size container for its height), `form-factor`
+//      the same way (VAPP-218: the host's, else derived from the width), `hover` and
 //      `prefers-reduced-motion` as real media queries;
 //   3. the state blocks `:hover`, `:focus-visible`, `:pressed`.
 // A style value the macro expander left DYNAMIC (a binding or a call, e.g.
@@ -63,7 +64,7 @@ export function dynamicStyleEntries(style: Record<string, unknown> | undefined):
   return out
 }
 
-/** A JS-evaluated condition (height / orientation): its `data-xq` token. */
+/** A JS-evaluated condition (height / orientation / form-factor): its `data-xq` token. */
 export function queryToken(key: string): string {
   return cssEscape(key.replace(/^@media \(|\)$/g, ``).replace(/: /, `-`))
 }
@@ -71,7 +72,7 @@ export function queryToken(key: string): string {
 export interface NodeSheet {
   css: string
   /** The resolved condition keys the surface must evaluate itself and list
-   *  in `data-xq` when they hold (height, orientation). */
+   *  in `data-xq` when they hold (height, orientation, form-factor). */
   queries: string[]
   /** VAPP-152: each styled node's rules by id, in walk order (`css` is
    *  their concatenation inside the `xui-node` layer). VAPP-163: a node
@@ -85,7 +86,7 @@ export interface NodeSheet {
 export function resolvedMediaKey(key: string, theme: ResolvedTheme | undefined): string | null {
   const condition = parseMediaCondition(key)
   if (!condition) return null
-  if (condition.feature === `orientation` || condition.feature === `hover` || condition.feature === `prefers-reduced-motion`) return key
+  if (condition.feature === `orientation` || condition.feature === `form-factor` || condition.feature === `hover` || condition.feature === `prefers-reduced-motion`) return key
   const px = breakpointPx(condition.value, theme)
   return px === null ? null : `@media (${condition.feature}: ${px}px)`
 }
@@ -227,6 +228,7 @@ function styleRules(
         break
       }
       case `orientation`:
+      case `form-factor`:
         queries.add(key)
         const q = `${scope}:where([data-xq~="${queryToken(key)}"]) .${cls}`
         rules.push(rule(q, block) + band(q))

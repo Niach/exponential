@@ -53,6 +53,8 @@ import {
   transitionRefusal,
   transitionsFrom,
   validateRecordTransitions,
+  resolveScreen,
+  navigateTarget,
 } from "../src/host"
 import { dateBucket, type DateBucket } from "../src/dates"
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, MediaOptions, UrlPolicy, AppPackage, AvailableExtension, PackageTool, RecordOwnership, RecordRefTarget, RecordRow, RecordTransitions, TransitionViewer } from "../src/host"
@@ -102,6 +104,9 @@ export function renderHost(): Record<string, string> {
   router.records = router.records.map((c: Case) => ({ ...c, expected: validateRecord(packages[c.package as string]!.records![c.kind as string]!.schema, c.data) }))
   // VAPP-221: the ids a record's attachment fields reference.
   router.attachments = router.attachments.map((c: Case) => ({ ...c, expected: recordAttachmentIds(packages[c.package as string]!.records![c.kind as string]!.schema, c.data) }))
+  // VAPP-218: the screens a host opens and the navigate targets.
+  router.screens = router.screens.map((c: Case) => ({ ...c, expected: resolveScreen(packages[c.package as string]!, c.screen as string | null, c.params as Record<string, unknown> | null) }))
+  router.navigate = router.navigate.map((c: Case) => ({ ...c, expected: navigateTarget(packages[c.package as string]!, c.args) }))
   router.flows = router.flows.map((flow: Case & { steps: { message?: unknown }[] | unknown[] }) => {
     const r = new HostRouter({ extensionIds: (flow.extensionIds as string[]) ?? [] })
     const installIssues: Record<string, unknown> = {}

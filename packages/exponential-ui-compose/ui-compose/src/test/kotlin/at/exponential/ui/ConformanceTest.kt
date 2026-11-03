@@ -41,6 +41,8 @@ import at.exponential.ui.ffi.supportedCatalogIdsFor
 import at.exponential.ui.ffi.themeIssuesJson
 import at.exponential.ui.ffi.sourceWithParamsJson
 import at.exponential.ui.ffi.validatePackageJson
+import at.exponential.ui.ffi.resolveScreenJson
+import at.exponential.ui.ffi.navigateTargetJson
 import at.exponential.ui.ffi.validateRecordJson
 import at.exponential.ui.host.HostPlugin
 import at.exponential.ui.json.JsonValue
@@ -547,6 +549,15 @@ class ConformanceTest {
         for (c in list(f, "records")) {
             val schema = packages[s(c, "package")]!!["records"]!![s(c, "kind")]!!["schema"]!!
             out.add(case("records: ${s(c, "name")}") { same(validateRecordJson(schema.json, c["data"]!!.json), c["expected"]!!) })
+        }
+        // VAPP-218: the screens a host opens, the navigate targets.
+        for (c in list(f, "screens")) {
+            val pkg = packages[s(c, "package")]!!
+            out.add(case("screens: ${s(c, "name")}") { same(resolveScreenJson(pkg.json, c["screen"]?.string, c["params"]?.json), c["expected"]!!) })
+        }
+        for (c in list(f, "navigate")) {
+            val pkg = packages[s(c, "package")]!!
+            out.add(case("navigate: ${s(c, "name")}") { same(navigateTargetJson(pkg.json, c["args"]!!.json), c["expected"]!!) })
         }
         for (flow in list(f, "flows")) {
             out.add(

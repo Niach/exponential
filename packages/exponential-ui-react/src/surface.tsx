@@ -30,7 +30,7 @@ import {
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
 } from "@exponential_app/eui"
-import type { Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential_app/eui"
+import type { FormFactor, Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential_app/eui"
 import { BASE_CSS } from "@exponential_app/eui/web"
 import { compileNodeSheet, nodeSheetBatches, queryToken, share, surfaceClass, type NodeSheetBatch } from "@exponential_app/eui/web"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
@@ -112,6 +112,10 @@ export interface ExponentialSurfaceProps {
    *  not feed back into its own measurement). The gpui host passes 0 (=
    *  unknown) today, so the default keeps web and desktop identical. */
   viewportHeight?: number
+  /** VAPP-218: the HOST's form factor, what `@media (form-factor: …)`
+   *  matches (an editor preview's phone frame, a phone). Default: derived
+   *  from the surface width (`phone` below the theme's `$breakpoint.md`). */
+  formFactor?: FormFactor
   /** An explicit id (defaults to React's `useId`); must be unique per page. */
   id?: string
   /** Host → surface commands (focus, announce, scrollIntoView). */
@@ -193,6 +197,8 @@ export interface LayoutInputs {
   breakpoints: Record<string, number>
   queries: readonly string[]
   viewportHeight: number | undefined
+  /** Unset = derived from the width against `breakpoints.md`. */
+  formFactor?: FormFactor
   hover: boolean
   reducedMotion: boolean
 }
@@ -203,7 +209,7 @@ export interface LayoutInputs {
 export function surfaceLayout(box: SurfaceBox, inputs: LayoutInputs): { breakpoint: string | null; xq: string } {
   const breakpoint = activeBreakpoint(box.width, inputs.breakpoints)
   const height = inputs.viewportHeight ?? box.height
-  const ctx = { width: box.width, height, hover: inputs.hover, reducedMotion: inputs.reducedMotion }
+  const ctx = { width: box.width, height, hover: inputs.hover, reducedMotion: inputs.reducedMotion, breakpoints: inputs.breakpoints, formFactor: inputs.formFactor }
   const xq = inputs.queries
     .filter((key) => {
       const c = parseMediaCondition(key)
@@ -356,6 +362,7 @@ export function ExponentialSurface({
   direction: directionProp,
   width,
   viewportHeight,
+  formFactor,
   id: idProp,
   handleRef,
   className,
@@ -453,7 +460,7 @@ export function ExponentialSurface({
   // pokes React when the derived layout (breakpoint + data-xq) changes, so
   // dragging a window edge does not re-render the tree 60 times a second.
   const box = useRef<SurfaceBox>({ width: typeof width === `number` ? width : 0, height: undefined, measured: false })
-  const layoutInputs: LayoutInputs = { breakpoints: theme.tokens.breakpoint ?? {}, queries: sheet.queries, viewportHeight, hover, reducedMotion }
+  const layoutInputs: LayoutInputs = { breakpoints: theme.tokens.breakpoint ?? {}, queries: sheet.queries, viewportHeight, formFactor, hover, reducedMotion }
   const { breakpoint, xq } = surfaceLayout(box.current, layoutInputs)
   const inputsRef = useRef(layoutInputs)
   inputsRef.current = layoutInputs

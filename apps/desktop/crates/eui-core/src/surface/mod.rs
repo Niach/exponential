@@ -365,6 +365,10 @@ pub struct SurfaceSettings {
     /// `read`): every writing control builds as `disabled: true`
     /// ([`crate::read_only`], `fixtures/read-only.json`).
     pub read_only: bool,
+    /// VAPP-218: the HOST's form factor, what `@media (form-factor: …)`
+    /// matches (an editor preview's phone frame, a phone). `None` (default)
+    /// = derived from the surface width against the theme's `$breakpoint.md`.
+    pub form_factor: Option<crate::conditions::FormFactor>,
 }
 
 impl Default for SurfaceSettings {
@@ -384,6 +388,7 @@ impl Default for SurfaceSettings {
             today: None,
             hover_close_ms: 0,
             read_only: false,
+            form_factor: None,
         }
     }
 }
@@ -793,7 +798,7 @@ impl Surface {
             self.mode = mode;
             self.restyle_all = true;
         }
-        if (old.font_scale - s.font_scale).abs() > f32::EPSILON || old.hover != s.hover || old.reduced_motion != s.reduced_motion {
+        if (old.font_scale - s.font_scale).abs() > f32::EPSILON || old.hover != s.hover || old.reduced_motion != s.reduced_motion || old.form_factor != s.form_factor {
             self.restyle_all = true;
         }
         if old.insets != s.insets {
@@ -851,6 +856,13 @@ impl Surface {
     pub fn set_insets(&mut self, insets: Insets) {
         let mut s = self.settings.clone();
         s.insets = insets;
+        self.set_settings(s);
+    }
+
+    /// VAPP-218: the host's form factor (`None` = derived from the width).
+    pub fn set_form_factor(&mut self, form_factor: Option<crate::conditions::FormFactor>) {
+        let mut s = self.settings.clone();
+        s.form_factor = form_factor;
         self.set_settings(s);
     }
 

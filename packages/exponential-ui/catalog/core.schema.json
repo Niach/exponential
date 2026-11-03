@@ -21073,7 +21073,7 @@
         }
       },
       "patternProperties": {
-        "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\$breakpoint\\.[a-zA-Z0-9]+)\\)$|^@media \\(orientation: (portrait|landscape)\\)$|^@media \\(hover: (hover|none)\\)$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)$": {
+        "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\$breakpoint\\.[a-zA-Z0-9]+)\\)$|^@media \\(orientation: (portrait|landscape)\\)$|^@media \\(hover: (hover|none)\\)$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)$|^@media \\(form-factor: (phone|wide)\\)$": {
           "type": "object",
           "properties": {
             "display": {

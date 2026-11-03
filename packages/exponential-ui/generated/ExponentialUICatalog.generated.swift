@@ -11,7 +11,7 @@ public enum ExponentialUICatalog {
     public static let catalogVersion: String = "1"
     public static let unknownComponent: String = "Unknown"
     public static let basicPlaceholderIcon: String = "ui-icon-placeholder"
-    public static let styleMediaPattern: String = "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\$breakpoint\\.[a-zA-Z0-9]+)\\)$|^@media \\(orientation: (portrait|landscape)\\)$|^@media \\(hover: (hover|none)\\)$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)$"
+    public static let styleMediaPattern: String = "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\$breakpoint\\.[a-zA-Z0-9]+)\\)$|^@media \\(orientation: (portrait|landscape)\\)$|^@media \\(hover: (hover|none)\\)$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)$|^@media \\(form-factor: (phone|wide)\\)$"
     public static let styleTransformPattern: String = "^((translate\\(-?\\d+(\\.\\d+)?px, -?\\d+(\\.\\d+)?px\\)|scale\\(-?\\d+(\\.\\d+)?\\)|rotate\\(-?\\d+(\\.\\d+)?deg\\))( (?=\\S)|$))+$"
     public static let defaultLocale: String = "en-US"
     public static let weekStartDefault: String = "1"

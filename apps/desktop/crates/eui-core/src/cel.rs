@@ -49,7 +49,7 @@ impl FunctionEffect {
 /// The functions that write (records, the surface data model).
 pub const WRITE_FUNCTIONS: &[&str] = &["set", "records.upsert", "records.delete", "records.batch"];
 /// The built-in host functions; every name under a host prefix is one too.
-pub const HOST_FUNCTIONS: &[&str] = &["openUrl", "bind"];
+pub const HOST_FUNCTIONS: &[&str] = &["openUrl", "bind", "app.navigate"];
 pub const HOST_FUNCTION_PREFIXES: &[&str] = &["actions.", "harness.", "exponential.", "tools.", "upstream."];
 
 /// The effect of a function by name: the signature table's (every

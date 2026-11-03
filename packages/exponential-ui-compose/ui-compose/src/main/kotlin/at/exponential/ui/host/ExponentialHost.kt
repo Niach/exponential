@@ -81,6 +81,8 @@ data class HostOptions(
     val zone: HostZone? = null,
     /** VAPP-194: a package action that landed nothing (a false `require`'s message, a refused write or host call): the host's failed-action toast. */
     val onActionFailed: ((ActionFailure) -> Unit)? = null,
+    /** VAPP-218 (U1): open one of the surface's package screens (`app.navigate`, checked by [Screens.target]); the host's shell opens it. Null = no shell, so a navigate is refused. True when it navigated. */
+    val navigate: ((NavigateTarget) -> Boolean)? = null,
 )
 
 /** The A2UI protocol version the host's own messages carry (the catalog's). */
@@ -387,14 +389,30 @@ class ExponentialHost(
             return FunctionOutcome(if (openUrl(url)) FunctionDecision.Allow else FunctionDecision.Deny)
         }
         if (call.name == "bind") return FunctionOutcome(if (bind(call.surfaceId, call.args)) FunctionDecision.Allow else FunctionDecision.Deny)
+        if (call.name == Screens.NAVIGATE_FUNCTION) return navigate(call)
         Actions.actionName(call.name)?.let { return runPackageAction(call, it) }
         val verdict = gate(call)
         if (verdict.decision != FunctionDecision.Allow) return verdict
         return run(call)
     }
 
+    /** VAPP-218: `app.navigate {screen, params?}` → the host's shell, when the surface's package has that screen. A refusal = FUNCTION_DENIED. */
+    fun navigate(call: FunctionCallInfo): FunctionOutcome {
+        fun refuse(message: String): FunctionOutcome {
+            sendError("FUNCTION_DENIED", call.surfaceId, message)
+            return FunctionOutcome(FunctionDecision.Deny, error = message)
+        }
+        val pkgId = packageOf[call.surfaceId] ?: return refuse("navigate: the surface has no package")
+        val pkg = packages[pkgId] ?: return refuse("navigate: the surface has no package")
+        val (screen, params) = Screens.target(pkg, call.args).getOrElse { return refuse(it.message ?: "navigate takes {screen, params?}") }
+        val open = options.navigate ?: return refuse("navigate: this host has no screens")
+        return if (open(NavigateTarget(call.surfaceId, pkgId, screen, params))) FunctionOutcome(FunctionDecision.Allow) else refuse("navigate: $screen was not opened")
+    }
+
     /** The policy gate and the consent hook: `Allow`, or the refusal (sent as FUNCTION_NOT_FOUND / FUNCTION_DENIED). */
     private suspend fun gate(call: FunctionCallInfo): FunctionOutcome {
+        // VAPP-218: app.navigate is always allowed (checked when it runs).
+        if (call.name == Screens.NAVIGATE_FUNCTION) return FunctionOutcome(FunctionDecision.Allow)
         var decision = decide(call.surfaceId, call.name)
         if (decision == FunctionDecision.NotFound) {
             sendError("FUNCTION_NOT_FOUND", call.surfaceId, "no function ${call.name}")
@@ -416,6 +434,7 @@ class ExponentialHost(
     }
 
     private suspend fun run(call: FunctionCallInfo): FunctionOutcome {
+        if (call.name == Screens.NAVIGATE_FUNCTION) return navigate(call)
         val fn = functions[call.name] ?: return FunctionOutcome(FunctionDecision.Allow)
         return try {
             FunctionOutcome(FunctionDecision.Allow, result = fn(call.args, call))

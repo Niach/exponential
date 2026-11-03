@@ -376,10 +376,28 @@ export interface ConditionContext {
   states?: readonly string[]
   /** `$breakpoint.<name>` → px; a block naming an unknown token never matches. */
   breakpoints?: Record<string, number>
+  /** VAPP-218: the HOST's form factor (an editor preview's phone frame, a
+   *  phone); unset = derived from the width (`formFactorOf`). */
+  formFactor?: FormFactor
+}
+
+/** VAPP-218: what `@media (form-factor: …)` matches. */
+export type FormFactor = `phone` | `wide`
+
+/** The `md` breakpoint `formFactorOf` falls back to when the context's
+ *  breakpoints have none (the built-in themes' value). */
+export const DEFAULT_FORM_FACTOR_BREAKPOINT = 768
+
+/** The context's form factor: the host's when set, else `phone` when the
+ *  SURFACE width < the theme's `$breakpoint.md` (768 by default), else `wide`. */
+export function formFactorOf(ctx: Pick<ConditionContext, `width` | `breakpoints` | `formFactor`>): FormFactor {
+  if (ctx.formFactor === `phone` || ctx.formFactor === `wide`) return ctx.formFactor
+  const md = ctx.breakpoints?.md
+  return ctx.width < (typeof md === `number` ? md : DEFAULT_FORM_FACTOR_BREAKPOINT) ? `phone` : `wide`
 }
 
 export interface MediaCondition {
-  feature: `min-width` | `max-width` | `min-height` | `max-height` | `orientation` | `hover` | `prefers-reduced-motion`
+  feature: `min-width` | `max-width` | `min-height` | `max-height` | `orientation` | `hover` | `prefers-reduced-motion` | `form-factor`
   /** The px value or the `$breakpoint.<name>` token for the size features;
    *  the keyword for the others. */
   value: string
@@ -409,7 +427,7 @@ function sizeValue(value: string, ctx: ConditionContext): number | null {
 
 /** Does a media condition hold for the context? `min-*` = size >= N,
  *  `max-*` = size < N, orientation portrait = height >= width (landscape
- *  when the height is unknown). */
+ *  when the height is unknown), form-factor = `formFactorOf(ctx)`. */
 export function mediaMatches(condition: MediaCondition, ctx: ConditionContext): boolean {
   switch (condition.feature) {
     case `min-width`:
@@ -430,6 +448,8 @@ export function mediaMatches(condition: MediaCondition, ctx: ConditionContext): 
       return condition.value === (ctx.hover ? `hover` : `none`)
     case `prefers-reduced-motion`:
       return condition.value === (ctx.reducedMotion ? `reduce` : `no-preference`)
+    case `form-factor`:
+      return condition.value === formFactorOf(ctx)
   }
 }
 

@@ -38,6 +38,10 @@ public struct HostOptions {
     /// VAPP-194: a package action that landed nothing (a false `require`'s
     /// message, a refused write or host call): the host's failed-action toast.
     public var onActionFailed: ((ActionFailure) -> Void)?
+    /// VAPP-218 (U1): open one of the surface's package screens
+    /// (`app.navigate`, checked by `Screens.target`); the host's shell opens
+    /// it. Nil = no shell, so a navigate is refused. True when it navigated.
+    public var navigate: ((NavigateTarget) -> Bool)?
 
     public init(
         transport: Transport? = nil,
@@ -55,7 +59,8 @@ public struct HostOptions {
         me: String? = nil,
         now: (() -> Date)? = nil,
         zone: HostZone? = nil,
-        onActionFailed: ((ActionFailure) -> Void)? = nil
+        onActionFailed: ((ActionFailure) -> Void)? = nil,
+        navigate: ((NavigateTarget) -> Bool)? = nil
     ) {
         self.transport = transport
         self.functions = functions
@@ -73,6 +78,7 @@ public struct HostOptions {
         self.now = now
         self.zone = zone
         self.onActionFailed = onActionFailed
+        self.navigate = navigate
     }
 }
 
@@ -330,6 +336,7 @@ public final class ExponentialHost {
         if call.name == "bind" {
             return FunctionOutcome(decision: bind(surfaceId: call.surfaceId, args: call.args) ? .allow : .deny)
         }
+        if call.name == Screens.navigateFunction { return navigate(call) }
         if let action = Actions.actionName(call: call.name) { return await runPackageAction(call, action: action) }
         let verdict = await gate(call)
         if verdict.decision != .allow { return verdict }
@@ -339,6 +346,8 @@ public final class ExponentialHost {
     /// The policy gate and the consent hook: `.allow`, or the refusal (sent
     /// as FUNCTION_NOT_FOUND / FUNCTION_DENIED).
     private func gate(_ call: FunctionCallInfo) async -> FunctionOutcome {
+        // VAPP-218: app.navigate is always allowed (checked when it runs).
+        if call.name == Screens.navigateFunction { return FunctionOutcome(decision: .allow) }
         var decision = decide(surfaceId: call.surfaceId, name: call.name)
         if decision == .notFound {
             send(errorMessageJson(code: "FUNCTION_NOT_FOUND", surfaceId: call.surfaceId, message: "no function \(call.name)", path: nil))
@@ -356,6 +365,7 @@ public final class ExponentialHost {
     }
 
     private func run(_ call: FunctionCallInfo) async -> FunctionOutcome {
+        if call.name == Screens.navigateFunction { return navigate(call) }
         guard let fn = functions[call.name] else { return FunctionOutcome(decision: .allow) }
         do {
             return FunctionOutcome(decision: .allow, result: try await fn(call.args, call))
@@ -409,6 +419,26 @@ public final class ExponentialHost {
             if let error = outcome.error { return FunctionOutcome(decision: .allow, result: committed, error: error) }
         }
         return FunctionOutcome(decision: .allow, result: committed)
+    }
+
+    /// VAPP-218: `app.navigate {screen, params?}` → the host's shell, when
+    /// the surface's package has that screen. A refusal = FUNCTION_DENIED.
+    @discardableResult
+    public func navigate(_ call: FunctionCallInfo) -> FunctionOutcome {
+        func refuse(_ message: String) -> FunctionOutcome {
+            send(errorMessageJson(code: "FUNCTION_DENIED", surfaceId: call.surfaceId, message: message, path: nil))
+            return FunctionOutcome(decision: .deny, error: message)
+        }
+        guard let pkgId = router.packageIdOf(surfaceId: call.surfaceId), let pkg = packages[pkgId] else {
+            return refuse("navigate: the surface has no package")
+        }
+        switch Screens.target(pkg, args: call.args) {
+        case let .failure(refusal): return refuse(refusal.message)
+        case let .success(target):
+            guard let open = options.navigate else { return refuse("navigate: this host has no screens") }
+            let ok = open(NavigateTarget(surfaceId: call.surfaceId, packageId: pkgId, screen: target.screen, params: target.params))
+            return ok ? FunctionOutcome(decision: .allow) : refuse("navigate: \(target.screen) was not opened")
+        }
     }
 
     /// VAPP-122: the `bind` action: re-follow `path` from `source` with

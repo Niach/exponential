@@ -105,6 +105,12 @@ pub fn host_contract() -> Value {
                 "callPrefix": act::ACTION_CALL_PREFIX,
                 "batchFunction": act::RECORDS_BATCH_FUNCTION,
             },
+            "screens": {
+                "max": super::screens::MAX_SCREENS,
+                "titleMax": super::screens::MAX_SCREEN_TITLE,
+                "navigateFunction": super::screens::NAVIGATE_FUNCTION,
+                "paramsKey": super::screens::SCREEN_PARAMS_KEY,
+            },
             "tests": {
                 "limits": {"tests": pt::PACKAGE_TEST_LIMIT_TESTS, "gotMax": pt::PACKAGE_TEST_LIMIT_GOT_MAX},
                 "defaults": {"now": pt::PACKAGE_TEST_DEFAULT_NOW, "as": pt::PACKAGE_TEST_DEFAULT_AS, "role": pt::PACKAGE_TEST_DEFAULT_ROLE},

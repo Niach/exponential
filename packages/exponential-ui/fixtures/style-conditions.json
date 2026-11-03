@@ -1,5 +1,5 @@
 {
-  "$comment": "Round 1 (docs/round-1-contract.md §2): the STYLE CONDITION contract. Inputs hand-written (name, style, contexts); `expected` is filled by scripts/generate.ts from src/style.ts resolveConditions: the base keys, then every matching @media block in SOURCE order, then :hover, :focus-visible, :pressed (pressed wins). Sizes are the SURFACE box; min-* = size >= N, max-* = size < N; a $breakpoint token resolves through the context's breakpoints (the file's when absent; an unknown token never matches); orientation portrait = height >= width (landscape when the height is unknown). Token VALUES pass through untouched (the theme resolves them after). Every renderer replays it.",
+  "$comment": "Round 1 (docs/round-1-contract.md §2): the STYLE CONDITION contract. Inputs hand-written (name, style, contexts); `expected` is filled by scripts/generate.ts from src/style.ts resolveConditions: the base keys, then every matching @media block in SOURCE order, then :hover, :focus-visible, :pressed (pressed wins). Sizes are the SURFACE box; min-* = size >= N, max-* = size < N; a $breakpoint token resolves through the context's breakpoints (the file's when absent; an unknown token never matches); orientation portrait = height >= width (landscape when the height is unknown); form-factor (VAPP-218) = the HOST's form factor, the context's `formFactor` (`phone`|`wide`) when set, else derived from the SURFACE width: `phone` when width < the breakpoints' `md` (the context's, else the file's), else `wide`; it is a media feature like orientation, so its blocks apply in source order with the other @media blocks. Token VALUES pass through untouched (the theme resolves them after). Every renderer replays it.",
   "breakpoints": {
     "sm": 640,
     "md": 768,
@@ -329,6 +329,162 @@
         },
         {
           "gap": 8
+        }
+      ]
+    },
+    {
+      "name": "form-factor derived from the width against $breakpoint.md",
+      "style": {
+        "gap": 4,
+        "@media (form-factor: phone)": {
+          "gap": 8
+        },
+        "@media (form-factor: wide)": {
+          "gap": 16
+        }
+      },
+      "contexts": [
+        {
+          "label": "390 phone",
+          "width": 390
+        },
+        {
+          "label": "767 phone",
+          "width": 767
+        },
+        {
+          "label": "768 wide (the default md)",
+          "width": 768
+        },
+        {
+          "label": "700 with a theme whose md is 600",
+          "width": 700,
+          "breakpoints": {
+            "sm": 480,
+            "md": 600,
+            "lg": 900,
+            "xl": 1200
+          }
+        },
+        {
+          "label": "599 with a theme whose md is 600",
+          "width": 599,
+          "breakpoints": {
+            "sm": 480,
+            "md": 600,
+            "lg": 900,
+            "xl": 1200
+          }
+        }
+      ],
+      "expected": [
+        {
+          "gap": 8
+        },
+        {
+          "gap": 8
+        },
+        {
+          "gap": 16
+        },
+        {
+          "gap": 16
+        },
+        {
+          "gap": 8
+        }
+      ]
+    },
+    {
+      "name": "an explicit formFactor overrides the width",
+      "style": {
+        "flexDirection": "row",
+        "@media (form-factor: phone)": {
+          "flexDirection": "column"
+        }
+      },
+      "contexts": [
+        {
+          "label": "wide surface, phone host",
+          "width": 1200,
+          "formFactor": "phone"
+        },
+        {
+          "label": "narrow surface, wide host",
+          "width": 320,
+          "formFactor": "wide"
+        },
+        {
+          "label": "narrow surface, no host",
+          "width": 320
+        }
+      ],
+      "expected": [
+        {
+          "flexDirection": "column"
+        },
+        {
+          "flexDirection": "row"
+        },
+        {
+          "flexDirection": "column"
+        }
+      ]
+    },
+    {
+      "name": "form-factor blocks apply in source order with the other media blocks",
+      "style": {
+        "padding": 0,
+        "@media (form-factor: wide)": {
+          "padding": 24
+        },
+        "@media (max-width: 1000px)": {
+          "padding": 12
+        },
+        "@media (form-factor: phone)": {
+          "padding": 4
+        },
+        "@media (orientation: portrait)": {
+          "gap": 2
+        }
+      },
+      "contexts": [
+        {
+          "label": "desktop",
+          "width": 1280,
+          "height": 800
+        },
+        {
+          "label": "tablet: wide, then max-width wins",
+          "width": 900,
+          "height": 1200
+        },
+        {
+          "label": "phone: phone after max-width",
+          "width": 390,
+          "height": 844
+        },
+        {
+          "label": "phone host in a wide frame",
+          "width": 1100,
+          "height": 700,
+          "formFactor": "phone"
+        }
+      ],
+      "expected": [
+        {
+          "padding": 24
+        },
+        {
+          "padding": 12,
+          "gap": 2
+        },
+        {
+          "padding": 4,
+          "gap": 2
+        },
+        {
+          "padding": 4
         }
       ]
     }

@@ -70,6 +70,7 @@ impl Surface {
             reduced_motion: self.settings.reduced_motion,
             states: Vec::new(),
             breakpoints: self.breakpoints(),
+            form_factor: self.settings.form_factor,
         }
     }
 

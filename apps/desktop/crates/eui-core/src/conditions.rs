@@ -6,8 +6,10 @@
 //! that order (pressed wins). Sizes are the SURFACE box; `min-*` = size >= N,
 //! `max-*` = size < N (strict); a `$breakpoint.<name>` resolves through the
 //! context's breakpoints (an unknown token never matches); orientation
-//! portrait = height >= width (landscape when the height is unknown).
-//! `fixtures/style-conditions.json` locks it.
+//! portrait = height >= width (landscape when the height is unknown);
+//! `form-factor` (VAPP-218) = the HOST's form factor, the context's
+//! `form_factor` when set, else `phone` below the breakpoints' `md` (768 by
+//! default) and `wide` from it. `fixtures/style-conditions.json` locks it.
 
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
@@ -24,7 +26,7 @@ const SIZE_FEATURES: [&str; 4] = ["min-width", "max-width", "min-height", "max-h
 /// One parsed `@media (feature: value)` key.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MediaCondition {
-    /// `min-width | max-width | min-height | max-height | orientation | hover | prefers-reduced-motion`
+    /// `min-width | max-width | min-height | max-height | orientation | hover | prefers-reduced-motion | form-factor`
     pub feature: String,
     /// The px value (`600px`) or `$breakpoint.<name>` for the size features;
     /// the keyword for the others.
@@ -59,6 +61,7 @@ pub fn parse_media_condition(key: &str) -> Option<MediaCondition> {
         "orientation" => matches!(value, "portrait" | "landscape"),
         "hover" => matches!(value, "hover" | "none"),
         "prefers-reduced-motion" => matches!(value, "reduce" | "no-preference"),
+        "form-factor" => FormFactor::parse(value).is_some(),
         _ => false,
     };
     ok.then(|| MediaCondition { feature: feature.to_string(), value: value.to_string() })
@@ -72,6 +75,49 @@ pub fn is_media_key(key: &str) -> bool {
 /// A `@media` or state condition key (`isConditionKey`).
 pub fn is_condition_key(key: &str) -> bool {
     is_media_key(key) || STYLE_STATES.contains(&key)
+}
+
+/// VAPP-218: what `@media (form-factor: …)` matches: the HOST's form factor
+/// (an editor preview's phone frame, a phone).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FormFactor {
+    Phone,
+    Wide,
+}
+
+impl FormFactor {
+    pub fn parse(s: &str) -> Option<FormFactor> {
+        match s {
+            "phone" => Some(FormFactor::Phone),
+            "wide" => Some(FormFactor::Wide),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            FormFactor::Phone => "phone",
+            FormFactor::Wide => "wide",
+        }
+    }
+}
+
+/// The `md` breakpoint [`form_factor_of`] falls back to (the built-in themes').
+pub const DEFAULT_FORM_FACTOR_BREAKPOINT: f32 = 768.0;
+
+/// The context's form factor: the host's when set, else `phone` when the
+/// SURFACE width < the breakpoints' `md` (768 by default), else `wide`.
+pub fn form_factor_of(ctx: &ConditionContext) -> FormFactor {
+    if let Some(f) = ctx.form_factor {
+        return f;
+    }
+    let md = ctx.breakpoints.get("md").copied().unwrap_or(DEFAULT_FORM_FACTOR_BREAKPOINT);
+    if ctx.width < md {
+        FormFactor::Phone
+    } else {
+        FormFactor::Wide
+    }
 }
 
 /// What a client knows when it flattens a style: the SURFACE box, the
@@ -96,6 +142,10 @@ pub struct ConditionContext {
     /// `$breakpoint.<name>` → px.
     #[serde(default)]
     pub breakpoints: IndexMap<String, f32>,
+    /// VAPP-218: the host's form factor; `None` = derived from the width
+    /// ([`form_factor_of`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub form_factor: Option<FormFactor>,
 }
 
 /// The built-in breakpoints (every built-in theme's, Tailwind's).
@@ -129,6 +179,7 @@ pub fn media_matches(condition: &MediaCondition, ctx: &ConditionContext) -> bool
         }
         "hover" => condition.value == if ctx.hover { "hover" } else { "none" },
         "prefers-reduced-motion" => condition.value == if ctx.reduced_motion { "reduce" } else { "no-preference" },
+        "form-factor" => condition.value == form_factor_of(ctx).as_str(),
         _ => false,
     }
 }
@@ -204,10 +255,12 @@ mod tests {
             "@media (orientation: portrait)",
             "@media (hover: none)",
             "@media (prefers-reduced-motion: reduce)",
+            "@media (form-factor: phone)",
+            "@media (form-factor: wide)",
         ] {
             assert!(is_media_key(key), "{key}");
         }
-        for key in ["@media (min-width: 600)", "@media (width: 600px)", "@media (orientation: up)", "@media (min-width: $spacing.md)", "@media screen", ":focus"] {
+        for key in ["@media (form-factor: tablet)", "@media (min-width: 600)", "@media (width: 600px)", "@media (orientation: up)", "@media (min-width: $spacing.md)", "@media screen", ":focus"] {
             assert!(!is_media_key(key), "{key}");
         }
         assert!(is_condition_key(":hover") && is_condition_key(":focus-visible") && is_condition_key(":pressed"));
@@ -223,5 +276,16 @@ mod tests {
         assert_eq!(active_breakpoint(700.0, &default_breakpoints()).as_deref(), Some("sm"));
         assert_eq!(active_breakpoint(500.0, &default_breakpoints()), None);
         assert_eq!(active_breakpoint(1280.0, &default_breakpoints()).as_deref(), Some("xl"));
+    }
+
+    #[test]
+    fn form_factor_from_the_host_else_the_width() {
+        let style = json!({"gap": 4, "@media (form-factor: phone)": {"gap": 8}, "@media (form-factor: wide)": {"gap": 16}});
+        let ctx = |w: f32, f: Option<FormFactor>| ConditionContext { width: w, breakpoints: default_breakpoints(), form_factor: f, ..Default::default() };
+        assert_eq!(resolve_conditions(style.as_object().unwrap(), &ctx(767.0, None))["gap"], json!(8));
+        assert_eq!(resolve_conditions(style.as_object().unwrap(), &ctx(768.0, None))["gap"], json!(16));
+        assert_eq!(resolve_conditions(style.as_object().unwrap(), &ctx(1200.0, Some(FormFactor::Phone)))["gap"], json!(8));
+        // No breakpoints at all: the 768 default.
+        assert_eq!(form_factor_of(&ConditionContext { width: 500.0, ..Default::default() }), FormFactor::Phone);
     }
 }

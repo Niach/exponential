@@ -69,6 +69,13 @@
       "callPrefix": "actions.",
       "batchFunction": "records.batch"
     },
+    "screens": {
+      "$comment": "VAPP-218 (U1, src/host/screens.ts, fixtures/host-router.json `screens` + `navigate`, spec docs/spec/apps.md §5.1): `screens: [{template, title, icon?, params?}]` = the navigation manifest, 1..`max` entries, keyed by `template` (a declared template, no duplicates); `title` 1..`titleMax` characters; `icon` an Exponential UI icon name; `params` an object of strings (the params it opens with). The HOST paints the navigation (a sidebar on wide frames, the phone bottom bar on phones; the app draws no chrome for it); no screens = the host shows the first template. `navigateFunction {screen, params?}` (a press's functionCall, or an action's `call` step) opens a screen: always allowed (the package need not list it), checked by navigateTarget (`screen` a declared screen, `params` strings) and refused with FUNCTION_DENIED; a literal target names a screen at install. resolveScreen(pkg, screen, params) = the requested screen, else the first, its params then the request's (strings only) key by key; the template opens with data `{params}` (`/params/*`). Deep links carry the same pair.",
+      "max": 5,
+      "titleMax": 32,
+      "navigateFunction": "app.navigate",
+      "paramsKey": "params"
+    },
     "tests": {
       "$comment": "VAPP-196 (T1, src/host/tests.ts, fixtures/package-tests.json): `tests: [{name, records?, now?, as?, expr | query | action, expect}]` (at most `limits.tests`), run by validatePackage on an otherwise valid package, each against its own in-memory store seeded with `records` ({<kind>: [rows]}, a row = the kind's data + optional `id`, `author`), at `now` (UTC, default `defaults.now`) as the member `as` (default `defaults.as`) with the team role `role` (`roles`, default `defaults.role`); eApps R3: the test reads only the rows its member may read and its action's writes are judged by each kind's `policy` (fixtures/record-policy.json), a refusal = {error: `write <i>: <copy>`}. `kinds`: expr {expr, vars?} (a var {source: records:…} = that binding over the store), query {name, params?} (a package query), action {name, params?, data?} (the plan applied: {records, sets, calls}) or {error}. `expect` matches by the keys an object names, a list item by item, else JSON equality. A failing test = the install issue `/tests/<i>`: `<name>: expected <canonical JSON>, got <canonical JSON>` (got cut at `limits.gotMax` code points).",
       "limits": { "tests": 50, "gotMax": 300 },
