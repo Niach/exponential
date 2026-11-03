@@ -84,7 +84,7 @@ apps/web        TanStack Start app: tracker, API, Electric shape proxies
 apps/desktop    Rust IDE (gpui)
 apps/ios        SwiftUI
 apps/android    Kotlin / Compose
-apps/marketing  exponential.at
+apps/site       exponential.at (Astro + Starlight)
 packages/       db schema, widget, icons, contracts
 ```
 

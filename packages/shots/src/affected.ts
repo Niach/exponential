@@ -127,13 +127,13 @@ const IGNORED: RegExp[] = [
   // emulator by exact version), so a deliberate UI-affecting bump always edits
   // the manifest too — and that still widens. A lockfile-only churn does not.
   /^apps\/desktop\/Cargo\.lock$/,
-  /^apps\/(marketing|push-relay|steer-relay|styleguide)\//,
+  /^apps\/(site|push-relay|steer-relay|styleguide)\//,
   // Generated drizzle output: migration DDL and its meta snapshots (EXP-664).
   // The schema change it comes from arrives separately via
   // `packages/db-schema/src/schema.ts`, which stays a shared-package widen.
   /^apps\/web\/src\/db\/out\//,
   // The capture pipeline itself, and packages no client renders.
-  /^packages\/(shots|tsconfig|steer-ticket|electric-protocol|widget)\//,
+  /^packages\/(shots|store-shots|tsconfig|steer-ticket|electric-protocol|widget)\//,
   // Licence bookkeeping: the generated inventories, the curated overrides and
   // the notice texts. NO catalog view photographs a licence surface — `/about`
   // is an excludedRoute, `NOTICES.txt` is ignored above, and the desktop's

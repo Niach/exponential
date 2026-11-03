@@ -13,7 +13,7 @@
 
 export interface LicenceOverride {
   /** Inventory the override applies to. */
-  scope: `desktop` | `web` | `marketing` | `ios` | `android`
+  scope: `desktop` | `web` | `site` | `ios` | `android`
   /** Package name, or a `*`-suffixed prefix for a platform-variant family. */
   name: string
   /** What the notice should print as the declared terms. */

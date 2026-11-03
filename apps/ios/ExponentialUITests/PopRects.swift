@@ -2,7 +2,7 @@ import XCTest
 
 /// Pop-out rect sidecars for the App Store slide compositor (EXP-627).
 ///
-/// The store compositor (`apps/marketing/scripts/store/*`) enlarges ONE detail
+/// The store compositor (`packages/store-shots/scripts/store/*`) enlarges ONE detail
 /// of each raw capture into a floating "pop-out" panel. Until now the crop was
 /// hand-tuned per shot and silently drifted whenever the layout moved. This
 /// dumps the real on-screen geometry instead: for every store shot, the union

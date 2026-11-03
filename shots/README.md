@@ -3,7 +3,7 @@
 Every product view, photographed on every platform, committed as optimized webp:
 `shots/<view-id>/<platform>.webp` plus a generated `shots/index.json`. The view
 inventory lives in `packages/view-catalog/views.json`; the styleguide app
-(`bun run dev:styleguide`) browses this store, and the marketing docs embed it
+(`bun run dev:styleguide`) browses this store, and exponential.at (apps/site) embeds it
 directly. **This directory deliberately supersedes EXP-348** ("screenshots stay
 out of git") — the writer only rewrites a file when the image visibly changed
 (pixel-diff tolerance per view), so a run over an unchanged product leaves
@@ -388,7 +388,7 @@ takes every device offline.
 ## Store slides and their pop-out rects
 
 The App Store / Play listing images are a separate product from this store: the
-compositor in `apps/marketing/scripts/store/` takes the eight raw `store`-lane
+compositor in `packages/store-shots/scripts/store/` takes the eight raw `store`-lane
 captures, bezels them, adds a headline, and lifts one element out of the screen
 as a floating card. That last part needs a RECT, and it resolves in three tiers
 (`store-crops.ts`):

@@ -1,8 +1,6 @@
-/* exponential.at's brand on Starlight: the zinc ladder of
-   packages/site-shell/styles/tokens.css (dark, the default) and
-   apps/marketing/ui/src/styles/scheme.css (light), mapped onto Starlight's
-   variables. Accent = the app's near-white primary (dark) / near-black
-   (light), as on the current site. */
+/* exponential.at's brand on Starlight: the app's zinc ladder, dark (the
+   default) and light, mapped onto Starlight's variables. Accent = the app's
+   near-white primary (dark) / near-black (light). */
 :root {
   --sl-font: "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --sl-font-mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;

@@ -39,17 +39,17 @@
     "Geist": {
       "faces": [
         {
-          "file": "apps/marketing/scripts/assets/Geist-Regular.ttf",
+          "file": "packages/exponential-ui/conformance/fonts/Geist-Regular.ttf",
           "weight": 400,
           "style": "normal"
         },
         {
-          "file": "apps/marketing/scripts/assets/Geist-SemiBold.ttf",
+          "file": "packages/exponential-ui/conformance/fonts/Geist-SemiBold.ttf",
           "weight": 600,
           "style": "normal"
         },
         {
-          "file": "apps/marketing/scripts/assets/Geist-Bold.ttf",
+          "file": "packages/exponential-ui/conformance/fonts/Geist-Bold.ttf",
           "weight": 700,
           "style": "normal"
         }

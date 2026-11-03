@@ -30,7 +30,7 @@ import { cn } from "@/lib/utils"
 // support — plus mobile push, called out per-card since EXP-338
 // because the marketing grid now carries a self-host card that does NOT get
 // it (EXP-176 unified the copy across the marketing frontpage, /pricing and
-// this grid — canonical copy lives in apps/marketing/src/lib/plans.ts; keep
+// this grid — canonical copy lives in apps/site/src/components/landing/plans.ts; keep
 // the bullets in sync). Everything never-gated (unlimited boards/repos/
 // coding sessions, native apps, real-time sync, email/steer) lives in the
 // ONE shared EVERY_PLAN_INCLUDES sentence under the grid.

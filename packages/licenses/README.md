@@ -8,7 +8,7 @@ it cannot go stale.
 | --------- | --------------------------------------------- | --------------------------------- |
 | Desktop   | `apps/desktop/assets/licenses/NOTICES.txt`    | embedded in the binary            |
 | Web       | `apps/web/public/NOTICES.txt`                 | Nitro static, `GET /NOTICES.txt`  |
-| Marketing | `apps/marketing/public/NOTICES.txt`           | vite copies `public/`             |
+| Website   | `apps/site/public/NOTICES.txt`             | Astro copies `public/`           |
 | iOS       | `apps/ios/Exponential/Resources/NOTICES.txt`  | the `Resources/**` Tuist glob     |
 | Android   | `apps/android/app/src/main/assets/NOTICES.txt`| AGP packages `src/main/assets/`   |
 
@@ -24,7 +24,7 @@ what these licences forbid.
 collect:rust     cargo metadata × 3 target triples   -> inventory/rust.json
                                                         inventory/rust-excluded.json
 collect:npm      node_modules production closure     -> inventory/npm-web.json
-                                                        inventory/npm-marketing.json
+                                                        inventory/npm-site.json
 collect:ios      GitHub raw @ the pinned revisions   -> inventory/ios.json
 collect:android  gradle licenseProductionReleaseReport -> inventory/android.json
 

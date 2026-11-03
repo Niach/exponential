@@ -8,7 +8,6 @@ COPY packages/tsconfig/package.json packages/tsconfig/package.json
 COPY packages/ui/package.json packages/ui/package.json
 # Stub out other workspace package.json files so bun install resolves correctly
 COPY apps/web/package.json apps/web/package.json
-COPY apps/marketing/package.json apps/marketing/package.json
 COPY apps/site/package.json apps/site/package.json
 COPY packages/db-schema/package.json packages/db-schema/package.json
 COPY packages/design-tokens/package.json packages/design-tokens/package.json
@@ -31,7 +30,7 @@ COPY packages/steer-ticket/package.json packages/steer-ticket/package.json
 COPY apps/steer-relay/package.json apps/steer-relay/package.json
 COPY packages/widget/package.json packages/widget/package.json
 COPY apps/styleguide/package.json apps/styleguide/package.json
-COPY packages/site-shell/package.json packages/site-shell/package.json
+COPY packages/store-shots/package.json packages/store-shots/package.json
 COPY packages/view-catalog/package.json packages/view-catalog/package.json
 COPY packages/shots/package.json packages/shots/package.json
 

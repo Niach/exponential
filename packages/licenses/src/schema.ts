@@ -70,7 +70,7 @@ export interface Inventory {
   $comment: string
   ecosystem: `rust` | `npm` | `swift` | `android`
   /** Which distributed client this inventory feeds. */
-  scope: `desktop` | `web` | `marketing` | `ios` | `android`
+  scope: `desktop` | `web` | `site` | `ios` | `android`
   /** What produced it, for the header of the rendered notice. */
   collector: string
   components: Component[]

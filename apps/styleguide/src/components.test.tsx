@@ -37,7 +37,7 @@ import {
 } from "@exp/ui/island"
 import { ENTRIES } from "./entries/index.ts"
 import { MCP_APPS_CSS_SOURCE } from "./entries/mcp-app-views.tsx"
-import { APP_PARITY } from "../../marketing/ui/src/data/app-parity.ts"
+import { APP_PARITY } from "./data/app-parity.ts"
 
 import { client } from "./client.ts"
 import { componentStyles } from "./component-styles.ts"
