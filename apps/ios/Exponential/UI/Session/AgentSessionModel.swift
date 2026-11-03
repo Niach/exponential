@@ -3,6 +3,7 @@ import ExpUI
 import Foundation
 import GRDB
 import os
+import UIKit
 
 /// EXP-625: one line per lifecycle event (connect, dial, phase change, kick
 /// decision, join-ack timeout, close). Payloads never go in: the whole point of
@@ -1965,7 +1966,7 @@ final class AgentSessionModel {
         settleTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(SteerConnStats.settleAfterMs))
             guard let self, !Task.isCancelled else { return }
-            if let settled = self.viewStats?.settleTimeout() { self.recordStats([settled]) }
+            if let settled = self.viewStats?.settleTimeout(background: Self.appInBackground) { self.recordStats([settled]) }
         }
     }
 
@@ -1974,7 +1975,12 @@ final class AgentSessionModel {
         settleTask = nil
         guard var stats = viewStats else { return }
         viewStats = nil
-        recordStats(stats.end())
+        recordStats(stats.end(background: Self.appInBackground))
+    }
+
+    /// #EXP-1678: a view that fails while the app is away says `background`.
+    private static var appInBackground: Bool {
+        UIApplication.shared.applicationState == .background
     }
 
     private func recordStats(_ events: [SteerConnEvent]) {

@@ -18,6 +18,7 @@ public enum SteerConnStats {
     public static let errorClasses = [
         "no_endpoint", "no_node", "refused", "unauthorized", "join_timeout", "stale", "send_failed",
         "closed", "no_key", "device_offline", "device_unsupported", "ticket_failed", "relay_closed", "other",
+        "dialing", "background",
     ]
     public static let settleAfterMs = 10_000
     public static let flushMs = 60_000
@@ -148,32 +149,43 @@ public struct SteerViewStats: Sendable {
         lastError = cls
     }
 
-    /// `settleAfterMs` passed: a view with no frame settles `failed`.
-    public mutating func settleTimeout(at: Date = Date()) -> SteerConnEvent? {
-        settle(at: at)
+    /// #EXP-1678 (`errorClassCases`, TS `steerViewErrorClass`): a FAILED
+    /// view always names a class: `background` while the app is in the
+    /// background, else the last carrier failure, else `dialing`. An OK view
+    /// keeps its last failure, if any.
+    public static func errorClass(ok: Bool, lastError: String?, background: Bool) -> String? {
+        if ok { return lastError }
+        if background { return "background" }
+        return lastError ?? "dialing"
     }
 
-    private mutating func settle(at: Date) -> SteerConnEvent? {
+    /// `settleAfterMs` passed: a view with no frame settles `failed`.
+    /// [background] = the app is in the background right now.
+    public mutating func settleTimeout(at: Date = Date(), background: Bool = false) -> SteerConnEvent? {
+        settle(at: at, background: background)
+    }
+
+    private mutating func settle(at: Date, background: Bool = false) -> SteerConnEvent? {
         guard !settled else { return nil }
         settled = true
         var data = base(phase: "settled")
-        if path == nil { data.errorClass = lastError ?? "other" }
+        data.errorClass = Self.errorClass(ok: path != nil, lastError: path == nil ? lastError : nil, background: background)
         return event(data, at: at)
     }
 
-    /// The viewer closed.
-    public mutating func end(at: Date = Date()) -> [SteerConnEvent] {
+    /// The viewer closed ([background] = the app is in the background).
+    public mutating func end(at: Date = Date(), background: Bool = false) -> [SteerConnEvent] {
         var out: [SteerConnEvent] = []
         if !settled {
             guard at.timeIntervalSince(openedAt) * 1000 >= Double(SteerConnStats.settleAfterMs) else { return [] }
-            if let e = settle(at: at) { out.append(e) }
+            if let e = settle(at: at, background: background) { out.append(e) }
         }
         var data = base(phase: "ended")
         data.durationMs = max(0, Int((at.timeIntervalSince(openedAt) * 1000).rounded()))
         data.fallbacks = fallbacks
         data.reconnects = reconnects
         if !failures.isEmpty { data.failures = failures }
-        if path == nil || !failures.isEmpty { data.errorClass = lastError }
+        data.errorClass = Self.errorClass(ok: path != nil, lastError: lastError, background: background)
         out.append(event(data, at: at))
         return out
     }

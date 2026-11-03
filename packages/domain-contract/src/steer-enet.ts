@@ -299,6 +299,23 @@ export function steerConnEventValid(value: unknown): value is SteerConnEvent {
   return true
 }
 
+/**
+ * #EXP-1678: the errorClass a `steer.view` event carries (`errorClassCases`).
+ * A FAILED view always names one: `background` while the app or page is in
+ * the background (its carriers count no failure then), else the last carrier
+ * failure, else `dialing` (nothing answered or failed yet). An OK view keeps
+ * its last failure, if any.
+ */
+export function steerViewErrorClass(view: {
+  ok: boolean
+  lastError: string | null | undefined
+  background: boolean
+}): string | undefined {
+  if (view.ok) return view.lastError ?? undefined
+  if (view.background) return `background`
+  return view.lastError ?? `dialing`
+}
+
 export type SteerConnRow = Pick<SteerConnData, `phase` | `outcome` | `path` | `firstFrameMs` | `fallbacks`> & {
   errorClass?: string
   durationMs?: number

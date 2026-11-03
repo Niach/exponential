@@ -686,7 +686,9 @@ impl ViewStats {
             outcome: if self.first.is_some() { "ok" } else { "failed" },
             path: self.first.map(|(_, path)| path),
             first_frame_ms: self.first.map(|(ms, _)| ms),
-            error_class: if self.first.is_some() { None } else { self.last_error.or(Some("other")) },
+            // #EXP-1678: a desktop window is never "in the background" here.
+            error_class: conn_stats::view_error_class(self.first.is_some(), self.last_error, false)
+                .filter(|_| self.first.is_none() || phase == "ended"),
             ..Default::default()
         }
     }
@@ -702,7 +704,6 @@ impl ViewStats {
 
     fn ended(&mut self) {
         let mut data = self.data("ended");
-        data.error_class = self.last_error.filter(|_| self.first.is_none()).or(data.error_class);
         data.duration_ms = Some(self.opened.elapsed().as_millis() as u64);
         data.fallbacks = Some(self.fallbacks);
         data.reconnects = Some(self.reconnects);

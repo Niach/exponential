@@ -47,6 +47,19 @@ describe(`SteerViewStats`, () => {
     expect(events[0].data).toMatchObject({ phase: `settled`, outcome: `failed`, errorClass: `device_offline` })
     expect(events[0].data.path).toBeUndefined()
   })
+
+  it(`#EXP-1678: a failed view always names a class: dialing, else background`, () => {
+    const events: SteerConnEvent[] = []
+    let hidden = false
+    const view = new SteerViewStats((e) => events.push(e), Date.now, STEER_CONN_STATS.settleAfterMs, () => hidden)
+    view.start()
+    vi.advanceTimersByTime(STEER_CONN_STATS.settleAfterMs)
+    expect(events[0].data).toMatchObject({ phase: `settled`, outcome: `failed`, errorClass: `dialing` })
+    hidden = true
+    view.end()
+    expect(events[1].data).toMatchObject({ phase: `ended`, outcome: `failed`, errorClass: `background` })
+    expect(events.every((e) => steerConnEventValid(e))).toBe(true)
+  })
 })
 
 describe(`ConnStatsBuffer`, () => {

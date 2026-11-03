@@ -40,6 +40,7 @@ internal object SteerConnStatsSpec {
     val errorClasses = setOf(
         "no_endpoint", "no_node", "refused", "unauthorized", "join_timeout", "stale", "send_failed",
         "closed", "no_key", "device_offline", "device_unsupported", "ticket_failed", "relay_closed", "other",
+        "dialing", "background",
     )
     const val SETTLE_AFTER_MS = 10_000L
     const val FLUSH_MS = 60_000L
@@ -92,6 +93,19 @@ internal fun steerConnEventValid(event: JsonElement): Boolean {
     return true
 }
 
+/**
+ * #EXP-1678 (`errorClassCases`, TS `steerViewErrorClass`): a FAILED view
+ * always names a class: `background` while the app is in the background (the
+ * carriers count no failure then), else the last carrier failure, else
+ * `dialing` (nothing answered or failed yet). An OK view keeps its last
+ * failure, if any.
+ */
+internal fun steerViewErrorClass(ok: Boolean, lastError: String?, background: Boolean): String? = when {
+    ok -> lastError
+    background -> "background"
+    else -> lastError ?: "dialing"
+}
+
 /** Where a view's events go ([SteerConnStatsClient] in the app). */
 internal fun interface SteerConnStatsSink {
     fun record(event: JsonObject)
@@ -109,6 +123,8 @@ internal class SteerViewStats(
     private val nowMs: () -> Long,
     private val wallMs: () -> Long = System::currentTimeMillis,
     private val newId: () -> String = { UUID.randomUUID().toString() },
+    /** #EXP-1678: the app is in the background right now. */
+    private val background: () -> Boolean = { false },
 ) : SteerCarrierListener {
     private var openedAtMs: Long? = null
     private var settled = false
@@ -188,7 +204,9 @@ internal class SteerViewStats(
                 put("outcome", if (ok) "ok" else "failed")
                 if (ok) path?.let { put("path", it) }
                 if (ok) firstFrameMs?.let { put("firstFrameMs", it) }
-                lastError?.takeIf { !ok || phase == "ended" }?.let { put("errorClass", it) }
+                steerViewErrorClass(ok, lastError, !ok && background())
+                    ?.takeIf { !ok || phase == "ended" }
+                    ?.let { put("errorClass", it) }
                 if (phase == "ended") {
                     put("fallbacks", fallbacks)
                     put("reconnects", reconnects)

@@ -71,6 +71,21 @@ final class SteerCarrierTests: XCTestCase {
         }
     }
 
+    /// #EXP-1678: a failed view always names its class.
+    func testConnStatsErrorClassCases() throws {
+        let s = try XCTUnwrap(try fixture()["connStats"] as? [String: Any])
+        let cases = try XCTUnwrap(s["errorClassCases"] as? [[String: Any]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let got = SteerViewStats.errorClass(
+                ok: try XCTUnwrap(c["ok"] as? Bool),
+                lastError: c["lastError"] as? String,
+                background: try XCTUnwrap(c["background"] as? Bool)
+            )
+            XCTAssertEqual(got, c["errorClass"] as? String, c["name"] as? String ?? "?")
+        }
+    }
+
     private func json(_ event: SteerConnEvent) throws -> Any {
         try JSONSerialization.jsonObject(with: JSONEncoder().encode(event))
     }
