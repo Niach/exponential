@@ -160,6 +160,20 @@ pub struct LaunchSkill {
     pub description: String,
     #[serde(default)]
     pub body: String,
+    /// #VAPP-213: a built-in's files, written beside SKILL.md
+    /// (`<name>/<path>`); empty for a team skill and from older servers.
+    #[serde(default)]
+    pub files: Vec<LaunchSkillFile>,
+}
+
+/// One file of a built-in skill (fixtures/skills.json `builtin`).
+#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct LaunchSkillFile {
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub content: String,
 }
 
 /// `skills.resolveForLaunch` output: the session's picks in pick order,
