@@ -545,6 +545,35 @@ async function queueDeviceCommand(
   return { id: command.id }
 }
 
+/** #EXP-1628: the daemon cap that answers an Update click (`update_check`). */
+export const UPDATE_CHECK_CAP = `update-check`
+/** How long the click waits for that answer (a nudge + one release list). */
+export const UPDATE_CHECK_WAIT_MS = 15_000
+const UPDATE_CHECK_STEP_MS = 500
+/** A device seen this recently is online enough to wait for. */
+const UPDATE_CHECK_ONLINE_MS = 2 * 60_000
+
+/** A queued command's terminal outcome, or null when it is still pending
+ *  at the deadline. */
+export async function awaitDeviceCommand(
+  db: Context[`db`],
+  commandId: string,
+  timeoutMs: number,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+): Promise<{ status: string; result: string | null } | null> {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
+    const [command] = await db
+      .select({ status: deviceCommands.status, result: deviceCommands.result })
+      .from(deviceCommands)
+      .where(eq(deviceCommands.id, commandId))
+      .limit(1)
+    if (command && command.status !== `pending`) return command
+    if (Date.now() + UPDATE_CHECK_STEP_MS > deadline) return null
+    await sleep(UPDATE_CHECK_STEP_MS)
+  }
+}
+
 // ISO-or-null of a nullable timestamp — the CAS stamp wire form (equality
 // compare on the echoed string; never `>`, no clock-skew semantics).
 function stampOf(value: Date | null): string | null {
@@ -1143,7 +1172,13 @@ export const devicesRouter = router({
       // already runs the latest known build fail (the clients' error toast)
       // instead of flagging a request the daemon could only drop silently.
       const [row] = await ctx.db
-        .select({ id: devices.id, kind: devices.kind, version: devices.version })
+        .select({
+          id: devices.id,
+          kind: devices.kind,
+          version: devices.version,
+          caps: devices.caps,
+          lastSeenAt: devices.lastSeenAt,
+        })
         .from(devices)
         .where(ownRow)
         .limit(1)
@@ -1175,6 +1210,36 @@ export const devicesRouter = router({
           payload: {},
           onDuplicate: `reuse`,
         })
+      }
+      // #EXP-1628: a daemon that can say so answers the click itself. Its
+      // `update_check` resolves the newest installable build; "nothing to
+      // install" (no published build for this machine, already newest, a
+      // failed check) comes back as the clients' existing error toast and
+      // the flag is withdrawn, instead of a spinner that silently stops.
+      // An older daemon, an offline one or no answer in time = the flag
+      // alone, as before.
+      const online =
+        row.lastSeenAt != null && now.getTime() - row.lastSeenAt.getTime() < UPDATE_CHECK_ONLINE_MS
+      if (online && (row.caps ?? []).includes(UPDATE_CHECK_CAP)) {
+        const command = await queueDeviceCommand(ctx.db, {
+          deviceRowId: row.id,
+          userId: ctx.session.user.id,
+          deviceId: input.deviceId,
+          kind: `update_check`,
+          payload: {},
+          onDuplicate: `reuse`,
+        })
+        const outcome = await awaitDeviceCommand(ctx.db, command.id, UPDATE_CHECK_WAIT_MS)
+        if (outcome?.status === `failed`) {
+          await ctx.db
+            .update(devices)
+            .set({ updateRequestedAt: null, updatedAt: new Date() })
+            .where(and(ownRow, eq(devices.updateRequestedAt, now)))
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: outcome.result || `This machine found no update to install`,
+          })
+        }
       }
       return { ok: true }
     }),

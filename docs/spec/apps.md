@@ -1,6 +1,6 @@
 # Exponential apps (eApps): spec
 
-> Status: **approved 2026-11-01** (Danny; decisions in §18). Sources: the code at `e59ef9f4909`, epic #VAPP-110 (slice 1, done), #VAPP-175 (editor-first + eMCP), `packages/emcp`, eUI 0.3.0, the time-tracker check (thread 2db0b7d0), ExponentialOS plan v5 (thread 196b5162), Spezl #YO-32.
+> Status: **approved 2026-11-01** (Danny; decisions in §18). Readiness verdict after batch 1: §20 (2026-11-03). Sources: the code at `e59ef9f4909`, epic #VAPP-110 (slice 1, done), #VAPP-175 (editor-first + eMCP), `packages/emcp`, eUI 0.3.0, the time-tracker check (thread 2db0b7d0), ExponentialOS plan v5 (thread 196b5162), Spezl #YO-32.
 > Legend: ✅ exists · 🟡 partial · ❌ missing · 🆕 proposed here (no issue yet). The mocks are drawn with eUI (React harness, exponential theme, dark).
 
 ## 0. In one paragraph
@@ -218,7 +218,7 @@ Caps (✅ `contract.json` `apps`): package ≤ 128 KB, ≤ 500 components per te
 | Key | Purpose | §  |
 |---|---|---|
 | `screens` | The navigation manifest: `[{template, title, icon, params?}]`, painted as a sidebar on desktop and a bottom bar on phones | 5.1 |
-| `records.<kind>.policy` | Read/write per kind: `member` · `author` · `owners` · `role:<field>` | 3.4 |
+| `records.<kind>.policy` | ✅ R3 (#VAPP-199): read/create/update/delete per kind: `member` · `author` · `owners` (`role:<field>` waits for R6 transitions) | 3.4 |
 | `records.<kind>.refs` | Relations: `{field: {kind}}`, `{field: "issue"}`, `{field: "member"}` | 3.3 |
 | `records.<kind>.computed` | Expressions evaluated on read | 4.4 |
 | `records.<kind>.transitions` | A state machine on one enum field | 3.3 |
@@ -293,12 +293,12 @@ A per-member view groups by `author`, not `created_by`. That way a backfill an o
 Layers, all intersected:
 
 1. **Team membership** ✅. Only members, unless a public link applies (§9.4).
-2. **Per-app member policy** `app_access` none/read/write. ✅ for MCP only; 🆕 applied everywhere: UI host, tRPC, shape filter, broker.
-3. **Per-kind policy** 🆕:
+2. **Per-app member policy** `app_access` none/read/write. ✅ (#VAPP-199) applied everywhere: MCP, the records service (none = NOT_FOUND, read = writes FORBIDDEN), the apps router, the apps / app-versions / app-records shapes (none = the app and its rows never sync), the RLS scope (`eapps.write`), and the clients (`appAccess.mine`; the Data tab disables writes). 🟡 An app's own inputs are not yet disabled at read (#VAPP-200): the server refuses the press with a toast.
+3. **Per-kind policy** ✅ (R3, #VAPP-199, `packages/exponential-ui/fixtures/record-policy.json`, TS `host/record-policy.ts` + Rust `host::record_policy`, iOS/Android hand ports replaying the fixture):
 
 ```jsonc
 "policy": {
-  "read":   "member",          // member | author | owners | role:<field>
+  "read":   "member",          // member | author | owners (owners = not even the author)
   "create": "member",
   "update": "author",          // the author or a team owner
   "delete": "author"
@@ -307,7 +307,7 @@ Layers, all intersected:
 
 The defaults are `member/member/author/author`. This is the common case; it ships with `formatVersion 3`, and as eApps keeps no backwards compatibility (decided 2026-11-02) v2 packages are not read after that.
 
-The server enforces the policy. The shape enforces `read: author` with a row filter on `author_id`: a private kind never syncs to other members' devices.
+The server enforces the policy (the records service on every read and write, the broker's reads, the import's creates; a row the member may not read is NOT_FOUND). The app-records shape enforces `read: author` / `read: owners` with a row filter for non-owners (`lib/apps/records-shape.ts`): a private kind never syncs to other members' devices. `create` is never `author`. Package tests take `role` and run under the policies. `role:<field>` levels wait for R6.
 
 4. **Field-level privacy is out.** Use a separate kind with `read: owners` (for example, salary next to a hiring candidate).
 5. **The Postgres scope** ✅ (#VAPP-193), a backstop under layers 1 to 3, not a replacement. Every server read and write of a record runs through ONE service (`apps/web/src/lib/apps/records-service.ts`), which checks layers 1 to 3, ownership and quota, then runs the record statements as the `NOLOGIN` role `eapps` scoped to one team and its apps (§12.2). Ownership and policy stay in the service, never in RLS.
@@ -377,7 +377,7 @@ Today a binding is a URL (`records:entry?mine=1&by=date&sum=hours`). URLs stay a
 
 **One evaluator:**
 
-- ✅ (Q1, #VAPP-190) The JSON form: `parseRecordsJson(json, kind?)` → `{query, issues}` (Rust `parse_records_json`, FFI `parse_records_json`, SDKs `RecordsQuery.parse(json:)` / `parseJson`), the `q=<json>` param, and the package's `queries` followed by `?query=<name>&<params>` (the router expands it, `${param}` templates filled from the binding's params). The value gains `groups`, `totals`, `before` and `running`. The date helpers (`dateBucket`, `parseDay`, `isoWeek`, `daysInMonth`, `weekdayOf`) live in `src/dates.ts` / `eui_core::dates` for Q2. Format version stays 2 (`queries` is optional, like `exposes`). The spec's `"${month.start}"` is spelled `"${start}"` (flat binding params).
+- ✅ (Q1, #VAPP-190) The JSON form: `parseRecordsJson(json, kind?)` → `{query, issues}` (Rust `parse_records_json`, FFI `parse_records_json`, SDKs `RecordsQuery.parse(json:)` / `parseJson`), the `q=<json>` param, and the package's `queries` followed by `?query=<name>&<params>` (the router expands it, `${param}` templates filled from the binding's params). The value gains `groups`, `totals`, `before` and `running`. The date helpers (`dateBucket`, `parseDay`, `isoWeek`, `daysInMonth`, `weekdayOf`) live in `src/dates.ts` / `eui_core::dates` for Q2. `queries` is optional, like `exposes` (format version 3 since R3). The spec's `"${month.start}"` is spelled `"${start}"` (flat binding params).
 - ✅ (S1, #VAPP-189) A pure TS reference (`@exponential_app/eui/host/query`) and its Rust twin in `eui-core` (`host::query`), fixture-locked (`fixtures/records-query.json`, replayed in TS, Rust, Swift and Kotlin). The URL params parse INTO a structured `RecordsQuery` (`from, app, mine, user, where, sort[], limit, sum, month`); the JSON form (Q1) adds keys next to these.
 - Web and the server broker use TS. Desktop, iOS, Android, Spezl and eDE use eui-core (iOS and Android already link it through UniFFI for painting).
 - ✅ The four hand-written derivations (`AppRecords.swift`, `AppRecords.kt`, `app_records.rs`, `app-records.ts`) are gone; their Data tab, ownership and on-behalf helpers stay.
@@ -399,7 +399,7 @@ To add, both as functions (`{"call": "mul", …}`) and as the compact string for
 
 The string form is a tiny pure grammar (numbers, paths, operators `+ - * / % < <= == && || !`, calls). It is parsed once at package validation, has no loops and no user functions, and must terminate. The function form stays the A2UI wire form, and the string form compiles to it.
 
-- ✅ (Q2, #VAPP-191) The string form is a **CEL subset**, hand-written as TS (`src/cel.ts`) + Rust (`eui_core::cel`) twins replaying ONE fixture (`fixtures/expressions.json`; FFI `evaluate_expression_json` / `check_expression_json`, SDKs `Expressions.evaluate/check` (Swift; `Expression` on Compose)). cel-js / the `cel` crates were not used: CEL splits int/uint/double (JSON has one number), their error texts and date handling would differ between the twins, and they would bloat the eUI bundle. One number type (`7 / 2` = 3.5); a missing field reads null. It is used as `{"call": "expr", "args": {"expr": "…", "vars": {…}}}` anywhere a value may be bound, and the arithmetic, date and duration rows above are also plain A2UI functions (`{"call": "mul", …}`) running the same table. Every `expr` is type-checked by `validatePackage` against its vars (a literal, a records binding's kind schema, the template data), issues at the JSON pointer. Caps: 1000 characters, nesting 32, no nested comprehensions, 10 000 steps. The team zone is the surface zone the host passes (`Formatter.offsetMinutes`, `HostZone`); there is no team timezone setting yet, so hosts pass the platform zone today. The Arrays and Text rows stay open.
+- ✅ (Q2, #VAPP-191) The string form is a **CEL subset**, hand-written as TS (`src/cel.ts`) + Rust (`eui_core::cel`) twins replaying ONE fixture (`fixtures/expressions.json`; FFI `evaluate_expression_json` / `check_expression_json`, SDKs `Expressions.evaluate/check` (Swift; `Expression` on Compose)). cel-js / the `cel` crates were not used: CEL splits int/uint/double (JSON has one number), their error texts and date handling would differ between the twins, and they would bloat the eUI bundle. One number type (`7 / 2` = 3.5); a missing field reads null. It is used as `{"call": "expr", "args": {"expr": "…", "vars": {…}}}` anywhere a value may be bound, and the arithmetic, date and duration rows above are also plain A2UI functions (`{"call": "mul", …}`) running the same table. Every `expr` is type-checked by `validatePackage` against its vars (a literal, a records binding's kind schema, the template data), issues at the JSON pointer. Caps: 1000 characters, nesting 32, no nested comprehensions, 10 000 steps. The team zone is the surface zone the host passes (`Formatter.offsetMinutes`, `HostZone`); there is no team timezone setting yet (#VAPP-201), so hosts pass the platform zone today. Hardened by the CEL differential fuzz (`fixtures/cel-fuzz.json`, TS vs Rust, in CI): it found and fixed `dateAdd` overflowing on a huge `n` in both twins. The Arrays and Text rows stay open.
 
 **Missing values are explicit (✅ E2, #VAPP-195):** a field that is not in its kind's `required`, and a var the checker cannot type, is typed `T?`. Arithmetic, comparisons and function arguments on a `T?` are install issues unless guarded: `has(r.f)`, `r.f == null ? … : …`, or `orElse(x, default)`. Every binding carries a fallback (`{"call": "expr", "args": {…, "default"}}`, shown when evaluation fails), so a renderer never paints undefined and never throws on a binding. Built (E2): `T?` is spelled `{"?": T}`; an unguarded use names its path (`entries.rows[0].hours may be missing: guard it with has(), a null check or orElse()`); `has()`, `!= null` / `== null` (through `&&`, `||`, `!`) and `orElse` narrow; `default` is required on every package `expr` binding and every bind-time call falls back to its `default` (TS `dynamic.ts`, Rust `data.rs`: all six renderers); fixture `expressions.json`, replayed ×4.
 
@@ -586,7 +586,7 @@ The UI form is the `handoff` action: "Ask agent to follow up" in m5 admin.
 ### 9.2 Per-app policy
 
 - `app_access` none/read/write per member (✅).
-- 🆕 It is enforced in the UI host (hidden from the Apps list at none, inputs disabled at read), in tRPC and in the shape (none = no records sync).
+- ✅ (#VAPP-199) It is enforced in tRPC, the shapes (none = the app, its versions and its records never sync, so it is hidden from the Apps list ×4) and the clients' Data tab; 🟡 an app's inputs at read: #VAPP-200.
 
 ### 9.3 Audit and attribution
 
@@ -612,7 +612,7 @@ The UI form is the `handoff` action: "Ask agent to follow up" in m5 admin.
 
 | Format | Today | Spec |
 |---|---|---|
-| `.app.json` (package ± records, signed) | ✅ #VAPP-121, #VAPP-161 (4 MB, ≤ 2,000 records) | Records carry `author` (✅ #VAPP-188: kept when the author is a member of the importing team and the importer an owner; a stranger falls back to the importer). 🆕 An explicit author mapping when importing into another team. |
+| `.app.json` (package ± records, signed) | ✅ #VAPP-121, #VAPP-161 (4 MB, ≤ 2,000 records) | Records carry `author`: the export writes it (✅ #VAPP-192, ×4), and the import keeps it when the author is a member of the importing team and the importer an owner; otherwise (a stranger, or a member importing a teammate's export) the row is the importer's (✅ #VAPP-188/192). 🆕 An explicit author mapping when importing into another team. |
 | CSV / xlsx export | ❌ | **Out of scope** (decided 2026-11-01). Records leave through `.app.json` and MCP: an agent reads `records_list` or an exposed tool and writes whatever file it needs. |
 | CSV / xlsx import | ❌ | 🆕 X2. **Agent path** (now possible): the agent reads the file in a session and calls `records_upsert` with `author` (R2 ✅ #VAPP-188). **Dialog** (later): the file → pick a kind → map columns (auto-matched by name and type) → preview the issues → import in one transaction; idempotent by an optional `externalId`. |
 | JSON (records only) | 🟡 via `records_list` | Covered by `.app.json` |
@@ -638,7 +638,7 @@ Example: importing a timesheet workbook (one sheet per month, two members) into 
   - The package validator ✅ runs on every upsert.
   - ✅ `tests` in the package (T1, #VAPP-196): `[{name, records?, now?, as?, expr | query | action, expect}]` (≤ 50), run against their own sample records in an in-memory store at every install (every upsert; the MCP upsert answers `tests: "<n> passed"`) and in CI; a failing test is an install issue (`/tests/<i>`, expected vs got), like a type error. `src/host/tests.ts` / `eui_core::host::tests` (FFI `run_package_tests_json`), fixture `fixtures/package-tests.json` replayed in TS, Rust, Swift and Kotlin; docs/package-format.md "Tests".
   - Preview at phone and desktop widths, with a screen picker.
-  - 🆕 A "Run as <member>" preview for the policy: waits for R3 (per-kind policies); a test's `as` already runs it as another member.
+  - ✅ (#VAPP-198) "Run as <member>" in the preview toolbar (web ≥ md + desktop; owners): `me` = them, the records their role and access may read, every write refused with a toast. A test's `as` + `role` run the same rule in CI.
 - **Publishing:** draft → published (§2.3). Publish runs the migration check (§3.6) and shows the diff of `exposes` and automations. Changes to tools need an owner, as grants do today.
 
 ---
@@ -719,8 +719,8 @@ The web stays online-only. Issue and comment writes have their own NEW-13.
 | Record | 16 KB | ✅ |
 | Records per team | 1,000 / 25,000 / unlimited | ✅ |
 | Rows per binding result | 500 (cursor for more) | ✅ (no cursor) |
-| Local query | p95 ≤ 16 ms over 25k rows on a mid phone (eui-core), gated in the eUI bench | 🆕 |
-| Server query (web on-demand, broker) | ≤ 200 ms p95, `statement_timeout` 2 s | 🆕 |
+| Local query | p95 ≤ 16 ms over 25k rows on a mid phone (eui-core), gated in the eUI bench | 🟡 measured 2026-11-03: 1–16 ms p95 on a desktop CPU (eui-core release, `examples/records_query_25k.rs`), so a phone misses it on grouped/sorted queries; not yet gated (#VAPP-202) |
+| Server query (web on-demand, broker) | ≤ 200 ms p95, `statement_timeout` 2 s | ✅ measured: 15–27 ms p95 over 25k rows (records service on Postgres 17); the 2 s timeout is the RLS scope's |
 | Exposed tools per app | 32 | ✅ |
 | Upstream read cache | 60 s per (member, tool, args) | 🆕 |
 | Automations | ≤ 20 per app; schedules ≥ 15 min apart; ≤ 2,000 runs per team per day | 🆕 |
@@ -753,7 +753,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 - **R1 ★** ✅ #VAPP-187 Record ownership: `author_id`, the default policy `update/delete: author`, owners override. Server, shape, fixture `app-records.json`. (C1)
 - **R2 ★** ✅ #VAPP-188 On-behalf writes: `author` on `records_upsert`, `.app.json` import and the Data tab, owners only. Audit `created_by ≠ author`. (C2)
-- **R3** Per-kind policy (`read/create/update/delete`), with a shape row filter for `read: author`. `app_access` enforced in the UI, tRPC and shape. (C4)
+- **R3** ✅ #VAPP-199 Per-kind policy (`read/create/update/delete`), with a shape row filter for `read: author`. `app_access` enforced in tRPC, the shapes, RLS and the Data tab ×4 (an app's inputs at read: #VAPP-200). (C4)
 - **R4** Record history (`app_record_events`), a 10 s undo, the History drawer. (§3.5)
 - **RLS** ✅ #VAPP-193 One records service on the server + the Postgres scope (role `eapps`, team + app) under every server read and write of a record. (§3.4, §12.2)
 
@@ -778,7 +778,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 **Phase 4: Data in, and testing**
 
 - **X2** Spreadsheet import: the agent recipe first (documented in the editor brief), the mapping dialog second. (C13)
-- **T1** ✅ #VAPP-196 Package `tests` (sample records + expected values for expressions, queries and actions), run at install (a failing test is an install issue) and in CI. The "Run as" preview is left for R3. (§11)
+- **T1** ✅ #VAPP-196 Package `tests` (sample records + expected values for expressions, queries and actions), run at install (a failing test is an install issue) and in CI. The "Run as" preview ✅ #VAPP-198. (§11)
 
 **Phase 5: Automation and upstreams**
 
@@ -834,3 +834,18 @@ R3 + U2 ─ P1 · V1 ─ P2 ─ P3
 2. **Expressions are a CEL subset** (§4.2), as TS + Rust twins replaying one fixture, instead of a grammar of our own. Expressions are type-checked against the kind schemas at package validation and run under fixed cost caps. There is no solver or SMT verification: the per-kind policies (R3) stay a fixed enum. If policies ever become free expressions, use Cedar rather than CEL.
 3. **A Postgres RLS backstop scoped to team + app** under one records service (§3.4 layer 5, §12.2). Ownership and policy stay in the service, not in RLS. The structured query becomes a parameterised query, so app text never becomes SQL.
 4. **eApps keeps no backwards compatibility** (until there are real apps): no compat shims, aliases or old-format fallbacks. A package names `formatVersion` and a host reads only its own; records have one spelling (`records:<kind>`, `records.*`; Exponential's `exp:records?kind=` and `harness.records.*` are gone); breaking checker changes (E2) refuse old packages on upsert, naming the path, and the editor agent fixes them.
+
+## 20. Readiness (batch 1, 2026-11-03)
+
+Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI (#1719), R3 per-kind policies + `app_access` everywhere (#VAPP-199), "Run as" (#VAPP-198), authors in `.app.json` exports (#VAPP-192), the eApps real-DB suites run against Postgres 17 (all green), the §15 limits measured, and three real apps dogfooded on staging (time tracker, CRM, standup; `samples/apps/`, #VAPP-209). The dogfood found and fixed a desktop crash on every package action and a web/desktop disagreement on missing fields.
+
+**Verdict: ready for real team apps on web and desktop, for teams that build with the editor and accept that an edit is live at once.** Records, policies, queries, actions and tests are trustworthy and enforced by the server. It is **not yet general-availability**. Before calling it that:
+
+1. **V1 draft vs published** (§2.3): every editor (or agent) upsert is live for every member immediately; one bad edit breaks the app for the team. This is the biggest gap for real teams.
+2. **#VAPP-203**: install does not validate components/props, so an agent can publish a surface that renders broken. Small, and it pairs with V1.
+3. **#VAPP-204**: the checker trusts several values that may be missing (they fall to `default` at runtime instead of failing install).
+4. **#VAPP-201**: the team time zone (members in different zones bucket dates differently).
+5. **#VAPP-200**: an app's own inputs are not disabled at access `read`.
+
+Later, not blocking: **U1 screens** (single-screen apps work, as the CRM's tabs show, but navigation and deep links are missing), **O1 offline** (natives write online only), **#VAPP-202** (the local query over 25k rows on phones), #VAPP-205/206/207/208 (authoring gaps and drift found while dogfooding), and the iOS/Android "Run as" (phones have no preview toolbar by design).
+

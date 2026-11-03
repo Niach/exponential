@@ -432,6 +432,40 @@ describe(`devices.requestUpdate + heartbeat`, () => {
     expect(h.state.updates).toHaveLength(0)
   })
 
+  // #EXP-1628: a daemon with the `update-check` cap answers the click: a
+  // check that finds nothing installable is the error toast, and the flag
+  // is withdrawn.
+  it(`turns the daemon's "nothing installable" into the error toast`, async () => {
+    const online = [{ id: `row-1`, kind: `server`, version: `0.8.0`, caps: [`update-check`], lastSeenAt: new Date() }]
+    h.state.selectQueue = [online, [], [{ status: `failed`, result: `No published build of 0.9.0 for this machine` }]]
+    h.state.insertReturning = [[{ id: `cmd-check` }]]
+    h.state.updateReturning = [[{ id: `row-1` }], []]
+    await expect(caller.requestUpdate({ deviceId: `dev-1` })).rejects.toMatchObject({
+      code: `PRECONDITION_FAILED`,
+      message: `No published build of 0.9.0 for this machine`,
+    })
+    expect(h.state.inserted[0]).toMatchObject({ kind: `update_check`, payload: {} })
+    expect(h.state.updates[1]?.set).toMatchObject({ updateRequestedAt: null })
+  })
+
+  it(`an update the daemon found answers ok and keeps the flag`, async () => {
+    const online = [{ id: `row-1`, kind: `server`, version: `0.8.0`, caps: [`update-check`], lastSeenAt: new Date() }]
+    h.state.selectQueue = [online, [], [{ status: `done`, result: `Updating to 0.9.0.` }]]
+    h.state.insertReturning = [[{ id: `cmd-check` }]]
+    expect(await caller.requestUpdate({ deviceId: `dev-1` })).toEqual({ ok: true })
+    expect(h.state.updates).toHaveLength(1)
+  })
+
+  it(`an offline device or one without the cap is only flagged`, async () => {
+    const stale = new Date(Date.now() - 10 * 60_000)
+    h.state.updateReturning = [[{ id: `row-1` }], [{ id: `row-1` }]]
+    h.state.selectQueue = [[{ id: `row-1`, kind: `server`, version: `0.8.0`, caps: [`update-check`], lastSeenAt: stale }]]
+    expect(await caller.requestUpdate({ deviceId: `dev-1` })).toEqual({ ok: true })
+    h.state.selectQueue = [[{ id: `row-1`, kind: `server`, version: `0.8.0`, caps: [`update-now`], lastSeenAt: new Date() }]]
+    expect(await caller.requestUpdate({ deviceId: `dev-1` })).toEqual({ ok: true })
+    expect(h.state.inserted).toHaveLength(0)
+  })
+
   it(`flags a device whose version is unknown`, async () => {
     h.state.selectQueue = [[{ id: `row-1`, kind: `desktop`, version: null }]]
     expect(await caller.requestUpdate({ deviceId: `dev-1` })).toEqual({ ok: true })

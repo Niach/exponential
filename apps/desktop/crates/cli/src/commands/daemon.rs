@@ -63,8 +63,15 @@ const ADVERT_CONFIRM_RECHECK: Duration = Duration::from_secs(30);
 /// copies here and there, and a one-sided edit silently made one host
 /// un-targetable for the new feature.
 fn device_caps(advertised: &coding::AgentAdvertisement) -> Vec<String> {
-    coding::device_caps(advertised)
+    let mut caps = coding::device_caps(advertised);
+    caps.push(UPDATE_CHECK_CAP.to_string());
+    caps
 }
+
+/// #EXP-1628: this daemon answers the web Update click (`update_check`),
+/// so "nothing installable" is an error toast, not a silent clear. CLI
+/// only: the desktop app updates through its own updater.
+const UPDATE_CHECK_CAP: &str = "update-check";
 
 // ---------------------------------------------------------------------------
 // Signal handling — shared with `code`'s detached wait.
@@ -2349,6 +2356,9 @@ fn run_device_command(
                 }
             }
         }
+        // #EXP-1628: the Update click asks first; the server turns a
+        // refusal into the clients' error toast (and withdraws the flag).
+        "update_check" => super::update::update_check_answer(super::update::check_only()),
         // FEED-36: the web's "Update now" — the loop applies the update at
         // once. EXP-1489: the restart suspends the live sessions only once a
         // new build is installed, and the new process continues every run
@@ -4189,10 +4199,10 @@ mod tests {
     /// call-through: this daemon must advertise exactly that shared list.
     #[test]
     fn daemon_advertises_the_shared_caps() {
-        assert_eq!(
-            device_caps(&advert(&["claude"])),
-            coding::device_caps(&advert(&["claude"]))
-        );
+        // The shared list, then this daemon's own `update-check` (#EXP-1628).
+        let mut shared = coding::device_caps(&advert(&["claude"]));
+        shared.push(UPDATE_CHECK_CAP.to_string());
+        assert_eq!(device_caps(&advert(&["claude"])), shared);
         let caps = device_caps(&advert(&["claude"]));
         for cap in coding::DEVICE_CAPS {
             assert!(caps.contains(&cap.to_string()), "missing build cap {cap}");
@@ -4202,7 +4212,7 @@ mod tests {
         }
         // Nothing runnable = build caps only.
         let signed_out = device_caps(&advert(&[]));
-        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len());
+        assert_eq!(signed_out.len(), coding::DEVICE_CAPS.len() + 1);
         assert!(signed_out.contains(&"agent-login".to_string()));
         assert!(!signed_out.contains(&"triggers".to_string()));
         assert!(!signed_out.contains(&"automations".to_string()), "nor the legacy trigger cap");
