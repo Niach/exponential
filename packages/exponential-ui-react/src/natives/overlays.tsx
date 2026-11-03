@@ -10,7 +10,7 @@
 // motion). A trigger slot is wrapped in an inline-flex span so Radix
 // measures the slot's own box and the slot's painter keeps its element.
 
-import { Fragment, forwardRef, useCallback, useEffect, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
+import { Fragment, forwardRef, type ComponentType, useCallback, useEffect, useRef, useState, type HTMLAttributes, type PointerEvent as ReactPointerEvent, type ReactNode } from "react"
 import { createPortal } from "react-dom"
 import { ContextMenu as ContextPrimitive, Dialog as DialogPrimitive, DropdownMenu as MenuPrimitive, Popover as PopoverPrimitive, Tooltip as TooltipPrimitive } from "radix-ui"
 import { OVERLAY_OFFSET, OVERLAY_PADDING } from "@exponential_app/eui"
@@ -26,7 +26,7 @@ import { SearchBody, searchMatches } from "./search"
 
 /** A Radix Portal into the overlay layer, or (EXP-1673, `inlineOverlays`)
  *  no portal: the content paints in place. */
-function OverlayPortal({ as: Portal, children }: { as: (p: { container?: HTMLElement; children?: ReactNode }) => ReactNode; children: ReactNode }) {
+function OverlayPortal({ as: Portal, children }: { as: ComponentType<{ container?: HTMLElement; children?: ReactNode }>; children: ReactNode }) {
   const ctx = useSurfaceContext()
   if (ctx.inlineOverlays) return <Fragment>{children}</Fragment>
   return <Portal container={ctx.portal ?? undefined}>{children}</Portal>
