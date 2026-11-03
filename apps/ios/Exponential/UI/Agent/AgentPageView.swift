@@ -150,7 +150,9 @@ struct AgentPageView: View {
             }
         }
         // #EXP-1384: the page header (`copy.headers.agent`).
-        .pageHeader(Chats.Copy.Headers.agent)
+        // Pushed (an issue's Implement): the bare back arrow LEADS, the large
+        // title right after it (EXP-1554), never the arrow on the trailing side.
+        .pageHeader(Chats.Copy.Headers.agent, pushed: !isTabRoot)
         .sheet(item: $loginTarget) { target in
             if let devicesModel {
                 AgentLoginSheet(viewModel: devicesModel, target: target)

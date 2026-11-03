@@ -4,9 +4,9 @@
 //! `agent_id` and `user_id` = me). No conversation yet = the same screen,
 //! empty, whose composer opens one with `sessions.send({agentId})`. The
 //! header is the `agents` row's tinted icon and name; the conversation is
-//! its messages as COMMENT ROWS
-//! ([`crate::comments::message_row`]: avatar or the agent's mark · author ·
-//! `HH:MM` · markdown), every `thread_started` / `session` card THE session
+//! its messages on THE thread's painters (web `ThreadConversation`: a
+//! person's bubble right with `name · HH:MM`, the agent's plain prose; an
+//! agent conversation = the chat bubbles), every `thread_started` / `session` card THE session
 //! card (a started thread opens as the thread, a session as the session
 //! view), question and plan cards answered in place; under it THE session
 //! composer of the session view targeting the conversation root
@@ -49,11 +49,6 @@ const CHANNEL_W: f32 = crate::work_header::CHAT_COLUMN_W;
 const HEADER_INSET: f32 = 44.;
 /// The header icon.
 const HEADER_ICON_PX: f32 = 28.;
-/// A message row's marker.
-const MARKER_PX: f32 = 24.;
-/// A card row lines up with the comment cards: the timeline gutter (28px)
-/// plus its gap.
-const CARD_INSET: f32 = 36.;
 
 /// #EXP-1380: how far beyond the viewport the conversation renders and
 /// measures rows (the thread's `CONVERSATION_OVERDRAW`).
@@ -743,82 +738,64 @@ impl AgentScreenView {
         .into_any_element()
     }
 
-    /// The agent's mark in the 24px gutter disc.
-    fn agent_marker(&self, cx: &App) -> AnyElement {
-        let icon = self.subject_icon();
-        div()
-            .size(px(MARKER_PX))
-            .flex_shrink_0()
-            .rounded_full()
-            .flex()
-            .items_center()
-            .justify_center()
-            .bg(cx.theme().secondary)
-            .child(icon.with_size(px(14.)))
-            .into_any_element()
-    }
-
     fn render_row(&self, row: &SessionThreadRow, window: &Window, cx: &mut gpui::Context<Self>) -> AnyElement {
         let team_id = self.subject_team_id();
         let conversation_id = self.conversation.as_ref().map(|row| row.id.clone()).unwrap_or_default();
         // FEED-140: the inline cards answer while the reader may reply.
         let answer = self.composer.as_ref().is_some_and(|(_, composer)| composer.read(cx).may_message());
+        let text = crate::thread_screen::ThreadText::team(team_id.as_deref()).answering(answer);
         let SessionThreadRow::Message {
             id,
             author,
             author_id,
             body,
+            queued,
             xref,
             ..
         } = row
         else {
-            let text = crate::thread_screen::ThreadText::team(team_id.as_deref()).answering(answer);
             return crate::thread_screen::card_row(row, &conversation_id, &self.rows, &text, &self.images, window, cx)
-                .map(|card| div().w_full().pl(px(CARD_INSET)).child(card).into_any_element())
                 .unwrap_or_else(|| div().into_any_element());
         };
-        let at = self.messages.get(id).and_then(|message| message.created_at.as_deref());
-        let (marker, name) = match author.as_str() {
-            domain::contract::MESSAGE_AUTHOR_KIND_USER => {
-                let name = crate::thread_screen::member_name(author_id.as_deref(), cx);
-                let image = author_id.as_deref().and_then(|user_id| {
-                    Store::try_global(cx)
-                        .and_then(|store| store.collections().users.read(cx).get(user_id).cloned())
-                        .and_then(|user| user.image)
-                });
-                let avatar = crate::user_avatar::user_avatar(
-                    author_id.as_deref().unwrap_or(&name),
-                    &name,
-                    image.as_deref(),
-                    gpui_component::Size::Small,
-                    cx,
-                );
-                (avatar, name)
-            }
-            domain::contract::MESSAGE_AUTHOR_KIND_AGENT => (self.agent_marker(cx), self.subject_name()),
-            _ => {
-                return crate::thread_screen::muted_line(registry::UI_INFO, body.clone(), cx);
-            }
-        };
-        // THE comment card (the run thread's), whole: no clamp, no toggle;
-        // S-3: another session's message carries its link header above.
-        let card = crate::comments::thread_comment_card(
-            crate::comments::ThreadCommentProps {
-                id: SharedString::from(format!("agent-message-{id}")),
-                mark: marker,
-                author: Some(name),
-                meta: crate::thread_screen::clock(at),
-                body: body.clone(),
-                team_id,
-                bare_refs: true,
-                expanded: true,
-                on_toggle: None,
-                on_open: None,
-                images: Some(self.images.clone()),
-            },
-            cx,
+        // THE thread's painters (web `ThreadConversation`): a person's
+        // bubble right with `name · HH:MM` under it, the agent's plain
+        // prose; an agent conversation paints CHAT bubbles
+        // (`thread_chat_mode`).
+        let markdown = crate::thread_screen::message_markdown(
+            SharedString::from(format!("agent-message-{id}")),
+            body,
+            &text,
+            &self.images,
         );
-        crate::thread_screen::with_xref(id, xref.as_ref(), domain::contract::MESSAGE_AUTHOR_KIND_AGENT, card, cx)
+        let bubbles = domain::session_tree::thread_chat_mode(
+            self.conversation.as_ref().and_then(|row| row.agent_id.as_deref()),
+        ) == domain::session_tree::ThreadChatMode::Bubbles;
+        let at = crate::thread_screen::clock(self.messages.get(id).and_then(|message| message.created_at.as_deref()));
+        let painted = match author.as_str() {
+            domain::contract::MESSAGE_AUTHOR_KIND_USER => {
+                let own = author_id.is_some()
+                    && crate::queries::active_account(cx).map(|me| me.user_id) == *author_id;
+                if bubbles {
+                    crate::thread_screen::chat_user_bubble(id, markdown, at, *queued, own, cx)
+                } else {
+                    let name = crate::thread_screen::member_name(author_id.as_deref(), cx);
+                    crate::thread_screen::user_bubble(
+                        id,
+                        markdown,
+                        crate::thread_screen::bubble_caption(Some(&name), &at),
+                        *queued,
+                        own,
+                        cx,
+                    )
+                }
+            }
+            domain::contract::MESSAGE_AUTHOR_KIND_AGENT if bubbles => {
+                crate::thread_screen::chat_agent_bubble(markdown, at, cx)
+            }
+            domain::contract::MESSAGE_AUTHOR_KIND_AGENT => crate::thread_screen::agent_prose(markdown, cx),
+            _ => return crate::thread_screen::muted_line(registry::UI_INFO, body.clone(), cx),
+        };
+        crate::thread_screen::with_xref(id, xref.as_ref(), author, painted, cx)
     }
 
     /// Thread 58cb32df (chats.json `agentMenuCases`): the agent chat
@@ -1147,7 +1124,7 @@ impl AgentScreenView {
                 .as_ref()
                 .map(|(_, composer)| composer.clone())
                 .and_then(|composer| composer.update(cx, |composer, cx| composer.live_tail(window, cx)))
-                .map(|tail| div().w_full().pl(px(CARD_INSET)).child(tail).into_any_element()),
+                .map(|tail| div().w_full().child(tail).into_any_element()),
         };
         let Some(content) = content else {
             return div().into_any_element();

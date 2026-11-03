@@ -850,11 +850,10 @@ private struct AppEditorShell<Title: View, Band: View, Chat: View>: View {
         .workHeaderBand { band }
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
+        // The `…`: a bare glyph (web-mobile), no iOS 26 shared glass.
+        .ownChromeToolbarItem(placement: .topBarTrailing, enabled: trailing != nil) { trailing }
         .toolbar {
             ToolbarItem(placement: .principal) { title }
-            if let trailing {
-                ToolbarItem(placement: .topBarTrailing) { trailing }
-            }
         }
     }
 }
@@ -883,7 +882,9 @@ private struct AppFirstMessageComposer: View {
     var body: some View {
         Group {
             if let draft {
-                let open = deviceId != nil && (expanded || draft.hasContent || attach.busy)
+                // apps.json: a DRAFT app's composer is the open card (web),
+                // never folded to the capsule, keyboard up or down.
+                let open = deviceId != nil && (isDraftApp || expanded || draft.hasContent || attach.busy)
                 FloatingComposer(
                     placeholder: placeholder,
                     open: open,
@@ -916,7 +917,7 @@ private struct AppFirstMessageComposer: View {
         }
         .frame(maxWidth: DesignTokens.Transcript.maxWidth)
         .frame(maxWidth: .infinity)
-        .floatingBarEdge(!(expanded || draft?.hasContent == true))
+        .floatingBarEdge(!((isDraftApp && deviceId != nil) || expanded || draft?.hasContent == true))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(Apps.TestIds.composer)
         .onChange(of: deviceId, initial: true) { _, next in

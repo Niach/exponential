@@ -140,14 +140,16 @@ private struct AgentChannelEmpty: View {
                     assistant: agent.isAssistant
                 )
             }
-            // NEW-69 (voice-call.json): the telephone (no `…` before the
-            // first message).
-            ToolbarItem(placement: .topBarTrailing) {
-                AgentCallButton(
-                    agentId: agent.id, agentName: agent.name,
-                    agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color
-                )
-            }
+        }
+        // NEW-69 (voice-call.json): the telephone (no `…` before the first
+        // message), a bare glyph (web-mobile), no iOS 26 shared glass.
+        .ownChromeToolbarItem(placement: .topBarTrailing) {
+            AgentCallButton(
+                agentId: agent.id, agentName: agent.name,
+                agentIcon: agent.isAssistant ? nil : BoardTypeDisplay.iconName(for: agent.icon), agentColor: agent.color
+            )
+            .buttonStyle(.plain)
+            .frame(width: GlassTokens.controlSize, height: GlassTokens.controlSize)
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-channel-page")
