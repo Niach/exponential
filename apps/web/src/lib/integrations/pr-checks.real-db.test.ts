@@ -26,6 +26,23 @@ vi.mock(`@/lib/steer`, async (importOriginal) => ({
   relayPostInterrupt: async () => ({ delivered: false }),
 }))
 
+// Batch 3: the watchdog sweep reads GitHub through these two seams only.
+const githubRuns = vi.hoisted(() => ({ runs: [] as Array<Record<string, unknown>>, reads: [] as string[] }))
+vi.mock(`@/lib/integrations/github-app`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/integrations/github-app")>()),
+  resolveRepoInstallationToken: async () => `tok`,
+}))
+vi.mock(`@/lib/integrations/github-client`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/integrations/github-client")>()),
+  githubFetch: async (path: string) => {
+    githubRuns.reads.push(path)
+    if (path.includes(`/check-runs`)) {
+      return new Response(JSON.stringify({ total_count: githubRuns.runs.length, check_runs: githubRuns.runs }), { status: 200 })
+    }
+    return new Response(`{}`, { status: 404 })
+  },
+}))
+
 const ready = await probeRealDb(`
   SELECT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'populate_message_session_mirrors') AS ok
 `)
@@ -33,7 +50,7 @@ if (!ready.ok) console.info(`[pr-checks.real-db] skipped: ${ready.reason}`)
 
 const { sendSession } = await import(`@/lib/sessions/send`)
 const { recordPullRequestOpened } = await import(`@/lib/integrations/pr-sync`)
-const { writePullRequestChecks, flagQueuedChecks } = await import(`@/lib/integrations/pr-checks`)
+const { writePullRequestChecks, flagQueuedChecks, sweepUnsettledChecks, resetPrChecksForTests } = await import(`@/lib/integrations/pr-checks`)
 const { pullRequestChecks, pullRequests } = await import(`@/db/schema`)
 
 const id8 = () => crypto.randomUUID().slice(0, 8)
@@ -153,6 +170,36 @@ describe.skipIf(!ready.ok)(`EXP-1610: CI checks`, () => {
     const rows = await db.select().from(pullRequestChecks).where(eq(pullRequestChecks.pullRequestId, w.prId))
     expect(rows.map((row) => [row.name, row.required])).toEqual([[`gate`, true]])
     expect((await ciLines(w.child)).map((line) => line.body)).toEqual([`CI on #7: success.`])
+  })
+
+  // 0f6fb188: #1714 went green at 02:34 with no check webhook subscribed;
+  // its line came at 03:00, off the next merge call. The watchdog's sweep
+  // reads the pending PR itself.
+  it(`the watchdog sweep wakes a pending PR's session without any webhook`, async () => {
+    resetPrChecksForTests()
+    const w = await threadWithPr()
+    await writePullRequestChecks({ pullRequestId: w.prId, headSha: `w1`, checks: [run(`gate`, `in_progress`, null)] })
+    githubRuns.runs = [
+      { name: `gate`, status: `completed`, conclusion: `success`, head_sha: `w1`, started_at: at(0).toISOString(), completed_at: at(3).toISOString() },
+    ]
+    const now = new Date()
+    expect(await sweepUnsettledChecks(now)).toBeGreaterThanOrEqual(1)
+    expect(await stateOf(w.prId)).toBe(`success`)
+    expect((await ciLines(w.child)).map((line) => line.body)).toEqual([`CI on #7: success.`])
+    // settled: a later tick posts nothing more
+    await sweepUnsettledChecks(new Date(now.getTime() + 5 * 60_000))
+    expect(await ciLines(w.child)).toHaveLength(1)
+  })
+
+  it(`the sweep skips a pending PR that has not moved in hours`, async () => {
+    resetPrChecksForTests()
+    const w = await threadWithPr()
+    await writePullRequestChecks({ pullRequestId: w.prId, headSha: `z1`, checks: [run(`gate`, `in_progress`, null)] })
+    githubRuns.runs = [
+      { name: `gate`, status: `completed`, conclusion: `success`, head_sha: `z1`, started_at: at(0).toISOString(), completed_at: at(3).toISOString() },
+    ]
+    await sweepUnsettledChecks(new Date(Date.now() + 7 * 60 * 60_000))
+    expect(await stateOf(w.prId)).toBe(`pending`)
   })
 
   it(`a check queued past the limit is flagged once`, async () => {

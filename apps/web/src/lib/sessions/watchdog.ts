@@ -1,4 +1,4 @@
-import { flagQueuedChecks } from "@/lib/integrations/pr-checks"
+import { flagQueuedChecks, sweepUnsettledChecks } from "@/lib/integrations/pr-checks"
 import { and, asc, eq, inArray, isNotNull, isNull, lt, notInArray, or, sql, type SQL } from "drizzle-orm"
 import type { CodingSessionBlocked } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
@@ -56,6 +56,7 @@ export interface WatchdogRun {
   recordsPurged: number
   /** EXP-1610: PRs whose CI check sat queued too long, flagged once. */
   checksQueued: number
+  checksSwept: number
 }
 
 const LIVE = [`running`, `idle`] as const
@@ -591,6 +592,11 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     // EXP-1610: a CI check queued past contract prChecks.queuedFlagMinutes
     // wakes its PR's session once (no runner picked it up).
     checksQueued: await flagQueuedChecks(now),
+    // Batch 3: CI wakes without the check webhooks (pr-checks.json SWEEP).
+    checksSwept: await sweepUnsettledChecks(now).catch((err) => {
+      console.error(`[watchdog] checks sweep failed`, err)
+      return 0
+    }),
   }
 }
 

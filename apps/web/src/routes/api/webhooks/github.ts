@@ -274,7 +274,7 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
         // When GitHub last changed the PR: a generic draft sync never lets
         // an older delivery overwrite a newer state.
         updated_at?: string
-        head?: { ref?: string }
+        head?: { ref?: string; sha?: string }
         // The base GitHub reports on every delivery.
         base?: { ref?: string }
         // EXP-617: the GitHub identity behind the event. `user` is the PR
@@ -420,6 +420,14 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
     // Retargeted (on github.com, by our own retarget, or GitHub's restack).
     if (payload.action === `edited` && payload.changes?.base && row && pr.base?.ref) {
       await applyPullRequestBase({ pullRequestId: row.id, base: pr.base.ref })
+      return jsonResponse(200, { ok: true })
+    }
+
+    // Batch 3: a new head (a push, a rebase) after a green run left the
+    // state `success` at the OLD head, which the watchdog sweep never
+    // re-reads: read the new head now so its runs (pending) are swept.
+    if (payload.action === `synchronize` && row && pr.head?.sha) {
+      await repairPullRequestChecks(row.id, Date.now(), { headSha: pr.head.sha })
       return jsonResponse(200, { ok: true })
     }
 
