@@ -243,7 +243,8 @@ export class SteerFeed {
         this.enetDialing = false
         if (!sock) {
           this.deps.stats?.failure(why)
-          return this.step(`enetNoFeed`)
+          // #EXP-1678: the device itself said no: the relay reaches the same device.
+          return this.step(why === `refused` ? `enetRefused` : `enetNoFeed`)
         }
         this.enet = sock
         sock.onmessage = ({ data }) => {
@@ -278,6 +279,8 @@ export class SteerFeed {
     this.closeRelay()
     const tunnel = this.deps.tunnel
     if (this.relayGone || !tunnel || !tunnel.keys(this.sessionId)) {
+      // #EXP-1678: no key is a failure, never a fallback.
+      if (!this.relayGone && tunnel) this.deps.stats?.failure(`no_key`)
       this.relayGone = true
       return this.step(`relayUnavailable`)
     }

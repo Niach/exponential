@@ -24,6 +24,22 @@ final class SteerCarrierTests: XCTestCase {
         XCTAssertEqual(f["tunnelMaxDataBytes"] as? Int, SteerCarrier.tunnelMaxDataBytes)
         XCTAssertEqual(f["relayRetryMs"] as? [Int], SteerCarrier.relayRetryMs)
         XCTAssertEqual(f["tunnelErrorCodes"] as? [String], SteerCarrier.tunnelErrorCodes)
+        let retry = try XCTUnwrap(f["startingRetry"] as? [String: Int])
+        XCTAssertEqual(retry["baseMs"], SteerCarrier.startingRetryBaseMs)
+        XCTAssertEqual(retry["maxMs"], SteerCarrier.startingRetryMaxMs)
+    }
+
+    /// #EXP-1678 STARTING REDIAL: the cap per consecutive NO FEED, the wait in [cap/2, cap).
+    func testStartingRetryCases() throws {
+        let cases = try XCTUnwrap(try fixture()["startingRetryCases"] as? [[String: Int]])
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let retries = try XCTUnwrap(c["retries"])
+            let cap = try XCTUnwrap(c["capMs"])
+            XCTAssertEqual(SteerCarrier.startingRetryCapMs(retries: retries), cap, "retries \(retries)")
+            XCTAssertEqual(SteerCarrier.startingRetryDelayMs(retries: retries, random: 0), Double(cap) / 2)
+            XCTAssertLessThan(SteerCarrier.startingRetryDelayMs(retries: retries, random: 0.999_999), Double(cap))
+        }
     }
 
     func testCarrierCases() throws {
@@ -311,6 +327,35 @@ final class SteerCarrierTests: XCTestCase {
         try await waitUntil { recorder.signals.contains(.noFeed(.noEndpoint)) }
         XCTAssertTrue(feed.finished)
         XCTAssertTrue(recorder.actives.isEmpty)
+    }
+
+    /// #EXP-1678: every endpoint refused = no relay leg (it reaches the same device), NO FEED.
+    @MainActor
+    func testARefusedJoinOpensNoRelayLeg() async throws {
+        let enet = FakeEnet(endpoints: ["dev"])
+        enet.answer["dev"] = [[#"{"t":"error","code":"no_such_session"}"#]]
+        let tunnel = FakeTunnel()
+        tunnel.answer = [[Self.reset, Self.synced]]
+        let (feed, recorder) = feed(enet, tunnel, timings: .init(stallMs: 60_000, joinTimeoutMs: 1_000, retryMs: [60_000]))
+        feed.start()
+        try await waitUntil { recorder.signals.contains(.noFeed(.allRefused)) }
+        XCTAssertEqual(tunnel.opens, 0)
+        XCTAssertTrue(recorder.signals.contains(.failure("refused")))
+        XCTAssertFalse(recorder.signals.contains(.fallback))
+        XCTAssertEqual(SteerFeedCarriers.errorClass(.sendFailed), "send_failed")
+    }
+
+    /// #EXP-1678 FALLBACK COUNT: a `no_key` leg is no fallback.
+    @MainActor
+    func testANoKeyRelayLegIsNoFallback() async throws {
+        let enet = FakeEnet(endpoints: [])
+        let tunnel = FakeTunnel()
+        tunnel.unavailable = "no_key"
+        let (feed, recorder) = feed(enet, tunnel)
+        feed.start()
+        try await waitUntil { recorder.signals.contains(.noFeed(.noEndpoint)) }
+        XCTAssertTrue(recorder.signals.contains(.failure("no_key")))
+        XCTAssertFalse(recorder.signals.contains(.fallback))
     }
 
     @MainActor

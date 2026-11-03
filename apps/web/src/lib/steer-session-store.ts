@@ -62,6 +62,7 @@ import {
   STEER_ENET_STALE_MS,
   steerOfflineRedial,
   steerShowConnectionLost,
+  steerStartingRetryDelayMs,
 } from "@exp/domain-contract/steer-enet"
 
 import { CLOSE_ENET_LOST, openEnetSteer } from "@/lib/enet/steer-enet-viewer"
@@ -89,8 +90,6 @@ const INPUT_CHUNK_CHARS = 4096
 /** Redial backoff while the desktop's publisher is still starting (or its
  *  device is unreachable over eNet): 3s doubling to 30s, so many waiting
  *  viewers never redial in lockstep. */
-const STARTING_RETRY_BASE_MS = 3_000
-const STARTING_RETRY_MAX_MS = 30_000
 /** A disposal grace once a store is neither kept by the dock strip's reaper
  *  nor subscribed — long enough to survive transient empty live-query results
  *  and route remounts, which must never kill a background socket. */
@@ -126,11 +125,8 @@ export const REPLAY_MAX_MS = 3_000
 /** Equal jitter (half fixed, half random) — desynchronizes viewers that
  *  started waiting together while keeping a floor on the delay. */
 function startingRetryDelay(retries: number): number {
-  const capped = Math.min(
-    STARTING_RETRY_BASE_MS * 2 ** retries,
-    STARTING_RETRY_MAX_MS
-  )
-  return capped / 2 + Math.random() * (capped / 2)
+  // #EXP-1678: the contract's STARTING REDIAL (`fallback.startingRetry`).
+  return steerStartingRetryDelayMs(retries)
 }
 
 export interface QuestionOption {

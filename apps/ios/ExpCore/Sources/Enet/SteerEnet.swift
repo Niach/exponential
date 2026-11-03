@@ -479,6 +479,9 @@ public final class SteerEnetInbox: @unchecked Sendable {
 /// Why a viewer has no feed (VAPP-43: there is no relay to fall back to).
 public enum SteerEnetNoFeed: String, Equatable, Sendable {
     case noNode, lookupFailed, noEndpoint, allRefused, timeout
+    /// #EXP-1678: a join could not be sent (or the link died mid-join) on an
+    /// endpoint; `allRefused` = every endpoint ANSWERED error / bye.
+    case sendFailed
 }
 
 public enum SteerEnetJoinOutcome: Sendable {
@@ -574,8 +577,8 @@ public enum SteerNoFeed {
 
 /// The transport choice: `installs.forSession` → `join` the first endpoint →
 /// on `error no_such_session` (or `unauthorized`, or a failed send) the next
-/// → no node / no endpoint / every endpoint refused / no `activity_synced`
-/// within `joinTimeoutMs` = no feed.
+/// → no node / no endpoint / every endpoint refused / a failed send /
+/// no `activity_synced` within `joinTimeoutMs` = no feed.
 public enum SteerEnetJoiner {
     public static func join(
         carrier: SteerEnetCarrier,
@@ -594,6 +597,7 @@ public enum SteerEnetJoiner {
         }
         guard !endpoints.isEmpty else { return .noFeed(.noEndpoint) }
         let deadline = ContinuousClock.now + timeout
+        var sendFailed = false
         for peer in endpoints {
             let link = await carrier.open(sessionId: sessionId, peer: peer)
             let result = await attempt(link: link, carrier: carrier, deadline: deadline, onFirstFrame: onFirstFrame)
@@ -603,15 +607,20 @@ public enum SteerEnetJoiner {
             case .refused:
                 link.close()
                 continue
+            case .sendFailed:
+                link.close()
+                sendFailed = true
+                continue
             case .timedOut:
                 link.close()
                 return .noFeed(.timeout)
             }
         }
-        return .noFeed(.allRefused)
+        // #EXP-1678: `allRefused` only when the devices themselves said no.
+        return .noFeed(sendFailed ? .sendFailed : .allRefused)
     }
 
-    private enum Attempt: Sendable { case joined([String]), refused, timedOut }
+    private enum Attempt: Sendable { case joined([String]), refused, sendFailed, timedOut }
 
     private static func attempt(
         link: SteerEnetLink,
@@ -636,7 +645,7 @@ public enum SteerEnetJoiner {
                     return .timedOut
                 } catch {
                     logger.info("eNet steer join to \(peer.prefix(12), privacy: .public) failed: \(String(describing: error), privacy: .public)")
-                    return .refused
+                    return .sendFailed
                 }
                 var replay: [String] = []
                 while let frames = await link.next() {
@@ -647,6 +656,8 @@ public enum SteerEnetJoiner {
                            code == "no_such_session" || code == "unauthorized" {
                             return .refused
                         }
+                        // #EXP-1678: a `bye` before the replay began = the device said no.
+                        if replay.isEmpty, SteerEnet.frameType(frame) == "bye" { return .refused }
                         replay.append(frame)
                         if SteerEnet.frameType(frame) == "activity_synced" {
                             // The rest of this envelope is the live feed's
@@ -658,8 +669,9 @@ public enum SteerEnetJoiner {
                         }
                     }
                 }
-                // EXP-1531: the peer hung up mid-join: the next endpoint.
-                return link.isDropped ? .refused : nil
+                // EXP-1531: the peer hung up mid-join: the next endpoint
+                // (#EXP-1678: no answer, so not a refusal).
+                return link.isDropped ? .sendFailed : nil
             }
             group.addTask {
                 try? await Task.sleep(until: deadline, clock: .continuous)

@@ -78,6 +78,17 @@ class SteerFallbackTest {
         assertEquals(fallback["tunnelMaxDataBytes"]!!.jsonPrimitive.int, STEER_TUNNEL_MAX_DATA_BYTES)
         assertEquals(fallback["relayRetryMs"]!!.jsonArray.map { it.jsonPrimitive.long }, STEER_RELAY_RETRY_MS)
         assertEquals(fallback["tunnelErrorCodes"]!!.jsonArray.map { it.jsonPrimitive.content }.toSet(), STEER_TUNNEL_ERROR_CODES)
+        // #EXP-1678: the starting backoff.
+        val retry = fallback["startingRetry"]!!.jsonObject
+        assertEquals(retry["baseMs"]!!.jsonPrimitive.long, STEER_STARTING_RETRY_BASE_MS)
+        assertEquals(retry["maxMs"]!!.jsonPrimitive.long, STEER_STARTING_RETRY_MAX_MS)
+        for (case in fixture["startingRetryCases"]!!.jsonArray.map { it.jsonObject }) {
+            val n = case["retries"]!!.jsonPrimitive.int
+            val cap = case["capMs"]!!.jsonPrimitive.long
+            assertEquals("retries $n", cap, steerStartingRetryCapMs(n))
+            assertEquals(cap / 2, steerStartingRetryDelayMs(n, random = 0.0))
+            assertTrue(steerStartingRetryDelayMs(n, random = 0.999) < cap)
+        }
         val stats = fixture["connStats"]!!.jsonObject
         fun set(key: String) = stats[key]!!.jsonArray.map { it.jsonPrimitive.content }.toSet()
         assertEquals(set("kinds"), SteerConnStatsSpec.kinds)
