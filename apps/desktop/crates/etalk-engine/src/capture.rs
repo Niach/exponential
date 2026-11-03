@@ -27,6 +27,33 @@ use crate::listen::RATE;
 /// cpal's callbacks 10-20 ms): a few seconds of slack before audio drops.
 pub const CAPACITY: usize = 128;
 
+/// eTalk device pass (2026-11-03): how long a cpal open may take. CoreAudio
+/// blocks the open inside the HAL while macOS asks for the microphone
+/// (the consent prompt has no timeout), and a stuck driver can block it
+/// too: past this the Listen / wake word / call fails instead of hanging
+/// (no Heard, no Empty, and the worker never exiting on EOF). A Bluetooth
+/// headset switching profile opens in 1-3 s.
+pub const OPEN_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// Wait for the audio thread's open, at most `timeout`. A timeout is
+/// `pending` (macOS: the permission prompt, `NotGranted`); the thread is
+/// left to finish on its own (its stream drops at once: its `done` sender
+/// is gone).
+#[cfg_attr(not(any(target_os = "macos", target_os = "windows")), allow(dead_code))]
+fn await_open(
+    ready: &Receiver<Result<(), (ListenFailure, String)>>,
+    timeout: Duration,
+    pending: ListenFailure,
+) -> Result<(), (ListenFailure, String)> {
+    match ready.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(RecvTimeoutError::Timeout) => {
+            Err((pending, format!("the microphone did not open within {} s", timeout.as_secs())))
+        }
+        Err(RecvTimeoutError::Disconnected) => Err((ListenFailure::NoMicrophone, "audio thread ended".to_string())),
+    }
+}
+
 /// Hand `samples` to the listening thread without ever blocking the
 /// recorder: a full channel drops them (counted in `dropped`, logged on the
 /// first of a run). `false` = the listener is gone (stop recording).
@@ -351,7 +378,13 @@ mod platform {
                 }
             })
             .map_err(|err| (ListenFailure::NoMicrophone, err.to_string()))?;
-        ready_rx.recv().map_err(|_| (ListenFailure::NoMicrophone, "audio thread ended".to_string()))??;
+        // A timed-out open is never joined: the thread is parked in the OS.
+        let pending = if cfg!(target_os = "macos") { ListenFailure::NotGranted } else { ListenFailure::NoMicrophone };
+        if let Err(err) = super::await_open(&ready_rx, super::OPEN_TIMEOUT, pending) {
+            drop(done_tx);
+            drop(thread);
+            return Err(err);
+        }
         Ok((rx, Closer { done: Some(done_tx), thread: Some(thread) }))
     }
 
@@ -391,6 +424,21 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_open_that_never_answers_fails_instead_of_hanging() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let started = std::time::Instant::now();
+        let err = await_open(&rx, Duration::from_millis(50), ListenFailure::NotGranted).unwrap_err();
+        assert_eq!(err.0, ListenFailure::NotGranted);
+        assert!(started.elapsed() < Duration::from_secs(2));
+        tx.send(Ok(())).unwrap();
+        assert!(await_open(&rx, Duration::from_millis(50), ListenFailure::NotGranted).is_ok());
+        tx.send(Err((ListenFailure::NoMicrophone, "gone".into()))).unwrap();
+        assert_eq!(await_open(&rx, Duration::from_millis(50), ListenFailure::NotGranted).unwrap_err().0, ListenFailure::NoMicrophone);
+        drop(tx);
+        assert_eq!(await_open(&rx, Duration::from_millis(50), ListenFailure::NotGranted).unwrap_err().0, ListenFailure::NoMicrophone);
+    }
 
     #[test]
     fn the_resampler_keeps_time_across_chunks() {
