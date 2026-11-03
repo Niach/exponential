@@ -33,7 +33,6 @@ vi.mock(`@/hooks/use-device-glyphs`, () => ({
 }))
 
 import {
-  SidebarRunningIcons,
   SidebarRunningSection,
   threadRunMarkState,
   threadsNavState,
@@ -148,27 +147,6 @@ describe(`SidebarRunningSection`, () => {
     renderSection()
     expect(screen.getByTestId(`sidebar-running-t-run`).getAttribute(`data-active`)).toBe(`true`)
     expect(screen.getByTestId(`sidebar-running-t-ask`).getAttribute(`data-active`)).toBe(`false`)
-  })
-})
-
-describe(`SidebarRunningIcons`, () => {
-  it(`hands the rail one item per Active thread`, () => {
-    const items: { key: string; label: string }[] = []
-    render(
-      <SidebarRunningIcons
-        teamSlug="acme"
-        threads={{ groups, wordOf }}
-        renderItem={(item) => {
-          items.push(item)
-          return null
-        }}
-      />
-    )
-    expect(items.map((item) => [item.key, item.label])).toEqual([
-      [`t-ask`, `Reduce cold start`],
-      [`t-run`, `Group board issues`],
-      [`t-pr`, `Implement APP-9`],
-    ])
   })
 })
 

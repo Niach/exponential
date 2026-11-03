@@ -1,7 +1,7 @@
-// EXP-456: the settings navigation as a sidebar panel. EXP-870: it occupies
-// the 17rem panel slot beside the compact rail while any /settings route is
-// active — so the settings pages no longer
-// carry their own desktop nav column (the in-page nav remains mobile-only).
+// EXP-456: the settings navigation as a sidebar panel. It REPLACES the main menu
+// in the sidebar column while any /settings route is active (desktop parity:
+// the IDE's `LeftOccupant::Settings`), so the settings pages carry no nav
+// column of their own.
 import { Fragment, useEffect, useState, type ReactNode } from "react"
 import { Link, useRouterState } from "@tanstack/react-router"
 import type { TeamPermissions } from "@/hooks/use-team-permissions"

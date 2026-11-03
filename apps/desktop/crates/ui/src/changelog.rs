@@ -59,6 +59,17 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_196: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-web-settings-sidebar",
+    date: "2026-11-03",
+    title: "Web Settings match the desktop app",
+    summary: "On the web, Settings no longer folds the sidebar into icons: the settings list takes its place, like in the desktop app.",
+    body: r#"- **Settings list**: the settings list replaces the sidebar while Settings is open, and the back arrow returns to where you were.
+- **No tabs in Settings**: the tab strip stays empty while Settings is open, like in the desktop app."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_195: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-compact-trigger-switches",
     date: "2026-11-03",
