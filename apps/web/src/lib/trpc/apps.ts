@@ -22,7 +22,7 @@ import { ACTION_LIMITS, validateRecord, verifyPackageFile, type AppPackage } fro
 import { appAccessLevel, commitRecordBatch, deleteRecord, importRecords, listRecordEvents, listRecords, loadApp, queryRecords, restoreRecord, teamMemberIds, undoEvents, upsertRecord, type RecordWriteVia } from "@/lib/apps/records-service"
 import { RECORD_POLICY_COPY, migrationRefusal, packageMigrations } from "@exponential_app/eui/host"
 import { APP_RECORD_KIND_PATTERN, APP_RECORD_MAX_BYTES } from "@exp/domain-contract/apps"
-import { importAuthor } from "@exp/domain-contract/app-records"
+import { APP_CSV_IMPORT, importAuthor } from "@exp/domain-contract/app-records"
 import { RECORDS_QUERY } from "@exponential_app/eui/host/query"
 import { APP_ACTIONS, actionGrantable, canGrantActions, declaredActions } from "@exp/domain-contract/app-actions"
 import { isUniqueViolation, uniqueViolationConstraint } from "@/lib/trpc/db-errors"
@@ -691,7 +691,7 @@ export const appsRouter = router({
     /** VAPP-215: the toast's Undo: each event's `before` as a new write,
      *  newest first, in one transaction. */
     undo: authedProcedure
-      .input(appRefSchema.and(z.object({ eventIds: z.array(uuid).min(1).max(ACTION_LIMITS.steps), via: clientVia })))
+      .input(appRefSchema.and(z.object({ eventIds: z.array(uuid).min(1).max(Math.max(ACTION_LIMITS.steps, APP_CSV_IMPORT.maxRows)), via: clientVia })))
       .mutation(({ ctx, input }) => undoEvents(ctx.session.user.id, input, { eventIds: input.eventIds, via: writeVia(ctx, input.via) }, ctx.db)),
 
     /** VAPP-194 (eApps E1): a package action's record writes (its plan's
@@ -704,17 +704,21 @@ export const appsRouter = router({
             writes: z
               .array(
                 z.discriminatedUnion(`op`, [
-                  z.object({ op: z.literal(`upsert`), kind: kindSchema, data: recordDataSchema, id: uuid.optional(), newId: uuid.optional() }),
+                  z.object({ op: z.literal(`upsert`), kind: kindSchema, data: recordDataSchema, id: uuid.optional(), newId: uuid.optional(), author: z.string().min(1).max(64).optional() }),
                   z.object({ op: z.literal(`delete`), id: uuid }),
                 ])
               )
               .min(1)
-              .max(ACTION_LIMITS.steps),
+              .max(APP_CSV_IMPORT.maxRows),
+            /** VAPP-228: `import` = the Data tab's CSV import (up to
+             *  `csvImport.maxRows` writes); else a package action's batch. */
             writeId: uuid.optional(),
+            via: z.enum([`action`, `import`]).optional(),
           })
         )
+        .refine((input) => input.via === `import` || input.writes.length <= ACTION_LIMITS.steps, { message: `At most ${ACTION_LIMITS.steps} writes per action`, path: [`writes`] })
       )
-      .mutation(({ ctx, input }) => commitRecordBatch(ctx.session.user.id, input, input.writes, ctx.db, input.writeId)),
+      .mutation(({ ctx, input }) => commitRecordBatch(ctx.session.user.id, input, input.writes, ctx.db, input.writeId, input.via ?? `action`)),
   }),
 
   /** #VAPP-236 (eApps A2): the `handoff` action (`exponential.apps.handoff`):

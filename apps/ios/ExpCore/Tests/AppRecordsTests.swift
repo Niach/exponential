@@ -600,4 +600,137 @@ final class AppRecordsTests: XCTestCase {
         }
         XCTAssertEqual(AppRecords.outboxNow(Date(timeIntervalSince1970: 0)), "1970-01-01T00:00:00.000Z")
     }
+
+    // MARK: - Spreadsheet import (VAPP-228, fixture `csvImport`)
+
+    private func csvImport() throws -> [String: Any] {
+        try XCTUnwrap(try fixture()["csvImport"] as? [String: Any])
+    }
+
+    private func csvCases(_ key: String) throws -> [[String: Any]] {
+        let list = try XCTUnwrap(try csvImport()[key] as? [[String: Any]], key)
+        XCTAssertFalse(list.isEmpty, key)
+        return list
+    }
+
+    private func csvRows(_ value: Any?) throws -> [AppRecords.CsvRow] {
+        try XCTUnwrap(value as? [[String: Any]]).map {
+            AppRecords.CsvRow(row: try XCTUnwrap($0["row"] as? Int), cells: try XCTUnwrap($0["cells"] as? [String]))
+        }
+    }
+
+    /// A fixture mapping (null = Skip = absent).
+    private func csvMapping(_ value: Any?) throws -> [String: Int] {
+        try XCTUnwrap(value as? [String: Any]).compactMapValues { $0 as? Int }
+    }
+
+    func testCsvImportConstantsMatchTheFixture() throws {
+        let c = try csvImport()
+        typealias I = AppRecords.CsvImport
+        typealias C = AppRecords.CsvImport.Copy
+        typealias S = AppRecords.CsvImport.Issues
+        typealias T = AppRecords.CsvImport.TestIds
+        XCTAssertEqual(c["maxRows"] as? Int, I.maxRows)
+        XCTAssertEqual(c["previewRows"] as? Int, I.previewRows)
+        XCTAssertEqual(c["issuesShown"] as? Int, I.issuesShown)
+        XCTAssertEqual(c["trueWords"] as? [String], I.trueWords)
+        XCTAssertEqual(c["falseWords"] as? [String], I.falseWords)
+        XCTAssertEqual(c["authorKeys"] as? [String], I.authorKeys)
+        XCTAssertEqual(c["copy"] as? [String: String], [
+            "importButton": C.importButton, "title": C.title, "placeholder": C.placeholder, "chooseFile": C.chooseFile,
+            "skip": C.skip, "me": C.me, "column": C.column, "issue": C.issue, "rowIssue": C.rowIssue,
+            "moreIssues": C.moreIssues, "ready": C.ready, "tooMany": C.tooMany, "noRows": C.noRows,
+            "importAction": C.importAction, "imported": C.imported,
+        ])
+        XCTAssertEqual(c["issues"] as? [String: String], [
+            "notNumber": S.notNumber, "notInteger": S.notInteger, "notBoolean": S.notBoolean, "notDate": S.notDate,
+            "slashDate": S.slashDate, "notTime": S.notTime, "notDateTime": S.notDateTime, "notEnum": S.notEnum,
+            "notMember": S.notMember, "extraCells": S.extraCells,
+        ])
+        XCTAssertEqual(c["testIds"] as? [String: String], [
+            "button": T.button, "dialog": T.dialog, "text": T.text, "file": T.file, "map": T.map,
+            "author": T.author, "preview": T.preview, "error": T.error, "confirm": T.confirm,
+        ])
+    }
+
+    func testCsvParseCases() throws {
+        for item in try csvCases("parseCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let expected = AppRecords.CsvTable(
+                header: try XCTUnwrap(item["header"] as? [String], name),
+                rows: try csvRows(item["rows"])
+            )
+            XCTAssertEqual(AppRecords.csvParse(try XCTUnwrap(item["text"] as? String, name)), expected, name)
+        }
+    }
+
+    func testCsvAutoMapCases() throws {
+        for item in try csvCases("mapCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let fields = try XCTUnwrap(item["fields"] as? [String], name)
+            let header = try XCTUnwrap(item["header"] as? [String], name)
+            XCTAssertEqual(AppRecords.csvAutoMap(fields: fields, header: header), try csvMapping(item["mapping"]), name)
+        }
+    }
+
+    func testCsvAuthorColumnCases() throws {
+        for item in try csvCases("authorColumnCases") {
+            let header = try XCTUnwrap(item["header"] as? [String])
+            XCTAssertEqual(AppRecords.csvAuthorColumn(header), item["column"] as? Int, "\(header)")
+        }
+    }
+
+    func testCsvCellCases() throws {
+        for item in try csvCases("cellCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            let expected: AppRecords.CsvCell
+            if let issue = item["issue"] as? String {
+                expected = .issue(issue)
+            } else {
+                expected = .value(json(item["value"]))
+            }
+            let cell = try XCTUnwrap(item["cell"] as? String, name)
+            XCTAssertEqual(AppRecords.csvCell(json(item["field"]), cell), expected, name)
+        }
+    }
+
+    func testCsvRecordsCases() throws {
+        for item in try csvCases("rowsCases") {
+            let name = try XCTUnwrap(item["name"] as? String)
+            var author: AppRecords.CsvAuthor?
+            if let raw = item["author"] as? [String: Any] {
+                author = AppRecords.CsvAuthor(
+                    column: raw["column"] as? Int,
+                    importer: try XCTUnwrap(raw["importer"] as? String, name),
+                    members: try XCTUnwrap(raw["members"] as? [[String: Any]], name).map {
+                        AppRecords.CsvMember(
+                            id: $0["id"] as? String ?? "", name: $0["name"] as? String ?? "", email: $0["email"] as? String ?? ""
+                        )
+                    }
+                )
+            }
+            let records = AppRecords.csvRecords(
+                schema: json(item["schema"]),
+                header: try XCTUnwrap(item["header"] as? [String], name),
+                rows: try csvRows(item["rows"]),
+                mapping: try csvMapping(item["mapping"]),
+                author: author
+            )
+            let expected = try XCTUnwrap(item["records"] as? [[String: Any]], name).map {
+                AppRecords.CsvRecord(
+                    row: $0["row"] as? Int ?? -1,
+                    data: json($0["data"]).objectValue ?? [:],
+                    author: $0["author"] as? String,
+                    issues: $0["issues"] as? [String] ?? ["missing"]
+                )
+            }
+            XCTAssertEqual(records, expected, name)
+        }
+    }
+
+    func testCsvSummaryCountsTheRowsWithoutIssues() {
+        let issues: [[String]] = [[], ["x"], []]
+        let records = issues.enumerated().map { AppRecords.CsvRecord(row: $0.offset + 2, data: [:], issues: $0.element) }
+        XCTAssertEqual(AppRecords.csvSummary(records), "2 of 3 rows ready")
+    }
 }

@@ -523,4 +523,111 @@ class AppRecordsTest {
             assertEquals(c["name"]!!.string, c["label"]?.string, got)
         }
     }
+
+    // VAPP-228: the spreadsheet import (`csvImport`).
+    private val csv = fixture["csvImport"]!!
+
+    private fun csvCases(key: String): List<JsonValue> = csv[key]!!.array!!.also { assert(it.isNotEmpty()) }
+
+    private fun csvRows(v: JsonValue?): List<AppRecords.CsvRow> =
+        v!!.array!!.map { AppRecords.CsvRow(it["row"]!!.number!!.toInt(), strings(it["cells"])) }
+
+    private fun csvMapping(v: JsonValue?): Map<String, Int?> =
+        v!!.obj!!.mapValues { (_, x) -> x.number?.toInt() }
+
+    @Test
+    fun `the csv import constants match the fixture`() {
+        assertEquals(csv["maxRows"]!!.number!!.toInt(), AppRecords.CsvImport.MAX_ROWS)
+        assertEquals(csv["previewRows"]!!.number!!.toInt(), AppRecords.CsvImport.PREVIEW_ROWS)
+        assertEquals(csv["issuesShown"]!!.number!!.toInt(), AppRecords.CsvImport.ISSUES_SHOWN)
+        assertEquals(strings(csv["trueWords"]), AppRecords.CsvImport.TRUE_WORDS)
+        assertEquals(strings(csv["falseWords"]), AppRecords.CsvImport.FALSE_WORDS)
+        assertEquals(strings(csv["authorKeys"]), AppRecords.CsvImport.AUTHOR_KEYS)
+        val c = AppRecords.CsvCopy
+        assertEquals(params(csv["copy"]), mapOf(
+            "importButton" to c.IMPORT_BUTTON, "title" to c.TITLE, "placeholder" to c.PLACEHOLDER,
+            "chooseFile" to c.CHOOSE_FILE, "skip" to c.SKIP, "me" to c.ME, "column" to c.COLUMN,
+            "issue" to c.ISSUE, "rowIssue" to c.ROW_ISSUE, "moreIssues" to c.MORE_ISSUES, "ready" to c.READY,
+            "tooMany" to c.TOO_MANY, "noRows" to c.NO_ROWS, "importAction" to c.IMPORT_ACTION, "imported" to c.IMPORTED,
+        ))
+        val i = AppRecords.CsvIssues
+        assertEquals(params(csv["issues"]), mapOf(
+            "notNumber" to i.NOT_NUMBER, "notInteger" to i.NOT_INTEGER, "notBoolean" to i.NOT_BOOLEAN,
+            "notDate" to i.NOT_DATE, "slashDate" to i.SLASH_DATE, "notTime" to i.NOT_TIME,
+            "notDateTime" to i.NOT_DATE_TIME, "notEnum" to i.NOT_ENUM, "notMember" to i.NOT_MEMBER,
+            "extraCells" to i.EXTRA_CELLS,
+        ))
+        val t = AppRecords.CsvTestIds
+        assertEquals(params(csv["testIds"]), mapOf(
+            "button" to t.BUTTON, "dialog" to t.DIALOG, "text" to t.TEXT, "file" to t.FILE, "map" to t.MAP,
+            "author" to t.AUTHOR, "preview" to t.PREVIEW, "error" to t.ERROR, "confirm" to t.CONFIRM,
+        ))
+    }
+
+    @Test
+    fun `csvParse replays parseCases`() {
+        for (c in csvCases("parseCases")) {
+            val expected = AppRecords.CsvTable(strings(c["header"]), csvRows(c["rows"]))
+            assertEquals(c["name"]!!.string, expected, AppRecords.csvParse(c["text"]!!.string!!))
+        }
+    }
+
+    @Test
+    fun `csvAutoMap replays mapCases`() {
+        for (c in csvCases("mapCases")) {
+            assertEquals(c["name"]!!.string, csvMapping(c["mapping"]), AppRecords.csvAutoMap(strings(c["fields"]), strings(c["header"])))
+        }
+    }
+
+    @Test
+    fun `csvAuthorColumn replays authorColumnCases`() {
+        for (c in csvCases("authorColumnCases")) {
+            assertEquals(c["header"]!!.json, c["column"]?.number?.toInt(), AppRecords.csvAuthorColumn(strings(c["header"])))
+        }
+    }
+
+    @Test
+    fun `csvCell replays cellCases`() {
+        for (c in csvCases("cellCases")) {
+            val name = c["name"]!!.string!!
+            val got = AppRecords.csvCell(c["field"], c["cell"]!!.string!!)
+            val issue = c["issue"]?.string
+            if (issue != null) {
+                assertEquals(name, AppRecords.CsvCell.Issue(issue), got)
+            } else {
+                val value = (got as? AppRecords.CsvCell.Value)?.value
+                assert(AppRecords.jsonEqual(c["value"] ?: JsonValue.Null, value)) { "$name: expected ${c["value"]}, got $got" }
+            }
+        }
+    }
+
+    @Test
+    fun `csvRecords replays rowsCases`() {
+        for (c in csvCases("rowsCases")) {
+            val name = c["name"]!!.string!!
+            val author = c["author"]?.let { a ->
+                AppRecords.CsvAuthor(
+                    column = a["column"]?.number?.toInt(),
+                    importer = a["importer"]!!.string!!,
+                    members = a["members"]!!.array!!.map { AppRecords.CsvMember(it["id"]!!.string!!, it["name"]!!.string!!, it["email"]!!.string!!) },
+                )
+            }
+            val got = AppRecords.csvRecords(c["schema"], strings(c["header"]), csvRows(c["rows"]), csvMapping(c["mapping"]), author)
+            val expected = c["records"]!!.array!!
+            assertEquals(name, expected.size, got.size)
+            expected.zip(got).forEach { (e, r) ->
+                assertEquals(name, e["row"]!!.number!!.toInt(), r.row)
+                assertEquals(name, strings(e["issues"]), r.issues)
+                assertEquals(name, e["author"]?.string, r.author)
+                assertData(name, e["data"]!!.obj, r.data)
+            }
+        }
+    }
+
+    @Test
+    fun `csvSummary counts the rows without issues`() {
+        assertEquals("2 of 3 rows ready", AppRecords.csvSummaryOf(listOf(emptyList(), listOf("x"), emptyList())))
+        val records = listOf(AppRecords.CsvRecord(2, emptyMap(), emptyList()), AppRecords.CsvRecord(3, emptyMap(), listOf("x")))
+        assertEquals("1 of 2 rows ready", AppRecords.csvSummary(records))
+    }
 }

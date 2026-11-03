@@ -79,6 +79,8 @@ mod exponential_ui_host;
 pub use exponential_ui_host::install_record_outbox;
 // VAPP-110: the Apps page, one app's editor, the New app / Rename form.
 mod app_export_dialog;
+// VAPP-228: the Data tab's CSV import dialog.
+mod app_csv_import_dialog;
 // VAPP-178: the editor's Data tab (records browser + form).
 mod app_data_tab;
 mod app_import_dialog;

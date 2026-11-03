@@ -12,9 +12,9 @@ import { trpc } from "@/lib/trpc-client"
 export type UndoableWrite = `create` | `update` | `delete` | `batch`
 
 /** Toast `write` with Undo; no events (a batch that changed nothing) = no toast. */
-export function toastRecordUndo(appId: string, write: UndoableWrite, eventIds: readonly string[], via: `editor` | `app`): void {
+export function toastRecordUndo(appId: string, write: UndoableWrite, eventIds: readonly string[], via: `editor` | `app`, title = undoTitle(write)): void {
   if (eventIds.length === 0) return
-  toast.success(undoTitle(write), {
+  toast.success(title, {
     duration: APP_RECORD_HISTORY.undoSeconds * 1000,
     action: {
       label: APP_HISTORY_COPY.undo,

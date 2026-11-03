@@ -511,3 +511,264 @@ export function outboxPendingLabel(entries: readonly OutboxEntry[], appId: strin
   if (n === 0) return null
   return n === 1 ? APP_OUTBOX_COPY.pendingOne : APP_OUTBOX_COPY.pending.replace(`{n}`, String(n))
 }
+
+// VAPP-228 (X2, docs/spec/apps.md §10.1/§10.3) SPREADSHEET IMPORT (fixture
+// `csvImport`): the CSV reader, the column auto-mapping and the cell
+// coercion the Data tab's Import dialog runs, pure so the four clients
+// replay the same cases. The host appends `validateRecord` (eUI) issues.
+
+export const APP_CSV_IMPORT = fixture.csvImport
+export const APP_CSV_COPY = fixture.csvImport.copy
+const CSV_ISSUES = fixture.csvImport.issues
+
+export interface CsvRow {
+  /** The record number (header = 1, blank lines counted). */
+  row: number
+  cells: string[]
+}
+
+export interface CsvTable {
+  header: string[]
+  rows: CsvRow[]
+}
+
+/** The delimiter: the most frequent of `,` `;` TAB in the first line outside quotes. */
+function csvDelimiter(text: string): string {
+  const counts = new Map<string, number>([
+    [`,`, 0],
+    [`;`, 0],
+    [`\t`, 0],
+  ])
+  let quoted = false
+  for (const ch of text) {
+    if (ch === `"`) quoted = !quoted
+    else if (!quoted && (ch === `\n` || ch === `\r`)) break
+    else if (!quoted && counts.has(ch)) counts.set(ch, counts.get(ch)! + 1)
+  }
+  let best = `,`
+  for (const [ch, n] of counts) if (n > counts.get(best)!) best = ch
+  return best
+}
+
+/** RFC 4180 → the header + the data rows (`parseCases`). */
+export function csvParse(input: string): CsvTable {
+  const text = input.startsWith(`﻿`) ? input.slice(1) : input
+  const delimiter = csvDelimiter(text)
+  const records: string[][] = []
+  let record: string[] = []
+  let field = ``
+  let quoted = false
+  let i = 0
+  const endRecord = () => {
+    record.push(field)
+    records.push(record)
+    record = []
+    field = ``
+  }
+  while (i < text.length) {
+    const ch = text[i]!
+    if (quoted) {
+      if (ch === `"`) {
+        if (text[i + 1] === `"`) {
+          field += `"`
+          i += 2
+          continue
+        }
+        quoted = false
+      } else field += ch
+      i++
+      continue
+    }
+    if (ch === `"`) quoted = true
+    else if (ch === delimiter) {
+      record.push(field)
+      field = ``
+    } else if (ch === `\r` || ch === `\n`) {
+      endRecord()
+      if (ch === `\r` && text[i + 1] === `\n`) i++
+    } else field += ch
+    i++
+  }
+  if (field !== `` || record.length > 0) endRecord()
+  const numbered = records.map((cells, index) => ({ row: index + 1, cells })).filter((r) => !(r.cells.length === 1 && r.cells[0] === ``))
+  const [first, ...rest] = numbered
+  if (!first) return { header: [], rows: [] }
+  const seen = new Map<string, number>()
+  const header = first.cells.map((cell, index) => {
+    const name = cell.trim() || APP_CSV_COPY.column.replace(`{n}`, String(index + 1))
+    const n = (seen.get(name) ?? 0) + 1
+    seen.set(name, n)
+    return n === 1 ? name : `${name} ${n}`
+  })
+  const rows = rest.map((r) => ({ row: r.row, cells: r.cells.length < header.length ? [...r.cells, ...Array<string>(header.length - r.cells.length).fill(``)] : r.cells }))
+  return { header, rows }
+}
+
+/** A name's matching key: lowercased, only ASCII a–z and 0–9. */
+export function csvKey(name: string): string {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, ``)
+}
+
+/** The first pick per field (`mapCases`): equal keys first, then the ONE
+ *  free column containing the field's key; a column maps at most once. */
+export function csvAutoMap(fields: readonly string[], header: readonly string[]): Record<string, number | null> {
+  const keys = header.map(csvKey)
+  const taken = new Set<number>()
+  const mapping: Record<string, number | null> = {}
+  for (const field of fields) {
+    const key = csvKey(field)
+    const index = key === `` ? -1 : keys.findIndex((k, i) => !taken.has(i) && k === key)
+    mapping[field] = index >= 0 ? index : null
+    if (index >= 0) taken.add(index)
+  }
+  for (const field of fields) {
+    const key = csvKey(field)
+    if (mapping[field] !== null || key === ``) continue
+    const hits = keys.flatMap((k, i) => (!taken.has(i) && k.includes(key) ? [i] : []))
+    if (hits.length === 1) {
+      mapping[field] = hits[0]!
+      taken.add(hits[0]!)
+    }
+  }
+  return mapping
+}
+
+/** The owner's Author pick: the first column whose key is an `authorKeys` entry, else null (= Me). */
+export function csvAuthorColumn(header: readonly string[]): number | null {
+  const index = header.findIndex((name) => APP_CSV_IMPORT.authorKeys.includes(csvKey(name)))
+  return index >= 0 ? index : null
+}
+
+export type CsvCell = { ok: true; value: unknown } | { ok: false; message: string }
+
+const issue = (key: keyof typeof CSV_ISSUES, value: string, values = ``): CsvCell => ({
+  ok: false,
+  message: CSV_ISSUES[key].replace(`{value}`, value).replace(`{values}`, values),
+})
+const pad2 = (s: string) => (s.length === 1 ? `0${s}` : s)
+
+function csvNumber(text: string, integer: boolean): CsvCell {
+  const compact = text.replace(/ /g, ``)
+  if (!/^[+-]?[0-9.,]*[0-9][0-9.,]*$/.test(compact)) return issue(`notNumber`, text)
+  const dot = compact.lastIndexOf(`.`)
+  const comma = compact.lastIndexOf(`,`)
+  let normal: string
+  if (dot >= 0 && comma >= 0) {
+    const decimal = dot > comma ? `.` : `,`
+    const group = decimal === `.` ? `,` : `.`
+    normal = compact.split(group).join(``).replace(decimal, `.`)
+  } else if (dot >= 0 || comma >= 0) {
+    const sep = dot >= 0 ? `.` : `,`
+    const parts = compact.split(sep)
+    normal = parts.length === 2 ? parts.join(`.`) : parts.join(``)
+  } else normal = compact
+  if (!/^[+-]?[0-9]+(\.[0-9]+)?$/.test(normal)) return issue(`notNumber`, text)
+  const n = Number(normal)
+  if (integer && !Number.isInteger(n)) return issue(`notInteger`, text)
+  return { ok: true, value: n }
+}
+
+function csvScalar(field: { type: string; enum?: readonly string[]; format?: string }, text: string): CsvCell {
+  if (field.type === `number` || field.type === `integer`) return csvNumber(text, field.type === `integer`)
+  if (field.type === `boolean`) {
+    const lower = text.toLowerCase()
+    if (APP_CSV_IMPORT.trueWords.includes(lower)) return { ok: true, value: true }
+    if (APP_CSV_IMPORT.falseWords.includes(lower)) return { ok: true, value: false }
+    return issue(`notBoolean`, text)
+  }
+  if (field.enum) {
+    const hit = field.enum.find((v) => v.toLowerCase() === text.toLowerCase())
+    return hit !== undefined ? { ok: true, value: hit } : issue(`notEnum`, text, field.enum.join(`, `))
+  }
+  if (field.format === `date`) {
+    if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(text)) return { ok: true, value: text }
+    const m = /^([0-9]{1,2})\.([0-9]{1,2})\.([0-9]{4})$/.exec(text)
+    if (m) return { ok: true, value: `${m[3]}-${pad2(m[2]!)}-${pad2(m[1]!)}` }
+    return issue(text.includes(`/`) ? `slashDate` : `notDate`, text)
+  }
+  if (field.format === `time`) {
+    const m = /^([0-9]{1,2}):([0-9]{2})(:[0-9]{2})?$/.exec(text)
+    return m ? { ok: true, value: `${pad2(m[1]!)}:${m[2]}${m[3] ?? ``}` } : issue(`notTime`, text)
+  }
+  if (field.format === `date-time`) return /^[0-9]{4}-[0-9]{2}-[0-9]{2}T/.test(text) ? { ok: true, value: text } : issue(`notDateTime`, text)
+  return { ok: true, value: text }
+}
+
+/** One cell → the field's value (`cellCases`); empty = null. */
+export function csvCell(field: DataField, cell: string): CsvCell {
+  const text = cell.trim()
+  if (text === ``) return { ok: true, value: null }
+  if (field.type !== `array`) return csvScalar(field, text)
+  const items = text
+    .split(text.includes(`;`) ? `;` : `,`)
+    .map((item) => item.trim())
+    .filter((item) => item !== ``)
+  if (items.length === 0) return { ok: true, value: null }
+  const values: unknown[] = []
+  for (const item of items) {
+    const read = csvScalar({ type: field.items?.type ?? `string` }, item)
+    if (!read.ok) return read
+    values.push(read.value)
+  }
+  return { ok: true, value: values }
+}
+
+export interface CsvMember {
+  id: string
+  name: string
+  email: string
+}
+
+export interface CsvAuthor {
+  /** The Author column (null = every row is the importer's). */
+  column: number | null
+  importer: string
+  members: readonly CsvMember[]
+}
+
+export interface CsvRecord {
+  row: number
+  data: Record<string, unknown>
+  /** A member's id when the row is someone else's (an on-behalf write). */
+  author?: string
+  issues: string[]
+}
+
+/** The rows → records + their issues (`rowsCases`), before the host's schema check. */
+export function csvRecords(schema: DataSchema, header: readonly string[], rows: readonly CsvRow[], mapping: Readonly<Record<string, number | null>>, author?: CsvAuthor): CsvRecord[] {
+  return rows.map(({ row, cells }) => {
+    const issues: string[] = []
+    const at = (field: string, message: string) => APP_CSV_COPY.issue.replace(`{row}`, String(row)).replace(`{field}`, field).replace(`{message}`, message)
+    if (cells.length > header.length) {
+      const message = CSV_ISSUES.extraCells.replace(`{n}`, String(cells.length)).replace(`{m}`, String(header.length))
+      issues.push(APP_CSV_COPY.rowIssue.replace(`{row}`, String(row)).replace(`{message}`, message))
+    }
+    const data: Record<string, unknown> = {}
+    for (const name of dataColumns(schema)) {
+      const column = mapping[name]
+      if (column === null || column === undefined) continue
+      const read = csvCell(schema.properties[name]!, cells[column] ?? ``)
+      if (!read.ok) issues.push(at(name, read.message))
+      else if (read.value !== null) data[name] = read.value
+    }
+    const record: CsvRecord = { row, data, issues }
+    if (author && author.column !== null) {
+      const text = (cells[author.column] ?? ``).trim()
+      let id: string | null = author.importer
+      if (text !== ``) {
+        const lower = text.toLowerCase()
+        const byEmail = author.members.find((m) => m.email.toLowerCase() === lower)
+        const byName = author.members.filter((m) => m.name.toLowerCase() === lower)
+        id = byEmail?.id ?? (byName.length === 1 ? byName[0]!.id : null)
+      }
+      if (id === null) issues.push(at(APP_DATA_COPY.author, CSV_ISSUES.notMember.replace(`{value}`, text)))
+      else if (id !== author.importer) record.author = id
+    }
+    return record
+  })
+}
+
+/** The preview's count line (`copy.ready`). */
+export function csvSummary(records: readonly { issues: readonly string[] }[]): string {
+  return APP_CSV_COPY.ready.replace(`{n}`, String(records.filter((r) => r.issues.length === 0).length)).replace(`{total}`, String(records.length))
+}

@@ -169,7 +169,7 @@ Needs: C2, C13.
 | C10 | Field state machine (allowed transitions) | ✅ R6 (#VAPP-222) | R6 |
 | C11 | Computed fields on a kind | ❌ | 🆕 Q3 |
 | C12 | CSV/xlsx export of a kind or the current query | ❌ **out of scope** (decided 2026-11-01): records leave through `.app.json` and MCP | — |
-| C13 | Spreadsheet import (agent path + mapping dialog) | 🟡 the agent recipe (§10.2, #VAPP-228); the dialog (§10.3) open | 🆕 X2 |
+| C13 | Spreadsheet import (agent path + mapping dialog) | ✅ the agent recipe (§10.2) and the mapping dialog ×4 (§10.3) | #VAPP-228 |
 | C14 | Package export/import, signed | ✅ | #VAPP-121, #VAPP-161 |
 | C15 | Broker `records` with the full query | ✅ Q4 (#VAPP-216) | |
 | C16 | `exposes` (records / action / upstream) | ✅ | #VAPP-180, #VAPP-181 |
@@ -640,7 +640,7 @@ The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automat
 |---|---|---|
 | `.app.json` (package ± records, signed) | ✅ #VAPP-121, #VAPP-161 (4 MB, ≤ 2,000 records) | Records carry `author`: the export writes it (✅ #VAPP-192, ×4), and the import keeps it when the author is a member of the importing team and the importer an owner; otherwise (a stranger, or a member importing a teammate's export) the row is the importer's (✅ #VAPP-188/192). 🆕 An explicit author mapping when importing into another team. |
 | CSV / xlsx export | ❌ | **Out of scope** (decided 2026-11-01). Records leave through `.app.json` and MCP: an agent reads `records_list` or an exposed tool and writes whatever file it needs. |
-| CSV / xlsx import | 🟡 the agent recipe (§10.2) | 🆕 X2. **Agent path** (✅ §10.2): the agent reads the file in a session and calls `records_upsert` with `author` (R2 ✅ #VAPP-188). **Dialog** (later): the file → pick a kind → map columns (auto-matched by name and type) → preview the issues → import in one transaction; idempotent by an optional `externalId`. |
+| CSV / xlsx import | ✅ #VAPP-228: the agent recipe (§10.2, CSV + xlsx) and the Data tab's mapping dialog (§10.3, CSV) | **Agent path** (✅ §10.2): the agent reads the file in a session and calls `records_upsert` with `author` (R2 ✅ #VAPP-188). **Dialog** (✅ §10.3): paste or choose a CSV → map columns onto the Data tab's kind (auto-matched by name) → preview the issues → import the ready rows in one transaction (`apps.records.batch` `via: import`, ≤ 500 rows), Undo for 10 s. |
 | JSON (records only) | 🟡 via `records_list` | Covered by `.app.json` |
 
 Example: importing a timesheet workbook (one sheet per month, two members) into the time-tracker app exercises the agent path end to end: on-behalf writes, then the totals computed by the query instead of by spreadsheet formulas. Reports leave over MCP (an exposed tool such as `stunden__month_summary`), not as a file export.
@@ -684,7 +684,7 @@ When a person attaches a CSV, TSV or xlsx to an editor chat (or any session that
 
 A NEW app may instead ship its data inside an `.app.json` file with `records` (§10 table, ≤ 2,000 records), which the person imports from the Apps list.
 
-### 10.3 The mapping dialog (🆕 X2 step 2)
+### 10.3 The mapping dialog (✅ X2 step 2)
 
 The Data tab's toolbar has an "Import…" button (×4) next to Add record. It opens the existing import dialog pattern: paste or choose a CSV, map, preview, import. xlsx is not parsed on a client: an xlsx goes through the agent recipe.
 
@@ -860,7 +860,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 **Phase 4: Data in, and testing**
 
-- **X2** Spreadsheet import: the agent recipe first (✅ #VAPP-228, §10.2, in the editor brief and the `exponential-apps` skill), the mapping dialog second (§10.3). (C13)
+- **X2** Spreadsheet import: the agent recipe first (✅ #VAPP-228, §10.2, in the editor brief and the `exponential-apps` skill), the mapping dialog second (✅ #VAPP-228, §10.3, ×4, fixture `app-records.json` `csvImport`). (C13)
 - **T1** ✅ #VAPP-196 Package `tests` (sample records + expected values for expressions, queries and actions), run at install (a failing test is an install issue) and in CI. The "Run as" preview ✅ #VAPP-198. (§11)
 
 **Phase 5: Automation and upstreams**

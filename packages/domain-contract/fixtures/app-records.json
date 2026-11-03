@@ -3438,5 +3438,1063 @@
         "label": "2 changes waiting to sync"
       }
     ]
+  },
+  "csvImport": {
+    "$comment": "VAPP-228 (X2, docs/spec/apps.md §10.1/§10.3) SPREADSHEET IMPORT ×4: the Data tab's `copy.importButton` (outline, `ui-file`, testId `testIds.button`, after Add record; phones the same button, compact; hidden while the viewer may not write) opens THE IMPORT DIALOG (the existing app import dialog pattern: web ≥ md + desktop the Dialog, phones a sheet; title `copy.title` with `{kind}` = the picked kind): a monospace Textarea (`copy.placeholder`) + the `copy.chooseFile` outline button (.csv/.tsv/.txt; xlsx is never parsed on a client: the agent recipe §10.2 reads it). READ = `csvParse(text)` (`parseCases`): RFC 4180; the DELIMITER = the most frequent of `,` `;` TAB in the first line outside quotes (ties in that order, none = `,`); a leading BOM is dropped; CRLF, LF and CR end a record; a quoted field holds delimiters, newlines and `\"\"` (= one quote); a record that is one empty field (a blank line) is skipped but still counted; the FIRST record = the header (cells trimmed; an empty one = `copy.column` `Column {n}`, n = its 1-based position; a repeat gets ` 2`, ` 3`… by occurrence); every other record = a data row whose `row` = its record number (header = 1, blank lines counted: the spreadsheet's row), its cells as written (not trimmed), padded with empty cells to the header's width (extra cells are KEPT so the row can report them). MAPPING = one labelled Select per `dataColumns(schema)` field (label = the field name, `copy.optional` muted after an optional one): options = the header names in order then `copy.skip` (= null); the first pick = `csvAutoMap(fields, header)` (`mapCases`): names compare by `csvKey` (lowercased, only ASCII a–z and 0–9 kept); pass 1, every field in order takes the first free column whose key EQUALS its key; pass 2, every still unmapped field takes the free column whose key CONTAINS its key when exactly ONE does; a column maps to at most one field; a field whose key is empty never auto-maps. A team OWNER also gets an `copy.author` Select FIRST (dataTab `copy.author`): options `copy.me` (= null, the default) then the header names; auto-picked when a column's key is one of `authorKeys`. CELLS = `csvCell(field, cell)` (`cellCases`) on the TRIMMED cell: empty = null (no value); a string: an `enum` = the value equal ignoring case (else `issues.notEnum`, `{values}` = the enum joined `, `); format `date`: `YYYY-MM-DD` as is, `D.M.YYYY` / `DD.MM.YYYY` → `YYYY-MM-DD` (zero-padded), a `/` anywhere = `issues.slashDate`, anything else `issues.notDate`; format `time`: `H:MM` or `HH:MM[:SS]` → the hour zero-padded (else `issues.notTime`); format `date-time`: must start `YYYY-MM-DDT` (else `issues.notDateTime`; the schema check judges the rest); plain text as is. A number: spaces dropped, then it must be `[+-]?` + digits, `.` and `,` with at least one digit (else `issues.notNumber`); with both separators the LAST one is the decimal point and the other is dropped; with one kind only: exactly one = the decimal point, several = grouping (dropped); the result must read `[+-]?digits[.digits]` (else `issues.notNumber`); an integer must be whole (else `issues.notInteger`). A boolean: `trueWords` / `falseWords` ignoring case (else `issues.notBoolean`). An array: split on `;` when the cell has one, else on `,`; items trimmed, empties dropped, none = null; each item read by `items.type` (a string item as is) and the first failing item's issue is the cell's. ROWS = `csvRecords(schema, header, rows, mapping, author)` (`rowsCases`): per data row, `data` = every mapped field with a non-null value (create omits nulls), `issues` = in order: `issues.extraCells` when the row has more cells than the header (`{n}` its cells, `{m}` the header's), then per field in `dataColumns` order a failing cell as `copy.issue` (`row {row}: {field}: {message}`), then the author; AUTHOR (only when `author.column` is a number): the trimmed cell empty = the importer; else the member whose email equals it ignoring case, else the ONE member whose name equals it ignoring case, else `issues.notMember` as `row {row}: {copy.author}: …`; `author` = that member's id only when it differs from `author.importer` (else omitted). THE HOST then appends `validateRecord(schema, data)` (eUI host records, the server's own check; host-router.json `records`) as `row {row}: {path}: {message}` (the path without its leading `/`) to a row with no issues so far. PREVIEW (testId `testIds.preview`): the first `previewRows` rows as the Data tab's rows (phones' look on every platform: title = the first column's `cellText`, subtitle the rest ` · `) each followed by its issues (monospace, text-xs, destructive, at most `issuesShown` per row then `copy.moreIssues`), then the muted line `csvSummary` = `copy.ready` (`{n}` = rows without issues, `{total}` = all rows). More than `maxRows` rows = the inline `copy.tooMany` and Import disabled; zero rows = `copy.noRows`. IMPORT (`copy.importAction`, `{n}` = the ready rows; disabled at 0) = ONE tRPC `apps.records.batch {id, writes: [{op: upsert, kind, data, author?}], via: import}` of the READY rows only, in row order: one transaction, the quota judged for all creates at once; success = toast `copy.imported` (`{n}`, kind success) with the history's `copy.undo` action for `history.undoSeconds` s (Undo = `apps.records.undo {eventIds}` = every created record deleted); the dialog closes. A refused batch: BAD_REQUEST shows the server's message inline under the preview (`write <i>: …` names the row), anything else (the plan limit) = the failed-action toast. Model = `app-records.ts` (`csvParse`, `csvKey`, `csvAutoMap`, `csvAuthorColumn`, `csvCell`, `csvRecords`, `csvSummary`); desktop `domain::app_records`, iOS `AppRecords.swift`, Android `AppRecords.kt` replay every `*Cases` here.",
+    "maxRows": 500,
+    "previewRows": 5,
+    "issuesShown": 3,
+    "trueWords": [
+      "true",
+      "yes",
+      "y",
+      "1",
+      "x"
+    ],
+    "falseWords": [
+      "false",
+      "no",
+      "n",
+      "0"
+    ],
+    "authorKeys": [
+      "author",
+      "member",
+      "user",
+      "email",
+      "person"
+    ],
+    "copy": {
+      "importButton": "Import…",
+      "title": "Import {kind}",
+      "placeholder": "Paste a CSV or choose a file",
+      "chooseFile": "Choose file",
+      "skip": "Skip",
+      "me": "Me",
+      "column": "Column {n}",
+      "issue": "row {row}: {field}: {message}",
+      "rowIssue": "row {row}: {message}",
+      "moreIssues": "+{n} more",
+      "ready": "{n} of {total} rows ready",
+      "tooMany": "Up to {max} rows per import",
+      "noRows": "No rows",
+      "importAction": "Import {n}",
+      "imported": "{n} records imported"
+    },
+    "issues": {
+      "notNumber": "\"{value}\" is not a number",
+      "notInteger": "\"{value}\" is not a whole number",
+      "notBoolean": "\"{value}\" is not yes or no",
+      "notDate": "\"{value}\" is not a date (YYYY-MM-DD)",
+      "slashDate": "\"{value}\" is ambiguous: write YYYY-MM-DD or DD.MM.YYYY",
+      "notTime": "\"{value}\" is not a time (HH:MM)",
+      "notDateTime": "\"{value}\" is not an ISO date-time",
+      "notEnum": "\"{value}\" is not one of {values}",
+      "notMember": "\"{value}\" is not a member",
+      "extraCells": "{n} cells, the header has {m}"
+    },
+    "testIds": {
+      "button": "app-data-import",
+      "dialog": "app-csv-import",
+      "text": "app-csv-text",
+      "file": "app-csv-file",
+      "map": "app-csv-map",
+      "author": "app-csv-author",
+      "preview": "app-csv-preview",
+      "error": "app-csv-error",
+      "confirm": "app-csv-confirm"
+    },
+    "parseCases": [
+      {
+        "name": "comma, CRLF, a trailing newline",
+        "text": "date,hours,note\r\n2026-10-01,6.5,Support\r\n2026-10-02,8,\r\n",
+        "header": [
+          "date",
+          "hours",
+          "note"
+        ],
+        "rows": [
+          {
+            "row": 2,
+            "cells": [
+              "2026-10-01",
+              "6.5",
+              "Support"
+            ]
+          },
+          {
+            "row": 3,
+            "cells": [
+              "2026-10-02",
+              "8",
+              ""
+            ]
+          }
+        ]
+      },
+      {
+        "name": "semicolon wins (a German export), decimal commas stay cells",
+        "text": "Datum;Stunden;Notiz\n01.10.2026;6,5;Support, admin\n",
+        "header": [
+          "Datum",
+          "Stunden",
+          "Notiz"
+        ],
+        "rows": [
+          {
+            "row": 2,
+            "cells": [
+              "01.10.2026",
+              "6,5",
+              "Support, admin"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "tab-separated",
+        "text": "date\thours\n2026-10-01\t3\n",
+        "header": [
+          "date",
+          "hours"
+        ],
+        "rows": [
+          {
+            "row": 2,
+            "cells": [
+              "2026-10-01",
+              "3"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "a BOM, quoted delimiters, an escaped quote and a newline in quotes",
+        "text": "﻿name,note\n\"Doe, Jane\",\"said \"\"hi\"\"\nthen left\"\n",
+        "header": [
+          "name",
+          "note"
+        ],
+        "rows": [
+          {
+            "row": 2,
+            "cells": [
+              "Doe, Jane",
+              "said \"hi\"\nthen left"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "blank lines are skipped but counted, short rows pad, extra cells stay",
+        "text": "a,b,c\n\n1,2\n1,2,3,4\n",
+        "header": [
+          "a",
+          "b",
+          "c"
+        ],
+        "rows": [
+          {
+            "row": 3,
+            "cells": [
+              "1",
+              "2",
+              ""
+            ]
+          },
+          {
+            "row": 4,
+            "cells": [
+              "1",
+              "2",
+              "3",
+              "4"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "empty and repeated headers",
+        "text": " ,hours,hours,,Hours\n1,2,3,4,5\n",
+        "header": [
+          "Column 1",
+          "hours",
+          "hours 2",
+          "Column 4",
+          "Hours"
+        ],
+        "rows": [
+          {
+            "row": 2,
+            "cells": [
+              "1",
+              "2",
+              "3",
+              "4",
+              "5"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "CR-only line ends and no final newline",
+        "text": "a,b\r1,2\r3,4",
+        "header": [
+          "a",
+          "b"
+        ],
+        "rows": [
+          {
+            "row": 2,
+            "cells": [
+              "1",
+              "2"
+            ]
+          },
+          {
+            "row": 3,
+            "cells": [
+              "3",
+              "4"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "a header only",
+        "text": "a,b\n",
+        "header": [
+          "a",
+          "b"
+        ],
+        "rows": []
+      },
+      {
+        "name": "empty text",
+        "text": "",
+        "header": [],
+        "rows": []
+      }
+    ],
+    "mapCases": [
+      {
+        "name": "equal keys ignore case, spaces and punctuation",
+        "fields": [
+          "date",
+          "hours",
+          "note"
+        ],
+        "header": [
+          "Date",
+          "Hours",
+          "Note (optional)",
+          "Extra"
+        ],
+        "mapping": {
+          "date": 0,
+          "hours": 1,
+          "note": 2
+        }
+      },
+      {
+        "name": "containment when exactly one column contains the key",
+        "fields": [
+          "date",
+          "hours"
+        ],
+        "header": [
+          "Day",
+          "Hours worked",
+          "Date of entry"
+        ],
+        "mapping": {
+          "date": 2,
+          "hours": 1
+        }
+      },
+      {
+        "name": "two columns containing the key = no pick",
+        "fields": [
+          "hours"
+        ],
+        "header": [
+          "hours planned",
+          "hours billed"
+        ],
+        "mapping": {
+          "hours": null
+        }
+      },
+      {
+        "name": "an equal key wins over containment, a column maps once",
+        "fields": [
+          "hours",
+          "hoursbilled"
+        ],
+        "header": [
+          "Hours billed",
+          "Hours"
+        ],
+        "mapping": {
+          "hours": 1,
+          "hoursbilled": 0
+        }
+      },
+      {
+        "name": "snake and camel case match",
+        "fields": [
+          "issueRef",
+          "billable"
+        ],
+        "header": [
+          "issue_ref",
+          "Billable?"
+        ],
+        "mapping": {
+          "issueRef": 0,
+          "billable": 1
+        }
+      },
+      {
+        "name": "non-ASCII is dropped from keys",
+        "fields": [
+          "stunden",
+          "groesse"
+        ],
+        "header": [
+          "Stunden",
+          "Größe"
+        ],
+        "mapping": {
+          "stunden": 0,
+          "groesse": null
+        }
+      },
+      {
+        "name": "no columns",
+        "fields": [
+          "date"
+        ],
+        "header": [],
+        "mapping": {
+          "date": null
+        }
+      }
+    ],
+    "authorColumnCases": [
+      {
+        "header": [
+          "Member"
+        ],
+        "column": 0
+      },
+      {
+        "header": [
+          "Date",
+          "E-Mail"
+        ],
+        "column": 1
+      },
+      {
+        "header": [
+          "Date",
+          "Hours"
+        ],
+        "column": null
+      },
+      {
+        "header": [
+          "user",
+          "Author"
+        ],
+        "column": 0
+      }
+    ],
+    "cellCases": [
+      {
+        "name": "empty = null",
+        "field": {
+          "type": "number"
+        },
+        "cell": "   ",
+        "value": null
+      },
+      {
+        "name": "text is trimmed",
+        "field": {
+          "type": "string"
+        },
+        "cell": "  Support  ",
+        "value": "Support"
+      },
+      {
+        "name": "a dot decimal",
+        "field": {
+          "type": "number"
+        },
+        "cell": "6.5",
+        "value": 6.5
+      },
+      {
+        "name": "a lone comma is a decimal comma",
+        "field": {
+          "type": "number"
+        },
+        "cell": "6,5",
+        "value": 6.5
+      },
+      {
+        "name": "both separators: the last is the decimal",
+        "field": {
+          "type": "number"
+        },
+        "cell": "1,240.5",
+        "value": 1240.5
+      },
+      {
+        "name": "both separators, German",
+        "field": {
+          "type": "number"
+        },
+        "cell": "1.240,5",
+        "value": 1240.5
+      },
+      {
+        "name": "several commas group thousands",
+        "field": {
+          "type": "number"
+        },
+        "cell": "1,240,000",
+        "value": 1240000
+      },
+      {
+        "name": "spaces group thousands",
+        "field": {
+          "type": "number"
+        },
+        "cell": "12 500",
+        "value": 12500
+      },
+      {
+        "name": "a sign",
+        "field": {
+          "type": "number"
+        },
+        "cell": "-3",
+        "value": -3
+      },
+      {
+        "name": "not a number",
+        "field": {
+          "type": "number"
+        },
+        "cell": "three",
+        "issue": "\"three\" is not a number"
+      },
+      {
+        "name": "a currency sign is not a number",
+        "field": {
+          "type": "number"
+        },
+        "cell": "€ 12",
+        "issue": "\"€ 12\" is not a number"
+      },
+      {
+        "name": "two decimal points",
+        "field": {
+          "type": "number"
+        },
+        "cell": "1.2.3,4",
+        "value": 123.4
+      },
+      {
+        "name": "an integer",
+        "field": {
+          "type": "integer"
+        },
+        "cell": "40",
+        "value": 40
+      },
+      {
+        "name": "an integer must be whole",
+        "field": {
+          "type": "integer"
+        },
+        "cell": "6,5",
+        "issue": "\"6,5\" is not a whole number"
+      },
+      {
+        "name": "booleans read words ignoring case",
+        "field": {
+          "type": "boolean"
+        },
+        "cell": "Yes",
+        "value": true
+      },
+      {
+        "name": "x is true",
+        "field": {
+          "type": "boolean"
+        },
+        "cell": "x",
+        "value": true
+      },
+      {
+        "name": "0 is false",
+        "field": {
+          "type": "boolean"
+        },
+        "cell": "0",
+        "value": false
+      },
+      {
+        "name": "not a boolean",
+        "field": {
+          "type": "boolean"
+        },
+        "cell": "maybe",
+        "issue": "\"maybe\" is not yes or no"
+      },
+      {
+        "name": "an enum ignores case",
+        "field": {
+          "type": "string",
+          "enum": [
+            "work",
+            "meeting"
+          ]
+        },
+        "cell": "Meeting",
+        "value": "meeting"
+      },
+      {
+        "name": "not in the enum",
+        "field": {
+          "type": "string",
+          "enum": [
+            "work",
+            "meeting"
+          ]
+        },
+        "cell": "travel",
+        "issue": "\"travel\" is not one of work, meeting"
+      },
+      {
+        "name": "an ISO date",
+        "field": {
+          "type": "string",
+          "format": "date"
+        },
+        "cell": "2026-10-01",
+        "value": "2026-10-01"
+      },
+      {
+        "name": "a German date pads",
+        "field": {
+          "type": "string",
+          "format": "date"
+        },
+        "cell": "1.9.2026",
+        "value": "2026-09-01"
+      },
+      {
+        "name": "a slash date is ambiguous",
+        "field": {
+          "type": "string",
+          "format": "date"
+        },
+        "cell": "3/4/2026",
+        "issue": "\"3/4/2026\" is ambiguous: write YYYY-MM-DD or DD.MM.YYYY"
+      },
+      {
+        "name": "not a date",
+        "field": {
+          "type": "string",
+          "format": "date"
+        },
+        "cell": "October 1",
+        "issue": "\"October 1\" is not a date (YYYY-MM-DD)"
+      },
+      {
+        "name": "a time pads the hour",
+        "field": {
+          "type": "string",
+          "format": "time"
+        },
+        "cell": "9:05",
+        "value": "09:05"
+      },
+      {
+        "name": "a time keeps its seconds",
+        "field": {
+          "type": "string",
+          "format": "time"
+        },
+        "cell": "17:30:15",
+        "value": "17:30:15"
+      },
+      {
+        "name": "not a time",
+        "field": {
+          "type": "string",
+          "format": "time"
+        },
+        "cell": "9am",
+        "issue": "\"9am\" is not a time (HH:MM)"
+      },
+      {
+        "name": "an ISO date-time",
+        "field": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cell": "2026-10-01T09:00:00Z",
+        "value": "2026-10-01T09:00:00Z"
+      },
+      {
+        "name": "not a date-time",
+        "field": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "cell": "2026-10-01 09:00",
+        "issue": "\"2026-10-01 09:00\" is not an ISO date-time"
+      },
+      {
+        "name": "a list splits on commas",
+        "field": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cell": "support, admin,,",
+        "value": [
+          "support",
+          "admin"
+        ]
+      },
+      {
+        "name": "a list splits on semicolons when it has one",
+        "field": {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        },
+        "cell": "1,5; 2",
+        "value": [
+          1.5,
+          2
+        ]
+      },
+      {
+        "name": "a list's first bad item is the issue",
+        "field": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          }
+        },
+        "cell": "1, x, y",
+        "issue": "\"x\" is not a number"
+      },
+      {
+        "name": "an empty list = null",
+        "field": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cell": " , ",
+        "value": null
+      }
+    ],
+    "rowsCases": [
+      {
+        "name": "a timesheet: values coerce, nulls are omitted, issues name row and field",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "hours": {
+              "type": "number"
+            },
+            "note": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "work",
+                "meeting"
+              ]
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "header": [
+          "Datum",
+          "Stunden",
+          "Notiz",
+          "Art",
+          "Tags"
+        ],
+        "rows": [
+          {
+            "row": 2,
+            "cells": [
+              "01.10.2026",
+              "6,5",
+              "Support",
+              "Work",
+              "a, b"
+            ]
+          },
+          {
+            "row": 3,
+            "cells": [
+              "02.10.2026",
+              "",
+              "",
+              "meeting",
+              ""
+            ]
+          },
+          {
+            "row": 4,
+            "cells": [
+              "3/10/2026",
+              "drei",
+              "x",
+              "travel",
+              ""
+            ]
+          },
+          {
+            "row": 5,
+            "cells": [
+              "04.10.2026",
+              "8",
+              "",
+              "",
+              ""
+            ]
+          }
+        ],
+        "mapping": {
+          "date": 0,
+          "hours": 1,
+          "kind": 3,
+          "note": 2,
+          "tags": 4
+        },
+        "records": [
+          {
+            "row": 2,
+            "data": {
+              "date": "2026-10-01",
+              "hours": 6.5,
+              "kind": "work",
+              "note": "Support",
+              "tags": [
+                "a",
+                "b"
+              ]
+            },
+            "issues": []
+          },
+          {
+            "row": 3,
+            "data": {
+              "date": "2026-10-02",
+              "kind": "meeting"
+            },
+            "issues": []
+          },
+          {
+            "row": 4,
+            "data": {
+              "note": "x"
+            },
+            "issues": [
+              "row 4: date: \"3/10/2026\" is ambiguous: write YYYY-MM-DD or DD.MM.YYYY",
+              "row 4: hours: \"drei\" is not a number",
+              "row 4: kind: \"travel\" is not one of work, meeting"
+            ]
+          },
+          {
+            "row": 5,
+            "data": {
+              "date": "2026-10-04",
+              "hours": 8
+            },
+            "issues": []
+          }
+        ]
+      },
+      {
+        "name": "extra cells come first; a skipped field is never read",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "hours": {
+              "type": "number"
+            },
+            "note": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "work",
+                "meeting"
+              ]
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "header": [
+          "date",
+          "hours",
+          "note"
+        ],
+        "rows": [
+          {
+            "row": 2,
+            "cells": [
+              "2026-10-01",
+              "1",
+              "n",
+              "EXTRA"
+            ]
+          }
+        ],
+        "mapping": {
+          "date": 0,
+          "hours": 1,
+          "note": null,
+          "kind": null,
+          "tags": null
+        },
+        "records": [
+          {
+            "row": 2,
+            "data": {
+              "date": "2026-10-01",
+              "hours": 1
+            },
+            "issues": [
+              "row 2: 4 cells, the header has 3"
+            ]
+          }
+        ]
+      },
+      {
+        "name": "authors: email, a unique name, empty = the importer (omitted), unknown and ambiguous names",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "date": {
+              "type": "string",
+              "format": "date"
+            },
+            "hours": {
+              "type": "number"
+            },
+            "note": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "enum": [
+                "work",
+                "meeting"
+              ]
+            },
+            "tags": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "date",
+            "hours"
+          ]
+        },
+        "header": [
+          "date",
+          "hours",
+          "member"
+        ],
+        "rows": [
+          {
+            "row": 2,
+            "cells": [
+              "2026-10-01",
+              "1",
+              "MARA@example.com"
+            ]
+          },
+          {
+            "row": 3,
+            "cells": [
+              "2026-10-02",
+              "2",
+              "mara li"
+            ]
+          },
+          {
+            "row": 4,
+            "cells": [
+              "2026-10-03",
+              "3",
+              ""
+            ]
+          },
+          {
+            "row": 5,
+            "cells": [
+              "2026-10-04",
+              "4",
+              "Danny"
+            ]
+          },
+          {
+            "row": 6,
+            "cells": [
+              "2026-10-05",
+              "5",
+              "Sam"
+            ]
+          },
+          {
+            "row": 7,
+            "cells": [
+              "2026-10-06",
+              "6",
+              "Kim"
+            ]
+          }
+        ],
+        "mapping": {
+          "date": 0,
+          "hours": 1,
+          "kind": null,
+          "note": null,
+          "tags": null
+        },
+        "author": {
+          "column": 2,
+          "importer": "u1",
+          "members": [
+            {
+              "id": "u1",
+              "name": "Danny",
+              "email": "danny@example.com"
+            },
+            {
+              "id": "u2",
+              "name": "Mara Li",
+              "email": "mara@example.com"
+            },
+            {
+              "id": "u3",
+              "name": "Sam",
+              "email": "sam@example.com"
+            },
+            {
+              "id": "u4",
+              "name": "Sam",
+              "email": "sam.k@example.com"
+            }
+          ]
+        },
+        "records": [
+          {
+            "row": 2,
+            "data": {
+              "date": "2026-10-01",
+              "hours": 1
+            },
+            "issues": [],
+            "author": "u2"
+          },
+          {
+            "row": 3,
+            "data": {
+              "date": "2026-10-02",
+              "hours": 2
+            },
+            "issues": [],
+            "author": "u2"
+          },
+          {
+            "row": 4,
+            "data": {
+              "date": "2026-10-03",
+              "hours": 3
+            },
+            "issues": []
+          },
+          {
+            "row": 5,
+            "data": {
+              "date": "2026-10-04",
+              "hours": 4
+            },
+            "issues": []
+          },
+          {
+            "row": 6,
+            "data": {
+              "date": "2026-10-05",
+              "hours": 5
+            },
+            "issues": [
+              "row 6: Author: \"Sam\" is not a member"
+            ]
+          },
+          {
+            "row": 7,
+            "data": {
+              "date": "2026-10-06",
+              "hours": 6
+            },
+            "issues": [
+              "row 7: Author: \"Kim\" is not a member"
+            ]
+          }
+        ]
+      }
+    ]
   }
 }

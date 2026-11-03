@@ -511,7 +511,7 @@ export async function deleteRecord(
 
 /** VAPP-194: one write of a package action's plan (`@exponential_app/eui`
  *  `ActionWrite`): a create, a patch (`id`) or a delete. */
-export type RecordBatchWrite = { op: `upsert`; kind: string; data: Record<string, unknown>; id?: string; newId?: string } | { op: `delete`; id: string }
+export type RecordBatchWrite = { op: `upsert`; kind: string; data: Record<string, unknown>; id?: string; newId?: string; author?: string } | { op: `delete`; id: string }
 
 /** VAPP-194 (eApps E1): a package action's record writes as ONE Postgres
  *  transaction, all or nothing (docs/spec/apps.md §4.5): every write runs the
@@ -519,17 +519,23 @@ export type RecordBatchWrite = { op: `upsert`; kind: string; data: Record<string
  *  record cap, ownership; the team quota for all the creates at once), in
  *  order; the first refusal (`write <i>: …`) rolls the whole batch back. The
  *  server stays the authority: the client's `require` steps guard nothing
- *  here. No on-behalf writes (an action writes as its member). */
+ *  here. VAPP-228: a create's `author` = an on-behalf write (owners only:
+ *  the CSV import's Author column); `via` = `import` for that import. */
 export async function commitRecordBatch(
   userId: string,
   ref: AppRef,
   writes: readonly RecordBatchWrite[],
   executor: Executor = defaultDb,
-  writeId?: string
+  writeId?: string,
+  via: Extract<RecordWriteVia, `action` | `import`> = `action`
 ): Promise<{ txid: number; ids: string[]; eventIds: string[] }> {
   const app = await loadApp(executor, ref)
   const viewer = await viewerOf(executor, app, userId)
   assertCanWrite(viewer)
+  // VAPP-228: a create's `author` (the CSV import's Author column) = an
+  // on-behalf write, owners only, the author a member (VAPP-188).
+  const onBehalf = writes.some((w) => w.op === `upsert` && w.id === undefined && w.author !== undefined && w.author !== userId)
+  const members = onBehalf && viewer.role === `owner` ? await teamMemberIds(executor, app.teamId) : []
   const at = (i: number, e: unknown): never => {
     if (e instanceof TRPCError) throw new TRPCError({ code: e.code, message: `write ${i}: ${e.message}` })
     throw e
@@ -593,23 +599,25 @@ export async function commitRecordBatch(
             continue
           }
           assertRecordOp(app, w.kind, `create`, viewer)
+          assertCanWriteAs(userId, viewer.role, w.author, members)
           const data = checkedAgainst(schema, w.data)
           assertTransition(app, w.kind, viewer, null, data)
           await assertRecordRefs(tx, app, w.kind, data)
+          const author = w.author ?? userId
           const [row] = await tx
             .insert(appRecords)
-            .values({ ...(w.newId ? { id: w.newId } : {}), appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: userId, updatedBy: userId, schemaVersion: app.publishedVersion })
+            .values({ ...(w.newId ? { id: w.newId } : {}), appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: author, updatedBy: userId, schemaVersion: app.publishedVersion })
             .onConflictDoNothing({ target: appRecords.id })
             .returning({ id: appRecords.id })
           if (!row) throw idTaken()
           fired.push({ kind: w.kind, op: `create`, record: { ...data, id: row.id } })
           ids.push(row.id)
-          events.push({ recordId: row.id, kind: w.kind, op: `create`, author: userId, patch: data, before: null })
+          events.push({ recordId: row.id, kind: w.kind, op: `create`, author, patch: data, before: null })
         } catch (e) {
           at(i, e)
         }
       }
-      const eventIds = await logEvents(tx, app, userId, `action`, events, writeId)
+      const eventIds = await logEvents(tx, app, userId, via, events, writeId)
       return { txid: txId, ids, eventIds }
     })
   })

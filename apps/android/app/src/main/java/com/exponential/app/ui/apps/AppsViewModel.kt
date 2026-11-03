@@ -551,6 +551,58 @@ class AppEditorViewModel @Inject constructor(
         }
     }
 
+    private val _csvImporting = MutableStateFlow(false)
+    /** VAPP-228: the CSV import's batch in flight. */
+    val csvImporting: StateFlow<Boolean> = _csvImporting
+
+    private val _csvError = MutableStateFlow<String?>(null)
+    /** VAPP-228: a refused import's BAD_REQUEST (`write <i>: …`), inline
+     *  under the preview; anything else is the failed-action toast. */
+    val csvError: StateFlow<String?> = _csvError
+
+    fun clearCsvError() {
+        _csvError.value = null
+    }
+
+    /** VAPP-228 (app-records.json `csvImport`): the READY rows as ONE
+     *  `apps.records.batch {id, writes: [{op: upsert, kind, data, author?}],
+     *  via: import}`, in row order; [onDone] closes the sheet, then the
+     *  `{n} records imported` toast with Undo. */
+    fun importRecords(kind: String, records: List<AppRecords.CsvRecord>, onDone: () -> Unit) {
+        if (_csvImporting.value || records.isEmpty()) return
+        val accountId = auth.activeAccountId.value ?: return
+        _csvImporting.value = true
+        _csvError.value = null
+        viewModelScope.launch {
+            try {
+                val writes = kotlinx.serialization.json.JsonArray(
+                    records.map { r ->
+                        kotlinx.serialization.json.buildJsonObject {
+                            put("op", kotlinx.serialization.json.JsonPrimitive("upsert"))
+                            put("kind", kotlinx.serialization.json.JsonPrimitive(kind))
+                            put("data", Json.parseToJsonElement(JsonValue.Obj(r.data).orderedJson))
+                            r.author?.let { put("author", kotlinx.serialization.json.JsonPrimitive(it)) }
+                        }
+                    },
+                )
+                val result = api.recordsBatch(accountId, appId, writes, via = "import")
+                onDone()
+                _undo.tryEmit(
+                    RecordUndo("batch", result.eventIds, "editor", AppRecords.CsvCopy.IMPORTED.replace("{n}", result.ids.size.toString())),
+                )
+            } catch (t: Throwable) {
+                if (t is CancellationException) throw t
+                if (!isOfflineError(t) && t is TrpcException && t.code == "BAD_REQUEST" && !t.isPlanLimit) {
+                    _csvError.value = trpcErrorMessage(t, "the rows are invalid")
+                } else {
+                    _failure.value = FailedAction("import", "the records", trpcErrorMessage(t, ""))
+                }
+            } finally {
+                _csvImporting.value = false
+            }
+        }
+    }
+
     private val _recordDeleting = MutableStateFlow(false)
     val recordDeleting: StateFlow<Boolean> = _recordDeleting
 

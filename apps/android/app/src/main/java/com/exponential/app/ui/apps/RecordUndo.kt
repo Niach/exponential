@@ -11,13 +11,14 @@ import com.exponential.app.ui.components.Toaster
 // failed-action toast `Couldn't undo the change`.
 
 /** A UI write to toast Undo for: [write] = `create` | `update` | `delete` | `batch`. */
-data class RecordUndo(val write: String, val eventIds: List<String>, val via: String)
+data class RecordUndo(val write: String, val eventIds: List<String>, val via: String, val title: String? = null)
 
-/** Toast [write] with Undo; no events (a batch that changed nothing) = no toast. */
-fun Toaster.recordUndo(write: String, eventIds: List<String>, onUndo: () -> Unit) {
+/** Toast [write] with Undo; no events (a batch that changed nothing) = no
+ *  toast. [title] overrides the write's title (VAPP-228: `{n} records imported`). */
+fun Toaster.recordUndo(write: String, eventIds: List<String>, title: String? = null, onUndo: () -> Unit) {
     if (eventIds.isEmpty()) return
     success(
-        AppRecords.undoTitle(write),
+        title ?: AppRecords.undoTitle(write),
         action = ToastAction(AppRecords.HistoryCopy.UNDO, onUndo),
         durationMs = AppRecords.History.UNDO_SECONDS * 1000L,
     )

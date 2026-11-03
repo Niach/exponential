@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterAll, describe, expect, it, vi } from "vitest"
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, isNull, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { appAccess, appRecordEvents, appRecords, appVersions, apps, boards, devices, issues, sessions, teamMembers, teams } from "@/db/schema"
 import { probeRealDb } from "@/test/real-db"
@@ -508,6 +508,25 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(theirs.id).not.toBe(newId)
     ;[row] = await db.select().from(appRecords).where(eq(appRecords.id, theirs.id))
     expect(row!.createdBy).toBe(w.owner)
+  })
+
+  // VAPP-228 (app-records.json `csvImport`): the CSV import = ONE batch
+  // `via: import` past the action cap, with on-behalf authors (owners only).
+  it(`records: a CSV import batch logs import, takes authors and undoes as one`, async () => {
+    const w = await world()
+    const appId = (await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })).app.id
+    const writes = Array.from({ length: 70 }, (_, i) => ({ op: `upsert` as const, kind: `entry`, data: { date: `2026-10-06`, hours: i % 8 }, ...(i === 0 ? { author: w.mate } : {}) }))
+    await expect(caller(w.owner).records.batch({ id: appId, writes })).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    const batch = await caller(w.owner).records.batch({ id: appId, writes, via: `import` })
+    expect(batch.ids).toHaveLength(70)
+    const [first] = await db.select().from(appRecords).where(eq(appRecords.id, batch.ids[0]!))
+    expect([first!.authorId, first!.createdBy]).toEqual([w.mate, w.owner])
+    expect((await caller(w.owner).records.history({ id: appId, recordId: batch.ids[1]! })).events[0]).toMatchObject({ op: `create`, via: `import` })
+    // A member may not import on behalf of someone else.
+    await expect(caller(w.mate).records.batch({ id: appId, writes: [{ op: `upsert`, kind: `entry`, data: { date: `2026-10-06`, hours: 1 }, author: w.owner }], via: `import` })).rejects.toMatchObject({ code: `FORBIDDEN` })
+    await caller(w.owner).records.undo({ id: appId, eventIds: batch.eventIds })
+    const live = await db.select().from(appRecords).where(and(eq(appRecords.appId, appId), isNull(appRecords.deletedAt)))
+    expect(live).toHaveLength(0)
   })
 
   // VAPP-187 (app-records.json `ownership`): only the record's author or a

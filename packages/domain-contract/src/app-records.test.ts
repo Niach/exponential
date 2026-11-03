@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/app-records.json" with { type: "json" }
-import { eventLabel, eventState, historyRows, inverseWrite, outboxFlush, outboxOutcome, outboxPendingLabel, outboxPrune, outboxRequest, outboxRows, outboxWrites, APP_RECORD_ROW_KEYS, appRecordPurgeDue, authorOptions, canChangeRecord, formAuthor, importAuthor, recordAuthor, recordByline, writeAsVerdict, cellText, dataColumns, dataKinds, dataRows, formData, formFields, formInput, recordsCountLabel } from "./app-records"
+import { eventLabel, eventState, historyRows, inverseWrite, outboxFlush, outboxOutcome, outboxPendingLabel, outboxPrune, outboxRequest, outboxRows, outboxWrites, APP_RECORD_ROW_KEYS, appRecordPurgeDue, authorOptions, canChangeRecord, formAuthor, importAuthor, recordAuthor, recordByline, writeAsVerdict, cellText, dataColumns, dataKinds, dataRows, formData, formFields, formInput, recordsCountLabel, csvAuthorColumn, csvAutoMap, csvCell, csvParse, csvRecords, csvSummary, type CsvAuthor, type CsvRecord, type DataField, type DataSchema } from "./app-records"
 
 // VAPP-189: the query and its value are eUI's (packages/exponential-ui
 // fixtures/records-query.json); what stays here is Exponential's own.
@@ -106,5 +106,28 @@ describe(`record outbox (VAPP-235)`, () => {
   })
   test.each(o.pendingCases)(`outboxPendingLabel: $name`, (c) => {
     expect(outboxPendingLabel(c.entries as never, c.appId)).toBe(c.label)
+  })
+})
+
+describe(`spreadsheet import (VAPP-228, fixture csvImport)`, () => {
+  const c = fixture.csvImport
+  test.each(c.parseCases)(`csvParse: $name`, (k) => {
+    expect(csvParse(k.text)).toEqual({ header: k.header, rows: k.rows })
+  })
+  test.each(c.mapCases)(`csvAutoMap: $name`, (k) => {
+    expect(csvAutoMap(k.fields, k.header)).toEqual(k.mapping as Record<string, number | null>)
+  })
+  test.each(c.authorColumnCases)(`csvAuthorColumn %#`, (k) => {
+    expect(csvAuthorColumn(k.header)).toBe(k.column)
+  })
+  test.each(c.cellCases)(`csvCell: $name`, (k) => {
+    expect(csvCell(k.field as DataField, k.cell)).toEqual(`issue` in k ? { ok: false, message: k.issue } : { ok: true, value: k.value })
+  })
+  test.each(c.rowsCases)(`csvRecords: $name`, (k) => {
+    const author = `author` in k ? (k.author as CsvAuthor) : undefined
+    expect(csvRecords(k.schema as DataSchema, k.header, k.rows, k.mapping as Record<string, number | null>, author)).toEqual(k.records as CsvRecord[])
+  })
+  test(`csvSummary counts the rows without issues`, () => {
+    expect(csvSummary([{ issues: [] }, { issues: [`x`] }, { issues: [] }])).toBe(`2 of 3 rows ready`)
   })
 })
