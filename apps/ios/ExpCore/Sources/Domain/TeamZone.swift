@@ -32,4 +32,14 @@ public enum TeamZone {
     public static func hostTimeZone(_ teamZone: String?) -> TimeZone {
         resolveZone(teamZone).flatMap(TimeZone.init(identifier:)) ?? .current
     }
+
+    /// Dogfood G: the calendar day (`YYYY-MM-DD`) at an instant in a zone:
+    /// the records month view's `today` and default month
+    /// (records-query.json `today`), the day `today()` reads.
+    public static func day(_ date: Date, in zone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = zone
+        let c = calendar.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
 }

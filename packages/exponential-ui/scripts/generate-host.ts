@@ -142,6 +142,7 @@ function renderRecordsQuery(f: Record<string, any>): Record<string, unknown> {
     expected: recordsValue(c.rows as RecordRow[], c.query !== undefined ? parseRecordsJson(c.query, c.kind as string | undefined).query : parseRecordsQuery(c.params as Record<string, string>, c.kind as string | undefined), {
       me: c.me as string | null,
       now: c.now as string,
+      today: c.today as string | undefined,
       names: c.names as Record<string, string>,
       computed: c.computed as Record<string, string> | undefined,
     }),

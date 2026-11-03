@@ -57,7 +57,7 @@ final class RecordsQueryTests: XCTestCase {
         XCTAssertFalse(cases.isEmpty)
         for c in cases {
             let query = c["query"].map { RecordsQuery.parse(json: $0.json, kind: c["kind"]?.string).query } ?? RecordsQuery.parse(params: strings(c["params"]), kind: c["kind"]?.string)
-            let value = query.value(rows: rows(c["rows"]), me: c["me"]?.string, now: c["now"]?.string ?? "", names: strings(c["names"]), computed: strings(c["computed"]))
+            let value = query.value(rows: rows(c["rows"]), me: c["me"]?.string, now: c["now"]?.string ?? "", today: c["today"]?.string, names: strings(c["names"]), computed: strings(c["computed"]))
             same(value, c["expected"], c["name"]?.string ?? "")
         }
     }

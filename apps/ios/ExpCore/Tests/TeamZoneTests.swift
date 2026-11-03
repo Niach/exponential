@@ -66,3 +66,12 @@ final class UpdateTeamInputTimeZoneTests: XCTestCase {
         XCTAssertTrue(cleared["timeZone"] is NSNull)
     }
 }
+
+final class TeamZoneDayTests: XCTestCase {
+    // Dogfood G: the records month view's `today` is the team zone's day.
+    func testDayInZone() throws {
+        let at = Date(timeIntervalSince1970: 1_793_704_500) // 2026-11-03T11:15:00Z
+        XCTAssertEqual(TeamZone.day(at, in: try XCTUnwrap(TimeZone(identifier: "Pacific/Kiritimati"))), "2026-11-04")
+        XCTAssertEqual(TeamZone.day(at, in: try XCTUnwrap(TimeZone(identifier: "UTC"))), "2026-11-03")
+    }
+}

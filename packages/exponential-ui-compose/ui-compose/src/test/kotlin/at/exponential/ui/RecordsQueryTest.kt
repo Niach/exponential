@@ -68,7 +68,7 @@ class RecordsQueryTest {
         for (c in all) {
             val json = c["query"]
             val query = if (json != null) RecordsQuery.parseJson(json.json, c["kind"]?.string).query else RecordsQuery.parse(strings(c["params"]), c["kind"]?.string)
-            val value = query.value(rows(c["rows"]), c["me"]?.string, c["now"]?.string ?: "", strings(c["names"]), strings(c["computed"]))
+            val value = query.value(rows(c["rows"]), c["me"]?.string, c["now"]?.string ?: "", strings(c["names"]), strings(c["computed"]), c["today"]?.string)
             same(value, c["expected"], c["name"]?.string ?: "")
         }
     }

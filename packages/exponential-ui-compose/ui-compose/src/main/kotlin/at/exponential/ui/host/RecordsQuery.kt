@@ -29,13 +29,16 @@ class RecordsQuery private constructor(
      * ISO 8601 (the month view's default month), [names] = user id →
      * display name. VAPP-214: [computed] = the queried kind's computed
      * fields (name → CEL, [computed] in the companion), evaluated on read.
+     * [today] = the host's calendar day in the team zone (`YYYY-MM-DD`): the
+     * month view's `today` and default month; null = [now]'s UTC day.
      */
-    fun value(rows: List<RecordRow>, me: String?, now: String, names: Map<String, String> = emptyMap(), computed: Map<String, String> = emptyMap()): JsonValue {
+    fun value(rows: List<RecordRow>, me: String?, now: String, names: Map<String, String> = emptyMap(), computed: Map<String, String> = emptyMap(), today: String? = null): JsonValue {
         val rowsJson = JsonValue.Arr(rows.map { it.toJson() }).json
         val context = JsonValue.Obj(
             mapOf(
                 "me" to (me?.let { JsonValue.Str(it) } ?: JsonValue.Null),
                 "now" to JsonValue.Str(now),
+                "today" to (today?.let { JsonValue.Str(it) } ?: JsonValue.Null),
                 "names" to JsonValue.Obj(names.mapValues { JsonValue.Str(it.value) }),
                 "computed" to JsonValue.Obj(computed.mapValues { JsonValue.Str(it.value) }),
             ),

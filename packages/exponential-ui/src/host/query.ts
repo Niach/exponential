@@ -173,8 +173,11 @@ export interface RecordsValue {
 export interface RecordsContext {
   /** The viewer's user id (null = signed out: `mine` matches nothing). */
   me: string | null
-  /** ISO 8601 (UTC): the month view's default month and `today`; default = the clock. */
+  /** ISO 8601 (UTC): the clock (computed fields); default = the wall clock. */
   now?: string
+  /** `YYYY-MM-DD`: the host's calendar day in the team zone (team-zone.json):
+   *  the month view's `today` and default month; default = `now`'s UTC day. */
+  today?: string
   /** user id → display name (`author`; "" when unknown). */
   names?: Record<string, string>
   /** VAPP-214 (Q3): the queried kind's computed fields (`records.<kind>.computed`:
@@ -718,7 +721,8 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
   const now = ctx.now ?? new Date().toISOString()
   rows = withComputed(rows, query.from, ctx.computed, now)
   const view = query.month
-  const monthKey = view ? (view.key ?? now.slice(0, 7)) : null
+  const today = ctx.today && /^\d{4}-\d{2}-\d{2}$/.test(ctx.today) ? ctx.today : now.slice(0, 10)
+  const monthKey = view ? (view.key ?? today.slice(0, 7)) : null
   const where = query.where.map(cond)
   const or = query.or.map((alt) => alt.map(cond))
   const beforeDate = query.before ? keyOf(query.before.date) : null
@@ -798,7 +802,7 @@ export function recordsValue(rows: readonly RecordRow[], query: RecordsQuery, ct
       label: monthLabel(monthKey),
       prev: shiftMonth(monthKey, -1),
       next: shiftMonth(monthKey, 1),
-      today: now.slice(0, 10),
+      today,
       days,
       labels: days.map((d) => String(d.day)),
       counts: days.map((d) => d.count),

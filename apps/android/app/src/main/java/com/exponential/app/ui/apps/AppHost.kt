@@ -446,7 +446,9 @@ fun rememberAppHost(
                 val names = people.filter { it.id in wanted }.associate { it.id to it.name.orEmpty() }
                 // VAPP-214: the hosting app's computed fields (another app's rows carry none).
                 val computed = if (query.app == null) RecordsQuery.computed(packageRecords, query.from) else emptyMap()
-                query.value(mapped, me, AppRecords.isoNow(), names, computed)
+                // Dogfood G: the month view's today + default month in the TEAM zone (the day today() reads).
+                val nowMs = System.currentTimeMillis()
+                query.value(mapped, me, AppRecords.isoNow(nowMs), names, computed, TeamZone.day(nowMs, zone.offsetMinutes(nowMs.toDouble())))
             }
         }
 

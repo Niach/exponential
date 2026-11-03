@@ -12,7 +12,7 @@ import fixture from "@exponential_app/eui/fixtures/records-query.json" with { ty
 import { withComputed, type RecordRow } from "@exponential_app/eui/host/query"
 import type { Expose } from "@exp/emcp/exposes"
 
-const read = vi.hoisted(() => ({ rows: [] as unknown[], computed: undefined as Record<string, string> | undefined, names: {} as Record<string, string>, calls: [] as { kind: string; contains: Record<string, unknown>; userId: string }[], truncated: false }))
+const read = vi.hoisted(() => ({ rows: [] as unknown[], computed: undefined as Record<string, string> | undefined, names: {} as Record<string, string>, calls: [] as { kind: string; contains: Record<string, unknown>; userId: string }[], truncated: false, today: undefined as string | undefined }))
 vi.mock(`@/lib/apps/records-service`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/apps/records-service")>()),
   readAppRecordRows: async (_app: unknown, kind: string, contains: Record<string, unknown>, userId: string) => {
@@ -21,6 +21,7 @@ vi.mock(`@/lib/apps/records-service`, async (importOriginal) => ({
     return { rows: [...withComputed((read.rows as RecordRow[]).filter((r) => r.kind === kind), kind, read.computed, new Date().toISOString())], truncated: read.truncated }
   },
   teamMemberNames: async () => read.names,
+  teamToday: async () => read.today,
 }))
 
 const { createAppsMcpServer } = await import(`@/lib/emcp/apps-broker`)
@@ -51,12 +52,26 @@ beforeEach(() => {
   read.calls = []
   read.truncated = false
   read.computed = undefined
+  read.today = undefined
 })
 afterEach(() => vi.useRealTimers())
 
 describe(`the broker's records list = the Q1 query (VAPP-216)`, () => {
   it(`replays enough fixture cases to matter`, () => {
     expect(jsonCases.length).toBeGreaterThanOrEqual(12)
+  })
+
+  it(`reads the month view's today + default month in the team zone (VAPP-224)`, async () => {
+    vi.useFakeTimers({ toFake: [`Date`] })
+    vi.setSystemTime(new Date(`2026-09-30T23:30:00Z`))
+    read.rows = [{ id: `e1`, kind: `entry`, data: { date: `2026-10-01`, hours: 2 }, createdBy: `u1`, createdAt: `2026-09-30T23:00:00Z`, updatedAt: `2026-09-30T23:00:00Z` }]
+    read.today = `2026-10-01`
+    const zoned = await call(listTool({ month: { field: `date` } }), `u1`)
+    expect((zoned.structuredContent?.month as { key: string; today: string })).toMatchObject({ key: `2026-10`, today: `2026-10-01` })
+    expect(zoned.structuredContent?.count).toBe(1)
+    read.today = undefined
+    const utc = await call(listTool({ month: { field: `date` } }), `u1`)
+    expect((utc.structuredContent?.month as { key: string; today: string })).toMatchObject({ key: `2026-09`, today: `2026-09-30` })
   })
 
   it.each(jsonCases.map((c) => [c.name, c] as const))(`%s`, async (_, c) => {

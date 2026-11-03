@@ -67,16 +67,19 @@ public struct RecordsQuery: Sendable, Equatable {
     /// (the month view's default month), `names` = user id → display name.
     /// VAPP-214: `computed` = the queried kind's computed fields (name →
     /// CEL, `RecordsQuery.computed(records:kind:)`), evaluated on read.
-    public func value(rows: [RecordRow], me: String?, now: Date = Date(), names: [String: String] = [:], computed: [String: String] = [:]) -> JSONValue {
-        value(rows: rows, me: me, now: RecordsQuery.iso(now), names: names, computed: computed)
+    /// `today` = the host's calendar day in the team zone (`YYYY-MM-DD`):
+    /// the month view's `today` and default month; nil = `now`'s UTC day.
+    public func value(rows: [RecordRow], me: String?, now: Date = Date(), today: String? = nil, names: [String: String] = [:], computed: [String: String] = [:]) -> JSONValue {
+        value(rows: rows, me: me, now: RecordsQuery.iso(now), today: today, names: names, computed: computed)
     }
 
     /// `value` with `now` as ISO 8601 text.
-    public func value(rows: [RecordRow], me: String?, now: String, names: [String: String], computed: [String: String] = [:]) -> JSONValue {
+    public func value(rows: [RecordRow], me: String?, now: String, today: String? = nil, names: [String: String], computed: [String: String] = [:]) -> JSONValue {
         let rowsJson = JSONValue.array(rows.map(\.json)).json
         let context = JSONValue.object([
             "me": me.map(JSONValue.string) ?? .null,
             "now": .string(now),
+            "today": today.map(JSONValue.string) ?? .null,
             "names": .object(names.mapValues { .string($0) }),
             "computed": .object(computed.mapValues { .string($0) }),
         ]).json

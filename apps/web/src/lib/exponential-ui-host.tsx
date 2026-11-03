@@ -47,7 +47,7 @@ import { RECORDS_SCHEME, kindComputed, parseRecordsQuery, recordAuthor, recordsV
 import { APP_SOURCE_KINDS, sourceValue, type SourceStore } from "@exp/domain-contract/app-sources"
 import { APP_ACTIONS, APP_ACTION_ALIASES, actionConsent, grantAllows, parseActionName } from "@exp/domain-contract/app-actions"
 import { APPS_COPY, appMediaAllowed } from "@exp/domain-contract/apps"
-import { hostZone } from "@exp/domain-contract/team-zone"
+import { hostZone, zoneDay } from "@exp/domain-contract/team-zone"
 import { readableRows, type AppAccessLevel } from "@exponential_app/eui/host"
 import { grantableTools } from "@/lib/app-grants"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
@@ -357,7 +357,9 @@ function recordsSource(source: ParsedSource, emit: SourceEmit, scope: RecordsSco
     }
     // VAPP-214: the hosting app's computed fields (another app's rows carry none).
     const computed = query.app ? undefined : kindComputed(scope.records, query.from)
-    const value = recordsValue(rows, query, { me: scope.me, now: new Date().toISOString(), names, computed })
+    // Dogfood G: the month view's today + default month in the TEAM zone, the day today() reads.
+    const ms = Date.now()
+    const value = recordsValue(rows, query, { me: scope.me, now: new Date(ms).toISOString(), today: zoneDay((at) => teamZoneOffset(scope.teamId, at), ms), names, computed })
     const key = JSON.stringify(value)
     if (key === last) return
     last = key
