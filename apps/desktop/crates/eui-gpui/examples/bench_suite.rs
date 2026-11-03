@@ -429,6 +429,10 @@ mod linux {
             if only.as_deref().is_some_and(|o| o != id) {
                 continue;
             }
+            // VAPP-202: a scenario naming its renderers runs only on them (records-25k: the core and the web).
+            if entry["renderers"].as_array().is_some_and(|r| !r.iter().any(|x| x == "gpui")) {
+                continue;
+            }
             let sc = scenario(&format!("{id}.json"));
             let mut runs: Vec<Metrics> = Vec::with_capacity(repeat);
             for _ in 0..repeat {

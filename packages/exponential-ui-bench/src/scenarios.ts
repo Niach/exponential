@@ -46,7 +46,10 @@ export interface ScenarioDef {
   theme: string
   mode: `light` | `dark`
   viewport: { width: number; height: number }
-  surface: { nested: NestedNode } | { components: FlatComponent[] }
+  /** Absent: a host scenario (no surface; `records-25k` times the records query). */
+  surface?: { nested: NestedNode } | { components: FlatComponent[] }
+  /** VAPP-202: only these renderers run it (absent = every renderer); the others skip it. */
+  renderers?: string[]
   data?: Record<string, unknown> | GeneratedData
   /** The steps a runner performs after the first paint (scenario-specific). */
   steps: Record<string, unknown>
@@ -61,6 +64,15 @@ const FIRST_PAINT: MetricDef = { id: `firstPaintMs`, kind: `ms`, what: `From the
 const NODES: MetricDef = { id: `nodes`, kind: `count`, what: `Placed nodes after the first paint (the reduced tree, template instances included).` }
 const MEMORY: MetricDef = { id: `memoryMb`, kind: `mb`, optional: true, what: `The process's resident footprint after the scenario (RSS / phys_footprint; in Chromium the JS heap retained after a forced GC), in MB.` }
 const PASS_MS = (id: string, what: string): MetricDef => ({ id, kind: `ms`, what })
+
+/** VAPP-202: the five query shapes of `records-25k` (eui-core's examples/records_query_25k.rs). */
+const RECORDS_QUERIES: { id: string; title: string; params?: Record<string, string>; json?: unknown }[] = [
+  { id: `monthView`, title: `Month view, mine, sum`, params: { mine: `1`, by: `date`, sum: `hours`, month: `2026-10` } },
+  { id: `filterSort`, title: `Filter + sort + limit 500`, params: { "hours.gte": `4`, sort: `date`, order: `desc`, limit: `500` } },
+  { id: `groupBucket`, title: `Group author × month bucket, sum + count`, json: { from: `entry`, group: [`author`, { bucket: `date`, by: `month` }], aggregate: { h: [`sum`, `hours`], n: [`count`] } } },
+  { id: `groupRunning`, title: `Group project, running sum`, json: { from: `entry`, group: [`project`], aggregate: { h: [`sum`, `hours`] }, running: { h: `sum` } } },
+  { id: `betweenIn`, title: `Between + in, limit 500`, json: { from: `entry`, where: [[`date`, `between`, `2026-03-01`, `2026-06-30`], [`project`, `in`, [`p1`, `p2`]]], limit: 500 } },
+]
 
 // ---------------------------------------------------------------------------
 // Trees
@@ -372,6 +384,24 @@ export const SCENARIOS: readonly ScenarioDef[] = [
       { id: `renderedRows`, kind: `count`, what: `Rows alive after the scroll steps (a windowed Table keeps it near the viewport's).` },
     ],
   },
+  {
+    id: `records-25k`,
+    title: `Records query over 25,000 rows`,
+    what: `eApps §15 (VAPP-202): the local records query (eui-core host::query, its TS twin @exponential_app/eui/host/query) over 25,000 rows, the team plan's quota: five query shapes, each parsed once, 5 warm-up runs, then 60 timed; p95 = the 58th of the 60 sorted. The budget is p95 ≤ 16 ms on a MID PHONE, so a desktop CPU must hold about a third of it. No surface: only the core and one web runner (the TS twin in Chromium) run it; Swift and Compose reach the core over the FFI.`,
+    theme: `neutral`,
+    mode: `light`,
+    viewport: PHONE,
+    renderers: [`core`, `react-chromium`],
+    data: { records: { count: 25_000, kind: `entry`, authors: [`u1`, `u2`, `u3`, `u4`, `u5`], start: `2026-01-01`, days: 330, projects: 7, hoursModulo: 9, noteEvery: 3, createdAt: `2026-01-01T00:00:00.000Z` } },
+    steps: {
+      me: `u1`,
+      now: `2026-11-02T09:30:00.000Z`,
+      warmup: 5,
+      runs: 60,
+      queries: RECORDS_QUERIES,
+    },
+    metrics: RECORDS_QUERIES.flatMap((q) => [PASS_MS(`${q.id}P50Ms`, `${q.title}: the median of 60 runs.`), PASS_MS(`${q.id}P95Ms`, `${q.title}: p95 of 60 runs (the §15 budget's number).`)]).concat({ id: `matched`, kind: `count`, what: `Σ count over the five queries (the same rows on every runner).` }),
+  },
 ]
 
 /** The renderer ids results and budgets are keyed by, with what one "pass"
@@ -394,7 +424,7 @@ export function manifest() {
     $comment: `${HEADER} The Exponential UI benchmark suite (VAPP-105): one file per scenario under scenarios/, each naming its metrics. A runner (runners/, the core's and gpui's examples/bench_suite.rs, Swift's BenchSuiteTests, Compose's BenchSuiteTest) reports every scenario's non-optional metrics into a result fragment (src/results.ts); results/<machine>.json commits them per machine; budgets.json + scripts/ratchet.ts gate CI.`,
     version: MANIFEST_VERSION,
     renderers: RENDERERS,
-    scenarios: SCENARIOS.map((s) => ({ id: s.id, title: s.title, what: s.what, file: `scenarios/${s.id}.json`, metrics: s.metrics })),
+    scenarios: SCENARIOS.map((s) => ({ id: s.id, title: s.title, what: s.what, file: `scenarios/${s.id}.json`, ...(s.renderers ? { renderers: s.renderers } : {}), metrics: s.metrics })),
   }
 }
 
@@ -406,7 +436,8 @@ export function scenarioFile(s: ScenarioDef) {
     mode: s.mode,
     catalogId: CORE_CATALOG_ID,
     viewport: s.viewport,
-    surface: s.surface,
+    ...(s.renderers ? { renderers: s.renderers } : {}),
+    ...(s.surface ? { surface: s.surface } : {}),
     ...(s.data ? { data: s.data } : {}),
     steps: s.steps,
     metrics: s.metrics.map((m) => m.id),

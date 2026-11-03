@@ -334,6 +334,73 @@
           "what": "Rows alive after the scroll steps (a windowed Table keeps it near the viewport's)."
         }
       ]
+    },
+    {
+      "id": "records-25k",
+      "title": "Records query over 25,000 rows",
+      "what": "eApps §15 (VAPP-202): the local records query (eui-core host::query, its TS twin @exponential_app/eui/host/query) over 25,000 rows, the team plan's quota: five query shapes, each parsed once, 5 warm-up runs, then 60 timed; p95 = the 58th of the 60 sorted. The budget is p95 ≤ 16 ms on a MID PHONE, so a desktop CPU must hold about a third of it. No surface: only the core and one web runner (the TS twin in Chromium) run it; Swift and Compose reach the core over the FFI.",
+      "file": "scenarios/records-25k.json",
+      "renderers": [
+        "core",
+        "react-chromium"
+      ],
+      "metrics": [
+        {
+          "id": "monthViewP50Ms",
+          "kind": "ms",
+          "what": "Month view, mine, sum: the median of 60 runs."
+        },
+        {
+          "id": "monthViewP95Ms",
+          "kind": "ms",
+          "what": "Month view, mine, sum: p95 of 60 runs (the §15 budget's number)."
+        },
+        {
+          "id": "filterSortP50Ms",
+          "kind": "ms",
+          "what": "Filter + sort + limit 500: the median of 60 runs."
+        },
+        {
+          "id": "filterSortP95Ms",
+          "kind": "ms",
+          "what": "Filter + sort + limit 500: p95 of 60 runs (the §15 budget's number)."
+        },
+        {
+          "id": "groupBucketP50Ms",
+          "kind": "ms",
+          "what": "Group author × month bucket, sum + count: the median of 60 runs."
+        },
+        {
+          "id": "groupBucketP95Ms",
+          "kind": "ms",
+          "what": "Group author × month bucket, sum + count: p95 of 60 runs (the §15 budget's number)."
+        },
+        {
+          "id": "groupRunningP50Ms",
+          "kind": "ms",
+          "what": "Group project, running sum: the median of 60 runs."
+        },
+        {
+          "id": "groupRunningP95Ms",
+          "kind": "ms",
+          "what": "Group project, running sum: p95 of 60 runs (the §15 budget's number)."
+        },
+        {
+          "id": "betweenInP50Ms",
+          "kind": "ms",
+          "what": "Between + in, limit 500: the median of 60 runs."
+        },
+        {
+          "id": "betweenInP95Ms",
+          "kind": "ms",
+          "what": "Between + in, limit 500: p95 of 60 runs (the §15 budget's number)."
+        },
+        {
+          "id": "matched",
+          "kind": "count",
+          "what": "Σ count over the five queries (the same rows on every runner)."
+        }
+      ]
     }
   ]
 }

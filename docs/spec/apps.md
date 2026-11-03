@@ -719,7 +719,7 @@ The web stays online-only. Issue and comment writes have their own NEW-13.
 | Record | 16 KB | ✅ |
 | Records per team | 1,000 / 25,000 / unlimited | ✅ |
 | Rows per binding result | 500 (cursor for more) | ✅ (no cursor) |
-| Local query | p95 ≤ 16 ms over 25k rows on a mid phone (eui-core), gated in the eUI bench | 🟡 measured 2026-11-03: 1–16 ms p95 on a desktop CPU (eui-core release, `examples/records_query_25k.rs`), so a phone misses it on grouped/sorted queries; not yet gated (#VAPP-202) |
+| Local query | p95 ≤ 16 ms over 25k rows on a mid phone (eui-core), gated in the eUI bench | 🟡 #VAPP-202: measured 2026-11-03 at 1–16 ms p95 on a desktop CPU (eui-core release, `examples/records_query_25k.rs`), so a phone missed it on grouped/sorted queries. Now each row's sort keys are read once (numbers kept, texts ranked), field values are borrowed instead of stringified, filter bounds parse once per query, and group keys are computed once per row (eui-core and the TS twin; Swift and Compose call eui-core over the FFI). Results are byte-identical and `records-query.json` is green ×4. Gated in the eUI bench as `records-25k` (core + web, the `matched` count gates; core timings are budgeted at 5 ms p95 = the phone line ÷ 3). The CI bench numbers and a mid-Android run are still owed |
 | Server query (web on-demand, broker) | ≤ 200 ms p95, `statement_timeout` 2 s | ✅ measured: 15–27 ms p95 over 25k rows (records service on Postgres 17); the 2 s timeout is the RLS scope's |
 | Exposed tools per app | 32 | ✅ |
 | Upstream read cache | 60 s per (member, tool, args) | 🆕 |
@@ -847,5 +847,5 @@ Done in batch 1 (approved by Danny 2026-11-03): the CEL differential fuzz in CI 
 4. **#VAPP-201**: the team time zone (members in different zones bucket dates differently).
 5. **#VAPP-200**: an app's own inputs are not disabled at access `read`.
 
-Later, not blocking: **U1 screens** (single-screen apps work, as the CRM's tabs show, but navigation and deep links are missing), **O1 offline** (natives write online only), **#VAPP-202** (the local query over 25k rows on phones), #VAPP-205/206/207/208 (authoring gaps and drift found while dogfooding), and the iOS/Android "Run as" (phones have no preview toolbar by design).
+Later, not blocking: **U1 screens** (single-screen apps work, as the CRM's tabs show, but navigation and deep links are missing), **O1 offline** (natives write online only), **#VAPP-202** (the local query over 25k rows on phones: optimised and in the eUI bench as `records-25k`; CI and mid-Android numbers owed), #VAPP-205/206/207/208 (authoring gaps and drift found while dogfooding), and the iOS/Android "Run as" (phones have no preview toolbar by design).
 

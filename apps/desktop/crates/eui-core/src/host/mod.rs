@@ -72,7 +72,13 @@ pub(crate) fn js_trim(s: &str) -> &str {
 
 /// JavaScript's default string order (`sort()`, `<`): by UTF-16 code units,
 /// which differs from Rust's byte order above U+FFFF.
+/// VAPP-202: when either side is ASCII the first difference is an ASCII
+/// byte against a byte of the same or a later char, where byte order and
+/// UTF-16 order agree, so the bytes compare directly.
 pub(crate) fn utf16_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    if a.is_ascii() || b.is_ascii() {
+        return a.as_bytes().cmp(b.as_bytes());
+    }
     a.encode_utf16().cmp(b.encode_utf16())
 }
 
