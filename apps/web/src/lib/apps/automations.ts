@@ -294,6 +294,8 @@ export interface AutomationRow {
   on: Automation[`on`]
   tool: string
   paused: SponsorState | null
+  /** #VAPP-243: the member a run acts as (name, else email); null when paused or unknown. */
+  sponsorName: string | null
   lastRunAt: string | null
   lastStatus: CallStatus | null
   lastError: string | null
@@ -322,11 +324,14 @@ export async function automationRows(app: Pick<App, `id` | `teamId` | `package` 
   for (const automation of list) {
     const sponsor = await sponsorOf(app, automation)
     const row = byClient.get(automationClientId(automation.name))
+    const [person] =
+      `userId` in sponsor ? await db.select({ name: users.name, email: users.email }).from(users).where(eq(users.id, sponsor.userId)).limit(1) : []
     out.push({
       name: automation.name,
       on: automation.on,
       tool: automationTool(automation.run),
       paused: `paused` in sponsor ? sponsor.paused : null,
+      sponsorName: person ? person.name || person.email : null,
       lastRunAt: iso(row?.lastRunAt),
       lastStatus: (row?.lastStatus as CallStatus | undefined) ?? null,
       lastError: row?.lastError ?? null,

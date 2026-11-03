@@ -102,6 +102,13 @@ public enum Apps {
             public static let failed = "Failed"
             public static let ok = "OK"
             public static let never = "Not run yet"
+            /// #VAPP-243: who a run acts as, or why it is paused.
+            public static let runsAs = "Runs as {name}"
+            public static let pausedReasons: [String: String] = [
+                "sponsorGone": "Its sponsor is no longer on the team",
+                "sponsorReadOnly": "Its sponsor has read-only access",
+                "sponsorNotAllowed": "Only an owner can make it run as someone else",
+            ]
         }
 
         /// #VAPP-238: the Settings tab's Webhooks group (`webhookRow`).
@@ -580,6 +587,15 @@ public enum Apps {
         case .never: label = Strings.never
         }
         return AutomationRow(trigger: trigger, status: status, label: label)
+    }
+
+    /// #VAPP-243 (`automationSponsorCases`): who an automation runs as, or
+    /// why it is paused (a pause wins); nil = the trigger line alone.
+    public static func automationSponsor(paused: String?, sponsorName: String?) -> String? {
+        typealias Strings = Apps.Copy.Automations
+        if let paused, !paused.isEmpty { return Strings.pausedReasons[paused] ?? Strings.paused }
+        guard let sponsorName, !sponsorName.isEmpty else { return nil }
+        return Strings.runsAs.replacingOccurrences(of: "{name}", with: sponsorName)
     }
 
     // MARK: - eApps webhooks (#VAPP-238, fixture `webhookRowCases`)

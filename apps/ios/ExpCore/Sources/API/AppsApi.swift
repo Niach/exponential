@@ -341,6 +341,9 @@ public struct AppAutomationWire: Decodable, Sendable, Equatable {
     public let tool: String?
     public let paused: String?
     public let lastStatus: String?
+    /// #VAPP-243: the member a run acts as (name, else email); nil when
+    /// paused or unknown.
+    public let sponsorName: String?
 
     private struct Schedule: Decodable {
         let cron: String?
@@ -363,7 +366,7 @@ public struct AppAutomationWire: Decodable, Sendable, Equatable {
         let webhook: Webhook?
     }
 
-    private enum CodingKeys: String, CodingKey { case name, on, tool, paused, lastStatus }
+    private enum CodingKeys: String, CodingKey { case name, on, tool, paused, lastStatus, sponsorName }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -371,6 +374,7 @@ public struct AppAutomationWire: Decodable, Sendable, Equatable {
         tool = try? c.decodeIfPresent(String.self, forKey: .tool)
         paused = try? c.decodeIfPresent(String.self, forKey: .paused)
         lastStatus = try? c.decodeIfPresent(String.self, forKey: .lastStatus)
+        sponsorName = try? c.decodeIfPresent(String.self, forKey: .sponsorName)
         let trigger = try? c.decodeIfPresent(Trigger.self, forKey: .on)
         if let schedule = trigger?.schedule {
             on = .schedule(cron: schedule.cron ?? "", tz: schedule.tz)

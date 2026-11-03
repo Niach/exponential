@@ -1110,13 +1110,16 @@ struct AppSettingsSheet: View {
 
     private func automationRow(_ automation: AppAutomationWire) -> some View {
         let row = Apps.automationRow(automation.row)
+        // #VAPP-243: who it runs as, or why it is paused.
+        let sponsor = Apps.automationSponsor(paused: automation.paused, sponsorName: automation.sponsorName)
+        let line = sponsor.map { "\(row.trigger) · \($0)" } ?? row.trigger
         return HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(automation.name)
                     .font(.subheadline)
                     .foregroundStyle(.white)
                     .lineLimit(1)
-                Text(row.trigger)
+                Text(line)
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)

@@ -255,6 +255,14 @@ export function automationRow(row: AutomationRowInput): { trigger: string; statu
   return { trigger, status, label: copy[status] }
 }
 
+/** #VAPP-243 (`automationSponsorCases`): who an automation runs as, or why
+ *  it is paused (a pause wins); null = the second line is the trigger alone. */
+export function automationSponsor(paused: string | null, sponsorName: string | null): string | null {
+  const copy = fixture.copy.automations
+  if (paused) return (copy.pausedReasons as Record<string, string>)[paused] ?? copy.paused
+  return sponsorName ? copy.runsAs.replace(`{name}`, sponsorName) : null
+}
+
 /** #VAPP-238 (`webhookRowCases`): one row of the Settings tab's Webhooks
  *  group, from tRPC `appAccess.appTools` `hooks`; `isOwner` = `canToggle`. */
 export interface WebhookRowInput {

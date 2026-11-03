@@ -70,14 +70,16 @@ final class AppsTests: XCTestCase {
             "chat": Apps.Copy.Tabs.chat, "preview": Apps.Copy.Tabs.preview, "data": Apps.Copy.Tabs.data,
             "versions": Apps.Copy.Tabs.versions, "settings": Apps.Copy.Tabs.settings,
         ])
-        XCTAssertEqual(copy["automations"] as? [String: String], [
+        let automationsCopy = try XCTUnwrap(copy["automations"] as? [String: Any])
+        XCTAssertEqual(automationsCopy["pausedReasons"] as? [String: String], Apps.Copy.Automations.pausedReasons)
+        XCTAssertEqual(automationsCopy.filter { $0.key != "pausedReasons" } as? [String: String], [
             "title": Apps.Copy.Automations.title, "schedule": Apps.Copy.Automations.schedule,
             "scheduleZone": Apps.Copy.Automations.scheduleZone, "create": Apps.Copy.Automations.create,
             "update": Apps.Copy.Automations.update, "delete": Apps.Copy.Automations.delete,
             "event": Apps.Copy.Automations.event, "webhook": Apps.Copy.Automations.webhook,
             "paused": Apps.Copy.Automations.paused,
             "failed": Apps.Copy.Automations.failed, "ok": Apps.Copy.Automations.ok,
-            "never": Apps.Copy.Automations.never,
+            "never": Apps.Copy.Automations.never, "runsAs": Apps.Copy.Automations.runsAs,
         ])
         XCTAssertEqual(copy["webhooks"] as? [String: String], [
             "title": Apps.Copy.Webhooks.title, "ready": Apps.Copy.Webhooks.ready,
@@ -241,6 +243,20 @@ final class AppsTests: XCTestCase {
             XCTAssertEqual(result.trigger, expected["trigger"] as? String, name)
             XCTAssertEqual(result.status.rawValue, expected["status"] as? String, name)
             XCTAssertEqual(result.label, expected["label"] as? String, name)
+        }
+    }
+
+    // #VAPP-243: `automationSponsor` replays `automationSponsorCases`.
+    func testAutomationSponsorCases() throws {
+        let block = try XCTUnwrap(try fixture()["automationSponsorCases"] as? [String: Any])
+        let list = try XCTUnwrap(block["cases"] as? [[String: Any]])
+        XCTAssertFalse(list.isEmpty)
+        for item in list {
+            XCTAssertEqual(
+                Apps.automationSponsor(paused: item["paused"] as? String, sponsorName: item["sponsorName"] as? String),
+                item["expected"] as? String,
+                item["name"] as? String ?? ""
+            )
         }
     }
 
