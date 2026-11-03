@@ -460,8 +460,8 @@ val LocalInlineCodeStyle = compositionLocalOf { MdStyle.Default }
 
 /**
  * The BODY style this subtree renders prose at (EXP-787). Default is
- * [MdStyle.body] — the 17 sp document measure issue descriptions and comments
- * have always used. The agent transcript provides the shared
+ * [MdStyle.body] — web's `.tiptap-content` document measure (14 sp on a
+ * 1.625 line) issue descriptions and comments use. The agent transcript provides the shared
  * `DesignTokens.Transcript` step (14 sp on a 22 sp line, ×4 parity), which is
  * a reading measure for a wall of narration rather than a document body.
  * Headings keep their own scale; code derives from whatever is in force.

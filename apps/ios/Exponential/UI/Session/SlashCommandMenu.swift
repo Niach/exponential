@@ -11,8 +11,11 @@ import SwiftUI
 /// `EditorAutocompleteMenu`'s row layout) and the same row content as the web
 /// `steer-command-menu.tsx` and Android's `SlashCommandMenu`:
 ///
-///   mono `/name` · muted argument hint · muted description (a command)
+///   mono `/name` · muted description · trailing mono `<arg>` (a command)
 ///   prompt glyph · name (a prompt, web `PromptCandidateRow`)
+///
+/// Web's geometry: the composer's full width, every row listed (the builtins
+/// AND all of the team's prompts); the list scrolls only past `maxRows`.
 ///
 /// Rows are plain `Button`s: tapping routes back through the host, which
 /// rewrites the draft and keeps the field first responder, so the keyboard
@@ -27,15 +30,18 @@ struct SlashCommandMenu: View {
     let highlighted: Int
     let onSelect: (SlashCandidate) -> Void
 
-    /// Rows visible before the list scrolls (the builtins plus a team's
-    /// prompts can run longer).
-    private static let visibleRows: CGFloat = 5
+    /// Rows visible before the list scrolls: the four builtins plus a
+    /// team's prompts all show (web lists them uncapped); a long prompt list
+    /// scrolls past this.
+    private static let maxRows: CGFloat = 9
     private static let rowHeight: CGFloat = 40
 
     var body: some View {
         GlassMenuSurface {
             list
         }
+        // The host's composer keeps its height first.
+        .layoutPriority(-1)
     }
 
     private var list: some View {
@@ -52,8 +58,13 @@ struct SlashCommandMenu: View {
             }
             .padding(.vertical, 4)
         }
-        .frame(maxHeight: Self.rowHeight * Self.visibleRows + 8)
-        .fixedSize(horizontal: false, vertical: true)
+        // Its whole list when the room allows; above a keyboard it gives
+        // up height (down to three rows) before the composer would.
+        .frame(
+            minHeight: min(CGFloat(candidates.count), 3) * Self.rowHeight + 8,
+            idealHeight: min(CGFloat(candidates.count), Self.maxRows) * Self.rowHeight + 8,
+            maxHeight: min(CGFloat(candidates.count), Self.maxRows) * Self.rowHeight + 8
+        )
     }
 
     /// NEW-2: a team prompt — its curated glyph and its name.
@@ -62,7 +73,7 @@ struct SlashCommandMenu: View {
             onSelect(.prompt(prompt))
         } label: {
             HStack(spacing: 8) {
-                AppIcon(ActionIconDisplay.iconName(for: prompt.icon), size: 14)
+                AppIcon(ActionIconDisplay.iconName(for: prompt.icon), size: 16)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 Text(prompt.name)
                     .font(.subheadline)
@@ -96,18 +107,19 @@ struct SlashCommandMenu: View {
                     )
                     .lineLimit(1)
                     .layoutPriority(1)
-                if !command.argHint.isEmpty {
-                    Text(command.argHint)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .lineLimit(1)
-                }
                 Text(command.description)
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.tail)
                 Spacer(minLength: 0)
+                if !command.argHint.isEmpty {
+                    Text("<\(command.argHint)>")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        .lineLimit(1)
+                        .fixedSize()
+                }
             }
             .padding(.horizontal, 12)
             .frame(minHeight: Self.rowHeight)

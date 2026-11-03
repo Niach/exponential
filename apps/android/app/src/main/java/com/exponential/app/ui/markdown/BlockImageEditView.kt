@@ -114,7 +114,7 @@ internal fun UploadingBadge(modifier: Modifier, text: String = "Uploading…") {
             color = Color.White,
         )
         Spacer(Modifier.size(6.dp))
-        Text(text, color = Color.White, style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.8f))
+        Text(text, color = Color.White, style = MdStyle.body.copy(fontSize = MdStyle.mediaTextSize * 0.8f))
     }
 }
 
@@ -130,13 +130,13 @@ internal fun RetryBadge(modifier: Modifier, error: String?, onRetry: () -> Unit)
         IconButton(onClick = onRetry) {
             Icon(ExpIcons.uiRefresh, contentDescription = "Retry upload", tint = Color.White.copy(alpha = 0.8f))
         }
-        Text("Upload failed. Tap to retry", color = Color.White.copy(alpha = 0.7f), style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.75f))
+        Text("Upload failed. Tap to retry", color = Color.White.copy(alpha = 0.7f), style = MdStyle.body.copy(fontSize = MdStyle.mediaTextSize * 0.75f))
         if (error != null) {
             Spacer(Modifier.height(4.dp))
             Text(
                 error,
                 color = Color.White.copy(alpha = 0.55f),
-                style = MdStyle.body.copy(fontSize = MdStyle.bodySize * 0.65f),
+                style = MdStyle.body.copy(fontSize = MdStyle.mediaTextSize * 0.65f),
                 maxLines = 3,
             )
         }

@@ -81,7 +81,9 @@ export function useFollowScroll(deps: readonly unknown[]): FollowScroll {
         lastTopRef.current = el.scrollTop
       }
     })
-    observer.observe(node)
+    // The border box: the Dock's band is the column's bottom PADDING, which
+    // a content-box observer never sees grow (the tail card hid under it).
+    observer.observe(node, { box: `border-box` })
     observerRef.current = observer
   }, [])
   useEffect(() => () => observerRef.current?.disconnect(), [])

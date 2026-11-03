@@ -160,16 +160,11 @@ fn session_rows_specimen(images: &Entity<ImageCache>, window: &Window, cx: &mut 
         .child(v_flex().w_full().gap_2().child(header).child(body))
         .child(crate::thread_screen::muted_line_button(
             SharedString::from("sg-session-thread-event"),
-            crate::icons::registry::EVENT_STATUS_CHANGED,
             "Polish the inbox was not picked up".to_string(),
             |_, _| {},
             cx,
         ))
-        .child(crate::thread_screen::muted_line(
-            crate::icons::registry::EVENT_STATUS_CHANGED,
-            "Danny linked the thread".to_string(),
-            cx,
-        ))
+        .child(crate::thread_screen::event_line("Danny linked the thread".to_string(), cx))
         .into_any_element()
 }
 

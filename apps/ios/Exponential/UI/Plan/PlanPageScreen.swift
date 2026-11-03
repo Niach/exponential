@@ -62,13 +62,10 @@ struct PlanPageScreen: View {
         .navigationTitle(PlanPage.Copy.title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
-        .toolbar {
-            if !PlanPage.outline(card?.plan ?? "").isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    GhostIconButton(AppIcons.uiMenu, accessibilityLabel: PlanPage.Copy.outline) { outlineOpen = true }
-                        .accessibilityIdentifier(PlanPage.TestIds.outlineToggle)
-                }
-            }
+        // The outline toggle: a bare glyph (web-mobile), no iOS 26 shared glass.
+        .ownChromeToolbarItem(placement: .topBarTrailing, enabled: !PlanPage.outline(card?.plan ?? "").isEmpty) {
+            GhostIconButton(AppIcons.uiMenu, accessibilityLabel: PlanPage.Copy.outline) { outlineOpen = true }
+                .accessibilityIdentifier(PlanPage.TestIds.outlineToggle)
         }
         .pictureViewer($lightbox)
         .accessibilityElement(children: .contain)
@@ -135,6 +132,16 @@ struct PlanPageScreen: View {
                     }
                 ) { EmptyView() }
                 .padding(.bottom, 8)
+                // Docked at the bottom (web-mobile): the page's ground from
+                // the card's middle down through the home indicator (no
+                // document line shows under the card), THE floating bar's
+                // fade above it.
+                .background(alignment: .bottom) {
+                    GlassTokens.backgroundBottom
+                        .padding(.top, 28)
+                        .ignoresSafeArea(.container, edges: .bottom)
+                }
+                .floatingBarEdge()
             }
             .sheet(isPresented: $outlineOpen) {
                 GlassSheetChrome {

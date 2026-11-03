@@ -134,6 +134,15 @@ struct IssueScreen: View {
             // EXP-1150: the header band draws the bar's material, with its
             // own edge — the nav bar's background and divider stand down.
             .toolbarBackground(.hidden, for: .navigationBar)
+            // The `…`: a bare glyph (web-mobile), no iOS 26 shared glass.
+            .ownChromeToolbarItem(placement: .topBarTrailing, enabled: issue != nil) {
+                GlassMenuBarButton(
+                    icon: AppIcons.uiMore,
+                    accessibilityLabel: "More",
+                    anchor: $menuAnchor,
+                    isPresented: $menuOpen
+                )
+            }
             .toolbar {
                 ToolbarItem(placement: .principal) {
                     WorkTitle(
@@ -141,16 +150,6 @@ struct IssueScreen: View {
                         issueTitle: issue?.title,
                         collapsed: titleScrolledAway
                     )
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    if issue != nil {
-                        GlassMenuBarButton(
-                            icon: AppIcons.uiMore,
-                            accessibilityLabel: "More",
-                            anchor: $menuAnchor,
-                            isPresented: $menuOpen
-                        )
-                    }
                 }
             }
     }

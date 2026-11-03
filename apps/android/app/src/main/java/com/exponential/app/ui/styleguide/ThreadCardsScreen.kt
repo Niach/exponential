@@ -143,6 +143,7 @@ private fun SessionXrefSpecimens() {
  *  plain pill with the red ci-failed glyph), then THE header `…`'s Checks
  *  submenu pushed open as a static menu panel over pr-checks.json `specimen`. */
 @Composable
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 private fun PrChecksSpecimens() {
     val states = listOf(
         DomainContract.prChecksStateNone,
@@ -150,7 +151,11 @@ private fun PrChecksSpecimens() {
         DomainContract.prChecksStateSuccess,
         DomainContract.prChecksStateFailure,
     )
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // Web's specimen: the four pills on ONE wrapping row.
+    androidx.compose.foundation.layout.FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         states.forEach { state ->
             com.exponential.app.ui.work.MergePill(
                 merge = com.exponential.app.ui.work.ChangesMergeControl(
@@ -167,6 +172,18 @@ private fun PrChecksSpecimens() {
     }
     val now = com.exponential.app.domain.WireTimestamps.parseEpochMs(com.exponential.app.domain.PrChecks.SPECIMEN_NOW) ?: 0L
     val entry = com.exponential.app.ui.thread.prChecksMenuItem(com.exponential.app.domain.PrChecks.SPECIMEN, now) {} ?: return
+    // The `…` menu's Checks entry (`Checks · 1 failing`), then its pushed page.
+    com.exponential.app.ui.components.GlassMenuSurface(modifier = Modifier.width(280.dp)) {
+        Column(modifier = Modifier.padding(vertical = 8.dp)) {
+            com.exponential.app.ui.thread.ChatMenuPanel(
+                groups = listOf(listOf(entry)),
+                page = null,
+                onPush = {},
+                onBack = {},
+                onPick = {},
+            )
+        }
+    }
     com.exponential.app.ui.components.GlassMenuSurface(modifier = Modifier.width(280.dp)) {
         Column(modifier = Modifier.padding(vertical = 8.dp)) {
             com.exponential.app.ui.thread.ChatMenuPanel(

@@ -155,7 +155,9 @@ export function SlashCommandMenu({
   onHover: (index: number) => void
 }) {
   return (
-    <TypeaheadMenu placement="above" data-testid="slash-menu">
+    // The composer's width (desktop and the phones draw it so): a command's
+    // description reads whole instead of truncating in the mention menu's w-72.
+    <TypeaheadMenu placement="above" className="w-full" data-testid="slash-menu">
       {candidates.map((candidate, index) =>
         candidate.kind === `command` ? (
           <CommandCandidateRow
