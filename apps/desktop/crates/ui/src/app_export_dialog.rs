@@ -52,7 +52,8 @@ fn app_records(app_id: &str, cx: &App) -> Vec<ExportRecord> {
 
 /// The export file's text for a synced app row; None without a package.
 pub(crate) fn export_text(row: &AppRow, records: &[ExportRecord], include_records: bool) -> Option<String> {
-    let package = row.package.as_ref().filter(|p| !p.is_null())?;
+    // eApps V1 (#VAPP-210): the export carries the head (the draft, else the published package).
+    let package = row.draft_package.as_ref().filter(|p| !p.is_null()).or_else(|| row.package.as_ref().filter(|p| !p.is_null()))?;
     let app = ExportApp {
         name: row.name.clone(),
         icon: row.icon.clone(),
@@ -141,7 +142,7 @@ impl Render for AppExportView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let row = synced_row(&self.app_id, cx);
         let has_records = !app_records(&self.app_id, cx).is_empty();
-        let has_package = row.as_ref().and_then(|row| row.package.as_ref()).is_some_and(|p| !p.is_null());
+        let has_package = row.as_ref().is_some_and(|row| row.draft_package.as_ref().or(row.package.as_ref()).is_some_and(|p| !p.is_null()));
         let label = APP_EXPORT_COPY.export.clone();
         v_flex()
             .size_full()

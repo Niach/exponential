@@ -282,7 +282,11 @@ impl AppDetailPane {
             color: row.color.clone().unwrap_or_else(|| DEFAULT_COLOR.to_string()),
             description: row.description.clone(),
             granted_tools: Some(toggled_grants(&row.granted_tools, &name, on)),
-            head_version: Some(row.head_version.unwrap_or(0)),
+            // eApps V1 (#VAPP-210): the field carries `grantVersion`.
+            head_version: Some(domain::apps::grant_version(domain::apps::AppVersions {
+                head: row.head_version.unwrap_or(0),
+                published: row.published_version.unwrap_or(0),
+            })),
             ..Default::default()
         };
         self.tool_busy = Some(name);
@@ -452,7 +456,9 @@ impl AppDetailPane {
         let copy = *APP_ACTIONS_COPY;
         let muted = cx.theme().muted_foreground;
         let mono = cx.theme().mono_font_family.clone();
-        let declared = declared_tools(row.package.as_ref());
+        // eApps V1: the RUNNING package declares the grantable tools (the
+        // published one, else the head's).
+        let declared = declared_tools(row.package.as_ref().filter(|p| p.is_object()).or(row.draft_package.as_ref()));
         // The ruling: owners grant; a destructive or owner-only action is never grantable.
         let grant = self.can_grant(row, cx);
         let group = if declared.is_empty() {

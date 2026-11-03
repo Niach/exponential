@@ -1323,6 +1323,12 @@ pub struct AppRow {
     pub package: Option<serde_json::Value>,
     #[serde(default, deserialize_with = "tolerant_opt_i64")]
     pub head_version: Option<i64>,
+    /// eApps V1 (#VAPP-210): the published version (0 = never published);
+    /// `package` is ITS package, `draft_package` the head's while ahead.
+    #[serde(default, deserialize_with = "tolerant_opt_i64")]
+    pub published_version: Option<i64>,
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub draft_package: Option<serde_json::Value>,
     #[serde(default)]
     pub created_by: Option<String>,
     /// VAPP-120: the exact `exponential.*` function names this app may run as
