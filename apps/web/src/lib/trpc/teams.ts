@@ -27,6 +27,7 @@ import {
 } from "@/lib/team-membership"
 import { assertCanCreateTeam, getInviteCapacity } from "@/lib/billing"
 import { assertTeamDeletableBilling } from "@/lib/billing/billing-handover"
+import { seedBuiltinSkills } from "@/lib/skills/builtin"
 
 /** EXP-1025: the team prompt's cap, in UTF-8 BYTES (what the agent's
  *  context pays for), from the contract so the editors' counters, the Rust
@@ -134,6 +135,8 @@ export const teamsRouter = router({
           userId,
           role: `owner`,
         })
+        // #VAPP-213: a new team starts with the built-in skills.
+        await seedBuiltinSkills(tx, [team.id])
 
         return { team, txId }
       })

@@ -155,7 +155,7 @@ vi.mock(`@/lib/storage/issue-attachment-cleanup`, () => ({
 }))
 
 import { teamsRouter } from "@/lib/trpc/teams"
-import { conversionEvents, teams, teamMembers } from "@/db/schema"
+import { conversionEvents, skills, teams, teamMembers } from "@/db/schema"
 
 const WS = `11111111-1111-4111-8111-111111111111`
 
@@ -197,8 +197,9 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
     expect(result).toEqual({ team: teamRow, txId: 42 })
     // The only gate is the free-tier owned-team cap — no admin check.
     expect(assertCanCreateTeam).toHaveBeenCalledWith(`user-a`)
-    // teams + teamMembers + the team_created conversion event (EXP-362).
-    expect(inserts).toHaveLength(3)
+    // teams + teamMembers + the built-in skills (#VAPP-213) + the
+    // team_created conversion event (EXP-362).
+    expect(inserts).toHaveLength(4)
     expect(inserts[0]!.table).toBe(teams)
     expect(inserts[1]!.table).toBe(teamMembers)
     expect(inserts[1]!.values).toMatchObject({
@@ -206,14 +207,21 @@ describe(`teams.create — open to every user (EXP-188)`, () => {
       userId: `user-a`,
       role: `owner`,
     })
-    expect(inserts[2]!.table).toBe(conversionEvents)
-    expect(inserts[2]!.values).toMatchObject({ name: `team_created` })
+    expect(inserts[2]!.table).toBe(skills)
+    expect((inserts[2]!.values as unknown as { name: string; builtin: boolean }[]).map((v) => [v.name, v.builtin])).toEqual([
+      [`exponential-apps`, true],
+      [`exponential-motion`, true],
+      [`exponential-ui`, true],
+    ])
+    expect(inserts[2]!.inTx).toBe(true)
+    expect(inserts[3]!.table).toBe(conversionEvents)
+    expect(inserts[3]!.values).toMatchObject({ name: `team_created` })
     // Recorded AFTER the transaction commits: recordConversionEvent swallows
     // errors, and a swallowed failure inside the tx would poison it — the
     // COMMIT would silently become a ROLLBACK while create reported success.
     expect(inserts[0]!.inTx).toBe(true)
     expect(inserts[1]!.inTx).toBe(true)
-    expect(inserts[2]!.inTx).toBe(false)
+    expect(inserts[3]!.inTx).toBe(false)
   })
 
   it(`propagates the free-tier owned-team cap`, async () => {

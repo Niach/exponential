@@ -1,0 +1,1 @@
+ALTER TABLE "skills" ADD COLUMN "builtin" boolean DEFAULT false NOT NULL;

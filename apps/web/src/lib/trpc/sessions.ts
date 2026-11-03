@@ -45,6 +45,7 @@ import {
 } from "@/lib/sessions/move"
 import { markConsumedLinesRead } from "@/lib/sessions/reads"
 import { configureSession, mcpPicks, skillPicks } from "@/lib/sessions/configure"
+import { sessionSkillIds } from "@/lib/skills/builtin"
 import {
   cardAnswerInput,
   loadCardForAnswer,
@@ -611,7 +612,8 @@ export const sessionsRouter = router({
     .query(async ({ ctx, input }): Promise<{ skillIds: string[] }> => {
       const session = await loadSessionForUser(ctx.session.user.id, input.sessionId)
       await assertCanSteer(ctx.session.user.id, session)
-      return { skillIds: skillPicks(session) }
+      // #VAPP-213: + the built-ins an app editor session always runs with.
+      return { skillIds: skillPicks({ skillIds: await sessionSkillIds(ctx.db, session) }) }
     }),
 
   /** queued → running: the device took it (idempotent for its own device). */

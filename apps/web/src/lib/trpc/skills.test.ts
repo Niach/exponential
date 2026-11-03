@@ -82,6 +82,7 @@ vi.mock(`@/lib/trpc`, async (importOriginal) => {
 })
 
 import { skillsRouter } from "@/lib/trpc/skills"
+import { builtinSkill } from "@/lib/skills/builtin"
 import { skills } from "@/db/schema"
 
 const { selectResults, inserts, updates, deletes, fakeDb } = h
@@ -114,6 +115,7 @@ const row = (over: Record<string, unknown> = {}) => ({
   description: `Review a PR against the team checklist.`,
   body: `# Review`,
   enabledByDefault: false,
+  builtin: false,
   ...over,
 })
 
@@ -265,7 +267,7 @@ describe(`skills.resolveForLaunch`, () => {
     ])
     const out = await launcher.resolveForLaunch({})
     expect(out.skills.map((s) => s.name)).toEqual([`api-style`, `review-checklist`])
-    expect(out.skills[1]).toEqual({ id: SKILL_ID, name: `review-checklist`, description: `d`, body: `# Review` })
+    expect(out.skills[1]).toEqual({ id: SKILL_ID, name: `review-checklist`, description: `d`, body: `# Review`, files: [] })
     expect(out.skipped).toEqual([`55555555-5555-4555-8555-555555555555`])
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM_ID)
   })
@@ -283,5 +285,82 @@ describe(`skills.resolveForLaunch`, () => {
     expect(await codeOf(launcher.resolveForLaunch({}))).toBe(`FORBIDDEN`)
     selectResults.push([])
     expect(await codeOf(launcher.resolveForLaunch({}))).toBe(`FORBIDDEN`)
+  })
+})
+
+// #VAPP-213: the built-ins (fixtures/skills.json `builtin`).
+describe(`built-in skills`, () => {
+  const apps = builtinSkill(`exponential-apps`)!
+  const BUILTIN_ID = `66666666-6666-4666-8666-666666666666`
+  const builtinRow = row({ id: BUILTIN_ID, name: `exponential-apps`, body: `stale`, builtin: true })
+
+  it(`get serves the shipped body and lists the files`, async () => {
+    selectResults.push([builtinRow])
+    const { skill } = await caller.get({ id: BUILTIN_ID })
+    expect(skill.body).toBe(apps.body)
+    expect(skill.files).toContain(`examples/crm.app.json`)
+    expect(skill.files).toContain(`references/records.md`)
+  })
+
+  it(`a team skill lists no files`, async () => {
+    selectResults.push([row()])
+    expect((await caller.get({ id: SKILL_ID })).skill.files).toEqual([])
+  })
+
+  it(`file returns one file; an unknown path or a team skill 404s`, async () => {
+    selectResults.push([builtinRow])
+    const file = await caller.file({ id: BUILTIN_ID, path: `references/records.md` })
+    expect(file.content).toBe(apps.files.find((f) => f.path === `references/records.md`)!.content)
+    selectResults.push([builtinRow])
+    expect(await codeOf(caller.file({ id: BUILTIN_ID, path: `nope.md` }))).toBe(`NOT_FOUND`)
+    selectResults.push([row()])
+    expect(await codeOf(caller.file({ id: SKILL_ID, path: `references/records.md` }))).toBe(`NOT_FOUND`)
+  })
+
+  it(`a built-in's name is taken: create and rename onto it are CONFLICT`, async () => {
+    expect(await codeOf(caller.create({ ...valid, name: `exponential-ui` }))).toBe(`CONFLICT`)
+    expect(inserts).toHaveLength(0)
+    selectResults.push([row()])
+    expect(await codeOf(caller.update({ id: SKILL_ID, name: `exponential-motion` }))).toBe(`CONFLICT`)
+    expect(updates).toHaveLength(0)
+  })
+
+  it(`a built-in is read-only, owners included`, async () => {
+    selectResults.push([builtinRow])
+    expect(await codeOf(caller.update({ id: BUILTIN_ID, description: `mine now` }))).toBe(`FORBIDDEN`)
+    selectResults.push([builtinRow])
+    expect(await codeOf(caller.update({ id: BUILTIN_ID, enabledByDefault: true }))).toBe(`FORBIDDEN`)
+    selectResults.push([builtinRow])
+    expect(await codeOf(caller.delete({ id: BUILTIN_ID }))).toBe(`FORBIDDEN`)
+    expect(updates).toHaveLength(0)
+    expect(deletes).toHaveLength(0)
+  })
+
+  it(`an app editor session always gets the built-ins after its picks, with their files`, async () => {
+    const launcher = callerWith({ "x-exp-session-id": SESSION_ID })
+    const UI_ID = `77777777-7777-4777-8777-777777777777`
+    const MOTION_ID = `88888888-8888-4888-8888-888888888888`
+    selectResults.push([
+      { id: SESSION_ID, userId: `actor`, deviceId: `dev-1`, teamId: TEAM_ID, status: `running`, skillIds: [SKILL_ID, UI_ID], appId: `app-1` },
+    ])
+    // the team's built-in rows (sessionSkillIds), then the picked rows
+    selectResults.push([
+      { id: MOTION_ID, name: `exponential-motion` },
+      { id: UI_ID, name: `exponential-ui` },
+      { id: BUILTIN_ID, name: `exponential-apps` },
+    ])
+    selectResults.push([
+      { id: SKILL_ID, name: `review-checklist`, description: `d`, body: `# Review`, builtin: false },
+      { id: BUILTIN_ID, name: `exponential-apps`, description: `old`, body: `stale`, builtin: true },
+      { id: UI_ID, name: `exponential-ui`, description: `old`, body: `stale`, builtin: true },
+      { id: MOTION_ID, name: `exponential-motion`, description: `old`, body: `stale`, builtin: true },
+    ])
+    const out = await launcher.resolveForLaunch({})
+    expect(out.skills.map((s) => s.name)).toEqual([`review-checklist`, `exponential-ui`, `exponential-apps`, `exponential-motion`])
+    const shipped = out.skills.find((s) => s.name === `exponential-apps`)!
+    expect(shipped.body).toBe(apps.body)
+    expect(shipped.description).toBe(apps.description)
+    expect(shipped.files.map((f) => f.path)).toEqual(apps.files.map((f) => f.path))
+    expect(out.skipped).toEqual([])
   })
 })

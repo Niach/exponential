@@ -4,6 +4,7 @@ import { users } from "@/db/auth-schema"
 import { emailEnabled } from "@/lib/email-enabled"
 import { GRANTABLE_ACTIONS } from "@/lib/app-grants"
 import { apps } from "@/db/schema"
+import { reconcileBuiltinSkills } from "@/lib/skills/builtin"
 // Vite's ?raw suffix inlines file contents as a string at build time. We
 // do this so the server bundle ships the SQL alongside the JS, no fs reads
 // required at runtime (which Vite also can't tree-shake for browser builds).
@@ -95,6 +96,8 @@ export async function runBootstrapPass(): Promise<void> {
   // FEED-159: a deploy that made an action owner-only or destructive strips
   // the grants apps still store for it.
   await stripUngrantableGrants()
+  // #VAPP-213: every team holds the built-in skills shipped with this build.
+  await reconcileBuiltinSkills()
 }
 
 const RETRY_BASE_DELAY_MS = 5 * 1000

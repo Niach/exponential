@@ -13,6 +13,7 @@ import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import { parseMcpSessionHeader } from "@/lib/emcp/session-header"
 import { isSessionPrincipal } from "@/lib/sessions/host"
+import { builtinSkill, isBuiltinName, sessionSkillIds } from "@/lib/skills/builtin"
 
 // #EXP-1656: team SKILLS (fixtures/skills.json): a name, the description
 // that triggers it and a SKILL.md body; no files, no history. Listing is
@@ -28,6 +29,7 @@ const wireColumns = {
   name: skills.name,
   description: skills.description,
   enabledByDefault: skills.enabledByDefault,
+  builtin: skills.builtin,
   createdById: skills.createdById,
   createdAt: skills.createdAt,
   updatedAt: skills.updatedAt,
@@ -82,6 +84,18 @@ async function loadSkill(id: string) {
   return skill
 }
 
+// #VAPP-213: a built-in's body and files come from the shipped set, never
+// the row (the row follows it at the next boot's reconcile).
+function withShipped<T extends { name: string; builtin: boolean; body: string }>(skill: T): T & { files: string[] } {
+  const shipped = skill.builtin ? builtinSkill(skill.name) : null
+  if (!shipped) return { ...skill, files: [] }
+  return { ...skill, body: shipped.body, files: shipped.files.map((file) => file.path) }
+}
+
+function readOnlyError(): TRPCError {
+  return new TRPCError({ code: `FORBIDDEN`, message: `Built-in skills are read-only` })
+}
+
 function duplicateNameError(name: string): TRPCError {
   return new TRPCError({
     code: `CONFLICT`,
@@ -89,12 +103,14 @@ function duplicateNameError(name: string): TRPCError {
   })
 }
 
-/** One skill as the running device installs it (a SKILL.md). */
+/** One skill as the running device installs it: a SKILL.md and, for a
+ *  built-in, the files beside it (`<name>/<path>`). */
 export interface ResolvedSkill {
   id: string
   name: string
   description: string
   body: string
+  files: { path: string; content: string }[]
 }
 
 export const skillsRouter = router({
@@ -117,13 +133,25 @@ export const skillsRouter = router({
     .query(async ({ ctx, input }) => {
       const skill = await loadSkill(input.id)
       await assertTeamMember(ctx.session.user.id, skill.teamId)
-      return { skill }
+      return { skill: withShipped(skill) }
+    }),
+
+  // #VAPP-213: one of a built-in's files (`get` lists their paths).
+  file: authedProcedure
+    .input(z.object({ id: z.string().uuid(), path: z.string().min(1).max(200) }))
+    .query(async ({ ctx, input }) => {
+      const skill = await loadSkill(input.id)
+      await assertTeamMember(ctx.session.user.id, skill.teamId)
+      const file = (skill.builtin ? builtinSkill(skill.name)?.files : undefined)?.find((f) => f.path === input.path)
+      if (!file) throw new TRPCError({ code: `NOT_FOUND`, message: `No file "${input.path}" in skill ${skill.name}` })
+      return { path: file.path, content: file.content }
     }),
 
   create: authedProcedure
     .input(skillCreateInputSchema)
     .mutation(async ({ ctx, input }) => {
       await assertTeamOwner(ctx.session.user.id, input.teamId)
+      if (isBuiltinName(input.name)) throw duplicateNameError(input.name)
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         const [skill] = await tx
@@ -148,6 +176,10 @@ export const skillsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await loadSkill(input.id)
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
+      if (existing.builtin) throw readOnlyError()
+      if (input.name !== undefined && input.name !== existing.name && isBuiltinName(input.name)) {
+        throw duplicateNameError(input.name)
+      }
       if (input.name !== undefined && input.name !== existing.name) {
         const [clash] = await ctx.db
           .select({ id: skills.id })
@@ -186,6 +218,7 @@ export const skillsRouter = router({
     .mutation(async ({ ctx, input }) => {
       const existing = await loadSkill(input.id)
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
+      if (existing.builtin) throw readOnlyError()
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
         await tx.delete(skills).where(eq(skills.id, input.id))
@@ -216,6 +249,7 @@ export const skillsRouter = router({
           teamId: sessions.teamId,
           status: sessions.status,
           skillIds: sessions.skillIds,
+          appId: sessions.appId,
         })
         .from(sessions)
         .where(eq(sessions.id, sessionId))
@@ -227,15 +261,32 @@ export const skillsRouter = router({
         })
       }
       await assertTeamMember(userId, run.teamId)
-      const ids = [...new Set(run.skillIds ?? [])]
+      // #VAPP-213: an app EDITOR session also runs with the built-ins
+      // (`builtin.editorDelivery`), after its own picks, deduped; the same
+      // pick `sessions.skillPicks` reads back, so the device's between-turn
+      // check never sees it move.
+      const ids = await sessionSkillIds(ctx.db, run)
       if (ids.length === 0) return { skills: [], skipped: [] }
       const rows = await ctx.db
-        .select({ id: skills.id, name: skills.name, description: skills.description, body: skills.body })
+        .select({ id: skills.id, name: skills.name, description: skills.description, body: skills.body, builtin: skills.builtin })
         .from(skills)
         .where(and(eq(skills.teamId, run.teamId), inArray(skills.id, ids)))
       const byId = new Map(rows.map((row) => [row.id, row]))
       return {
-        skills: ids.flatMap((id) => byId.get(id) ?? []),
+        skills: ids.flatMap((id): ResolvedSkill[] => {
+          const row = byId.get(id)
+          if (!row) return []
+          const shipped = row.builtin ? builtinSkill(row.name) : null
+          return [
+            {
+              id: row.id,
+              name: row.name,
+              description: shipped?.description ?? row.description,
+              body: shipped?.body ?? row.body,
+              files: shipped?.files.map((file) => ({ path: file.path, content: file.content })) ?? [],
+            },
+          ]
+        }),
         skipped: ids.filter((id) => !byId.has(id)),
       }
     }),
