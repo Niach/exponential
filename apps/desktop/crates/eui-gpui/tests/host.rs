@@ -517,6 +517,21 @@ fn a_package_action_gates_commits_one_batch_then_sets_then_calls(cx: &mut TestAp
         outcome(task, cx)
     };
 
+    // A press arrives from INSIDE the surface view's update (its plugin's
+    // `on_function_call`); the action reads that view's data, so the host
+    // must not run it synchronously (eApps dogfood 2026-11-03: gpui panicked
+    // "cannot read SurfaceView while it is already being updated").
+    let view = host.read_with(cx, |h, _| h.surface("s")).expect("the surface");
+    let before = *batches.borrow();
+    view.update(cx, |v, cx| {
+        let plugin = v.host_plugin();
+        plugin.on_function_call(&FunctionCallEvent { surface_id: "s".into(), component_id: "log".into(), name: "actions.log".into(), args: json!({"date": "2026-11-05", "hours": 1}) }, cx);
+    });
+    cx.run_until_parked();
+    assert_eq!(*batches.borrow(), before + 1, "the pressed action committed its batch");
+    *rows.borrow_mut() = b["rows"].as_array().unwrap().clone();
+    toasts.borrow_mut().clear();
+
     // The plan lands: one batch, the sets, then the calls.
     let out = press("actions.log", json!({"date": "2026-11-03", "hours": 2}), cx);
     assert_eq!(out.error, None);

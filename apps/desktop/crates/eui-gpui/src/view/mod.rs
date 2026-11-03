@@ -438,6 +438,12 @@ impl eui_core::format::Formatter for ClockWatch {
 }
 
 impl SurfaceView {
+    /// The host plugin the surface reports its events to (a press reaches
+    /// it from INSIDE this view's update; tests drive that path).
+    pub fn host_plugin(&self) -> Rc<dyn HostPlugin> {
+        self.host.clone()
+    }
+
     pub fn new(options: SurfaceViewOptions, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let mut view = Self::build_view(options, Some(window), cx);
         view._subscriptions.push(cx.observe_window_appearance(window, |this: &mut SurfaceView, window, cx| {

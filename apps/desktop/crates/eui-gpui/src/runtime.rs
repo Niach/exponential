@@ -1015,7 +1015,12 @@ impl HostPlugin for HostAdapter {
 
     fn on_function_call(&self, event: &FunctionCallEvent, cx: &mut App) {
         if let Some(host) = self.host.upgrade() {
-            host.update(cx, |h, cx| h.call_function(event.clone(), cx)).detach();
+            // Deferred: a press arrives INSIDE the surface view's update, and a
+            // package action reads that view's data (`run_package_action`):
+            // calling it synchronously panicked gpui ("cannot read SurfaceView
+            // while it is already being updated"; eApps dogfood 2026-11-03).
+            let event = event.clone();
+            cx.defer(move |cx| host.update(cx, |h, cx| h.call_function(event, cx)).detach());
         }
         self.base.on_function_call(event, cx)
     }
