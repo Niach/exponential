@@ -182,27 +182,6 @@ public final class AttachmentsApi: Sendable {
         )
     }
 
-    /// VAPP-221 (eApps R7): a file picked for an app's FileUpload.
-    /// `POST /api/apps/{appId}/files` (`Apps.appUploadPath`, fixture
-    /// `appFiles`) stores it as the app's attachment (write access); the
-    /// answer's `url` is the `/api/attachments/{id}` a record field keeps.
-    /// Same multipart part (`file`) as every other upload route.
-    public func uploadAppFile(
-        accountId: String,
-        appId: String,
-        data: Data,
-        filename: String,
-        contentType: String
-    ) async throws -> UploadedAttachment {
-        try await upload(
-            accountId: accountId,
-            path: Apps.appUploadPath(appId),
-            data: data,
-            filename: filename,
-            contentType: contentType
-        )
-    }
-
     /// The draft upload route. Internal so the path contract is unit-tested —
     /// it is the ONE thing that distinguishes a draft upload from an issue one
     /// (the multipart body is byte-identical).
@@ -216,7 +195,8 @@ public final class AttachmentsApi: Sendable {
         asFile ? "\(path)?asFile=1" : path
     }
 
-    private func upload(
+    /// Internal (not private): `AttachmentsApi+AppFiles.swift` uploads through it.
+    func upload(
         accountId: String,
         path: String,
         data: Data,

@@ -165,6 +165,8 @@ let shareExtensionSources: SourceFilesList = [
     // AccountStore compares instance URLs through `WebLinks.normalizedBase`, so
     // "same server" has exactly one normalization rule across the codebase.
     "ExpCore/Sources/Domain/WebLinks.swift",
+    // VAPP-218: WebLinks classifies app-screen links through AppLink (Foundation-only).
+    "ExpCore/Sources/Domain/AppLink.swift",
     "ExpCore/Sources/Auth/KeychainStore.swift",
     "ExpCore/Sources/Auth/AccountStore.swift",
     "ExpCore/Sources/Auth/ServerAccount.swift",
