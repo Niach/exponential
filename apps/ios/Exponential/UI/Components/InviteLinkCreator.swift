@@ -113,6 +113,7 @@ struct InviteLinkCreator: View {
                 GlassPill(
                     OnboardingCopy.inviteGenerate,
                     icon: AppIcons.uiLink,
+                    size: .md,
                     mode: .action { Task { await generate() } },
                     enabled: !generating
                 )

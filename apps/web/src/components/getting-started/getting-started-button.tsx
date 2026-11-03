@@ -29,13 +29,10 @@ export function GettingStartedButton({
   team: Team | null | undefined
   teamSlug: string
 }) {
-  const { loading, complete } = useGettingStartedProgressContext()
+  const visible = useGettingStartedEntryVisible(team)
   const [open, setOpen] = useState(false)
-  // A row that navigates (Start a session, the settings pages) closes the
-  // dialog; its focus then belongs to the new page, not back on this entry.
-  const leaving = useRef(false)
 
-  if (loading || complete || !team) return null
+  if (!visible || !team) return null
 
   return (
     <SidebarMenuItem>
@@ -48,34 +45,63 @@ export function GettingStartedButton({
         <GettingStartedIcon className="size-4" />
         <span>{GETTING_STARTED_TITLE}</span>
       </SidebarMenuButton>
-      <Dialog open={open} onOpenChange={setOpen}>
-        {/* No corner close: the Docs button holds that corner; Escape and
-            a click outside close it. The dialog IS the block's box:
-            `maxWidth` wide, scrolling vertically only. */}
-        <DialogContent
-          className="gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:max-w-(--getting-started-max) sm:pb-0"
-          style={{ [`--getting-started-max`]: `${spec.maxWidth}px` } as CSSProperties}
-          showCloseButton={false}
-          aria-describedby={undefined}
-          onCloseAutoFocus={(event) => {
-            if (leaving.current) event.preventDefault()
-            leaving.current = false
-          }}
-        >
-          <DialogTitle className="sr-only">{GETTING_STARTED_TITLE}</DialogTitle>
-          <DialogBody className="overflow-x-hidden">
-            <GettingStartedBlock
-              team={team}
-              teamSlug={teamSlug}
-              framed={false}
-              onLeave={() => {
-                leaving.current = true
-                setOpen(false)
-              }}
-            />
-          </DialogBody>
-        </DialogContent>
-      </Dialog>
+      <GettingStartedDialog team={team} teamSlug={teamSlug} open={open} onOpenChange={setOpen} />
     </SidebarMenuItem>
+  )
+}
+
+/** Whether the Getting started entry shows (sidebar, phone Team page): not
+ *  while the signals load, not once every step is done. */
+export function useGettingStartedEntryVisible(team: Team | null | undefined): boolean {
+  const { loading, complete } = useGettingStartedProgressContext()
+  return !loading && !complete && Boolean(team)
+}
+
+// The block in its dialog (the phone width turns DialogContent into a bottom
+// sheet): the sidebar entry and the phone Team page's row (#EXP-1632) open
+// the SAME one.
+export function GettingStartedDialog({
+  team,
+  teamSlug,
+  open,
+  onOpenChange,
+}: {
+  team: Team
+  teamSlug: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  // A row that navigates (Start a session, the settings pages) closes the
+  // dialog; its focus then belongs to the new page, not back on this entry.
+  const leaving = useRef(false)
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {/* No corner close: the Docs button holds that corner; Escape and
+          a click outside close it. The dialog IS the block's box:
+          `maxWidth` wide, scrolling vertically only. */}
+      <DialogContent
+        className="gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:max-w-(--getting-started-max) sm:pb-0"
+        style={{ [`--getting-started-max`]: `${spec.maxWidth}px` } as CSSProperties}
+        showCloseButton={false}
+        aria-describedby={undefined}
+        onCloseAutoFocus={(event) => {
+          if (leaving.current) event.preventDefault()
+          leaving.current = false
+        }}
+      >
+        <DialogTitle className="sr-only">{GETTING_STARTED_TITLE}</DialogTitle>
+        <DialogBody className="overflow-x-hidden">
+          <GettingStartedBlock
+            team={team}
+            teamSlug={teamSlug}
+            framed={false}
+            onLeave={() => {
+              leaving.current = true
+              onOpenChange(false)
+            }}
+          />
+        </DialogBody>
+      </DialogContent>
+    </Dialog>
   )
 }

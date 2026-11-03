@@ -1064,7 +1064,10 @@ pub(crate) fn open_dialog(window: &mut Window, cx: &mut App) {
     let width = (MAX_W + 32.).min(f32::from(viewport.width) * 0.9);
     let height = (dialog_content_h(model.entries.len(), has_next) + 32.)
         .min(f32::from(viewport.height) * 0.9);
-    let spec = DialogSpec::new(TITLE, size(px(width), px(height)));
+    // EXP-1651: web parity: no visible title row and no ✕ (web's title is
+    // sr-only); the block's own header says "Getting started". Escape and a
+    // scrim press still close it.
+    let spec = DialogSpec::new(TITLE, size(px(width), px(height))).chromeless();
     native_dialog::open_dialog_window(window, cx, spec, move |_window, cx| {
         let view = cx.new(|cx| GettingStartedDialog::new(team_id, cx));
         DialogContent::new(view)

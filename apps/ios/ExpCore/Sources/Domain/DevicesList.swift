@@ -23,6 +23,10 @@ public enum DevicesList {
         public static let signedOut = "{label} · Signed out"
         public static let update = "Update"
         public static let signIn = "Sign in"
+        /// EXP-1627: the sign-in dialog's title and its ONE muted waiting
+        /// line ({device} = the device label, {agent} = the agent label).
+        public static let signInTitle = "Sign in"
+        public static let signInWaiting = "Waiting for {device} to publish the {agent} sign-in link…"
         public static let limitReached = "{label} · Limit reached"
         public static let deviceActions = "Device actions"
         public static let settings = "Device settings"

@@ -56,6 +56,9 @@ struct OnboardingView: View {
     @State private var joined = false
     // Deliberately sticky once set: flipping needsOnboarding swaps this view out.
     @State private var finishing = false
+    /// #EXP-1632: an invite link opened before the wizard was finished (the
+    /// main navigator, which normally routes it, is not mounted yet).
+    @State private var invite: PendingInvite?
 
     var body: some View {
         ZStack {
@@ -105,6 +108,45 @@ struct OnboardingView: View {
             }
         }
         .task { await reconcileWithServer() }
+        .task { openInviteFromCaptureHook() }
+        .onChange(of: deps.deepLinkBus.pendingInviteToken, initial: true) { _, token in
+            guard let token else { return }
+            _ = deps.deepLinkBus.consumeInvite()
+            invite = PendingInvite(token: token)
+        }
+        .fullScreenCover(item: $invite) { pending in
+            NavigationStack {
+                InviteAcceptView(token: pending.token) {
+                    // teamInvites.accept stamps onboardingCompletedAt
+                    // server-side; mirroring it swaps the wizard out.
+                    invite = nil
+                    deps.auth.markOnboardingCompleted(ISO8601DateFormatter().string(from: Date()))
+                }
+                .environment(\.accountId, deps.auth.activeAccountId ?? "")
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button {
+                            invite = nil
+                        } label: {
+                            AppIcon(AppIcons.uiBack, size: AppIcon.Size.medium)
+                        }
+                        .accessibilityLabel("Back")
+                    }
+                }
+            }
+        }
+    }
+
+    /// Screenshot hook (capture only, #EXP-1632): under `-uiTesting`, the
+    /// launch argument `-uiTestingOpenInvite <token>` opens that invite's
+    /// landing card, as an invite link tapped mid-wizard would.
+    private func openInviteFromCaptureHook() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard arguments.contains("-uiTesting"),
+              let keyIndex = arguments.firstIndex(of: "-uiTestingOpenInvite"),
+              arguments.index(after: keyIndex) < arguments.endIndex
+        else { return }
+        deps.deepLinkBus.navigateToInvite(arguments[arguments.index(after: keyIndex)])
     }
 
     // MARK: - Step headers
@@ -421,8 +463,9 @@ struct OnboardingStepHeader: View {
 
 /// The ONE trailing control the two skippable steps share: "Skip for now"
 /// as the SECONDARY (outline) button until the step was actually used, the
-/// primary "Continue" after (polish round ×4). EXP-1554: small and
-/// right-aligned at the card's foot (web), never full width.
+/// primary "Continue" after (polish round ×4). EXP-1554: right-aligned at
+/// the card's foot (web), never full width; the `.md` rung = web's
+/// standard button height, not the 24pt chip.
 struct OnboardingAdvanceButton: View {
     let done: Bool
     let action: () -> Void
@@ -431,9 +474,9 @@ struct OnboardingAdvanceButton: View {
         HStack {
             Spacer(minLength: 0)
             if done {
-                GlassPill(OnboardingCopy.continueLabel, mode: .action(action), primary: true)
+                GlassPill(OnboardingCopy.continueLabel, size: .md, mode: .action(action), primary: true)
             } else {
-                GlassPill(OnboardingCopy.skip, mode: .action(action))
+                GlassPill(OnboardingCopy.skip, size: .md, mode: .action(action))
             }
         }
         .padding(.top, 16)
@@ -450,7 +493,11 @@ struct OnboardingStepCard<Content: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             OnboardingStepHeader(title: title, icon: icon)
-            GlassDivider()
+            // Web's `border-t` is a full point: the 0.5pt `GlassDivider`
+            // vanished into the card in the phone shots.
+            Rectangle()
+                .fill(GlassTokens.strokeRow)
+                .frame(height: 1)
                 .padding(.horizontal, -16)
                 .padding(.bottom, 16)
             content()
@@ -485,4 +532,10 @@ struct OnboardingSignedInFooter: View {
         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
         .frame(maxWidth: .infinity)
     }
+}
+
+/// #EXP-1632: the invite token the wizard presents (`fullScreenCover(item:)`).
+private struct PendingInvite: Identifiable {
+    let token: String
+    var id: String { token }
 }

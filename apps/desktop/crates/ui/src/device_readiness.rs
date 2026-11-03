@@ -637,12 +637,15 @@ pub(crate) fn render_row(
                     .text_color(cx.theme().foreground)
                     .child(SharedString::from(row.label.clone())),
             )
+            // Web parity (`device-readiness.tsx`): the detail sits at the
+            // row's right edge (`ml-auto text-right`) in the smaller size.
             .child(
                 div()
                     .flex_1()
                     .min_w_0()
                     .truncate()
-                    .text_sm()
+                    .text_right()
+                    .text_xs()
                     .text_color(tone_color(row.detail_tone, cx))
                     .child(SharedString::from(row.detail.clone().unwrap_or_default())),
             )
@@ -657,7 +660,8 @@ pub(crate) fn render_row(
             }
             .label(pill.action.label())
             .loading(busy)
-            .disabled(busy || props.on_action.is_none());
+            // Web parity: disabled only while its action runs.
+            .disabled(busy);
             if let Some(on_action) = props.on_action.clone() {
                 let key = row.key.clone();
                 let action = pill.action;

@@ -129,7 +129,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * (`packages/view-catalog/src/views.test.ts` gates both directions AND requires
  * the two platforms' `sg_*` sets to be identical):
  *
- *   sg_sign-in · sg_onboarding-create-team ·
+ *   sg_sign-in ·
  *   sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
@@ -137,7 +137,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_machine-settings · sg_threads ·
  *   sg_session-row · sg_pr-row · sg_pr-checks ·
  *   sg_settings-root · sg_settings-team ·
- *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
+ *   sg_settings-account · sg_onboarding · sg_onboarding-create-team ·
+ *   sg_invite-accept · sg_onboarding-invite ·
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
@@ -520,32 +521,6 @@ class StyleguideScreenshotsTest {
             waitForFirstBoardSync()
             flow.waitForGone(hasText("Syncing", substring = true), FIRST_SYNC_TIMEOUT)
             flow.settle()
-        }
-
-        // --- Set up a team: thread 58cb32df moved "New team" to the Team
-        // tab's teams group; it opens the create-or-join sheet. The extra
-        // wait on the first card's title keeps the shot off a half-drawn
-        // sheet. (#EXP-1384: the board switcher view is gone — the board
-        // menu is the capture-only `sg_phone-board-menu`.)
-        step("onboarding-create-team") {
-            composeRule.onNode(hasTestTag(Chats.TestIds.TAB_TEAM)).performClick()
-            flow.waitFor(hasTestTag("team-new"), NAV_TIMEOUT)
-            composeRule.onNode(hasTestTag("team-new")).performClick()
-            flow.waitFor(hasTestTag("team-setup-sheet"), NAV_TIMEOUT)
-            // P3: the sheet opens on the choice page; "Create a team" pushes the
-            // create page, which is what this view photographs.
-            flow.waitFor(hasTestTag("team-setup-create"), NAV_TIMEOUT)
-            composeRule.onNode(hasTestTag("team-setup-create")).performClick()
-            flow.waitFor(hasText("Create team"), NAV_TIMEOUT)
-            flow.settle()
-            flow.screenshot("sg_onboarding-create-team")
-            // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
-            // dismisses, and an unsubmitted form leaves no team behind.
-            Espresso.pressBack()
-            flow.waitForGone(hasTestTag("team-setup-sheet"), NAV_TIMEOUT)
-            composeRule.onNode(hasTestTag(Chats.TestIds.TAB_BOARD)).performClick()
-            flow.waitFor(hasTestTag(BOARD_ROOT_TAG), NAV_TIMEOUT)
-            flow.settle(longer = true)
         }
 
         // --- Board empty state: the seed's second board is created empty for
@@ -1507,7 +1482,7 @@ class StyleguideScreenshotsTest {
         // identity switch altogether: the capture-only screens below need
         // nothing from the app.
         step("onboarding", retry = false) {
-            if (ScreenshotFlow.anyRequested("sg_onboarding", "sg_onboarding-invite", "sg_onboarding-devices", "sg_onboarding-join")) {
+            if (ScreenshotFlow.anyRequested("sg_onboarding", "sg_onboarding-create-team", "sg_invite-accept", "sg_onboarding-invite", "sg_onboarding-devices", "sg_onboarding-join")) {
                 // --- Onboarding: LAST on purpose, because it switches the signed-in
                 // identity. Accounts are keyed per (instance, userId) —
                 // `ServerAccount.makeId` — so "Add server" pointed at the SAME instance
@@ -1546,6 +1521,21 @@ class StyleguideScreenshotsTest {
                 flow.settle()
                 flow.screenshot("sg_onboarding")
 
+                // --- sg_onboarding-create-team: the choice page's Create a team
+                // (web's wizard CreateTeamStep), the newcomer's full-screen step
+                // card, never the New team sheet. Nothing is typed or submitted;
+                // Back returns to the choice page for the join shot.
+                if (ScreenshotFlow.anyRequested("sg_onboarding-create-team")) {
+                    composeRule.onNode(hasTestTag("team-setup-create")).performClick()
+                    flow.waitFor(hasText("Team name"), NAV_TIMEOUT)
+                    Espresso.closeSoftKeyboard()
+                    flow.settle()
+                    flow.screenshot("sg_onboarding-create-team")
+                    composeRule.onAllNodes(hasText("Back")).onFirst().performClick()
+                    flow.waitFor(hasTestTag("team-setup-join"), NAV_TIMEOUT)
+                    flow.settle()
+                }
+
                 // --- sg_onboarding-join (EXP-1558): the choice page's Join a team
                 // (web's `openOnboardingJoin`): the invite-link field, empty,
                 // keyboard down; its Back returns to the choice. Nothing is sent.
@@ -1557,6 +1547,26 @@ class StyleguideScreenshotsTest {
                     flow.screenshot("sg_onboarding-join")
                     composeRule.onAllNodes(hasText("Back")).onFirst().performClick()
                     flow.waitFor(hasTestTag("team-setup-join"), NAV_TIMEOUT)
+                    flow.settle()
+                }
+
+                // --- sg_invite-accept (#EXP-1632): the newcomer opening the seeded
+                // invite link (`screenshots-demo-invite`, the token web and desktop
+                // photograph) mid-wizard: the bus target MainActivity posts for an
+                // `exponential://invite/<token>` intent pushes the invite route over
+                // the wizard. The landing card only: Accept is NEVER pressed (it
+                // would burn the token); Back returns to the wizard.
+                if (ScreenshotFlow.anyRequested("sg_invite-accept")) {
+                    composeRule.runOnUiThread {
+                        composeRule.activity.deepLinkBus.openInvite("screenshots-demo-invite")
+                    }
+                    flow.waitFor(hasTestTag("invite-accept"), SYNC_TIMEOUT)
+                    flow.settle()
+                    flow.screenshot("sg_invite-accept")
+                    Espresso.pressBack()
+                    // Back lands on a wizard step (not always the team page); every
+                    // step carries the Sign out escape hatch the starter block uses.
+                    flow.waitFor(hasText("Sign out"), NAV_TIMEOUT)
                     flow.settle()
                 }
 

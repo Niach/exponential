@@ -1,18 +1,12 @@
 package com.exponential.app.ui.onboarding
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -41,29 +35,21 @@ fun OnboardingDevicesStep(
 ) {
     val devices by viewModel.devices.collectAsStateWithLifecycle()
 
-    Column(
-        modifier = Modifier
-            .widthIn(max = 460.dp)
-            .fillMaxWidth()
-            .testTag("onboarding-devices-step"),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    // EXP-1554: web's step card ×4 (iOS `DevicesStepView`): the disc +
+    // title header over a hairline, the setup block and the advance inside.
+    OnboardingStepCard(
+        icon = ExpIcons.navDevices,
+        title = OnboardingCopy.DEVICES_TITLE,
+        modifier = Modifier.testTag("onboarding-devices-step"),
     ) {
-        // EXP-1554: web's step header — the icon disc over the title.
-        StepIconDisc(ExpIcons.navDevices)
-        Spacer(Modifier.height(6.dp))
-        Text(
-            OnboardingCopy.DEVICES_TITLE,
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(28.dp))
-
-        DeviceSetup(instanceOrigin = instanceOrigin, viewModel = viewModel)
-
-        Spacer(Modifier.height(28.dp))
-        // A machine of one's own is what this step is for; until one shows up
-        // the only honest label is "skip".
-        SkipOrContinueButton(done = devices.orEmpty().isNotEmpty(), onClick = onContinue)
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            DeviceSetup(instanceOrigin = instanceOrigin, viewModel = viewModel)
+            // A machine of one's own is what this step is for; until one shows
+            // up the only honest label is "skip".
+            SkipOrContinueButton(done = devices.orEmpty().isNotEmpty(), onClick = onContinue)
+        }
     }
 }

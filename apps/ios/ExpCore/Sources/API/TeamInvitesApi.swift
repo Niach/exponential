@@ -58,6 +58,41 @@ public struct CreateInviteResult: Decodable, Sendable {
     }
 }
 
+public struct GetInviteByTokenInput: Encodable, Sendable {
+    public let token: String
+
+    public init(token: String) {
+        self.token = token
+    }
+}
+
+/// #EXP-1632: what the invite landing card shows before the caller accepts
+/// (`teamInvites.getByToken`, web `/invite/$token`, Android `InvitePreview`).
+public struct InvitePreview: Decodable, Sendable, Equatable {
+    public let id: String
+    public let teamId: String
+    public let role: String
+    public let acceptedAt: String?
+    public let expiresAt: String?
+    public let teamName: String
+
+    public init(
+        id: String, teamId: String, role: String,
+        acceptedAt: String? = nil, expiresAt: String? = nil, teamName: String
+    ) {
+        self.id = id
+        self.teamId = teamId
+        self.role = role
+        self.acceptedAt = acceptedAt
+        self.expiresAt = expiresAt
+        self.teamName = teamName
+    }
+}
+
+private struct GetInviteByTokenResult: Decodable {
+    let invite: InvitePreview
+}
+
 public final class TeamInvitesApi: Sendable {
     private let trpc: TrpcClient
 
@@ -67,6 +102,17 @@ public final class TeamInvitesApi: Sendable {
 
     public func accept(accountId: String, token: String) async throws {
         try await trpc.mutationVoid(accountId: accountId, path: "teamInvites.accept", input: AcceptInviteInput(token: token))
+    }
+
+    /// #EXP-1632: the invite's landing card (team, role, used/expired),
+    /// read before the caller chooses to accept.
+    public func getByToken(accountId: String, token: String) async throws -> InvitePreview {
+        let result: GetInviteByTokenResult = try await trpc.query(
+            accountId: accountId,
+            path: "teamInvites.getByToken",
+            input: GetInviteByTokenInput(token: token)
+        )
+        return result.invite
     }
 
     /// Mint a member invite link (owner-only server-side). Returns the raw

@@ -382,7 +382,10 @@
           "kind": "onboarding",
           "value": "devices"
         },
-        "anchorDelayMs": 800
+        "anchorDelayMs": 800,
+        "env": {
+          "EXP_DEV_DOCTOR_CASE": "EXP-1375: low disk with two kept worktrees: a warning, never a blocker"
+        }
       }
     },
     {
@@ -391,11 +394,7 @@
       "title": "Accept an invite",
       "blurb": "The landing page a teammate opens from an invite link, with the team they were invited to and the accept button.",
       "order": 7,
-      "notes": {
-        "ios": "InviteAcceptView accepts the invite the moment it appears (spinner → “Welcome!”): there is no landing card to photograph, and pressing on would burn the seeded token.",
-        "android": "Android does render the landing card, but the styleguide lane is a side-by-side comparison — a shot that exists on one native platform only has nothing to sit next to, so this stays web + desktop."
-      },
-      "web": {
+            "web": {
         "route": "/invite/$inviteToken",
         "anchor": {
           "text": "Team invite",
@@ -405,6 +404,19 @@
         "settleMs": 600
       },
       "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_invite-accept",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_invite-accept",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "ios": "#EXP-1632: the newcomer relaunched with `-uiTestingOpenInvite screenshots-demo-invite` (the deep-link bus): the landing card loads the invite and accepts only on tap; never tapped.",
+        "android": "#EXP-1632: the newcomer's wizard, `deepLinkBus.openInvite(\"screenshots-demo-invite\")` pushes the invite route; the landing card, never accepted.",
+        "desktop": "#EXP-1651: the Join a team dialog with the link resolved shows web's landing card (Team invite, the team card, Accept invite)."
+      },
       "desktop": {
         "drive": {
           "kind": "dialog",
@@ -2297,6 +2309,15 @@
         "recipe": "openGettingStarted",
         "settleMs": 800
       },
+      "webMobile": {
+        "route": "/t/$teamSlug/team",
+        "anchor": {
+          "testId": "getting-started",
+          "timeoutMs": 20000
+        },
+        "recipe": "openGettingStartedPhone",
+        "settleMs": 800
+      },
       "desktop": {
         "drive": {
           "kind": "dialog",
@@ -2305,7 +2326,7 @@
       },
       "notes": {
         "web": "Not a route: the sidebar-footer entry (EXP-88) opens the block in a centred dialog (EXP-1270; the right sheet is gone), and the entry hides once every step is done (EXP-548), so the seed must leave a step open. The same block renders inline on an EMPTY board (`board-empty`) and on the Agent home while the team has no board.",
-        "web-mobile": "Not captured (EXP-1558): the phone shell has no sidebar (the tab bar replaced it) and no other entry opens the dialog (the natives open it from Settings' Getting started row), so there is nothing to tap; the inline block is `board-empty`’s web-mobile capture.",
+        "web-mobile": "#EXP-1632: like the natives, the phone Team page's Getting started row opens the block in a bottom sheet (recipe `openGettingStartedPhone`).",
         "ios": "Settings’ Getting started row opens the block in a bottom sheet (the same rows, full width, Docs as an icon button). EXP-1654: 6 steps, not web's 8 — `Connect your tools` (mcp) and `Feedback widget` are `phones: false` in getting-started.json, so the count reads `n of 6` (platform scope, not a seed gap).",
         "android": "See ios: the Settings row’s bottom sheet; the same 6 phone steps (`phones: false` drops mcp + widget, EXP-1654).",
         "desktop": "The rail entry opens the block in its own dialog window (`getting_started::open_dialog`); `EXP_DEV_DIALOG=getting-started` opens it on the active team. The old `getting-started` screen and its tabs are gone."

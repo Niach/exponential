@@ -61,9 +61,21 @@ pub fn open(window: &mut Window, cx: &mut App, token: Option<String>) {
     }
     // EXP-369: 300 → 340 so the preview card fits under the paste field; the
     // pinned footer keeps "Join team" reachable when it doesn't.
-    let spec = DialogSpec::new("Join a team", size(px(416.), px(340.)));
+    // EXP-1651: a dialog that opens on a token (a deep link, the dev drive)
+    // resolves to the web landing card, which has no title row and no ✕
+    // (Escape and a scrim press still close it). The chrome is fixed at open
+    // time, so a token picks it; the paste-link dialog keeps its header.
+    let chromeless = token.is_some();
+    let mut spec = DialogSpec::new(TITLE, size(px(416.), px(340.)));
+    if chromeless {
+        spec = spec.chromeless();
+    }
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
-        let view = cx.new(|cx| JoinTeamView::new(token, false, window, cx));
+        let view = cx.new(|cx| {
+            let mut view = JoinTeamView::new(token, false, window, cx);
+            view.chromeless = chromeless;
+            view
+        });
         let busy = view.clone();
         let submit = view.clone();
         DialogContent::new(view)
@@ -136,6 +148,10 @@ pub struct JoinTeamView {
     /// of closing a dialog.
     embedded: bool,
     accepting: bool,
+    /// EXP-1651, dialog host only: opened without the header row (a token
+    /// was handed in). Until the landing resolves, the view draws the
+    /// title itself.
+    chromeless: bool,
     /// INVALID INPUT under the field (FEED-79): nothing pasted yet. A failed
     /// accept is a toast.
     error: Option<SharedString>,
@@ -157,9 +173,29 @@ pub struct JoinTeamView {
     _subscriptions: Vec<Subscription>,
 }
 
+/// The paste-link dialog's title.
+const TITLE: &str = "Join a team";
+
 /// ×2 (web wizard): the join field's placeholder and the preview button.
 pub(crate) const PASTE_PLACEHOLDER: &str = "Paste an invite link";
 pub(crate) const CONTINUE: &str = "Continue";
+
+/// EXP-1651: the web `/invite/$token` landing's copy, which the dialog shows
+/// once the link resolves to a team.
+const LANDING_TITLE: &str = "Team invite";
+const LANDING_SUBTITLE: &str = "You've been invited to join";
+const ACCEPT_INVITE: &str = "Accept invite";
+const INVITE_USED: &str = "This invite has already been used";
+const INVITE_EXPIRED: &str = "This invite has expired";
+
+/// The invite's `expiresAt` lies in the past (web `invite.expiresAt < now`).
+fn invite_expired(invite: &TeamInviteOut, now: chrono::DateTime<chrono::Utc>) -> bool {
+    invite
+        .expires_at
+        .as_deref()
+        .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+        .is_some_and(|at| at < now)
+}
 
 impl JoinTeamView {
     pub(crate) fn new(
@@ -187,6 +223,7 @@ impl JoinTeamView {
             preview: Preview::Idle,
             embedded,
             accepting: false,
+            chromeless: false,
             error: None,
             focused_once: false,
             body_scroll: ScrollHandle::new(),
@@ -217,6 +254,9 @@ impl JoinTeamView {
     /// when we do.
     fn primary_action(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match &self.preview {
+            // A used or expired invite offers no accept (the landing says so).
+            Preview::Ready(invite)
+                if invite.accepted_at.is_some() || invite_expired(invite, chrono::Utc::now()) => {}
             Preview::Ready(_) => self.accept(window, cx),
             Preview::Loading => {}
             _ => {
@@ -403,6 +443,108 @@ impl JoinTeamView {
 }
 
 impl JoinTeamView {
+    /// EXP-1651 — the dialog host's RESOLVED state, the web `/invite/$token`
+    /// landing line for line: the users disc, "Team invite", the muted
+    /// subtitle, the team card (name large, role muted) and the full-width
+    /// primary "Accept invite" (or the used / expired line in its place).
+    fn render_landing(&self, invite: &TeamInviteOut, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        let theme = cx.theme();
+        let muted = theme.muted_foreground;
+        let name = invite
+            .team_name
+            .clone()
+            .unwrap_or_else(|| "a team".to_string());
+        let role = invite.role.clone().unwrap_or_else(|| "member".to_string());
+        let used = invite.accepted_at.is_some();
+        let expired = invite_expired(invite, chrono::Utc::now());
+
+        let head = v_flex()
+            .w_full()
+            .items_center()
+            .gap_2()
+            .text_center()
+            .child(
+                div()
+                    .mb_2()
+                    .size(px(48.))
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .rounded_full()
+                    .bg(theme.primary.opacity(0.1))
+                    .child(
+                        gpui_component::Icon::new(registry::SETTINGS_MEMBERS)
+                            .size(px(24.))
+                            .text_color(theme.primary),
+                    ),
+            )
+            .child(
+                div()
+                    .text_base()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.foreground)
+                    .child(LANDING_TITLE),
+            )
+            .child(div().text_sm().text_color(muted).child(LANDING_SUBTITLE));
+
+        let card = v_flex()
+            .w_full()
+            .items_center()
+            .gap_1()
+            .p_4()
+            .rounded(theme.radius_lg)
+            .border_1()
+            .border_color(theme.border)
+            .text_center()
+            .child(
+                div()
+                    .text_lg()
+                    .font_weight(FontWeight::SEMIBOLD)
+                    .text_color(theme.foreground)
+                    .child(SharedString::from(name)),
+            )
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(muted)
+                    .child(SharedString::from(format!("Role: {role}"))),
+            );
+
+        let notice = |text: &'static str, color: gpui::Hsla| {
+            h_flex()
+                .w_full()
+                .items_center()
+                .gap_2()
+                .text_sm()
+                .text_color(color)
+                .child(gpui_component::Icon::new(registry::UI_WARNING).size(px(16.)))
+                .child(text)
+                .into_any_element()
+        };
+        let action = if expired {
+            notice(INVITE_EXPIRED, theme.danger)
+        } else if used {
+            notice(INVITE_USED, muted)
+        } else {
+            Button::new("join-team-primary")
+                .primary()
+                .web_md()
+                .w_full()
+                .label(ACCEPT_INVITE)
+                .disabled(self.accepting)
+                .loading(self.accepting)
+                .on_click(cx.listener(|this, _, window, cx| this.primary_action(window, cx)))
+                .into_any_element()
+        };
+
+        v_flex()
+            .w_full()
+            .pt_2()
+            .gap_6()
+            .child(head)
+            .child(v_flex().w_full().gap_4().child(card).child(action))
+    }
+
     /// P9 — size the dialog WINDOW to the form (the trigger dialog's fit):
     /// content plus the chrome around the scroll body, between the dialog's
     /// opening height and 85% of the screen it sits on. Refits only when the
@@ -431,6 +573,27 @@ impl JoinTeamView {
     }
 }
 
+impl JoinTeamView {
+    /// EXP-1651: the resolved landing card's height (disc, title, team card,
+    /// Accept invite), set once.
+    fn pin_landing_height(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let target = px(LANDING_H);
+        if self.fitted == Some(target) {
+            return;
+        }
+        let Some(current) = crate::native_dialog::dialog_size(window, cx) else {
+            return;
+        };
+        self.fitted = Some(target);
+        if (target - current.height).abs() > px(1.) {
+            native_dialog::resize_dialog_keeping_top(window, cx, size(current.width, target));
+        }
+    }
+}
+
+/// The resolved landing card's content height (EXP-1651).
+const LANDING_H: f32 = 300.;
+
 /// The dialog's floor: the paste field and the footer.
 const DIALOG_MIN_H: f32 = 200.;
 
@@ -446,7 +609,25 @@ impl Render for JoinTeamView {
                 .update(cx, |state, cx| state.focus(window, cx));
         }
 
-        let mut form = v_flex().gap_3().child(
+        // EXP-1651: the dialog host shows the web landing once the link
+        // resolves to a team; the paste form stays for everything before.
+        let landing = match &self.preview {
+            Preview::Ready(invite) if !self.embedded => {
+                Some(self.render_landing(&invite.clone(), cx))
+            }
+            _ => None,
+        };
+
+        // EXP-1651: a chromeless dialog still loading (or refused) names
+        // itself, as the header row would.
+        let own_title = (self.chromeless && landing.is_none()).then(|| {
+            div()
+                .text_lg()
+                .font_weight(FontWeight::SEMIBOLD)
+                .text_color(cx.theme().foreground)
+                .child(TITLE)
+        });
+        let mut form = v_flex().gap_3().children(own_title).child(
             v_flex()
                 .gap_2()
                 .child(
@@ -559,7 +740,15 @@ impl Render for JoinTeamView {
         // EXP-369: the form scrolls, the buttons stay pinned at the bottom
         // edge (see [`DialogContent::self_scrolling`] in [`open`]). P9: the
         // window follows the form's height (both boxes report at prepaint).
-        self.fit_window(window, cx);
+        // EXP-1651: the landing carries its own full-width action, no footer,
+        // and a fixed height (the fit measured it short and cut Accept off).
+        let resolved = landing.is_some();
+        if resolved {
+            self.pin_landing_height(window, cx);
+        } else {
+            self.fit_window(window, cx);
+        }
+        let form = landing.unwrap_or(form);
         let view_id = cx.entity_id();
         let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());
         let body_scroll = self.body_scroll.clone();
@@ -606,7 +795,9 @@ impl Render for JoinTeamView {
                             .child(Scrollbar::new(&body_scroll).axis(ScrollbarAxis::Vertical)),
                     ),
             )
-            .child(footer.pt_3().border_t_1().border_color(cx.theme().border))
+            .when(!resolved, |this| {
+                this.child(footer.pt_3().border_t_1().border_color(cx.theme().border))
+            })
             .into_any_element()
     }
 }
@@ -614,6 +805,21 @@ impl Render for JoinTeamView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1651: the landing's expired line follows `expiresAt`.
+    #[test]
+    fn an_invite_past_its_expiry_reads_expired() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-11-03T12:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let invite = |expires_at: Option<&str>| TeamInviteOut {
+            expires_at: expires_at.map(str::to_string),
+            ..serde_json::from_value(serde_json::json!({ "id": "i" })).unwrap()
+        };
+        assert!(invite_expired(&invite(Some("2026-11-01T00:00:00Z")), now));
+        assert!(!invite_expired(&invite(Some("2026-11-10T00:00:00.000Z")), now));
+        assert!(!invite_expired(&invite(None), now));
+    }
 
     #[test]
     fn deep_link_parses_token() {

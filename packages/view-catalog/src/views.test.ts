@@ -85,6 +85,7 @@ const PINNED_RECIPES = [
   `openWidgetEditor`,
   `expandFirstDiffFile`,
   `openGettingStarted`,
+  `openGettingStartedPhone`,
   `typeIssueRef`,
   `openComposerMenuTemporary`,
   `openComposerSkillsMenu`,

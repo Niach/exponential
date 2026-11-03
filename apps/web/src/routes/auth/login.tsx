@@ -466,6 +466,21 @@ function LoginPage() {
             )}
 
             <FieldError>{error}</FieldError>
+
+            {/* EXP-1651: the natives' "Use a self-hosted instance" line, between
+                the buttons and Privacy · Terms, in that line's muted style; on
+                the web it opens the self-host guide. */}
+            <p className="pt-2 text-center text-xs text-muted-foreground">
+              <a
+                href="https://exponential.at/docs/self-host/"
+                className="underline-offset-4 hover:text-foreground hover:underline"
+                target="_blank"
+                rel="noreferrer"
+                data-testid="login-self-host-link"
+              >
+                Use a self-hosted instance
+              </a>
+            </p>
           </div>
         )}
 

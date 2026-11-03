@@ -47,9 +47,10 @@ fn specimen(
     cx: &App,
 ) -> Div {
     let muted = cx.theme().muted_foreground;
-    // Inert.
+    // A no-op action: the pills draw active, like web's specimen.
     let props = BlockProps {
         id: SharedString::from(format!("sg-device-readiness-{index}-{local}")),
+        on_action: Some(std::rc::Rc::new(|_, _, _, _| {})),
         ..BlockProps::default()
     };
     v_flex()
@@ -76,7 +77,11 @@ fn low_disk_specimen(cases: &[(String, coding::device_doctor::DeviceDoctor)], cx
     let (name, doctor) = cases.last()?;
     let muted = cx.theme().muted_foreground;
     let caption = |text: SharedString| div().pt_2p5().text_xs().text_color(muted).child(text);
-    let props = |id: &str| BlockProps { id: SharedString::from(id.to_string()), ..BlockProps::default() };
+    let props = |id: &str| BlockProps {
+        id: SharedString::from(id.to_string()),
+        on_action: Some(std::rc::Rc::new(|_, _, _, _| {})),
+        ..BlockProps::default()
+    };
     let warning = device_readiness::warning_row(doctor, false);
     Some(
         v_flex()

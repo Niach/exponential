@@ -27,6 +27,9 @@ object DevicesList {
         const val SIGNED_OUT = "{label} · Signed out"
         const val UPDATE = "Update"
         const val SIGN_IN = "Sign in"
+        /** EXP-1627: the sign-in dialog's title and its ONE muted waiting line. */
+        const val SIGN_IN_TITLE = "Sign in"
+        const val SIGN_IN_WAITING = "Waiting for {device} to publish the {agent} sign-in link…"
         const val LIMIT_REACHED = "{label} · Limit reached"
         const val DEVICE_ACTIONS = "Device actions"
         const val SETTINGS = "Device settings"
@@ -65,6 +68,8 @@ object DevicesList {
             "signedOut" to SIGNED_OUT,
             "update" to UPDATE,
             "signIn" to SIGN_IN,
+            "signInTitle" to SIGN_IN_TITLE,
+            "signInWaiting" to SIGN_IN_WAITING,
             "limitReached" to LIMIT_REACHED,
             "deviceActions" to DEVICE_ACTIONS,
             "settings" to SETTINGS,

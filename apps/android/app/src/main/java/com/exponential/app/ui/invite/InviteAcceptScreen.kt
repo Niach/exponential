@@ -9,9 +9,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -36,7 +33,6 @@ import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.OwnDevices
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.onboarding.OnboardingDevicesStep
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -45,6 +41,17 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import com.exponential.app.ui.theme.GlassTokens
+import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.glassCard
+import com.exponential.app.ui.components.GlassSubmitButton
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.onboarding.StepIconDisc
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 
 data class InviteAcceptState(
     val loading: Boolean = true,
@@ -136,7 +143,7 @@ fun InviteAcceptScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { TopBarTitle("Team invite") },
+                title = {},
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },
@@ -150,9 +157,10 @@ fun InviteAcceptScreen(
         Column(
             modifier = Modifier
                 .padding(padding)
-                .padding(24.dp)
+                .padding(16.dp)
                 .fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            // Web: the card sits centred on the page.
+            verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             when {
@@ -164,61 +172,94 @@ fun InviteAcceptScreen(
                 }
                 // EXP-1275: skeleton rows, never a centred spinner.
                 state.loading -> SkeletonRows(dot = false)
-                // The invite could not be read (web parity): a state, not an error line.
-                state.error != null -> Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text("Invalid invite", style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        state.error!!,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                // The invite could not be read (web parity): the card's
+                // "Invalid invite" state, not an error line.
+                state.error != null -> InviteCard(title = "Invalid invite", subtitle = state.error)
                 state.preview != null -> {
                     val preview = state.preview!!
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        ),
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                "You've been invited to",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                    InviteCard(title = "Team invite", subtitle = "You've been invited to join") {
+                        // Web's inner card: the team over its role.
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(1.dp, GlassTokens.StrokeCard, RoundedCornerShape(12.dp))
+                                .padding(16.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
                             Text(
                                 preview.teamName,
-                                style = MaterialTheme.typography.headlineSmall,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center,
                             )
                             Text(
-                                "as ${preview.role}",
+                                "Role: ${preview.role}",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                             )
-                            if (preview.acceptedAt != null) {
-                                Spacer(Modifier.height(4.dp))
-                                Text(
-                                    "This invite has already been used.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
                         }
-                    }
-                    Button(
-                        onClick = { viewModel.accept(token) },
-                        enabled = !state.accepting && preview.acceptedAt == null,
-                        shape = GlassTokens.ButtonShape,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        if (state.accepting) Text("Joining…") else Text("Accept invite")
+                        if (preview.acceptedAt != null) {
+                            Text(
+                                "This invite has already been used",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        } else {
+                            // #EXP-1632: nothing is accepted until this tap.
+                            GlassSubmitButton(
+                                label = if (state.accepting) "Joining…" else "Accept invite",
+                                onClick = { viewModel.accept(token) },
+                                enabled = !state.accepting,
+                                modifier = Modifier.fillMaxWidth().testTag("invite-accept"),
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/** Web's invite card (`/invite/$token`): the users disc, the title and its
+ *  muted line, then the body (the team card + Accept invite). */
+@Composable
+private fun InviteCard(
+    title: String,
+    subtitle: String?,
+    content: @Composable () -> Unit = {},
+) {
+    Column(
+        modifier = Modifier
+            .widthIn(max = 448.dp)
+            .fillMaxWidth()
+            .glassCard()
+            .padding(24.dp)
+            .testTag("invite-accept-card"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            StepIconDisc(ExpIcons.uiTeam)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            subtitle?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+        content()
     }
 }
