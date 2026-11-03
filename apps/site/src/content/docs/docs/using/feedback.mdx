@@ -1,0 +1,35 @@
+---
+title: Feedback
+description: Collect user reports with the widget, answer each reporter from the issue, and fix the bugs on your boards.
+---
+
+import { Aside } from "@astrojs/starlight/components"
+import PlatformShots from "../../../../components/PlatformShots.astro"
+
+Visitors report bugs and ideas through the [widget](/docs/using/widget/) on your site. Each report is an issue, and the conversation with its reporter runs in that issue's comments.
+
+## Collect
+
+Every widget sends its reports to one board. A report lands as an ordinary issue, titled from the first line of the message, with the annotated screenshot attached and the page URL, browser and custom data in the description. Your boards stay private.
+
+## Talk to the reporter
+
+<PlatformShots view="support-reporter" platforms={["web"]} />
+
+A reporter who left an email gets a confirmation with a private link to their report: what they sent, every reply addressed to them, and a reply box. No account needed.
+
+- On the issue, the comment composer has a **Reply to reporter** toggle. Switch it on and that comment is emailed to the reporter and marked *to reporter*. A toast says whether the mail went out. The toggle turns off after each send, so follow-up notes stay with the team.
+- A reporter's answer shows up as a comment marked *reporter*, and as **Reporter replied** in the inbox of the issue's followers and assignee (every member, when nobody follows it yet).
+- An answer on a completed issue reopens it to **Backlog**.
+
+Reporter comments render as plain text; members can delete them and nobody can edit them. Agents reply the same way over MCP with `exponential_comments` and `audience: "reporter"`.
+
+<Aside>Replies need a mail transport. A self-hosted server without SMTP or SES still files every report, and the toast says the reply was saved without an email. See [Self-host](/docs/get-started/self-host/).</Aside>
+
+## Triage
+
+<PlatformShots view="board-bulk-edit" platforms={["web"]} />
+
+Reports are issues, so triage is the board: set priority and labels, move noise to **Cancelled**, mark repeats as **Duplicate**. Or select several and press **Start coding** to [hand them to an agent](/docs/using/sessions/#several-issues-at-once) as one chat.
+
+When the issue completes, a reporter who left an email gets one email saying their report is resolved.
