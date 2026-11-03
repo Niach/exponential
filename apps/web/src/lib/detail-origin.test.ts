@@ -8,9 +8,9 @@ import {
   originLabel,
   originHasListNav,
   originListNavigation,
-  panelOffset,
   parseOrigin,
   screenFromPath,
+  secondSidebarFor,
   sidebarOccupant,
   type DetailOrigin,
 } from "@/lib/detail-origin"
@@ -19,7 +19,7 @@ import {
 // (apps/desktop/crates/ui/src/navigation.rs
 // `derive_origin_keeps_the_list_context_and_derives_without_one`), on the web's
 // routes. EXP-851 widened the vocabulary to every LIST screen and made the
-// token the sidebar's only input (`sidebarOccupant`).
+// token the second sidebar's only input (`secondSidebarFor`).
 
 const inbox: DetailOrigin = { kind: `inbox` }
 const board: DetailOrigin = { kind: `board`, boardSlug: `web` }
@@ -204,67 +204,69 @@ describe(`originLabel / originBoardSlug`, () => {
 })
 
 // EXP-851: which of the sidebar's panels is up, from the URL alone.
-// EXP-1246: a list stays beside a detail ONLY for the Inbox.
 describe(`sidebarOccupant`, () => {
   it(`gives settings the slot on every settings route`, () => {
-    expect(sidebarOccupant(`/t/acme/settings`, null)).toEqual({
+    expect(sidebarOccupant(`/t/acme/settings`)).toEqual({
       kind: `settings`,
     })
-    expect(sidebarOccupant(`/t/acme/settings/members`, `inbox`)).toEqual({
+    expect(sidebarOccupant(`/t/acme/settings/members`)).toEqual({
       kind: `settings`,
     })
+    expect(secondSidebarFor(`/t/acme/settings/members`, `inbox`)).toBeNull()
   })
 
+  // #EXP-1672: the Inbox never folds the main menu (desktop parity).
+  it(`keeps the main menu everywhere else, the Inbox included`, () => {
+    for (const path of [
+      `/t/acme/inbox`,
+      `/t/acme/boards/web/issues/MET-12`,
+      `/t/acme/agent`,
+    ]) {
+      expect(sidebarOccupant(path), path).toEqual({ kind: `main` })
+    }
+  })
+})
+
+// EXP-1246 / #EXP-1672: the content card's second sidebar, from the URL alone.
+describe(`secondSidebarFor`, () => {
   it(`keeps the inbox beside a detail opened from it`, () => {
     for (const path of [
       `/t/acme/boards/web/issues/MET-12`,
       `/t/acme/sessions/s1`,
     ]) {
-      expect(sidebarOccupant(path, `inbox`), path).toEqual({
-        kind: `list`,
-        origin: inbox,
-      })
-      expect(sidebarOccupant(path, `inbox:my-issues`), path).toEqual({
-        kind: `list`,
-        origin: { kind: `inbox`, tab: `my-issues` },
+      expect(secondSidebarFor(path, `inbox`), path).toEqual(inbox)
+      expect(secondSidebarFor(path, `inbox:my-issues`), path).toEqual({
+        kind: `inbox`,
+        tab: `my-issues`,
       })
     }
   })
 
-  it(`keeps the main menu on a thread and an agent's channel`, () => {
+  it(`keeps the inbox beside a thread and an agent's channel too`, () => {
     for (const path of [`/t/acme/threads/th1`, `/t/acme/agents/a1`]) {
-      expect(sidebarOccupant(path, null), path).toEqual({ kind: `main` })
-      expect(sidebarOccupant(path, `inbox`), path).toEqual({
-        kind: `list`,
-        origin: inbox,
-      })
+      expect(secondSidebarFor(path, null), path).toBeNull()
+      expect(secondSidebarFor(path, `inbox`), path).toEqual(inbox)
     }
   })
 
   // EXP-1246: the md+ Inbox page IS the list-detail host with nothing picked.
   it(`shows the inbox host on the inbox page itself`, () => {
-    expect(sidebarOccupant(`/t/acme/inbox`, null)).toEqual({
-      kind: `list`,
-      origin: inbox,
-    })
+    expect(secondSidebarFor(`/t/acme/inbox`, null)).toEqual(inbox)
     expect(
-      sidebarOccupant(`/t/acme/inbox`, null, { tab: `my-issues` })
-    ).toEqual({ kind: `list`, origin: { kind: `inbox`, tab: `my-issues` } })
+      secondSidebarFor(`/t/acme/inbox`, null, { tab: `my-issues` })
+    ).toEqual({ kind: `inbox`, tab: `my-issues` })
     // The phone-only Drafts tab has no list host.
-    expect(sidebarOccupant(`/t/acme/inbox`, null, { tab: `drafts` })).toEqual({
-      kind: `list`,
-      origin: inbox,
-    })
+    expect(secondSidebarFor(`/t/acme/inbox`, null, { tab: `drafts` })).toEqual(inbox)
   })
 
-  it(`keeps the main menu on the Agent page`, () => {
-    expect(sidebarOccupant(`/t/acme/agent`, null)).toEqual({ kind: `main` })
+  it(`shows none on the Agent page`, () => {
+    expect(secondSidebarFor(`/t/acme/agent`, null)).toBeNull()
   })
 
   // EXP-1246: board and reviews origins keep Back but no list — the
   // review state of the bug report (a Reviews list beside a plain issue tab)
   // cannot happen any more.
-  it(`keeps the main menu for every other origin`, () => {
+  it(`shows none for every other origin`, () => {
     for (const from of [
       `board:web`,
       `threads`,
@@ -275,13 +277,11 @@ describe(`sidebarOccupant`, () => {
       `drafts`,
       `inbox:drafts`,
     ]) {
-      expect(sidebarOccupant(`/t/acme/sessions/s1`, from), from).toEqual({
-        kind: `main`,
-      })
+      expect(secondSidebarFor(`/t/acme/sessions/s1`, from), from).toBeNull()
       expect(
-        sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, from),
+        secondSidebarFor(`/t/acme/boards/web/issues/MET-12`, from),
         from
-      ).toEqual({ kind: `main` })
+      ).toBeNull()
     }
     // They still parse, so Back and the tabless rule can read them.
     expect(parseOrigin(`running`)).toEqual({ kind: `running` })
@@ -299,7 +299,7 @@ describe(`sidebarOccupant`, () => {
     ).toBeNull()
   })
 
-  it(`keeps the main menu everywhere else`, () => {
+  it(`shows none everywhere else`, () => {
     for (const path of [
       `/t/acme`,
       `/t/acme/actions/a1`,
@@ -309,16 +309,12 @@ describe(`sidebarOccupant`, () => {
       `/t/acme/boards/web`,
       `/onboarding`,
     ]) {
-      expect(sidebarOccupant(path, `inbox`), path).toEqual({ kind: `main` })
+      expect(secondSidebarFor(path, `inbox`), path).toBeNull()
     }
     // A detail WITHOUT a token — a pinned row, a sidebar session row, a deep
-    // link — keeps the main menu too.
-    expect(sidebarOccupant(`/t/acme/sessions/s1`, null)).toEqual({
-      kind: `main`,
-    })
-    expect(sidebarOccupant(`/t/acme/boards/web/issues/MET-12`, `junk`)).toEqual({
-      kind: `main`,
-    })
+    // link — shows none too.
+    expect(secondSidebarFor(`/t/acme/sessions/s1`, null)).toBeNull()
+    expect(secondSidebarFor(`/t/acme/boards/web/issues/MET-12`, `junk`)).toBeNull()
   })
 })
 
@@ -380,47 +376,21 @@ describe(`originListNavigation`, () => {
 
 // EXP-1170: the New issue page is the issue detail in DRAFT mode, so it keeps
 // the list it was opened from beside it exactly like a detail does.
-describe(`sidebarOccupant on the draft page`, () => {
+describe(`secondSidebarFor on the draft page`, () => {
   const draftPath = `/t/acme/drafts/1b4e28ba-2fa1-11d2-883f-0016d3cca427`
 
   it(`keeps the inbox beside a draft opened from it`, () => {
-    expect(sidebarOccupant(draftPath, `inbox`)).toEqual({
-      kind: `list`,
-      origin: inbox,
-    })
+    expect(secondSidebarFor(draftPath, `inbox`)).toEqual(inbox)
     // EXP-1246: a board origin names Back only.
-    expect(sidebarOccupant(draftPath, `board:web`)).toEqual({ kind: `main` })
+    expect(secondSidebarFor(draftPath, `board:web`)).toBeNull()
   })
 
-  it(`keeps the main menu without a list origin`, () => {
-    expect(sidebarOccupant(draftPath, null)).toEqual({ kind: `main` })
-    expect(sidebarOccupant(draftPath, `drafts`)).toEqual({ kind: `main` })
+  it(`shows none without a list origin`, () => {
+    expect(secondSidebarFor(draftPath, null)).toBeNull()
+    expect(secondSidebarFor(draftPath, `drafts`)).toBeNull()
   })
 
   it(`treats the Drafts list itself as a list screen`, () => {
-    expect(sidebarOccupant(`/t/acme/drafts`, `board:web`)).toEqual({
-      kind: `main`,
-    })
-  })
-})
-
-// EXP-870: the directional slide — deeper panels wait under the rail's edge,
-// shallower ones are pushed out right.
-describe(`panelOffset`, () => {
-  it(`puts the occupant in the slot`, () => {
-    expect(panelOffset(`list`, `list`)).toBe(0)
-    expect(panelOffset(`settings`, `settings`)).toBe(0)
-  })
-
-  it(`tucks both panels under the rail while the main menu is up`, () => {
-    expect(panelOffset(`list`, `main`)).toBe(-1)
-    expect(panelOffset(`settings`, `main`)).toBe(-1)
-  })
-
-  it(`slides by direction between the list nav and settings`, () => {
-    // Forward (list → settings): settings enters from the rail, the list is
-    // pushed right…
-    expect(panelOffset(`settings`, `list`)).toBe(-1)
-    expect(panelOffset(`list`, `settings`)).toBe(1)
+    expect(secondSidebarFor(`/t/acme/drafts`, `board:web`)).toBeNull()
   })
 })

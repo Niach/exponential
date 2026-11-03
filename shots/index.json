@@ -4309,8 +4309,8 @@
         "file": "shots/inbox/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 32218,
-        "sha256": "982a30cf9558a33372a642e63ef658f33f23e2852aada1ec1de02302429b763e"
+        "bytes": 44642,
+        "sha256": "0e8fc8fbded492e55c891309f8a0e3fb4ed6e6d3c12a6d458d2ce49ebcfbd35f"
       },
       "web-mobile": {
         "file": "shots/inbox/web-mobile.webp",

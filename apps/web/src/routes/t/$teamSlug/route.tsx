@@ -23,6 +23,7 @@ import {
 import { WorkTabsStrip } from "@/components/team/work-tabs-strip"
 import { WorkTabsSync } from "@/components/team/work-tabs-sync"
 import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
+import { SecondSidebarHost } from "@/components/team/list-detail"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { OfflineBanner } from "@/components/offline-banner"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
@@ -149,8 +150,8 @@ function TeamLayout() {
     return () => window.removeEventListener(`keydown`, handleKeyDown)
   }, [])
 
-  // EXP-870: the sidebar is the main menu alone or the compact 3rem rail plus
-  // a panel beside it — the provider's width follows the URL, and the shadcn
+  // EXP-870: the sidebar is the main menu alone or (settings) the compact
+  // 3rem rail plus the settings nav beside it — the provider's width follows the URL, and the shadcn
   // gap/container animate it on the shared motion tokens. EXP-1156: each
   // width is the user's dragged one; `SidebarWidthSync` writes the column's
   // `--sidebar-width` onto the wrapper so a drag never re-renders this layout.
@@ -232,9 +233,13 @@ function TeamLayout() {
                     every breakpoint. Renders nothing while the server is
                     reachable. */}
                 <OfflineBanner />
-                <div className={MAIN_OUTLET_CLASS}>
-                  <Outlet />
-                </div>
+                {/* #EXP-1672: the Inbox list rides in the card as its
+                    second sidebar (desktop `render_with_side`). */}
+                <SecondSidebarHost teamSlug={teamSlug}>
+                  <div className={MAIN_OUTLET_CLASS}>
+                    <Outlet />
+                  </div>
+                </SecondSidebarHost>
               </main>
               {/* EXP-818: no dock band under the card — EXP-870 put every
                   live session in a work tab above it instead. */}
