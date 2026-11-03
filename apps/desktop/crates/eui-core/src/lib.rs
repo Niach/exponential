@@ -104,6 +104,7 @@ pub mod macros;
 pub mod measure;
 pub mod overlay;
 pub mod qr_code;
+pub mod read_only;
 pub mod recipes;
 pub mod reducer;
 pub mod resizable;

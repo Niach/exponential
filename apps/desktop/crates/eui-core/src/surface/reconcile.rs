@@ -99,6 +99,7 @@ impl Surface {
                 formatter: &*self.formatter,
                 now: self.clock.unwrap_or_else(crate::format::now_ms),
                 data_version: self.data_version,
+                read_only: self.settings.read_only,
             };
             f(&mut ctx)
         };

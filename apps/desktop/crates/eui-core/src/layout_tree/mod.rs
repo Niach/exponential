@@ -323,6 +323,9 @@ pub struct BuildContext<'a> {
     pub now: f64,
     /// Bumped on every write to the data model (the key caches' version).
     pub data_version: u64,
+    /// VAPP-200: a read-only surface: every writing control builds as
+    /// `disabled: true` ([`crate::read_only::disables`]).
+    pub read_only: bool,
 }
 
 pub struct Built {
@@ -694,6 +697,12 @@ impl<'a, 'b> Builder<'a, 'b> {
             display_text_props(def, &mut props);
         }
         self.local_overrides(&node.id, &node.component, &mut props);
+        // VAPP-200: a read-only surface disables its writing controls as if
+        // their author had (before the Form cascade: a disabled Form
+        // disables what is inside).
+        if self.ctx.read_only && crate::read_only::disables(&node.component, node.on.as_ref()) {
+            props.insert("disabled".into(), Value::Bool(true));
+        }
         // Inside a disabled Form every field (and button) is inert; inside a
         // busy one the submit buttons show loading.
         let form = parent.and_then(|p| self.nodes[p as usize].form.clone());

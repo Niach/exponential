@@ -73,6 +73,10 @@ struct AppEditorScreen: View {
     /// The first message's draft (no session yet): the composer and a
     /// draft's starter pills share it, so both send the same way.
     @State private var firstDraft: AppFirstMessageDraft?
+    /// VAPP-200: the viewer's app access (`appAccess.mine`; nil = write
+    /// until known): at `read` the preview paints the app's own writing
+    /// controls disabled.
+    @State private var access: String?
 
     /// The phones' tabs (`editorTabs.phone`).
     enum Tab: Hashable, CaseIterable {
@@ -131,6 +135,9 @@ struct AppEditorScreen: View {
             endLiveSession()
             discardEmptyDraft()
             model.stop()
+        }
+        .task(id: appId) {
+            access = try? await McpServersApi(trpc: deps.trpc).appAccessMine(accountId: accountId, appId: appId).level
         }
         .task(id: appId) {
             if firstDraft?.appId != appId {
@@ -401,7 +408,7 @@ struct AppEditorScreen: View {
                 }
                 // A grant is about the version it was made on (`grantVersion`):
                 // any other previews asking for everything.
-                AppPreview(packageJSON: shownPackage(app), appId: app.id, teamId: app.teamId, grants: number == Apps.grantVersion(app.versions))
+                AppPreview(packageJSON: shownPackage(app), appId: app.id, teamId: app.teamId, grants: number == Apps.grantVersion(app.versions), readOnly: access == "read")
             }
             .padding(16)
         }

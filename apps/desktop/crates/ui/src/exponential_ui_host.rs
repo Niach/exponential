@@ -173,6 +173,9 @@ pub(crate) struct HostScope {
     pub(crate) grants: bool,
     /// VAPP-198: the editor preview's "Run as <member>" (owners), else `None`.
     pub(crate) run_as: Option<RunAs>,
+    /// VAPP-200: the viewer's (or Run as member's) app access is `read`:
+    /// the app's own writing controls paint disabled (eUI `read_only`).
+    pub(crate) read_only: bool,
 }
 
 /// VAPP-198 (apps.json `runAs`): who the preview runs as: `me` is them,
@@ -1312,6 +1315,7 @@ impl IdeHost {
             // VAPP-201 (team-zone.json): the TEAM zone, else the machine's.
             zone: Some(host_zone(scope.as_ref().and_then(|s| s.team_id.as_deref()), cx)),
             on_action_failed: Some(action_failed_hook()),
+            read_only: scope.as_ref().is_some_and(|s| s.read_only),
             ..HostOptions::default()
         };
         let host = cx.new(|cx| {
@@ -1422,7 +1426,7 @@ mod tests {
 
     fn records_feed() -> RecordsFeed {
         RecordsFeed {
-            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None }),
+            scope: Some(HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false }),
             me: Some("u1".into()),
             records: vec![record("r1", "a1", 3, "u1"), record("r2", "a2", 4, "u2"), record("r3", "a3", 5, "u2")],
             apps: vec![
@@ -1540,7 +1544,7 @@ mod tests {
             ]), cx);
         });
         let ide = cx.update(|cx| {
-            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None };
+            let scope = HostScope { app_id: "a1".into(), team_id: Some("t1".into()), grants: true, run_as: None, read_only: false };
             IdeHost::with_packages(Mode::Dark, &[], None, Some(scope), cx)
         });
         let feeds = ide._feeds.clone();

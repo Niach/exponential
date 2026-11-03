@@ -5477,6 +5477,11 @@ public struct FfiSettings: Equatable, Hashable {
      * so `settings()` returns it; without either, instants format in UTC.
      */
     public var timeZone: String?
+    /**
+     * VAPP-200: the viewer may read, not write (an app at app access
+     * `read`): every writing control paints disabled (`fixtures/read-only.json`).
+     */
+    public var readOnly: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -5493,7 +5498,11 @@ public struct FfiSettings: Equatable, Hashable {
          * `HostZone` for `setFallbackZone`) in it; the core has no zone
          * database and takes the zone only through those. Kept on the facade
          * so `settings()` returns it; without either, instants format in UTC.
-         */timeZone: String? = nil) {
+         */timeZone: String? = nil, 
+        /**
+         * VAPP-200: the viewer may read, not write (an app at app access
+         * `read`): every writing control paints disabled (`fixtures/read-only.json`).
+         */readOnly: Bool = false) {
         self.locale = locale
         self.stringsJson = stringsJson
         self.mode = mode
@@ -5511,6 +5520,7 @@ public struct FfiSettings: Equatable, Hashable {
         self.today = today
         self.hoverCloseMs = hoverCloseMs
         self.timeZone = timeZone
+        self.readOnly = readOnly
     }
 
     
@@ -5545,7 +5555,8 @@ public struct FfiConverterTypeFfiSettings: FfiConverterRustBuffer {
                 insetLeft: FfiConverterFloat.read(from: &buf), 
                 today: FfiConverterOptionString.read(from: &buf), 
                 hoverCloseMs: FfiConverterUInt32.read(from: &buf), 
-                timeZone: FfiConverterOptionString.read(from: &buf)
+                timeZone: FfiConverterOptionString.read(from: &buf), 
+                readOnly: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -5567,6 +5578,7 @@ public struct FfiConverterTypeFfiSettings: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.today, into: &buf)
         FfiConverterUInt32.write(value.hoverCloseMs, into: &buf)
         FfiConverterOptionString.write(value.timeZone, into: &buf)
+        FfiConverterBool.write(value.readOnly, into: &buf)
     }
 }
 

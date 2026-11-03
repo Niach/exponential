@@ -50,6 +50,7 @@ const ATTRIBUTES = {
   src: `src`,
   post: `post`,
   transport: `transport`,
+  "read-only": `readOnly`,
 } as const
 type AttrName = keyof typeof ATTRIBUTES
 type AttrProp = (typeof ATTRIBUTES)[AttrName]
@@ -93,6 +94,8 @@ export class ExponentialSurfaceElement extends HTMLElement {
   #src = createSignal<string | undefined>(undefined)
   #post = createSignal<string | undefined>(undefined)
   #transport = createSignal<string | undefined>(undefined)
+  /** VAPP-200: the `read-only` attribute (present and not "false" = on). */
+  #readOnly = createSignal<string | undefined>(undefined)
   #surface = createSignal<SurfaceState | undefined>(undefined)
   #root = createSignal<UiNode | null | undefined>(undefined)
   #templates = createSignal<Readonly<Record<string, UiNode>> | undefined>(undefined)
@@ -157,6 +160,8 @@ export class ExponentialSurfaceElement extends HTMLElement {
         return this.#post as never
       case `transport`:
         return this.#transport as never
+      case `readOnly`:
+        return this.#readOnly as never
     }
   }
 
@@ -206,6 +211,15 @@ export class ExponentialSurfaceElement extends HTMLElement {
   }
   set locale(v: string | undefined | null) {
     this.#setAttrProp(`locale`, v)
+  }
+  /** VAPP-200: the viewer may read, not write: every writing control
+   *  paints disabled. Reflects the boolean `read-only` attribute. */
+  get readOnly(): boolean {
+    const v = this.#readOnly[0]()
+    return v !== undefined && v !== `false`
+  }
+  set readOnly(v: boolean | string | undefined | null) {
+    this.#setAttrProp(`readOnly`, v === true ? `` : v === false ? null : v)
   }
   get timeZone(): string | undefined {
     return this.#timeZone[0]()
@@ -671,6 +685,9 @@ export class ExponentialSurfaceElement extends HTMLElement {
       },
       get strings() {
         return el.#strings[0]()
+      },
+      get readOnly() {
+        return el.readOnly
       },
       get extensions() {
         return el.#extensions[0]()

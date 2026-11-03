@@ -57,7 +57,7 @@ pub const SSE_EVENTS: &[&str] = &["message", "a2ui"];
 pub const PACKAGE_REQUIRED: &[&str] = &["id", "name", "version", "catalogId", "templates"];
 /// Round 2: what a host hands each surface besides messages — the
 /// `SurfaceSettings` keys, the host formatter's methods, the commands.
-pub const SURFACE_SETTINGS: &[&str] = &["locale", "timeZone", "strings", "mode", "density", "contrast", "theme"];
+pub const SURFACE_SETTINGS: &[&str] = &["locale", "timeZone", "strings", "mode", "density", "contrast", "theme", "readOnly"];
 pub const SURFACE_FORMATTER: &[&str] = &["number", "currency", "percent", "date", "relativeTime", "plural"];
 pub const SURFACE_COMMANDS: &[&str] = &["focus", "announce", "scrollIntoView", "scrollToIndex"];
 

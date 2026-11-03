@@ -91,7 +91,7 @@ type InputEvent = Parameters<NonNullable<HostPlugin[`onInput`]>>[0]
 type Waitable<T> = T & { waitUntil: (promise: Promise<unknown>) => void }
 
 /** The element's settable surface (properties, camelCase). */
-type SurfaceProps = Partial<Pick<ExponentialSurfaceElement, `surface` | `root` | `templates` | `data` | `theme` | `mode` | `direction` | `width` | `height` | `locale` | `surfaceId` | `plugin` | `measure` | `viewportHeight` | `states`>>
+type SurfaceProps = Partial<Pick<ExponentialSurfaceElement, `surface` | `root` | `templates` | `data` | `theme` | `mode` | `direction` | `width` | `height` | `locale` | `surfaceId` | `plugin` | `measure` | `viewportHeight` | `states` | `readOnly`>>
 
 /** A new `<exponential-surface>` with `props` set as properties (before it
  *  is attached: the element paints on connect). Undefined values stay unset. */
@@ -362,6 +362,8 @@ interface MountOptions {
   theme?: string
   /** `$control.hairline` override (a Resizable handle's thickness). */
   hairline?: number
+  /** VAPP-200: a read-only surface. */
+  readOnly?: boolean
 }
 const frames = (n = 2) =>
   new Promise<void>((resolve) => {
@@ -385,7 +387,7 @@ function Mount(): Node {
     const base = options.theme ?? `neutral`
     const theme = options.hairline === undefined ? base : ({ $schema: THEME_SCHEMA_ID, id: `hairline`, name: `Hairline`, extends: base, tokens: { control: { hairline: options.hairline } } } as never)
     const box = remount()
-    const el = surfaceEl({ surfaceId: `m`, root, templates, data: options.data, theme, mode: `light`, width: options.width ?? `100%`, direction: options.dir, plugin: { icons: harnessIcons } })
+    const el = surfaceEl({ surfaceId: `m`, root, templates, data: options.data, theme, mode: `light`, width: options.width ?? `100%`, direction: options.dir, readOnly: options.readOnly, plugin: { icons: harnessIcons } })
     onAction(el, (e) => void window.__xuiLog.push({ action: e.name, context: e.context }))
     window.__xuiHandle = () => el.handle
     box.appendChild(el)

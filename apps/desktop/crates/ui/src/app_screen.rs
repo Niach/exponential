@@ -421,7 +421,10 @@ impl AppScreenView {
             if self.chat.is_none() {
                 let app_id = app_id.clone();
                 self.chat = Some(cx.new(|cx| crate::agent_screen::AgentScreenView::for_app(app_id.clone(), window, cx)));
-                self.data = Some(cx.new(|cx| crate::app_data_tab::AppDataTab::new(app_id.clone(), cx)));
+                let data = cx.new(|cx| crate::app_data_tab::AppDataTab::new(app_id.clone(), cx));
+                // VAPP-200: the access it fetches decides the preview's read-only.
+                self._subscriptions.push(cx.observe(&data, |this, _, cx| this.sync_preview(cx)));
+                self.data = Some(data);
                 self.settings =
                     Some(cx.new(|cx| crate::settings::app_detail::AppDetailPane::new(app_id, window, cx)));
             }
@@ -490,8 +493,15 @@ impl AppScreenView {
         // VAPP-179: and the template shown (a pick = a fresh host).
         let template = preview_template(pkg.as_ref(), self.picked_template.as_deref()).unwrap_or_default();
         let run_as = pkg.as_ref().and_then(|pkg| self.run_as(pkg, cx));
+        // VAPP-200: at app access `read` (the Run as member's, else mine)
+        // the app's own writing controls paint disabled.
+        let access = match &run_as {
+            Some(r) => r.access.clone(),
+            None => self.data.as_ref().and_then(|d| d.read(cx).access().map(str::to_string)),
+        };
+        let read_only = access.as_deref() == Some("read");
         let key = format!(
-            "{}:{template}:{:?}:{}",
+            "{}:{template}:{:?}:{read_only}:{}",
             grants,
             run_as,
             pkg.as_ref().map(Value::to_string).unwrap_or_default()
@@ -511,6 +521,7 @@ impl AppScreenView {
             team_id: app.row.as_ref().and_then(|row| row.team_id.clone()),
             grants,
             run_as: run_as.clone(),
+            read_only,
         });
         let ide = IdeHost::with_packages(ide_mode(cx), std::slice::from_ref(&pkg), Some(&theme), scope, cx);
         if let Some(message) = apply_template_message(&pkg, self.picked_template.as_deref()) {

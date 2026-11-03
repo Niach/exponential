@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-200: `HostOptions.read_only` (every host surface read-only) and `SurfaceViewOptions.settings` with `read_only`: every writing control paints disabled. Conformance suite `read-only`.
+
 ## 0.7.1 (2026-11-03)
 
 - EXP-1644: a transparent container hands its opacity down to its children instead of fading its element, so a dimmed Button inside a dimmed Form flattens to the total dim like web.

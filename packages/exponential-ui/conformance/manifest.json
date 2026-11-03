@@ -228,6 +228,15 @@
       "unit": "write or read",
       "cases": 16,
       "check": "Write each `writes` case: `expected` + its read-back `read`, or `error` with the data unchanged; read each `reads` case: `expected`."
+    },
+    {
+      "id": "read-only",
+      "files": [
+        "fixtures/read-only.json"
+      ],
+      "unit": "case",
+      "cases": 4,
+      "check": "Reduce the case; the read-only pass disables exactly `disabled` (root, then each lifted template by key). A painting runner mounts it with `readOnly`: every `inert` id paints disabled, every `live` id enabled; without `readOnly` the `disabled` ids paint enabled."
     }
   ]
 }

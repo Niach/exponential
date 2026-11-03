@@ -25,6 +25,8 @@ import {
   textDirection,
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
+  readOnlyTemplates,
+  readOnlyTree,
 } from "@exponential_app/eui"
 import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential_app/eui"
 import { BASE_CSS, CLIENT_FUNCTIONS, compileNodeSheet, compiledTheme, memoFormatter, nodeSheetBatches, layoutSize, openAllowed, queryToken, setPointer, share, surfaceClass, walkNodes, type DataModel, type NodeSheetBatch } from "@exponential_app/eui/web"
@@ -70,6 +72,9 @@ export interface ExponentialSurfaceProps {
   timeZone?: string
   /** Built-in string overrides by id (`catalog/strings.json`). */
   strings?: Record<string, string>
+  /** VAPP-200: the viewer may read, not write (an app at app access
+   *  `read`): every writing control paints disabled (`readOnlyTree`). */
+  readOnly?: boolean
   host?: HostPlugin
   extensions?: readonly SolidExtension[]
   /** Forced interaction states on every node (the builder's recipe sheet). */
@@ -302,9 +307,17 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
   // VAPP-152: a new tree shares every unchanged node with the last one
   // (`share`), so a streamed `updateComponents` re-binds only the nodes it
   // changed.
-  const root = createMemo<UiNode | null>((prev) => share(prev, props.surface ? props.surface.root : (props.root ?? null)))
+  // VAPP-200: a read-only surface disables its writing controls, root and
+  // lifted templates alike.
+  const root = createMemo<UiNode | null>((prev) => {
+    const raw = props.surface ? props.surface.root : (props.root ?? null)
+    return share(prev, props.readOnly && raw ? readOnlyTree(raw) : raw)
+  })
   const latestRoot = latest(root)
-  const templates = createMemo<Readonly<Record<string, UiNode>>>((prev) => share(prev, (props.surface ? props.surface.templates : props.templates) ?? NO_TEMPLATES))
+  const templates = createMemo<Readonly<Record<string, UiNode>>>((prev) => {
+    const raw = (props.surface ? props.surface.templates : props.templates) ?? NO_TEMPLATES
+    return share(prev, props.readOnly ? readOnlyTemplates(raw) : raw)
+  })
   const templateNode = (componentId: string) => templates()[componentId]
   const templateRoots = createMemo(() => Object.values(templates()))
   // VAPP-152: one signal per node id, written only when that id's node
