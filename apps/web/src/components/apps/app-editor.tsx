@@ -6,12 +6,17 @@ import {
   APPS_PANES,
   APPS_PREVIEW,
   APPS_TEST_IDS,
+  canPublish,
   editorTab,
+  grantVersion,
   isDraftApp,
+  listPill,
   previewTemplate,
   previewTemplates,
   runAsOptions,
+  shownVersion,
   versionLabel,
+  versionRow,
   type AppEditorSheet,
   type AppEditorTab,
 } from "@exp/domain-contract/apps"
@@ -88,6 +93,7 @@ const UiHistoryIcon = conceptIcon(`ui-history`)
 const UiMoreIcon = conceptIcon(`ui-more`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
 const UiShareIcon = conceptIcon(`ui-share`)
+const UiSubmitIcon = conceptIcon(`ui-submit`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
 
 /** VAPP-176: `apps.discardDraft` on leaving an EMPTY draft's editor
@@ -115,26 +121,30 @@ function endEditorSession(sessionId: string) {
 }
 
 /** VAPP-177 (fixtures/apps.json VERSIONS): ONE grouped list, newest first:
- *  the `v{n}` pill + the note over `who · when`; the head row carries
- *  Current, every other row Preview + Restore. The Versions tab's body and
+ *  the `v{n}` pill + the note over `who · when`; V1 (`versionRow`): the
+ *  published row carries Published, the head row ahead of it Current +
+ *  Publish, every other row Preview + Publish. The Versions tab's body and
  *  the phone menu's Versions sheet alike. */
 function VersionRows({
   versions,
-  head,
+  pointers,
   viewing,
   users,
-  restoring,
+  publishing,
+  canWrite,
   onPreview,
-  onRestore,
+  onPublish,
   grouped = false,
 }: {
   versions: readonly SyncedAppVersion[]
-  head: number
+  pointers: { headVersion: number; publishedVersion: number }
   viewing: number | null
   users: readonly User[]
-  restoring: number | null
+  publishing: number | null
+  /** eApps R3: Publish needs write access to the app. */
+  canWrite: boolean
   onPreview: (number: number) => void
-  onRestore: (number: number) => void
+  onPublish: (number: number) => void
   /** EXP-1554: the phone sheet's face, as the natives draw it: the rows in
    *  ONE grouped card with small pill actions. */
   grouped?: boolean
@@ -146,6 +156,7 @@ function VersionRows({
   const rows = versions.map((version) => {
     const author = version.createdBy ? usersById.get(version.createdBy) : undefined
     const note = version.note?.trim()
+    const kind = versionRow(pointers, version.number)
     return (
       <ListRow
         key={version.id}
@@ -161,24 +172,30 @@ function VersionRows({
             {author?.name ?? APPS_COPY.byAgent} · {relativeTime(version.createdAt)}
           </div>
         </div>
-        {version.number === head ? (
-          <Pill size="sm" className="shrink-0">{APPS_COPY.head}</Pill>
+        {kind === `published` ? (
+          <Pill size="sm" className="shrink-0">{APPS_COPY.published}</Pill>
         ) : (
           <div className="flex shrink-0 items-center gap-1.5">
-            <Button variant="ghost" size={grouped ? `xs` : `sm`} onClick={() => onPreview(version.number)} data-testid={APPS_TEST_IDS.versionPreview}>
-              {APPS_COPY.preview}
-            </Button>
-            <Button
-              variant={grouped ? `secondary` : `outline`}
-              size={grouped ? `xs` : `sm`}
-              className={grouped ? `rounded-full` : undefined}
-              onClick={() => onRestore(version.number)}
-              pending={restoring === version.number}
-              disabled={restoring !== null}
-              data-testid={APPS_TEST_IDS.versionRestore}
-            >
-              {APPS_COPY.restore}
-            </Button>
+            {kind === `head` ? (
+              <Pill size="sm" className="shrink-0">{APPS_COPY.head}</Pill>
+            ) : (
+              <Button variant="ghost" size={grouped ? `xs` : `sm`} onClick={() => onPreview(version.number)} data-testid={APPS_TEST_IDS.versionPreview}>
+                {APPS_COPY.preview}
+              </Button>
+            )}
+            {canWrite && (
+              <Button
+                variant={grouped ? `secondary` : `outline`}
+                size={grouped ? `xs` : `sm`}
+                className={grouped ? `rounded-full` : undefined}
+                onClick={() => onPublish(version.number)}
+                pending={publishing === version.number}
+                disabled={publishing !== null}
+                data-testid={APPS_TEST_IDS.versionPublish}
+              >
+                {APPS_COPY.publish}
+              </Button>
+            )}
           </div>
         )}
       </ListRow>
@@ -291,7 +308,14 @@ export function AppEditor({
   const follow = useFollowScroll([messages, root?.id])
   const versions = useAppVersions(app.id)
   const head = app.headVersion
-  const headPackage = (app.row?.package as Record<string, unknown> | null) ?? null
+  // eApps V1 (#VAPP-210): `package` = the published version's, `draftPackage`
+  // = the head's while it is ahead; the preview shows `shownVersion`.
+  const publishedPackage = (app.row?.package as Record<string, unknown> | null) ?? null
+  const headPackage = (app.row?.draftPackage as Record<string, unknown> | null) ?? publishedPackage
+  const editing = Boolean(root && root.status !== `ended`)
+  const shown = shownVersion(app, editing, viewing)
+  const defaultShown = shownVersion(app, editing, null)
+  const canWrite = isMember && access === `write`
 
   // The device the FIRST send runs on: the member's default, else the first
   // online one of theirs.
@@ -320,9 +344,10 @@ export function AppEditor({
     }
   }, [app.id])
 
-  // A picked version loads its package on demand; the head clears it.
+  // A picked version loads its package on demand (the head's and the
+  // published one's ride on the synced row).
   useEffect(() => {
-    if (viewing === null || viewing === head) {
+    if (viewing === null || viewing === head || viewing === app.publishedVersion) {
       setViewingPackage(null)
       return
     }
@@ -338,7 +363,25 @@ export function AppEditor({
     return () => {
       cancelled = true
     }
-  }, [viewing, head, app.id])
+  }, [viewing, head, app.publishedVersion, app.id])
+
+  // eApps V1: PUBLISH a version (the head by default); the preview returns
+  // to its default.
+  const [publishing, setPublishing] = useState<number | null>(null)
+  const publish = async (number: number) => {
+    if (publishing !== null) return
+    setPublishing(number)
+    try {
+      const result = await trpc.apps.publish.mutate({ id: app.id, number }, SKIP_ERROR_TOAST)
+      await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
+      toast(APPS_COPY.publishedToast.replace(`{n}`, String(result.published)))
+      setViewing(null)
+    } catch (error) {
+      failedAction(`publish`, `the version`, error)
+    } finally {
+      setPublishing(null)
+    }
+  }
 
   const restore = async (number: number | null) => {
     if (number === null || restoring !== null) return
@@ -377,15 +420,16 @@ export function AppEditor({
 
   const glyph = <BoardGlyph board={{ icon: app.icon, color: app.color }} className="size-5" />
   const versionPill = (
-    <Pill size="sm" className={head > 0 ? `tabular-nums` : `text-muted-foreground`}>
-      {versionLabel(head)}
+    <Pill size="sm" className={app.publishedVersion > 0 ? `tabular-nums` : `text-muted-foreground`}>
+      {listPill(app)}
     </Pill>
   )
+  const showPublish = canWrite && canPublish(app)
   const exportDialog = <AppExportDialog app={exportOpen ? app : null} onOpenChange={setExportOpen} />
 
   // A version's Preview: the Preview tab showing it (phones: the sheet closes).
   const previewVersion = (number: number) => {
-    setViewing(number === head ? null : number)
+    setViewing(number === defaultShown ? null : number)
     setSheet(null)
     setTab(`preview`)
   }
@@ -498,7 +542,7 @@ export function AppEditor({
 
   // VAPP-179 (wide only): Desktop | Phone at the start; the template Select at
   // the end only when the SHOWN package has more than one template.
-  const shownPackage = viewing !== null ? viewingPackage : headPackage
+  const shownPackage = shown === 0 ? null : shown === head ? headPackage : shown === app.publishedVersion ? publishedPackage : viewingPackage
   const templates = previewTemplates(shownPackage as { templates?: Record<string, unknown> } | null)
   const shownTemplate = previewTemplate(shownPackage as { templates?: Record<string, unknown> } | null, pickedTemplate)
   const toolbar = isMobile ? null : (
@@ -551,16 +595,23 @@ export function AppEditor({
           data-testid={APPS_TEST_IDS.viewing}
         >
           <span className="flex-1 font-medium">{APPS_COPY.viewing.replace(`{n}`, String(viewing))}</span>
-          <Button size="sm" onClick={() => void restore(viewing)} pending={restoring !== null}>
-            {APPS_COPY.restore}
-          </Button>
+          {canWrite && viewing !== app.publishedVersion && (
+            <Button size="sm" onClick={() => void publish(viewing)} pending={publishing === viewing} disabled={publishing !== null}>
+              {APPS_COPY.publish}
+            </Button>
+          )}
+          {canWrite && viewing !== head && (
+            <Button size="sm" variant="outline" onClick={() => void restore(viewing)} pending={restoring !== null}>
+              {APPS_COPY.restore}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" onClick={() => setViewing(null)}>
             {APPS_COPY.head}
           </Button>
         </div>
       )}
-      {/* A grant is about the HEAD package: an old version previews asking for everything. */}
-      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} appId={app.id} teamId={teamId} me={me} grantedTools={viewing !== null ? [] : (app.row?.grantedTools ?? [])} runAs={isMobile ? null : runAs} />
+      {/* A grant is about the version it was made on (`grantVersion`): any other previews asking for everything. */}
+      <AppPreview pkg={shownPackage} template={pickedTemplate} frame={isMobile ? `desktop` : frame} appId={app.id} teamId={teamId} me={me} grantedTools={shown === grantVersion(app) ? (app.row?.grantedTools ?? []) : []} runAs={isMobile ? null : runAs} />
     </div>
   )
 
@@ -570,12 +621,13 @@ export function AppEditor({
     <div data-testid={APPS_TEST_IDS.versions}>
       <VersionRows
         versions={versions}
-        head={head}
+        pointers={app}
         viewing={viewing}
         users={users as User[]}
-        restoring={restoring}
+        publishing={publishing}
+        canWrite={canWrite}
         onPreview={previewVersion}
-        onRestore={(number) => void restore(number)}
+        onPublish={(number) => void publish(number)}
         grouped={isMobile}
       />
     </div>
@@ -621,6 +673,19 @@ export function AppEditor({
   if (isMobile) {
     // The header's `…` (apps.json `editorTabs.menu`).
     const menuEntries: MenuEntry[] = [
+      // eApps V1: Publish first, while the head is ahead (the wide header's button).
+      ...(showPublish
+        ? [
+            {
+              kind: `item` as const,
+              id: `publish`,
+              label: APPS_COPY.publish,
+              icon: UiSubmitIcon,
+              onSelect: () => void publish(head),
+              "data-testid": APPS_TEST_IDS.publish,
+            },
+          ]
+        : []),
       {
         kind: `item`,
         id: `versions`,
@@ -726,6 +791,11 @@ export function AppEditor({
         <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight">{app.name}</h1>
         {versionPill}
         <div className="flex-1" />
+        {showPublish && (
+          <Button size="sm" onClick={() => void publish(head)} pending={publishing === head} disabled={publishing !== null} data-testid={APPS_TEST_IDS.publish}>
+            {APPS_COPY.publish}
+          </Button>
+        )}
         <div className="shrink-0" data-testid={APPS_TEST_IDS.tabs}>
           <SegmentedControl value={tab} onValueChange={setTab} options={tabOptions(APPS_EDITOR_TABS.wide)} />
         </div>

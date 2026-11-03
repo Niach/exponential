@@ -36,11 +36,12 @@ async function queryRules(userId: string, teamIds: readonly string[]): Promise<A
     sql`, `
   )}]::uuid[]`
   const hidden = await db.execute<{ app_id: string }>(sql`SELECT app_id FROM app_access WHERE user_id = ${userId} AND level = 'none' AND team_id = ANY(${teams})`)
+  // eApps V1 (#VAPP-210): the published kinds plus a draft's new ones (`||`: the published definition wins).
   const kinds = await db.execute<{ app_id: string; kind: string; read: string }>(sql`
     SELECT a.id AS app_id, k.key AS kind, k.value->'policy'->>'read' AS read
     FROM apps a
     JOIN team_members m ON m.team_id = a.team_id AND m.user_id = ${userId} AND m.role <> 'owner'
-    CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(a.package->'records') = 'object' THEN a.package->'records' ELSE '{}'::jsonb END) k
+    CROSS JOIN LATERAL jsonb_each((CASE WHEN jsonb_typeof(a.draft_package->'records') = 'object' THEN a.draft_package->'records' ELSE '{}'::jsonb END) || (CASE WHEN jsonb_typeof(a.package->'records') = 'object' THEN a.package->'records' ELSE '{}'::jsonb END)) k
     WHERE a.team_id = ANY(${teams}) AND a.deleted_at IS NULL AND k.value->'policy'->>'read' IN ('author', 'owners')`)
   const byApp = new Map<string, { owners: string[]; author: string[] }>()
   for (const row of kinds.rows) {

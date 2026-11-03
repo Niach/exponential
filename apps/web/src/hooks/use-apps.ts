@@ -19,6 +19,8 @@ export interface AppListEntry {
   color: string | null
   description: string
   headVersion: number
+  /** eApps V1 (#VAPP-210): the published version (0 = never published). */
+  publishedVersion: number
   createdBy: string | null
   row: App | null
 }
@@ -32,6 +34,7 @@ export function toListEntry(row: App): AppListEntry {
     color: row.color,
     description: row.description,
     headVersion: row.headVersion,
+    publishedVersion: row.publishedVersion ?? 0,
     createdBy: row.createdBy,
     row,
   }

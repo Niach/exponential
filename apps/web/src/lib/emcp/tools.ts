@@ -4019,7 +4019,7 @@ export function registerExponentialTools(
     async ({ slug, teamId, version }) => {
       try {
         const result = await caller(user, request).apps.get({ slug, teamId: await appsTeam(teamId), version })
-        const { package: _omit, ...app } = result.app
+        const { package: _omit, draftPackage: _draft, ...app } = result.app
         return ok({ ...app, version: result.version, package: result.package })
       } catch (e) {
         return err(e)
@@ -4030,7 +4030,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_apps_upsert`,
     {
-      description: `Publish a NEW VERSION of an app's package (the editor previews it live); a new slug creates the app (name required); on a draft (no version yet) name/icon/color/description rename it and the slug follows (use the returned slug). package = the format exponential_apps {op: "catalog"} describes; note = one line on what changed.`,
+      description: `Write a NEW DRAFT VERSION of an app's package (the editor previews it live; members keep the published version until op publish); a new slug creates the app (name required); on a draft (no version yet) name/icon/color/description rename it and the slug follows (use the returned slug). package = the format exponential_apps {op: "catalog"} describes; note = one line on what changed.`,
       inputSchema: strictInput({
         slug: appSlug,
         teamId: uuidString.optional(),
@@ -4061,7 +4061,7 @@ export function registerExponentialTools(
             package: pkg,
             note,
           })
-          return ok({ ok: true, id: created.app.id, slug, version: created.app.headVersion, created: true, ...testsPassed(pkg) })
+          return ok({ ok: true, id: created.app.id, slug, version: created.app.headVersion, published: 0, created: true, ...testsPassed(pkg) })
         }
         // VAPP-176: a DRAFT takes its identity from the agent's first
         // upsert; the slug follows the name.
@@ -4078,7 +4078,24 @@ export function registerExponentialTools(
           current = renamed.app.slug
         }
         const result = await api.upsertPackage({ id: existing.app.id, package: pkg, note, sessionId })
-        return ok({ ok: true, id: existing.app.id, slug: current, version: result.version, created: false, ...testsPassed(pkg) })
+        return ok({ ok: true, id: existing.app.id, slug: current, version: result.version, published: existing.app.publishedVersion, created: false, ...testsPassed(pkg) })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // eApps V1 (#VAPP-210): move the published pointer.
+  server.registerTool(
+    `exponential_apps_publish`,
+    {
+      description: `Publish a version of an app (default: the head draft; an older version = a rollback). Members, the app's exposed tools and automations run the published version. Publish only when the person asks.`,
+      inputSchema: strictInput({ slug: appSlug, teamId: uuidString.optional(), version: z.number().int().min(1).optional() }),
+    },
+    async ({ slug, teamId, version }) => {
+      try {
+        const result = await caller(user, request).apps.publish({ slug, teamId: await appsTeam(teamId), number: version })
+        return ok({ ok: true, slug, published: result.published, head: result.head })
       } catch (e) {
         return err(e)
       }

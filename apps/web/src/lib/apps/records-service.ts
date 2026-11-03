@@ -113,27 +113,55 @@ function assertCanWrite(viewer: RecordViewer) {
   if ((viewer.access ?? `write`) !== `write`) throw new TRPCError({ code: `FORBIDDEN`, message: RECORD_POLICY_COPY.readOnly })
 }
 
+type RecordsApp = Pick<App, `package`> & Partial<Pick<App, `draftPackage`>>
+const recordsOf = (pkg: unknown): Record<string, unknown> => {
+  const records = (pkg as { records?: unknown } | null)?.records
+  return records && typeof records === `object` && !Array.isArray(records) ? (records as Record<string, unknown>) : {}
+}
+
+/** eApps V1 (#VAPP-210): the record kinds a write or read is checked
+ *  against: the PUBLISHED package's, plus a draft's kinds the published one
+ *  does not declare yet (an editor seeds them before publishing); a kind in
+ *  both keeps the published definition (its policy). */
+function effectiveRecords(app: RecordsApp): Record<string, unknown> {
+  return { ...recordsOf(app.draftPackage), ...recordsOf(app.package) }
+}
+
+/** eApps V1: the schemas a record of `kind` may satisfy, the published one
+ *  first, then the draft's (a draft that reshapes a kind accepts records of
+ *  either shape until it is published). */
+function kindSchemas(app: RecordsApp, kind: string): RecordSchema[] {
+  return [recordKindSchema(app.package, kind), recordKindSchema(app.draftPackage, kind)].filter((schema): schema is RecordSchema => schema !== null)
+}
+
+/** A record's data against the first schema it satisfies (the published
+ *  one's issues when none). */
+function checkedAgainst(schemas: readonly RecordSchema[], data: Record<string, unknown>): Record<string, unknown> {
+  const fits = schemas.find((schema) => validateRecord(schema, data).length === 0)
+  return checkedRecordData(fits ?? schemas[0]!, data)
+}
+
 /** A kind's effective policy (record-policy.json). */
-const kindPolicy = (app: Pick<App, `package`>, kind: string) => recordPolicy((app.package as { records?: Record<string, unknown> } | null)?.records?.[kind])
+const kindPolicy = (app: RecordsApp, kind: string) => recordPolicy(effectiveRecords(app)[kind])
 
 /** eApps R3: refuse what the kind's policy and the member's access refuse
  *  (record-policy.json `copy` = the FORBIDDEN message). */
-function assertRecordOp(app: Pick<App, `package`>, kind: string, op: RecordOp, viewer: RecordViewer, row?: { authorId: string | null; createdBy: string | null }) {
+function assertRecordOp(app: RecordsApp, kind: string, op: RecordOp, viewer: RecordViewer, row?: { authorId: string | null; createdBy: string | null }) {
   const refusal = recordRefusal(kindPolicy(app, kind), op, viewer, row)
   if (refusal) throw new TRPCError({ code: `FORBIDDEN`, message: refusal })
 }
 
 /** A row the viewer may not read is not there for them (NOT_FOUND, no leak). */
-function assertReadable(app: Pick<App, `package`>, viewer: RecordViewer, row: { kind: string; authorId: string | null; createdBy: string | null }) {
+function assertReadable(app: RecordsApp, viewer: RecordViewer, row: { kind: string; authorId: string | null; createdBy: string | null }) {
   if (recordRefusal(kindPolicy(app, row.kind), `read`, viewer, row)) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
 }
 
 /** eApps R3: the SQL twin of the read policy for one app (a parameterised
  *  condition, undefined = every row): a non-owner never reads an `owners`
  *  kind, and reads an `author` kind's rows only where they are the author. */
-export function readPolicyWhere(app: Pick<App, `package`>, viewer: { id: string; role: string }): SQL | undefined {
+export function readPolicyWhere(app: RecordsApp, viewer: { id: string; role: string }): SQL | undefined {
   if (viewer.role === `owner`) return undefined
-  const kinds = Object.keys((app.package as { records?: Record<string, unknown> } | null)?.records ?? {})
+  const kinds = Object.keys(effectiveRecords(app))
   const owners = kinds.filter((k) => kindPolicy(app, k).read === `owners`)
   const author = kinds.filter((k) => kindPolicy(app, k).read === `author`)
   const mine = sql`coalesce(${appRecords.authorId}, ${appRecords.createdBy}) = ${viewer.id}`
@@ -215,11 +243,11 @@ export async function upsertRecord(
   const viewer = await viewerOf(executor, app, userId)
   assertCanWrite(viewer)
   const member = { role: viewer.role }
-  const schema = recordKindSchema(app.package, input.kind)
-  if (!schema) {
+  const schemas = kindSchemas(app, input.kind)
+  if (schemas.length === 0) {
     throw new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${input.kind}": add it to the package's records first` })
   }
-  const checked = (data: Record<string, unknown>) => checkedRecordData(schema, data)
+  const checked = (data: Record<string, unknown>) => checkedAgainst(schemas, data)
   // VAPP-188: an on-behalf author must be a member (team_members: read now).
   const onBehalf = input.author !== undefined && input.author !== userId && member.role === `owner`
   const members = onBehalf ? await teamMemberIds(executor, app.teamId) : []
@@ -322,9 +350,9 @@ export async function commitRecordBatch(
   }
   const schemas = writes.map((w, i) => {
     if (w.op !== `upsert`) return null
-    const schema = recordKindSchema(app.package, w.kind)
-    if (!schema) at(i, new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${w.kind}": add it to the package's records first` }))
-    return schema
+    const schemas = kindSchemas(app, w.kind)
+    if (schemas.length === 0) at(i, new TRPCError({ code: `BAD_REQUEST`, message: `The app declares no record kind "${w.kind}": add it to the package's records first` }))
+    return schemas
   })
   const creates = writes.filter((w) => w.op === `upsert` && w.id === undefined).length
   const scope = { teamId: app.teamId, appIds: [app.id], write: viewer.access === `write` }
@@ -360,13 +388,13 @@ export async function commitRecordBatch(
             if (!existing) throw new TRPCError({ code: `NOT_FOUND`, message: `Record not found` })
             assertReadable(app, viewer, existing)
             assertRecordOp(app, w.kind, `update`, viewer, existing)
-            const data = checkedRecordData(schema, { ...existing.data, ...w.data })
+            const data = checkedAgainst(schema, { ...existing.data, ...w.data })
             await tx.update(appRecords).set({ data, updatedBy: userId, updatedAt: new Date() }).where(eq(appRecords.id, existing.id))
             ids.push(existing.id)
             continue
           }
           assertRecordOp(app, w.kind, `create`, viewer)
-          const data = checkedRecordData(schema, w.data)
+          const data = checkedAgainst(schema, w.data)
           const [row] = await tx
             .insert(appRecords)
             .values({ appId: app.id, teamId: app.teamId, kind: w.kind, data, createdBy: userId, authorId: userId, updatedBy: userId })

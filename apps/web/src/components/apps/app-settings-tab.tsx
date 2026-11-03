@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import type { BoardIcon } from "@exp/db-schema/domain"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { APPS_COPY, APP_DESCRIPTION_MAX } from "@exp/domain-contract/apps"
+import { APPS_COPY, APP_DESCRIPTION_MAX, grantVersion } from "@exp/domain-contract/apps"
 import { recordsCountLabel } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS_COPY, actionGrantable, actionTitle, declaredActions } from "@exp/domain-contract/app-actions"
 import { Button, conceptIcon, GlassGroup, Switch, Textarea } from "@exp/ui"
@@ -61,9 +61,11 @@ export function AppSettingsTab({
     [app.id]
   )
   const [recordsMax, setRecordsMax] = useState<number | null>(null)
-  // VAPP-120: the typed actions the head package declares, each with its
-  // grant (the synced row); a toggle writes the whole list.
-  const declared = useMemo(() => declaredActions(((app.row?.package as { functions?: string[] } | null)?.functions ?? []) as string[]), [app.row?.package])
+  // VAPP-120: the typed actions the RUNNING package declares (eApps V1: the
+  // published one, else the head's), each with its grant (the synced row); a
+  // toggle writes the whole list.
+  const grantPackage = (app.row?.package ?? app.row?.draftPackage ?? null) as { functions?: string[] } | null
+  const declared = useMemo(() => declaredActions((grantPackage?.functions ?? []) as string[]), [grantPackage])
   // FEED-159: a stored grant that is no longer grantable reads as none.
   const granted = grantableTools(app.row?.grantedTools as string[] | null | undefined)
   const [toolBusy, setToolBusy] = useState<string | null>(null)
@@ -73,11 +75,11 @@ export function AppSettingsTab({
     try {
       // VAPP-158: a stored grant that is no longer grantable never rides along
       // (the server refuses it), so the toggle writes grantable names only.
-      // VAPP-156: the grant names the head version on screen; a newer one
+      // VAPP-156: the grant names the version on screen (`grantVersion`); a newer one
       // (published meanwhile) refuses, the toast says so and the page resyncs.
       const kept = granted.filter((g) => g !== name)
       const next = on ? [...kept, name] : kept
-      const result = await trpc.apps.update.mutate({ id: app.id, headVersion: app.headVersion, grantedTools: next }, SKIP_ERROR_TOAST)
+      const result = await trpc.apps.update.mutate({ id: app.id, headVersion: grantVersion(app), grantedTools: next }, SKIP_ERROR_TOAST)
       await appCollection.utils.awaitTxId(result.txid, 3000).catch(() => undefined)
     } catch (error) {
       failedAction(`save`, `the app`, error)

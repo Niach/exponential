@@ -2371,9 +2371,15 @@ export const apps = pgTable(
     icon: varchar({ length: 64 }),
     color: varchar({ length: 7 }),
     description: text().notNull().default(``),
-    // The HEAD version's package; NULL = no version yet.
+    // eApps V1 (#VAPP-210): the PUBLISHED version's package, the one members,
+    // exposed tools and automations run; NULL = never published.
     package: jsonb().$type<AppPackageJson>(),
     headVersion: integer(`head_version`).notNull().default(0),
+    // eApps V1: the published version's number (0 = never published) and the
+    // HEAD's package while the head is ahead of it (the editor's draft; NULL
+    // when head = published, so `draftPackage ?? package` is always the head).
+    publishedVersion: integer(`published_version`).notNull().default(0),
+    draftPackage: jsonb(`draft_package`).$type<AppPackageJson>(),
     // Release train 2026-10-23: apps are shared team content, so a deleted
     // account leaves its apps behind (NULL creator = owner-only to manage).
     createdBy: text(`created_by`).references(() => users.id, { onDelete: `set null` }),

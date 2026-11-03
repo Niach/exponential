@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { APPS_COPY, APPS_TEST_IDS, versionLabel } from "@exp/domain-contract/apps"
+import { APPS_COPY, APPS_TEST_IDS, listPill } from "@exp/domain-contract/apps"
 import { APP_EXPORT_COPY } from "@exp/domain-contract/app-export"
 import {
   BoardGlyph,
@@ -107,8 +107,8 @@ export function AppsList({
             >
               <BoardGlyph board={{ icon: app.icon, color: app.color }} />
               <span className="min-w-0 flex-1 truncate font-medium">{app.name}</span>
-              <Pill size="sm" className={app.headVersion > 0 ? `tabular-nums` : `text-muted-foreground`}>
-                {versionLabel(app.headVersion)}
+              <Pill size="sm" className={app.publishedVersion > 0 ? `tabular-nums` : `text-muted-foreground`}>
+                {listPill(app)}
               </Pill>
               {(canManage(app) || app.headVersion > 0) && (
                 <div onClick={(event) => event.stopPropagation()}>
