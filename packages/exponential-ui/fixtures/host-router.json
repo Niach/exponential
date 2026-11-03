@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open. Dogfood G (2026-11-03): `acme.badqueries` also has a query reading fields its kind lacks (`fields`: a where, group, aggregate, sort and sum on unknown fields, sum/avg on a date) and an exposed tool naming no package query: issues at the query's key and at `/exposes/<i>/run/records/query`. VAPP-221 (eApps R7, files on records): `format: \"attachment\"` on a string field or on a list's string `items` holds the instance's attachment route `/api/attachments/<lowercase uuid>` (relative, nothing else: no origin, query or fragment; anything else = `an attachment (/api/attachments/<id>)`); `items.format` takes the same formats, on string items only. `acme.files` declares a receipt and a list of photos; `acme.badrecords` puts a format on number items. `attachments` = recordAttachmentIds(schema, data): the ids the attachment fields reference, fields sorted, each id once in the order first met, non-refs skipped (the server checks each belongs to the app and its team).",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open. Dogfood G (2026-11-03): `acme.badqueries` also has a query reading fields its kind lacks (`fields`: a where, group, aggregate, sort and sum on unknown fields, sum/avg on a date) and an exposed tool naming no package query: issues at the query's key and at `/exposes/<i>/run/records/query`. VAPP-221 (eApps R7, files on records): `format: \"attachment\"` on a string field or on a list's string `items` holds the instance's attachment route `/api/attachments/<lowercase uuid>` (relative, nothing else: no origin, query or fragment; anything else = `an attachment (/api/attachments/<id>)`); `items.format` takes the same formats, on string items only. `acme.files` declares a receipt and a list of photos; `acme.badrecords` puts a format on number items. `attachments` = recordAttachmentIds(schema, data): the ids the attachment fields reference, fields sorted, each id once in the order first met, non-refs skipped (the server checks each belongs to the app and its team). VAPP-218 (eApps U1, src/host/screens.ts): `acme.screens` declares three screens (keyed by template; `settings` is a template that is no screen), a press and an action call step that navigate (`app.navigate`, the host function); `acme.badscreens` makes every screens mistake (a bad icon, a duplicate, an unknown template, a blank title, a non-string param, an unknown key, a too-long title, a screen that is no object, more than MAX_SCREENS = 5, a press and an action step navigating to no screen); `acme.screenslist` has screens that is no list. `screens` = resolveScreen(packages[package], screen, params) → {screen, title, icon, params} | null (the requested screen, else the first; its params, then the request's string params key by key); its `deals` template binds `${params.stage}` and `${params.q}` (templateMessages fills them from the data's params, percent-encoded, a missing one empty; the VAPP-218 flow); `navigate` = navigateTarget(packages[package], args) → {screen, params} | {error}.",
   "packages": {
     "acme.devices": {
       "formatVersion": 3,
@@ -1773,6 +1773,281 @@
           ]
         }
       ]
+    },
+    "acme.screens": {
+      "formatVersion": 3,
+      "id": "acme.screens",
+      "name": "Screens",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "screens": [
+        {
+          "template": "pipeline",
+          "title": "Pipeline",
+          "icon": "square-kanban"
+        },
+        {
+          "template": "deals",
+          "title": "Deals",
+          "icon": "briefcase",
+          "params": {
+            "stage": "open"
+          }
+        },
+        {
+          "template": "companies",
+          "title": "Companies"
+        }
+      ],
+      "actions": {
+        "won": {
+          "steps": [
+            {
+              "call": "app.navigate",
+              "args": {
+                "screen": "'deals'",
+                "params": {
+                  "stage": "won"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "templates": {
+        "companies": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "Companies"
+            }
+          ]
+        },
+        "deals": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": {
+                "path": "/params/stage"
+              }
+            }
+          ],
+          "bindings": [
+            {
+              "path": "/issues",
+              "source": "exp:issues?state=${params.stage}&q=${params.q}"
+            }
+          ]
+        },
+        "pipeline": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t",
+                "go"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "Pipeline"
+            },
+            {
+              "id": "go",
+              "component": "Button",
+              "label": "Won deals",
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "app.navigate",
+                    "args": {
+                      "screen": "deals",
+                      "params": {
+                        "stage": "won"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "settings": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "Settings"
+            }
+          ]
+        }
+      }
+    },
+    "acme.badscreens": {
+      "formatVersion": 3,
+      "id": "acme.badscreens",
+      "name": "Bad screens",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "screens": [
+        {
+          "template": "a",
+          "title": "A",
+          "icon": "not-an-icon"
+        },
+        {
+          "template": "a",
+          "title": "A again"
+        },
+        {
+          "template": "missing",
+          "title": "Missing"
+        },
+        {
+          "template": "b",
+          "title": "   ",
+          "params": {
+            "n": 1
+          },
+          "route": "/b"
+        },
+        {
+          "template": "c",
+          "title": "A title that is far longer than thirty two characters"
+        },
+        "d"
+      ],
+      "actions": {
+        "go": {
+          "steps": [
+            {
+              "call": "app.navigate",
+              "args": {
+                "screen": "'gone'"
+              }
+            }
+          ]
+        }
+      },
+      "templates": {
+        "a": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t",
+                "go"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "A"
+            },
+            {
+              "id": "go",
+              "component": "Button",
+              "label": "Nowhere",
+              "on": {
+                "press": {
+                  "functionCall": {
+                    "call": "app.navigate",
+                    "args": {
+                      "screen": "nowhere"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "b": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "B"
+            }
+          ]
+        },
+        "c": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "C"
+            }
+          ]
+        }
+      }
+    },
+    "acme.screenslist": {
+      "formatVersion": 3,
+      "id": "acme.screenslist",
+      "name": "Screens list",
+      "version": "1.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "screens": {
+        "template": "a"
+      },
+      "templates": {
+        "a": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "t"
+              ]
+            },
+            {
+              "id": "t",
+              "component": "Text",
+              "text": "A"
+            }
+          ]
+        }
+      }
     }
   },
   "flows": [
@@ -2989,6 +3264,75 @@
           ]
         }
       ]
+    },
+    {
+      "name": "VAPP-218: a screen opens with its params (data /params, a source's ${params.<key>} percent-encoded, a missing one empty)",
+      "packages": [
+        "acme.screens"
+      ],
+      "installIssues": {
+        "acme.screens": []
+      },
+      "steps": [
+        {
+          "message": {
+            "version": "v0.9",
+            "applyTemplate": {
+              "surfaceId": "app",
+              "packageId": "acme.screens",
+              "templateId": "deals",
+              "data": {
+                "params": {
+                  "stage": "won & lost"
+                }
+              }
+            }
+          },
+          "expected": [
+            {
+              "op": "create",
+              "surfaceId": "app",
+              "catalogId": "https://ui.exponential.at/catalogs/core/v1"
+            },
+            {
+              "op": "components",
+              "surfaceId": "app",
+              "components": [
+                {
+                  "id": "root",
+                  "component": "Stack",
+                  "children": [
+                    "t"
+                  ]
+                },
+                {
+                  "id": "t",
+                  "component": "Text",
+                  "text": {
+                    "path": "/params/stage"
+                  }
+                }
+              ]
+            },
+            {
+              "op": "data",
+              "surfaceId": "app",
+              "path": "",
+              "value": {
+                "params": {
+                  "stage": "won & lost"
+                }
+              }
+            },
+            {
+              "op": "bind",
+              "surfaceId": "app",
+              "path": "/issues",
+              "source": "exp:issues?state=won%20%26%20lost&q="
+            }
+          ]
+        }
+      ]
     }
   ],
   "validation": [
@@ -3550,6 +3894,68 @@
           "message": "the migration ends in worklog, which the package does not declare"
         }
       ]
+    },
+    {
+      "package": "acme.screens",
+      "expected": []
+    },
+    {
+      "package": "acme.badscreens",
+      "expected": [
+        {
+          "path": "/screens",
+          "message": "at most 5 screens, got 6"
+        },
+        {
+          "path": "/screens/0/icon",
+          "message": "icon not-an-icon is not an Exponential UI icon"
+        },
+        {
+          "path": "/screens/1/template",
+          "message": "duplicate screen a"
+        },
+        {
+          "path": "/screens/2/template",
+          "message": "template missing names no package template"
+        },
+        {
+          "path": "/screens/3/route",
+          "message": "unknown screen key route"
+        },
+        {
+          "path": "/screens/3/title",
+          "message": "title is a required string"
+        },
+        {
+          "path": "/screens/3/params/n",
+          "message": "params.n is a string"
+        },
+        {
+          "path": "/screens/4/title",
+          "message": "title is at most 32 characters"
+        },
+        {
+          "path": "/screens/5",
+          "message": "a screen is {template, title, icon?, params?}"
+        },
+        {
+          "path": "/templates/a/components/2/on/press/functionCall/args/screen",
+          "message": "navigate: nowhere is not a screen"
+        },
+        {
+          "path": "/actions/go/steps/0/args/screen",
+          "message": "navigate: gone is not a screen"
+        }
+      ]
+    },
+    {
+      "package": "acme.screenslist",
+      "expected": [
+        {
+          "path": "/screens",
+          "message": "screens is a non-empty list of {template, title, icon?, params?}"
+        }
+      ]
     }
   ],
   "records": [
@@ -3773,6 +4179,156 @@
       "kind": "expense",
       "data": [],
       "expected": []
+    }
+  ],
+  "screens": [
+    {
+      "name": "no screen asked: the first",
+      "package": "acme.screens",
+      "screen": null,
+      "params": null,
+      "expected": {
+        "screen": "pipeline",
+        "title": "Pipeline",
+        "icon": "square-kanban",
+        "params": {}
+      }
+    },
+    {
+      "name": "a screen's own params",
+      "package": "acme.screens",
+      "screen": "deals",
+      "params": null,
+      "expected": {
+        "screen": "deals",
+        "title": "Deals",
+        "icon": "briefcase",
+        "params": {
+          "stage": "open"
+        }
+      }
+    },
+    {
+      "name": "a link's params override key by key; non-strings dropped",
+      "package": "acme.screens",
+      "screen": "deals",
+      "params": {
+        "stage": "won",
+        "q": "acme",
+        "n": 3
+      },
+      "expected": {
+        "screen": "deals",
+        "title": "Deals",
+        "icon": "briefcase",
+        "params": {
+          "stage": "won",
+          "q": "acme"
+        }
+      }
+    },
+    {
+      "name": "an unknown screen falls back to the first",
+      "package": "acme.screens",
+      "screen": "settings",
+      "params": {
+        "x": "1"
+      },
+      "expected": {
+        "screen": "pipeline",
+        "title": "Pipeline",
+        "icon": "square-kanban",
+        "params": {
+          "x": "1"
+        }
+      }
+    },
+    {
+      "name": "no screens: null",
+      "package": "acme.devices",
+      "screen": "list",
+      "params": null,
+      "expected": null
+    }
+  ],
+  "navigate": [
+    {
+      "name": "a screen and params",
+      "package": "acme.screens",
+      "args": {
+        "screen": "deals",
+        "params": {
+          "stage": "won"
+        }
+      },
+      "expected": {
+        "screen": "deals",
+        "params": {
+          "stage": "won"
+        }
+      }
+    },
+    {
+      "name": "params are optional",
+      "package": "acme.screens",
+      "args": {
+        "screen": "companies"
+      },
+      "expected": {
+        "screen": "companies",
+        "params": {}
+      }
+    },
+    {
+      "name": "a template that is no screen",
+      "package": "acme.screens",
+      "args": {
+        "screen": "settings"
+      },
+      "expected": {
+        "error": "navigate: settings is not a screen"
+      }
+    },
+    {
+      "name": "screen is required",
+      "package": "acme.screens",
+      "args": {
+        "params": {}
+      },
+      "expected": {
+        "error": "navigate: screen is a required string"
+      }
+    },
+    {
+      "name": "params are strings",
+      "package": "acme.screens",
+      "args": {
+        "screen": "deals",
+        "params": {
+          "stage": 2
+        }
+      },
+      "expected": {
+        "error": "navigate: params.stage is a string"
+      }
+    },
+    {
+      "name": "args are an object",
+      "package": "acme.screens",
+      "args": "deals",
+      "expected": {
+        "error": "navigate takes {screen, params?}"
+      }
+    },
+    {
+      "name": "a package without screens",
+      "package": "acme.devices",
+      "args": {
+        "screen": "list"
+      },
+      "expected": {
+        "error": "navigate: list is not a screen"
+      }
     }
   ]
 }

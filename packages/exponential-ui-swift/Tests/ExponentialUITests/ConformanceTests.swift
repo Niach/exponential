@@ -516,6 +516,15 @@ final class ConformanceTests: XCTestCase {
             let schema = packages[c["package"]!.string!]!["records"]![c["kind"]!.string!]!["schema"]!
             out.append(run("records: \(c["name"]?.string ?? "")") { same(try validateRecordJson(schemaJson: schema.json, dataJson: c["data"]!.json), c["expected"]!) })
         }
+        // VAPP-218: the screens a host opens, the navigate targets.
+        for c in f["screens"]?.array ?? [] {
+            let pkg = packages[c["package"]!.string!]!
+            out.append(run("screens: \(c["name"]?.string ?? "")") { same(try resolveScreenJson(packageJson: pkg.json, screen: c["screen"]?.string, paramsJson: c["params"]?.json), c["expected"]!) })
+        }
+        for c in f["navigate"]?.array ?? [] {
+            let pkg = packages[c["package"]!.string!]!
+            out.append(run("navigate: \(c["name"]?.string ?? "")") { same(try navigateTargetJson(packageJson: pkg.json, argsJson: c["args"]!.json), c["expected"]!) })
+        }
         for flow in f["flows"]?.array ?? [] {
             out.append(run("flow: \(flow["name"]?.string ?? "")") {
                 let router = HostRouter(extensionIds: (flow["extensionIds"]?.array ?? []).compactMap(\.string))

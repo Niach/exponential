@@ -624,6 +624,15 @@ fn the_host_router_fixture_replays_through_the_facade() {
         let id = v["package"].as_str().unwrap();
         eq(&validate_package_json(packages[id].to_string(), None).unwrap(), &v["expected"], id);
     }
+    // VAPP-218: the screens a host opens, the navigate targets.
+    for c in f["screens"].as_array().unwrap() {
+        let pkg = packages[c["package"].as_str().unwrap()].to_string();
+        eq(&resolve_screen_json(pkg, c["screen"].as_str().map(str::to_string), Some(c["params"].to_string())).unwrap(), &c["expected"], c["name"].as_str().unwrap());
+    }
+    for c in f["navigate"].as_array().unwrap() {
+        let pkg = packages[c["package"].as_str().unwrap()].to_string();
+        eq(&navigate_target_json(pkg, c["args"].to_string()).unwrap(), &c["expected"], c["name"].as_str().unwrap());
+    }
     for flow in f["flows"].as_array().unwrap() {
         let name = flow["name"].as_str().unwrap();
         let ext: Vec<String> = flow.get("extensionIds").map(|e| serde_json::from_value(e.clone()).unwrap()).unwrap_or_default();

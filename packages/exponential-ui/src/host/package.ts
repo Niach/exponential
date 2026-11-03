@@ -22,6 +22,8 @@ import { requiredType, type ExprType } from "../cel"
 import { validatePackageActions, validatePackageEffects } from "./actions"
 import { packageTestIssues, validatePackageTests } from "./tests"
 import { validatePackageComponents } from "./components"
+import { fillScreenParams, validatePackageScreens } from "./screens"
+import type { PackageScreen } from "./screens"
 
 /** VAPP-161: the package format version this host reads
  *  (catalog/host.json `package.formatVersion`; docs/package-format.md).
@@ -101,6 +103,10 @@ export interface AppPackage {
   actions?: Record<string, unknown>
   /** VAPP-196: the package's tests (`host/tests.ts`), run at install. */
   tests?: unknown[]
+  /** VAPP-218 (U1): the navigation manifest (`host/screens.ts`): the
+   *  templates a person can open, painted by the host as a sidebar or the
+   *  phone bottom bar; `navigate {screen, params?}` opens one. */
+  screens?: PackageScreen[]
 }
 
 /** A package query's name. */
@@ -292,6 +298,8 @@ export function validatePackage(pkg: unknown, catalogIds: readonly string[] = su
   // VAPP-194: bindings are pure; actions are checked step by step.
   issues.push(...validatePackageEffects(pkg))
   issues.push(...validatePackageActions(pkg))
+  // VAPP-218: the screens, and every literal navigate target.
+  issues.push(...validatePackageScreens(pkg))
   if (pkg.tools !== undefined) issues.push(...validateTools(pkg.tools))
   if (pkg.upstreams !== undefined) issues.push(...validateUpstreams(pkg.upstreams))
   if (pkg.exposes !== undefined) issues.push(...validatePackageExposes(pkg.exposes, pkg.records, pkg.upstreams))
@@ -395,7 +403,9 @@ export function templateMessages(pkg: AppPackage, templateId: string, surfaceId:
   ]
   const merged = mergeData(template.data, data)
   if (merged !== undefined) out.push({ version, updateDataModel: { surfaceId, path: `/`, value: merged } })
-  for (const b of template.bindings ?? []) out.push({ version, bindDataModel: { surfaceId, path: b.path, source: b.source } })
+  // VAPP-218: a screen's `${params.<key>}` in a source, from the data's params.
+  const params = isObject(merged) ? merged.params : undefined
+  for (const b of template.bindings ?? []) out.push({ version, bindDataModel: { surfaceId, path: b.path, source: fillScreenParams(b.source, params) } })
   return out
 }
 

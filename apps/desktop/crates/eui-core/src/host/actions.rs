@@ -310,7 +310,7 @@ fn validate_step(step: &Value, at: &str, types: &Map<String, Value>, records: &M
                 issues.push(issue(&here, format!("{name} is pure: compute it in an expression")));
             } else if action_call_name(name).is_some() {
                 issues.push(issue(&here, "an action never runs another action"));
-            } else if let Some(functions) = functions {
+            } else if let Some(functions) = functions.filter(|_| name != super::screens::NAVIGATE_FUNCTION) {
                 if !functions.iter().any(|p| *p == name || p.strip_suffix('*').is_some_and(|prefix| name.starts_with(prefix))) {
                     issues.push(issue(&here, format!("{name} is not in the package's functions")));
                 }

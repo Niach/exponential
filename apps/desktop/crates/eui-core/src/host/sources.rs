@@ -90,7 +90,7 @@ pub fn parse_source(uri: &str) -> Option<ParsedSource> {
 
 /// JavaScript's `encodeURIComponent`: every UTF-8 byte but
 /// `A-Z a-z 0-9 - _ . ! ~ * ' ( )` as `%XX` (upper-case hex).
-fn encode_component(s: &str) -> String {
+pub(crate) fn encode_component(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for b in s.bytes() {
         if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')') {

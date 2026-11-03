@@ -683,6 +683,17 @@ impl SurfaceView {
         cx.notify();
     }
 
+    /// VAPP-218: the host's form factor, what `@media (form-factor: …)`
+    /// matches (an editor preview's phone frame). `None` (default, also via
+    /// [`SurfaceViewOptions::settings`]) = derived from the surface width.
+    pub fn set_form_factor(&mut self, form_factor: Option<eui_core::conditions::FormFactor>, cx: &mut Context<Self>) {
+        if self.surface.settings().form_factor == form_factor {
+            return;
+        }
+        self.surface.set_form_factor(form_factor);
+        cx.notify();
+    }
+
     fn sync_appearance(&mut self, window: &Window) {
         if self.surface.settings().mode != ModeSetting::System {
             return;

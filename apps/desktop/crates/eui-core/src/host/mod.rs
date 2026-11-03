@@ -25,6 +25,7 @@ pub mod record_transitions;
 pub mod record_store;
 pub mod records;
 pub mod router;
+pub mod screens;
 pub mod signature;
 pub mod sources;
 pub mod tests;
@@ -48,6 +49,7 @@ pub use policy::{
     safe_href, FunctionDecision, FunctionPolicy, MediaOptions, MediaRequest, MediaRule, UrlDecision, UrlPolicy, BUILTIN_FUNCTIONS,
 };
 pub use router::{normalize_path, HostRouter, SurfaceInfo};
+pub use screens::{fill_screen_params, navigate_target, navigate_target_value, package_screens, resolve_screen, screen_data, validate_package_screens, NavigateTarget, ResolvedScreen, MAX_SCREENS, MAX_SCREEN_TITLE, NAVIGATE_FUNCTION, SCREEN_PARAMS_KEY};
 pub use query::{
     computed_data, expand_query_source, fill_query_templates, kind_computed, kind_refs, month_days, month_label, parse_records_json, parse_records_query, parse_records_source, records_value, records_value_owned, shift_month, RecordRow, RecordRowRef, RecordsAggregate, RecordsAggregateOp, RecordsBefore, RecordsContext, RecordsDay, RecordsFilter, RecordsFilterOp, RecordsFilterValue, RecordsGroupKey, RecordsMonthView, RecordsOrder, RecordsQueryIssue, RecordsRunning, RecordsRunningOp,
     RecordsQuery, RecordsSortKey, RECORDS_AGGREGATE_OPS, RECORDS_AGGREGATE_RESERVED, RECORDS_COMPUTED_MAX, RECORDS_COMPUTED_ROW_KEYS, RECORDS_FILTER_OPS, RECORDS_MONTHS, RECORDS_OP_ALIASES, RECORDS_RUNNING_OPS, RECORDS_RESERVED_PARAMS, RECORDS_ROW_KEYS, RECORDS_SCHEME, RECORDS_WEEKDAYS,

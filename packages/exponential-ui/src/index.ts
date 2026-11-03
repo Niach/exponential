@@ -36,10 +36,12 @@ export {
   mediaMatches,
   resolveConditions,
   activeBreakpoint,
+  formFactorOf,
+  DEFAULT_FORM_FACTOR_BREAKPOINT,
   styleKeyEnum,
   styleKeyType,
 } from "./style"
-export type { Style, StyleProps, MediaKey, StateKey, StyleIssue, Gradient, ConditionContext, MediaCondition } from "./style"
+export type { Style, StyleProps, MediaKey, StateKey, StyleIssue, Gradient, ConditionContext, MediaCondition, FormFactor } from "./style"
 export { validateProps, validateNode, isCallableName, isDynamic } from "./validate"
 export type { PropIssue } from "./validate"
 export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, filterItems, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"

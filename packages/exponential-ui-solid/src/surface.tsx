@@ -28,7 +28,7 @@ import {
   readOnlyTemplates,
   readOnlyTree,
 } from "@exponential_app/eui"
-import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential_app/eui"
+import type { FormFactor, ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential_app/eui"
 import { BASE_CSS, CLIENT_FUNCTIONS, compileNodeSheet, compiledTheme, memoFormatter, nodeSheetBatches, layoutSize, openAllowed, queryToken, setPointer, share, surfaceClass, walkNodes, type DataModel, type NodeSheetBatch } from "@exponential_app/eui/web"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
 import { extensionCatalogs, extensionMacroNames, registeredExtensions, type SolidExtension } from "./extensions"
@@ -89,6 +89,10 @@ export interface ExponentialSurfaceProps {
    *  orientation conditions); default an explicit inline `style.height`,
    *  else unknown. */
   viewportHeight?: number
+  /** VAPP-218: the HOST's form factor, what `@media (form-factor: …)`
+   *  matches (an editor preview's phone frame, a phone). Default: derived
+   *  from the surface width (`phone` below the theme's `$breakpoint.md`). */
+  formFactor?: FormFactor
   /** An explicit id (defaults to `createUniqueId`); unique per page. */
   id?: string
   /** Host → surface commands: called once with the surface's handle (React's
@@ -165,6 +169,8 @@ export interface LayoutInputs {
   breakpoints: Record<string, number>
   queries: readonly string[]
   viewportHeight: number | undefined
+  /** Unset = derived from the width against `breakpoints.md`. */
+  formFactor?: FormFactor
   hover: boolean
   reducedMotion: boolean
 }
@@ -174,7 +180,7 @@ export interface LayoutInputs {
 export function surfaceLayout(box: SurfaceBox, inputs: LayoutInputs): { breakpoint: string | null; xq: string } {
   const breakpoint = activeBreakpoint(box.width, inputs.breakpoints)
   const height = inputs.viewportHeight ?? box.height
-  const ctx = { width: box.width, height, hover: inputs.hover, reducedMotion: inputs.reducedMotion }
+  const ctx = { width: box.width, height, hover: inputs.hover, reducedMotion: inputs.reducedMotion, breakpoints: inputs.breakpoints, formFactor: inputs.formFactor }
   const xq = inputs.queries
     .filter((key) => {
       const c = parseMediaCondition(key)
@@ -381,7 +387,7 @@ export function ExponentialSurface(input: ExponentialSurfaceProps): JSX.Element 
   // neither the breakpoint nor `data-xq` re-binds nothing.
   const [box, setBox] = createSignal<SurfaceBox>({ width: typeof untrack(() => props.width) === `number` ? (untrack(() => props.width) as number) : 0, height: undefined, measured: false })
   const layout = createMemo(
-    () => surfaceLayout(box(), { breakpoints: theme().tokens.breakpoint ?? {}, queries: sheet().queries, viewportHeight: props.viewportHeight, hover: hover(), reducedMotion: reducedMotion() }),
+    () => surfaceLayout(box(), { breakpoints: theme().tokens.breakpoint ?? {}, queries: sheet().queries, viewportHeight: props.viewportHeight, formFactor: props.formFactor, hover: hover(), reducedMotion: reducedMotion() }),
     undefined,
     { equals: (a, b) => a.breakpoint === b.breakpoint && a.xq === b.xq }
   )

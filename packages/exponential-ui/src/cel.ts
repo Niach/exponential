@@ -35,7 +35,7 @@ export type FunctionEffect = `pure` | `write` | `host`
 /** The functions that write (records, the surface data model). */
 export const WRITE_FUNCTIONS: readonly string[] = [`set`, `records.upsert`, `records.delete`, `records.batch`]
 /** The built-in host functions; every name under a host prefix is one too. */
-export const HOST_FUNCTIONS: readonly string[] = [`openUrl`, `bind`]
+export const HOST_FUNCTIONS: readonly string[] = [`openUrl`, `bind`, `app.navigate`]
 export const HOST_FUNCTION_PREFIXES: readonly string[] = [`actions.`, `harness.`, `exponential.`, `tools.`, `upstream.`]
 
 /** The effect of a function by name: the signature table's (every

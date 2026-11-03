@@ -359,6 +359,8 @@ pub fn validate_package_in<S: AsRef<str>>(pkg: &Value, catalog_ids: &[S], extens
     // VAPP-194: bindings are pure; actions are checked step by step.
     issues.extend(super::actions::validate_package_effects(p));
     issues.extend(super::actions::validate_package_actions(p));
+    // VAPP-218: the screens, and every literal navigate target.
+    issues.extend(super::screens::validate_package_screens(p));
     if let Some(tools) = p.get("tools") {
         issues.extend(validate_tools(tools));
     }
@@ -466,7 +468,10 @@ pub fn template_messages(pkg: &Value, template_id: &str, surface_id: &str, data:
         components.insert("components".into(), list.clone());
     }
     let mut out = vec![json!({"version": version, "createSurface": create}), json!({"version": version, "updateComponents": components})];
-    if let Some(merged) = merge_data(template.get("data"), data) {
+    let merged = merge_data(template.get("data"), data);
+    // VAPP-218: a screen's `${params.<key>}` in a source, from the data's params.
+    let params = merged.as_ref().and_then(|m| m.get("params")).cloned();
+    if let Some(merged) = merged {
         out.push(json!({"version": version, "updateDataModel": {"surfaceId": surface_id, "path": "/", "value": merged}}));
     }
     for b in template.get("bindings").and_then(Value::as_array).into_iter().flatten() {
@@ -474,7 +479,11 @@ pub fn template_messages(pkg: &Value, template_id: &str, surface_id: &str, data:
         bind.insert("surfaceId".into(), Value::String(surface_id.into()));
         for key in ["path", "source"] {
             if let Some(v) = b.get(key) {
-                bind.insert(key.into(), v.clone());
+                let v = match (key, v.as_str()) {
+                    ("source", Some(src)) => Value::String(super::screens::fill_screen_params(src, params.as_ref())),
+                    _ => v.clone(),
+                };
+                bind.insert(key.into(), v);
             }
         }
         out.push(json!({"version": version, "bindDataModel": bind}));

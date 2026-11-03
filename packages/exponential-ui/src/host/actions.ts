@@ -23,6 +23,7 @@ import type { ExprNode, ExprType, ExpressionEnv } from "../cel"
 import type { PackageIssue } from "./package"
 import { sourceAllowed } from "./package"
 import { parseSource } from "./sources"
+import { NAVIGATE_FUNCTION } from "./screens"
 import { RECORDS_SCHEME } from "./query"
 import { literalType, rowOf, schemaType } from "./expressions"
 import { validateRecord, validateRecordSchema } from "./records"
@@ -211,7 +212,7 @@ function validateStep(step: unknown, at: string, types: Record<string, ExprType>
       if (effect === `write`) issues.push({ path: here, message: `${effectWords(body, effect)}: use a records.upsert, records.delete or set step` })
       else if (effect === `pure`) issues.push({ path: here, message: `${body} is pure: compute it in an expression` })
       else if (actionCallName(body) !== null) issues.push({ path: here, message: `an action never runs another action` })
-      else if (functions !== null && !functions.some((p) => p === body || (p.endsWith(`*`) && body.startsWith(p.slice(0, -1)))))
+      else if (body !== NAVIGATE_FUNCTION && functions !== null && !functions.some((p) => p === body || (p.endsWith(`*`) && body.startsWith(p.slice(0, -1)))))
         issues.push({ path: here, message: `${body} is not in the package's functions` })
       if (step.args !== undefined) {
         if (!isObject(step.args)) issues.push({ path: `${at}/args`, message: `args is an object of expressions` })

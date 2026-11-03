@@ -195,6 +195,7 @@ One level deep, ONE regex grammar (`STYLE_MEDIA_PATTERN`):
 - `@media (hover: hover|none)` — a hover-capable pointer.
 - `@media (prefers-reduced-motion: reduce|no-preference)` — the platform
   setting.
+- `@media (form-factor: phone|wide)` (VAPP-218) — the HOST's form factor, an optional `formFactor` surface input (an editor preview's phone frame, a phone); unset = `phone` when the surface width < the theme's `$breakpoint.md` (768 by default), else `wide`.
 - NOT supported: `prefers-color-scheme` (mode belongs to the theme),
   ranges, `em`, `screen`, nesting.
 - States `:hover`, `:focus-visible`, `:pressed` against the node's own

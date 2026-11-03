@@ -839,6 +839,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_migrate_record_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_navigate_target_json(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_package_policy_json(
@@ -872,6 +874,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json(
 external fun uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json(
+): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_resolve_screen_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_run_action_json(
 ): Short
@@ -1556,6 +1560,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_migrate_record_json(`packageJson`
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_migration_refusal_json(`beforeJson`: RustBuffer.ByValue,`afterJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_navigate_target_json(`packageJson`: RustBuffer.ByValue,`argsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_nice_ticks_json(`min`: Double,`max`: Double,`target`: Int,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_package_policy_json(`functionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1589,6 +1595,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_resolve_conditions_json(`styleJso
 external fun uniffi_exponential_ui_ffi_fn_func_resolve_dynamic_json(`valueJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(`themeJson`: RustBuffer.ByValue,`component`: RustBuffer.ByValue,`part`: RustBuffer.ByValue,`propsJson`: RustBuffer.ByValue,`states`: RustBuffer.ByValue,`mode`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_resolve_screen_json(`packageJson`: RustBuffer.ByValue,`screen`: RustBuffer.ByValue,`paramsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_run_action_json(`actionJson`: RustBuffer.ByValue,`dataJson`: RustBuffer.ByValue,`scope`: RustBuffer.ByValue,`stringsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -8313,6 +8321,13 @@ data class FfiSettings (
      * `read`): every writing control paints disabled (`fixtures/read-only.json`).
      */
     var `readOnly`: kotlin.Boolean = false 
+    , 
+    /**
+     * VAPP-218: the HOST's form factor, `phone` or `wide`: what
+     * `@media (form-factor: …)` matches. `None` = derived from the surface
+     * width (`phone` below the theme's `$breakpoint.md`).
+     */
+    var `formFactor`: kotlin.String? = null 
     
 ){
     
@@ -8347,6 +8362,7 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterUInt.read(buf),
             FfiConverterOptionalString.read(buf),
             FfiConverterBoolean.read(buf),
+            FfiConverterOptionalString.read(buf),
         )
     }
 
@@ -8368,7 +8384,8 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterOptionalString.allocationSize(value.`today`) +
             FfiConverterUInt.allocationSize(value.`hoverCloseMs`) +
             FfiConverterOptionalString.allocationSize(value.`timeZone`) +
-            FfiConverterBoolean.allocationSize(value.`readOnly`)
+            FfiConverterBoolean.allocationSize(value.`readOnly`) +
+            FfiConverterOptionalString.allocationSize(value.`formFactor`)
     )
 
     override fun write(value: FfiSettings, buf: ByteBuffer) {
@@ -8390,6 +8407,7 @@ public object FfiConverterTypeFfiSettings: FfiConverterRustBuffer<FfiSettings> {
             FfiConverterUInt.write(value.`hoverCloseMs`, buf)
             FfiConverterOptionalString.write(value.`timeZone`, buf)
             FfiConverterBoolean.write(value.`readOnly`, buf)
+            FfiConverterOptionalString.write(value.`formFactor`, buf)
     }
 }
 
@@ -10668,6 +10686,21 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     
 
         /**
+         * VAPP-218 (U1): an `app.navigate` call's args → `{screen, params}` or
+         * `{error}` (`fixtures/host-router.json` `navigate`).
+         */
+    @Throws(UiException::class) fun `navigateTargetJson`(`packageJson`: kotlin.String, `argsJson`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_navigate_target_json(
+    
+        FfiConverterString.lower(`packageJson`),FfiConverterString.lower(`argsJson`),_status)
+}
+    )
+    }
+    
+
+        /**
          * `{min, max, step, ticks}`: nice axis ticks.
          */ fun `niceTicksJson`(`min`: kotlin.Double, `max`: kotlin.Double, `target`: kotlin.UInt): kotlin.String {
             return FfiConverterString.lift(
@@ -10883,7 +10916,7 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
 
         /**
          * A style flattened for one context (`{width, height?, hover, reducedMotion,
-         * states, breakpoints}`), the reference `resolveConditions`.
+         * states, breakpoints, formFactor?}`), the reference `resolveConditions`.
          */
     @Throws(UiException::class) fun `resolveConditionsJson`(`styleJson`: kotlin.String, `contextJson`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
@@ -10920,6 +10953,24 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_resolve_recipe_json(
     
         FfiConverterString.lower(`themeJson`),FfiConverterString.lower(`component`),FfiConverterString.lower(`part`),FfiConverterString.lower(`propsJson`),FfiConverterSequenceString.lower(`states`),FfiConverterString.lower(`mode`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * VAPP-218 (U1): the screen a host opens (`fixtures/host-router.json`
+         * `screens`): the requested one when the package has it, else the first,
+         * its params merged (`params_json` = an object; non-strings dropped). JSON
+         * `{screen, title, icon, params}`, or `null` when the package declares no
+         * screens.
+         */
+    @Throws(UiException::class) fun `resolveScreenJson`(`packageJson`: kotlin.String, `screen`: kotlin.String?, `paramsJson`: kotlin.String?): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCallWithError(UiException) { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_resolve_screen_json(
+    
+        FfiConverterString.lower(`packageJson`),FfiConverterOptionalString.lower(`screen`),FfiConverterOptionalString.lower(`paramsJson`),_status)
 }
     )
     }

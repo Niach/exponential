@@ -621,6 +621,16 @@ fn host_suite(id: &str) -> Vec<Case> {
                 let schema = &packages[c["package"].as_str().unwrap()]["records"][c["kind"].as_str().unwrap()]["schema"];
                 out.push((format!("records: {}", c["name"].as_str().unwrap()), same(&to_value(&validate_record(schema, &c["data"])), &c["expected"])));
             }
+            // VAPP-218: the screens a host opens, the navigate targets.
+            for c in list(&f, "screens") {
+                let pkg = &packages[c["package"].as_str().unwrap()];
+                let got = eui_core::host::resolve_screen(pkg, c["screen"].as_str(), Some(&c["params"]));
+                out.push((format!("screens: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
+            }
+            for c in list(&f, "navigate") {
+                let pkg = &packages[c["package"].as_str().unwrap()];
+                out.push((format!("navigate: {}", c["name"].as_str().unwrap()), same(&eui_core::host::navigate_target_value(pkg, &c["args"]), &c["expected"])));
+            }
             for flow in list(&f, "flows") {
                 let ext: Vec<String> = flow.get("extensionIds").map(|e| serde_json::from_value(e.clone()).unwrap()).unwrap_or_default();
                 let mut router = HostRouter::new(&ext);

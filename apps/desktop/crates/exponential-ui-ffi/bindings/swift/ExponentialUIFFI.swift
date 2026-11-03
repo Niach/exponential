@@ -5482,6 +5482,12 @@ public struct FfiSettings: Equatable, Hashable {
      * `read`): every writing control paints disabled (`fixtures/read-only.json`).
      */
     public var readOnly: Bool
+    /**
+     * VAPP-218: the HOST's form factor, `phone` or `wide`: what
+     * `@media (form-factor: …)` matches. `None` = derived from the surface
+     * width (`phone` below the theme's `$breakpoint.md`).
+     */
+    public var formFactor: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -5502,7 +5508,12 @@ public struct FfiSettings: Equatable, Hashable {
         /**
          * VAPP-200: the viewer may read, not write (an app at app access
          * `read`): every writing control paints disabled (`fixtures/read-only.json`).
-         */readOnly: Bool = false) {
+         */readOnly: Bool = false, 
+        /**
+         * VAPP-218: the HOST's form factor, `phone` or `wide`: what
+         * `@media (form-factor: …)` matches. `None` = derived from the surface
+         * width (`phone` below the theme's `$breakpoint.md`).
+         */formFactor: String? = nil) {
         self.locale = locale
         self.stringsJson = stringsJson
         self.mode = mode
@@ -5521,6 +5532,7 @@ public struct FfiSettings: Equatable, Hashable {
         self.hoverCloseMs = hoverCloseMs
         self.timeZone = timeZone
         self.readOnly = readOnly
+        self.formFactor = formFactor
     }
 
     
@@ -5556,7 +5568,8 @@ public struct FfiConverterTypeFfiSettings: FfiConverterRustBuffer {
                 today: FfiConverterOptionString.read(from: &buf), 
                 hoverCloseMs: FfiConverterUInt32.read(from: &buf), 
                 timeZone: FfiConverterOptionString.read(from: &buf), 
-                readOnly: FfiConverterBool.read(from: &buf)
+                readOnly: FfiConverterBool.read(from: &buf), 
+                formFactor: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -5579,6 +5592,7 @@ public struct FfiConverterTypeFfiSettings: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.hoverCloseMs, into: &buf)
         FfiConverterOptionString.write(value.timeZone, into: &buf)
         FfiConverterBool.write(value.readOnly, into: &buf)
+        FfiConverterOptionString.write(value.formFactor, into: &buf)
     }
 }
 
@@ -7664,6 +7678,18 @@ public func migrationRefusalJson(beforeJson: String, afterJson: String)throws  -
 })
 }
 /**
+ * VAPP-218 (U1): an `app.navigate` call's args → `{screen, params}` or
+ * `{error}` (`fixtures/host-router.json` `navigate`).
+ */
+public func navigateTargetJson(packageJson: String, argsJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_navigate_target_json(
+        FfiConverterString.lower(packageJson),
+        FfiConverterString.lower(argsJson),$0
+    )
+})
+}
+/**
  * `{min, max, step, ticks}`: nice axis ticks.
  */
 public func niceTicksJson(min: Double, max: Double, target: UInt32) -> String  {
@@ -7847,7 +7873,7 @@ public func resizableJson(requestJson: String)throws  -> String  {
 }
 /**
  * A style flattened for one context (`{width, height?, hover, reducedMotion,
- * states, breakpoints}`), the reference `resolveConditions`.
+ * states, breakpoints, formFactor?}`), the reference `resolveConditions`.
  */
 public func resolveConditionsJson(styleJson: String, contextJson: String)throws  -> String  {
     return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
@@ -7882,6 +7908,22 @@ public func resolveRecipeJson(themeJson: String, component: String, part: String
         FfiConverterString.lower(propsJson),
         FfiConverterSequenceString.lower(states),
         FfiConverterString.lower(mode),$0
+    )
+})
+}
+/**
+ * VAPP-218 (U1): the screen a host opens (`fixtures/host-router.json`
+ * `screens`): the requested one when the package has it, else the first,
+ * its params merged (`params_json` = an object; non-strings dropped). JSON
+ * `{screen, title, icon, params}`, or `null` when the package declares no
+ * screens.
+ */
+public func resolveScreenJson(packageJson: String, screen: String?, paramsJson: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_resolve_screen_json(
+        FfiConverterString.lower(packageJson),
+        FfiConverterOptionString.lower(screen),
+        FfiConverterOptionString.lower(paramsJson),$0
     )
 })
 }
@@ -8351,6 +8393,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_migration_refusal_json() != 56997) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_navigate_target_json() != 35729) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_nice_ticks_json() != 40785) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -8393,13 +8438,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_resizable_json() != 39983) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json() != 827) {
+    if (uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json() != 9038) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_resolve_dynamic_json() != 12682) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_resolve_recipe_json() != 7595) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_resolve_screen_json() != 40364) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_run_action_json() != 39985) {

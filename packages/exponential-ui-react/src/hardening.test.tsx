@@ -80,6 +80,20 @@ describe(`height/orientation conditions read the VIEWPORT height, never the cont
   })
 })
 
+describe(`VAPP-218: form-factor conditions`, () => {
+  const inputs = { breakpoints: { sm: 640, md: 768 }, queries: [`@media (form-factor: phone)`, `@media (form-factor: wide)`], viewportHeight: undefined, hover: true, reducedMotion: false }
+  it(`unset = derived from the width against $breakpoint.md`, () => {
+    expect(surfaceLayout({ width: 767, height: undefined, measured: true }, inputs).xq).toBe(`form-factor-phone`)
+    expect(surfaceLayout({ width: 768, height: undefined, measured: true }, inputs).xq).toBe(`form-factor-wide`)
+  })
+  it(`the formFactor prop wins over the width`, () => {
+    expect(surfaceLayout({ width: 1280, height: undefined, measured: true }, { ...inputs, formFactor: `phone` }).xq).toBe(`form-factor-phone`)
+    const root = tree({ id: `n`, component: `Box`, style: { "@media (form-factor: phone)": { gap: 4 } } })
+    const { container } = render(<ExponentialSurface root={root} theme="neutral" width={1280} formFactor="phone" id="ff" />)
+    expect((container.firstElementChild as HTMLElement).dataset.xq).toBe(`form-factor-phone`)
+  })
+})
+
 describe(`re-render economy`, () => {
   it(`a parent re-render with no host and unchanged props does not re-render the nodes`, () => {
     let paints = 0

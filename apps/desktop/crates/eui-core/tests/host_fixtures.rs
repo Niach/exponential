@@ -34,7 +34,7 @@ fn host_policy_every_function_url_media_source_and_negotiation_case_equals_the_r
 
 #[test]
 fn host_router_every_validation_and_flow_equals_the_reference() {
-    assert_all(support::router_cases(), count("host-router.json", &["validation", "records", "flows"]));
+    assert_all(support::router_cases(), count("host-router.json", &["validation", "records", "screens", "navigate", "flows"]));
 }
 
 #[test]
@@ -260,4 +260,14 @@ fn a_basic_catalog_button_action_function_call_reaches_the_host() {
     let btn = surface.index_of("btn").unwrap();
     let events = surface.event(btn, "press", None);
     assert!(events.contains(&OutEvent::FunctionCall { component_id: "btn".into(), name: "harness.toast".into(), args: json!({"message": "hey"}) }), "{events:?}");
+}
+
+#[test]
+fn the_screens_constants_are_catalog_host_json_s() {
+    let contract = read("catalog/host.json");
+    let s = &contract["package"]["screens"];
+    assert_eq!(s["max"], json!(host::MAX_SCREENS));
+    assert_eq!(s["titleMax"], json!(host::MAX_SCREEN_TITLE));
+    assert_eq!(s["navigateFunction"], json!(host::NAVIGATE_FUNCTION));
+    assert_eq!(s["paramsKey"], json!(host::SCREEN_PARAMS_KEY));
 }

@@ -108,6 +108,12 @@ data class SurfaceSettings(
     val formatter: HostFormatter? = null,
     /** VAPP-200: the viewer may read, not write (an app at app access `read`): every writing control paints disabled. */
     val readOnly: Boolean = false,
+    /**
+     * VAPP-218: the HOST's form factor, `phone` or `wide`: what `@media (form-factor: …)`
+     * matches (an editor preview's phone frame, a phone). null = derived from the surface
+     * width (`phone` below the theme's `$breakpoint.md`).
+     */
+    val formFactor: String? = null,
 )
 
 /** Safe-area insets in dp. */
@@ -451,6 +457,7 @@ class SurfaceModel(
             hoverCloseMs = st.hoverCloseMs.coerceAtLeast(0).toUInt(),
             timeZone = zone,
             readOnly = st.readOnly,
+            formFactor = st.formFactor?.takeIf { it == "phone" || it == "wide" },
         )
         val key = "$locale|$zone|${System.identityHashCode(st.formatter)}"
         var changed = false

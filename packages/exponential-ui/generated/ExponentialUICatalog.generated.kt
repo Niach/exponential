@@ -11,7 +11,7 @@ object ExponentialUICatalog {
     const val catalogVersion: String = "1"
     const val unknownComponent: String = "Unknown"
     const val basicPlaceholderIcon: String = "ui-icon-placeholder"
-    const val styleMediaPattern: String = "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\\$breakpoint\\.[a-zA-Z0-9]+)\\)\$|^@media \\(orientation: (portrait|landscape)\\)\$|^@media \\(hover: (hover|none)\\)\$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)\$"
+    const val styleMediaPattern: String = "^@media \\((min-width|max-width|min-height|max-height): (\\d+(\\.\\d+)?px|\\\$breakpoint\\.[a-zA-Z0-9]+)\\)\$|^@media \\(orientation: (portrait|landscape)\\)\$|^@media \\(hover: (hover|none)\\)\$|^@media \\(prefers-reduced-motion: (reduce|no-preference)\\)\$|^@media \\(form-factor: (phone|wide)\\)\$"
     const val styleTransformPattern: String = "^((translate\\(-?\\d+(\\.\\d+)?px, -?\\d+(\\.\\d+)?px\\)|scale\\(-?\\d+(\\.\\d+)?\\)|rotate\\(-?\\d+(\\.\\d+)?deg\\))( (?=\\S)|\$))+\$"
     const val defaultLocale: String = "en-US"
     const val weekStartDefault: String = "1"

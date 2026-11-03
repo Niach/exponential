@@ -204,6 +204,17 @@ pub fn router_cases() -> Vec<Case> {
         let got = validate_record(schema, &c["data"]);
         out.push((format!("records: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
     }
+    // VAPP-218: the screens a host opens, the navigate targets.
+    for c in list(&f, "screens") {
+        let pkg = &packages[c["package"].as_str().unwrap()];
+        let got = eui_core::host::resolve_screen(pkg, c["screen"].as_str(), Some(&c["params"]));
+        out.push((format!("screens: {}", c["name"].as_str().unwrap()), same(&to_value(&got), &c["expected"])));
+    }
+    for c in list(&f, "navigate") {
+        let pkg = &packages[c["package"].as_str().unwrap()];
+        let got = eui_core::host::navigate_target_value(pkg, &c["args"]);
+        out.push((format!("navigate: {}", c["name"].as_str().unwrap()), same(&got, &c["expected"])));
+    }
     for flow in list(&f, "flows") {
         let name = flow["name"].as_str().unwrap();
         let ext: Vec<String> = flow.get("extensionIds").map(|e| serde_json::from_value(e.clone()).unwrap()).unwrap_or_default();

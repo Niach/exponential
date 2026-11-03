@@ -42,6 +42,8 @@ import {
   tryLoadTheme,
   validatePackage,
   validateRecord,
+  resolveScreen,
+  navigateTarget,
   sourceWithParams,
   DEFAULT_STRINGS,
   animationFrame,
@@ -320,6 +322,8 @@ export async function runBrowserSuites<Ctx = never>(options: BrowserSuitesOption
       const packages = r.packages as Record<string, AppPackage>
       for (const v of r.validation) record(`host-router`, `validation: ${v.package}`, () => canon(validatePackage(packages[v.package])) === canon(v.expected))
       for (const c of r.records) record(`host-router`, `records: ${c.name}`, () => canon(validateRecord(packages[c.package]!.records![c.kind]!.schema, c.data)) === canon(c.expected))
+      for (const c of r.screens) record(`host-router`, `screens: ${c.name}`, () => canon(resolveScreen(packages[c.package]!, c.screen, c.params as Record<string, unknown> | null)) === canon(c.expected))
+      for (const c of r.navigate) record(`host-router`, `navigate: ${c.name}`, () => canon(navigateTarget(packages[c.package]!, c.args)) === canon(c.expected))
       for (const flow of r.flows as { name: string; extensionIds?: string[]; packages?: string[]; installIssues?: Record<string, unknown>; steps: { message: unknown; expected: unknown }[] }[])
         record(`host-router`, `flow: ${flow.name}`, () => {
           const router = new HostRouter({ extensionIds: flow.extensionIds ?? [] })

@@ -49,6 +49,7 @@ el.apply({ updateComponents: { surfaceId: "main", components } })
 | `density`, `contrast` | `compact`, `default` or `comfortable`; `normal`, `high` or `system` |
 | `locale`, `time-zone` (`timeZone`) | BCP 47 locale (default `en-US`) and IANA time zone (default the platform's) |
 | `direction` | `ltr` or `rtl` (default: the locale's direction) |
+| `form-factor` (`formFactor`) | `phone` or `wide`: the host's form factor, what `@media (form-factor: …)` matches (default: derived from the surface width, `phone` below the theme's `$breakpoint.md`) |
 | `width`, `height` | A numeric string means px; any other string is a CSS length. An explicit `height` is the viewport for height conditions. |
 | `surface-id` (`surfaceId`) | The surface id (default `main`): the `xui-s-<id>` class, the store `apply()` makes, and the host surface it paints |
 | `src`, `post`, `transport` | The host API (see below) |

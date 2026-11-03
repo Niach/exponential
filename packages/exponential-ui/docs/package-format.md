@@ -7,7 +7,7 @@ store, tool runners, extensions), never how (Exponential serves records from
 its synced store, spezl from a p2p store over eNet). `catalog/host.json`
 `package` is the machine-readable contract; this page is the prose spec other
 docs link to (spezl `docs/spec/blocks.md`). The TS reference is `src/host/`
-(`package.ts`, `records.ts`, `record-store.ts`, `query.ts`, `actions.ts`, `tests.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
+(`package.ts`, `records.ts`, `record-store.ts`, `query.ts`, `actions.ts`, `screens.ts`, `tests.ts`, `tools.ts`, `exposes.ts`, `signature.ts`);
 the Rust core (`apps/desktop/crates/eui-core/src/host/`) mirrors every
 pure rule. Fixtures: `fixtures/expressions.json` (the expression language, below), `fixtures/actions.json` (effects and actions, below), `fixtures/package-tests.json` (package tests, below), `fixtures/host-router.json` (package validation, replayed
 by every renderer through the core), `fixtures/records-query.json` (the
@@ -41,6 +41,7 @@ renders against keeps its own version in its id (`catalogId`,
   "upstreams": ["crm"], "exposes": [/* MCP tools a host's broker runs: "Exposes" below */],
   "queries": { "month": { "group": ["author"], "aggregate": { "hours": ["sum", "hours"] } } },
   "actions": { "log": { "params": { /* a records schema */ }, "steps": [/* "Actions" below */] } },
+  "screens": [{ "template": "month", "title": "Month", "icon": "calendar" }, { "template": "team", "title": "Team", "icon": "users", "params": { "range": "week" } }],
   "tests": [{ "name": "a duration", "expr": { "expr": "formatDuration(7.5, 'h:mm')" }, "expect": "7:30" }],
   "extensions": [{ "id": "https://acme.example/catalogs/charts/v1", "version": "1.4.0", "components": ["Gantt"] }],
   "theme": "exponential", "icon": { "glyph": "clock" }, "description": "…"
@@ -65,6 +66,48 @@ extension's definition when the host has it (TS: `AvailableExtension.def`,
 filled by `availableExtensions(defs)`; Rust: `validate_package_in` with a
 `CatalogView`); without one their names stay open. A component no tree
 reaches (neither the root nor a list's row template) is not checked.
+
+## Screens
+
+VAPP-218 (eApps U1, `src/host/screens.ts`, `fixtures/host-router.json`
+`screens` + `navigate`; `catalog/host.json` `package.screens`). `screens`
+is the navigation manifest: the templates a person can open, in order.
+
+```jsonc
+"screens": [
+  { "template": "pipeline", "title": "Pipeline", "icon": "square-kanban" },
+  { "template": "deals", "title": "Deals", "icon": "briefcase", "params": { "stage": "open" } }
+]
+```
+
+- 1 to **5** screens, each keyed by its `template` (a declared template, no
+  duplicates); `title` 1..32 characters; `icon` an Exponential UI icon name;
+  `params` an object of strings, the params it opens with. Install refuses
+  an unknown template, a duplicate, a sixth screen, an unknown key, a bad
+  icon or a non-string param.
+- **The host draws the navigation**, never the app: a sidebar on wide
+  frames (desktop, web ≥ md), the phone bottom bar on phones. A package
+  without `screens` shows its first template as before. `app.navigate`
+  opens screens only, so a detail view is a screen or a Dialog/Drawer.
+- **`app.navigate {screen, params?}`** opens a screen: as a press
+  (`on.press.functionCall {call: "app.navigate", args: {screen, params}}`)
+  or as an action step (`{call: "app.navigate", args: {screen: "'deals'",
+  params: {stage: "params.stage"}}}`, CEL like every step arg), after the
+  action's writes. It is always allowed (the package need not list it in
+  `functions`). A literal target names a screen at install (`navigate:
+  <x> is not a screen`); at run time a target that is no screen, or params
+  that are not strings, is refused with `FUNCTION_DENIED`.
+- **Params:** the opened template gets `{params}` over its own data, so a
+  component reads `{"path": "/params/<key>"}`, and a binding source's
+  `${params.<key>}` is filled with the percent-encoded value (missing = empty)
+  when the template opens (`records:deal?query=byStage&stage=${params.stage}`).
+  A screen's params = its own `params`, then the request's, key by key
+  (`resolveScreen`; strings only).
+- **Deep links** carry the same pair: on Exponential
+  `/t/<team>/apps/<slug>/<screen>?<params>` and the natives' app links.
+- **`@media (form-factor: phone|wide)`** is the style condition for a
+  layout that truly differs on phones (the host's form factor; unset = the
+  surface width against `$breakpoint.md`).
 
 ## Records
 

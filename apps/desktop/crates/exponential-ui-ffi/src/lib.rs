@@ -482,6 +482,11 @@ pub struct FfiSettings {
     /// `read`): every writing control paints disabled (`fixtures/read-only.json`).
     #[uniffi(default = false)]
     pub read_only: bool,
+    /// VAPP-218: the HOST's form factor, `phone` or `wide`: what
+    /// `@media (form-factor: …)` matches. `None` = derived from the surface
+    /// width (`phone` below the theme's `$breakpoint.md`).
+    #[uniffi(default = None)]
+    pub form_factor: Option<String>,
 }
 
 /// One event for the host: `kind` = `action | openUrl | functionCall |
@@ -710,6 +715,10 @@ fn settings_of(f: &FfiSettings) -> Result<SurfaceSettings, UiError> {
         today: f.today.clone(),
         hover_close_ms: f.hover_close_ms,
         read_only: f.read_only,
+        form_factor: match f.form_factor.as_deref() {
+            None | Some("") => None,
+            Some(v) => Some(eui_core::conditions::FormFactor::parse(v).ok_or_else(|| invalid(format!("formFactor must be phone|wide, got {v:?}")))?),
+        },
     })
 }
 
@@ -734,6 +743,7 @@ fn settings_out(s: &SurfaceSettings, time_zone: Option<String>) -> FfiSettings {
         hover_close_ms: s.hover_close_ms,
         time_zone,
         read_only: s.read_only,
+        form_factor: s.form_factor.map(|f| f.as_str().to_string()),
     }
 }
 
@@ -948,7 +958,7 @@ pub fn format_string(template: String, params_json: String) -> Result<String, Ui
 }
 
 /// A style flattened for one context (`{width, height?, hover, reducedMotion,
-/// states, breakpoints}`), the reference `resolveConditions`.
+/// states, breakpoints, formFactor?}`), the reference `resolveConditions`.
 #[uniffi::export]
 pub fn resolve_conditions_json(style_json: String, context_json: String) -> Result<String, UiError> {
     guarded("resolve_conditions_json", || {
@@ -2979,6 +2989,31 @@ pub fn validate_record_transitions_json(kind_json: String, at: String, kind_name
     guarded("validate_record_transitions_json", || {
         let kind: Value = parse(&kind_json)?;
         Ok(json_string(&h::validate_record_transitions(&kind, &at, &kind_name)))
+    })
+}
+
+/// VAPP-218 (U1): the screen a host opens (`fixtures/host-router.json`
+/// `screens`): the requested one when the package has it, else the first,
+/// its params merged (`params_json` = an object; non-strings dropped). JSON
+/// `{screen, title, icon, params}`, or `null` when the package declares no
+/// screens.
+#[uniffi::export]
+pub fn resolve_screen_json(package_json: String, screen: Option<String>, params_json: Option<String>) -> Result<String, UiError> {
+    guarded("resolve_screen_json", || {
+        let pkg: Value = parse(&package_json)?;
+        let params: Option<Value> = params_json.map(|p| parse(&p)).transpose()?;
+        Ok(h::resolve_screen(&pkg, screen.as_deref(), params.as_ref()).map_or_else(|| "null".to_string(), |s| json_string(&s)))
+    })
+}
+
+/// VAPP-218 (U1): an `app.navigate` call's args → `{screen, params}` or
+/// `{error}` (`fixtures/host-router.json` `navigate`).
+#[uniffi::export]
+pub fn navigate_target_json(package_json: String, args_json: String) -> Result<String, UiError> {
+    guarded("navigate_target_json", || {
+        let pkg: Value = parse(&package_json)?;
+        let args: Value = parse(&args_json)?;
+        Ok(h::navigate_target_value(&pkg, &args).to_string())
     })
 }
 

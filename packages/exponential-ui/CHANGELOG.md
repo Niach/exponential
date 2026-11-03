@@ -5,6 +5,9 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+- VAPP-218 (eApps U1): screens. A package's `screens: [{template, title, icon?, params?}]` (≤ 5, keyed by the template) is the navigation manifest the HOST paints (a sidebar on wide frames, the phone bottom bar on phones). The host function `app.navigate {screen, params?}` (a press or an action's `call` step; always allowed) opens one through `HostOptions.navigate` ×4 (TS, Rust core, Swift, Compose); its params land under `/params/*` and fill a binding source's `${params.<key>}` (percent-encoded). New `src/host/screens.ts` (Rust `host::screens`, FFI `resolve_screen_json`, `navigate_target_json`): `validatePackageScreens` (install refuses an unknown template, a duplicate, a sixth screen, a bad icon, a non-string param, a literal navigate target that is no screen), `resolveScreen`, `navigateTarget`, `fillScreenParams`; `catalog/host.json` `package.screens`; fixture `host-router.json` `screens` + `navigate`.
+- VAPP-218: the style condition `@media (form-factor: phone|wide)`: the host's form factor (`formFactor` on the React/Solid surfaces, the web component, `SurfaceSettings` in Rust, Swift and Compose), unset = the surface width against `$breakpoint.md`; fixture `style-conditions.json`.
+
 ## 0.11.0 (2026-11-03)
 
 - VAPP-233 (eApps R8): record migrations: a package's `migrations` (`{from: <range>, kind, ops}`; rename, default, drop, map (CEL), renameKind), checked at install; `migrateRecord`, `rangeHolds`, `validateMigrations`, `kindChanges`, `migrationRefusal` (a major bump that changes a kind incompatibly needs a covering migration).

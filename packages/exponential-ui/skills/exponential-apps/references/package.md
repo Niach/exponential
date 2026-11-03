@@ -29,6 +29,7 @@ renders against keeps its own version in its id (`catalogId`,
   "upstreams": ["crm"], "exposes": [/* MCP tools a host's broker runs: "Exposes" below */],
   "queries": { "month": { "group": ["author"], "aggregate": { "hours": ["sum", "hours"] } } },
   "actions": { "log": { "params": { /* a records schema */ }, "steps": [/* "Actions" below */] } },
+  "screens": [{ "template": "month", "title": "Month", "icon": "calendar" }, { "template": "team", "title": "Team", "icon": "users", "params": { "range": "week" } }],
   "tests": [{ "name": "a duration", "expr": { "expr": "formatDuration(7.5, 'h:mm')" }, "expect": "7:30" }],
   "extensions": [{ "id": "https://acme.example/catalogs/charts/v1", "version": "1.4.0", "components": ["Gantt"] }],
   "theme": "exponential", "icon": { "glyph": "clock" }, "description": "…"
