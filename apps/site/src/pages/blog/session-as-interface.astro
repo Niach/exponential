@@ -1,0 +1,83 @@
+---
+/* The session as the interface (2026-10-23): a real capture per section. */
+import { Aside } from "@astrojs/starlight/components"
+import BlogPost from "../../components/landing/BlogPost.astro"
+import { shot } from "../../components/landing/shots.ts"
+
+const web = (view: string, alt: string) => shot(view, `web`, alt)
+---
+
+<BlogPost slug="session-as-interface">
+  <h2 id="setup">The tracker's MCP inside the session</h2>
+  <p>
+    Claude Code or Codex starts with the tracker's MCP server in its config and a header that names the session (a thread is the top session of a tree). Every call the agent makes arrives as that
+    session: it reads its issue, comments, links a pull request, asks a question or messages another session. The session view knows these tools and draws each result by its kind.
+  </p>
+  <img {...web(`composer-menu`, `The composer's + menu: the issue to implement, the team's MCP servers, computer use`)} loading="lazy" decoding="async" />
+
+  <h2 id="cards">Tool calls drawn by kind</h2>
+  <p>
+    File reads, searches and commands fold into one-line trace entries; a failing test run turns red and opens onto its output. A comment written through MCP is drawn as the comment itself, and a
+    code-mode script as one card with its calls grouped by tool. The engine tags every call with a kind before it reaches a client, so all four platforms draw the same card.
+  </p>
+  <img {...web(`trace`, `Trace lines: a command with its output, a sub-agent, a failed test run, the task list`)} loading="lazy" decoding="async" />
+
+  <h2 id="chips">Issue references with previews</h2>
+  <p>
+    Any issue identifier in a message, a comment or a tool result is a chip: status glyph, identifier, title. Hover shows the assignee, status, priority and labels from data the client already has; a
+    click opens the issue in the nearest view that shows it. Tool results return references as a kind and an id, and each client resolves them from its own rows.
+  </p>
+  <img {...web(`thread`, `Issue chips in the tab strip, in the agent's text and in a child's report`)} loading="lazy" decoding="async" />
+
+  <h2 id="images">Pictures inline in both directions</h2>
+  <p>
+    The agent uploads a screenshot through MCP and references it in markdown; the message, comment or plan renders it inline on every platform. When the agent reads an attachment back, the inline
+    copy is capped at about 300 KB and 1280 px, because one full phone screenshot costs tens of thousands of tokens.
+  </p>
+
+  <h2 id="surfaces">The agent draws its own UI</h2>
+  <p>
+    A plan or a question can carry an A2UI surface: the agent describes a screen as JSON and the card paints it with the Exponential UI renderer, native on web, iPhone, Android and the desktop app. On
+    the native platforms there is no webview in between, on the web the renderer emits DOM, and what the person sets in the surface travels back with the answer.
+  </p>
+  <img {...web(`plan-card`, `A plan card: a picture, the agent's surface as a live preview, a choice question`)} loading="lazy" decoding="async" />
+  <div class="exp-post-phones">
+    <img {...shot(`plan-card`, `ios`, `The same card and surface on iPhone`)} loading="lazy" decoding="async" />
+    <img {...shot(`plan-card`, `android`, `The same card and surface on Android`)} loading="lazy" decoding="async" />
+  </div>
+
+  <h2 id="stories">Stories carry the results</h2>
+  <p>
+    What a session wants a person to see lands as a story: a result with its screenshots, a question or a plan. Each agent and each chat wears a ring on top of Chats; a tap opens its stories, what
+    waits on the person first, and a question is answered right there. The pull request body is a short summary plus the story pictures of each platform; opening a PR with a UI change and no picture
+    is refused.
+  </p>
+  <img {...web(`story-viewer`, `A story: the agent's result with its screenshot, one segment per story on top`)} loading="lazy" decoding="async" />
+
+  <h2 id="notifications">A question waits at the composer</h2>
+  <p>
+    When the agent asks, the question stays put as a card at the composer, with its options and a text field, and several can wait at once. The thread moves under Needs you, the inbox gets the entry,
+    the phones get the push, and an @email mention notifies that person. The agent can also offer quick replies, which send on one tap.
+  </p>
+  <img {...web(`ask-dock`, `Waiting plans and a question at the composer`)} loading="lazy" decoding="async" />
+  <img {...web(`thread-replies`, `Quick replies above the composer`)} loading="lazy" decoding="async" />
+
+  <h2 id="bus">Sessions message each other</h2>
+  <p>
+    One tool, <code>sessions.send</code>, messages a session or a team agent, or starts a child. The server posts every child transition into the parent as a message, and a message is what wakes a
+    session, so nothing polls. A team agent is a session with a longer life: a channel that triages, reports and starts threads.
+  </p>
+  <img {...web(`agent-channel`, `A team agent's channel: its reports, a request, the thread it started as one card`)} loading="lazy" decoding="async" />
+
+  <h2 id="pattern">Four decisions</h2>
+  <ul>
+    <li><strong>One API for people and agents.</strong> The MCP tools are the product's own operations; the session identity rides on every call.</li>
+    <li><strong>Results carry ids.</strong> Clients resolve references from local state and draw them in their own idiom.</li>
+    <li><strong>Render by kind.</strong> A comment is a comment, a surface is painted natively, everything else is a trace line.</li>
+    <li><strong>Messages are the only wake-up.</strong> A session runs when a message arrives and sleeps otherwise.</li>
+  </ul>
+  <Aside title="Try it">
+    The MCP server, the session view and the renderer are open source under Apache-2.0: the <a href="/docs/build/mcp/">MCP docs</a>, the <a href="/docs/using/sessions/">sessions docs</a> and <a
+      href="/ui/">exponential.at/ui</a>.
+  </Aside>
+</BlogPost>

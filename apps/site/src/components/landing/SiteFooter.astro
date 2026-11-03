@@ -1,0 +1,43 @@
+---
+/* The site footer of the landing pages, product pages and the blog: the
+   links the header has no room for, the libraries and the legal pages. */
+import { LIBRARIES } from "../../lib/libraries.ts"
+import { LINKS } from "./links.ts"
+
+const GROUPS = [
+  [
+    { label: `Pricing`, href: `/pricing/` },
+    { label: `Download`, href: `/download/` },
+    { label: `Docs`, href: `/docs/` },
+    { label: `Blog`, href: `/blog/` },
+    { label: `Self-host`, href: `/docs/get-started/self-host/` },
+  ],
+  [...LIBRARIES.map((lib) => ({ label: lib.name, href: lib.product })), { label: `eApps`, href: `/apps/` }],
+  [
+    { label: `GitHub`, href: LINKS.github.repo },
+    { label: `Contact`, href: `/contact/` },
+    { label: `Privacy`, href: `/privacy/` },
+    { label: `Terms`, href: `/terms/` },
+    { label: `Imprint`, href: `/imprint/` },
+  ],
+]
+---
+
+<footer class="exp-site-footer not-content">
+  <nav aria-label="Footer">
+    {
+      GROUPS.map((links) => (
+        <ul>
+          {links.map((link) => (
+            <li>
+              <a href={link.href}>{link.label}</a>
+            </li>
+          ))}
+        </ul>
+      ))
+    }
+  </nav>
+  <p>
+    © 2026 Exponential · <a href={LINKS.github.license}>Apache-2.0</a>
+  </p>
+</footer>

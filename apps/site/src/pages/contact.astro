@@ -1,0 +1,90 @@
+---
+/* Contact sales: the form posts JSON to app.exponential.at/api/contact
+   (201 ok, 400 invalid, 429 rate limited, 503 mail down; the CSP's
+   connect-src allows the origin). The button stays disabled until the
+   script runs, so a native submit never puts the fields in a URL. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import SiteFooter from "../components/landing/SiteFooter.astro"
+import { LINKS } from "../components/landing/links.ts"
+import { seoHead } from "../components/landing/seo.ts"
+
+const MAIL = `support@exponential.at`
+const MAILTO = `mailto:${MAIL}?subject=Exponential%20Enterprise`
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `Contact sales`,
+    description: `Talk to us about Enterprise and running Exponential in-house.`,
+    template: `splash`,
+    head: seoHead({ title: `Contact sales · Exponential` }),
+    hero: { tagline: `Enterprise Support, SSO and DPA. We answer within a business day.` },
+  }}
+>
+  <div class="exp-landing">
+    <section class="exp-section not-content">
+      <form class="exp-form" id="exp-contact" method="post" action="/contact/" data-endpoint={LINKS.app.contact}>
+        <div class="exp-form-row">
+          <label>Name <input type="text" name="name" required autocomplete="name" /></label>
+          <label>Work email <input type="email" name="email" required autocomplete="email" /></label>
+        </div>
+        <label>Company <input type="text" name="company" autocomplete="organization" /></label>
+        <label>Message <textarea name="message" required rows="5" placeholder="Team size, deployment plans, anything else we should know."></textarea></label>
+        <input class="exp-hp" type="text" name="contact_nonce" tabindex="-1" autocomplete="one-time-code" aria-hidden="true" />
+        <p class="exp-form-error" role="alert" hidden data-state="rateLimited">Too many requests right now. Try again in a bit, or email <a href={MAILTO}>{MAIL}</a>.</p>
+        <p class="exp-form-error" role="alert" hidden data-state="error">Your message didn't send. Try again, or email <a href={MAILTO}>{MAIL}</a>.</p>
+        <button type="submit" disabled>Send message</button>
+      </form>
+      <p class="exp-form-done" role="status" hidden id="exp-contact-done">Thanks, we got your message and will answer at the email you gave.</p>
+    </section>
+  </div>
+  <SiteFooter />
+</StarlightPage>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>(`#exp-contact`)
+  if (form) {
+    const button = form.querySelector(`button`)!
+    const done = document.querySelector<HTMLElement>(`#exp-contact-done`)!
+    const show = (state: string | null) => {
+      for (const el of form.querySelectorAll<HTMLElement>(`[data-state]`)) el.hidden = el.dataset.state !== state
+    }
+    button.disabled = false
+    form.addEventListener(`submit`, async (event) => {
+      event.preventDefault()
+      if (button.disabled) return
+      button.disabled = true
+      button.textContent = `Sending…`
+      show(null)
+      const data = new FormData(form)
+      const field = (name: string) => String(data.get(name) ?? ``)
+      let state = `error`
+      try {
+        const res = await fetch(form.dataset.endpoint!, {
+          method: `POST`,
+          headers: { "content-type": `application/json` },
+          credentials: `omit`,
+          body: JSON.stringify({
+            name: field(`name`),
+            email: field(`email`),
+            company: field(`company`),
+            message: field(`message`),
+            contactNonce: field(`contact_nonce`),
+            source: `pricing-enterprise`,
+          }),
+        })
+        state = res.ok ? `success` : res.status === 429 ? `rateLimited` : `error`
+      } catch {
+        state = `error`
+      }
+      if (state === `success`) {
+        form.hidden = true
+        done.hidden = false
+        return
+      }
+      show(state)
+      button.disabled = false
+      button.textContent = `Send message`
+    })
+  }
+</script>

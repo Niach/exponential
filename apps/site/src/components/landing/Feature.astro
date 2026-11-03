@@ -1,0 +1,26 @@
+---
+/* One landing section: a headline, at most one sentence, a link, a visual. */
+interface Props {
+  id?: string
+  title: string
+  link?: { href: string; label: string }
+}
+const { id, title, link } = Astro.props
+---
+
+<section class="exp-feature not-content" id={id}>
+  <div class="exp-feature-copy">
+    <h2>{title}</h2>
+    {Astro.slots.has(`default`) && <p><slot /></p>}
+    {
+      link && (
+        <a class="exp-more" href={link.href}>
+          {link.label} <span aria-hidden="true">→</span>
+        </a>
+      )
+    }
+  </div>
+  <div class="exp-feature-visual">
+    <slot name="visual" />
+  </div>
+</section>

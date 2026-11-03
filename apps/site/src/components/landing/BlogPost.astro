@@ -1,0 +1,60 @@
+---
+/* One blog post: title, date and author, the cover, the body, the other posts. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import SiteFooter from "./SiteFooter.astro"
+import { POSTS, formatDate, postBySlug, postPath } from "./blog.ts"
+import { SITE_ORIGIN, breadcrumb, seoHead } from "./seo.ts"
+
+interface Props {
+  slug: string
+}
+const post = postBySlug(Astro.props.slug)
+const url = `${SITE_ORIGIN}${postPath(post.slug)}`
+const others = POSTS.filter((p) => p.slug !== post.slug)
+const jsonLd = [
+  {
+    "@context": `https://schema.org`,
+    "@type": `BlogPosting`,
+    headline: post.title,
+    description: post.description,
+    image: [`${SITE_ORIGIN}${post.ogImage}`, `${SITE_ORIGIN}${post.cover.src}`],
+    datePublished: post.date,
+    dateModified: post.updated ?? post.date,
+    author: { "@type": `Person`, name: post.author.name, ...(post.author.url ? { url: post.author.url } : {}) },
+    publisher: { "@type": `Organization`, name: `Exponential`, url: `${SITE_ORIGIN}/`, logo: `${SITE_ORIGIN}/icon-512.png` },
+    mainEntityOfPage: url,
+    url,
+  },
+  breadcrumb([
+    { name: `Home`, path: `/` },
+    { name: `Blog`, path: `/blog/` },
+    { name: post.title, path: postPath(post.slug) },
+  ]),
+]
+const head = [
+  ...seoHead({ title: `${post.title} · Exponential blog`, ogImage: post.ogImage, type: `article`, jsonLd }),
+  { tag: `meta` as const, attrs: { property: `article:published_time`, content: post.date } },
+  { tag: `link` as const, attrs: { rel: `alternate`, type: `application/rss+xml`, title: `Exponential blog`, href: `/blog/rss.xml` } },
+]
+---
+
+<StarlightPage frontmatter={{ title: post.title, description: post.description, template: `splash`, head }}>
+  <article class="exp-post">
+    <p class="exp-post-meta">
+      <a href="/blog/">Blog</a> · <time datetime={post.date}>{formatDate(post.date)}</time> · {post.author.url ? <a href={post.author.url}>{post.author.name}</a> : post.author.name}
+    </p>
+    <img src={post.cover.src} alt={post.cover.alt} width={post.cover.width} height={post.cover.height} loading="eager" decoding="async" />
+    <slot />
+    <h2>More from the blog</h2>
+    <ul>
+      {
+        others.map((p) => (
+          <li>
+            <a href={postPath(p.slug)}>{p.title}</a>
+          </li>
+        ))
+      }
+    </ul>
+  </article>
+  <SiteFooter />
+</StarlightPage>

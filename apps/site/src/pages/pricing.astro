@@ -1,0 +1,88 @@
+---
+/* Pricing: the three plans, the comparison, the start. */
+import StarlightPage from "@astrojs/starlight/components/StarlightPage.astro"
+import { Icon, LinkButton } from "@astrojs/starlight/components"
+import SiteFooter from "../components/landing/SiteFooter.astro"
+import { LINKS } from "../components/landing/links.ts"
+import { COMPARISON, EVERY_PLAN_INCLUDES, PLANS } from "../components/landing/plans.ts"
+import { PRICING_PRODUCT, seoHead } from "../components/landing/seo.ts"
+---
+
+<StarlightPage
+  frontmatter={{
+    title: `Free for teams of three`,
+    description: `Free for teams of three. One Team plan at €12/seat/mo billed yearly (€15 monthly) with everything included. Local AI agents free on every plan. Self-host free for everyone, open source under Apache-2.0.`,
+    template: `splash`,
+    head: seoHead({ title: `Pricing · Exponential`, ogImage: `/og/og-pricing.png`, jsonLd: [PRICING_PRODUCT] }),
+    hero: { tagline: `One plan after that. Agents are free everywhere.` },
+  }}
+>
+  <div class="exp-landing">
+    <section class="exp-section not-content" id="plans">
+      <div class="exp-plans">
+        {
+          PLANS.map((plan) => (
+            <div class:list={[`exp-plan`, { "is-highlight": plan.highlight }]}>
+              <div>
+                <h3>{plan.name}</h3>
+                <div class="exp-plan-price">
+                  <span class="exp-plan-amount">{plan.amount}</span>
+                  <span>{plan.cadence}</span>
+                  {plan.monthly && <span>· {plan.monthly}</span>}
+                </div>
+              </div>
+              <ul>
+                {plan.features.map((f) => (
+                  <li>
+                    <Icon name="approve-check" size="1rem" />
+                    {f}
+                  </li>
+                ))}
+                {plan.caveat && (
+                  <li class="is-caveat">
+                    <Icon name="warning" size="1rem" />
+                    {plan.caveat}
+                  </li>
+                )}
+              </ul>
+              <LinkButton href={plan.cta.href} variant={plan.highlight ? `primary` : `secondary`}>
+                {plan.cta.label}
+              </LinkButton>
+            </div>
+          ))
+        }
+      </div>
+      <p class="exp-fine">{EVERY_PLAN_INCLUDES}</p>
+      <p class="exp-fine">Need SSO, SLA or DPA? <a href="/contact/">Talk to us about Enterprise Support</a>.</p>
+    </section>
+
+    <section class="exp-section not-content" id="compare">
+      <h2>Exponential and Linear</h2>
+      <table class="exp-compare">
+        <thead>
+          <tr><th></th><th>Exponential</th><th>Linear</th></tr>
+        </thead>
+        <tbody>
+          {
+            COMPARISON.map((row) => (
+              <tr>
+                <th scope="row">{row.label}</th>
+                <td>{row.exponential}</td>
+                <td>{row.linear}</td>
+              </tr>
+            ))
+          }
+        </tbody>
+      </table>
+    </section>
+
+    <section class="exp-section exp-price-line not-content">
+      <h2>Start free today</h2>
+      <div class="exp-actions">
+        <LinkButton href={LINKS.app.login} icon="right-arrow">Sign up free</LinkButton>
+        <LinkButton href="/download/" variant="minimal">Download</LinkButton>
+      </div>
+    </section>
+  </div>
+  <SiteFooter />
+</StarlightPage>
