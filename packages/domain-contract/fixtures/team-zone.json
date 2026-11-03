@@ -1,0 +1,153 @@
+{
+  "$comment": "VAPP-201 (eApps §4.3) THE TEAM TIME ZONE ×4. `teams.time_zone` = an IANA name out of contract `timeZones.names`, NULL = no team zone: every host reads app dates in the DEVICE's zone (the behaviour before VAPP-201). Synced on the teams shape; written by an OWNER through tRPC `teams.update {timeZone}` (null clears it; a name the triggers' ICU check refuses = BAD_REQUEST) and MCP `teams update {timeZone}`. SETTINGS › GENERAL (web general-section, desktop team_general.rs, iOS TeamSettingsPages, Android team general page): one row `copy.row` in the General group under Name = THE schedule zone picker (the same searchable Picker over contract `timeZones.names` the trigger schedule uses; no new component) whose FIRST item is `copy.device` (value null); the row reads the zone name, or `copy.device` while NULL; owners pick (saved at once, a failure = the failed-action toast), everyone else sees it disabled. testId `testIds.row`. APP HOSTS (web exponential-ui-host, desktop exponential_ui_host.rs, iOS Apps/AppHost.swift, Android ui/apps/AppHost.kt): the eUI host's `zone` (minutes east of UTC at an instant: `today()`, date maths, package actions) = the zone `resolveZone(teamZone)` names when it names one, else the device's (an unknown name never breaks an app). Every platform's tz database must agree on `zoneCases` (TS Intl, Rust jiff, Swift TimeZone(identifier:), Kotlin ZoneId): `zoneOffset(zone, ms)` = `offset` (minutes east). `resolveCases`: `resolveZone(teamZone)` = `zone` (null = the device's). Package `tests` keep UTC.",
+  "copy": {
+    "row": "Time zone",
+    "device": "Device time zone"
+  },
+  "testIds": {
+    "row": "team-time-zone"
+  },
+  "zoneCases": [
+    {
+      "zone": "UTC",
+      "at": "2026-07-01T12:00:00Z",
+      "ms": 1782907200000,
+      "offset": 0
+    },
+    {
+      "zone": "Europe/Vienna",
+      "at": "2026-01-15T12:00:00Z",
+      "ms": 1768478400000,
+      "offset": 60
+    },
+    {
+      "zone": "Europe/Vienna",
+      "at": "2026-07-15T12:00:00Z",
+      "ms": 1784116800000,
+      "offset": 120
+    },
+    {
+      "zone": "Europe/Vienna",
+      "at": "2026-03-29T00:59:59Z",
+      "ms": 1774745999000,
+      "offset": 60
+    },
+    {
+      "zone": "Europe/Vienna",
+      "at": "2026-03-29T01:00:00Z",
+      "ms": 1774746000000,
+      "offset": 120
+    },
+    {
+      "zone": "Europe/Vienna",
+      "at": "2026-10-25T00:59:59Z",
+      "ms": 1792889999000,
+      "offset": 120
+    },
+    {
+      "zone": "Europe/Vienna",
+      "at": "2026-10-25T01:00:00Z",
+      "ms": 1792890000000,
+      "offset": 60
+    },
+    {
+      "zone": "America/New_York",
+      "at": "2026-03-08T06:59:59Z",
+      "ms": 1772953199000,
+      "offset": -300
+    },
+    {
+      "zone": "America/New_York",
+      "at": "2026-03-08T07:00:00Z",
+      "ms": 1772953200000,
+      "offset": -240
+    },
+    {
+      "zone": "America/New_York",
+      "at": "2026-11-01T06:00:00Z",
+      "ms": 1793512800000,
+      "offset": -300
+    },
+    {
+      "zone": "Australia/Sydney",
+      "at": "2026-01-15T00:00:00Z",
+      "ms": 1768435200000,
+      "offset": 660
+    },
+    {
+      "zone": "Australia/Sydney",
+      "at": "2026-07-15T00:00:00Z",
+      "ms": 1784073600000,
+      "offset": 600
+    },
+    {
+      "zone": "Australia/Sydney",
+      "at": "2026-04-04T15:59:59Z",
+      "ms": 1775318399000,
+      "offset": 660
+    },
+    {
+      "zone": "Australia/Sydney",
+      "at": "2026-04-04T16:00:00Z",
+      "ms": 1775318400000,
+      "offset": 600
+    },
+    {
+      "zone": "Pacific/Kiritimati",
+      "at": "2026-06-01T00:00:00Z",
+      "ms": 1780272000000,
+      "offset": 840
+    },
+    {
+      "zone": "Pacific/Pago_Pago",
+      "at": "2026-06-01T00:00:00Z",
+      "ms": 1780272000000,
+      "offset": -660
+    },
+    {
+      "zone": "Asia/Calcutta",
+      "at": "2026-06-01T00:00:00Z",
+      "ms": 1780272000000,
+      "offset": 330
+    },
+    {
+      "zone": "Asia/Katmandu",
+      "at": "2026-06-01T00:00:00Z",
+      "ms": 1780272000000,
+      "offset": 345
+    },
+    {
+      "zone": "America/St_Johns",
+      "at": "2026-12-01T00:00:00Z",
+      "ms": 1796083200000,
+      "offset": -210
+    }
+  ],
+  "resolveCases": [
+    {
+      "name": "no team zone = the device's",
+      "teamZone": null,
+      "zone": null
+    },
+    {
+      "name": "a known zone",
+      "teamZone": "Europe/Vienna",
+      "zone": "Europe/Vienna"
+    },
+    {
+      "name": "UTC",
+      "teamZone": "UTC",
+      "zone": "UTC"
+    },
+    {
+      "name": "an unknown name falls back to the device",
+      "teamZone": "Mars/Olympus_Mons",
+      "zone": null
+    },
+    {
+      "name": "blank = the device's",
+      "teamZone": "",
+      "zone": null
+    }
+  ]
+}

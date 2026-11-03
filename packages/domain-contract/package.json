@@ -62,6 +62,7 @@
     "./sealed-content": "./src/sealed-content.ts",
     "./question-push": "./src/question-push.ts",
     "./steer-enet": "./src/steer-enet.ts",
-    "./fixtures/*": "./fixtures/*"
+    "./fixtures/*": "./fixtures/*",
+    "./team-zone": "./src/team-zone.ts"
   }
 }

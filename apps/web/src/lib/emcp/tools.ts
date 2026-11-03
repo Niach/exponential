@@ -4394,7 +4394,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_teams_update`,
     {
-      description: `Update a team's name, icon, estimate scale or yolo mode (by its UUID). Team owner only. Teams are always private.`,
+      description: `Update a team's name, icon, estimate scale, yolo mode or time zone (IANA; null = each device's; apps read dates in it) by its UUID. Team owner only.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -4402,6 +4402,8 @@ export function registerExponentialTools(
         estimationType: z.enum(issueEstimationValues).optional(),
         // EXP-1105: true = every PR exponential_pr_open opens merges at once.
         yoloMode: z.boolean().optional(),
+        // VAPP-201: the team time zone (validated by teams.update).
+        timeZone: z.string().max(64).nullable().optional(),
       }),
     },
     async ({ id, ...rest }) => {

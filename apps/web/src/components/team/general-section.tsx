@@ -1,7 +1,9 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { Team } from "@/db/schema"
 import { contract } from "@exp/domain-contract"
 import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
+import { TEAM_ZONE_COPY, TEAM_ZONE_TEST_IDS } from "@exp/domain-contract/team-zone"
+import contractJson from "@exp/domain-contract/contract"
 import {
   Button,
   FEEDBACK_ERRORS,
@@ -11,6 +13,7 @@ import {
   GlassSectionHeader,
   GlassToggleRow,
   InlineStatus,
+  Picker,
   SkeletonRows,
   Textarea,
 } from "@exp/ui"
@@ -80,6 +83,29 @@ export function TeamGeneralSection({ team }: { team: Team }) {
       failedAction(`save`, `the team name`, e, { retry: () => void handleSave() })
     } finally {
       setSaving(false)
+    }
+  }
+
+  // VAPP-201 (team-zone.json): the team time zone, THE schedule zone picker
+  // (contract `timeZones.names`) with `Device time zone` (= null) first;
+  // saved at once.
+  const [zoneQuery, setZoneQuery] = useState(``)
+  const [zoneBusy, setZoneBusy] = useState(false)
+  const zoneItems = useMemo(
+    () => [
+      { value: ``, label: TEAM_ZONE_COPY.device, keywords: [TEAM_ZONE_COPY.device] },
+      ...contractJson.timeZones.names.map((zone: string) => ({ value: zone, label: zone, keywords: [zone, zone.replace(/[_/]/g, ` `)] })),
+    ],
+    []
+  )
+  const saveZone = async (timeZone: string | null) => {
+    setZoneBusy(true)
+    try {
+      await trpc.teams.update.mutate({ teamId: team.id, timeZone }, SKIP_ERROR_TOAST)
+    } catch (e) {
+      failedAction(`save`, `the time zone`, e, { retry: () => void saveZone(timeZone) })
+    } finally {
+      setZoneBusy(false)
     }
   }
 
@@ -270,6 +296,26 @@ export function TeamGeneralSection({ team }: { team: Team }) {
               }
             }}
             trailing={saving ? <InlineStatus state="saving" className="shrink-0" /> : undefined}
+          />
+          <Picker
+            mode="single"
+            triggerVariant="row"
+            triggerLabel={TEAM_ZONE_COPY.row}
+            mobileTitle={TEAM_ZONE_COPY.row}
+            search
+            query={zoneQuery}
+            onQueryChange={setZoneQuery}
+            value={team.timeZone ?? ``}
+            onChange={(picked) => {
+              setZoneQuery(``)
+              if (picked === null) return
+              const next = picked === `` ? null : picked
+              if (next !== (team.timeZone ?? null)) void saveZone(next)
+            }}
+            items={zoneItems}
+            width="md"
+            disabled={zoneBusy}
+            data-testid={TEAM_ZONE_TEST_IDS.row}
           />
         </GlassGroup>
       </div>
