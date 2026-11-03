@@ -1643,6 +1643,136 @@
           }
         }
       }
+    },
+    "acme.hours2": {
+      "formatVersion": 3,
+      "id": "acme.hours2",
+      "name": "Working hours",
+      "version": "2.0.0",
+      "catalogId": "https://ui.exponential.at/catalogs/core/v1",
+      "templates": {
+        "month": {
+          "components": [
+            {
+              "id": "root",
+              "component": "Stack",
+              "children": [
+                "title"
+              ]
+            },
+            {
+              "id": "title",
+              "component": "Text",
+              "text": {
+                "path": "/entries/month/label"
+              }
+            }
+          ],
+          "data": {
+            "entries": {
+              "rows": [],
+              "count": 0
+            }
+          },
+          "bindings": [
+            {
+              "path": "/entries",
+              "source": "records:entry?mine=1&by=date&sum=hours"
+            }
+          ]
+        }
+      },
+      "functions": [
+        "records.*",
+        "bind"
+      ],
+      "sources": [
+        "records:*"
+      ],
+      "records": {
+        "entry": {
+          "title": "Hours entry",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "format": "date"
+              },
+              "hours": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 24
+              },
+              "issues": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "maxLength": 20
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "work",
+                  "meeting",
+                  "support"
+                ]
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "date",
+              "hours"
+            ]
+          }
+        },
+        "target": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "hours": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "month": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "month",
+              "hours"
+            ],
+            "additionalProperties": true
+          }
+        }
+      },
+      "migrations": [
+        {
+          "from": "^1",
+          "kind": "entry",
+          "ops": [
+            {
+              "rename": {
+                "from": "issues",
+                "to": "refs"
+              }
+            }
+          ]
+        },
+        {
+          "from": "1.x",
+          "kind": "entry",
+          "ops": [
+            {
+              "renameKind": "worklog"
+            }
+          ]
+        }
+      ]
     }
   },
   "flows": [
@@ -3409,6 +3539,15 @@
         {
           "path": "/records/expense/transitions/from/approved/1",
           "message": "gone is not a state of status"
+        }
+      ]
+    },
+    {
+      "package": "acme.hours2",
+      "expected": [
+        {
+          "path": "/migrations/1/kind",
+          "message": "the migration ends in worklog, which the package does not declare"
         }
       ]
     }

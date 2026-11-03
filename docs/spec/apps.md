@@ -246,7 +246,7 @@ Today:
 
 Proposed:
 
-- **`version` (SemVer)** is the author's label. **`number`** is the truth. A major bump with no `migrations` for a changed kind is refused (§3.6).
+- **`version` (SemVer)** is the author's label. **`number`** is the truth. A major bump with no `migrations` for a changed kind is refused (§3.6). ✅ R8 (#VAPP-233): refused at upsert, naming the kind and the change (`migrationRefusal`, `record-migrations.json`).
 
 ---
 
@@ -327,7 +327,9 @@ The server enforces the policy (the records service on every read and write, the
 - 🆕 **Retention per kind:** `"retention": "365d"` purges old rows. Retention is not a quota tool.
 - **Quotas** ✅ per team and plan. The editor and Data tab show the count against the plan. 🆕 A soft warning at 80 %. A write over the quota fails with a toast, never silently.
 
-### 3.6 Migrations (🆕 R8)
+### 3.6 Migrations (🆕 R8, #VAPP-233)
+
+✅ (R8 1/3) The package side: `migrations: [{from: <range>, kind, ops: [rename {from, to} | default {field, value} | drop {field} | map {field, expr} | renameKind <kind>]}]`, `migrateRecord` / `validateMigrations` / `kindChanges` / `migrationRefusal` (TS `host/record-migrations.ts` + Rust `host::record_migrations`, `fixtures/record-migrations.json`), checked at install, and the major-bump refusal at upsert. 🆕 The sweep on publish and the clients (Versions progress, drafts previewing on migrated copies) follow. The ops below are the original sketch; `set`/`cast` became `default`/`map`.
 
 Records carry `schema_version` (the package `number` that wrote them). A new version that changes a kind declares its migrations:
 

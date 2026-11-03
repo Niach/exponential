@@ -43,6 +43,13 @@ import {
   base64UrlEncode,
   AUTHOR_KEY_PREFIX,
   kindTransitions,
+  isVersionRange,
+  kindChanges,
+  migrateRecord,
+  migrationRefusal,
+  packageMigrations,
+  rangeHolds,
+  validateMigrations,
   transitionRefusal,
   transitionsFrom,
   validateRecordTransitions,
@@ -120,6 +127,7 @@ export function renderHost(): Record<string, string> {
     "fixtures/host-package.json": json(pkgFixture),
     "fixtures/records-query.json": json(renderRecordsQuery(read(`fixtures/records-query.json`))),
     "fixtures/record-transitions.json": json(renderRecordTransitions(read(`fixtures/record-transitions.json`))),
+    "fixtures/record-migrations.json": json(renderRecordMigrations(read(`fixtures/record-migrations.json`))),
   }
 }
 
@@ -166,6 +174,16 @@ function renderRecordsQuery(f: Record<string, any>): Record<string, unknown> {
  *  none), else the fixture kind's. */
 export function caseTransitions(f: Record<string, any>, c: Case): RecordTransitions | null {
   return `transitions` in c ? kindTransitions({ transitions: c.transitions }) : kindTransitions(f.kind)
+}
+
+/** eApps R8 (VAPP-233): record-migrations.json. */
+function renderRecordMigrations(f: Record<string, any>): Record<string, unknown> {
+  f.rangeCases = f.rangeCases.map((c: Case) => ({ ...c, expected: { holds: rangeHolds(c.version as string, c.range as string), range: isVersionRange(c.range as string) } }))
+  f.migrateCases = f.migrateCases.map((c: Case) => ({ ...c, expected: migrateRecord(packageMigrations(c.package), c.version as string, c.kind as string, c.data as Record<string, unknown>) }))
+  f.validateCases = f.validateCases.map((c: Case) => ({ ...c, expected: validateMigrations(c.package) }))
+  f.changeCases = f.changeCases.map((c: Case) => ({ ...c, expected: kindChanges(c.before, c.after) }))
+  f.refusalCases = f.refusalCases.map((c: Case) => ({ ...c, expected: migrationRefusal(c.before, c.after) }))
+  return f
 }
 
 /** eApps R6: `validateCases`, `refusalCases`, `fromCases` (record-transitions.json). */

@@ -338,6 +338,21 @@ describe.skipIf(!ready.ok)(`apps router (real db)`, () => {
     expect(row!.data).toMatchObject({ status: `paid` })
   })
 
+  // eApps R8 (#VAPP-233, record-migrations.json): a major bump that changes
+  // a published kind incompatibly needs a migration that covers it.
+  it(`R8: an uncovered incompatible major bump is refused at upsert, naming the kind`, async () => {
+    const w = await world()
+    const created = await caller(w.owner).create({ teamId: w.teamId, name: `Hours`, package: RECORDS_PACKAGE })
+    const id = created.app.id
+    const entry = RECORDS_PACKAGE.records.entry
+    const v2 = { ...RECORDS_PACKAGE, version: `2.0.0`, records: { entry: { schema: { ...entry.schema, properties: { date: entry.schema.properties.date, hours: entry.schema.properties.hours } } } } }
+    await expect(caller(w.owner).upsertPackage({ id, package: v2 })).rejects.toMatchObject({ code: `BAD_REQUEST`, message: `entry drops note in 2.0.0: add a migration from 1.0.0 that covers it` })
+    // The same change on a minor bump, or covered by a migration, is a draft.
+    await caller(w.owner).upsertPackage({ id, package: { ...v2, version: `1.1.0` } })
+    const covered = await caller(w.owner).upsertPackage({ id, package: { ...v2, migrations: [{ from: `^1`, kind: `entry`, ops: [{ drop: { field: `note` } }] }] } })
+    expect(covered.version).toBeGreaterThan(1)
+  })
+
   // Release train 2026-10-25: a patch merges onto the row locked in its own
   // transaction, so concurrent patches of different fields both land.
   it(`records: concurrent patches of one record never lose a field`, async () => {

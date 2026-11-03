@@ -198,6 +198,36 @@ transitions: kindTransitions(kind), role})`). Exponential's server enforces
 it on every create, patch, batch write and restore (an owner may restore any
 state).
 
+**Migrations** (eApps R8, VAPP-233; `fixtures/record-migrations.json`):
+a new version that reshapes a kind says how its records move:
+
+```jsonc
+"migrations": [{ "from": "^1", "kind": "entry", "ops": [
+  { "rename": { "from": "issues", "to": "refs" } },           // a present field moves (the target overwritten)
+  { "default": { "field": "project", "value": "Exponential" } }, // a missing or null field is set
+  { "drop": { "field": "legacy" } },
+  { "map": { "field": "hours", "expr": "minutes / 60.0" } },   // CEL over the record (a missing name reads null)
+  { "renameKind": "worklog" }                                  // later migrations follow the new kind
+]}]
+```
+
+A record written under version `v` as kind `k` runs, in order, every
+migration whose `from` range holds `v` and whose `kind` is the record's kind
+at that step (`migrateRecord(migrations, v, k, data)`; ranges: `1.2.3`,
+`1.x`, `1`, `*`, `^v`, `~v`, `>=v <w`, `a || b`). A failing `map` fails the
+record (`migration <i> op <j>: …`) and leaves it as it was. At install,
+issues at `/migrations/<i>…`: `from` a range, `kind` a kind name, each op
+exactly one of the five, a `map` that parses, the kind a migration ends in
+declared; at most 64 migrations of 32 ops. **The major-bump rule**: a new
+version whose `version` has a higher MAJOR than the published one and that
+changes a published kind incompatibly (the kind removed, a field dropped,
+retyped, its enum narrowed, or newly required) must cover every change with
+an op of a migration from the published version (`removed` = renameKind;
+dropped = drop or rename from; retyped / narrowed = map; required = default,
+map or rename to), else the host refuses the upsert (`migrationRefusal`:
+`entry drops note in 2.0.0: add a migration from 1.4.0 that covers it`). An
+added optional field or kind needs none, and a minor bump is never refused.
+
 **Read** = the binding source `records:<kind>[?query]`. The value is
 `{rows: [{…data, id, createdAt, updatedAt, createdBy, authorId, author}], count, sum?, month?, groups?, totals?, before?}`
 (`authorId` = the row's author, `authorId ?? createdBy`):
