@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open.",
+  "$comment": "VAPP-91: the host router (catalog/host.json ops): server messages in, ops out, in order. Inputs hand-written; `expected` filled by the generator from src/host/router.ts. A conformance runner creates ONE router per flow with `extensionIds`, installs `packages` (their install issues are `installIssues`), then routes every step's message and compares the ops. VAPP-122: `records` = validateRecord(packages[package].records[kind].schema, data) → issues; `acme.hours` declares two kinds, `acme.badrecords` every schema mistake. Keys of `records` and of every `properties` are written in sorted order: the Rust core iterates its maps sorted, so the issue order is the same on every platform. VAPP-161 (format version 2): `acme.v2` uses every new key validly (formatVersion, a records: binding, the records.* functions, the three tool transports, an empty extensions list); `acme.charts` declares an extension: not available under the default catalogs, installed by the VAPP-161 flow that registers it; `acme.v2broken` makes every tools / extensions / records-source mistake; `acme.future` is a newer format version; `acme.v1` is a version-1 package: refused (eApps reads only the current format; a package without formatVersion is refused too). VAPP-180: `acme.exposes` declares `upstreams` and valid `exposes` (a records read and upsert, two action bindings, an upstream); `acme.badexposes` makes every format mistake of an exposed tool, a duplicate upstream included; `acme.exposeslist` has neither list a list. VAPP-190: `acme.queries` names two JSON records queries (`queries`) and binds them with `query=<name>` (two bindings), the router expanding each bind; `acme.badqueries` makes every queries mistake (a name, an undeclared kind, a JSON-query issue, a query that is no object, a binding naming no query; `exp:issues?query=` is no records source and passes); `acme.querieslist` has queries that is no object. VAPP-203: install reduces every template as the renderer will (`acme.badcomponents`): an unknown component, a missing or mistyped prop and a slot name at the component's entry (`/templates/<id>/components/<i>`, the reducer's message), an id no component has at every place that names it (`…/children/<j>`, `…/children/componentId`, `…/slots/<name>`, message `<id>: …`), and a component whose children, slots, on or style has the wrong shape (not reduced). Template keys are in sorted order (the Rust core's maps). `acme.charts` uses its declared extension's `Gantt`: with no definition for it the host leaves its component names open. Dogfood G (2026-11-03): `acme.badqueries` also has a query reading fields its kind lacks (`fields`: a where, group, aggregate, sort and sum on unknown fields, sum/avg on a date) and an exposed tool naming no package query: issues at the query's key and at `/exposes/<i>/run/records/query`.",
   "packages": {
     "acme.devices": {
       "formatVersion": 3,
@@ -1177,8 +1177,63 @@
         },
         "list": [
           1
-        ]
-      }
+        ],
+        "fields": {
+          "from": "entry",
+          "where": [
+            [
+              "project",
+              "eq",
+              "web"
+            ]
+          ],
+          "group": [
+            "weeek"
+          ],
+          "aggregate": {
+            "h": [
+              "sum",
+              "date"
+            ],
+            "x": [
+              "avg",
+              "nope"
+            ],
+            "n": [
+              "count"
+            ]
+          },
+          "sort": [
+            [
+              "h",
+              "desc"
+            ],
+            [
+              "zz",
+              "asc"
+            ]
+          ],
+          "sum": "date"
+        }
+      },
+      "exposes": [
+        {
+          "name": "gone",
+          "title": "Gone",
+          "description": "Names a query that is not there.",
+          "input": {
+            "type": "object"
+          },
+          "access": "read",
+          "run": {
+            "records": {
+              "op": "list",
+              "kind": "entry",
+              "query": "gone"
+            }
+          }
+        }
+      ]
     },
     "acme.querieslist": {
       "formatVersion": 3,
@@ -2862,6 +2917,30 @@
           "message": "a query name is a letter, then letters, digits and underscores"
         },
         {
+          "path": "/queries/fields/where",
+          "message": "project is no field of records:entry"
+        },
+        {
+          "path": "/queries/fields/group/0",
+          "message": "weeek is no field of records:entry"
+        },
+        {
+          "path": "/queries/fields/aggregate/h",
+          "message": "sum reads a number: date is date"
+        },
+        {
+          "path": "/queries/fields/aggregate/x",
+          "message": "nope is no field of records:entry"
+        },
+        {
+          "path": "/queries/fields/sum",
+          "message": "sum reads a number: date is date"
+        },
+        {
+          "path": "/queries/fields/sort/1",
+          "message": "zz is no field of records:entry"
+        },
+        {
           "path": "/queries/list",
           "message": "a query is an object"
         },
@@ -2876,6 +2955,10 @@
         {
           "path": "/queries/typo/aggregate/n",
           "message": "an aggregate is [sum|avg|min|max|count|countDistinct|first|last, field] (count: the field is optional)"
+        },
+        {
+          "path": "/exposes/0/run/records/query",
+          "message": "query gone names no package query"
         },
         {
           "path": "/templates/t/bindings/0/source",
