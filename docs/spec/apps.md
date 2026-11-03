@@ -505,27 +505,33 @@ The complete list: records writes, MCP operations, toasts, navigation and links.
 
 > Rule: **one trigger runs one binding.** No chains, no branches, no loops. Anything with judgement is handed to an agent. This keeps clear of the dead "standalone automations / workflows" (decided 2026-11-01).
 
-### 7.1 Triggers (🆕 A1)
+### 7.1 Triggers
+
+✅ A1 (#VAPP-220): `automations`, one trigger → one binding, run by the server as a sponsor.
 
 ```jsonc
 "automations": [
-  { "name": "monday_rotation", "on": { "schedule": "0 8 * * MON" },
-    "run": { "records": { "op": "upsert", "kind": "rotation", "data": { "week": "${isoWeek(today)}" } } } },
+  { "name": "monday_rotation", "on": { "schedule": { "cron": "0 8 * * MON" } },
+    "run": { "records": { "op": "upsert", "kind": "rotation", "data": { "startedAt": "${firedAt}" } } } },
   { "name": "notify_approver", "on": { "record": { "kind": "request", "op": "create" } },
-    "run": { "action": "exponential.notifications.create", "args": { "userId": "${record.approver}", "text": "${record.title}" } } },
-  { "name": "standup_digest", "on": { "schedule": "0 17 * * MON-FRI" },
-    "run": { "agent": { "agentId": "standup-bot", "prompt": "Summarise today's standup records", "data": { "query": "today" } } } }
+    "run": { "action": "exponential.comments.create", "args": { "issueId": "${record.issue}", "body": "New request: ${record.title}" } } },
+  { "name": "log_merges", "on": { "event": "pr.merged" }, "sponsor": "lead@acme.test",
+    "run": { "records": { "op": "upsert", "kind": "merge", "data": { "title": "${event.title}" } } } }
 ]
 ```
 
-- **`on`:**
-  - `schedule` (cron, team timezone, ≥ 15 min apart);
-  - `record` (create/update/delete of a kind, optional `where`);
-  - `event` (the team stream: `issue.created`, `pr.merged`, `session.ended`… the same events agents' triggers use ✅ `agentTrigger`);
-  - `webhook` (§7.2).
-- **`run`:** the `exposes` run kinds (`records`, `action`, `upstream`) plus `agent` (§7.3). The same validator applies: no destructive runs.
-- **Executor:** the **server broker** (the EXP-1491 scheduler already runs the audit and vault sweeps), on the **published** version. Every run is a `mcp_calls` row with `client = automation:<name>`.
-- **Run-as** (C23): an automation acts as its **sponsor**. That is the member who published the version that enabled it, and must still be a member with write access. Upstream runs use the sponsor's credential. Writes read "via <app>" (§9.3). If the sponsor leaves or loses access, the automation pauses and the app's owners get a notification. There is no bot identity (decided 2026-11-01).
+The contract is `packages/emcp/fixtures/automations.json` (TS `@exp/emcp/automations`, Rust `emcp::contract::automations`); the server rules and the executor are `apps/web/src/lib/apps/{package,automations}.ts`.
+
+- **`on`** (exactly one):
+  - `schedule: {cron, tz?}`: a 5-field cron (the agents' trigger cron: names, ranges, steps), read in `tz` or the team time zone; the minutes of a day it fires on are ≥ 15 min apart. The watchdog tick runs the latest due minute since its last check, caught up once after downtime (24 h), never twice.
+  - `record: {kind, op}`: a committed create/update/delete of a declared kind (members' writes, package actions, tools).
+  - `event: "<name>"`: the team stream (`issue.created`, `pr.merged`, `session.ended`… or any `events_emit` name), the same events agents' triggers use ✅. It runs once the event is committed.
+  - `webhook` comes with A3 (§7.2). `where` filters are not in A1.
+- **`run`:** an `exposes` run (`records`, `action`, `upstream`) with the same validator: no destructive runs, an action must be granted by an owner, an upstream must be declared. `agent` comes with A2 (§7.3). Templates: `${record.<field>}` (record triggers: its data + `id`; on delete, the data it had), `${event.<field>}` (event triggers: the payload + `name`), `${firedAt}`. No action through `exponential.apps.*`.
+- **Executor:** the **server broker** (`runBrokerTool`, the same records service, grants and vault as a tool call), on the **published** version only (V1). Every run, and every refusal, is one `mcp_calls` row with `client_id = automation:<name>`, `tool` = `records.<op>:<kind>`, the action, or `<server>/<tool>` (Settings › MCP › Activity).
+- **Run-as** (C23): an automation acts as its **sponsor**: the member who published the running version (`apps.published_by`), or a member it names by email (`sponsor`), honoured only when an owner published. The sponsor must still be a member with write access to the app. Upstream runs use the sponsor's credential; writes read "via <app>" (§9.3). Otherwise the automation pauses (`sponsorGone`, `sponsorReadOnly`, `sponsorNotAllowed`), the app's owners get one notification per pause, and a publish by a member with access resumes it. There is no bot identity (decided 2026-11-01).
+- **Caps:** at most 16 automations per app; at most 30 runs a minute per app (over it: audited `rateLimited`, not run). **No chaining:** a run executes in an automation scope, so its records write and the events its action emits fire no automation, its own included.
+- **Settings:** the app's settings page lists each automation with its trigger, its last run and its last failure (from its audit rows) and a pause, ×4.
 
 ### 7.2 Webhooks (🆕 A3)
 
@@ -845,7 +851,7 @@ They are ordered by dependency. Every item lands ×4 (web, desktop, iOS, Android
 
 **Phase 5: Automation and upstreams**
 
-- **A1** Automations: schedule, record and event triggers, one run, a sponsor, audit. (C18, C23)
+- **A1** ✅ #VAPP-220 Automations: schedule, record and event triggers, one run, a sponsor, audit, the loop guard and the rate cap; `automations.json` (TS + Rust), the server executor on the watchdog tick, Settings ×4. (C18, C23)
 - **A2** `run.agent` + the `handoff` action. (C19)
 - **A3** Inbound webhooks with vault-sealed secrets. (C22)
 - **M1** `upstream:` read bindings through the broker, with a 60 s cache. (C17)

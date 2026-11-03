@@ -18,6 +18,8 @@ import { APP_RECORD_ROW_KEYS } from "@exp/domain-contract/app-records"
 import { APP_ACTIONS } from "@exp/domain-contract/app-actions"
 import { validateExposes, type Expose } from "@exp/emcp/exposes"
 import { UPSTREAM_BINDING, upstreamDeclareIssues } from "@exp/emcp/upstream"
+import { AUTOMATIONS_LIMITS, validateAutomations } from "@exp/emcp/automations"
+import { parseCron } from "@/lib/agents/cron"
 import type { RecordSchema } from "@exponential_app/eui"
 
 // VAPP-110: what an app's PACKAGE may be, server-side (tRPC `apps.upsertPackage`
@@ -109,6 +111,21 @@ function checkPackage(pkg: unknown): { sdk: PackageIssue[]; rules: PackageIssue[
       }
     })
   }
+  // #VAPP-220 (eApps A1): the automations (@exp/emcp automations.json),
+  // run by the server on the published package; a schedule's cron must
+  // also parse as the watchdog reads it (month and weekday names).
+  const automations = (valid as { automations?: unknown }).automations
+  if (automations !== undefined) {
+    const ctx = { kinds: Object.keys(valid.records ?? {}), upstreams: valid.upstreams ?? [] }
+    for (const error of validateAutomations(automations, ctx)) {
+      rules.push({ path: error.index === null ? `/automations` : `/automations/${error.index}`, message: AUTOMATION_MESSAGES[error.code] ?? EXPOSE_HOST_MESSAGES[error.code] ?? `invalid automation (${error.code})` })
+    }
+    if (Array.isArray(automations))
+      automations.forEach((a, index) => {
+        const cron = (a as { on?: { schedule?: { cron?: unknown } } } | null)?.on?.schedule?.cron
+        if (typeof cron === `string` && parseCron(cron) === null) rules.push({ path: `/automations/${index}/on/schedule/cron`, message: AUTOMATION_MESSAGES.schedule! })
+      })
+  }
   // VAPP-122: the SDK checked every kind's schema; the contract caps how many.
   const kinds = Object.keys(valid.records ?? {})
   if (kinds.length > APP_RECORD_KINDS_MAX) {
@@ -129,6 +146,25 @@ const EXPOSE_HOST_MESSAGES: Record<string, string> = {
   action: `an exposed action is one of the exponential.<noun>.<op> operations (exponential_apps {op: "catalog"} lists them)`,
   ownerOnly: `an owner-only operation is never grantable, so never exposed`,
   destructive: `a destructive call (a delete, merge, close, end, remove or trash, or sessions.send with stop) is never exposed`,
+}
+
+/** #VAPP-220: the words of each automations.json error code. */
+const AUTOMATION_MESSAGES: Record<string, string> = {
+  list: `automations is a list of {name, on, run, sponsor?}`,
+  tooMany: `automations lists at most ${AUTOMATIONS_LIMITS.maxAutomations} automations`,
+  shape: `an automation is {name, on, run, sponsor?}`,
+  name: `name is lowercase letters, digits and _ (at most ${AUTOMATIONS_LIMITS.nameMax})`,
+  duplicate: `duplicate automation name`,
+  on: `on holds exactly one of {schedule: {cron, tz?}}, {record: {kind, op: create|update|delete}}, {event: "<name>"}`,
+  schedule: `schedule is {cron: "<minute hour day month weekday>", tz?: "<IANA zone>"}`,
+  scheduleTooOften: `a schedule runs at most every ${AUTOMATIONS_LIMITS.minScheduleGapMinutes} minutes`,
+  kind: `the kind names no declared record kind`,
+  event: `event is a team event name like issue.created or pr.merged`,
+  sponsor: `sponsor is a member's email`,
+  template: `a run's templates are \${record.<field>} (record triggers), \${event.<field>} (event triggers) and \${firedAt}`,
+  chain: `an automation never reaches an app through exponential.apps.*: write this app's records with a records run`,
+  run: `run holds exactly one of records, action, upstream (as in exposes)`,
+  upstream: `upstream names none of the package's upstreams`,
 }
 
 /** VAPP-180: a package's `upstreams` name MCP servers of the app's team
@@ -246,6 +282,9 @@ export function appCatalogText(): string {
     ``,
     `# Exposed MCP tools (exposes: the app's tools on Exponential's MCP, /api/mcp/apps)`,
     `exposes: [{name: lowercase_snake (≤ ${EXPOSES_LIMITS.nameMax}, no __), title, description, input: a JSON Schema {type: "object", properties, required?}, access: "read" | "write", run}] (≤ ${EXPOSES_LIMITS.maxTools} tools). A connected MCP client (Claude, ChatGPT…) sees them as <app slug>__<name> and runs them as the CALLING member (attributed "via <app>"); a read-only connection never lists a write tool. run = EXACTLY ONE of: {records: {op: "list" | "get" | "upsert", kind, id?, where?, data?, limit?}} (the app's own records of a declared kind); {action: "exponential.<noun>.<op>", args} (one of the operations above that a team owner could grant: never a destructive or owner-only one; it reads when its last word is list/get/show/catalog/activity/files, else it writes); {upstream: "<server>", tool, args} (a tool of a team MCP server named in upstreams: ["<server>"], with the member's own connection; Settings › MCP lists the team's servers). Every string in run may hold \${input.<field>} (a declared input property; a string that is exactly one template keeps the value's type). Destructive tools (delete, merge, close, end, remove, trash) are never exposed, and a "read" tool may not write. Package tools (\`tools\`) stay refused: expose bindings instead.`,
+    ``,
+    `# Automations (automations: one trigger runs one binding, on the server)`,
+    `automations: [{name: lowercase_snake, on, run, sponsor?}] (≤ ${AUTOMATIONS_LIMITS.maxAutomations}). on = EXACTLY ONE of {schedule: {cron: "m h dom mon dow", tz?}} (the team time zone by default; at most every ${AUTOMATIONS_LIMITS.minScheduleGapMinutes} minutes), {record: {kind, op: "create" | "update" | "delete"}} (a write of the app's own records), {event: "<name>"} (the team event stream: issue.created, issue.status_changed, issue.assigned, pr.opened, pr.merged, session.ended, or any events_emit name). run = an exposes run (records, action, upstream; the same rules: never destructive, an action must be granted by a team owner); its strings may hold \${record.<field>} (record triggers: the record's data + id), \${event.<field>} (event triggers: the payload + name) and \${firedAt}. Automations run the PUBLISHED version, unattended, as the member who published it (sponsor: "<email>" names another member, honoured only when an owner publishes); a sponsor without write access pauses it and the owners are told. No chains: what an automation writes or emits never triggers another automation; at most ${AUTOMATIONS_LIMITS.runsPerMinute} runs a minute per app; every run is audited (Settings › MCP › Activity) and the app's settings page lists each automation's last run. Judgement belongs to an agent, not an automation.`,
     ``,
     catalogPrompt({ extensions: [appExtension] }),
   ].join(`\n`)

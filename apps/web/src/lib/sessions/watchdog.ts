@@ -6,6 +6,7 @@ import { stampMs } from "@exp/eagent/copy"
 import { db } from "@/db/connection"
 import { devices, messages, sessions, userVoiceSettings } from "@/db/schema"
 import { fireScheduledTriggers } from "@/lib/agents/triggers"
+import { fireScheduledAutomations } from "@/lib/apps/automations"
 import { pruneEvents } from "@/lib/events"
 import { purgeOldAppRecordEvents, purgeTrashedAppRecords } from "@/lib/app-records-purge"
 import { BUS_COPY, busLine } from "@/lib/sessions/bus"
@@ -55,6 +56,8 @@ export interface WatchdogRun {
   /** VAPP-159: trashed app records hard-deleted this tick. */
   recordsPurged: number
   recordEventsPurged: number
+  /** #VAPP-220: app automation schedules run this tick. */
+  automations: number
   /** EXP-1610: PRs whose CI check sat queued too long, flagged once. */
   checksQueued: number
   checksSwept: number
@@ -592,6 +595,11 @@ export async function runWatchdog(now: Date = new Date()): Promise<WatchdogRun> 
     recordsPurged: await purgeTrashedAppRecords(now),
     // VAPP-215: record history past its 90 days (app-records.json `history`).
     recordEventsPurged: await purgeOldAppRecordEvents(now),
+    // #VAPP-220: the apps' schedule automations (caught up like the agents').
+    automations: await fireScheduledAutomations(now).catch((err) => {
+      console.error(`[watchdog] automations failed`, err)
+      return 0
+    }),
     // EXP-1610: a CI check queued past contract prChecks.queuedFlagMinutes
     // wakes its PR's session once (no runner picked it up).
     checksQueued: await flagQueuedChecks(now),

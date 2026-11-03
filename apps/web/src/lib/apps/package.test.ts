@@ -142,3 +142,30 @@ describe(`validateAppPackage: exposes`, () => {
     for (const word of [`records:`, `action:`, `upstream:`, `upstreams:`, `\${input.`]) expect(text).toContain(word)
   })
 })
+
+describe(`validateAppPackage: automations (#VAPP-220)`, () => {
+  const records = { request: { schema: { type: `object`, properties: { title: { type: `string` } } } } }
+  const one = (over: Record<string, unknown> = {}) => [{ name: `notify`, on: { record: { kind: `request`, op: `create` } }, run: { records: { op: `upsert`, kind: `request`, data: { title: `\${record.title}` } } }, ...over }]
+
+  it(`accepts a valid automation`, () => {
+    expect((validateAppPackage(pkg({ records, automations: one() })) as { automations?: unknown[] }).automations).toHaveLength(1)
+  })
+
+  it(`refuses each automations.json code with words`, () => {
+    expect(() => validateAppPackage(pkg({ records, automations: one({ on: { schedule: { cron: `* * * * *` } } }) }))).toThrow(/at most every 15 minutes/)
+    expect(() => validateAppPackage(pkg({ records, automations: one({ run: { action: `exponential.apps.records_upsert`, args: {} } }) }))).toThrow(/never reaches an app/)
+    expect(() => validateAppPackage(pkg({ records, automations: one({ run: { action: `exponential.issues.delete`, args: {} } }) }))).toThrow(/destructive/)
+    expect(() => validateAppPackage(pkg({ records, automations: one({ run: { records: { op: `upsert`, kind: `request`, data: { t: `\${event.x}` } } } }) }))).toThrow(/templates/)
+  })
+
+  it(`a schedule's cron parses as the watchdog reads it (names included)`, () => {
+    expect(() => validateAppPackage(pkg({ records, automations: one({ on: { schedule: { cron: `0 8 * * FOO` } }, run: { records: { op: `upsert`, kind: `request`, data: { title: `x` } } } }) }))).toThrow(/schedule is/)
+    expect(() => validateAppPackage(pkg({ records, automations: one({ on: { schedule: { cron: `0 8 * * MON-FRI` } }, run: { records: { op: `upsert`, kind: `request`, data: { title: `x` } } } }) }))).not.toThrow()
+  })
+
+  it(`documents automations in the catalog`, () => {
+    const text = appCatalogText()
+    expect(text).toContain(`# Automations`)
+    for (const word of [`\${record.`, `\${event.`, `\${firedAt}`, `sponsor`]) expect(text).toContain(word)
+  })
+})

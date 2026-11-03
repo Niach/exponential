@@ -2391,6 +2391,7 @@ export const skills = pgTable(
 // (`sessions.app_id`) writes versions over MCP `apps upsert`. `deleted_at`
 // = the trash mirror of the apps shape. Contract caps: `contract.apps`.
 export type AppPackageJson = Record<string, unknown>
+export type AppAutomationState = Record<string, { checkedAt?: string; paused?: string | null; pausedAt?: string | null }>
 export const apps = pgTable(
   `apps`,
   {
@@ -2414,6 +2415,13 @@ export const apps = pgTable(
     // when head = published, so `draftPackage ?? package` is always the head).
     publishedVersion: integer(`published_version`).notNull().default(0),
     draftPackage: jsonb(`draft_package`).$type<AppPackageJson>(),
+    // eApps A1 (#VAPP-220): who published the running version (an
+    // automation's default SPONSOR, @exp/emcp automations.json) and the
+    // automations' server state (`{<name>: {checkedAt?, pausedAt?, paused?}}`:
+    // a schedule's last checked minute, a pause already notified). SERVER-ONLY
+    // (behind the apps shape's column allowlist; tRPC `apps.automations`).
+    publishedBy: text(`published_by`).references(() => users.id, { onDelete: `set null` }),
+    automationState: jsonb(`automation_state`).$type<AppAutomationState>().notNull().default({}),
     // Release train 2026-10-23: apps are shared team content, so a deleted
     // account leaves its apps behind (NULL creator = owner-only to manage).
     createdBy: text(`created_by`).references(() => users.id, { onDelete: `set null` }),

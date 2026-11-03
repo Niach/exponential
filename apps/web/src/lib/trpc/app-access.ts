@@ -10,6 +10,7 @@ import { upstreamState, type ConsentUpstream } from "@/lib/emcp/apps-consent"
 import { connectionFor } from "@/lib/emcp/upstream/credentials"
 import { authedProcedure, router } from "@/lib/trpc"
 import { invalidateAppShapeRules } from "@/lib/apps/records-shape"
+import { automationRows } from "@/lib/apps/automations"
 
 // #VAPP-183: who may use which app's MCP tools (@exp/emcp access.json).
 // The member × app POLICY (Settings › MCP Access): owners set a level per
@@ -134,7 +135,7 @@ export const appAccessRouter = router({
    * connection to each. */
   appTools: authedProcedure.input(z.object({ appId: uuid })).query(async ({ ctx, input }) => {
     const [app] = await ctx.db
-      .select({ teamId: apps.teamId, package: apps.package, disabled: apps.mcpDisabledTools })
+      .select({ id: apps.id, teamId: apps.teamId, package: apps.package, publishedBy: apps.publishedBy, disabled: apps.mcpDisabledTools })
       .from(apps)
       .where(and(eq(apps.id, input.appId), isNull(apps.deletedAt)))
       .limit(1)
@@ -169,6 +170,9 @@ export const appAccessRouter = router({
         enabled: !disabled.has(e.name),
       })),
       upstreams,
+      // #VAPP-220: the published package's automations with their last run
+      // and last failure (their mcp_calls rows) and a live pause reason.
+      automations: await automationRows(app),
     }
   }),
 
