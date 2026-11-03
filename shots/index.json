@@ -683,6 +683,29 @@
         "sha256": "364ba50c33b7d30f234a4bb30889e51b573e5482cc1e6530ab445b5f16c3a5e8"
       }
     },
+    "call-pill": {
+      "desktop": {
+        "file": "shots/call-pill/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 34736,
+        "sha256": "da840b4d09cdc53eaf3ece89e3166c5c5a7c960d50ba41dfc5aa9c4ada5f6e58"
+      },
+      "web": {
+        "file": "shots/call-pill/web.webp",
+        "width": 1800,
+        "height": 1200,
+        "bytes": 25150,
+        "sha256": "72649a8019d722a43b2377235d3f04db5b24822713c81ccebcbe0ce42f857703"
+      },
+      "web-mobile": {
+        "file": "shots/call-pill/web-mobile.webp",
+        "width": 828,
+        "height": 1800,
+        "bytes": 23104,
+        "sha256": "683b88e2412df1ba0d0958bd25c314ded86977a2c14d34928ede8abd522b781a"
+      }
+    },
     "chat": {
       "android": {
         "file": "shots/chat/android.webp",

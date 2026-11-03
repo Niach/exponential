@@ -47,6 +47,7 @@ final class VoiceCallTests: XCTestCase {
             "speakerOff": VoiceCall.Copy.speakerOff,
             "endCall": VoiceCall.Copy.endCall,
             "cancel": VoiceCall.Copy.cancel,
+            "minimize": VoiceCall.Copy.minimize,
             "queued": VoiceCall.Copy.queued,
         ])
         XCTAssertEqual(greeting, VoiceCall.Copy.greeting)
@@ -79,6 +80,7 @@ final class VoiceCallTests: XCTestCase {
             "panel": VoiceCall.TestIds.panel,
             "pill": VoiceCall.TestIds.pill,
             "timer": VoiceCall.TestIds.timer,
+            "minimize": VoiceCall.TestIds.minimize,
         ])
         XCTAssertEqual(try XCTUnwrap(fixture["icons"] as? [String: String]), [
             "call": VoiceCall.Icons.call,
@@ -87,11 +89,13 @@ final class VoiceCallTests: XCTestCase {
             "speaker": VoiceCall.Icons.speaker,
             "speakerOff": VoiceCall.Icons.speakerOff,
             "end": VoiceCall.Icons.end,
+            "minimize": VoiceCall.Icons.minimize,
         ])
         XCTAssertEqual(try XCTUnwrap(fixture["pill"] as? [String: Int]), [
             "width": VoiceCall.Pill.width,
             "height": VoiceCall.Pill.height,
             "marginPx": VoiceCall.Pill.marginPx,
+            "phoneBottomPx": VoiceCall.Pill.phoneBottomPx,
         ])
         var constants = try XCTUnwrap(fixture["constants"] as? [String: NSNumber])
         XCTAssertEqual(constants.removeValue(forKey: "noSoundLevel")?.doubleValue, VoiceCall.Constants.noSoundLevel)
