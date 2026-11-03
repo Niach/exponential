@@ -169,8 +169,7 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *
  * EXP-1309: every Threads v2 surface WITH a seed counterpart is walked live,
  * so it reads the same seed web, desktop and iOS photograph and cannot drift:
- * sg_agent-home (the landing, the bottom bar over it), sg_session-row (THE
- * row on the Threads tab, EXP-1311/1316: the home has no Running band), sg_composer-menu +
+ * sg_agent-home (the landing, the bottom bar over it), sg_composer-menu +
  * sg_chat-issues (the home composer's "+" and Implement issue), sg_threads
  * (the Threads tab), sg_agent-channel (Triage), sg_thread (the cold-start
  * thread), sg_session ("Profile the launch path", its pending question in
@@ -229,6 +228,8 @@ class StyleguideScreenshotsTest {
             "sg_session-xref",
             // EXP-1553: THE PR row (a tree, a stack, an unlinked PR).
             "sg_pr-row",
+            // Thread 20b7fdc2: THE session row (web's `session-row` island).
+            "sg_session-row",
             // #EXP-1611: the Merge pill's check states + the Checks submenu.
             "sg_pr-checks",
             // Thread 58cb32df: the Chats pieces + the minutes schedule.
@@ -470,26 +471,11 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_agent-home")
 
-        // --- sg_session-row: THE session row (EXP-1248/1311). EXP-1316: the
-        // home lost its Running band, so the row's phone instance is the
-        // Threads tab's, gated on the seeded cold-start thread waiting on me
-        // (web/desktop photograph a styleguide island).
-        //
         // EXP-1558: from here on the walk is a run of [step]s, each starting
         // from a tab: a step that fails is retried once, then recorded, and
         // the walk carries on, so one flaky screen no longer costs every shot
         // after it (the lane keeps the shots taken; the test still fails).
-        step("session-row") {
-            composeRule.onNode(hasTestTag("tab-threads")).performClick()
-            flow.waitFor(hasTestTag(SessionTree.ListCopy.TEST_ID_LIST), NAV_TIMEOUT)
-            flow.waitFor(
-                hasTestTag(Chats.TestIds.CHAT_ROW) and
-                    hasText(COLD_START_THREAD_TITLE, substring = true),
-                SYNC_TIMEOUT,
-            )
-            flow.settle()
-            flow.screenshot("sg_session-row")
-        }
+        // (Thread 20b7fdc2: sg_session-row is a capture-only specimen now.)
 
         // The app lands on the Agent tab; the board shots start on Issues.
         // --- Board: wait out session fetch + first Electric sync, then let the
@@ -1731,6 +1717,11 @@ class StyleguideScreenshotsTest {
         // `pr-row` entry, by the real PrList / StackRail.
         showThreadCards(ThreadCardsKind.PrRow)
         flow.screenshot("sg_pr-row")
+
+        // --- sg_session-row (thread 20b7fdc2): THE session row under the
+        // Running caption — web's `session-row` island, by the real SessionRow.
+        showThreadCards(ThreadCardsKind.SessionRow)
+        flow.screenshot("sg_session-row")
 
         // --- sg_pr-checks (#EXP-1611): THE header Merge pill in its four
         // check states + the `…`'s Checks submenu pushed open over

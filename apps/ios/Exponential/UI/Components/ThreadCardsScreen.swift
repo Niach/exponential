@@ -8,13 +8,13 @@ import SwiftUI
 /// card (a workflow mid-review, a task list, a subagent), the Script card and
 /// the Comment card, each from the REAL view over the shared models. Capture
 /// only: the styleguide suite opens one with `-uiTestingStyleguide
-/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|call-controls|settings-voice|device-readiness|work-screen|session-xref|pr-checks>` (`sg_<name>`).
+/// <work-card|script-card|comment-call-card|…|ask-dock|dock-card|plan-card|mention-pill|voice-call|call-controls|settings-voice|device-readiness|work-screen|session-xref|pr-checks|session-row>` (`sg_<name>`).
 struct ThreadCardsScreen: View {
     let kind: String
 
     @Environment(AppDependencies.self) private var deps
 
-    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row", "pr-checks"]
+    static let kinds: Set<String> = ["work-card", "script-card", "comment-call-card", "trace", "code-block", "thread-strip", "ask-dock", "dock-card", "plan-card", "chat-list", "phone-tab-bar", "phone-board-menu", "phone-page-header", "chat-transcript", "chat-menus", "schedule-picker", "mention-pill", "app-consent", "voice-call", "call-controls", "chat-selection", "settings-voice", "settings-mcp", "device-readiness", "work-screen", "voice-meeting", "voice-meeting-consent", "session-xref", "sealed-locked", "pr-row", "pr-checks", "session-row"]
 
     var body: some View {
         if kind == "voice-meeting" || kind == "voice-meeting-consent" {
@@ -89,6 +89,7 @@ struct ThreadCardsScreen: View {
                     case "device-readiness": DeviceReadinessSpecimens()
                     case "work-screen": WorkScreenSpecimens()
                     case "pr-row": PrRowSpecimens()
+                    case "session-row": SessionRowSpecimens()
                     case "pr-checks": PrChecksSpecimens()
                     default: workCards
                     }
@@ -355,6 +356,42 @@ private struct PrRowSpecimens: View {
         .padding(.horizontal, -16)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("pr-row-specimen")
+    }
+}
+
+/// Thread 20b7fdc2 `session-row` (web `apps/styleguide` entry `session-row`,
+/// desktop `session_row.rs`, row for row): THE SessionRow under the Running
+/// caption — the APP-5 tree (needs you, a working child, an idle grandchild),
+/// APP-14 working, an ended root; bold = unread, the first row lit. The lead
+/// is the session's run mark (`ThreadSessionChipMark`, the card state).
+private struct SessionRowSpecimens: View {
+    private static let rows: [(identifier: String?, title: String, depth: Int, state: SessionState, unread: Bool)] = [
+        ("APP-5", "Reduce cold start below 800 ms", 0, .needsYou, true),
+        (nil, "Profile the launch path", 1, .working, false),
+        (nil, "Trace the splash screen", 2, .idle, true),
+        ("APP-14", "Group board issues by status", 0, .working, false),
+        (nil, "Pre-cleanup release", 0, .done, false),
+    ]
+
+    var body: some View {
+        let guides = TreeGuides.compute(depths: Self.rows.map(\.depth))
+        VStack(alignment: .leading, spacing: 4) {
+            GlassSectionBand("Running")
+            ForEach(Array(Self.rows.enumerated()), id: \.offset) { index, row in
+                SessionRow(
+                    identifier: row.identifier,
+                    title: row.title,
+                    guide: guides[index],
+                    active: index == 0,
+                    unread: row.unread
+                ) {
+                    ThreadSessionChipMark(state: row.state)
+                }
+            }
+        }
+        .padding(.horizontal, -16)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("session-row-specimen")
     }
 }
 

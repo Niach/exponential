@@ -37,6 +37,7 @@ import com.exponential.app.ui.session.ComposerRepliesRow
 import com.exponential.app.ui.session.ScriptCardView
 import com.exponential.app.ui.session.WorkCardView
 import com.exponential.app.ui.thread.SessionCard
+import com.exponential.app.ui.components.SessionRow
 import com.exponential.app.ui.components.SessionXref
 import com.exponential.app.ui.components.PrList
 import com.exponential.app.ui.components.PrListRow
@@ -64,6 +65,8 @@ enum class ThreadCardsKind(val testId: String) {
     SessionXref("session-xref-screen"),
     /** EXP-1553: THE PR row (web's `pr-row` entry, shot sg_pr-row). */
     PrRow("pr-row-specimen"),
+    /** Thread 20b7fdc2: THE session row (web's `session-row` entry, shot sg_session-row). */
+    SessionRow("session-row-specimen"),
     /** #EXP-1611: the header Merge pill in its four check states + the open
      *  Checks submenu over pr-checks.json `specimen` (shot sg_pr-checks). */
     PrChecks("pr-checks-specimen"),
@@ -87,7 +90,7 @@ fun ThreadCardsScreen(kind: ThreadCardsKind) {
                     .statusBarsPadding()
                     .verticalScroll(rememberScrollState())
                     // The PR list's bands run edge to edge, like the list's.
-                    .padding(horizontal = if (kind == ThreadCardsKind.PrRow) 0.dp else 16.dp, vertical = 72.dp),
+                    .padding(horizontal = if (kind == ThreadCardsKind.PrRow || kind == ThreadCardsKind.SessionRow) 0.dp else 16.dp, vertical = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 when (kind) {
@@ -98,6 +101,7 @@ fun ThreadCardsScreen(kind: ThreadCardsKind) {
                     ThreadCardsKind.PlanCard -> PlanCardSpecimens()
                     ThreadCardsKind.SessionXref -> SessionXrefSpecimens()
                     ThreadCardsKind.PrRow -> PrRowSpecimens()
+                    ThreadCardsKind.SessionRow -> SessionRowSpecimens()
                     ThreadCardsKind.PrChecks -> PrChecksSpecimens()
                 }
             }
@@ -240,6 +244,39 @@ private fun PrRowSpecimens() {
                 ),
             ),
         )
+    }
+}
+
+/** Thread 20b7fdc2 `session-row` (web's styleguide entry, iOS's
+ *  SessionRowSpecimens, desktop `session_row.rs`, row for row): THE
+ *  SessionRow under the Running caption — the APP-5 tree (needs you, a
+ *  working child, an idle grandchild), APP-14 working, an ended root; bold =
+ *  unread, the first row lit. The lead = the session's run mark. */
+@Composable
+private fun SessionRowSpecimens() {
+    data class Spec(val identifier: String?, val title: String, val depth: Int, val state: SessionTree.SessionState, val unread: Boolean = false)
+    val rows = listOf(
+        Spec("APP-5", "Reduce cold start below 800 ms", 0, SessionTree.SessionState.NeedsYou, unread = true),
+        Spec(null, "Profile the launch path", 1, SessionTree.SessionState.Working),
+        Spec(null, "Trace the splash screen", 2, SessionTree.SessionState.Idle, unread = true),
+        Spec("APP-14", "Group board issues by status", 0, SessionTree.SessionState.Working),
+        Spec(null, "Pre-cleanup release", 0, SessionTree.SessionState.Done),
+    )
+    val guides = com.exponential.app.domain.TreeGuides.compute(rows.map { it.depth })
+    Column {
+        SectionHeader("Running")
+        rows.forEachIndexed { index, row ->
+            SessionRow(
+                title = row.title,
+                identifier = row.identifier,
+                depth = row.depth,
+                guide = guides.getOrNull(index),
+                active = index == 0,
+                unread = row.unread,
+            ) {
+                AgentRunMark(agent = "claude", state = row.state, size = 14.dp, badgeSize = 6.dp)
+            }
+        }
     }
 }
 
