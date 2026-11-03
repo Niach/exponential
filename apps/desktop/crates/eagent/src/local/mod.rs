@@ -181,6 +181,8 @@ impl LocalAgent {
             name_conversation: true,
             aside: false,
             confine_to: None,
+            // A local (server-free) run has no team skills.
+            skills_dir: None,
             exit: ChildExitLink::new(),
         };
         let mut session = SessionSpec::for_launch(&launch, runtime);

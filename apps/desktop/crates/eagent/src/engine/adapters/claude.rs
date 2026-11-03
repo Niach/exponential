@@ -1410,6 +1410,8 @@ impl ClaudeSession {
                     || !matches!(self.spec.mcp, crate::mcp::AgentMcp::ServersOnly)),
             settings: self.spec.reaper_settings_path.as_deref(),
             add_dirs: &[],
+            // #EXP-1658: the session's team skills (unprefixed).
+            skills_dir: self.spec.skills_dir.as_deref(),
             disallowed_tools: &disallowed,
             // EXP-763: the run playbook (EXP-1025: + the team prompt), on
             // every start and resume.

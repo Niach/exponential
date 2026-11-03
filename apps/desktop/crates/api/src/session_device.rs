@@ -179,6 +179,24 @@ pub fn mcp_picks(trpc: &TrpcClient, session_id: &str) -> Result<Vec<String>, Api
     Ok(ids)
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct SkillPicksOutput {
+    #[serde(default)]
+    skill_ids: Vec<String>,
+}
+
+/// #EXP-1658: `sessions.skillPicks` — query, the session's server-only skill
+/// pick (sorted ids, empty = none), compared between turns like
+/// [`mcp_picks`].
+pub fn skill_picks(trpc: &TrpcClient, session_id: &str) -> Result<Vec<String>, ApiError> {
+    let output: SkillPicksOutput = trpc.query_with_input("sessions.skillPicks", &SessionIdInput { session_id })?;
+    let mut ids = output.skill_ids;
+    ids.sort_unstable();
+    ids.dedup();
+    Ok(ids)
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct ClaimInput<'a> {

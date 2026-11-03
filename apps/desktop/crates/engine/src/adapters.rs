@@ -42,6 +42,8 @@ pub struct AdapterSpec {
     pub name_conversation: bool,
     pub aside: bool,
     pub confine_to: Option<PathBuf>,
+    /// #EXP-1658: the session's team skills folder (`AcpLaunch::skills_dir`).
+    pub skills_dir: Option<PathBuf>,
     pub exit: ChildExitLink,
 }
 
@@ -79,6 +81,7 @@ impl From<AdapterSpec> for LaunchSpec {
             name_conversation: spec.name_conversation,
             aside: spec.aside,
             confine_to: spec.confine_to,
+            skills_dir: spec.skills_dir,
             exit: spec.exit,
         }
     }

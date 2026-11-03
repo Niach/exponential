@@ -92,6 +92,11 @@ fn sweep_scratch_dirs(cx: &mut App) {
             live.extend(crate::session_registry::live_ids(&data_dir));
             live.extend(crate::session_registry::recorded_ids(&data_dir));
             let report = coding::scratch::sweep(&data_dir, &live);
+            // #EXP-1658: ended runs' team skills folders.
+            let skills = coding::team_skills::sweep(&data_dir, &live);
+            if skills > 0 {
+                log::info!("skills sweep: removed {skills} folder(s)");
+            }
             // EXP-764: the purged runs' steer journals go with their records.
             for session_id in &report.purged {
                 steer::remove_journal(&data_dir, session_id);

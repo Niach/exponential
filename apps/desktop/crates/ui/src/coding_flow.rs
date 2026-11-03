@@ -438,6 +438,12 @@ impl LocalSessions {
             // work parked on `origin/exp/leftover-<id8>` and named in the
             // session's conversation. Background (git + network).
             let data_dir = coding_data_dir(cx);
+            // #EXP-1658: the run's team skills folder goes with the run, at
+            // once (a resume rewrites it); a suspended run's re-spawn
+            // rewrites its own.
+            if !suspended {
+                coding::team_skills::purge(&data_dir, &entry.session_id);
+            }
             if suspended {
                 log::info!("[ui] session {session_id} suspended: its workspace stays for the resume");
             } else if let Some(cleanup) = entry.run_cleanup.clone() {

@@ -72,9 +72,14 @@ pub struct LaunchedOptions {
     /// pick is SERVER-ONLY (no synced column), so it is re-read between
     /// turns (`sessions.mcpPicks`) whenever the row moved.
     pub mcp: Option<Vec<String>>,
-    /// The row's `updated_at` the MCP pick was last verified at (the
-    /// launch's row, then every between-turn check).
+    /// The row's `updated_at` the MCP pick (and the skill pick) was last
+    /// verified at (the launch's row, then every between-turn check).
     pub mcp_checked_at: Option<String>,
+    /// #EXP-1658: the team skill pick the launch resolved (sorted ids,
+    /// `PreparedLaunch::skill_pick`); `None` = unknown, never compared.
+    /// Server-only like the MCP pick, re-read between turns
+    /// (`sessions.skillPicks`) in the same check.
+    pub skills: Option<Vec<String>>,
     /// EXP-1280: when this device delivered a plan APPROVAL (leaving plan
     /// mode silently, [`PickupAction::DeliverAnswer`]). The server flips the
     /// row's `plan_mode` in the same write, but the session row may land a
@@ -114,12 +119,19 @@ impl LaunchedOptions {
             computer_use: row.computer_use,
             mcp,
             mcp_checked_at: row.updated_at.clone(),
+            skills: None,
             plan_approved: None,
             model: row_model(row),
             model_switching: false,
             model_reported: None,
             models: &[],
         }
+    }
+
+    /// #EXP-1658: with the skill pick the launch resolved.
+    pub fn with_skills(mut self, skills: Option<Vec<String>>) -> Self {
+        self.skills = skills;
+        self
     }
 
     /// EXP-1280: does `row` still show plan mode from BEFORE the approval
@@ -193,8 +205,9 @@ pub struct OptionsDelta {
     /// Effort, ultracode or computer use moved: launch flags, applied by a
     /// between-turn restart that resumes the SAME run.
     pub restart: bool,
-    /// The row moved since the MCP pick was last verified: re-read it
-    /// between turns (a changed pick restarts too).
+    /// The row moved since the MCP pick (#EXP-1658: and the skill pick) was
+    /// last verified: re-read them between turns (a changed pick restarts
+    /// too).
     pub mcp_due: bool,
 }
 
@@ -208,7 +221,8 @@ pub fn options_delta(row: &SessionRow, launched: &LaunchedOptions) -> OptionsDel
         restart: row_effort(row) != launched.effort
             || row.ultracode != launched.ultracode
             || row.computer_use != launched.computer_use,
-        mcp_due: launched.mcp.is_some() && row.updated_at != launched.mcp_checked_at,
+        mcp_due: (launched.mcp.is_some() || launched.skills.is_some())
+            && row.updated_at != launched.mcp_checked_at,
     }
 }
 
@@ -3560,24 +3574,44 @@ fn keep_model(deps: &PickupDeps, session_id: &str, model: String, reported: Opti
 /// compare it with the one its run launched with. Verified (or unreadable:
 /// a blip never restarts a run) = stamped at the row's `updated_at`, so the
 /// same row is not re-read; `true` = the pick moved (restart).
+///
+/// #EXP-1658: the skill pick rides the same check (`sessions.skillPicks`
+/// against `LaunchedOptions::skills`): a pick change between turns restarts
+/// the run, whose resume re-resolves and rewrites the skills folder.
 fn mcp_pick_moved(row: &SessionRow, deps: &PickupDeps) -> bool {
     let session_id = row.id.as_str();
-    let launched = deps.live.options(session_id).and_then(|options| options.mcp);
-    match session_device::mcp_picks(&deps.coding.trpc, session_id) {
-        Ok(pick) if launched.as_ref() != Some(&pick) => {
-            log::info!("pickup: session {session_id}'s MCP pick moved: restarting between turns");
-            true
-        }
-        result => {
-            if let Err(err) = result {
+    let launched = deps.live.options(session_id);
+    let launched_mcp = launched.as_ref().and_then(|options| options.mcp.clone());
+    let launched_skills = launched.and_then(|options| options.skills);
+    let mcp_moved = launched_mcp.is_some()
+        && match session_device::mcp_picks(&deps.coding.trpc, session_id) {
+            Ok(pick) => launched_mcp.as_ref() != Some(&pick),
+            Err(err) => {
                 log::warn!("pickup: session {session_id}'s MCP pick not read: {err}");
+                false
             }
-            deps.live.update_options(session_id, |options| {
-                options.mcp_checked_at = row.updated_at.clone();
-            });
-            false
-        }
+        };
+    let skills_moved = !mcp_moved
+        && launched_skills.is_some()
+        && match session_device::skill_picks(&deps.coding.trpc, session_id) {
+            Ok(pick) => launched_skills.as_ref() != Some(&pick),
+            Err(err) => {
+                log::warn!("pickup: session {session_id}'s skill pick not read: {err}");
+                false
+            }
+        };
+    if mcp_moved {
+        log::info!("pickup: session {session_id}'s MCP pick moved: restarting between turns");
+        return true;
     }
+    if skills_moved {
+        log::info!("pickup: session {session_id}'s skill pick moved: restarting between turns");
+        return true;
+    }
+    deps.live.update_options(session_id, |options| {
+        options.mcp_checked_at = row.updated_at.clone();
+    });
+    false
 }
 
 /// [`settle_owed`] on drop.
@@ -3660,7 +3694,11 @@ fn spawn(
     // EXP-1334: the row's options this engine honors from now on (unknown
     // for a wake with no row at hand).
     let options = launched_for
-        .map(|row| LaunchedOptions::of(row, prepared.mcp_pick.clone()).for_agent(prepared.agent));
+        .map(|row| {
+            LaunchedOptions::of(row, prepared.mcp_pick.clone())
+                .with_skills(prepared.skill_pick.clone())
+                .for_agent(prepared.agent)
+        });
     match (deps.launch)(prepared) {
         Ok(engine) => {
             // EXP-849: the login the run landed on (the prepare recorded it).
@@ -3778,7 +3816,7 @@ mod tests {
     use crate::run_registry::RunKind;
     use crate::test_support::{
         canned_server, canned_server_recording, make_deps, temp_dir, FakeWorktrees, REPORT_OK,
-        RESOLVE_NONE,
+        RESOLVE_NONE, SKILLS_NONE,
     };
     use std::path::Path;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -5214,7 +5252,7 @@ mod tests {
         let (base, requests) = canned_server_recording(vec![
             (200, CLAIM_OK.to_string()),
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
         let row = session("sess-1", "queued", DEV, "2026-10-01T00:00:00Z");
@@ -5223,7 +5261,7 @@ mod tests {
         assert!(matches!(outcome, LaunchQueued::Launched { ref session_id } if session_id == "sess-1"));
         assert_eq!(
             procedures(&requests),
-            vec!["sessions.claim", "sessions.brief", "mcpServers.resolveForLaunch"]
+            vec!["sessions.claim", "sessions.brief", "mcpServers.resolveForLaunch", "skills.resolveForLaunch"]
         );
         let claim = requests.lock().unwrap()[0].clone();
         // EXP-1252: the claim names this device (one writer).
@@ -5242,7 +5280,7 @@ mod tests {
         // A second pass skips it without a request.
         let again = launch_queued(&row, &host.deps).unwrap();
         assert!(matches!(again, LaunchQueued::Skipped { reason: "already live" }));
-        assert_eq!(requests.lock().unwrap().len(), 3);
+        assert_eq!(requests.lock().unwrap().len(), 4);
     }
 
     #[test]
@@ -5503,7 +5541,7 @@ mod tests {
         let dir = temp_dir("pickup-switch-fails");
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             (200, REPLY_OK.to_string()),
             (200, REPORT_OK.to_string()),
         ]);
@@ -5521,10 +5559,10 @@ mod tests {
         assert!(err.contains("engine refused to start"), "{err}");
         assert_eq!(
             procedures(&requests),
-            vec!["sessions.brief", "mcpServers.resolveForLaunch", "sessions.reply", "sessions.report"]
+            vec!["sessions.brief", "mcpServers.resolveForLaunch", "skills.resolveForLaunch", "sessions.reply", "sessions.report"]
         );
         let requests = requests.lock().unwrap();
-        assert!(requests[3].contains(r#""kind":"start_failed""#), "{}", requests[3]);
+        assert!(requests[4].contains(r#""kind":"start_failed""#), "{}", requests[4]);
         let pending: Vec<&MessageRow> = pending.iter().collect();
         assert!(host.deps.live.refused_before("sess-1", &pending), "explained once");
     }
@@ -5663,7 +5701,7 @@ mod tests {
         let dir = temp_dir("pickup-resume");
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
         crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
@@ -5673,7 +5711,7 @@ mod tests {
         ];
 
         assert_eq!(deliver_messages("sess-1", &rows, &host.deps).unwrap(), vec!["m1", "m2"]);
-        assert_eq!(procedures(&requests), vec!["sessions.brief", "mcpServers.resolveForLaunch"]);
+        assert_eq!(procedures(&requests), vec!["sessions.brief", "mcpServers.resolveForLaunch", "skills.resolveForLaunch"]);
         let spawned = host.spawned.lock().unwrap().clone();
         assert_eq!(spawned.len(), 1);
         assert_eq!(spawned[0].session_id, "sess-1", "the SAME row");
@@ -5692,7 +5730,7 @@ mod tests {
     #[test]
     fn a_done_engine_is_replaced_by_a_resume() {
         let dir = temp_dir("pickup-resume-done");
-        let base = canned_server(vec![(200, BRIEF_OK.to_string()), (200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, BRIEF_OK.to_string()), (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let host = host(&base, &dir.0, |_| {});
         crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
         let exited = Arc::new(FakeEngine::default());
@@ -5707,7 +5745,7 @@ mod tests {
     #[test]
     fn a_known_row_with_no_record_starts_afresh_and_delivers_after_the_brief() {
         let dir = temp_dir("pickup-resume-fresh");
-        let base = canned_server(vec![(200, BRIEF_OK.to_string()), (200, RESOLVE_NONE.to_string())]);
+        let base = canned_server(vec![(200, BRIEF_OK.to_string()), (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string())]);
         let host = host(&base, &dir.0, |_| {});
         let row = session("sess-1", "idle", DEV, "t");
         let rows = vec![message("m1", "sess-1", "t")];
@@ -5786,7 +5824,7 @@ mod tests {
         let dir = temp_dir("pickup-new-restart");
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             (200, CONSUME_OK.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
@@ -5800,7 +5838,7 @@ mod tests {
 
         assert!(deliver_messages("agent-1", &rows, &host.deps).unwrap().is_empty());
         wait_until("the fresh launch", || !host.spawned.lock().unwrap().is_empty());
-        wait_until("the /new consume", || procedures(&requests).len() == 3);
+        wait_until("the /new consume", || procedures(&requests).len() == 4);
         assert_eq!(*old.killed.lock().unwrap(), Some("suspended"), "the process stops, the session stays");
         assert!(old.delivered_ids().is_empty(), "the old conversation hears nothing");
         let spawned = host.spawned.lock().unwrap().clone();
@@ -5810,9 +5848,9 @@ mod tests {
         );
         assert_eq!(
             procedures(&requests),
-            vec!["sessions.brief", "mcpServers.resolveForLaunch", "sessions.consume"]
+            vec!["sessions.brief", "mcpServers.resolveForLaunch", "skills.resolveForLaunch", "sessions.consume"]
         );
-        assert!(requests.lock().unwrap()[2].ends_with(r#"{"sessionId":"agent-1","messageIds":["n1"]}"#));
+        assert!(requests.lock().unwrap()[3].ends_with(r#"{"sessionId":"agent-1","messageIds":["n1"]}"#));
         assert!(!requests.lock().unwrap().iter().any(|r| r.contains(r#""status":"ended""#)));
         let record = crate::run_registry::get(&dir.0, "agent-1").unwrap();
         assert_eq!((record.acp_session_id, record.agent_native_session_id, record.claude_session_id), (None, None, None));
@@ -5872,7 +5910,7 @@ mod tests {
         let dir = temp_dir("pickup-new-wake");
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             (200, CONSUME_OK.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
@@ -5884,7 +5922,7 @@ mod tests {
         assert_eq!(spawned[0].prompt, None);
         assert_eq!(spawned[0].seed_message_id, None);
         assert!(host.engine.delivered_ids().is_empty());
-        wait_until("the /new consume", || procedures(&requests).len() == 3);
+        wait_until("the /new consume", || procedures(&requests).len() == 4);
         assert_eq!(crate::run_registry::get(&dir.0, "agent-1").unwrap().acp_session_id, None);
     }
 
@@ -5994,7 +6032,7 @@ mod tests {
         let (base, requests) = canned_server_recording(vec![
             (200, CLAIM_OK.to_string()),
             (200, BRIEF_REQUEST.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
         let row = session("sess-1", "queued", DEV, "2026-10-01T00:00:00Z");
@@ -6025,7 +6063,7 @@ mod tests {
             (502, r#"{"error":{"message":"bad gateway"}}"#.to_string()),
             (200, CLAIM_OK.to_string()),
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
         let row = session("sess-1", "queued", DEV, "t");
@@ -6081,7 +6119,7 @@ mod tests {
         let (base, requests) = canned_server_recording(vec![
             (200, CONSUME_OK.to_string()),
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
         let mut owed = record(&dir.0, "sess-1");
@@ -6162,7 +6200,7 @@ mod tests {
         let base = canned_server(vec![
             (200, CLAIM_OK.to_string()),
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
         let row = on_account(session("sess-1", "queued", DEV, "t"), "aaaa");
@@ -6234,7 +6272,7 @@ mod tests {
         let (base, requests) = canned_server_recording(vec![
             (200, REPORT_OK.to_string()),
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             (200, REPORT_OK.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
@@ -6264,7 +6302,7 @@ mod tests {
         assert_eq!(*old.killed.lock().unwrap(), Some("suspended"));
         assert_eq!(
             procedures(&requests),
-            vec!["sessions.report", "sessions.brief", "mcpServers.resolveForLaunch", "sessions.report"]
+            vec!["sessions.report", "sessions.brief", "mcpServers.resolveForLaunch", "skills.resolveForLaunch", "sessions.report"]
         );
         // EXP-1281: every client sees the move while it happens (the wall
         // lifted, the cards spinning), and the landed run reports running.
@@ -6273,7 +6311,7 @@ mod tests {
             shown.ends_with(r#"{"sessionId":"sess-1","busy":true,"blocked":null}"#),
             "{shown}"
         );
-        let running = requests.lock().unwrap()[3].clone();
+        let running = requests.lock().unwrap()[4].clone();
         assert!(running.ends_with(r#"{"sessionId":"sess-1","status":"running"}"#), "{running}");
         let spawned = host.spawned.lock().unwrap().clone();
         assert_eq!(spawned.len(), 1);
@@ -6343,10 +6381,10 @@ mod tests {
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
             (200, REPLY_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             (200, REPORT_OK.to_string()),
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
         let mut on_a = record(&dir.0, "sess-1");
@@ -6359,17 +6397,17 @@ mod tests {
         assert_eq!(resume_session(&row, &rows, &host.deps).unwrap(), vec!["m1"]);
         assert_eq!(
             procedures(&requests),
-            vec!["sessions.brief", "sessions.reply", "mcpServers.resolveForLaunch", "sessions.report"]
+            vec!["sessions.brief", "sessions.reply", "mcpServers.resolveForLaunch", "skills.resolveForLaunch", "sessions.report"]
         );
         let recorded = requests.lock().unwrap().clone();
         assert!(recorded[1].contains("not set up on this machine"), "{}", recorded[1]);
         assert!(
-            recorded[3].ends_with(&format!(
+            recorded[4].ends_with(&format!(
                 r#"{{"sessionId":"sess-1","account":"{}"}}"#,
                 crate::test_support::TEST_PROFILE
             )),
             "{}",
-            recorded[3]
+            recorded[4]
         );
         let record = crate::run_registry::get(&dir.0, "sess-1").unwrap();
         assert_eq!(record.account().as_deref(), Some(crate::test_support::TEST_PROFILE));
@@ -6382,7 +6420,7 @@ mod tests {
         let reported = on_account(row, crate::test_support::TEST_PROFILE);
         let more = vec![message("m2", "sess-1", "2026-10-02T00:00:02Z")];
         assert_eq!(resume_session(&reported, &more, &host.deps).unwrap(), vec!["m2"]);
-        assert_eq!(procedures(&requests)[4..], ["sessions.brief", "mcpServers.resolveForLaunch"]);
+        assert_eq!(procedures(&requests)[5..], ["sessions.brief", "mcpServers.resolveForLaunch", "skills.resolveForLaunch"]);
         let record = crate::run_registry::get(&dir.0, "sess-1").unwrap();
         assert_eq!(record.honored_row_account(), crate::test_support::TEST_PROFILE);
         assert_eq!(record.account().as_deref(), Some(crate::test_support::TEST_PROFILE));
@@ -6426,7 +6464,7 @@ mod tests {
         let (base, requests) = canned_server_recording(vec![
             (200, REPORT_OK.to_string()),
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             (200, REPORT_OK.to_string()),
             (200, CONSUME_OK.to_string()),
         ]);
@@ -6461,7 +6499,7 @@ mod tests {
         assert!(consume.contains("m1") && consume.contains("m2") && !consume.contains("m3"), "{consume}");
         assert_eq!(
             procedures(&requests),
-            vec!["sessions.report", "sessions.brief", "mcpServers.resolveForLaunch", "sessions.report", "sessions.consume"]
+            vec!["sessions.report", "sessions.brief", "mcpServers.resolveForLaunch", "skills.resolveForLaunch", "sessions.report", "sessions.consume"]
         );
         // A later pass hands nothing twice.
         let rows = vec![message("m1", "sess-1", "a"), pending[0].clone(), pending[1].clone()];
@@ -6722,7 +6760,7 @@ mod tests {
         let dir = temp_dir("pickup-reconfigure");
         let (base, requests) = canned_server_recording(vec![
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             (200, REPORT_OK.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
@@ -6756,7 +6794,7 @@ mod tests {
         assert_eq!(*old.killed.lock().unwrap(), Some("suspended"));
         assert_eq!(
             procedures(&requests),
-            vec!["sessions.brief", "mcpServers.resolveForLaunch", "sessions.report"]
+            vec!["sessions.brief", "mcpServers.resolveForLaunch", "skills.resolveForLaunch", "sessions.report"]
         );
         assert!(old.plan_switches.lock().unwrap().is_empty(), "plan mode never moved");
         let spawned = host.spawned.lock().unwrap().clone();
@@ -6782,7 +6820,7 @@ mod tests {
         let dir = temp_dir("pickup-reconfigure-default");
         let base = canned_server(vec![
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             (200, REPORT_OK.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
@@ -6809,7 +6847,7 @@ mod tests {
             (200, picks(r#""srv-a""#)),
             (200, picks(r#""srv-b","srv-a""#)),
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             (200, REPORT_OK.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});
@@ -6837,11 +6875,61 @@ mod tests {
                 "sessions.mcpPicks",
                 "sessions.mcpPicks",
                 "sessions.brief",
-                "mcpServers.resolveForLaunch",
+                "mcpServers.resolveForLaunch", "skills.resolveForLaunch",
                 "sessions.report",
             ]
         );
         assert_eq!(host.spawned.lock().unwrap()[0].seed_message_id.as_deref(), Some("m2"));
+    }
+
+    /// #EXP-1658: the skill pick rides the same between-turn check: an
+    /// unmoved pick is stamped verified and the message delivered; a moved
+    /// one restarts the run (the resume re-resolves and rewrites the skills).
+    #[test]
+    fn a_moved_skill_pick_restarts_the_run_between_turns() {
+        let dir = temp_dir("pickup-skill-pick");
+        let picks = |ids: &str| format!(r#"{{"result":{{"data":{{"skillIds":[{ids}]}}}}}}"#);
+        let (base, requests) = canned_server_recording(vec![
+            (200, picks(r#""k-a""#)),
+            (200, picks(r#""k-b","k-a""#)),
+            (200, BRIEF_OK.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
+            (200, REPORT_OK.to_string()),
+        ]);
+        let host = host(&base, &dir.0, |_| {});
+        crate::run_registry::record(&dir.0, record(&dir.0, "sess-1"));
+        let launched = session("sess-1", "idle", DEV, "t");
+        let old = Arc::new(FakeEngine::default());
+        host.deps.live.insert_for("sess-1", old.clone(), None, Some(String::new()));
+        // No team MCP baseline: only the skill pick is compared.
+        host.deps.live.set_options(
+            "sess-1",
+            Some(LaunchedOptions::of(&launched, None).with_skills(Some(vec!["k-a".to_string()]))),
+        );
+
+        let touched = SessionRow { updated_at: Some("u1".to_string()), ..launched.clone() };
+        let first = vec![message("m1", "sess-1", "2026-10-02T00:00:01Z")];
+        assert_eq!(switch_session(&touched, "", None, &first, &host.deps), Ok(Switched::AlreadyOn));
+        assert_eq!(old.delivered_ids(), vec!["m1"]);
+        let verified = host.deps.live.options("sess-1").expect("options");
+        assert_eq!(verified.mcp_checked_at.as_deref(), Some("u1"));
+        assert!(!options_delta(&touched, &verified).mcp_due);
+
+        let moved = SessionRow { updated_at: Some("u2".to_string()), ..launched };
+        let second = vec![message("m2", "sess-1", "2026-10-02T00:00:02Z")];
+        assert_eq!(switch_session(&moved, "", None, &second, &host.deps), Ok(Switched::Moved));
+        assert_eq!(*old.killed.lock().unwrap(), Some("suspended"));
+        assert_eq!(
+            procedures(&requests),
+            vec![
+                "sessions.skillPicks",
+                "sessions.skillPicks",
+                "sessions.brief",
+                "mcpServers.resolveForLaunch",
+                "skills.resolveForLaunch",
+                "sessions.report",
+            ]
+        );
     }
 
     /// EXP-1280: plan mode is Exponential's flag, so the engine's own mode
@@ -7290,7 +7378,7 @@ mod tests {
             (200, REPORT_OK.to_string()),
             (200, REPORT_OK.to_string()),
             (200, BRIEF_OK.to_string()),
-            (200, RESOLVE_NONE.to_string()),
+            (200, RESOLVE_NONE.to_string()), (200, SKILLS_NONE.to_string()),
             (200, REPORT_OK.to_string()),
         ]);
         let host = host(&base, &dir.0, |_| {});

@@ -154,6 +154,13 @@ pub struct LaunchSpec {
     /// app-server's `workspaceWrite` sandbox rooted here (network on), and
     /// falls back to full access when the app-server rejects it.
     pub confine_to: Option<PathBuf>,
+    /// #EXP-1658: the session's team skills folder
+    /// (`<data_dir>/skills/<session>`, `coding::team_skills`), holding
+    /// `.claude/skills/<name>/SKILL.md`. Claude: `--add-dir <dir>` (loads
+    /// them unprefixed); codex: `skills/extraRoots/set` naming
+    /// `<dir>/.claude/skills` before `thread/start` / `thread/resume`.
+    /// `None` = no skills.
+    pub skills_dir: Option<PathBuf>,
     /// Where a stdio adapter reports its child's exit (`ChildLines::forward_exit`),
     /// so the run's bye is `exit:<code>`. An adapter that owns no child of
     /// ours never records, and the run ends as `ended`.

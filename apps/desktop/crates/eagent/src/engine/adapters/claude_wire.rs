@@ -75,6 +75,12 @@ pub struct ClaudeArgs<'a> {
     /// classifier).
     pub settings: Option<&'a Path>,
     pub add_dirs: &'a [std::path::PathBuf],
+    /// #EXP-1658: the session's team skills folder, emitted as one more
+    /// `--add-dir` right after [`Self::add_dirs`] (before
+    /// `--disallowedTools`). SPIKE (claude 2.1.317): `--add-dir <dir>` loads
+    /// `<dir>/.claude/skills/*` UNPREFIXED, where `--plugin-dir` would list
+    /// them as `<plugin>:<name>`, so the plain directory won.
+    pub skills_dir: Option<&'a Path>,
     pub disallowed_tools: &'a [&'a str],
     /// EXP-763: `--append-system-prompt <text>` — the run playbook
     /// (`coding::skill::RUN_SKILL`). Not an SDK flag: it is the one addition
@@ -98,6 +104,7 @@ impl Default for ClaudeArgs<'_> {
             strict_mcp_config: false,
             settings: None,
             add_dirs: &[],
+            skills_dir: None,
             disallowed_tools: &[],
             append_system_prompt: None,
         }
@@ -188,6 +195,10 @@ pub fn claude_argv(args: &ClaudeArgs<'_>) -> Vec<String> {
         push(&settings.display().to_string());
     }
     for dir in args.add_dirs {
+        push("--add-dir");
+        push(&dir.display().to_string());
+    }
+    if let Some(dir) = args.skills_dir {
         push("--add-dir");
         push(&dir.display().to_string());
     }
@@ -2036,6 +2047,27 @@ mod tests {
         assert_eq!(argv[mode + 1], "plan");
         // The effort flag precedes the mode flag, mirroring the SDK order.
         assert!(effort < mode);
+    }
+
+    #[test]
+    fn argv_names_the_skills_dir_as_an_add_dir_before_the_disallowed_tools() {
+        let skills = std::path::Path::new("/data/skills/s1");
+        let extra = [std::path::PathBuf::from("/extra")];
+        let argv = claude_argv(&ClaudeArgs {
+            add_dirs: &extra,
+            skills_dir: Some(skills),
+            disallowed_tools: &["AskUserQuestion"],
+            ..ClaudeArgs::default()
+        });
+        let at = |flag: &str| argv.iter().position(|arg| arg == flag).expect(flag);
+        let dirs: Vec<usize> = argv.iter().enumerate().filter(|(_, a)| *a == "--add-dir").map(|(i, _)| i).collect();
+        assert_eq!(dirs.len(), 2);
+        assert_eq!(argv[dirs[0] + 1], "/extra");
+        assert_eq!(argv[dirs[1] + 1], "/data/skills/s1", "right after the other add-dirs");
+        assert!(dirs[1] < at("--disallowedTools"));
+        assert!(!argv.iter().any(|arg| arg == "--plugin-dir"));
+        let bare = claude_argv(&ClaudeArgs::default());
+        assert!(!bare.iter().any(|arg| arg == "--add-dir"), "no skills, no flag");
     }
 
     #[test]

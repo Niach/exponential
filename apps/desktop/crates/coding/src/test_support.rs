@@ -309,4 +309,6 @@ pub(crate) const TOKEN_OK: &str = r#"{"result":{"data":{"token":"ghs_secret123",
 pub(crate) const REPORT_OK: &str = r#"{"result":{"data":{"txid":"1"}}}"#;
 /// `mcpServers.resolveForLaunch` with nothing picked.
 pub(crate) const RESOLVE_NONE: &str = r#"{"result":{"data":{"servers":[],"skipped":[],"warnings":[],"members":[]}}}"#;
+/// #EXP-1658: `skills.resolveForLaunch` with nothing picked.
+pub(crate) const SKILLS_NONE: &str = r#"{"result":{"data":{"skills":[],"skipped":[]}}}"#;
 pub(crate) const MINT_OK: &str = r#"{"result":{"data":{"key":"expu_minted_runtime","id":"key-9","name":"Device: box","start":"expu_mi","prefix":"expu_","createdAt":"2026-07-03T10:00:00.000Z"}}}"#;
