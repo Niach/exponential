@@ -1,0 +1,79 @@
+---
+/* The committed results, one block per machine: metric rows × renderer
+   columns, one table per scenario. */
+import { benchLink, formatMetric, manifest, metricsOf, rendererLabel, renderersOf, RESULTS, type Kind } from "./bench.ts"
+
+type Run = { device?: string; date: string; commit?: string; scenarios: Record<string, Record<string, number | undefined> | undefined> }
+const files = RESULTS as unknown as { machine: { id: string; cpu: string; cores: number; memoryGb: number; os: string }; runs: Record<string, Run> }[]
+const unitOf = (kind: string) => (kind === `mb` ? ` (MB)` : ``)
+---
+
+{
+  files.length === 0 ? (
+    <p>
+      No results are committed yet: run the suite and commit <code>results/&lt;machine&gt;.json</code>.
+    </p>
+  ) : (
+    <p>
+      One block per machine (<a href={benchLink(`results`)}>results/</a>): every renderer that ran there, column by column, metric rows per scenario. Milliseconds unless the row says otherwise; lower is better everywhere. Numbers depend on the machine, so the machine is part of the record.
+    </p>
+  )
+}
+{
+  files.map((file) => {
+    const renderers = renderersOf(file.runs)
+    return (
+      <>
+        <h3 id={`machine-${file.machine.id}`}>
+          <code>{file.machine.id}</code>
+        </h3>
+        <p>
+          {file.machine.cpu}, {file.machine.cores} cores, {file.machine.memoryGb} GB, {file.machine.os}.
+        </p>
+        <ul>
+          {renderers.map((id) => {
+            const run = file.runs[id]
+            return (
+              <li>
+                {rendererLabel(id)}
+                {run.device ? ` on ${run.device}` : ``} ({run.date.slice(0, 10)}
+                {run.commit ? `, ${run.commit}` : ``})
+              </li>
+            )
+          })}
+        </ul>
+        {manifest.scenarios.map((s) => {
+          const metrics = metricsOf(s).filter((m) => renderers.some((r) => file.runs[r].scenarios[s.id]?.[m.id] !== undefined))
+          if (metrics.length === 0) return null
+          return (
+            <div class="eui-table-wrap">
+              <table class="eui-bench-table">
+                <thead>
+                  <tr>
+                    <th>{s.title}</th>
+                    {renderers.map((r) => (
+                      <th>{rendererLabel(r)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {metrics.map((m) => (
+                    <tr>
+                      <td title={m.what}>
+                        <code>{m.id}</code>
+                        {unitOf(m.kind)}
+                      </td>
+                      {renderers.map((r) => (
+                        <td class="eui-num">{formatMetric(file.runs[r].scenarios[s.id]?.[m.id], m.kind as Kind)}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        })}
+      </>
+    )
+  })
+}

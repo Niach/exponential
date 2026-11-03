@@ -1,0 +1,27 @@
+---
+/* The built-in themes painting the SAME surface (the demo fixture, specimen
+   exponential-ui-demo), one build-time EuiSurface per theme: HTML + CSS, no
+   JS. Each stage wears its theme's own $color.background. */
+import type { NestedNode } from "@exponential_app/eui"
+import demoSurface from "@exponential_app/eui/fixtures/demo-surface.json"
+import themesDoc from "@exponential_app/eui/docs/themes.generated.json"
+import Eui from "../Eui.astro"
+
+const tree = demoSurface as unknown as NestedNode
+const ground = themesDoc.tokens.color.find((t) => t.name === `background`)?.values as Record<string, { light: string; dark: string }> | undefined
+---
+
+<div class="eui-theme-gallery not-content">
+  {
+    themesDoc.themes.map((t) => (
+      <figure class="eui-theme-card">
+        <figcaption>
+          <strong>{t.name}</strong> <code>{t.id}</code>
+        </figcaption>
+        <div class="eui-theme-stage" style={ground?.[t.id] ? `--eui-ground-light: ${ground[t.id].light}; --eui-ground-dark: ${ground[t.id].dark}` : undefined}>
+          <Eui id={`theme-${t.id}`} tree={tree} theme={t.id} />
+        </div>
+      </figure>
+    ))
+  }
+</div>

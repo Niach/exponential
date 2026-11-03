@@ -1,0 +1,58 @@
+---
+/* Every surface measured on the three web renderers (report.json `render`). */
+import { CANDIDATES, render, renderFindings, report } from "./eval.ts"
+
+const findings = renderFindings()
+---
+
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Surface</th><th>Width</th><th>Painted nodes</th><th>Height</th><th>Gaps between root children</th><th>First text inset</th><th>Solid</th><th>Element</th></tr>
+    </thead>
+    <tbody>
+      {
+        report.rows.flatMap((r) =>
+          (render[r.id] ?? []).map((m) => (
+            <tr>
+              <td>{r.title}</td>
+              <td class="eui-num">{m.width} px</td>
+              <td class="eui-num">{m.react.nodes}</td>
+              <td class="eui-num">{m.react.height} px</td>
+              <td>{m.react.distinctGaps.filter((g) => g >= 0).map((g) => `${g} px`).join(`, `) || `–`}</td>
+              <td>{m.react.textInset === null ? `–` : `${m.react.textInset} px`}</td>
+              {CANDIDATES.map((c) => (
+                <td>{m.differences[c].length ? `differs` : `equal`}</td>
+              ))}
+            </tr>
+          ))
+        )
+      }
+    </tbody>
+  </table>
+</div>
+
+<h3 id="render-differences">Where a renderer differs from React</h3>
+{
+  findings.length ? (
+    <div class="eui-table-wrap">
+      <table>
+        <thead>
+          <tr><th>Surface</th><th>Width</th><th>Renderer</th><th>What differs</th></tr>
+        </thead>
+        <tbody>
+          {findings.map((f) => (
+            <tr>
+              <td>{f.title}</td>
+              <td class="eui-num">{f.width} px</td>
+              <td>{f.renderer}</td>
+              <td>{f.differences.join(`; `)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ) : (
+    <p>Nowhere: every surface measured and painted the same on every renderer.</p>
+  )
+}

@@ -1,1 +1,15 @@
-/* eui-product: classes prefixed eui- */
+/* eUI + Motion product pages (/ui/, /motion/). */
+.eui-motion-hero {
+  display: flex;
+  justify-content: center;
+  padding-block: 2.5rem;
+}
+.eui-prompt {
+  color: var(--sl-color-gray-2);
+  font-style: italic;
+}
+/* The showcase's three sources: scroll inside a fixed height. */
+.eui-steps .expressive-code pre {
+  max-height: 22rem;
+  overflow: auto;
+}

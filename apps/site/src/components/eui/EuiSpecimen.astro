@@ -1,0 +1,23 @@
+---
+/* A component page's live render, at build time (no client directive: the
+   page ships the surface's HTML, zero JS): the component's specimen from
+   @exponential_app/eui/fixtures/specimens.json, or with `variants` the
+   variants gallery (one surface). */
+import Eui from "./Eui.astro"
+import { componentBySlug, specimenFor, variantsTree } from "./components/specimen.ts"
+
+interface Props {
+  /** The component's slug (specimen id minus `exponential-ui-`). */
+  slug: string
+  variants?: boolean
+}
+const { slug, variants = false } = Astro.props
+const doc = componentBySlug(slug)
+if (!doc) throw new Error(`EuiSpecimen: no component ${slug}`)
+const tree = variants ? variantsTree(doc) : specimenFor(doc)
+if (!tree) throw new Error(`EuiSpecimen: no ${variants ? `variants` : `specimen`} for ${slug}`)
+---
+
+<div class="eui-specimen not-content">
+  <Eui id={`${variants ? `variants` : `specimen`}-${slug}`} tree={tree} />
+</div>

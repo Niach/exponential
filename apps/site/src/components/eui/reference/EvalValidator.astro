@@ -1,0 +1,57 @@
+---
+/* What the validator said (report.json `aggregate`). */
+import { n } from "./lib.ts"
+import { aggregate as a, type IssueKind } from "./eval.ts"
+
+const metrics: [string, string][] = [
+  [`Surfaces that validate clean`, `${a.validatorClean} of ${a.surfaces}`],
+  [`Validator issues`, n(a.issuesTotal)],
+  [`Components per surface`, `${a.components.mean} on average, ${a.components.max} at most`],
+  [`Authored nesting depth`, `${a.depth.mean} on average, ${a.depth.max} at most`],
+  [`Output tokens per surface`, `${n(a.tokens.meanOutput)}${a.tokens.estimated ? ` (estimated)` : ``}`],
+]
+const kinds = a.issueKinds as IssueKind[]
+---
+
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Metric</th><th>Value</th></tr>
+    </thead>
+    <tbody>
+      {
+        metrics.map(([k, v]) => (
+          <tr>
+            <td>{k}</td>
+            <td>{v}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+
+<h3 id="mistakes">The mistakes, by frequency</h3>
+{
+  kinds.length ? (
+    <div class="eui-table-wrap">
+      <table>
+        <thead>
+          <tr><th>Issue</th><th>Count</th></tr>
+        </thead>
+        <tbody>
+          {kinds.map((k) => (
+            <tr>
+              <td>
+                <code>{k.message}</code>
+              </td>
+              <td class="eui-num">{k.count}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ) : (
+    <p>None: every surface validates.</p>
+  )
+}

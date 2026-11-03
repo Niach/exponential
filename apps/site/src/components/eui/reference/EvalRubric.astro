@@ -1,0 +1,71 @@
+---
+/* The visual rubric, the habits and the per-surface table (report.json). */
+import { aggregate as a, findingsOf, pct, report, RUBRIC_LABEL } from "./eval.ts"
+
+const rubric = Object.entries(a.rubric as Record<string, { expected: number; passed: number }>)
+const habits: [string, number][] = [
+  [`Horizontal Stacks of controls without align (they stretch)`, a.unalignedRows],
+  [`Authored Box components (the rule says: layout macros first)`, a.boxes],
+  [`Surfaces with raw px spacing (rhythm ${a.spacing.rhythm})`, a.spacing.surfacesWithRawPx],
+]
+---
+
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Criterion</th><th>Expected by</th><th>Passed</th><th>Rate</th></tr>
+    </thead>
+    <tbody>
+      {
+        rubric.map(([k, v]) => (
+          <tr>
+            <td>{RUBRIC_LABEL[k] ?? k}</td>
+            <td class="eui-num">{v.expected}</td>
+            <td class="eui-num">{v.passed}</td>
+            <td class="eui-num">{pct(v.passed, v.expected)}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Habit</th><th>Count</th></tr>
+    </thead>
+    <tbody>
+      {
+        habits.map(([k, v]) => (
+          <tr>
+            <td>{k}</td>
+            <td class="eui-num">{v}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+
+<h3 id="per-surface">Per surface</h3>
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Surface</th><th>Components</th><th>Depth</th><th>Issues</th><th>Findings</th></tr>
+    </thead>
+    <tbody>
+      {
+        report.rows.map((r) => (
+          <tr>
+            <td>{r.title}</td>
+            <td class="eui-num">{r.components}</td>
+            <td class="eui-num">{r.depth}</td>
+            <td class="eui-num">{r.issues.length}</td>
+            <td>{findingsOf(r).join(`; `) || `–`}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>

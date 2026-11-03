@@ -1,0 +1,32 @@
+---
+title: Write a surface in TypeScript
+description: defineSurface turns typed component factories, bindings and actions into the same A2UI an agent sends.
+---
+
+import GuideFile from "../../../../../../components/eui/GuideFile.astro"
+
+## Why a DSL
+
+A surface is a flat list of JSON components: fine for a model, tedious for a person. `defineSurface` takes a nested, typed tree instead. Every component is a factory on `ui` whose props autocomplete from the catalog (`ComponentProps`, generated from the same catalog the renderers read), so a misspelt prop or a wrong enum is a type error, and the result is the same flat list an agent would send. The project has one dependency:
+
+<GuideFile path="define/package.json" />
+
+## Write a surface
+
+`ui.Stack(props, children)` nests; the third argument carries what is outside the props: an explicit `id`, `style`, `on`, `visible`, `slots`. A List renders one template per item of a data path: `{ template, path, key }` as its children. `bind(path)` reads the data model (relative inside a template), `call(name, args)` computes, `event(name)` sends an action to you and `run(name, args)` runs a client function.
+
+<GuideFile path="define/surface.ts" />
+
+## Validate and send
+
+`defineSurface` returns a bad surface's problems instead of throwing: `issues` from the same reducer the renderers use (a literal-only prop given a binding, an unknown icon, a missing required prop), the flat `components`, the `messages` (createSurface, updateComponents, one updateDataModel per data path) and their `jsonl`. Hand the messages to any host from the render guides, or embed them in an app template. Ids are assigned top-down (`root`, then `row-1`, `row-2` and so on) unless you name a node.
+
+```ts
+const surface = defineSurface(tree, { surfaceId: "working-hours", data: { "/entries": rows } })
+if (surface.issues.length) throw new Error(surface.issues.map((i) => i.id + ": " + i.message).join("\n"))
+host.receive(surface.messages) // or: transport.send(surface.jsonl)
+```
+
+## Compiled in CI
+
+`bun apps/marketing/ui/guides/check.ts define` builds [guides/define](https://github.com/Niach/exponential/blob/master/apps/marketing/ui/guides/define) in an empty directory and runs it under Node.

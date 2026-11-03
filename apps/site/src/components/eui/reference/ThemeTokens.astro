@@ -1,0 +1,111 @@
+---
+/* Every token a theme must define, one table per group, one column per
+   built-in theme (docs/themes.generated.json). Colours and shadows carry a
+   light and a dark value, each with a swatch. */
+import themesDoc from "@exponential_app/eui/docs/themes.generated.json"
+
+type Shadow = { x: number; y: number; blur: number; spread: number; color: string }[]
+
+const GROUP_LABELS: Record<string, string> = {
+  color: `Colour (per mode)`,
+  spacing: `Spacing (px)`,
+  radius: `Radius (px)`,
+  "type.size": `Type size (px)`,
+  "type.lineHeight": `Line height (px)`,
+  "type.weight": `Font weight`,
+  "type.family": `Font family`,
+  control: `Control heights (px)`,
+  shadow: `Shadow (per mode)`,
+  opacity: `Opacity`,
+  border: `Border width (px)`,
+  motion: `Motion (ms)`,
+  breakpoint: `Breakpoint (px)`,
+  ease: `Easing`,
+  density: `Density scale`,
+  blur: `Backdrop blur (px)`,
+  scale: `Motion scale (gpui: fade only)`,
+}
+
+const themes = themesDoc.themes
+const groups = Object.entries(themesDoc.tokens) as [string, { ref: string; values: Record<string, unknown> }[]][]
+const MODES = [`light`, `dark`] as const
+
+const isModed = (v: unknown): v is { light: unknown; dark: unknown } => v !== null && typeof v === `object` && !Array.isArray(v) && `light` in v && `dark` in v
+const shadowCss = (layers: Shadow) => (layers.length ? layers.map((l) => `${l.x}px ${l.y}px ${l.blur}px ${l.spread}px ${l.color}`).join(`, `) : `none`)
+const plain = (v: unknown) => (typeof v === `string` ? v : JSON.stringify(v))
+---
+
+{
+  groups.map(([group, rows]) => (
+    <>
+      <h3 id={`tokens-${group.replace(/\./g, `-`)}`}>{GROUP_LABELS[group] ?? group}</h3>
+      <div class="eui-table-wrap">
+        <table class="eui-token-table">
+          <thead>
+            <tr>
+              <th>Token</th>
+              {themes.map((t) => (
+                <th>{t.name}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr>
+                <td>
+                  <code>{row.ref}</code>
+                </td>
+                {themes.map((t) => {
+                  const value = row.values[t.id]
+                  if (value === undefined) return <td>–</td>
+                  if (!isModed(value))
+                    return (
+                      <td>
+                        <code>{plain(value)}</code>
+                      </td>
+                    )
+                  return (
+                    <td>
+                      {MODES.map((m) => {
+                        const v = value[m]
+                        if (group === `color` && typeof v === `string`)
+                          return (
+                            <span class="eui-token-moded">
+                              <span class={`eui-swatch is-${m}`} title={`${m}: ${v}`}>
+                                <span style={`background: ${v}`} />
+                              </span>
+                              <code>
+                                {m}: {v}
+                              </code>
+                            </span>
+                          )
+                        if (Array.isArray(v))
+                          return (
+                            <span class="eui-token-moded">
+                              <span class={`eui-shadow is-${m}`}>
+                                <span style={`box-shadow: ${shadowCss(v as Shadow)}`} />
+                              </span>
+                              <code>
+                                {m}: {shadowCss(v as Shadow)}
+                              </code>
+                            </span>
+                          )
+                        return (
+                          <span class="eui-token-moded">
+                            <code>
+                              {m}: {plain(v)}
+                            </code>
+                          </span>
+                        )
+                      })}
+                    </td>
+                  )
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  ))
+}

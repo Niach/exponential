@@ -1,0 +1,38 @@
+---
+/* The scenarios (the bench manifest) with every metric and what it measures. */
+import { benchLink, manifest, metricsOf } from "./bench.ts"
+---
+
+<div class="eui-table-wrap">
+  <table class="eui-bench-scenarios">
+    <thead>
+      <tr><th>Scenario</th><th>What it exercises</th><th>Metrics</th></tr>
+    </thead>
+    <tbody>
+      {
+        manifest.scenarios.map((s) => (
+          <tr>
+            <td>
+              <a href={benchLink(s.file)}>
+                <strong>{s.title}</strong>
+              </a>{` `}
+              <code>{s.id}</code>
+            </td>
+            <td>{s.what}</td>
+            <td>
+              <ul class="eui-metric-list">
+                {metricsOf(s).map((m) => (
+                  <li>
+                    <code>{m.id}</code>
+                    {m.optional ? `*` : ``} ({m.kind}): {m.what}
+                  </li>
+                ))}
+              </ul>
+            </td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>
+<p>* optional: a renderer without the counter leaves it out.</p>

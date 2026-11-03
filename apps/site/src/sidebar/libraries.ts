@@ -75,7 +75,7 @@ const motion = {
       items: [
         { label: `Specification`, link: `${MOTION}/reference/` },
         { label: `Engine and players`, link: `${MOTION}/reference/engine/` },
-        { label: `Authoring prompt`, link: `${MOTION}/reference/authoring/` },
+        { label: `Dialect`, link: `${MOTION}/reference/dialect/` },
       ],
     },
   ],

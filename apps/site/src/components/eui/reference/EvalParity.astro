@@ -1,0 +1,28 @@
+---
+/* The sample template against a reference layout (report.json `parity`). */
+import { cssPx, parity } from "./eval.ts"
+
+const pair = (ref: number, tpl: number, delta: number) => `${cssPx(ref)} vs ${cssPx(tpl)} (Δ ${cssPx(delta)})`
+---
+
+<div class="eui-table-wrap">
+  <table>
+    <thead>
+      <tr><th>Platform</th><th>Band height</th><th>Band title inset</th><th>First row inset</th><th>Gap under the band</th><th>Band pixel diff</th></tr>
+    </thead>
+    <tbody>
+      {
+        parity.map((p) => (
+          <tr>
+            <td>{p.platform === `desktop` ? `Desktop (gpui)` : `Web`}</td>
+            <td>{pair(p.native.band.height, p.template.band.height, p.delta.bandHeight)}</td>
+            <td>{pair(p.native.band.titleX, p.template.band.titleX, p.delta.bandTitleX)}</td>
+            <td>{pair(p.native.firstRow.titleX, p.template.firstRow.titleX, p.delta.rowTitleX)}</td>
+            <td>{pair(p.native.firstRow.gapBelowBand, p.template.firstRow.gapBelowBand, p.delta.gapBelowBand)}</td>
+            <td class="eui-num">{(p.bandDiff.share * 100).toFixed(1)} %</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+</div>

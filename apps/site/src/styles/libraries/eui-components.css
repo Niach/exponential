@@ -1,1 +1,46 @@
-/* eui-components: classes prefixed eui- */
+/* eui-components: the generated component reference
+   (scripts/reference/eui-components.ts). Classes prefixed eui-. */
+
+/* A build-time render (EuiSpecimen): framed like the shots, scrolls when
+   wider than the column. The transform makes it the containing block of
+   any fixed layer inside (open overlays stay in the frame). */
+.eui-specimen {
+  margin-top: 1rem;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.75rem;
+  overflow: auto;
+  transform: translateZ(0);
+  contain: paint;
+}
+.eui-specimen + p {
+  margin-top: 0.75rem;
+}
+
+/* Props and keyboard tables: fit the column, the description gets the room;
+   a table wider than the column scrolls inside its wrapper. */
+.eui-ref-table {
+  overflow-x: auto;
+}
+.eui-ref-table table {
+  display: table;
+  width: 100%;
+  font-size: var(--sl-text-sm);
+}
+.eui-ref-table td:first-child code {
+  white-space: nowrap;
+}
+.eui-ref-table td:last-child {
+  min-width: 12rem;
+}
+
+/* The index: each group's links as a compact multi-column list. */
+.eui-component-index ul {
+  columns: 4 10rem;
+  column-gap: 1.5rem;
+  padding: 0;
+  list-style: none;
+}
+.eui-component-index li {
+  margin: 0 0 0.35rem;
+  break-inside: avoid;
+}

@@ -1,6 +1,35 @@
 ---
 title: Motion
-description: Motion.
+description: "eUI's vector animations: one Rust engine samples every frame into a display list, and every renderer paints that list, so React, Solid, the web component, SwiftUI, Compose and gpui show the same picture."
 ---
 
-This page arrives in phase 3. Its content comes from [/ui/guides/motion/](https://exponential.at/ui/guides/motion/).
+`Motion` is the eUI component for vector animation: a loader, a success state, an illustrated empty state, a small explainer. It plays the same on every platform eUI renders on. See it live on [/motion/](/motion/).
+
+## How it works
+
+| Part | What it does |
+|---|---|
+| The dialect | Readable JSON (ms, SVG path data, CSS easing names, `$color` tokens) that a person or a model writes and that compiles to Lottie, losslessly both ways. |
+| The engine | `eui-motion` (Rust) loads a Lottie animation, validates it against the eUI limits (expressions are refused) and samples each frame into a flat display list. |
+| The players | Each renderer paints the display list: one Canvas2D painter for React, Solid and the web component (the engine runs as WebAssembly, about 200 KB gzipped, loaded on the first Motion a page paints), SwiftUI and Compose through UniFFI, gpui natively. |
+| The state machine | dotLottie 2 state machines turn an animation into a control; the engine interprets them, the renderer reports pointer input and restarts the clock. |
+
+## Sources
+
+A `Motion` node takes exactly one source:
+
+| Prop | What |
+|---|---|
+| `layers` (+ `size`, `duration`, `fps`, `assets`, `markers`) | The [dialect](/docs/libraries/motion/reference/dialect/), inline in the surface. |
+| `lottie` | A Lottie JSON animation as is. Expressions are refused; 3D layers are skipped. |
+| `src` | An attached `.json` or `.lottie` file (the first animation of a `.lottie`, its images inlined), fetched under the host's media policy. |
+
+## Models write it
+
+The dialect's guide is part of `catalogPrompt()`, so an agent that builds eUI surfaces can animate them with no extra setup. In the eval, a model wrote all 30 prompts as valid animations on its first try, in about a third of the tokens raw Lottie takes.
+
+## Where next
+
+- [Animate with Motion](/docs/libraries/motion/guides/animate/): the guide, with live examples.
+- [Specification](/docs/libraries/motion/reference/), [Dialect](/docs/libraries/motion/reference/dialect/), [Engine and players](/docs/libraries/motion/reference/engine/).
+- The component's props: [Motion in the eUI reference](/docs/libraries/eui/reference/components/motion/).
