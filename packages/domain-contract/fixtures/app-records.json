@@ -1726,5 +1726,1716 @@
         "rows": []
       }
     ]
+  },
+  "outbox": {
+    "$comment": "VAPP-235 (O1, docs/spec/apps.md §14) THE OFFLINE OUTBOX ×3 (desktop, iOS, Android; the WEB stays online-only, a failed write there toasts as before). Every write an app host's `records.upsert` / `records.delete` / `records.batch` makes becomes ONE outbox ENTRY `{writeId, appId, call, writes, at, state, ackedAt?}`, persisted per account in the host's own store (desktop sync sqlite, GRDB, Room) so it survives a restart: `writeId` = a client uuid (the idempotency key), `call` = upsert | delete | batch (a package action's writes stay ONE entry: all or nothing), `writes` (`outboxWrites`, `writesCases`) = `{op: create|update|delete, id, kind?, data?}` where a CREATE gets a CLIENT uuid (`newIds`, consumed in order) so a retry is idempotent and later offline writes can name the row; the call answers at once from the entry (`upsert` → `{id}`, `delete` → null, `batch` → `{ids}` = every write's id in order). APPLY: the visible rows = the synced rows with every entry (pending AND acked, oldest first) laid over them (`outboxRows`, `rowsCases`): a create adds the row (author = createdBy = the viewer, createdAt = updatedAt = the entry's `at`; a create the shape already carries merges like an update), an update merges its data SHALLOW onto the row (its timestamps stay) and is a no-op on a row that is gone (delete wins), a delete hides the row; new rows follow the synced ones. REPLAY (`outboxRequest`, `requestCases`): one request per entry, `writeId` beside the call's own input; a create sends `newId`, an update `recordId` (upsert) / `id` (batch), a delete `recordId` / `id`. ORDER (`outboxFlush`, `flushCases`): FIFO, ONE request at a time, oldest pending entry first, on every enqueue, when the connection comes back and at launch; an entry's OUTCOME (`outboxOutcome`, `outcomeCases`): ok = `done` (the entry turns `acked` at `ackedAt` = now and keeps overlaying until the shape reflects it); a transport failure (no network, timeout) or a code in `retryCodes` = `retry` (the entry stays pending and the flush STOPS: nothing behind it may overtake it); `NOT_FOUND` on a single update or delete (call upsert/delete, no create) = `dropped` (delete wins: the row is gone on the server, removed silently); any other code (policy, schema, quota, transition, a batch's `write <i>: …`) = `refused`: the entry is removed (the optimistic rows roll back with it) and the host shows the failed-action toast `Couldn't <verb> the record` (feedback-states.json; `verb` = delete when every write is a delete, else save; the server's message as the description), then the flush goes on with the next entry. A host call made while the queue is empty and the device online awaits its own entry's first outcome: refused = the toast + the call fails (as online today), done = the online answer (a batch's Undo toast with the server's event ids), retry = it answers from the entry (offline). PRUNE (`outboxPrune`, `pruneCases`): an acked entry leaves once the synced rows REFLECT it (every create/update's row present with each written field deep-equal, every deleted row absent) or `ackGraceSeconds` after `ackedAt`. SERVER (the records service, `apps.records.upsert {newId?, writeId?}` / `delete {writeId?}` / `batch {writeId?, writes[].newId?}`): a `writeId` already in `app_record_events.write_id` for the same app and actor answers the FIRST write's result and writes nothing (the dedupe, under an advisory lock on the write id; kept as long as the events: `history.retentionDays`); a `newId` that names an existing row = CONFLICT. CONFLICTS: the server merges each replayed patch onto the row as it is at receive time (last writer wins per field) and logs the R4 history event like any write (via `app`, a batch `action`); a delete wins over a later update (`dropped`). PENDING INDICATOR: while the app has pending (not acked) entries the running app's header shows the existing `ui-offline` glyph (muted, icon size), its tooltip / accessibility label `outboxPendingLabel` (`copy.pendingOne` / `copy.pending`, `pendingCases`); none = nothing. What never queues: `exponential.*` actions and upstream reads (online only, as before).",
+    "ackGraceSeconds": 30,
+    "retryCodes": [
+      "UNAUTHORIZED",
+      "TIMEOUT",
+      "TOO_MANY_REQUESTS",
+      "CLIENT_CLOSED_REQUEST",
+      "INTERNAL_SERVER_ERROR",
+      "BAD_GATEWAY",
+      "SERVICE_UNAVAILABLE",
+      "GATEWAY_TIMEOUT"
+    ],
+    "copy": {
+      "pendingOne": "1 change waiting to sync",
+      "pending": "{n} changes waiting to sync"
+    },
+    "writesCases": [
+      {
+        "name": "an upsert without an id creates with a client id",
+        "call": "upsert",
+        "args": {
+          "kind": "log",
+          "data": {
+            "hours": 2
+          }
+        },
+        "newIds": [
+          "n1"
+        ],
+        "writes": [
+          {
+            "op": "create",
+            "id": "n1",
+            "kind": "log",
+            "data": {
+              "hours": 2
+            }
+          }
+        ]
+      },
+      {
+        "name": "an upsert with an id updates that row",
+        "call": "upsert",
+        "args": {
+          "kind": "log",
+          "data": {
+            "hours": 3
+          },
+          "id": "r1"
+        },
+        "newIds": [],
+        "writes": [
+          {
+            "op": "update",
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "hours": 3
+            }
+          }
+        ]
+      },
+      {
+        "name": "a delete",
+        "call": "delete",
+        "args": {
+          "id": "r1"
+        },
+        "newIds": [],
+        "writes": [
+          {
+            "op": "delete",
+            "id": "r1"
+          }
+        ]
+      },
+      {
+        "name": "a batch keeps its order; each create takes the next client id",
+        "call": "batch",
+        "args": {
+          "writes": [
+            {
+              "op": "upsert",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            },
+            {
+              "op": "upsert",
+              "kind": "log",
+              "data": {
+                "note": "x"
+              },
+              "id": "r1"
+            },
+            {
+              "op": "delete",
+              "id": "r2"
+            },
+            {
+              "op": "upsert",
+              "kind": "log",
+              "data": {
+                "hours": 4
+              }
+            }
+          ]
+        },
+        "newIds": [
+          "n1",
+          "n2"
+        ],
+        "writes": [
+          {
+            "op": "create",
+            "id": "n1",
+            "kind": "log",
+            "data": {
+              "hours": 1
+            }
+          },
+          {
+            "op": "update",
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "note": "x"
+            }
+          },
+          {
+            "op": "delete",
+            "id": "r2"
+          },
+          {
+            "op": "create",
+            "id": "n2",
+            "kind": "log",
+            "data": {
+              "hours": 4
+            }
+          }
+        ]
+      },
+      {
+        "name": "an upsert without data writes an empty object",
+        "call": "upsert",
+        "args": {
+          "kind": "log"
+        },
+        "newIds": [
+          "n1"
+        ],
+        "writes": [
+          {
+            "op": "create",
+            "id": "n1",
+            "kind": "log",
+            "data": {}
+          }
+        ]
+      }
+    ],
+    "requestCases": [
+      {
+        "name": "a create sends newId",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "create",
+              "id": "n1",
+              "kind": "log",
+              "data": {
+                "hours": 2
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "request": {
+          "call": "upsert",
+          "input": {
+            "kind": "log",
+            "data": {
+              "hours": 2
+            },
+            "newId": "n1",
+            "writeId": "w1"
+          }
+        }
+      },
+      {
+        "name": "an update sends recordId",
+        "entry": {
+          "writeId": "w2",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "update",
+              "id": "r1",
+              "kind": "log",
+              "data": {
+                "hours": 3
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "request": {
+          "call": "upsert",
+          "input": {
+            "kind": "log",
+            "data": {
+              "hours": 3
+            },
+            "recordId": "r1",
+            "writeId": "w2"
+          }
+        }
+      },
+      {
+        "name": "a delete sends recordId",
+        "entry": {
+          "writeId": "w3",
+          "appId": "a1",
+          "call": "delete",
+          "writes": [
+            {
+              "op": "delete",
+              "id": "r1"
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "request": {
+          "call": "delete",
+          "input": {
+            "recordId": "r1",
+            "writeId": "w3"
+          }
+        }
+      },
+      {
+        "name": "a batch sends its writes in order",
+        "entry": {
+          "writeId": "w4",
+          "appId": "a1",
+          "call": "batch",
+          "writes": [
+            {
+              "op": "create",
+              "id": "n1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            },
+            {
+              "op": "update",
+              "id": "r1",
+              "kind": "log",
+              "data": {
+                "note": "x"
+              }
+            },
+            {
+              "op": "delete",
+              "id": "r2"
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "request": {
+          "call": "batch",
+          "input": {
+            "writes": [
+              {
+                "op": "upsert",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                },
+                "newId": "n1"
+              },
+              {
+                "op": "upsert",
+                "kind": "log",
+                "data": {
+                  "note": "x"
+                },
+                "id": "r1"
+              },
+              {
+                "op": "delete",
+                "id": "r2"
+              }
+            ],
+            "writeId": "w4"
+          }
+        }
+      }
+    ],
+    "rowsCases": [
+      {
+        "name": "no entries = the synced rows",
+        "me": "u1",
+        "rows": [
+          {
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "hours": 2
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          }
+        ],
+        "entries": [],
+        "expected": [
+          {
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "hours": 2
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "name": "a pending create adds the viewer's row after the synced ones",
+        "me": "u1",
+        "rows": [
+          {
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "hours": 2
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          }
+        ],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 5
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "expected": [
+          {
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "hours": 2
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          },
+          {
+            "id": "n1",
+            "kind": "log",
+            "data": {
+              "hours": 5
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-03T10:00:00.000Z",
+            "updatedAt": "2026-11-03T10:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "name": "an update merges its data shallow (the timestamps stay the synced ones)",
+        "me": "u2",
+        "rows": [
+          {
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "hours": 2,
+              "note": "a"
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          }
+        ],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "update",
+                "id": "r1",
+                "kind": "log",
+                "data": {
+                  "hours": 3
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "expected": [
+          {
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "hours": 3,
+              "note": "a"
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "name": "a delete hides the row",
+        "me": "u1",
+        "rows": [
+          {
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "hours": 2
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          },
+          {
+            "id": "r2",
+            "kind": "log",
+            "data": {
+              "hours": 1
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          }
+        ],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "delete",
+            "writes": [
+              {
+                "op": "delete",
+                "id": "r1"
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "expected": [
+          {
+            "id": "r2",
+            "kind": "log",
+            "data": {
+              "hours": 1
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "name": "an update of a row that is gone does nothing (delete wins)",
+        "me": "u1",
+        "rows": [],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "update",
+                "id": "r1",
+                "kind": "log",
+                "data": {
+                  "hours": 3
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "expected": []
+      },
+      {
+        "name": "entries apply oldest first: create, then update, then a second create",
+        "me": "u1",
+        "rows": [],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          },
+          {
+            "writeId": "w2",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "update",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "note": "b"
+                }
+              }
+            ],
+            "at": "2026-11-03T10:05:00.000Z",
+            "state": "pending"
+          },
+          {
+            "writeId": "w3",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n2",
+                "kind": "log",
+                "data": {
+                  "hours": 2
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "expected": [
+          {
+            "id": "n1",
+            "kind": "log",
+            "data": {
+              "hours": 1,
+              "note": "b"
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-03T10:00:00.000Z",
+            "updatedAt": "2026-11-03T10:00:00.000Z"
+          },
+          {
+            "id": "n2",
+            "kind": "log",
+            "data": {
+              "hours": 2
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-03T10:00:00.000Z",
+            "updatedAt": "2026-11-03T10:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "name": "a create then a delete in one batch leaves nothing",
+        "me": "u1",
+        "rows": [],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "batch",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              },
+              {
+                "op": "delete",
+                "id": "n1"
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "expected": []
+      },
+      {
+        "name": "an acked create the shape already carries merges, no duplicate",
+        "me": "u1",
+        "rows": [
+          {
+            "id": "n1",
+            "kind": "log",
+            "data": {
+              "hours": 5
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-03T10:00:01.000Z",
+            "updatedAt": "2026-11-03T10:00:01.000Z"
+          }
+        ],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 5
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T10:00:01.000Z"
+          }
+        ],
+        "expected": [
+          {
+            "id": "n1",
+            "kind": "log",
+            "data": {
+              "hours": 5
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-03T10:00:01.000Z",
+            "updatedAt": "2026-11-03T10:00:01.000Z"
+          }
+        ]
+      }
+    ],
+    "outcomeCases": [
+      {
+        "name": "ok",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "create",
+              "id": "n1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "ok": true
+        },
+        "outcome": "done"
+      },
+      {
+        "name": "no network",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "create",
+              "id": "n1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "transport": true
+        },
+        "outcome": "retry"
+      },
+      {
+        "name": "a server error retries",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "create",
+              "id": "n1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "INTERNAL_SERVER_ERROR"
+        },
+        "outcome": "retry"
+      },
+      {
+        "name": "signed out retries (kept for the account)",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "delete",
+          "writes": [
+            {
+              "op": "delete",
+              "id": "r1"
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "UNAUTHORIZED"
+        },
+        "outcome": "retry"
+      },
+      {
+        "name": "the schema refuses",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "create",
+              "id": "n1",
+              "kind": "log",
+              "data": {
+                "hours": "x"
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "BAD_REQUEST"
+        },
+        "outcome": "refused"
+      },
+      {
+        "name": "the policy refuses",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "update",
+              "id": "r1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "FORBIDDEN"
+        },
+        "outcome": "refused"
+      },
+      {
+        "name": "the quota refuses",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "create",
+              "id": "n1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "PRECONDITION_FAILED"
+        },
+        "outcome": "refused"
+      },
+      {
+        "name": "an update of a deleted record is dropped (delete wins)",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "update",
+              "id": "r1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "NOT_FOUND"
+        },
+        "outcome": "dropped"
+      },
+      {
+        "name": "a delete of a deleted record is dropped",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "delete",
+          "writes": [
+            {
+              "op": "delete",
+              "id": "r1"
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "NOT_FOUND"
+        },
+        "outcome": "dropped"
+      },
+      {
+        "name": "a create whose app is gone is refused",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "create",
+              "id": "n1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "NOT_FOUND"
+        },
+        "outcome": "refused"
+      },
+      {
+        "name": "a batch with a create is refused on NOT_FOUND (all or nothing)",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "batch",
+          "writes": [
+            {
+              "op": "create",
+              "id": "n1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            },
+            {
+              "op": "update",
+              "id": "r1",
+              "kind": "log",
+              "data": {
+                "hours": 2
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "NOT_FOUND"
+        },
+        "outcome": "refused"
+      },
+      {
+        "name": "a batch of updates is refused on NOT_FOUND (its other writes did not land)",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "batch",
+          "writes": [
+            {
+              "op": "update",
+              "id": "r1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            },
+            {
+              "op": "update",
+              "id": "r2",
+              "kind": "log",
+              "data": {
+                "hours": 2
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "NOT_FOUND"
+        },
+        "outcome": "refused"
+      },
+      {
+        "name": "a client id that already exists is refused",
+        "entry": {
+          "writeId": "w1",
+          "appId": "a1",
+          "call": "upsert",
+          "writes": [
+            {
+              "op": "create",
+              "id": "n1",
+              "kind": "log",
+              "data": {
+                "hours": 1
+              }
+            }
+          ],
+          "at": "2026-11-03T10:00:00.000Z",
+          "state": "pending"
+        },
+        "result": {
+          "code": "CONFLICT"
+        },
+        "outcome": "refused"
+      }
+    ],
+    "flushCases": [
+      {
+        "name": "all land: sent oldest first, every entry acked",
+        "now": "2026-11-03T11:00:00.000Z",
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          },
+          {
+            "writeId": "w2",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "update",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 2
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "results": {
+          "w1": {
+            "ok": true
+          },
+          "w2": {
+            "ok": true
+          }
+        },
+        "sent": [
+          "w1",
+          "w2"
+        ],
+        "refused": [],
+        "after": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T11:00:00.000Z"
+          },
+          {
+            "writeId": "w2",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "update",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 2
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T11:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "name": "a transport failure stops the flush; nothing overtakes",
+        "now": "2026-11-03T11:00:00.000Z",
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          },
+          {
+            "writeId": "w2",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n2",
+                "kind": "log",
+                "data": {
+                  "hours": 2
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "results": {
+          "w1": {
+            "transport": true
+          },
+          "w2": {
+            "ok": true
+          }
+        },
+        "sent": [
+          "w1"
+        ],
+        "refused": [],
+        "after": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          },
+          {
+            "writeId": "w2",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n2",
+                "kind": "log",
+                "data": {
+                  "hours": 2
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ]
+      },
+      {
+        "name": "a refusal rolls its entry back, toasts, and the flush goes on",
+        "now": "2026-11-03T11:00:00.000Z",
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": "x"
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          },
+          {
+            "writeId": "w2",
+            "appId": "a1",
+            "call": "delete",
+            "writes": [
+              {
+                "op": "delete",
+                "id": "r1"
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          },
+          {
+            "writeId": "w3",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n3",
+                "kind": "log",
+                "data": {
+                  "hours": 3
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "results": {
+          "w1": {
+            "code": "BAD_REQUEST"
+          },
+          "w2": {
+            "code": "FORBIDDEN"
+          },
+          "w3": {
+            "ok": true
+          }
+        },
+        "sent": [
+          "w1",
+          "w2",
+          "w3"
+        ],
+        "refused": [
+          {
+            "writeId": "w1",
+            "verb": "save"
+          },
+          {
+            "writeId": "w2",
+            "verb": "delete"
+          }
+        ],
+        "after": [
+          {
+            "writeId": "w3",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n3",
+                "kind": "log",
+                "data": {
+                  "hours": 3
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T11:00:00.000Z"
+          }
+        ]
+      },
+      {
+        "name": "a dropped update leaves silently",
+        "now": "2026-11-03T11:00:00.000Z",
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "update",
+                "id": "r1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "results": {
+          "w1": {
+            "code": "NOT_FOUND"
+          }
+        },
+        "sent": [
+          "w1"
+        ],
+        "refused": [],
+        "after": []
+      },
+      {
+        "name": "acked entries are not sent again",
+        "now": "2026-11-03T11:00:00.000Z",
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T10:59:50.000Z"
+          },
+          {
+            "writeId": "w2",
+            "appId": "a1",
+            "call": "delete",
+            "writes": [
+              {
+                "op": "delete",
+                "id": "r9"
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "results": {
+          "w2": {
+            "ok": true
+          }
+        },
+        "sent": [
+          "w2"
+        ],
+        "refused": [],
+        "after": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T10:59:50.000Z"
+          },
+          {
+            "writeId": "w2",
+            "appId": "a1",
+            "call": "delete",
+            "writes": [
+              {
+                "op": "delete",
+                "id": "r9"
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T11:00:00.000Z"
+          }
+        ]
+      }
+    ],
+    "pruneCases": [
+      {
+        "name": "pending entries always stay",
+        "now": "2026-11-03T12:00:00.000Z",
+        "rows": [],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "kept": [
+          "w1"
+        ]
+      },
+      {
+        "name": "an acked create the shape reflects leaves",
+        "now": "2026-11-03T11:00:05.000Z",
+        "rows": [
+          {
+            "id": "n1",
+            "kind": "log",
+            "data": {
+              "hours": 1,
+              "note": null
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          }
+        ],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T11:00:00.000Z"
+          }
+        ],
+        "kept": []
+      },
+      {
+        "name": "an acked create not yet synced stays",
+        "now": "2026-11-03T11:00:05.000Z",
+        "rows": [],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T11:00:00.000Z"
+          }
+        ],
+        "kept": [
+          "w1"
+        ]
+      },
+      {
+        "name": "an acked update whose field differs stays",
+        "now": "2026-11-03T11:00:05.000Z",
+        "rows": [
+          {
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "hours": 1
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          }
+        ],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "update",
+                "id": "r1",
+                "kind": "log",
+                "data": {
+                  "hours": 2
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T11:00:00.000Z"
+          }
+        ],
+        "kept": [
+          "w1"
+        ]
+      },
+      {
+        "name": "an acked delete leaves once the row is gone",
+        "now": "2026-11-03T11:00:05.000Z",
+        "rows": [],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "delete",
+            "writes": [
+              {
+                "op": "delete",
+                "id": "r1"
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T11:00:00.000Z"
+          }
+        ],
+        "kept": []
+      },
+      {
+        "name": "an acked entry leaves after the grace even unreflected (someone wrote after)",
+        "now": "2026-11-03T11:00:30.000Z",
+        "rows": [
+          {
+            "id": "r1",
+            "kind": "log",
+            "data": {
+              "hours": 9
+            },
+            "createdBy": "u1",
+            "authorId": "u1",
+            "createdAt": "2026-11-01T09:00:00.000Z",
+            "updatedAt": "2026-11-01T09:00:00.000Z"
+          }
+        ],
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "update",
+                "id": "r1",
+                "kind": "log",
+                "data": {
+                  "hours": 2
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T11:00:00.000Z"
+          }
+        ],
+        "kept": []
+      }
+    ],
+    "pendingCases": [
+      {
+        "name": "none",
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "acked",
+            "ackedAt": "2026-11-03T10:00:00.000Z"
+          }
+        ],
+        "appId": "a1",
+        "label": null
+      },
+      {
+        "name": "one",
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "appId": "a1",
+        "label": "1 change waiting to sync"
+      },
+      {
+        "name": "several of this app only",
+        "entries": [
+          {
+            "writeId": "w1",
+            "appId": "a1",
+            "call": "upsert",
+            "writes": [
+              {
+                "op": "create",
+                "id": "n1",
+                "kind": "log",
+                "data": {
+                  "hours": 1
+                }
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          },
+          {
+            "writeId": "w2",
+            "appId": "a1",
+            "call": "delete",
+            "writes": [
+              {
+                "op": "delete",
+                "id": "r1"
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          },
+          {
+            "writeId": "w3",
+            "appId": "a2",
+            "call": "delete",
+            "writes": [
+              {
+                "op": "delete",
+                "id": "r2"
+              }
+            ],
+            "at": "2026-11-03T10:00:00.000Z",
+            "state": "pending"
+          }
+        ],
+        "appId": "a1",
+        "label": "2 changes waiting to sync"
+      }
+    ]
   }
 }

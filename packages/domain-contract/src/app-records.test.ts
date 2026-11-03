@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/app-records.json" with { type: "json" }
-import { eventLabel, eventState, historyRows, inverseWrite, APP_RECORD_ROW_KEYS, appRecordPurgeDue, authorOptions, canChangeRecord, formAuthor, importAuthor, recordAuthor, recordByline, writeAsVerdict, cellText, dataColumns, dataKinds, dataRows, formData, formFields, formInput, recordsCountLabel } from "./app-records"
+import { eventLabel, eventState, historyRows, inverseWrite, outboxFlush, outboxOutcome, outboxPendingLabel, outboxPrune, outboxRequest, outboxRows, outboxWrites, APP_RECORD_ROW_KEYS, appRecordPurgeDue, authorOptions, canChangeRecord, formAuthor, importAuthor, recordAuthor, recordByline, writeAsVerdict, cellText, dataColumns, dataKinds, dataRows, formData, formFields, formInput, recordsCountLabel } from "./app-records"
 
 // VAPP-189: the query and its value are eUI's (packages/exponential-ui
 // fixtures/records-query.json); what stays here is Exponential's own.
@@ -81,5 +81,30 @@ describe(`record history (VAPP-215)`, () => {
   })
   test.each(h.rowsCases)(`historyRows: $name`, (c) => {
     expect(historyRows(c.events as never, c.names as Record<string, string>, c.fallback)).toEqual(c.rows)
+  })
+})
+
+describe(`record outbox (VAPP-235)`, () => {
+  const o = fixture.outbox
+  test.each(o.writesCases)(`outboxWrites: $name`, (c) => {
+    expect(outboxWrites(c.call as never, c.args as never, c.newIds)).toEqual(c.writes as never)
+  })
+  test.each(o.requestCases)(`outboxRequest: $name`, (c) => {
+    expect(outboxRequest(c.entry as never)).toEqual(c.request as never)
+  })
+  test.each(o.rowsCases)(`outboxRows: $name`, (c) => {
+    expect(outboxRows(c.rows as never, c.entries as never, c.me)).toEqual(c.expected as never)
+  })
+  test.each(o.outcomeCases)(`outboxOutcome: $name`, (c) => {
+    expect(outboxOutcome(c.entry as never, c.result as never)).toBe(c.outcome as never)
+  })
+  test.each(o.flushCases)(`outboxFlush: $name`, (c) => {
+    expect(outboxFlush(c.entries as never, c.results as never, c.now)).toEqual({ sent: c.sent, refused: c.refused, after: c.after } as never)
+  })
+  test.each(o.pruneCases)(`outboxPrune: $name`, (c) => {
+    expect(outboxPrune(c.entries as never, c.rows as never, c.now).map((e) => e.writeId)).toEqual(c.kept)
+  })
+  test.each(o.pendingCases)(`outboxPendingLabel: $name`, (c) => {
+    expect(outboxPendingLabel(c.entries as never, c.appId)).toBe(c.label)
   })
 })
