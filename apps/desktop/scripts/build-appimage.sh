@@ -91,6 +91,51 @@ MimeType=x-scheme-handler/exponential;
 StartupWMClass=${APP_ID}
 EOF
 
+# --- libpipewire fallback (#NEW-128) --------------------------------------
+# gpui, epilot-screen and etalk link libpipewire-0.3 at LOAD time, and the
+# AppImage excludelist keeps it out of usr/lib on purpose: the host's copy
+# must match the host's PipeWire daemon and SPA plugins. A distro without it
+# exited 127 before main ran. The build host's copy (it needs only libc)
+# rides along in usr/lib/fallback, and AppRun (below) points the loader at
+# it ONLY when the host has none: the app then starts, screen capture and
+# audio report "unavailable" (verified in a bare ubuntu:24.04, no PipeWire
+# and no SPA modules, 2026-11-03).
+FALLBACK="$APPDIR/usr/lib/fallback"
+mkdir -p "$FALLBACK"
+PIPEWIRE_LIB="$(ldd "$BIN" | awk '$1 == "libpipewire-0.3.so.0" { print $3 }')"
+[ -n "$PIPEWIRE_LIB" ] && [ -f "$PIPEWIRE_LIB" ] || {
+  echo "libpipewire-0.3.so.0 not found on the build host (install libpipewire-0.3-dev)" >&2
+  exit 1
+}
+cp -L "$PIPEWIRE_LIB" "$FALLBACK/libpipewire-0.3.so.0"
+
+APPRUN="${WORK}/AppRun"
+cat > "$APPRUN" <<'APPRUN_EOF'
+#!/bin/sh
+# Exponential AppRun (#NEW-128): the host's libpipewire-0.3 when it has one,
+# else the bundled fallback; then the app itself, in place.
+HERE="$(dirname "$(readlink -f "$0")")"
+has_pipewire() {
+  for ldconfig in ldconfig /sbin/ldconfig /usr/sbin/ldconfig; do
+    if command -v "$ldconfig" >/dev/null 2>&1; then
+      "$ldconfig" -p 2>/dev/null | grep -q 'libpipewire-0\.3\.so\.0 ' && return 0
+      return 1
+    fi
+  done
+  for dir in /usr/lib64 /usr/lib /lib64 /lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu; do
+    [ -e "$dir/libpipewire-0.3.so.0" ] && return 0
+  done
+  return 1
+}
+if ! has_pipewire; then
+  echo "Exponential: libpipewire-0.3 is not installed; using the bundled copy (screen sharing and audio stay unavailable)." >&2
+  LD_LIBRARY_PATH="$HERE/usr/lib/fallback${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export LD_LIBRARY_PATH
+fi
+exec "$HERE/usr/bin/exp-desktop" "$@"
+APPRUN_EOF
+chmod +x "$APPRUN"
+
 # --- linuxdeploy ----------------------------------------------------------
 TOOLS="${TARGET_DIR}/appimage-tools"
 mkdir -p "$TOOLS"
@@ -110,6 +155,7 @@ rm -f "$OUTPUT"
   --executable "$APPDIR/usr/bin/exp-desktop" \
   --desktop-file "$DESKTOP" \
   --icon-file "$ICON_PNG" \
+  --custom-apprun "$APPRUN" \
   --output appimage
 
 # The raw `.AppImage` is the ONLY Linux release asset (EXP-68 — the old
