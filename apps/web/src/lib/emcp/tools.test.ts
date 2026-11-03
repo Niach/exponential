@@ -1075,6 +1075,7 @@ describe(`exponential_teams_get`, () => {
       `prOpenedAutomation`,
       `prOpenedStatusId`,
       `slug`,
+      `timeZone`,
       `updatedAt`,
       `yoloMode`,
     ])
