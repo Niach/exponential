@@ -1,0 +1,77 @@
+name: smoke-desktop-windows
+
+# EXP-1396: the released Windows exe starts without the voice runtime. Runs a
+# published desktop-v* build on windows-latest with a fresh data dir: the IDE
+# must stay up (no crash at load or start), and its speech worker, before the
+# first voice download and with no audio device, must answer every request
+# with an unavailable state and exit on EOF. Dispatch it after a desktop
+# release (or when this file changes).
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "desktop-v* tag to smoke (empty = the latest release)"
+        required: false
+  pull_request:
+    paths: [".github/workflows/smoke-desktop-windows.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXP_DATA_DIR: ${{ runner.temp }}\expdata
+    steps:
+      - name: Download the exe
+        shell: pwsh
+        run: |
+          $tag = "${{ inputs.tag }}"
+          if (-not $tag) { $tag = gh release list -R $env:GITHUB_REPOSITORY --limit 50 --json tagName -q '[.[] | select(.tagName | startswith("desktop-v"))][0].tagName' }
+          Write-Host "tag: $tag"
+          gh release download $tag -R $env:GITHUB_REPOSITORY -p '*-windows.exe' -D "$env:RUNNER_TEMP\exp"
+          Get-ChildItem "$env:RUNNER_TEMP\exp"
+
+      - name: The IDE starts and stays up
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem "$env:RUNNER_TEMP\exp\*-windows.exe").FullName
+          New-Item -ItemType Directory -Force $env:EXP_DATA_DIR | Out-Null
+          $p = Start-Process -FilePath $exe -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\ide.out" -RedirectStandardError "$env:RUNNER_TEMP\ide.err"
+          Start-Sleep -Seconds 90
+          $alive = -not $p.HasExited
+          Write-Host "alive after 90 s: $alive"
+          if (-not $alive) { Write-Host "exit code: $($p.ExitCode)" }
+          Get-Content "$env:RUNNER_TEMP\ide.err" -Tail 60 -ErrorAction SilentlyContinue
+          Get-ChildItem -Recurse $env:EXP_DATA_DIR -Filter *.log | ForEach-Object { Write-Host "== $($_.FullName)"; Get-Content $_.FullName -Tail 80 }
+          if ($alive) { Stop-Process -Id $p.Id -Force } else { exit 1 }
+
+      - name: The speech worker without its runtime
+        shell: pwsh
+        run: |
+          $exe = (Get-ChildItem "$env:RUNNER_TEMP\exp\*-windows.exe").FullName
+          $requests = @(
+            '{"t":"listen","id":"a","language":"en"}',
+            '{"t":"wake","phrase":"Hey spezl","language":"en"}',
+            '{"t":"call","id":"c","language":"en","remote":false,"ringMs":0}'
+          ) -join "`n"
+          $psi = New-Object System.Diagnostics.ProcessStartInfo $exe
+          $psi.Arguments = "__speech-worker --data-dir `"$env:RUNNER_TEMP\wd`""
+          $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true; $psi.UseShellExecute = $false
+          $w = [System.Diagnostics.Process]::Start($psi)
+          $out = $w.StandardOutput.ReadLineAsync()
+          $w.StandardInput.WriteLine($requests)
+          $w.StandardInput.Flush()
+          Start-Sleep -Seconds 20
+          $w.StandardInput.Close()
+          $exited = $w.WaitForExit(30000)
+          $stdout = $out.Result + "`n" + $w.StandardOutput.ReadToEnd()
+          Write-Host "--- events"; Write-Host $stdout
+          Write-Host "--- log"; Write-Host ($w.StandardError.ReadToEnd())
+          Write-Host "exited on EOF: $exited (code $($w.ExitCode))"
+          if (-not $exited) { $w.Kill(); exit 1 }
+          if ($stdout -notmatch '"t":"ready"') { exit 1 }
