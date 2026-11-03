@@ -46,6 +46,19 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-publish-apps",
+    date: "2026-11-03",
+    title: "Publish apps when they are ready",
+    summary: "App edits are drafts until someone presses Publish, a team can set its own time zone for apps, and read-only members see an app's inputs disabled.",
+    body: r#"- **Draft and publish**: every edit to an app, by you or its editor agent, is a draft; the team keeps using the published version until someone presses Publish. Publishing an older version rolls back.
+- **Team time zone**: owners pick the team's time zone in Settings › General; apps read today and dates in it, so everyone sees the same month.
+- **Read-only access**: a member with read access sees an app's own inputs and save buttons disabled instead of a refusal after pressing.
+- **Safer installs**: an app that names a missing component or reads a value that can be empty is refused when it is saved, with the path to fix."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_183: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-built-in-skills",
     date: "2026-11-03",
     title: "Built-in skills for apps, UI and Motion",
