@@ -2787,11 +2787,6 @@ async function main() {
       },
     ])
     .returning()
-  const skillId = (name: string) => skillRows.find((row) => row.name === name)!.id
-  await db
-    .update(agents)
-    .set({ skillIds: [skillId(`incident-triage`), skillId(`release-notes`)] })
-    .where(eq(agents.id, DEMO_AGENT_IDS.triage))
 
   // A teammate's headless `exponential` server shared with the team (EXP-432),
   // so the Agents page renders its "Team machines" section and a Shared badge
@@ -2882,6 +2877,13 @@ async function main() {
     return row
   }
   await seedSessionTree({ teamId: ws.id, demoId, jonas, repoId: repo.id, issue })
+  // #EXP-1659: the Triage agent's default skills (its page's Skills row);
+  // after the session tree, which inserts the agents.
+  const skillId = (name: string) => skillRows.find((row) => row.name === name)!.id
+  await db
+    .update(agents)
+    .set({ skillIds: [skillId(`incident-triage`), skillId(`release-notes`)] })
+    .where(eq(agents.id, DEMO_AGENT_IDS.triage))
   await seedMcpActivity({ teamId: ws.id, demoId, mira, jonas })
   // #EXP-1456: the Assistant's decision push (issue-less, session-routed:
   // notifyAssistantDecision), the inbox's newest row; after the tree, whose
