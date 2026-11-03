@@ -438,6 +438,8 @@ pub struct GeneralPane {
     saving: bool,
     /// EXP-1105: a yolo-mode `teams.update` is in flight (switch disabled).
     yolo_busy: bool,
+    /// VAPP-201: a time-zone `teams.update` is in flight (picker disabled).
+    zone_busy: bool,
     /// EXP-288: the read-only plan/usage summary between the name card and
     /// the Danger Zone. Refetched on team/account change; hidden while
     /// loading/failed and entirely on self-hosted (`plan == "unlimited"`).
@@ -510,6 +512,7 @@ impl GeneralPane {
             snapshot: None,
             saving: false,
             yolo_busy: false,
+            zone_busy: false,
             billing: BillingLoad::Idle,
             billing_team: None,
             billing_account: None,
@@ -928,6 +931,79 @@ impl GeneralPane {
         .detach();
     }
 
+    /// VAPP-201 (team-zone.json): the General group's Time zone row = THE
+    /// schedule zone picker (`schedule_fields::time_zone_items`) with
+    /// `Device time zone` (= none) first; owners pick, saved at once.
+    fn time_zone_row(&self, team: &domain::rows::Team, owner: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        let copy = &domain::team_zone::TEAM_ZONE.copy;
+        let current = team.time_zone.clone().unwrap_or_default();
+        let label = if current.is_empty() { copy.device.clone() } else { current.clone() };
+        let trigger = Button::new(SharedString::from(domain::team_zone::TEAM_ZONE.test_ids.row.clone()))
+            .ghost()
+            .cursor_pointer()
+            .h_auto()
+            .px_0()
+            .py_0()
+            .text_color(cx.theme().foreground.opacity(0.7))
+            .child(crate::surface::picker_value_label(label))
+            .child(crate::surface::picker_row_chevron(cx));
+        let mut items = vec![crate::picker::PickerItem::new(String::new(), copy.device.clone())
+            .keywords(vec![SharedString::from(copy.device.clone())])];
+        items.extend(crate::schedule_fields::time_zone_items(&current));
+        let team_id = team.id.clone();
+        let view = cx.entity().downgrade();
+        let control = crate::picker::Picker::single(
+            items,
+            Some(current.clone()),
+            trigger.into_any_element(),
+            std::rc::Rc::new(move |next: Vec<String>, _window, cx: &mut App| {
+                let Some(zone) = next.into_iter().next() else { return };
+                if zone == current {
+                    return;
+                }
+                let team_id = team_id.clone();
+                let _ = view.update(cx, |this, cx| this.set_time_zone(team_id, zone, cx));
+            }),
+        )
+        .search(true)
+        .disabled(!owner || self.zone_busy)
+        .id(SharedString::from(format!("{}-picker", domain::team_zone::TEAM_ZONE.test_ids.row)))
+        .render(window, cx);
+        crate::surface::glass_picker_row(copy.row.clone(), None, control, cx)
+    }
+
+    /// VAPP-201: write the team zone (`""` = none, the device's) through
+    /// `teams.update`; the Electric echo moves the row, a failure toasts.
+    fn set_time_zone(&mut self, team_id: String, zone: String, cx: &mut gpui::Context<Self>) {
+        if self.zone_busy {
+            return;
+        }
+        let Some(trpc) = crate::queries::trpc_client(cx) else {
+            crate::action_error::failed_action("save", "the time zone", None, cx);
+            return;
+        };
+        self.zone_busy = true;
+        cx.notify();
+        cx.spawn(async move |this, cx| {
+            let result = cx
+                .background_executor()
+                .spawn(async move {
+                    let mut input = api::teams::TeamsUpdateInput::new(team_id);
+                    input.time_zone = if zone.is_empty() { api::Patch::Null } else { api::Patch::Set(zone) };
+                    api::teams::teams_update(&trpc, &input)
+                })
+                .await;
+            let _ = this.update(cx, |this, cx| {
+                this.zone_busy = false;
+                if let Err(err) = result {
+                    crate::action_error::failed_action_err("save", "the time zone", &err, cx);
+                }
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
     /// EXP-1105: flip the team's synced `yolo_mode` through `teams.update`
     /// (owner-only server-side). No optimistic flip — the Electric echo moves
     /// the switch.
@@ -1182,9 +1258,10 @@ impl Render for GeneralPane {
                     .child(if saving { "Saving…" } else { "Unsaved" }),
             )
         });
+        let zone_row = self.time_zone_row(&team, owner, window, cx);
         let mut general = section(cx)
             .child(crate::surface::glass_section_header("General", None, cx))
-            .child(crate::surface::glass_group_rows(vec![name_row]));
+            .child(crate::surface::glass_group_rows(vec![name_row, zone_row]));
         // EXP-1105: yolo mode — owner-only and HIDDEN from everyone else,
         // like every owner control in this pane. Its OWN group under Name,
         // label only (web general-section's second GlassGroup).

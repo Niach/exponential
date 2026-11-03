@@ -17,4 +17,7 @@ regex = "1"
 chrono = { version = "0.4.38", default-features = false, features = ["std", "clock"] }
 # VAPP-110: `apps::slugify` strips diacritics (NFKD), like the TS reference.
 unicode-normalization = "0.1"
+# VAPP-201: the team time zone (`team_zone`): the IANA tz database (the
+# system's zoneinfo; bundled where the OS has none, e.g. Windows).
+jiff = { version = "0.2", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo", "tzdb-bundle-platform"] }
 

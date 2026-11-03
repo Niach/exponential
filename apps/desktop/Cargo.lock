@@ -2579,6 +2579,7 @@ name = "domain"
 version = "0.14.111"
 dependencies = [
  "chrono",
+ "jiff",
  "regex",
  "serde",
  "serde_json",

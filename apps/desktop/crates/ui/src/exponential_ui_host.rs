@@ -783,6 +783,20 @@ fn action_failed_hook() -> eui_gpui::runtime::ActionFailedHook {
     })
 }
 
+/// VAPP-201: the host's zone = the team's `time_zone` when the tz database
+/// knows it (read when the host is built), else the machine's.
+fn host_zone(team_id: Option<&str>, cx: &App) -> Arc<dyn Fn(f64) -> i32 + Send + Sync> {
+    let named = team_id.and_then(|team_id| {
+        let store = sync::Store::try_global(cx)?;
+        let teams = store.collections().teams.read(cx);
+        domain::team_zone::resolve_zone(teams.get(team_id)?.time_zone.as_deref())
+    });
+    match named {
+        Some(zone) => Arc::new(move |ms| domain::team_zone::zone_offset(&zone, ms)),
+        None => Arc::new(local_offset_minutes),
+    }
+}
+
 /// The local zone's offset (minutes east of UTC) at an instant.
 fn local_offset_minutes(ms: f64) -> i32 {
     use chrono::{Local, Offset as _, TimeZone as _};
@@ -1292,7 +1306,8 @@ impl IdeHost {
             me: scope.as_ref().and_then(|s| s.run_as.as_ref()).map(|r| r.id.clone()).or_else(|| {
                 sync::Store::try_global(cx).and_then(|_| crate::queries::active_account(cx)).map(|a| a.user_id)
             }),
-            zone: Some(Arc::new(local_offset_minutes)),
+            // VAPP-201 (team-zone.json): the TEAM zone, else the machine's.
+            zone: Some(host_zone(scope.as_ref().and_then(|s| s.team_id.as_deref()), cx)),
             on_action_failed: Some(action_failed_hook()),
             ..HostOptions::default()
         };

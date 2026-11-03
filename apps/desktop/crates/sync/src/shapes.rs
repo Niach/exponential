@@ -112,6 +112,8 @@ pub const SHAPES: [ShapeSpec; 34] = [
             "yolo_mode",
             // EXP-630: the estimate scale (Settings → Issues).
             "estimation_type",
+            // VAPP-201: the team time zone (app hosts read dates in it).
+            "time_zone",
             "created_at",
             "updated_at",
         ],
