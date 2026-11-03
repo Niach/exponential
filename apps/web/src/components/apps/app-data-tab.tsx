@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
 import { APPS_COPY } from "@exp/domain-contract/apps"
 import {
+  APP_CSV_COPY,
+  APP_CSV_IMPORT,
   APP_DATA_COPY,
   APP_DATA_TAB,
   APP_HISTORY_COPY,
@@ -58,6 +60,7 @@ import { appRecordCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { cn } from "@/lib/utils"
+import { AppCsvImportDialog } from "./app-csv-import-dialog"
 
 // VAPP-178 (fixtures/app-records.json `dataTab`): THE DATA TAB. The HEAD
 // package's record kinds (a Select, `{kind} · {n}`) + Add record over the
@@ -73,6 +76,7 @@ const UiAddIcon = conceptIcon(`ui-add`)
 const UiMoreIcon = conceptIcon(`ui-more`)
 const UiEditIcon = conceptIcon(`ui-edit`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
+const UiFileIcon = conceptIcon(`ui-file`)
 
 const T = APP_DATA_TAB.testIds
 const NONE = `__none__`
@@ -145,6 +149,7 @@ export function AppDataTab({
   const [form, setForm] = useState<FormState | null>(null)
   const [deleting, setDeleting] = useState<DataRecord | null>(null)
   const [deleteBusy, setDeleteBusy] = useState(false)
+  const [importing, setImporting] = useState(false)
 
   if (kinds.length === 0) {
     return <EmptyState icon={NavAppsIcon} title={APP_DATA_COPY.noKinds} size="list" />
@@ -297,6 +302,12 @@ export function AppDataTab({
           <UiAddIcon />
           {APP_DATA_COPY.addRecord}
         </Button>
+        {addRefusal === null && (
+          <Button variant="outline" size={isMobile ? `sm` : `default`} onClick={() => setImporting(true)} data-testid={APP_CSV_IMPORT.testIds.button}>
+            <UiFileIcon />
+            {APP_CSV_COPY.importButton}
+          </Button>
+        )}
       </div>
       {rows.length === 0 ? (
         <EmptyState icon={NavAppsIcon} title={APP_DATA_COPY.empty} size="list" />
@@ -314,6 +325,9 @@ export function AppDataTab({
         names={names}
         onClose={() => setForm(null)}
       />
+      {kind && schema && (
+        <AppCsvImportDialog appId={appId} kind={kind} schema={schema} me={me} members={role === `owner` ? users : null} open={importing} onOpenChange={setImporting} />
+      )}
       <Prompt
         open={deleting !== null}
         onOpenChange={(next) => !next && !deleteBusy && setDeleting(null)}

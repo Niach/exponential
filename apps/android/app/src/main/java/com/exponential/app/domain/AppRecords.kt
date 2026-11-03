@@ -731,4 +731,309 @@ object AppRecords {
         if (n == 0) return null
         return if (n == 1) Outbox.PENDING_ONE else Outbox.PENDING.replace("{n}", n.toString())
     }
+
+    // VAPP-228 (X2, docs/spec/apps.md §10.1/§10.3) SPREADSHEET IMPORT (fixture
+    // `csvImport`, replayed by AppRecordsTest): the CSV reader, the column
+    // auto-mapping and the cell coercion the Data tab's Import dialog runs
+    // (TS `csvParse`, `csvKey`, `csvAutoMap`, `csvAuthorColumn`, `csvCell`,
+    // `csvRecords`, `csvSummary`). The host appends `validateRecord` issues.
+    object CsvImport {
+        const val MAX_ROWS = 500
+        const val PREVIEW_ROWS = 5
+        const val ISSUES_SHOWN = 3
+        val TRUE_WORDS = listOf("true", "yes", "y", "1", "x")
+        val FALSE_WORDS = listOf("false", "no", "n", "0")
+        val AUTHOR_KEYS = listOf("author", "member", "user", "email", "person")
+    }
+
+    object CsvCopy {
+        const val IMPORT_BUTTON = "Import…"
+        const val TITLE = "Import {kind}"
+        const val PLACEHOLDER = "Paste a CSV or choose a file"
+        const val CHOOSE_FILE = "Choose file"
+        const val SKIP = "Skip"
+        const val ME = "Me"
+        const val COLUMN = "Column {n}"
+        const val ISSUE = "row {row}: {field}: {message}"
+        const val ROW_ISSUE = "row {row}: {message}"
+        const val MORE_ISSUES = "+{n} more"
+        const val READY = "{n} of {total} rows ready"
+        const val TOO_MANY = "Up to {max} rows per import"
+        const val NO_ROWS = "No rows"
+        const val IMPORT_ACTION = "Import {n}"
+        const val IMPORTED = "{n} records imported"
+    }
+
+    object CsvIssues {
+        const val NOT_NUMBER = "\"{value}\" is not a number"
+        const val NOT_INTEGER = "\"{value}\" is not a whole number"
+        const val NOT_BOOLEAN = "\"{value}\" is not yes or no"
+        const val NOT_DATE = "\"{value}\" is not a date (YYYY-MM-DD)"
+        const val SLASH_DATE = "\"{value}\" is ambiguous: write YYYY-MM-DD or DD.MM.YYYY"
+        const val NOT_TIME = "\"{value}\" is not a time (HH:MM)"
+        const val NOT_DATE_TIME = "\"{value}\" is not an ISO date-time"
+        const val NOT_ENUM = "\"{value}\" is not one of {values}"
+        const val NOT_MEMBER = "\"{value}\" is not a member"
+        const val EXTRA_CELLS = "{n} cells, the header has {m}"
+    }
+
+    object CsvTestIds {
+        const val BUTTON = "app-data-import"
+        const val DIALOG = "app-csv-import"
+        const val TEXT = "app-csv-text"
+        const val FILE = "app-csv-file"
+        const val MAP = "app-csv-map"
+        const val AUTHOR = "app-csv-author"
+        const val PREVIEW = "app-csv-preview"
+        const val ERROR = "app-csv-error"
+        const val CONFIRM = "app-csv-confirm"
+    }
+
+    /** One data row: [row] = its record number (header = 1, blank lines counted). */
+    data class CsvRow(val row: Int, val cells: List<String>)
+
+    data class CsvTable(val header: List<String>, val rows: List<CsvRow>)
+
+    /** The delimiter: the most frequent of `,` `;` TAB in the first line outside quotes (ties in that order). */
+    private fun csvDelimiter(text: String): Char {
+        val order = charArrayOf(',', ';', '\t')
+        val counts = IntArray(3)
+        var quoted = false
+        for (ch in text) {
+            if (ch == '"') quoted = !quoted
+            else if (!quoted && (ch == '\n' || ch == '\r')) break
+            else if (!quoted) order.indexOf(ch).takeIf { it >= 0 }?.let { counts[it]++ }
+        }
+        var best = 0
+        for (i in 1 until 3) if (counts[i] > counts[best]) best = i
+        return order[best]
+    }
+
+    /** RFC 4180 → the header + the data rows (`parseCases`). */
+    fun csvParse(input: String): CsvTable {
+        val text = if (input.startsWith("﻿")) input.substring(1) else input
+        val delimiter = csvDelimiter(text)
+        val records = mutableListOf<List<String>>()
+        var record = mutableListOf<String>()
+        val field = StringBuilder()
+        var quoted = false
+        var i = 0
+        fun endRecord() {
+            record.add(field.toString())
+            records.add(record)
+            record = mutableListOf()
+            field.setLength(0)
+        }
+        while (i < text.length) {
+            val ch = text[i]
+            if (quoted) {
+                if (ch == '"') {
+                    if (i + 1 < text.length && text[i + 1] == '"') {
+                        field.append('"')
+                        i += 2
+                        continue
+                    }
+                    quoted = false
+                } else field.append(ch)
+                i++
+                continue
+            }
+            if (ch == '"') quoted = true
+            else if (ch == delimiter) {
+                record.add(field.toString())
+                field.setLength(0)
+            } else if (ch == '\r' || ch == '\n') {
+                endRecord()
+                if (ch == '\r' && i + 1 < text.length && text[i + 1] == '\n') i++
+            } else field.append(ch)
+            i++
+        }
+        if (field.isNotEmpty() || record.isNotEmpty()) endRecord()
+        val numbered = records.mapIndexed { index, cells -> CsvRow(index + 1, cells) }
+            .filter { !(it.cells.size == 1 && it.cells[0] == "") }
+        val first = numbered.firstOrNull() ?: return CsvTable(emptyList(), emptyList())
+        val seen = HashMap<String, Int>()
+        val header = first.cells.mapIndexed { index, cell ->
+            val name = cell.trim().ifEmpty { CsvCopy.COLUMN.replaceFirst("{n}", (index + 1).toString()) }
+            val n = (seen[name] ?: 0) + 1
+            seen[name] = n
+            if (n == 1) name else "$name $n"
+        }
+        val rows = numbered.drop(1).map { r ->
+            CsvRow(r.row, if (r.cells.size < header.size) r.cells + List(header.size - r.cells.size) { "" } else r.cells)
+        }
+        return CsvTable(header, rows)
+    }
+
+    /** A name's matching key: lowercased, only ASCII a–z and 0–9. */
+    fun csvKey(name: String): String =
+        name.lowercase(Locale.ROOT).filter { it in 'a'..'z' || it in '0'..'9' }
+
+    /** The first pick per field (`mapCases`): equal keys first, then the ONE
+     *  free column containing the field's key; a column maps at most once. */
+    fun csvAutoMap(fields: List<String>, header: List<String>): Map<String, Int?> {
+        val keys = header.map(::csvKey)
+        val taken = HashSet<Int>()
+        val mapping = LinkedHashMap<String, Int?>()
+        for (field in fields) {
+            val key = csvKey(field)
+            val index = if (key.isEmpty()) -1 else keys.indices.firstOrNull { it !in taken && keys[it] == key } ?: -1
+            mapping[field] = if (index >= 0) index else null
+            if (index >= 0) taken.add(index)
+        }
+        for (field in fields) {
+            val key = csvKey(field)
+            if (mapping[field] != null || key.isEmpty()) continue
+            val hits = keys.indices.filter { it !in taken && keys[it].contains(key) }
+            if (hits.size == 1) {
+                mapping[field] = hits[0]
+                taken.add(hits[0])
+            }
+        }
+        return mapping
+    }
+
+    /** The owner's Author pick: the first column whose key is an `authorKeys` entry, else null (= Me). */
+    fun csvAuthorColumn(header: List<String>): Int? =
+        header.indexOfFirst { csvKey(it) in CsvImport.AUTHOR_KEYS }.takeIf { it >= 0 }
+
+    /** One cell's reading: a value ([JsonValue.Null] = no value) or an issue. */
+    sealed class CsvCell {
+        data class Value(val value: JsonValue) : CsvCell()
+        data class Issue(val message: String) : CsvCell()
+    }
+
+    private fun csvIssue(template: String, value: String, values: String = ""): CsvCell =
+        CsvCell.Issue(template.replaceFirst("{value}", value).replaceFirst("{values}", values))
+
+    private fun pad2(s: String): String = if (s.length == 1) "0$s" else s
+
+    private val CSV_NUMBER_SHAPE = Regex("^[+-]?[0-9.,]*[0-9][0-9.,]*$")
+    private val CSV_NUMBER_NORMAL = Regex("^[+-]?[0-9]+(\\.[0-9]+)?$")
+    private val CSV_ISO_DATE = Regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
+    private val CSV_DOT_DATE = Regex("^([0-9]{1,2})\\.([0-9]{1,2})\\.([0-9]{4})$")
+    private val CSV_TIME = Regex("^([0-9]{1,2}):([0-9]{2})(:[0-9]{2})?$")
+    private val CSV_DATE_TIME = Regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}T")
+
+    private fun csvNumber(text: String, integer: Boolean): CsvCell {
+        val compact = text.replace(" ", "")
+        if (!CSV_NUMBER_SHAPE.matches(compact)) return csvIssue(CsvIssues.NOT_NUMBER, text)
+        val dot = compact.lastIndexOf('.')
+        val comma = compact.lastIndexOf(',')
+        val normal = if (dot >= 0 && comma >= 0) {
+            val decimal = if (dot > comma) "." else ","
+            val group = if (decimal == ".") "," else "."
+            compact.split(group).joinToString("").replaceFirst(decimal, ".")
+        } else if (dot >= 0 || comma >= 0) {
+            val parts = compact.split(if (dot >= 0) "." else ",")
+            if (parts.size == 2) parts.joinToString(".") else parts.joinToString("")
+        } else compact
+        if (!CSV_NUMBER_NORMAL.matches(normal)) return csvIssue(CsvIssues.NOT_NUMBER, text)
+        val n = normal.toDouble()
+        if (integer && n % 1.0 != 0.0) return csvIssue(CsvIssues.NOT_INTEGER, text)
+        return CsvCell.Value(JsonValue.Num(n))
+    }
+
+    private fun csvScalar(type: String?, enum: List<String>?, format: String?, text: String): CsvCell {
+        if (type == "number" || type == "integer") return csvNumber(text, type == "integer")
+        if (type == "boolean") {
+            val lower = text.lowercase(Locale.ROOT)
+            if (lower in CsvImport.TRUE_WORDS) return CsvCell.Value(JsonValue.Bool(true))
+            if (lower in CsvImport.FALSE_WORDS) return CsvCell.Value(JsonValue.Bool(false))
+            return csvIssue(CsvIssues.NOT_BOOLEAN, text)
+        }
+        if (enum != null) {
+            val hit = enum.firstOrNull { it.lowercase(Locale.ROOT) == text.lowercase(Locale.ROOT) }
+            return if (hit != null) CsvCell.Value(JsonValue.Str(hit)) else csvIssue(CsvIssues.NOT_ENUM, text, enum.joinToString(", "))
+        }
+        if (format == "date") {
+            if (CSV_ISO_DATE.matches(text)) return CsvCell.Value(JsonValue.Str(text))
+            val m = CSV_DOT_DATE.matchEntire(text)
+            if (m != null) return CsvCell.Value(JsonValue.Str("${m.groupValues[3]}-${pad2(m.groupValues[2])}-${pad2(m.groupValues[1])}"))
+            return csvIssue(if (text.contains('/')) CsvIssues.SLASH_DATE else CsvIssues.NOT_DATE, text)
+        }
+        if (format == "time") {
+            val m = CSV_TIME.matchEntire(text) ?: return csvIssue(CsvIssues.NOT_TIME, text)
+            return CsvCell.Value(JsonValue.Str("${pad2(m.groupValues[1])}:${m.groupValues[2]}${m.groupValues[3]}"))
+        }
+        if (format == "date-time") {
+            return if (CSV_DATE_TIME.containsMatchIn(text)) CsvCell.Value(JsonValue.Str(text)) else csvIssue(CsvIssues.NOT_DATE_TIME, text)
+        }
+        return CsvCell.Value(JsonValue.Str(text))
+    }
+
+    /** One cell → [field]'s value (`cellCases`; [field] = the schema
+     *  property); empty = [JsonValue.Null]. */
+    fun csvCell(field: JsonValue?, cell: String): CsvCell {
+        val text = cell.trim()
+        if (text.isEmpty()) return CsvCell.Value(JsonValue.Null)
+        val type = field?.get("type")?.string
+        if (type != "array") {
+            return csvScalar(type, field?.get("enum")?.array?.mapNotNull { it.string }, field?.get("format")?.string, text)
+        }
+        val items = text.split(if (text.contains(';')) ";" else ",").map { it.trim() }.filter { it.isNotEmpty() }
+        if (items.isEmpty()) return CsvCell.Value(JsonValue.Null)
+        val itemType = field?.get("items")?.get("type")?.string ?: "string"
+        val values = mutableListOf<JsonValue>()
+        for (item in items) {
+            when (val read = csvScalar(itemType, null, null, item)) {
+                is CsvCell.Issue -> return read
+                is CsvCell.Value -> values.add(read.value)
+            }
+        }
+        return CsvCell.Value(JsonValue.Arr(values))
+    }
+
+    data class CsvMember(val id: String, val name: String, val email: String)
+
+    /** [column] = the Author column (null = every row is the importer's). */
+    data class CsvAuthor(val column: Int?, val importer: String, val members: List<CsvMember>)
+
+    /** [author] = a member's id when the row is someone else's (an on-behalf write). */
+    data class CsvRecord(val row: Int, val data: Map<String, JsonValue>, val issues: List<String>, val author: String? = null)
+
+    /** The rows → records + their issues (`rowsCases`), before the host's schema check. */
+    fun csvRecords(schema: JsonValue?, header: List<String>, rows: List<CsvRow>, mapping: Map<String, Int?>, author: CsvAuthor? = null): List<CsvRecord> {
+        val properties = schema?.get("properties")?.obj ?: emptyMap()
+        val columns = dataColumns(schema)
+        return rows.map { (row, cells) ->
+            val issues = mutableListOf<String>()
+            fun at(field: String, message: String) = CsvCopy.ISSUE.replaceFirst("{row}", row.toString())
+                .replaceFirst("{field}", field).replaceFirst("{message}", message)
+            if (cells.size > header.size) {
+                val message = CsvIssues.EXTRA_CELLS.replaceFirst("{n}", cells.size.toString()).replaceFirst("{m}", header.size.toString())
+                issues.add(CsvCopy.ROW_ISSUE.replaceFirst("{row}", row.toString()).replaceFirst("{message}", message))
+            }
+            val data = LinkedHashMap<String, JsonValue>()
+            for (name in columns) {
+                val column = mapping[name] ?: continue
+                when (val read = csvCell(properties[name], cells.getOrNull(column) ?: "")) {
+                    is CsvCell.Issue -> issues.add(at(name, read.message))
+                    is CsvCell.Value -> if (read.value != JsonValue.Null) data[name] = read.value
+                }
+            }
+            var recordAuthor: String? = null
+            val authorColumn = author?.column
+            if (author != null && authorColumn != null) {
+                val text = (cells.getOrNull(authorColumn) ?: "").trim()
+                var id: String? = author.importer
+                if (text.isNotEmpty()) {
+                    val lower = text.lowercase(Locale.ROOT)
+                    val byEmail = author.members.firstOrNull { it.email.lowercase(Locale.ROOT) == lower }
+                    val byName = author.members.filter { it.name.lowercase(Locale.ROOT) == lower }
+                    id = byEmail?.id ?: byName.singleOrNull()?.id
+                }
+                if (id == null) issues.add(at(DataCopy.AUTHOR, CsvIssues.NOT_MEMBER.replaceFirst("{value}", text)))
+                else if (id != author.importer) recordAuthor = id
+            }
+            CsvRecord(row, data, issues, recordAuthor)
+        }
+    }
+
+    /** The preview's count line (`copy.ready`). */
+    fun csvSummary(records: List<CsvRecord>): String = csvSummaryOf(records.map { it.issues })
+
+    /** [csvSummary] over each row's issues. */
+    fun csvSummaryOf(issues: List<List<String>>): String =
+        CsvCopy.READY.replaceFirst("{n}", issues.count { it.isEmpty() }.toString()).replaceFirst("{total}", issues.size.toString())
 }

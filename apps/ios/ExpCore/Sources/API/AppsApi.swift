@@ -271,13 +271,18 @@ private struct AppRecordBatchInput: Encodable {
     /// write's `newId` rides inside `writes`).
     var writeId: String? = nil
 
-    enum CodingKeys: String, CodingKey { case id, writes, writeId }
+    /// VAPP-228: `import` = the Data tab's CSV import (up to
+    /// `csvImport.maxRows` writes; nil = omitted, a package action's batch).
+    var via: String? = nil
+
+    enum CodingKeys: String, CodingKey { case id, writes, writeId, via }
 
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encode(id, forKey: .id)
         try c.encode(writes, forKey: .writes)
         try c.encodeIfPresent(writeId, forKey: .writeId)
+        try c.encodeIfPresent(via, forKey: .via)
     }
 }
 
@@ -491,11 +496,13 @@ public final class AppsApi: Sendable {
     /// writes, all or none (the server checks each against its kind's
     /// schema, the caps and the quota again).
     /// VAPP-235: `writeId` = the outbox entry's idempotency key.
-    public func recordsBatch(accountId: String, appId: String, writes: [CardJSON], writeId: String? = nil) async throws -> AppRecordBatched {
+    /// VAPP-228: `via: "import"` = the Data tab's CSV import (each upsert
+    /// may carry an owner's on-behalf `author`).
+    public func recordsBatch(accountId: String, appId: String, writes: [CardJSON], writeId: String? = nil, via: String? = nil) async throws -> AppRecordBatched {
         try await trpc.mutation(
             accountId: accountId,
             path: "apps.records.batch",
-            input: AppRecordBatchInput(id: appId, writes: EncodableJSON(value: .array(writes)), writeId: writeId)
+            input: AppRecordBatchInput(id: appId, writes: EncodableJSON(value: .array(writes)), writeId: writeId, via: via)
         )
     }
 

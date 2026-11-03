@@ -210,7 +210,7 @@ fun AppImportStep(
 }
 
 /** The text of a chosen file, capped at `limits.importMaxBytes`. */
-private fun readImportFile(context: Context, uri: Uri): String {
+internal fun readImportFile(context: Context, uri: Uri): String {
     val stream = context.contentResolver.openInputStream(uri) ?: error("unreadable")
     val bytes = stream.use { it.readNBytesCompat(AppExport.Limits.IMPORT_MAX_BYTES + 1) }
     if (bytes.size > AppExport.Limits.IMPORT_MAX_BYTES) error("the file is over ${AppExport.Limits.IMPORT_MAX_BYTES / (1024 * 1024)} MB")

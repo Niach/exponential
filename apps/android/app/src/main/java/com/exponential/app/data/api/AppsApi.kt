@@ -135,7 +135,7 @@ data class AppRecordEventsResult(val txid: Long? = null, val eventIds: List<Stri
 // (`{op: "upsert", kind, data, id?}` | `{op: "delete", id}`, the plan's
 // `writes` passed through unchanged) as ONE transaction.
 @Serializable
-private data class AppRecordBatchInput(val id: String, val writes: JsonArray, val writeId: String? = null)
+private data class AppRecordBatchInput(val id: String, val writes: JsonArray, val writeId: String? = null, val via: String? = null)
 
 @Serializable
 data class AppRecordBatchResult(
@@ -273,12 +273,13 @@ class AppsApi @Inject constructor(private val trpc: TrpcClient) {
 
     /** VAPP-194: a package action's [writes] in app [appId], all or none
      *  (the server checks each against its kind's schema, the caps and the
-     *  quota again). */
-    suspend fun recordsBatch(accountId: String, appId: String, writes: JsonArray, writeId: String? = null): AppRecordBatchResult =
+     *  quota again). VAPP-228: [via] = `import` for the Data tab's CSV
+     *  import (each write may carry an owner's on-behalf `author`). */
+    suspend fun recordsBatch(accountId: String, appId: String, writes: JsonArray, writeId: String? = null, via: String? = null): AppRecordBatchResult =
         trpc.mutation(
             accountId,
             path = "apps.records.batch",
-            input = AppRecordBatchInput(appId, writes, writeId),
+            input = AppRecordBatchInput(appId, writes, writeId, via),
             inputSerializer = AppRecordBatchInput.serializer(),
             outputSerializer = AppRecordBatchResult.serializer(),
         )

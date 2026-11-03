@@ -23,6 +23,8 @@ import SwiftUI
 /// VAPP-215 (fixture `history`): every add / save / delete toasts Undo for
 /// `undoSeconds` s (`AppRecordUndo`); Edit lists the record's History (who ·
 /// when · what) with Restore on older rows.
+/// VAPP-228 (fixture `csvImport`): `Import…` after Add record (only while the
+/// viewer may create) opens `AppCsvImportSheet`.
 struct AppDataTab: View {
     let app: AppListEntry
 
@@ -37,6 +39,8 @@ struct AppDataTab: View {
     /// The menu's pick, run once its sheet has dismissed.
     @State private var pendingMenu: (row: AppDataRowTarget, action: AppDataRowMenuSheet.Action)?
     @State private var deleting: AppDataRowTarget?
+    /// VAPP-228: the CSV import's kind (nil = closed).
+    @State private var importing: AppCsvImportTarget?
 
     /// The head package (its manifest carries `records`; eApps V1: the
     /// draft, else the published one); nil = a draft.
@@ -80,6 +84,15 @@ struct AppDataTab: View {
             Color.clear
                 .sheet(item: $form) { target in
                     AppRecordFormSheet(appId: app.id, target: target, author: model.authorPicker, names: model.names)
+                }
+        }
+        .background {
+            Color.clear
+                .sheet(item: $importing) { target in
+                    AppCsvImportSheet(
+                        appId: app.id, target: target, me: model.viewer,
+                        members: model.role == "owner" ? model.csvMembers : nil
+                    )
                 }
         }
         .background {
@@ -172,6 +185,14 @@ struct AppDataTab: View {
             .disabled(!model.may("create", kind: kind.kind))
             .opacity(model.may("create", kind: kind.kind) ? 1 : 0.45)
             .accessibilityIdentifier(AppRecords.DataTab.TestIds.add)
+            // VAPP-228: hidden while the viewer may not write.
+            if model.may("create", kind: kind.kind) {
+                GlassPill(AppRecords.CsvImport.Copy.importButton, icon: AppIcons.uiFile, size: .md, mode: .action {
+                    UIApplication.endEditing()
+                    importing = AppCsvImportTarget(kind: kind.kind, schema: schema)
+                })
+                .accessibilityIdentifier(AppRecords.CsvImport.TestIds.button)
+            }
         }
     }
 
@@ -268,13 +289,14 @@ struct AppDataTab: View {
 @MainActor
 enum AppRecordUndo {
     /// Toast `write` with Undo; no events (a batch that changed nothing) = no toast.
+    /// `title` overrides the write's own (VAPP-228: `{n} records imported`).
     static func toast(
         _ write: AppRecords.UndoWrite, appId: String, eventIds: [String], via: String,
-        accountId: String, api: AppsApi, toaster: Toaster
+        accountId: String, api: AppsApi, toaster: Toaster, title: String? = nil
     ) {
         guard !eventIds.isEmpty else { return }
         toaster.success(
-            AppRecords.undoTitle(write),
+            title ?? AppRecords.undoTitle(write),
             action: ToastAction(label: AppRecords.History.Copy.undo) {
                 Task { @MainActor in
                     await undo(appId: appId, eventIds: eventIds, via: via, accountId: accountId, api: api, toaster: toaster)
@@ -749,6 +771,9 @@ final class AppDataModel {
     private(set) var role: String?
     /// VAPP-188: the app's team members by name (`authorOptions`).
     private(set) var members: [AppRecords.AuthorOption] = []
+    /// VAPP-228: the same members with their raw name + email (the CSV
+    /// import's Author column matches either).
+    private(set) var csvMembers: [AppRecords.CsvMember] = []
     /// eApps R3: the viewer's app access (`appAccess.mine`; nil = write until known).
     private(set) var access: String?
     /// eApps R3: the head package (each kind's `policy`).
@@ -794,7 +819,7 @@ final class AppDataModel {
         viewer = userId
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         let me = userId ?? ""
-        let observation = ValueObservation.tracking { db -> ([AppRecordEntity], String?, [AppRecords.AuthorOption]) in
+        let observation = ValueObservation.tracking { db -> ([AppRecordEntity], String?, [AppRecords.AuthorOption], [AppRecords.CsvMember]) in
             let entities = try AppRecordEntity.filter(Column("app_id") == appId).fetchAll(db)
             let role = try String.fetchOne(
                 db,
@@ -816,21 +841,26 @@ final class AppDataModel {
                     """#,
                 arguments: [appId]
             )
-            let members = memberRows.map { row -> AppRecords.AuthorOption in
-                let id = (row["id"] as String?) ?? ""
-                let name = (row["name"] as String?) ?? ""
-                let email = (row["email"] as String?) ?? ""
-                return AppRecords.AuthorOption(id: id, name: name.isEmpty ? email : name)
+            let csvMembers = memberRows.map { row -> AppRecords.CsvMember in
+                AppRecords.CsvMember(
+                    id: (row["id"] as String?) ?? "",
+                    name: (row["name"] as String?) ?? "",
+                    email: (row["email"] as String?) ?? ""
+                )
             }
-            return (entities, role, AppRecords.authorOptions(members))
+            let members = csvMembers.map { member -> AppRecords.AuthorOption in
+                AppRecords.AuthorOption(id: member.id, name: member.name.isEmpty ? member.email : member.name)
+            }
+            return (entities, role, AppRecords.authorOptions(members), csvMembers)
         }
         task = Task { [weak self] in
             do {
-                for try await (entities, role, members) in observation.values(in: pool) {
+                for try await (entities, role, members, csvMembers) in observation.values(in: pool) {
                     guard let self else { return }
                     self.rows = entities.map(AppRecords.Row.init)
                     self.role = role
                     self.members = members
+                    self.csvMembers = csvMembers
                     self.loaded = true
                 }
             } catch {}

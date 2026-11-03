@@ -43,7 +43,7 @@ use sync::Store;
 use domain::app_records::{
     author_options, cell_text, column_width, data_columns, data_kinds, data_rows, form_data, form_fields, form_input, kind_option, kind_schema, table_min_width,
     form_author, history_rows, record_byline, undo_title, DataControl, DataFormField, DataSchema, FormInput, RecordEvent,
-    RecordRowInput, UndoableWrite, APP_RECORD_HISTORY, DATA_TAB,
+    RecordRowInput, UndoableWrite, APP_CSV_IMPORT, APP_RECORD_HISTORY, DATA_TAB, CsvMember,
 };
 use domain::apps::APPS;
 use eui_core::host::{record_policy, record_refusal, RecordOp as PolicyOp, RecordViewer};
@@ -137,6 +137,33 @@ fn app_state(app_id: &str, access: Option<String>, cx: &App) -> (Option<Value>, 
     (package, records, viewer)
 }
 
+/// VAPP-228: an OWNER's team members for the CSV import's Author column
+/// (`None` = not an owner: no Author pick).
+fn csv_members(viewer: &Viewer, cx: &App) -> Option<Vec<CsvMember>> {
+    if viewer.role.as_deref() != Some("owner") {
+        return None;
+    }
+    let (team_id, store) = (viewer.team_id.as_deref()?, Store::try_global(cx)?);
+    let collections = store.collections();
+    let users = collections.users.read(cx);
+    Some(
+        collections
+            .team_members
+            .read(cx)
+            .iter()
+            .filter(|member| member.team_id == team_id)
+            .map(|member| {
+                let user = users.get(&member.user_id);
+                CsvMember {
+                    id: member.user_id.clone(),
+                    name: user.and_then(|u| u.name.clone()).unwrap_or_default(),
+                    email: user.and_then(|u| u.email.clone()).unwrap_or_default(),
+                }
+            })
+            .collect(),
+    )
+}
+
 /// The tab body (an entity: it keeps the picked kind).
 pub(crate) struct AppDataTab {
     app_id: String,
@@ -186,7 +213,15 @@ impl AppDataTab {
         self.access.as_deref()
     }
 
-    fn toolbar(&self, kinds: &[(String, usize)], picked: &str, schema: &DataSchema, viewer: &Viewer, cx: &mut gpui::Context<Self>) -> Div {
+    fn toolbar(
+        &self,
+        kinds: &[(String, usize)],
+        picked: &str,
+        schema: &DataSchema,
+        raw_schema: Value,
+        viewer: &Viewer,
+        cx: &mut gpui::Context<Self>,
+    ) -> Div {
         let count = kinds.iter().find(|(k, _)| k == picked).map_or(0, |(_, n)| *n);
         let view = cx.entity().downgrade();
         let options: Vec<(String, usize)> = kinds.to_vec();
@@ -217,6 +252,28 @@ impl AppDataTab {
                 menu
             });
         let may_add = viewer.may(picked, PolicyOp::Create, None);
+        // VAPP-228: `Import…` (CSV) only while the viewer may create.
+        let import = may_add.then(|| {
+            let (app_id, kind, schema) = (self.app_id.clone(), picked.to_string(), schema.clone());
+            let (me, members) = (viewer.user_id.clone(), csv_members(viewer, cx));
+            Button::new(SharedString::from(APP_CSV_IMPORT.test_ids.button.clone()))
+                .outline()
+                .web_sm()
+                .cursor_pointer()
+                .icon(Icon::new(registry::UI_FILE))
+                .label(APP_CSV_IMPORT.copy.import_button.clone())
+                .on_click(move |_, window, cx| {
+                    let target = crate::app_csv_import_dialog::CsvImportTarget {
+                        app_id: app_id.clone(),
+                        kind: kind.clone(),
+                        schema: schema.clone(),
+                        raw_schema: raw_schema.clone(),
+                        me: me.clone(),
+                        members: members.clone(),
+                    };
+                    crate::app_csv_import_dialog::open(window, cx, target)
+                })
+        });
         let (app_id, kind, schema, viewer) = (self.app_id.clone(), picked.to_string(), schema.clone(), viewer.clone());
         h_flex()
             .w_full()
@@ -236,6 +293,7 @@ impl AppDataTab {
                         open_form(window, cx, app_id.clone(), kind.clone(), schema.clone(), None, &viewer)
                     }),
             )
+            .children(import)
     }
 
     /// One row of the table grid: the schema cells share the width, `by`,
@@ -351,7 +409,11 @@ impl Render for AppDataTab {
                 .into_iter()
                 .filter_map(|row| records.iter().find(|r| r.id == row.id))
                 .collect();
-            let toolbar = self.toolbar(&kinds, &picked, &schema, &viewer, cx);
+            let raw_schema = package
+                .as_ref()
+                .and_then(|p| p.get("records")?.get(&picked)?.get("schema").cloned())
+                .unwrap_or_else(|| serde_json::json!({}));
+            let toolbar = self.toolbar(&kinds, &picked, &schema, raw_schema, &viewer, cx);
             let list = if ordered.is_empty() {
                 crate::controls::empty_state_list(Icon::new(registry::NAV_APPS), DATA_TAB.copy.empty.clone(), cx)
                     .into_any_element()
@@ -489,11 +551,23 @@ fn confirm_delete(app_id: String, record_id: String, window: &mut Window, cx: &m
 /// success toast, title `undo_title`, the toast action `copy.undo`, for
 /// `undoSeconds` s. No events (a batch that changed nothing) = no toast.
 pub(crate) fn toast_record_undo(app_id: &str, write: UndoableWrite, event_ids: Vec<String>, via: &'static str, cx: &mut App) {
+    toast_record_undo_titled(app_id, undo_title(write), event_ids, via, cx)
+}
+
+/// [`toast_record_undo`] under its own title (VAPP-228: the CSV import's
+/// `copy.imported`, web `toastRecordUndo`'s `title`).
+pub(crate) fn toast_record_undo_titled(
+    app_id: &str,
+    title: impl Into<SharedString>,
+    event_ids: Vec<String>,
+    via: &'static str,
+    cx: &mut App,
+) {
     if event_ids.is_empty() {
         return;
     }
     let app_id = app_id.to_string();
-    let toast = crate::toast::Toast::success(undo_title(write))
+    let toast = crate::toast::Toast::success(title)
         .duration(std::time::Duration::from_secs(APP_RECORD_HISTORY.undo_seconds))
         .action(APP_RECORD_HISTORY.copy.undo.clone(), move |_, cx| {
             undo_record_write(app_id.clone(), event_ids.clone(), via, cx)
@@ -908,7 +982,7 @@ impl RecordFormView {
         Self::label_text(field.name.clone(), field.required, cx)
     }
 
-    fn label_text(name: String, required: bool, cx: &App) -> Div {
+    pub(crate) fn label_text(name: String, required: bool, cx: &App) -> Div {
         h_flex()
             .flex_shrink_0()
             .items_baseline()

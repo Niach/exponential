@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-spreadsheet-import`,
+    date: `2026-11-03`,
+    title: `Import spreadsheets into apps`,
+    summary: `Bring a CSV into an app's records from the Data tab, or hand a CSV or Excel file to the app's editor agent.`,
+    body: `- **Import in the Data tab**: Import… takes a pasted or chosen CSV, matches its columns to the kind's fields, shows each row's problems before anything is written, and imports the ready rows at once, with Undo for 10 seconds.
+- **Authors**: team owners can map a column to the member each row belongs to, by email or name.
+- **Agents**: attach a CSV or Excel file in an app's editor chat; the agent maps it, shows a dry run and imports it after you confirm.`,
+  },
+  {
     id: `2026-11-03-steadier-live-sessions`,
     date: `2026-11-03`,
     title: `Steadier live sessions, apps that work offline`,

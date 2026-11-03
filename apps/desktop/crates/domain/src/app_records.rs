@@ -1298,6 +1298,477 @@ pub fn outbox_pending_label(entries: &[OutboxEntry], app_id: &str) -> Option<Str
     }
 }
 
+// VAPP-228 (X2, docs/spec/apps.md §10.1/§10.3) SPREADSHEET IMPORT (fixture
+// `csvImport`): the CSV reader, the column auto-mapping and the cell
+// coercion the Data tab's Import dialog runs, pure so the four clients
+// replay the same cases. The host appends `validateRecord` (eUI) issues.
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CsvImportCopy {
+    pub import_button: String,
+    /// `Import {kind}`.
+    pub title: String,
+    pub placeholder: String,
+    pub choose_file: String,
+    pub skip: String,
+    pub me: String,
+    /// `Column {n}`.
+    pub column: String,
+    /// `row {row}: {field}: {message}`.
+    pub issue: String,
+    /// `row {row}: {message}`.
+    pub row_issue: String,
+    /// `+{n} more`.
+    pub more_issues: String,
+    /// `{n} of {total} rows ready`.
+    pub ready: String,
+    /// `Up to {max} rows per import`.
+    pub too_many: String,
+    pub no_rows: String,
+    /// `Import {n}`.
+    pub import_action: String,
+    /// `{n} records imported`.
+    pub imported: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CsvImportIssues {
+    pub not_number: String,
+    pub not_integer: String,
+    pub not_boolean: String,
+    pub not_date: String,
+    pub slash_date: String,
+    pub not_time: String,
+    pub not_date_time: String,
+    pub not_enum: String,
+    pub not_member: String,
+    pub extra_cells: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct CsvImportTestIds {
+    pub button: String,
+    pub dialog: String,
+    pub text: String,
+    pub file: String,
+    pub map: String,
+    pub author: String,
+    pub preview: String,
+    pub error: String,
+    pub confirm: String,
+}
+
+/// `csvImport` minus its cases.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CsvImportSpec {
+    pub max_rows: usize,
+    pub preview_rows: usize,
+    pub issues_shown: usize,
+    pub true_words: Vec<String>,
+    pub false_words: Vec<String>,
+    pub author_keys: Vec<String>,
+    pub copy: CsvImportCopy,
+    pub issues: CsvImportIssues,
+    pub test_ids: CsvImportTestIds,
+}
+
+pub static APP_CSV_IMPORT: LazyLock<CsvImportSpec> = LazyLock::new(|| {
+    let fixture: Value = serde_json::from_str(RECORDS_JSON).expect("app-records.json parses");
+    serde_json::from_value(fixture["csvImport"].clone()).expect("csvImport parses")
+});
+
+/// One data row: `row` = its record number (header = 1, blank lines counted).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CsvRow {
+    pub row: usize,
+    pub cells: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CsvTable {
+    pub header: Vec<String>,
+    pub rows: Vec<CsvRow>,
+}
+
+/// JS `String.prototype.trim` (Unicode whitespace + the BOM).
+fn js_trim(s: &str) -> &str {
+    s.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}')
+}
+
+/// The delimiter: the most frequent of `,` `;` TAB in the first line
+/// outside quotes (ties in that order, none = `,`).
+fn csv_delimiter(text: &[char]) -> char {
+    let mut counts = [(',', 0usize), (';', 0), ('\t', 0)];
+    let mut quoted = false;
+    for &ch in text {
+        if ch == '"' {
+            quoted = !quoted;
+        } else if !quoted && (ch == '\n' || ch == '\r') {
+            break;
+        } else if !quoted {
+            if let Some(c) = counts.iter_mut().find(|(d, _)| *d == ch) {
+                c.1 += 1;
+            }
+        }
+    }
+    let mut best = counts[0];
+    for c in counts {
+        if c.1 > best.1 {
+            best = c;
+        }
+    }
+    best.0
+}
+
+/// RFC 4180 → the header + the data rows (`parseCases`).
+pub fn csv_parse(input: &str) -> CsvTable {
+    let text: Vec<char> = input.strip_prefix('\u{feff}').unwrap_or(input).chars().collect();
+    let delimiter = csv_delimiter(&text);
+    let mut records: Vec<Vec<String>> = Vec::new();
+    let mut record: Vec<String> = Vec::new();
+    let mut field = String::new();
+    let mut quoted = false;
+    let mut i = 0;
+    while i < text.len() {
+        let ch = text[i];
+        if quoted {
+            if ch == '"' {
+                if text.get(i + 1) == Some(&'"') {
+                    field.push('"');
+                    i += 2;
+                    continue;
+                }
+                quoted = false;
+            } else {
+                field.push(ch);
+            }
+            i += 1;
+            continue;
+        }
+        if ch == '"' {
+            quoted = true;
+        } else if ch == delimiter {
+            record.push(std::mem::take(&mut field));
+        } else if ch == '\r' || ch == '\n' {
+            record.push(std::mem::take(&mut field));
+            records.push(std::mem::take(&mut record));
+            if ch == '\r' && text.get(i + 1) == Some(&'\n') {
+                i += 1;
+            }
+        } else {
+            field.push(ch);
+        }
+        i += 1;
+    }
+    if !field.is_empty() || !record.is_empty() {
+        record.push(field);
+        records.push(record);
+    }
+    let mut numbered = records
+        .into_iter()
+        .enumerate()
+        .map(|(index, cells)| CsvRow { row: index + 1, cells })
+        .filter(|r| !(r.cells.len() == 1 && r.cells[0].is_empty()));
+    let Some(first) = numbered.next() else {
+        return CsvTable::default();
+    };
+    let mut seen: HashMap<String, usize> = HashMap::new();
+    let header: Vec<String> = first
+        .cells
+        .iter()
+        .enumerate()
+        .map(|(index, cell)| {
+            let trimmed = js_trim(cell);
+            let name = if trimmed.is_empty() {
+                APP_CSV_IMPORT.copy.column.replace("{n}", &(index + 1).to_string())
+            } else {
+                trimmed.to_string()
+            };
+            let n = seen.get(&name).copied().unwrap_or(0) + 1;
+            seen.insert(name.clone(), n);
+            if n == 1 { name } else { format!("{name} {n}") }
+        })
+        .collect();
+    let rows = numbered
+        .map(|mut r| {
+            if r.cells.len() < header.len() {
+                r.cells.resize(header.len(), String::new());
+            }
+            r
+        })
+        .collect();
+    CsvTable { header, rows }
+}
+
+/// A name's matching key: lowercased, only ASCII a–z and 0–9.
+pub fn csv_key(name: &str) -> String {
+    name.to_lowercase().chars().filter(|c| c.is_ascii_lowercase() || c.is_ascii_digit()).collect()
+}
+
+/// The first pick per field (`mapCases`): equal keys first, then the ONE
+/// free column containing the field's key; a column maps at most once.
+pub fn csv_auto_map(fields: &[String], header: &[String]) -> BTreeMap<String, Option<usize>> {
+    let keys: Vec<String> = header.iter().map(|h| csv_key(h)).collect();
+    let mut taken = vec![false; keys.len()];
+    let mut mapping: BTreeMap<String, Option<usize>> = BTreeMap::new();
+    for field in fields {
+        let key = csv_key(field);
+        let index = if key.is_empty() { None } else { keys.iter().enumerate().position(|(i, k)| !taken[i] && *k == key) };
+        if let Some(i) = index {
+            taken[i] = true;
+        }
+        mapping.insert(field.clone(), index);
+    }
+    for field in fields {
+        let key = csv_key(field);
+        if mapping.get(field).copied().flatten().is_some() || key.is_empty() {
+            continue;
+        }
+        let hits: Vec<usize> = keys.iter().enumerate().filter(|(i, k)| !taken[*i] && k.contains(&key)).map(|(i, _)| i).collect();
+        if let [hit] = hits[..] {
+            mapping.insert(field.clone(), Some(hit));
+            taken[hit] = true;
+        }
+    }
+    mapping
+}
+
+/// The owner's Author pick: the first column whose key is an `authorKeys`
+/// entry, else `None` (= Me).
+pub fn csv_author_column(header: &[String]) -> Option<usize> {
+    header.iter().position(|name| APP_CSV_IMPORT.author_keys.contains(&csv_key(name)))
+}
+
+fn csv_issue(template: &str, value: &str, values: &str) -> String {
+    template.replace("{value}", value).replace("{values}", values)
+}
+
+fn pad2(s: &str) -> String {
+    if s.len() == 1 { format!("0{s}") } else { s.to_string() }
+}
+
+/// `[0-9]{min,max}` (ASCII digits only).
+fn digits(s: &str, min: usize, max: usize) -> bool {
+    (min..=max).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_digit())
+}
+
+/// `^[0-9]{4}-[0-9]{2}-[0-9]{2}`, the 10-byte prefix of `s`.
+fn iso_date_prefix(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() >= 10
+        && b[..4].iter().all(u8::is_ascii_digit)
+        && b[4] == b'-'
+        && b[5..7].iter().all(u8::is_ascii_digit)
+        && b[7] == b'-'
+        && b[8..10].iter().all(u8::is_ascii_digit)
+}
+
+fn csv_number(text: &str, integer: bool) -> Result<Value, String> {
+    let issues = &APP_CSV_IMPORT.issues;
+    let compact = text.replace(' ', "");
+    let body = compact.strip_prefix(['+', '-']).unwrap_or(&compact);
+    let shape = body.chars().all(|c| c.is_ascii_digit() || c == '.' || c == ',') && body.chars().any(|c| c.is_ascii_digit());
+    if !shape {
+        return Err(csv_issue(&issues.not_number, text, ""));
+    }
+    let normal = match (compact.rfind('.'), compact.rfind(',')) {
+        (Some(dot), Some(comma)) => {
+            let (decimal, group) = if dot > comma { ('.', ',') } else { (',', '.') };
+            compact.replace(group, "").replacen(decimal, ".", 1)
+        }
+        (Some(_), None) | (None, Some(_)) => {
+            let sep = if compact.contains('.') { '.' } else { ',' };
+            let parts: Vec<&str> = compact.split(sep).collect();
+            if parts.len() == 2 { parts.join(".") } else { parts.join("") }
+        }
+        (None, None) => compact.clone(),
+    };
+    let unsigned = normal.strip_prefix(['+', '-']).unwrap_or(&normal);
+    let valid = match unsigned.split_once('.') {
+        Some((int, frac)) => digits(int, 1, usize::MAX) && digits(frac, 1, usize::MAX),
+        None => digits(unsigned, 1, usize::MAX),
+    };
+    let Some(n) = valid.then(|| normal.parse::<f64>().ok()).flatten().filter(|n| n.is_finite()) else {
+        return Err(csv_issue(&issues.not_number, text, ""));
+    };
+    if integer && n.fract() != 0.0 {
+        return Err(csv_issue(&issues.not_integer, text, ""));
+    }
+    Ok(number_value(n))
+}
+
+fn csv_scalar(ty: &str, enum_values: Option<&[String]>, format: Option<&str>, text: &str) -> Result<Value, String> {
+    let spec = &*APP_CSV_IMPORT;
+    let issues = &spec.issues;
+    if ty == "number" || ty == "integer" {
+        return csv_number(text, ty == "integer");
+    }
+    if ty == "boolean" {
+        let lower = text.to_lowercase();
+        if spec.true_words.contains(&lower) {
+            return Ok(Value::Bool(true));
+        }
+        if spec.false_words.contains(&lower) {
+            return Ok(Value::Bool(false));
+        }
+        return Err(csv_issue(&issues.not_boolean, text, ""));
+    }
+    if let Some(values) = enum_values {
+        let lower = text.to_lowercase();
+        return match values.iter().find(|v| v.to_lowercase() == lower) {
+            Some(hit) => Ok(Value::String(hit.clone())),
+            None => Err(csv_issue(&issues.not_enum, text, &values.join(", "))),
+        };
+    }
+    match format {
+        Some("date") => {
+            if text.len() == 10 && iso_date_prefix(text) {
+                return Ok(Value::String(text.to_string()));
+            }
+            let parts: Vec<&str> = text.split('.').collect();
+            if let [d, m, y] = parts[..] {
+                if digits(d, 1, 2) && digits(m, 1, 2) && digits(y, 4, 4) {
+                    return Ok(Value::String(format!("{y}-{}-{}", pad2(m), pad2(d))));
+                }
+            }
+            let template = if text.contains('/') { &issues.slash_date } else { &issues.not_date };
+            Err(csv_issue(template, text, ""))
+        }
+        Some("time") => {
+            let parts: Vec<&str> = text.split(':').collect();
+            let ok = match parts[..] {
+                [h, m] => digits(h, 1, 2) && digits(m, 2, 2),
+                [h, m, s] => digits(h, 1, 2) && digits(m, 2, 2) && digits(s, 2, 2),
+                _ => false,
+            };
+            if !ok {
+                return Err(csv_issue(&issues.not_time, text, ""));
+            }
+            let seconds = parts.get(2).map(|s| format!(":{s}")).unwrap_or_default();
+            Ok(Value::String(format!("{}:{}{seconds}", pad2(parts[0]), parts[1])))
+        }
+        Some("date-time") => {
+            if iso_date_prefix(text) && text.as_bytes().get(10) == Some(&b'T') {
+                Ok(Value::String(text.to_string()))
+            } else {
+                Err(csv_issue(&issues.not_date_time, text, ""))
+            }
+        }
+        _ => Ok(Value::String(text.to_string())),
+    }
+}
+
+/// One cell → the field's value (`cellCases`): `Ok(Null)` = empty (no
+/// value), `Err` = the issue's message.
+pub fn csv_cell(field: &DataField, cell: &str) -> Result<Value, String> {
+    let text = js_trim(cell);
+    if text.is_empty() {
+        return Ok(Value::Null);
+    }
+    if field.ty != "array" {
+        return csv_scalar(&field.ty, field.enum_values.as_deref(), field.format.as_deref(), text);
+    }
+    let sep = if text.contains(';') { ';' } else { ',' };
+    let items: Vec<&str> = text.split(sep).map(js_trim).filter(|item| !item.is_empty()).collect();
+    if items.is_empty() {
+        return Ok(Value::Null);
+    }
+    let item_type = field.items.as_ref().map(|i| i.ty.as_str()).filter(|t| !t.is_empty()).unwrap_or("string");
+    let values = items.into_iter().map(|item| csv_scalar(item_type, None, None, item)).collect::<Result<Vec<_>, _>>()?;
+    Ok(Value::Array(values))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CsvMember {
+    pub id: String,
+    pub name: String,
+    pub email: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CsvAuthor {
+    /// The Author column (`None` = every row is the importer's).
+    pub column: Option<usize>,
+    pub importer: String,
+    pub members: Vec<CsvMember>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CsvRecord {
+    pub row: usize,
+    pub data: Map<String, Value>,
+    /// A member's id when the row is someone else's (an on-behalf write).
+    pub author: Option<String>,
+    pub issues: Vec<String>,
+}
+
+/// The rows → records + their issues (`rowsCases`), before the host's
+/// schema check. A field missing from `mapping` = skipped.
+pub fn csv_records(
+    schema: &DataSchema,
+    header: &[String],
+    rows: &[CsvRow],
+    mapping: &BTreeMap<String, Option<usize>>,
+    author: Option<&CsvAuthor>,
+) -> Vec<CsvRecord> {
+    let spec = &*APP_CSV_IMPORT;
+    let columns = data_columns(schema);
+    rows.iter()
+        .map(|CsvRow { row, cells }| {
+            let row_text = row.to_string();
+            let at = |field: &str, message: &str| {
+                spec.copy.issue.replace("{row}", &row_text).replace("{field}", field).replace("{message}", message)
+            };
+            let mut issues: Vec<String> = Vec::new();
+            if cells.len() > header.len() {
+                let message = spec.issues.extra_cells.replace("{n}", &cells.len().to_string()).replace("{m}", &header.len().to_string());
+                issues.push(spec.copy.row_issue.replace("{row}", &row_text).replace("{message}", &message));
+            }
+            let mut data = Map::new();
+            for name in &columns {
+                let Some(column) = mapping.get(name).copied().flatten() else { continue };
+                let field = &schema.properties[name];
+                match csv_cell(field, cells.get(column).map(String::as_str).unwrap_or("")) {
+                    Err(message) => issues.push(at(name, &message)),
+                    Ok(Value::Null) => {}
+                    Ok(value) => {
+                        data.insert(name.clone(), value);
+                    }
+                }
+            }
+            let mut record_author = None;
+            if let Some(author) = author {
+                if let Some(column) = author.column {
+                    let text = js_trim(cells.get(column).map(String::as_str).unwrap_or(""));
+                    let id: Option<&str> = if text.is_empty() {
+                        Some(&author.importer)
+                    } else {
+                        let lower = text.to_lowercase();
+                        let by_email = author.members.iter().find(|m| m.email.to_lowercase() == lower);
+                        let by_name: Vec<&CsvMember> = author.members.iter().filter(|m| m.name.to_lowercase() == lower).collect();
+                        by_email.map(|m| m.id.as_str()).or(if by_name.len() == 1 { Some(by_name[0].id.as_str()) } else { None })
+                    };
+                    match id {
+                        None => issues.push(at(&DATA_TAB.copy.author, &spec.issues.not_member.replace("{value}", text))),
+                        Some(id) if id != author.importer => record_author = Some(id.to_string()),
+                        Some(_) => {}
+                    }
+                }
+            }
+            CsvRecord { row: *row, data, author: record_author, issues }
+        })
+        .collect()
+}
+
+/// The preview's count line (`copy.ready`).
+pub fn csv_summary(records: &[CsvRecord]) -> String {
+    let ready = records.iter().filter(|r| r.issues.is_empty()).count();
+    APP_CSV_IMPORT.copy.ready.replace("{n}", &ready.to_string()).replace("{total}", &records.len().to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1731,5 +2202,122 @@ mod tests {
             let got = form_data(&schema, &inputs, case["editing"].as_bool().unwrap());
             assert_eq!(Value::Object(got), case["data"], "{case}");
         }
+    }
+
+    fn csv_cases(key: &str) -> Vec<Value> {
+        let fixture: Value = serde_json::from_str(RECORDS_JSON).unwrap();
+        let all = fixture["csvImport"][key].as_array().unwrap().clone();
+        assert!(!all.is_empty(), "{key}");
+        all
+    }
+
+    fn strings(v: &Value) -> Vec<String> {
+        v.as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect()
+    }
+
+    fn mapping_of(v: &Value) -> BTreeMap<String, Option<usize>> {
+        v.as_object().unwrap().iter().map(|(k, i)| (k.clone(), i.as_u64().map(|i| i as usize))).collect()
+    }
+
+    fn rows_of(v: &Value) -> Vec<CsvRow> {
+        v.as_array()
+            .unwrap()
+            .iter()
+            .map(|r| CsvRow { row: r["row"].as_u64().unwrap() as usize, cells: strings(&r["cells"]) })
+            .collect()
+    }
+
+    /// VAPP-228: `csvImport` minus its cases.
+    #[test]
+    fn csv_import_spec_matches_the_fixture() {
+        let fixture: Value = serde_json::from_str(RECORDS_JSON).unwrap();
+        let c = &fixture["csvImport"];
+        assert_eq!(c["maxRows"].as_u64().unwrap() as usize, APP_CSV_IMPORT.max_rows);
+        assert_eq!(c["copy"]["importButton"], APP_CSV_IMPORT.copy.import_button.as_str());
+        assert_eq!(c["issues"]["extraCells"], APP_CSV_IMPORT.issues.extra_cells.as_str());
+        assert_eq!(c["testIds"]["confirm"], APP_CSV_IMPORT.test_ids.confirm.as_str());
+    }
+
+    #[test]
+    fn csv_parse_cases_replay_the_fixture() {
+        for case in csv_cases("parseCases") {
+            let got = csv_parse(case["text"].as_str().unwrap());
+            let rows: Vec<Value> = got.rows.iter().map(|r| json!({"row": r.row, "cells": r.cells})).collect();
+            assert_eq!(json!(got.header), case["header"], "{}", case["name"]);
+            assert_eq!(Value::Array(rows), case["rows"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn csv_map_cases_replay_the_fixture() {
+        for case in csv_cases("mapCases") {
+            let got = csv_auto_map(&strings(&case["fields"]), &strings(&case["header"]));
+            assert_eq!(json!(got), case["mapping"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn csv_author_column_cases_replay_the_fixture() {
+        for case in csv_cases("authorColumnCases") {
+            let got = csv_author_column(&strings(&case["header"]));
+            assert_eq!(json!(got), case["column"], "{case}");
+        }
+    }
+
+    #[test]
+    fn csv_cell_cases_replay_the_fixture() {
+        for case in csv_cases("cellCases") {
+            let field: DataField = serde_json::from_value(case["field"].clone()).unwrap();
+            let got = csv_cell(&field, case["cell"].as_str().unwrap());
+            let want = match case.get("issue") {
+                Some(issue) => Err(issue.as_str().unwrap().to_string()),
+                None => Ok(case["value"].clone()),
+            };
+            assert_eq!(got, want, "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn csv_rows_cases_replay_the_fixture() {
+        for case in csv_cases("rowsCases") {
+            let author = case.get("author").map(|a| CsvAuthor {
+                column: a["column"].as_u64().map(|c| c as usize),
+                importer: a["importer"].as_str().unwrap().to_string(),
+                members: a["members"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|m| CsvMember {
+                        id: m["id"].as_str().unwrap().to_string(),
+                        name: m["name"].as_str().unwrap().to_string(),
+                        email: m["email"].as_str().unwrap().to_string(),
+                    })
+                    .collect(),
+            });
+            let got = csv_records(
+                &DataSchema::from_value(&case["schema"]),
+                &strings(&case["header"]),
+                &rows_of(&case["rows"]),
+                &mapping_of(&case["mapping"]),
+                author.as_ref(),
+            );
+            let got: Vec<Value> = got
+                .into_iter()
+                .map(|r| {
+                    let mut v = json!({"row": r.row, "data": r.data, "issues": r.issues});
+                    if let Some(a) = r.author {
+                        v["author"] = json!(a);
+                    }
+                    v
+                })
+                .collect();
+            assert_eq!(Value::Array(got), case["records"], "{}", case["name"]);
+        }
+    }
+
+    #[test]
+    fn csv_summary_counts_the_rows_without_issues() {
+        let record = |issues: Vec<String>| CsvRecord { row: 2, data: Map::new(), author: None, issues };
+        assert_eq!(csv_summary(&[record(vec![]), record(vec!["x".into()]), record(vec![])]), "2 of 3 rows ready");
     }
 }

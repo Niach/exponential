@@ -105,6 +105,8 @@ fun AppDataTab(
     val shown = remember(rows, kind) { if (kind == null) emptyList() else AppRecords.dataRows(rows, kind) }
     var form by remember { mutableStateOf<DataFormTarget?>(null) }
     var deleting by remember { mutableStateOf<String?>(null) }
+    // VAPP-228: the kind the CSV import sheet is open for (null = closed).
+    var importing by remember { mutableStateOf<String?>(null) }
     val busyDeleting by viewModel.recordDeleting.collectAsStateWithLifecycle()
     // VAPP-187: a row I may not change keeps its `…`, disabled.
     val me by viewModel.me.collectAsStateWithLifecycle()
@@ -116,7 +118,7 @@ fun AppDataTab(
     // VAPP-215: an add / save / delete / restore toasts Undo (10 s).
     val toaster = LocalToaster.current
     LaunchedEffect(viewModel) {
-        viewModel.undo.collect { u -> toaster.recordUndo(u.write, u.eventIds) { viewModel.undoRecords(u.eventIds, u.via) } }
+        viewModel.undo.collect { u -> toaster.recordUndo(u.write, u.eventIds, u.title) { viewModel.undoRecords(u.eventIds, u.via) } }
     }
 
     Column(modifier = modifier.fillMaxSize().testTag(Apps.TestIds.DATA)) {
@@ -161,6 +163,20 @@ fun AppDataTab(
                 enabled = may("create", kind),
                 modifier = Modifier.testTag(DataTestIds.ADD),
             )
+            // VAPP-228 (`csvImport`): Import… after Add record, only while I may create.
+            if (may("create", kind)) {
+                Spacer(Modifier.width(8.dp))
+                GlassPill(
+                    AppRecords.CsvCopy.IMPORT_BUTTON,
+                    size = PillSize.Sm,
+                    icon = ExpIcons.uiFile,
+                    onClick = {
+                        viewModel.clearCsvError()
+                        importing = kind
+                    },
+                    modifier = Modifier.testTag(AppRecords.CsvTestIds.BUTTON),
+                )
+            }
         }
         if (shown.isEmpty()) {
             EmptyState(
@@ -205,6 +221,14 @@ fun AppDataTab(
                 form = null
                 viewModel.clearRecordError()
             },
+        )
+    }
+    importing?.let { target ->
+        AppCsvImportSheet(
+            kind = target,
+            schema = AppRecords.dataSchema(manifest, target),
+            viewModel = viewModel,
+            onDismiss = { importing = null },
         )
     }
     deleting?.let { recordId ->

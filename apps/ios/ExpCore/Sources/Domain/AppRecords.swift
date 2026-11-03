@@ -745,6 +745,488 @@ public enum AppRecords {
         }
     }
 
+    // MARK: - Spreadsheet import (VAPP-228, fixture `csvImport`)
+
+    /// The Data tab's Import dialog (TS `APP_CSV_IMPORT`): the CSV reader,
+    /// the column auto-mapping and the cell coercion; the host appends
+    /// `validateRecord` (eUI) issues.
+    public enum CsvImport {
+        public static let maxRows = 500
+        public static let previewRows = 5
+        public static let issuesShown = 3
+        public static let trueWords = ["true", "yes", "y", "1", "x"]
+        public static let falseWords = ["false", "no", "n", "0"]
+        public static let authorKeys = ["author", "member", "user", "email", "person"]
+
+        public enum Copy {
+            public static let importButton = "Import…"
+            /// `Import {kind}`.
+            public static let title = "Import {kind}"
+            public static let placeholder = "Paste a CSV or choose a file"
+            public static let chooseFile = "Choose file"
+            public static let skip = "Skip"
+            public static let me = "Me"
+            /// `Column {n}`.
+            public static let column = "Column {n}"
+            /// `row {row}: {field}: {message}`.
+            public static let issue = "row {row}: {field}: {message}"
+            /// `row {row}: {message}`.
+            public static let rowIssue = "row {row}: {message}"
+            /// `+{n} more`.
+            public static let moreIssues = "+{n} more"
+            /// `{n} of {total} rows ready`.
+            public static let ready = "{n} of {total} rows ready"
+            /// `Up to {max} rows per import`.
+            public static let tooMany = "Up to {max} rows per import"
+            public static let noRows = "No rows"
+            /// `Import {n}`.
+            public static let importAction = "Import {n}"
+            /// `{n} records imported`.
+            public static let imported = "{n} records imported"
+        }
+
+        public enum Issues {
+            public static let notNumber = "\"{value}\" is not a number"
+            public static let notInteger = "\"{value}\" is not a whole number"
+            public static let notBoolean = "\"{value}\" is not yes or no"
+            public static let notDate = "\"{value}\" is not a date (YYYY-MM-DD)"
+            public static let slashDate = "\"{value}\" is ambiguous: write YYYY-MM-DD or DD.MM.YYYY"
+            public static let notTime = "\"{value}\" is not a time (HH:MM)"
+            public static let notDateTime = "\"{value}\" is not an ISO date-time"
+            public static let notEnum = "\"{value}\" is not one of {values}"
+            public static let notMember = "\"{value}\" is not a member"
+            public static let extraCells = "{n} cells, the header has {m}"
+        }
+
+        public enum TestIds {
+            public static let button = "app-data-import"
+            public static let dialog = "app-csv-import"
+            public static let text = "app-csv-text"
+            public static let file = "app-csv-file"
+            public static let map = "app-csv-map"
+            public static let author = "app-csv-author"
+            public static let preview = "app-csv-preview"
+            public static let error = "app-csv-error"
+            public static let confirm = "app-csv-confirm"
+        }
+    }
+
+    /// One data row: its record number (header = 1, blank lines counted)
+    /// and its cells as written.
+    public struct CsvRow: Equatable, Sendable {
+        public let row: Int
+        public let cells: [String]
+
+        public init(row: Int, cells: [String]) {
+            self.row = row
+            self.cells = cells
+        }
+    }
+
+    /// `csvParse`'s answer: the header + the data rows.
+    public struct CsvTable: Equatable, Sendable {
+        public let header: [String]
+        public let rows: [CsvRow]
+
+        public init(header: [String], rows: [CsvRow]) {
+            self.header = header
+            self.rows = rows
+        }
+    }
+
+    /// JS `String.prototype.replace(string, string)`: the FIRST occurrence only.
+    private static func replaceFirst(_ text: String, _ target: String, _ replacement: String) -> String {
+        guard let range = text.range(of: target) else { return text }
+        return text.replacingCharacters(in: range, with: replacement)
+    }
+
+    private static func string(of scalars: [Unicode.Scalar]) -> String {
+        var out = ""
+        out.unicodeScalars.append(contentsOf: scalars)
+        return out
+    }
+
+    private static func isAsciiDigit(_ s: Unicode.Scalar) -> Bool {
+        s.value >= 48 && s.value <= 57
+    }
+
+    /// Only ASCII 0–9, its scalar count within `lengths`.
+    private static func digits(_ text: String, _ lengths: ClosedRange<Int>) -> Bool {
+        let scalars = Array(text.unicodeScalars)
+        return lengths.contains(scalars.count) && scalars.allSatisfy(isAsciiDigit)
+    }
+
+    private static func csvTrim(_ text: String) -> String {
+        text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The delimiter: the most frequent of `,` `;` TAB in the first line
+    /// outside quotes (ties in that order, none = `,`).
+    private static func csvDelimiter(_ text: [Unicode.Scalar]) -> Unicode.Scalar {
+        let candidates: [Unicode.Scalar] = [",", ";", "\t"]
+        var counts = [0, 0, 0]
+        var quoted = false
+        for ch in text {
+            if ch == "\"" {
+                quoted.toggle()
+            } else if !quoted, ch == "\n" || ch == "\r" {
+                break
+            } else if !quoted, let index = candidates.firstIndex(of: ch) {
+                counts[index] += 1
+            }
+        }
+        var best = 0
+        for index in 1..<candidates.count where counts[index] > counts[best] {
+            best = index
+        }
+        return candidates[best]
+    }
+
+    /// RFC 4180 → the header + the data rows (TS `csvParse`, `parseCases`).
+    /// Iterates unicode scalars: `\r\n` is ONE Character in Swift.
+    public static func csvParse(_ input: String) -> CsvTable {
+        var text = Array(input.unicodeScalars)
+        if let first = text.first, first.value == 0xFEFF { text.removeFirst() }
+        let delimiter = csvDelimiter(text)
+        var records: [[String]] = []
+        var record: [String] = []
+        var field: [Unicode.Scalar] = []
+        var quoted = false
+        var i = 0
+        func endRecord() {
+            record.append(string(of: field))
+            records.append(record)
+            record = []
+            field = []
+        }
+        while i < text.count {
+            let ch = text[i]
+            if quoted {
+                if ch == "\"" {
+                    if i + 1 < text.count, text[i + 1] == "\"" {
+                        field.append("\"")
+                        i += 2
+                        continue
+                    }
+                    quoted = false
+                } else {
+                    field.append(ch)
+                }
+                i += 1
+                continue
+            }
+            if ch == "\"" {
+                quoted = true
+            } else if ch == delimiter {
+                record.append(string(of: field))
+                field = []
+            } else if ch == "\r" || ch == "\n" {
+                endRecord()
+                if ch == "\r", i + 1 < text.count, text[i + 1] == "\n" { i += 1 }
+            } else {
+                field.append(ch)
+            }
+            i += 1
+        }
+        if !field.isEmpty || !record.isEmpty { endRecord() }
+        let numbered = records.enumerated()
+            .map { CsvRow(row: $0.offset + 1, cells: $0.element) }
+            .filter { !($0.cells.count == 1 && $0.cells[0].isEmpty) }
+        guard let first = numbered.first else { return CsvTable(header: [], rows: []) }
+        var seen: [String: Int] = [:]
+        var header: [String] = []
+        for (index, cell) in first.cells.enumerated() {
+            let trimmed = csvTrim(cell)
+            let name = trimmed.isEmpty
+                ? CsvImport.Copy.column.replacingOccurrences(of: "{n}", with: String(index + 1))
+                : trimmed
+            let n = (seen[name] ?? 0) + 1
+            seen[name] = n
+            header.append(n == 1 ? name : "\(name) \(n)")
+        }
+        var rows: [CsvRow] = []
+        for r in numbered.dropFirst() {
+            if r.cells.count < header.count {
+                rows.append(CsvRow(row: r.row, cells: r.cells + Array(repeating: "", count: header.count - r.cells.count)))
+            } else {
+                rows.append(r)
+            }
+        }
+        return CsvTable(header: header, rows: rows)
+    }
+
+    /// A name's matching key (TS `csvKey`): lowercased, only ASCII a–z and 0–9.
+    public static func csvKey(_ name: String) -> String {
+        string(of: name.lowercased().unicodeScalars.filter { s in
+            (s.value >= 97 && s.value <= 122) || isAsciiDigit(s)
+        })
+    }
+
+    /// The first pick per field (TS `csvAutoMap`, `mapCases`): equal keys
+    /// first, then the ONE free column containing the field's key; a column
+    /// maps at most once. A field absent from the answer = Skip (TS null).
+    public static func csvAutoMap(fields: [String], header: [String]) -> [String: Int] {
+        let keys = header.map(csvKey)
+        var taken = Set<Int>()
+        var mapping: [String: Int] = [:]
+        for field in fields {
+            let key = csvKey(field)
+            guard !key.isEmpty else { continue }
+            if let index = keys.indices.first(where: { !taken.contains($0) && keys[$0] == key }) {
+                mapping[field] = index
+                taken.insert(index)
+            }
+        }
+        for field in fields {
+            let key = csvKey(field)
+            if mapping[field] != nil || key.isEmpty { continue }
+            let hits = keys.indices.filter { !taken.contains($0) && keys[$0].contains(key) }
+            if hits.count == 1 {
+                mapping[field] = hits[0]
+                taken.insert(hits[0])
+            }
+        }
+        return mapping
+    }
+
+    /// The owner's Author pick (TS `csvAuthorColumn`): the first column whose
+    /// key is an `authorKeys` entry, else nil (= Me).
+    public static func csvAuthorColumn(_ header: [String]) -> Int? {
+        header.firstIndex { CsvImport.authorKeys.contains(csvKey($0)) }
+    }
+
+    /// One cell read (TS `CsvCell`): a value (`.null` = no value) or the issue's message.
+    public enum CsvCell: Equatable, Sendable {
+        case value(CardJSON)
+        case issue(String)
+    }
+
+    private static func csvIssue(_ template: String, _ value: String, _ values: String = "") -> CsvCell {
+        .issue(replaceFirst(replaceFirst(template, "{value}", value), "{values}", values))
+    }
+
+    private static func pad2(_ s: String) -> String {
+        s.unicodeScalars.count == 1 ? "0" + s : s
+    }
+
+    private static func csvNumber(_ text: String, integer: Bool) -> CsvCell {
+        let dot: Unicode.Scalar = "."
+        let comma: Unicode.Scalar = ","
+        let compact: [Unicode.Scalar] = Array(text.unicodeScalars).filter { $0 != " " }
+        // ^[+-]?[0-9.,]*[0-9][0-9.,]*$
+        var body = Array(compact)
+        if let first = body.first, first == "+" || first == "-" { body.removeFirst() }
+        guard body.allSatisfy({ isAsciiDigit($0) || $0 == dot || $0 == comma }), body.contains(where: isAsciiDigit) else {
+            return csvIssue(CsvImport.Issues.notNumber, text)
+        }
+        let lastDot = compact.lastIndex(of: dot)
+        let lastComma = compact.lastIndex(of: comma)
+        var normal: [Unicode.Scalar]
+        if let d = lastDot, let c = lastComma {
+            let decimal = d > c ? dot : comma
+            let group = decimal == dot ? comma : dot
+            normal = compact.filter { $0 != group }
+            if let index = normal.firstIndex(of: decimal) { normal[index] = dot }
+        } else if lastDot != nil || lastComma != nil {
+            let sep = lastDot != nil ? dot : comma
+            let occurrences = compact.filter { $0 == sep }.count
+            if occurrences == 1 {
+                normal = compact.map { $0 == sep ? dot : $0 }
+            } else {
+                normal = compact.filter { $0 != sep }
+            }
+        } else {
+            normal = compact
+        }
+        // ^[+-]?[0-9]+(\.[0-9]+)?$
+        var negative = false
+        if let first = normal.first, first == "+" || first == "-" {
+            negative = first == "-"
+            normal.removeFirst()
+        }
+        let parts = string(of: normal).components(separatedBy: ".")
+        guard parts.count <= 2, parts.allSatisfy({ digits($0, 1...Int.max) }),
+              let parsed = Double(string(of: normal)), parsed.isFinite
+        else { return csvIssue(CsvImport.Issues.notNumber, text) }
+        let n = negative ? -parsed : parsed
+        if integer, n != n.rounded() { return csvIssue(CsvImport.Issues.notInteger, text) }
+        return .value(.number(n))
+    }
+
+    private static func csvScalar(type: String?, enumValues: [String]?, format: String?, _ text: String) -> CsvCell {
+        if type == "number" || type == "integer" { return csvNumber(text, integer: type == "integer") }
+        if type == "boolean" {
+            let lower = text.lowercased()
+            if CsvImport.trueWords.contains(lower) { return .value(.bool(true)) }
+            if CsvImport.falseWords.contains(lower) { return .value(.bool(false)) }
+            return csvIssue(CsvImport.Issues.notBoolean, text)
+        }
+        if let enumValues {
+            let lower = text.lowercased()
+            if let hit = enumValues.first(where: { $0.lowercased() == lower }) { return .value(.string(hit)) }
+            return csvIssue(CsvImport.Issues.notEnum, text, enumValues.joined(separator: ", "))
+        }
+        if format == "date" {
+            let scalars = Array(text.unicodeScalars)
+            if scalars.count == 10, scalars[4] == "-", scalars[7] == "-",
+               digits(string(of: Array(scalars[0..<4])), 4...4),
+               digits(string(of: Array(scalars[5..<7])), 2...2),
+               digits(string(of: Array(scalars[8..<10])), 2...2) {
+                return .value(.string(text))
+            }
+            let parts = text.components(separatedBy: ".")
+            if parts.count == 3, digits(parts[0], 1...2), digits(parts[1], 1...2), digits(parts[2], 4...4) {
+                return .value(.string("\(parts[2])-\(pad2(parts[1]))-\(pad2(parts[0]))"))
+            }
+            return csvIssue(text.contains("/") ? CsvImport.Issues.slashDate : CsvImport.Issues.notDate, text)
+        }
+        if format == "time" {
+            let parts = text.components(separatedBy: ":")
+            if parts.count == 2 || parts.count == 3, digits(parts[0], 1...2), digits(parts[1], 2...2),
+               parts.count == 2 || digits(parts[2], 2...2) {
+                let seconds = parts.count == 3 ? ":" + parts[2] : ""
+                return .value(.string("\(pad2(parts[0])):\(parts[1])\(seconds)"))
+            }
+            return csvIssue(CsvImport.Issues.notTime, text)
+        }
+        if format == "date-time" {
+            let scalars = Array(text.unicodeScalars)
+            var ok = scalars.count >= 11 && scalars[4] == "-" && scalars[7] == "-" && scalars[10] == "T"
+            if ok {
+                for index in 0..<10 where index != 4 && index != 7 && !isAsciiDigit(scalars[index]) {
+                    ok = false
+                }
+            }
+            return ok ? .value(.string(text)) : csvIssue(CsvImport.Issues.notDateTime, text)
+        }
+        return .value(.string(text))
+    }
+
+    /// One cell → the field's value (TS `csvCell`, `cellCases`) on the
+    /// trimmed cell; empty = `.value(.null)`. `field` = the schema property.
+    public static func csvCell(_ field: CardJSON, _ cell: String) -> CsvCell {
+        let text = csvTrim(cell)
+        if text.isEmpty { return .value(.null) }
+        let object = field.objectValue ?? [:]
+        let type = stringValue(object["type"])
+        if type != "array" {
+            var enumValues: [String]?
+            if case let .array(values)? = object["enum"] { enumValues = values.compactMap { stringValue($0) } }
+            return csvScalar(type: type, enumValues: enumValues, format: stringValue(object["format"]), text)
+        }
+        let separator = text.contains(";") ? ";" : ","
+        let items = text.components(separatedBy: separator).map(csvTrim).filter { !$0.isEmpty }
+        if items.isEmpty { return .value(.null) }
+        let itemType = stringValue(object["items"]?.objectValue?["type"]) ?? "string"
+        var values: [CardJSON] = []
+        for item in items {
+            let read = csvScalar(type: itemType, enumValues: nil, format: nil, item)
+            switch read {
+            case .issue: return read
+            case let .value(value): values.append(value)
+            }
+        }
+        return .value(.array(values))
+    }
+
+    /// A team member the Author column may name.
+    public struct CsvMember: Equatable, Sendable {
+        public let id: String
+        public let name: String
+        public let email: String
+
+        public init(id: String, name: String, email: String) {
+            self.id = id
+            self.name = name
+            self.email = email
+        }
+    }
+
+    /// The owner's Author pick.
+    public struct CsvAuthor: Equatable, Sendable {
+        /// The Author column (nil = every row is the importer's).
+        public let column: Int?
+        public let importer: String
+        public let members: [CsvMember]
+
+        public init(column: Int?, importer: String, members: [CsvMember]) {
+            self.column = column
+            self.importer = importer
+            self.members = members
+        }
+    }
+
+    /// One imported row: its data (nulls omitted), its author when someone
+    /// else's (an on-behalf write) and its issues (the host appends its own).
+    public struct CsvRecord: Equatable, Sendable {
+        public let row: Int
+        public let data: [String: CardJSON]
+        public let author: String?
+        public var issues: [String]
+
+        public init(row: Int, data: [String: CardJSON], author: String? = nil, issues: [String]) {
+            self.row = row
+            self.data = data
+            self.author = author
+            self.issues = issues
+        }
+    }
+
+    /// The rows → records + their issues (TS `csvRecords`, `rowsCases`),
+    /// before the host's schema check. `mapping` = field → column (absent = Skip).
+    public static func csvRecords(
+        schema: CardJSON, header: [String], rows: [CsvRow], mapping: [String: Int], author: CsvAuthor? = nil
+    ) -> [CsvRecord] {
+        let props = properties(schema)
+        let columns = dataColumns(schema)
+        return rows.map { csvRow -> CsvRecord in
+            let row = String(csvRow.row)
+            let cells = csvRow.cells
+            func cell(_ column: Int) -> String { column >= 0 && column < cells.count ? cells[column] : "" }
+            func at(_ field: String, _ message: String) -> String {
+                replaceFirst(replaceFirst(replaceFirst(CsvImport.Copy.issue, "{row}", row), "{field}", field), "{message}", message)
+            }
+            var issues: [String] = []
+            if cells.count > header.count {
+                let message = replaceFirst(
+                    replaceFirst(CsvImport.Issues.extraCells, "{n}", String(cells.count)), "{m}", String(header.count)
+                )
+                issues.append(replaceFirst(replaceFirst(CsvImport.Copy.rowIssue, "{row}", row), "{message}", message))
+            }
+            var data: [String: CardJSON] = [:]
+            for name in columns {
+                guard let column = mapping[name] else { continue }
+                switch csvCell(props[name] ?? .object([:]), cell(column)) {
+                case let .issue(message): issues.append(at(name, message))
+                case let .value(value): if value != .null { data[name] = value }
+                }
+            }
+            var writeAs: String?
+            if let author, let column = author.column {
+                let text = csvTrim(cell(column))
+                var id: String? = author.importer
+                if !text.isEmpty {
+                    let lower = text.lowercased()
+                    let byEmail = author.members.first { $0.email.lowercased() == lower }
+                    let byName = author.members.filter { $0.name.lowercased() == lower }
+                    id = byEmail?.id ?? (byName.count == 1 ? byName[0].id : nil)
+                }
+                if let id {
+                    if id != author.importer { writeAs = id }
+                } else {
+                    issues.append(at(DataTab.Copy.author, replaceFirst(CsvImport.Issues.notMember, "{value}", text)))
+                }
+            }
+            return CsvRecord(row: csvRow.row, data: data, author: writeAs, issues: issues)
+        }
+    }
+
+    /// The preview's count line (TS `csvSummary`, `copy.ready`).
+    public static func csvSummary(_ records: [CsvRecord]) -> String {
+        let ready = records.filter { $0.issues.isEmpty }.count
+        return replaceFirst(replaceFirst(CsvImport.Copy.ready, "{n}", String(ready)), "{total}", String(records.count))
+    }
+
     // MARK: - Settings → Apps → the app
 
     private static func grouped(_ n: Int) -> String {
