@@ -243,7 +243,7 @@ mod tests {
     fn list_decodes_apps_and_levels() {
         let (base, captured) = one_shot_server(
             200,
-            r#"{"result":{"data":{"canEdit":true,"apps":[{"id":"a-1","slug":"m5","name":"m5 admin","icon":null,"color":"blue","toolCount":3}],"rows":[{"userId":"u-1","name":"Mia","email":"mia@x.at","image":null,"role":"member","levels":{"a-1":"read"}}]}}}"#,
+            r#"{"result":{"data":{"canEdit":true,"apps":[{"id":"a-1","slug":"customer-admin","name":"Customer admin","icon":null,"color":"blue","toolCount":3}],"rows":[{"userId":"u-1","name":"Mia","email":"mia@x.at","image":null,"role":"member","levels":{"a-1":"read"}}]}}}"#,
         );
         let out = list(&client(&base), "t-1").unwrap();
         assert!(out.can_edit);

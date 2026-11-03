@@ -61,7 +61,7 @@ describe(`validateExposes`, () => {
 describe(`upstreamCallError`, () => {
   for (const entry of fixture.upstreamCallCases) {
     test(entry.name, () => {
-      const expose = { access: entry.access, run: { upstream: `m5`, tool: entry.tool } } as unknown as Expose
+      const expose = { access: entry.access, run: { upstream: `crm`, tool: entry.tool } } as unknown as Expose
       expect(upstreamCallError(expose, entry.annotations)).toBe(entry.expected)
     })
   }

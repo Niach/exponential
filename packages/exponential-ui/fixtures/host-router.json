@@ -600,7 +600,7 @@
         }
       },
       "upstreams": [
-        "m5"
+        "crm"
       ],
       "exposes": [
         {
@@ -694,7 +694,7 @@
         {
           "name": "find_customer",
           "title": "Find a customer",
-          "description": "Search m5 customers.",
+          "description": "Search CRM customers.",
           "input": {
             "type": "object",
             "properties": {
@@ -705,7 +705,7 @@
           },
           "access": "read",
           "run": {
-            "upstream": "m5",
+            "upstream": "crm",
             "tool": "search_customers",
             "args": {
               "query": "${input.q}"
@@ -750,8 +750,8 @@
         }
       },
       "upstreams": [
-        "m5",
-        "m5"
+        "crm",
+        "crm"
       ],
       "exposes": [
         "x",
@@ -791,7 +791,7 @@
           "access": "write",
           "run": {
             "action": "exponential.issues.create",
-            "upstream": "m5",
+            "upstream": "crm",
             "tool": "x"
           }
         },
@@ -928,7 +928,7 @@
           },
           "access": "write",
           "run": {
-            "upstream": "m5",
+            "upstream": "crm",
             "tool": "delete_customer"
           }
         },
@@ -941,7 +941,7 @@
           },
           "access": "write",
           "run": {
-            "upstream": "m5",
+            "upstream": "crm",
             "tool": ""
           }
         },
@@ -980,7 +980,7 @@
         }
       },
       "upstreams": [
-        "m5",
+        "crm",
         3
       ],
       "exposes": {
@@ -2650,7 +2650,7 @@
       "expected": [
         {
           "path": "/upstreams/1",
-          "message": "duplicate upstream m5"
+          "message": "duplicate upstream crm"
         },
         {
           "path": "/exposes/0",
