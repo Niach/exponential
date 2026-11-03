@@ -43,7 +43,7 @@ async function world() {
   const steerDeviceId = `steer-${id8()}`
   const [device] = await db
     .insert(devices)
-    .values({ userId: owner, deviceId: steerDeviceId, label: `homelab`, kind: `daemon` })
+    .values({ userId: owner, deviceId: steerDeviceId, label: `homelab`, kind: `server` })
     .returning({ id: devices.id })
   const [server] = await db
     .insert(mcpServers)

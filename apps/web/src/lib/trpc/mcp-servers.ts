@@ -463,7 +463,8 @@ export const mcpServersRouter = router({
         if (!device) {
           throw new TRPCError({ code: `NOT_FOUND`, message: `Pick one of your own devices` })
         }
-        if (device.kind !== `desktop` && device.kind !== `daemon`) {
+        // A desktop app registers `desktop`, a CLI daemon `server`.
+        if (device.kind !== `desktop` && device.kind !== `server`) {
           throw new TRPCError({ code: `BAD_REQUEST`, message: `Only a desktop app or a CLI daemon runs MCP servers` })
         }
       }
