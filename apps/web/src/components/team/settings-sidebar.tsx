@@ -32,7 +32,6 @@ import {
   NEW_AGENT_LABEL,
   NEW_BOARD_LABEL,
   SETTINGS_AGENTS_GROUP,
-  SETTINGS_APPS_GROUP,
   NEW_APP_LABEL,
   SETTINGS_NAV,
   settingsNavListVisible,
@@ -216,7 +215,7 @@ export function SettingsSidebar({
         return apps.map((app) => (
           <SidebarMenuItem key={app.id}>
             <SidebarMenuButton asChild>
-              <Link to="/t/$teamSlug/apps/$appSlug" params={{ teamSlug, appSlug: app.slug }} search={{ tab: `settings` }}>
+              <Link to="/t/$teamSlug/app-editor/$appSlug" params={{ teamSlug, appSlug: app.slug }} search={{ tab: `settings` }}>
                 <BoardGlyph board={{ icon: app.icon, color: app.color }} />
                 <span>{app.name}</span>
               </Link>
@@ -275,7 +274,6 @@ export function SettingsSidebar({
           })
           if (rows.every((row) => row === null)) return null
           const isAgentsGroup = group.group === SETTINGS_AGENTS_GROUP
-          const isAppsGroup = group.group === SETTINGS_APPS_GROUP
           return (
             <SidebarGroup
               key={group.id}
@@ -290,18 +288,6 @@ export function SettingsSidebar({
                     activeOptions={{ exact: true }}
                     activeProps={{ className: `text-sidebar-foreground` }}
                     data-testid="settings-agents-index"
-                  >
-                    {group.group}
-                  </Link>
-                </SidebarGroupLabel>
-              ) : isAppsGroup ? (
-                <SidebarGroupLabel asChild className="hover:text-sidebar-foreground">
-                  <Link
-                    to="/t/$teamSlug/settings/apps"
-                    params={{ teamSlug }}
-                    activeOptions={{ exact: true }}
-                    activeProps={{ className: `text-sidebar-foreground` }}
-                    data-testid="settings-apps-index"
                   >
                     {group.group}
                   </Link>

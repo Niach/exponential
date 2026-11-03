@@ -13,13 +13,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -59,19 +56,18 @@ import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.SkeletonRows
-import com.exponential.app.ui.components.TopBarBackButton
-import com.exponential.app.ui.components.TopBarTitle
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.parseColor
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
 
-// VAPP-110 (fixtures/apps.json, web `components/apps/apps-list.tsx`): the
-// Apps list = the band with `Import…` and `New app` as its trailing pills,
-// then one row per app by name (glyph, name, the version pill, the `…` menu:
-// Export, Delete); Exponential ships no built-in apps. A row opens the
-// editor. VAPP-176: New app = `apps.create {teamId}` (a DRAFT) and its
-// editor at once, no form; Import… opens the import step as its own sheet.
+// VAPP-110 (fixtures/apps.json THE LIST, web `components/apps/apps-list.tsx`):
+// the Apps TAB = the band whose `New app` pill opens THE NEW MENU (VAPP-242:
+// New app, Import…), then one row per app by name (glyph, name, the version
+// pill, the `…` menu: Edit app, Export, Delete app); Exponential ships no
+// built-in apps. VAPP-242: a row RUNS the app (THE RUN VIEW); the editor sits
+// behind `…` › Edit app. VAPP-176: New app = `apps.create {teamId}` (a DRAFT)
+// and its editor at once, no form; Import… opens the import step as a sheet.
 
 /** An app's glyph: its icon in its colour (the board set), muted without one. */
 @Composable
@@ -94,12 +90,11 @@ fun AppVersionPill(app: AppListEntry) {
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppsScreen(
-    /** Null = the Apps TAB's root (#EXP-1384), no back control; else
-     *  Settings › Apps (#EXP-1632), the same list under the settings bar. */
-    onBack: (() -> Unit)?,
+    /** VAPP-242: a row tap = THE RUN VIEW. */
+    onRunApp: (appId: String) -> Unit,
+    /** `…` › Edit app, New app, an import = THE EDITOR. */
     onOpenApp: (appId: String) -> Unit,
     viewModel: AppsViewModel = hiltViewModel(),
 ) {
@@ -115,35 +110,23 @@ fun AppsScreen(
     var exporting by remember { mutableStateOf<AppListEntry?>(null) }
 
     val title = Chats.Copy.HEADERS.getValue("apps")
-    Scaffold(
-        containerColor = Color.Transparent,
-        topBar = {
-            // #EXP-1632: Settings › Apps (settings-nav.json `apps`) is a
-            // settings page: the centred title + back of every Team row's page.
-            if (onBack != null) {
-                CenterAlignedTopAppBar(
-                    title = { TopBarTitle(title) },
-                    navigationIcon = { TopBarBackButton(onClick = onBack) },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent),
-                )
-            }
-        },
-    ) { padding ->
+    Scaffold(containerColor = Color.Transparent) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(bottom = if (onBack == null) BottomBarInset else 0.dp)
+                .padding(bottom = BottomBarInset)
                 .testTag(Apps.TestIds.LIST),
         ) {
             // #EXP-1384 (chats.json `shell.header`): the Apps tab's page header.
-            if (onBack == null) PageHeader(title = title)
+            PageHeader(title = title)
         Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
             AppsListContent(
                 apps = apps,
                 canManage = { viewModel.canManage(it, me, isOwner) },
-                onOpen = { onOpenApp(it.id) },
+                onOpen = { onRunApp(it.id) },
+                onEdit = { onOpenApp(it.id) },
                 onNew = { viewModel.create(onOpenApp) },
                 onImport = { importing = true },
                 creating = busy,
@@ -206,7 +189,9 @@ fun AppsListContent(
     onOpen: (AppListEntry) -> Unit,
     onNew: () -> Unit,
     onDelete: (AppListEntry) -> Unit,
-    /** VAPP-176: the band's Import… pill (the import sheet). */
+    /** VAPP-242: `…` › Edit app (the creator or an owner) = THE EDITOR. */
+    onEdit: (AppListEntry) -> Unit = {},
+    /** VAPP-176: THE NEW MENU's Import… (the import sheet). */
     onImport: () -> Unit = {},
     /** VAPP-176: New app's create in flight (the pill waits). */
     creating: Boolean = false,
@@ -214,22 +199,7 @@ fun AppsListContent(
     onExport: (AppListEntry) -> Unit = {},
 ) {
     SectionHeader(Apps.Copy.TITLE) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            GlassPill(
-                Apps.Copy.IMPORT,
-                size = PillSize.Sm,
-                onClick = onImport,
-                modifier = Modifier.testTag(Apps.TestIds.IMPORT_APP),
-            )
-            GlassPill(
-                Apps.Copy.NEW_APP,
-                icon = ExpIcons.uiAdd,
-                size = PillSize.Sm,
-                onClick = onNew,
-                enabled = !creating,
-                modifier = Modifier.testTag(Apps.TestIds.NEW_APP),
-            )
-        }
+        AppsNewMenu(onNew = onNew, onImport = onImport, creating = creating)
     }
     when {
         apps == null -> SkeletonRows(modifier = Modifier.padding(vertical = 4.dp))
@@ -256,10 +226,11 @@ fun AppsListContent(
                 )
                 AppVersionPill(app)
                 val manage = canManage(app)
-                if (manage || app.headVersion > 0) {
+                if (manage || app.publishedVersion > 0) {
                     AppRowMenu(
                         app,
                         canManage = manage,
+                        onEdit = { onEdit(app) },
                         onExport = { onExport(app) },
                         onDelete = { onDelete(app) },
                     )
@@ -273,7 +244,7 @@ fun AppsListContent(
 }
 
 @Composable
-private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onExport: () -> Unit, onDelete: () -> Unit) {
+private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onEdit: () -> Unit, onExport: () -> Unit, onDelete: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Box {
         CircleIconButton(
@@ -283,9 +254,22 @@ private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onExport: () -> Un
             glyphSize = 16.dp,
             borderless = true,
             size = 32.dp,
+            modifier = Modifier.testTag("${Apps.TestIds.ROW}-menu-${app.slug}"),
         )
         GlassDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            if (app.headVersion > 0) {
+            // VAPP-242 (`run.menu`): Edit app first (the creator or an owner).
+            if (canManage) {
+                GlassMenuItem(
+                    leadingIcon = { Icon(ExpIcons.uiEdit, contentDescription = null) },
+                    text = { Text(Apps.Copy.MENU_EDIT) },
+                    onClick = {
+                        open = false
+                        onEdit()
+                    },
+                    modifier = Modifier.testTag("apps-row-edit"),
+                )
+            }
+            if (app.publishedVersion > 0) {
                 GlassMenuItem(
                     leadingIcon = { Icon(ExpIcons.uiShare, contentDescription = null) },
                     text = { Text(AppExport.Copy.EXPORT) },
@@ -306,6 +290,47 @@ private fun AppRowMenu(app: AppListEntry, canManage: Boolean, onExport: () -> Un
                 },
             )
             }
+        }
+    }
+}
+
+/** VAPP-242 THE NEW MENU (`run.newMenu`, testId `newMenu`): the band's
+ *  `New app` pill opens the existing menu: New app (ui-add), Import… (ui-file). */
+@Composable
+private fun AppsNewMenu(onNew: () -> Unit, onImport: () -> Unit, creating: Boolean) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        GlassPill(
+            Apps.Copy.NEW_APP,
+            icon = ExpIcons.uiAdd,
+            size = PillSize.Sm,
+            onClick = { open = true },
+            enabled = !creating,
+            modifier = Modifier.testTag(Apps.TestIds.NEW_APP),
+        )
+        GlassDropdownMenu(
+            expanded = open,
+            onDismissRequest = { open = false },
+            modifier = Modifier.testTag(Apps.TestIds.NEW_MENU),
+        ) {
+            GlassMenuItem(
+                leadingIcon = { Icon(ExpIcons.uiAdd, contentDescription = null) },
+                text = { Text(Apps.Copy.NEW_APP) },
+                onClick = {
+                    open = false
+                    onNew()
+                },
+                modifier = Modifier.testTag("apps-new-menu-new"),
+            )
+            GlassMenuItem(
+                leadingIcon = { Icon(ExpIcons.uiFile, contentDescription = null) },
+                text = { Text(Apps.Copy.IMPORT) },
+                onClick = {
+                    open = false
+                    onImport()
+                },
+                modifier = Modifier.testTag(Apps.TestIds.IMPORT_APP),
+            )
         }
     }
 }

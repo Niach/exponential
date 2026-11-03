@@ -50,9 +50,8 @@ class SettingsNavTest {
         assertEquals(expected, SettingsNav.PHONE_ROWS)
         // Every phone row is a `phone: true` row, in `rows` order.
         assertEquals(SettingsNav.ROWS.filter { it.phone }.map { it.id }, SettingsNav.PHONE_ROWS)
-        // #EXP-1632: Apps is a phone row (Settings › Apps) before Devices,
-        // the last phone row.
-        assertEquals(SettingsNav.APPS, SettingsNav.PHONE_ROWS[SettingsNav.PHONE_ROWS.size - 2])
+        // VAPP-242: no Apps row (the Apps tab lists the apps); Devices last.
+        assertEquals(false, SettingsNav.PHONE_ROWS.contains("apps"))
         assertEquals(SettingsNav.DEVICES, SettingsNav.PHONE_ROWS.last())
     }
 

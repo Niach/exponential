@@ -56,6 +56,10 @@ object Apps {
         const val MENU_SETTINGS = "Settings"
         const val MENU_EXPORT = "Export"
         const val MENU_DELETE = "Delete app"
+        // VAPP-242: the list row's / the run view's `…` first item (→ THE EDITOR).
+        const val MENU_EDIT = "Edit app"
+        // VAPP-242: THE RUN VIEW of an app with nothing published.
+        const val RUN_EMPTY = "Not published yet"
         const val TAB_CHAT = "Chat"
         const val TAB_PREVIEW = "Preview"
         // VAPP-178: the Data tab (app-records.json `dataTab`).
@@ -148,6 +152,10 @@ object Apps {
         const val WEBHOOK_SECRET = "app-webhook-secret"
         // VAPP-218: the preview frame's screens nav (sidebar or bar).
         const val PREVIEW_SCREENS = "app-editor-preview-screens"
+        // VAPP-242: THE RUN VIEW, its `…` menu, THE NEW MENU.
+        const val RUN = "app-run"
+        const val RUN_MENU = "app-run-menu"
+        const val NEW_MENU = "apps-new-menu"
     }
 
     /** VAPP-177 (fixture `editorTabs`): the editor's tabs. Wide (web ≥ md,

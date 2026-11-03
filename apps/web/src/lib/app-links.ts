@@ -20,7 +20,7 @@ const ANDROID_PACKAGES = [`at.exponential`, `at.exponential.staging`]
 
 // Only the link shapes the mobile apps can render. Claiming broader /t/*
 // paths would hijack public feedback-board visitors and web-only surfaces.
-// VAPP-218: an app screen (`/t/<team>/apps/<app>/<screen>`, app-link.json appScreen) opens the app's editor on it.
+// VAPP-218: an app screen (`/t/<team>/apps/<app>/<screen>`, app-link.json appScreen) opens THE RUN VIEW on it (VAPP-242).
 // EXP-1288: a thread page opens the native Thread screen.
 const LINK_PATHS = [`/t/*/boards/*/issues/*`, `/t/*/threads/*`, `/invite/*`, `/t/*/apps/*/*`]
 

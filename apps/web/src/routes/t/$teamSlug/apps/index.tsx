@@ -1,7 +1,8 @@
-import { createFileRoute, redirect } from "@tanstack/react-router"
+import { useEffect } from "react"
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import { APPS_COPY } from "@exp/domain-contract/apps"
 import { CHATS_COPY } from "@exp/domain-contract/chats"
-import { SkeletonRows } from "@exp/ui"
+import { SkeletonRows, useIsMobile } from "@exp/ui"
 import { AppsList } from "@/components/apps/apps-list"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { MobilePageHeader } from "@/components/team/mobile-page-header"
@@ -11,9 +12,10 @@ import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle } from "@/lib/page-title"
 
-// VAPP-110: the team's Apps (fixtures/apps.json): the management list.
-// #EXP-1384: on phones the Apps TAB, under THE page header (chats.json
-// `shell.header`, title `copy.headers.apps`).
+// VAPP-110: the team's Apps (fixtures/apps.json THE LIST). #EXP-1384: the
+// phones' Apps TAB, under THE page header (chats.json `shell.header`, title
+// `copy.headers.apps`). VAPP-242: PHONES ONLY: web ≥ md has no Apps page
+// (the sidebar's Apps group lists the apps), so it forwards to the team.
 
 export const Route = createFileRoute(`/t/$teamSlug/apps/`)({
   head: () => ({ meta: [{ title: pageTitle(APPS_COPY.title) }] }),
@@ -31,6 +33,11 @@ function AppsPage() {
   const team = useTeamBySlug(teamSlug)
   const permissions = useTeamPermissions(team)
   const { apps, isReady } = useApps(team?.id)
+  const isMobile = useIsMobile()
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (!isMobile) void navigate({ to: `/t/$teamSlug`, params: { teamSlug }, replace: true })
+  }, [isMobile, navigate, teamSlug])
 
   const header = (
     <MobilePageHeader

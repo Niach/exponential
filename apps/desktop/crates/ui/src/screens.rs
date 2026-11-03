@@ -203,12 +203,9 @@ pub(crate) fn build_screen_content(
         Screen::Threads => cx
             .new(|cx| crate::threads_view::ThreadsView::new(window, cx))
             .into(),
-        Screen::Apps => cx
-            .new(|cx| crate::apps_view::AppsPage::new(window, cx))
-            .into(),
-        // VAPP-110: the Apps page and an editor are never undocked (the
-        // editor owns the member's live editor session).
-        Screen::App { .. } => cx.new(|_| NeverUndocked).into(),
+        // VAPP-110: an editor and (VAPP-242) a run view are never undocked
+        // (the editor owns the member's live editor session).
+        Screen::App { .. } | Screen::AppRun { .. } => cx.new(|_| NeverUndocked).into(),
         // VAPP-90: the dev-only kitchen sink is never undocked.
         Screen::ExponentialUiKitchenSink
         | Screen::ExponentialUiSpecimen { .. }
@@ -903,8 +900,6 @@ pub struct ScreensPanel {
     chat: Entity<crate::chat_screen::ChatScreenView>,
     /// EXP-1294: the Threads page (the same tab-less full-page mode).
     threads_page: Entity<crate::threads_view::ThreadsView>,
-    /// EXP-1650: the Apps page (the same tab-less full-page mode).
-    apps_page: Entity<crate::apps_view::AppsPage>,
     /// VAPP-90: the Exponential UI kitchen sink, built on first use — a
     /// dev-only screen pays its surface build only when opened.
     eui_core: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
@@ -1135,7 +1130,6 @@ impl ScreensPanel {
             cx.new(|cx| crate::issue_draft_screen::IssueDraftView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
         let threads_page = cx.new(|cx| crate::threads_view::ThreadsView::new(window, cx));
-        let apps_page = cx.new(|cx| crate::apps_view::AppsPage::new(window, cx));
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
         let list = cx.new(|cx| ListPanel::new(ListMode::Screen, window, cx));
@@ -1224,7 +1218,6 @@ impl ScreensPanel {
             issue_draft,
             chat,
             threads_page,
-            apps_page,
             eui_core: None,
             app_editor: None,
             exponential_ui_specimen: None,
@@ -1282,13 +1275,29 @@ impl ScreensPanel {
     /// off it, a team switch included.
     fn sync_app_editor(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         match resolved_screen(&self.nav, cx) {
-            Some(Screen::App { app }) => {
-                let current = self.app_editor.as_ref().is_some_and(|view| view.read(cx).shows(&app));
+            // VAPP-242: a run view shares the slot (the same host pieces),
+            // rebuilt when the mode flips.
+            Some(screen @ (Screen::App { .. } | Screen::AppRun { .. })) => {
+                let (app, run) = match screen {
+                    Screen::AppRun { app } => (app, true),
+                    Screen::App { app } => (app, false),
+                    _ => unreachable!(),
+                };
+                let current = self
+                    .app_editor
+                    .as_ref()
+                    .is_some_and(|view| view.read(cx).is_run() == run && view.read(cx).shows(&app));
                 if !current {
                     if let Some(old) = self.app_editor.take() {
                         old.update(cx, |view, cx| view.leave(cx));
                     }
-                    self.app_editor = Some(cx.new(|cx| crate::app_screen::AppScreenView::new(app, window, cx)));
+                    self.app_editor = Some(cx.new(|cx| {
+                        if run {
+                            crate::app_screen::AppScreenView::run(app, window, cx)
+                        } else {
+                            crate::app_screen::AppScreenView::new(app, window, cx)
+                        }
+                    }));
                 }
             }
             _ => {
@@ -1559,7 +1568,7 @@ impl ScreensPanel {
             | Screen::IssueDraft { .. }
             | Screen::Home
             | Screen::Threads
-            | Screen::Apps
+            | Screen::AppRun { .. }
             | Screen::App { .. }
             | Screen::ExponentialUiKitchenSink
             | Screen::ExponentialUiSpecimen { .. }
@@ -3409,9 +3418,8 @@ impl Render for ScreensPanel {
             Some(Screen::IssueDraft { .. }) => self.issue_draft.clone().into_any_element(),
             Some(Screen::Home) => self.chat.clone().into_any_element(),
             Some(Screen::Threads) => self.threads_page.clone().into_any_element(),
-            Some(Screen::Apps) => self.apps_page.clone().into_any_element(),
-            // VAPP-110: built by `sync_app_editor` on entry.
-            Some(Screen::App { .. }) => self
+            // VAPP-110 + VAPP-242: built by `sync_app_editor` on entry.
+            Some(Screen::App { .. } | Screen::AppRun { .. }) => self
                 .app_editor
                 .clone()
                 .map(gpui::IntoElement::into_any_element)

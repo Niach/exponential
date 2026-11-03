@@ -83,11 +83,11 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/agents/$agentId`,
     fuzzy: true,
   })
-  // VAPP-110: the app editor owns the bottom edge (its composer).
-  const onAppEditor = matchRoute({
-    to: `/t/$teamSlug/apps/$appSlug`,
-    fuzzy: true,
-  })
+  // VAPP-110: the app editor owns the bottom edge (its composer); VAPP-242:
+  // a running app is a pushed detail (its own screens bar) likewise.
+  const onAppEditor =
+    matchRoute({ to: `/t/$teamSlug/app-editor/$appSlug`, fuzzy: true }) ||
+    matchRoute({ to: `/t/$teamSlug/apps/$appSlug`, fuzzy: true })
   // chats.json: the Inbox is PUSHED from the Chats header's inbox circle
   // (its own back header, no segments), so it hides the bar like a detail.
   const onInbox = matchRoute({ to: `/t/$teamSlug/inbox`, fuzzy: true })

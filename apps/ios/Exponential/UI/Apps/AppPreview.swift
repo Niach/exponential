@@ -40,9 +40,16 @@ struct AppPreview: View {
     /// VAPP-218: the requested screen (the editor's state; a tab tap and
     /// `app.navigate` write it), nil = the first.
     var screen: Binding<Apps.ScreenRequest?> = .constant(nil)
+    /// VAPP-242: false = THE RUN VIEW: the surface fills the content area
+    /// edge to edge (no frame radius, ground or hairline; `preview.padding`
+    /// inside), the same host and screens bar.
+    var framed = true
+    /// VAPP-242: the run view's empty state (`copy.runEmpty`, the app's glyph).
+    var emptyTitle = Apps.Copy.previewEmpty
+    var emptyIcon = AppIcons.navApps
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: Apps.Preview.radius)
+        let shape = RoundedRectangle(cornerRadius: framed ? Apps.Preview.radius : 0)
         let screens = AppPreviewScreens(packageJSON: packageJSON, request: screen.wrappedValue)
         VStack(spacing: 0) {
             ScrollView {
@@ -55,7 +62,7 @@ struct AppPreview: View {
                         )
                         .id("\(grants):\(readOnly):\(migrateFrom ?? ""):\(screens.shownKey):\(packageJSON)")
                     } else {
-                        EmptyState(title: Apps.Copy.previewEmpty, icon: AppIcons.navApps, size: .page)
+                        EmptyState(title: emptyTitle, icon: emptyIcon, size: .page)
                             .frame(maxWidth: .infinity, minHeight: 192)
                     }
                 }
@@ -86,11 +93,11 @@ struct AppPreview: View {
                 .accessibilityIdentifier(Apps.TestIds.previewScreens)
             }
         }
-        .background(GlassTokens.backgroundTop, in: shape)
+        .background(framed ? GlassTokens.backgroundTop : Color.clear, in: shape)
         .clipShape(shape)
-        .overlay(shape.strokeBorder(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+        .overlay(shape.strokeBorder(framed ? GlassTokens.strokeCard : Color.clear, lineWidth: GlassTokens.hairline))
         .accessibilityElement(children: .contain)
-        .accessibilityIdentifier(Apps.TestIds.preview)
+        .accessibilityIdentifier(framed ? Apps.TestIds.preview : Apps.TestIds.run)
     }
 }
 

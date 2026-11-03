@@ -19,6 +19,8 @@ pub struct AppsMenuCopy {
     pub settings: String,
     pub export: String,
     pub delete: String,
+    /// VAPP-242: `Edit app` (the phones' `…` menus; THE EDITOR).
+    pub edit: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -70,6 +72,8 @@ pub struct AppsCopy {
     pub empty: String,
     pub chat_empty: String,
     pub preview_empty: String,
+    /// VAPP-242: THE RUN VIEW of an app never published (page-size EmptyState).
+    pub run_empty: String,
     /// VAPP-176: the versions drawer with no version yet.
     pub versions_empty: String,
     pub composer_placeholder: String,
@@ -336,6 +340,10 @@ pub struct AppsTestIds {
     pub preview_template: String,
     /// VAPP-198: Run as (owners only).
     pub preview_run_as: String,
+    /// VAPP-242: THE RUN VIEW, its phones' `…` menu, THE NEW MENU.
+    pub run: String,
+    pub run_menu: String,
+    pub new_menu: String,
 }
 
 /// `fixtures/apps.json` minus its cases.
@@ -349,6 +357,20 @@ pub struct AppsSpec {
     pub editor_tabs: AppsEditorTabs,
     /// VAPP-218: the screens shell (`screens`).
     pub screens: AppsScreens,
+    /// VAPP-242: THE RUN VIEW's menu and THE NEW MENU (`run`).
+    pub run: AppsRun,
+}
+
+/// VAPP-242 (`run`): the menus' item keys in order and the editor's route.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppsRun {
+    /// THE RUN VIEW's `…` menu (phones): `copy.menu.<key>` in order.
+    pub menu: Vec<String>,
+    /// THE NEW MENU: `copy.<key>` in order (`newApp`, `import`).
+    pub new_menu: Vec<String>,
+    /// The editor's web route.
+    pub editor_path: String,
 }
 
 /// VAPP-218 (eApps U1): the screens contract (`screens.$comment`).
@@ -1035,6 +1057,17 @@ mod tests {
         assert_eq!(APPS.copy.untitled, "Untitled app");
         assert_eq!(APPS.copy.starters.len(), 4);
         assert_eq!(APPS.test_ids.import_app, "apps-import");
+    }
+
+    /// VAPP-242: THE RUN VIEW and THE NEW MENU read the fixture.
+    #[test]
+    fn run_view_and_new_menu_read_the_fixture() {
+        assert_eq!(APPS.run.new_menu, ["newApp", "import"]);
+        assert_eq!(APPS.run.menu, ["edit", "export", "delete"]);
+        assert_eq!(APPS.test_ids.run, "app-run");
+        assert_eq!(APPS.test_ids.new_menu, "apps-new-menu");
+        assert_eq!(APPS.copy.run_empty, "Not published yet");
+        assert_eq!(APPS.copy.menu.edit, "Edit app");
     }
 
     #[test]

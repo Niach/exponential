@@ -179,8 +179,12 @@ async function recipeOpenAppExport(page: Page): Promise<void> {
  *  server's issue rows listed. */
 async function recipeOpenAppImport(page: Page): Promise<void> {
   const { default: fixture } = await import(`@exp/domain-contract/fixtures/app-export.json`, { with: { type: `json` } })
-  // VAPP-176: Import is the Apps list band's own pill (New app has no dialog).
-  const importButton = page.getByTestId(`apps-import`)
+  // VAPP-242: Import… is THE NEW MENU's second item (the sidebar's or the
+  // phone band's `+`).
+  const plus = page.getByTestId(`apps-new`).filter({ visible: true }).first()
+  await plus.waitFor({ state: `visible`, timeout: 15_000 })
+  await plus.click()
+  const importButton = page.getByTestId(`apps-import`).filter({ visible: true }).first()
   await importButton.waitFor({ state: `visible`, timeout: 15_000 })
   await importButton.click()
   await page.getByTestId(`app-import-text`).fill(fixture.capture.importText)

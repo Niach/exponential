@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { APPS_COPY } from "@exp/domain-contract/apps"
+import { APPS_COPY, APPS_TEST_IDS } from "@exp/domain-contract/apps"
 import {
   conceptIcon,
   getActionIcon,
@@ -12,15 +12,15 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@exp/ui"
-import { useNewApp } from "@/hooks/use-new-app"
+import { AppsNewMenu } from "@/components/apps/apps-new-menu"
 import type { AppListEntry } from "@/hooks/use-apps"
 import { cn } from "@/lib/utils"
 
-// VAPP-110 (fixtures/apps.json): the rail's APPS section, drawn exactly like
-// Agents and Boards — the label, a "+" = New app (VAPP-176: a draft and its editor), one row
-// per app (its glyph in its colour + its name) opening the editor, and the hover gear (the creator or an owner)
-// to the app's editor on its Settings tab (VAPP-177). Desktop widths only: phones keep the Apps
-// list route.
+// VAPP-110 (fixtures/apps.json DESKTOP NAV): the rail's APPS section, drawn exactly like
+// Agents and Boards — the label (VAPP-242: not clickable, there is no Apps page), a "+" =
+// THE NEW MENU (New app / Import…), one row per app (its glyph in its colour + its name)
+// RUNNING it (THE RUN VIEW), and the hover gear (the creator or an owner) to THE EDITOR.
+// Desktop widths only: phones keep the Apps list tab.
 
 const UiAddIcon = conceptIcon(`ui-add`)
 const NavSettingsIcon = conceptIcon(`nav-settings`)
@@ -46,14 +46,20 @@ export function SidebarAppsSection({
   isOwner: boolean
   activeAppSlug: string | null
 }) {
-  const newApp = useNewApp(teamId, teamSlug)
   const canManage = (app: AppListEntry) => isOwner || app.createdBy === me
   return (
     <SidebarGroup data-testid="sidebar-apps">
       <SidebarGroupLabel>{APPS_COPY.title}</SidebarGroupLabel>
-      <SidebarGroupAction title={APPS_COPY.newApp} aria-label={APPS_COPY.newApp} onClick={() => void newApp.create()} disabled={newApp.pending}>
-        <UiAddIcon className="h-4 w-4" />
-      </SidebarGroupAction>
+      <AppsNewMenu
+        teamId={teamId}
+        teamSlug={teamSlug}
+        align="start"
+        trigger={
+          <SidebarGroupAction title={APPS_COPY.newApp} aria-label={APPS_COPY.newApp} data-testid={APPS_TEST_IDS.newApp}>
+            <UiAddIcon className="h-4 w-4" />
+          </SidebarGroupAction>
+        }
+      />
       <SidebarGroupContent>
         <SidebarMenu>
           {apps.map((app) => (
@@ -69,12 +75,11 @@ export function SidebarAppsSection({
                 </Link>
               </SidebarMenuButton>
               {canManage(app) && (
-                <SidebarMenuAction asChild showOnHover title="App settings">
+                <SidebarMenuAction asChild showOnHover title={APPS_COPY.menu.edit}>
                   <Link
-                    to="/t/$teamSlug/apps/$appSlug"
+                    to="/t/$teamSlug/app-editor/$appSlug"
                     params={{ teamSlug, appSlug: app.slug }}
-                    search={{ tab: `settings` }}
-                    aria-label={`Settings for ${app.name}`}
+                    aria-label={`${APPS_COPY.menu.edit}: ${app.name}`}
                   >
                     <NavSettingsIcon />
                   </Link>

@@ -203,7 +203,8 @@ export function TeamSidebar({
     select: (s) => /\/agents\/([^/]+)$/.exec(s.location.pathname)?.[1] ?? null,
   })
   const activeAppSlug = useRouterState({
-    select: (s) => /\/apps\/([^/]+)$/.exec(s.location.pathname)?.[1] ?? null,
+    // VAPP-242: the row stays active on a screen deep link and in the editor.
+    select: (s) => /^\/t\/[^/]+\/(?:apps|app-editor)\/([^/]+)/.exec(s.location.pathname)?.[1] ?? null,
   })
   const { apps } = useApps(team?.id)
   const occupant = useSidebarOccupant()

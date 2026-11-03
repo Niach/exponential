@@ -46,6 +46,20 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-11-03-apps-run-full-screen",
+    date: "2026-11-03",
+    title: "Apps open full screen",
+    summary: "Clicking an app in the sidebar runs it full screen, as your team uses it; the gear opens the editor.",
+    body: r#"- **Run**: an app's row in the sidebar (on phones, the Apps tab) opens the published app full screen, with its screens.
+- **Edit**: the editor opens from the row's gear, from Settings, or on phones from the app's ⋯ menu (Edit app).
+- **New app**: the Apps + opens a menu with New app and Import….
+- **Links**: links to an app's screen open the running app.
+- **No Apps page**: the separate Apps list page and Settings › Apps are gone; the sidebar lists your apps."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_196: ChangelogEntry = ChangelogEntry {
     id: "2026-11-03-web-settings-sidebar",
     date: "2026-11-03",
     title: "Web Settings match the desktop app",

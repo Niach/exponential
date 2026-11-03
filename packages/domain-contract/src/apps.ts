@@ -11,6 +11,8 @@ export const APPS_PANES = fixture.panes
 export const APPS_PREVIEW = fixture.preview
 export const APPS_TEST_IDS = fixture.testIds
 export const APPS_EDITOR_TABS = fixture.editorTabs
+/** VAPP-242: THE RUN VIEW's `…` menu + THE NEW MENU, in order. */
+export const APPS_RUN = fixture.run
 
 /** VAPP-177: the editor's tabs (web ≥ md and desktop: Preview | Versions |
  *  Settings; phones: Chat | Preview + the `…` menu's sheets). */

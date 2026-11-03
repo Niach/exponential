@@ -50,6 +50,15 @@
 //! requested slug once, then follows the id (the navigation entry is
 //! replaced by the id, in place). Leaving an EMPTY draft (no editor
 //! session) fires `apps.discardDraft`.
+//!
+//! VAPP-242 (apps.json THE RUN VIEW, [`Screen::AppRun`]): the SAME view in
+//! RUN mode ([`AppScreenView::run`]): the PUBLISHED package (never the
+//! draft, never Run as) through the same preview host (records, grants, the
+//! read-only access, the HostBanner, the consent card) and the screens
+//! shell, FULL SCREEN: no header, no toolbar, no frame border or radius;
+//! never published = the page-size `copy.runEmpty` with the app glyph. A
+//! sidebar row and an `appScreen` link ([`open_app_screen`]) land here;
+//! `app.navigate` keeps the screen in memory. Leaving it ends nothing.
 
 use eui_core::theme::Mode;
 use gpui::prelude::FluentBuilder as _;
@@ -116,8 +125,8 @@ struct AppScreenRequest(Option<(String, String, serde_json::Map<String, Value>)>
 
 impl gpui::Global for AppScreenRequest {}
 
-/// VAPP-218 (app-link.json `appScreen`): open `app`'s editor (id or slug)
-/// on its Preview tab showing `screen` with `params`.
+/// VAPP-218 (app-link.json `appScreen`): VAPP-242 open `app`'s RUN VIEW
+/// (id or slug) showing `screen` with `params`.
 pub(crate) fn open_app_screen(
     window: &Window,
     cx: &mut App,
@@ -126,7 +135,7 @@ pub(crate) fn open_app_screen(
     params: serde_json::Map<String, Value>,
 ) {
     cx.set_global(AppScreenRequest(Some((app.clone(), screen, params))));
-    open_app_tab(window, cx, app, EditorTab::Preview, false);
+    crate::navigation::navigate(window, cx, Screen::AppRun { app });
 }
 
 /// The pending screen request for the editor `shows` answers for, consumed.
@@ -250,6 +259,9 @@ struct Preview {
 pub struct AppScreenView {
     /// The id or slug the screen was opened with.
     requested: String,
+    /// VAPP-242: THE RUN VIEW (the published package, full screen), not
+    /// the editor.
+    run: bool,
     /// VAPP-176: the `apps` row id once resolved; the screen follows it
     /// (a draft's slug changes when the agent names it).
     app_id: Option<String>,
@@ -296,6 +308,20 @@ pub struct AppScreenView {
 
 impl AppScreenView {
     pub fn new(requested: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::build(requested, false, window, cx)
+    }
+
+    /// VAPP-242: THE RUN VIEW of `requested` (id or slug).
+    pub fn run(requested: String, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
+        Self::build(requested, true, window, cx)
+    }
+
+    /// VAPP-242: whether this is THE RUN VIEW (else the editor).
+    pub(crate) fn is_run(&self) -> bool {
+        self.run
+    }
+
+    fn build(requested: String, run: bool, window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         let nav = nav_for_window(window, cx);
         let mut subscriptions = vec![cx.observe_global::<gpui_component::Theme>(|this, cx| {
             let mode = ide_mode(cx);
@@ -320,12 +346,21 @@ impl AppScreenView {
         }
         // VAPP-177: the settings nav asking this editor for a tab.
         subscriptions.push(cx.observe_global::<AppTabRequest>(|this, cx| {
+            if this.run {
+                return;
+            }
             let shows = |app: &str| this.shows(app);
             if let Some(tab) = take_tab_request(shows, cx) {
                 this.tab = tab;
                 cx.notify();
             }
-            // VAPP-218: a tapped `appScreen` link while this editor is open.
+        }));
+        // VAPP-218 + VAPP-242: a tapped `appScreen` link while this run view
+        // is open.
+        subscriptions.push(cx.observe_global::<AppScreenRequest>(|this, cx| {
+            if !this.run {
+                return;
+            }
             if let Some((screen, params)) = take_screen_request(|app| this.shows(app), cx) {
                 this.request_screen(screen, params, cx);
             }
@@ -335,6 +370,7 @@ impl AppScreenView {
         cx.on_release(|this, cx| this.end_live_session(cx)).detach();
         let mut this = Self {
             requested,
+            run,
             app_id: None,
             left: false,
             nav,
@@ -362,6 +398,14 @@ impl AppScreenView {
             _subscriptions: subscriptions,
         };
         this.refresh(window, cx);
+        if run {
+            // VAPP-242: the run view is wide (`screenShell(n, phone: false)`).
+            this.frame = PreviewFrame::Desktop;
+            if let Some((screen, params)) = take_screen_request(|app| this.shows(app), cx) {
+                this.request_screen(screen, params, cx);
+            }
+            return this;
+        }
         // VAPP-177: the editor opens on the default tab unless the settings
         // nav (or the dev screen) asked for one.
         let requested = take_tab_request(|app| this.shows(app), cx).or_else(|| dev_tab(|app| this.shows(app)));
@@ -370,9 +414,6 @@ impl AppScreenView {
         }
         if let Some(frame) = dev_frame(|app| this.shows(app)) {
             this.frame = frame;
-        }
-        if let Some((screen, params)) = take_screen_request(|app| this.shows(app), cx) {
-            this.request_screen(screen, params, cx);
         }
         this
     }
@@ -489,10 +530,12 @@ impl AppScreenView {
             self.app_id = Some(id.clone());
             // The navigation entry names the app by id from now on (the
             // tab title, the rail's highlight), replaced in place.
-            let requested = crate::navigation::Screen::App { app: self.requested.clone() };
+            let run = self.run;
+            let screen = move |app: String| if run { Screen::AppRun { app } } else { Screen::App { app } };
+            let requested = screen(self.requested.clone());
             if id != self.requested && resolved_screen(&self.nav, cx).as_ref() == Some(&requested) {
                 cx.defer_in(window, move |_, window, cx| {
-                    crate::navigation::navigate_replace(window, cx, crate::navigation::Screen::App { app: id });
+                    crate::navigation::navigate_replace(window, cx, screen(id));
                 });
             }
         }
@@ -514,18 +557,23 @@ impl AppScreenView {
             })
             .unwrap_or_default();
         if let Some(app_id) = &app_id {
-            if self.chat.is_none() {
+            if self.data.is_none() {
                 let app_id = app_id.clone();
-                self.chat = Some(cx.new(|cx| crate::agent_screen::AgentScreenView::for_app(app_id.clone(), window, cx)));
                 let data = cx.new(|cx| crate::app_data_tab::AppDataTab::new(app_id.clone(), cx));
                 // VAPP-200: the access it fetches decides the preview's read-only.
                 self._subscriptions.push(cx.observe(&data, |this, _, cx| this.sync_preview(cx)));
                 self.data = Some(data);
-                self.settings =
-                    Some(cx.new(|cx| crate::settings::app_detail::AppDetailPane::new(app_id, window, cx)));
+                // VAPP-242: the run view is the host alone (no chat, no tabs).
+                if !self.run {
+                    self.chat = Some(cx.new(|cx| crate::agent_screen::AgentScreenView::for_app(app_id.clone(), window, cx)));
+                    self.settings =
+                        Some(cx.new(|cx| crate::settings::app_detail::AppDetailPane::new(app_id, window, cx)));
+                }
             }
-            if let Some(root) = crate::session_data::my_editor_session(app_id, cx) {
-                self.live_root = Some(root.id);
+            if !self.run {
+                if let Some(root) = crate::session_data::my_editor_session(app_id, cx) {
+                    self.live_root = Some(root.id);
+                }
             }
         }
         // The version being viewed became the preview's default: drop the pick.
@@ -559,6 +607,10 @@ impl AppScreenView {
     /// else the head's (the draft) or the published one's, off the row.
     fn shown_package(&self, cx: &App) -> Option<Value> {
         let app = self.app.as_ref()?;
+        // VAPP-242: the run view runs the PUBLISHED package only.
+        if self.run {
+            return (app.published_version > 0).then(|| app.row.as_ref()?.package.clone().filter(Value::is_object)).flatten();
+        }
         let shown = domain::apps::shown_version(app.versions(), self.editing(cx), self.viewing);
         if shown == 0 {
             return None;
@@ -576,6 +628,9 @@ impl AppScreenView {
     /// the published one: the published package's `version` the records are
     /// read through (the draft's migrations, copies only); `None` = as stored.
     fn migrate_from(&self, cx: &App) -> Option<String> {
+        if self.run {
+            return None;
+        }
         let app = self.app.as_ref()?;
         let shown = domain::apps::shown_version(app.versions(), self.editing(cx), self.viewing);
         if app.published_version == 0 || shown == app.published_version {
@@ -586,6 +641,12 @@ impl AppScreenView {
 
     /// eApps V1: the shown version is the one the grants were made on.
     fn shows_grant_version(&self, cx: &App) -> bool {
+        // VAPP-242: the run view shows the published version = the grants'.
+        if self.run {
+            return self.app.as_ref().is_some_and(|app| {
+                app.published_version > 0 && domain::apps::grant_version(app.versions()) == app.published_version
+            });
+        }
         self.app.as_ref().is_some_and(|app| {
             domain::apps::shown_version(app.versions(), self.editing(cx), self.viewing) == domain::apps::grant_version(app.versions())
         })
@@ -666,6 +727,10 @@ impl AppScreenView {
     /// `sessions.end` on the member's live editor root (the tree);
     /// VAPP-176: an EMPTY draft (no editor session) is discarded instead.
     fn end_live_session(&mut self, cx: &mut App) {
+        // VAPP-242: leaving a run view ends nothing (and discards nothing).
+        if self.run {
+            return;
+        }
         if !self.left {
             self.left = true;
             if let Some(app) = self.app.as_ref().filter(|app| is_draft(app.head_version)) {
@@ -1087,6 +1152,27 @@ impl AppScreenView {
                         .on_click(cx.listener(|this, _, _, cx| this.clear_viewing(cx))),
                 )
         });
+        let frame = self.render_surface(true, cx);
+        v_flex()
+            .size_full()
+            .min_h_0()
+            .gap_3()
+            .p_4()
+            .child(self.render_preview_toolbar(cx))
+            .children(banner)
+            // The frame's row: a flex parent so the frame keeps its height
+            // (flex_1) and centres at the Phone width.
+            .child(h_flex().flex_1().min_h_0().w_full().items_stretch().justify_center().child(frame))
+            .into_any_element()
+    }
+
+    /// The preview's surface pane: the HostBanner + the surface (scrolling,
+    /// `preview.padding` inside) with the screens shell. `framed` = the
+    /// editor's frame (border, radius, the Phone width); VAPP-242 unframed =
+    /// THE RUN VIEW, edge to edge, its empty state `copy.runEmpty` with the
+    /// app glyph.
+    fn render_surface(&self, framed: bool, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let theme = cx.theme().clone();
         let surface_id = &APPS.preview.surface_id;
         let host = self.preview.as_ref().map(|preview| preview.ide.host.read(cx));
         // The catalog-update banner (the web's `HostBanner`); a local host
@@ -1161,32 +1247,42 @@ impl AppScreenView {
                 .flex()
                 .items_center()
                 .justify_center()
-                .child(crate::controls::empty_state(
-                    Icon::new(registry::NAV_APPS),
-                    APPS.copy.preview_empty.clone(),
-                    None,
-                    cx,
-                ))
+                .child(if framed {
+                    crate::controls::empty_state(
+                        Icon::new(registry::NAV_APPS),
+                        APPS.copy.preview_empty.clone(),
+                        None,
+                        cx,
+                    )
+                } else {
+                    // VAPP-242: never published = `copy.runEmpty`, the app glyph.
+                    let glyph = self.app.as_ref().map_or_else(|| Icon::new(registry::NAV_APPS), AppEntry::icon);
+                    crate::controls::empty_state(glyph, APPS.copy.run_empty.clone(), None, cx)
+                })
                 .into_any_element(),
         };
         let frame = div()
-            .id(SharedString::from(APPS.test_ids.preview.clone()))
+            .id(SharedString::from(if framed { APPS.test_ids.preview.clone() } else { APPS.test_ids.run.clone() }))
             .relative()
             .flex()
             .flex_col()
             .h_full()
             .min_h_0()
-            .map(|frame| match self.frame.width() {
-                // VAPP-179: Phone = `phoneWidth` px, centred (never wider
-                // than the pane); no flex_1 here, its 0 basis would win
-                // over the width in the row.
-                Some(width) => frame.w(px(width)).max_w_full(),
-                None => frame.flex_1().min_w_0(),
-            })
-            .rounded(px(APPS.preview.radius))
-            .border_1()
-            .border_color(theme.border)
-            .bg(theme.background);
+            .bg(theme.background)
+            .map(|frame| {
+                if !framed {
+                    // VAPP-242: edge to edge, no border or radius.
+                    return frame.size_full().min_w_0();
+                }
+                let frame = match self.frame.width() {
+                    // VAPP-179: Phone = `phoneWidth` px, centred (never wider
+                    // than the pane); no flex_1 here, its 0 basis would win
+                    // over the width in the row.
+                    Some(width) => frame.w(px(width)).max_w_full(),
+                    None => frame.flex_1().min_w_0(),
+                };
+                frame.rounded(px(APPS.preview.radius)).border_1().border_color(theme.border)
+            });
         let content = if preview_empty {
             frame_body
         } else {
@@ -1205,17 +1301,7 @@ impl AppScreenView {
             Some((ScreenShell::Bar, nav)) => frame.child(content).child(nav),
             None => frame.child(content),
         };
-        v_flex()
-            .size_full()
-            .min_h_0()
-            .gap_3()
-            .p_4()
-            .child(self.render_preview_toolbar(cx))
-            .children(banner)
-            // The frame's row: a flex parent so the frame keeps its height
-            // (flex_1) and centres at the Phone width.
-            .child(h_flex().flex_1().min_h_0().w_full().items_stretch().justify_center().child(frame))
-            .into_any_element()
+        frame.into_any_element()
     }
 }
 
@@ -1428,6 +1514,10 @@ impl Render for AppScreenView {
                 .child(crate::feedback::skeleton_rows("app-loading", 3, 36., cx))
                 .into_any_element();
         };
+        // VAPP-242: THE RUN VIEW = the surface pane alone, full screen.
+        if self.run {
+            return self.render_surface(false, cx);
+        }
         let panes = &APPS.panes;
         let chat_share = panes.chat / (panes.chat + panes.preview);
         let tab_pane = v_flex().h_full().min_h_0().min_w_0().flex_1().child(self.render_tab(cx));

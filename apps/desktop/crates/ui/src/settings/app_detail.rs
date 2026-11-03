@@ -667,12 +667,9 @@ impl Render for AppDetailPane {
                             crate::apps_view::confirm_delete(
                                 delete_id.clone(),
                                 delete_name.clone(),
-                                // The delete leaves for the Apps list
-                                // (Settings → Apps on desktop).
-                                |window, cx| {
-                                    crate::sidebar::select_settings_section(window, cx, super::SettingsSection::Apps);
-                                    navigate(window, cx, Screen::Settings);
-                                },
+                                // VAPP-242: the delete leaves for the
+                                // team's home (no Apps list page).
+                                |window, cx| navigate(window, cx, Screen::Home),
                                 window,
                                 cx,
                             )

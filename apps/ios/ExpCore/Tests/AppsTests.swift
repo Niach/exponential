@@ -55,6 +55,7 @@ final class AppsTests: XCTestCase {
             "records": Apps.Copy.records,
             "recordsOne": Apps.Copy.recordsOne, "recordsOf": Apps.Copy.recordsOf,
             "recordsNone": Apps.Copy.recordsNone, "preview": Apps.Copy.preview,
+            "runEmpty": Apps.Copy.runEmpty,
         ]
         // Every string key of `copy`, both ways.
         let strings = copy.compactMapValues { $0 as? String }
@@ -62,6 +63,7 @@ final class AppsTests: XCTestCase {
         XCTAssertEqual(copy["menu"] as? [String: String], [
             "versions": Apps.Copy.Menu.versions, "settings": Apps.Copy.Menu.settings,
             "export": Apps.Copy.Menu.export, "delete": Apps.Copy.Menu.delete,
+            "edit": Apps.Copy.Menu.edit,
         ])
         XCTAssertEqual(copy["starters"] as? [String], Apps.Copy.starters)
         XCTAssertEqual(copy["tabs"] as? [String: String], [
@@ -121,6 +123,7 @@ final class AppsTests: XCTestCase {
             "webhooks": Apps.TestIds.webhooks, "webhookRow": Apps.TestIds.webhookRow,
             "webhookSecret": Apps.TestIds.webhookSecret,
             "previewScreens": Apps.TestIds.previewScreens,
+            "run": Apps.TestIds.run, "runMenu": Apps.TestIds.runMenu, "newMenu": Apps.TestIds.newMenu,
         ])
         // VAPP-177: the floating layout and its chat card are gone.
         XCTAssertNil(fixture["layout"])

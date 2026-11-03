@@ -66,6 +66,8 @@ public enum Apps {
         public static let recordsNone = "No records"
         /// VAPP-177: a Versions row's ghost button (shows that version).
         public static let preview = "Preview"
+        /// VAPP-242: THE RUN VIEW of an app with nothing published.
+        public static let runEmpty = "Not published yet"
 
         /// VAPP-177: the list row's `…` and the phone editor's `…` menu.
         public enum Menu {
@@ -73,6 +75,8 @@ public enum Apps {
             public static let settings = "Settings"
             public static let export = "Export"
             public static let delete = "Delete app"
+            /// VAPP-242: the list row's / the run view's first item (→ THE EDITOR).
+            public static let edit = "Edit app"
         }
 
         public enum Tabs {
@@ -188,6 +192,10 @@ public enum Apps {
         public static let webhookSecret = "app-webhook-secret"
         // VAPP-218: the preview's screens navigation (the bar on phones).
         public static let previewScreens = "app-editor-preview-screens"
+        // VAPP-242: THE RUN VIEW, its `…` menu, THE NEW MENU.
+        public static let run = "app-run"
+        public static let runMenu = "app-run-menu"
+        public static let newMenu = "apps-new-menu"
     }
 
     /// VAPP-177 the editor's tabs (fixture `editorTabs`): web ≥ md and

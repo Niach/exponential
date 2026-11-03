@@ -236,9 +236,6 @@ pub(crate) enum SettingsSection {
     /// EXP-1319: the agent page in CREATE mode (web `settings/agents/new`) —
     /// the Agents group's "New agent" row and the rail's `+`. Owner-only.
     NewAgent,
-    /// VAPP-110: the Apps index (the Agents index's twin): the list band.
-    /// The Apps group's LABEL opens it. Member-visible.
-    Apps,
     /// VAPP-110: one app's settings (the payload is the `apps` row id or a
     /// slug). VAPP-177: no page of its own any more: selecting it opens the
     /// app's EDITOR on its Settings tab (the dev `app:<slug>` drive).
@@ -468,7 +465,7 @@ fn section_icon(section: &SettingsSection) -> Icon {
         | SettingsSection::NewAgent => {
             Icon::from(registry::SETTINGS_AGENTS)
         }
-        SettingsSection::Apps | SettingsSection::App(_) => {
+        SettingsSection::App(_) => {
             Icon::from(registry::NAV_APPS)
         }
         SettingsSection::Prompts | SettingsSection::Prompt(_) | SettingsSection::NewPrompt => {
@@ -596,7 +593,6 @@ fn first_agent_resolved(
             };
             match hit {
                 Some(app) => SettingsSection::App(app.id.clone()),
-                None if id.is_empty() => SettingsSection::Apps,
                 None => SettingsSection::App(id),
             }
         }
@@ -685,9 +681,6 @@ pub struct SettingsView {
     new_agent: Option<(String, Entity<NewAgentPane>)>,
     /// NEW-6: the Agents index (the agents + the Events band).
     agents_index: Entity<agents_index::AgentsIndexPane>,
-    /// VAPP-110: the Apps index (the agents' twin). VAPP-177: one app's
-    /// settings are its editor's Settings tab.
-    apps_index: Entity<crate::apps_view::AppsIndexPane>,
     /// NEW-6: the Prompts list (live off the synced `prompts` shape).
     prompts: Entity<PromptsPane>,
     /// NEW-6: the open prompt page, keyed by its prompt id (`new:<team>` in
@@ -764,7 +757,6 @@ impl SettingsView {
         let prompts = cx.new(|cx| PromptsPane::new(nav.clone(), cx));
         let skills = cx.new(|cx| SkillsPane::new(nav.clone(), cx));
         let agents_index = cx.new(|cx| agents_index::AgentsIndexPane::new(nav.clone(), cx));
-        let apps_index = cx.new(|cx| crate::apps_view::AppsIndexPane::new(nav.clone(), cx));
         let widget = cx.new(|cx| WidgetPane::new(nav.clone(), cx));
         let mcp = cx.new(|cx| McpPane::new(nav.clone(), window, cx));
         let mcp_activity = cx.new(|cx| McpActivityPane::new(nav.clone(), cx));
@@ -811,7 +803,6 @@ impl SettingsView {
             agent_detail,
             new_agent: None,
             agents_index,
-            apps_index,
             prompts,
             prompt_page: None,
             skills,
@@ -1013,7 +1004,6 @@ impl Render for SettingsView {
                     .unwrap_or_else(|| div().into_any_element())
             }
             SettingsSection::Agents => self.agents_index.clone().into_any_element(),
-            SettingsSection::Apps => self.apps_index.clone().into_any_element(),
             // VAPP-177: an app's settings = its editor's Settings tab (the
             // web's redirect): the selection resolved to a synced app hands
             // over to the editor (replace) and Settings falls back to the
@@ -1022,7 +1012,7 @@ impl Render for SettingsView {
                 let team_id = active_team_id(&self.nav, cx);
                 if let Some(app) = crate::apps_view::find_app(id, team_id.as_deref(), cx) {
                     cx.defer_in(window, move |_, window, cx| {
-                        select_settings_section(window, cx, SettingsSection::Apps);
+                        select_settings_section(window, cx, SettingsSection::General);
                         crate::app_screen::open_app_tab(
                             window,
                             cx,
@@ -1312,27 +1302,8 @@ impl Render for SettingsNavPanel {
             }
             first_group = false;
             if app_group {
-                // VAPP-110: the label opens the Apps index, lit while it
-                // shows (the Agents label's twin).
-                let lit = effective == SettingsSection::Apps;
-                let foreground = cx.theme().foreground;
-                list = list.child(
-                    div()
-                        .id("settings-apps-index")
-                        .cursor_pointer()
-                        .px_2()
-                        .pt_2()
-                        .pb_0p5()
-                        .text_xs()
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(if lit { foreground } else { cx.theme().muted_foreground })
-                        .hover(move |label| label.text_color(foreground))
-                        .child(group.label)
-                        .on_click(cx.listener(|_, _, window, cx| {
-                            select_settings_section(window, cx, SettingsSection::Apps);
-                            navigate(window, cx, Screen::Settings);
-                        })),
-                );
+                // VAPP-242: a plain label (no Apps index page).
+                list = list.child(Self::group_label(group.label, cx));
                 for app in &apps {
                     let app_id = app.id.clone();
                     list = list.child(

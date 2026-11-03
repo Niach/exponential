@@ -74,7 +74,7 @@ export function AppImportDialog({
   const opened = (slug: string) => {
     reset()
     onOpenChange(false)
-    void navigate({ to: `/t/$teamSlug/apps/$appSlug`, params: { teamSlug, appSlug: slug } })
+    void navigate({ to: `/t/$teamSlug/app-editor/$appSlug`, params: { teamSlug, appSlug: slug } })
   }
 
   const pickTemplate = async (template: string) => {

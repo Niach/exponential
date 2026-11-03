@@ -146,8 +146,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_script-card · sg_comment-call-card · sg_thread · sg_agent-channel ·
  *   sg_session · sg_trace · sg_code-block · sg_ask-dock · sg_dock-card · sg_plan-card · sg_session-xref ·
  *   sg_settings-team-agent · sg_settings-prompts · sg_settings-prompt ·
- *   sg_settings-skills · sg_settings-skill · sg_settings-apps (#EXP-1632) ·
- *   sg_apps · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
+ *   sg_settings-skills · sg_settings-skill ·
+ *   sg_apps · sg_app-run (VAPP-242) · sg_app · sg_chat-list · sg_phone-tab-bar · sg_chat-transcript ·
  *   sg_chat-menus · sg_chat-selection · sg_sealed-locked · sg_schedule-picker · sg_mention-pill · sg_app-consent ·
  *   sg_app-export · sg_app-import · sg_app-draft · sg_app-versions · sg_app-settings · sg_app-data · sg_voice-call · sg_call-controls · sg_call-pill · sg_settings-assistant · sg_device-readiness ·
  *   sg_story-ring · sg_story-viewer · sg_story-tab · sg_thread-stories · sg_plan-page ·
@@ -1011,11 +1011,12 @@ class StyleguideScreenshotsTest {
             flow.screenshot("sg_threads")
         }
 
-        // --- sg_apps / sg_app (VAPP-116): #EXP-1384 made Apps the third
-        // TAB; it opens the selected team's Apps (no built-in apps: the
-        // seeded apps, by name); the Working hours app (VAPP-122, with
-        // records) opens its editor and the shot shows its PREVIEW tab: the
-        // app rendered through the host over its synced records (web-mobile's
+        // --- sg_apps / sg_app-run / sg_app (VAPP-116, VAPP-242): #EXP-1384
+        // made Apps the third TAB; it opens the selected team's Apps (no
+        // built-in apps: the seeded apps, by name). A tap on the Working hours
+        // row (VAPP-122, with records) RUNS it (sg_app-run: the published
+        // package full screen under the detail header); its `…` › Edit app
+        // opens the editor and the shot shows its PREVIEW tab (web-mobile's
         // `app` shot). Leaving it ends the editor session, exactly as the web
         // capture does.
         step("apps") {
@@ -1026,6 +1027,12 @@ class StyleguideScreenshotsTest {
             flow.settle()
             flow.screenshot("sg_apps")
             composeRule.onNode(demoAppRow).performClick()
+            flow.waitFor(hasTestTag(Apps.TestIds.RUN), NAV_TIMEOUT)
+            flow.settle(longer = true)
+            flow.screenshot("sg_app-run")
+            composeRule.onNode(hasTestTag(Apps.TestIds.RUN_MENU)).performClick()
+            flow.waitFor(hasTestTag("app-run-edit"), NAV_TIMEOUT)
+            composeRule.onNode(hasTestTag("app-run-edit")).performClick()
             flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)
             composeRule.onNode(hasTestTag("app-editor-tab-preview")).performClick()
             flow.waitFor(hasTestTag(Apps.TestIds.PREVIEW), SYNC_TIMEOUT)
@@ -1095,6 +1102,9 @@ class StyleguideScreenshotsTest {
                 flow.waitForGone(hasTestTag("app-export-dialog"), NAV_TIMEOUT)
                 flow.settle()
             }
+            // The editor back to the run view, the run view back to the list.
+            Espresso.pressBack()
+            flow.waitFor(hasTestTag(Apps.TestIds.RUN), NAV_TIMEOUT)
             Espresso.pressBack()
             flow.waitFor(hasTestTag(Apps.TestIds.LIST), NAV_TIMEOUT)
             flow.settle()
@@ -1105,9 +1115,12 @@ class StyleguideScreenshotsTest {
             // the composer open on `Describe your app…` (the keyboard put away
             // so the starters show, as on iOS).
             if (ScreenshotFlow.anyRequested("sg_app-draft")) {
-                val draftRow = hasTestTag("${Apps.TestIds.ROW}-$DEMO_DRAFT_APP_SLUG")
-                flow.waitFor(draftRow, SYNC_TIMEOUT)
-                composeRule.onNode(draftRow).performClick()
+                // VAPP-242: a draft's editor = its row's `…` › Edit app.
+                val draftMenu = hasTestTag("${Apps.TestIds.ROW}-menu-$DEMO_DRAFT_APP_SLUG")
+                flow.waitFor(draftMenu, SYNC_TIMEOUT)
+                composeRule.onNode(draftMenu).performClick()
+                flow.waitFor(hasTestTag("apps-row-edit"), NAV_TIMEOUT)
+                composeRule.onNode(hasTestTag("apps-row-edit")).performClick()
                 flow.waitFor(hasTestTag(Apps.TestIds.TABS), NAV_TIMEOUT)
                 flow.waitFor(hasTestTag(Apps.TestIds.STARTER), SYNC_TIMEOUT)
                 flow.settle(longer = true)
@@ -1125,7 +1138,9 @@ class StyleguideScreenshotsTest {
             // Import… holding the fixture's capture text and the server's ONE
             // issue. A scoped run not naming it skips it.
             if (ScreenshotFlow.anyRequested("sg_app-import")) {
-                // VAPP-176: Import… is the list band's own pill (its own sheet).
+                // VAPP-242: Import… = THE NEW MENU's second item (its own sheet).
+                composeRule.onNode(hasTestTag(Apps.TestIds.NEW_APP)).performClick()
+                flow.waitFor(hasTestTag(Apps.TestIds.IMPORT_APP), NAV_TIMEOUT)
                 composeRule.onNode(hasTestTag(Apps.TestIds.IMPORT_APP)).performClick()
                 flow.waitFor(hasTestTag("app-import-text"), NAV_TIMEOUT)
                 composeRule.onNode(hasTestTag("app-import-text")).performTextInput(APP_IMPORT_CAPTURE_TEXT)
@@ -1442,17 +1457,6 @@ class StyleguideScreenshotsTest {
             Espresso.pressBack()
             flow.waitFor(hasTestTag("team-tab"), NAV_TIMEOUT)
             flow.settle()
-        }
-
-        // --- sg_settings-apps (#EXP-1632): the Team page's Apps row
-        // (settings-nav.json `apps`) = Settings › Apps, the Apps band
-        // (Import… + New app) over the seeded apps, anchored on the demo app.
-        step("settings-apps") {
-            if (ScreenshotFlow.anyRequested("sg_settings-apps")) {
-                openTeamSettingsPage(SettingsNav.row(SettingsNav.APPS).label, hasTestTag("${Apps.TestIds.ROW}-$DEMO_APP_SLUG"))
-                flow.screenshot("sg_settings-apps")
-                leaveTeamSettingsPage()
-            }
         }
 
         // --- Account settings: there is no separate profile screen (EXP-311) —

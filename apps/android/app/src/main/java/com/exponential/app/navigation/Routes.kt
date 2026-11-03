@@ -69,16 +69,21 @@ object Routes {
 
     /** VAPP-110: the selected team's Apps (reached from the Threads tab). */
     const val APPS = "apps"
-    /** VAPP-110: one app's editor (`builtin` = the built-in Devices app). */
-    /** VAPP-218: `tab` = the editor tab to open on, `screen` + `params` (a
-     *  JSON object of strings) = the app screen the Preview shows (an
-     *  `appScreen` link). */
+    /** VAPP-110: one app's EDITOR (VAPP-242: only from a `…` › Edit app). */
+    /** VAPP-218: `tab` = the editor tab to open on, `screen` + `params` are
+     *  kept for the preview's screen request. */
     const val APP_PATTERN = "app/{appId}?tab={tab}&screen={screen}&params={params}"
     val APP_ARGS = listOf("tab", "screen", "params")
     fun app(appId: String): String = "app/$appId"
+
+    /** VAPP-242 (apps.json THE RUN VIEW): an app as a member uses it, its
+     *  PUBLISHED package; `screen` + `params` (a JSON object of strings) =
+     *  the screen it opens on (an `appScreen` link). */
+    const val APP_RUN_PATTERN = "app-run/{appId}?screen={screen}&params={params}"
+    val APP_RUN_ARGS = listOf("screen", "params")
+    fun appRun(appId: String): String = "app-run/$appId"
     fun appScreen(appId: String, screen: String, params: Map<String, String>): String {
         val json = kotlinx.serialization.json.JsonObject(params.mapValues { kotlinx.serialization.json.JsonPrimitive(it.value) }).toString()
-        val tab = com.exponential.app.domain.Apps.EditorTabs.PREVIEW
-        return "app/$appId?tab=$tab&screen=${com.exponential.app.domain.encodeRouteValue(screen)}&params=${com.exponential.app.domain.encodeRouteValue(json)}"
+        return "app-run/$appId?screen=${com.exponential.app.domain.encodeRouteValue(screen)}&params=${com.exponential.app.domain.encodeRouteValue(json)}"
     }
 }
