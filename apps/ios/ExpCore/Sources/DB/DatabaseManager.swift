@@ -3022,6 +3022,24 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v94 (#VAPP-213): `skills.builtin` (a built-in skill, shipped with the
+        // server; existing rows = false). The skills cursor resets only when
+        // the column was added, so synced rows re-arrive carrying it.
+        migrator.registerMigration("v94_skill_builtin") { db in
+            guard try db.tableExists("skills") else { return }
+            guard try db.columns(in: "skills").contains(where: { $0.name == "builtin" }) == false else { return }
+            try db.alter(table: "skills") { t in
+                t.add(column: "builtin", .boolean).notNull().defaults(to: false)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'skills'
+                    """)
+            }
+        }
+
         return migrator
     }
 

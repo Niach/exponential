@@ -1293,6 +1293,9 @@ pub struct SkillRow {
     pub description: String,
     #[serde(default, deserialize_with = "tolerant_bool_or_false")]
     pub enabled_by_default: bool,
+    /// #VAPP-213: a built-in (read-only, the Built-in pill).
+    #[serde(default, deserialize_with = "tolerant_bool_or_false")]
+    pub builtin: bool,
     #[serde(default)]
     pub created_by_id: Option<String>,
     #[serde(default)]

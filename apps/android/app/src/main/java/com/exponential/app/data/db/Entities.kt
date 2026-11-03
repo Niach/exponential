@@ -890,6 +890,8 @@ data class SkillEntity(
     val description: String = "",
     @ColumnInfo(name = "enabled_by_default", defaultValue = "0") @SerialName("enabled_by_default")
     @JsonNames("enabledByDefault") val enabledByDefault: PgBool = false,
+    // #VAPP-213: a built-in (shipped, read-only; the list pill reads Built-in).
+    @ColumnInfo(name = "builtin", defaultValue = "0") @SerialName("builtin") val builtin: PgBool = false,
     @ColumnInfo(name = "created_by_id") @SerialName("created_by_id") @JsonNames("createdById") val createdById: String? = null,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String = "",
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String = "",

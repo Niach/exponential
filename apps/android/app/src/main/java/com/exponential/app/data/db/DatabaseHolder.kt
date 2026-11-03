@@ -41,7 +41,7 @@ class DatabaseHolder @Inject constructor(
                 // shape's offset survive). Any OLDER schema wipes and lets
                 // Electric resync: every table but electric_offsets is a synced
                 // shape, so nothing local is lost.
-                .addMigrations(MIGRATION_104_105, MIGRATION_105_106, MIGRATION_106_107, MIGRATION_107_108, MIGRATION_108_109, MIGRATION_109_110, MIGRATION_110_111)
+                .addMigrations(MIGRATION_104_105, MIGRATION_105_106, MIGRATION_106_107, MIGRATION_107_108, MIGRATION_108_109, MIGRATION_109_110, MIGRATION_110_111, MIGRATION_111_112)
                 .fallbackToDestructiveMigration(dropAllTables = true)
                 .build()
             instances[accountId] = db

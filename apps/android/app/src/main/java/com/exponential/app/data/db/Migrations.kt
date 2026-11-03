@@ -130,3 +130,17 @@ val MIGRATION_110_111: Migration = object : Migration(110, 111) {
         )
     }
 }
+
+/**
+ * v112 (#VAPP-213): `skills.builtin` (a shipped, read-only skill). Only the
+ * skills shape refetches, so synced rows re-arrive carrying it.
+ */
+val MIGRATION_111_112: Migration = object : Migration(111, 112) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `skills` ADD COLUMN `builtin` INTEGER NOT NULL DEFAULT 0")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'skills'",
+        )
+    }
+}

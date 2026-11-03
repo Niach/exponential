@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-11-03-built-in-skills`,
+    date: `2026-11-03`,
+    title: `Built-in skills for apps, UI and Motion`,
+    summary: `Every team now has three read-only built-in skills that teach agents eApps, Exponential UI and Motion, and every app editor session runs with them.`,
+    body: `- **Built-in skills**: exponential-apps, exponential-ui and exponential-motion are in every team's Settings › Skills, marked Built-in and read-only.
+- **App editor**: every app editor session runs with them, so the agent knows the package format, records, queries, actions and tests.
+- **Everywhere else**: pick them from the + menu, set them as an agent's skills, or read them with exponential_skills get.`,
+  },
+  {
     id: `2026-11-03-sessions-start-fast`,
     date: `2026-11-03`,
     title: `Sessions start fast again`,

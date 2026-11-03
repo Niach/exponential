@@ -806,8 +806,8 @@ private struct SkillsSettingsPage: View {
         }
     }
 
-    /// The MCP server row's look (Settings › MCP): glyph, name + Default
-    /// pill, the description as a one-line caption.
+    /// The MCP server row's look (Settings › MCP): glyph, name + the Default
+    /// pill (Built-in on a built-in, #VAPP-213), the description as a one-line caption.
     private func row(_ skill: SkillEntity) -> some View {
         Button {
             pushRoute(.skill(accountId: accountId, teamId: teamId, id: skill.id))
@@ -821,8 +821,8 @@ private struct SkillsSettingsPage: View {
                             .font(.subheadline.weight(.medium))
                             .foregroundStyle(.white)
                             .lineLimit(1)
-                        if skill.enabledByDefault {
-                            GlassPill(Skills.defaultPill).fixedSize()
+                        if let pill = Skills.skillPill(builtin: skill.builtin, enabledByDefault: skill.enabledByDefault) {
+                            GlassPill(pill).fixedSize()
                         }
                     }
                     if !skill.description.isEmpty {

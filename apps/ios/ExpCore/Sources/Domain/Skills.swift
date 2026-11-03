@@ -14,6 +14,15 @@ public enum Skills {
     public static let agentRowLabel = "Skills"
     public static let agentRowNone = "None"
 
+    /// #VAPP-213 (`builtin`): the built-in skills every team carries (read-only
+    /// rows with `builtin` true), their app-editor delivery order, and the pill
+    /// a built-in's row shows instead of Default.
+    public enum Builtin {
+        public static let names = ["exponential-apps", "exponential-motion", "exponential-ui"]
+        public static let editorDelivery = ["exponential-apps", "exponential-ui", "exponential-motion"]
+        public static let pill = "Built-in"
+    }
+
     /// The skill page's fields (`page.fields`): label + placeholder.
     public enum Field {
         public static let name = (label: "Name", placeholder: "review-checklist")
@@ -42,6 +51,26 @@ public enum Skills {
             return sorted.filter { picked.contains($0.id) }.map(\.id)
         }
         return sorted.filter(\.enabledByDefault).map(\.id)
+    }
+
+    /// The list row's pill (`pillCases`): Built-in for a built-in (never
+    /// Default), Default while a team skill is pre-selected, else none.
+    public static func skillPill(builtin: Bool, enabledByDefault: Bool) -> String? {
+        if builtin { return Builtin.pill }
+        return enabledByDefault ? defaultPill : nil
+    }
+
+    /// Whether the skill page is editable (`editCases`): owners, never on a built-in.
+    public static func canEditSkill(builtin: Bool, owner: Bool) -> Bool {
+        owner && !builtin
+    }
+
+    /// A built-in's file path (`filePathCases`): relative, `/`-separated, no
+    /// empty, `.` or `..` segment, no backslash, never SKILL.md itself.
+    public static func isSkillFilePath(_ path: String) -> Bool {
+        if path.isEmpty || path == "SKILL.md" || path.contains("\\") || path.contains("\u{0}") { return false }
+        return path.split(separator: "/", omittingEmptySubsequences: false)
+            .allSatisfy { $0 != "" && $0 != "." && $0 != ".." }
     }
 
     /// The + menu row's value: the number picked, none at zero.

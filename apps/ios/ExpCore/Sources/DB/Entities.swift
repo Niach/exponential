@@ -1393,6 +1393,8 @@ public struct SkillEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
     public let name: String
     public let description: String
     public let enabledByDefault: Bool
+    /// #VAPP-213: a built-in (shipped with the server, read-only for everyone).
+    public let builtin: Bool
     public let createdById: String?
     public let createdAt: String
     public let updatedAt: String
@@ -1403,6 +1405,7 @@ public struct SkillEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
         name: String,
         description: String = "",
         enabledByDefault: Bool = false,
+        builtin: Bool = false,
         createdById: String? = nil,
         createdAt: String,
         updatedAt: String
@@ -1412,13 +1415,14 @@ public struct SkillEntity: FetchableRecord, PersistableRecord, Identifiable, Equ
         self.name = name
         self.description = description
         self.enabledByDefault = enabledByDefault
+        self.builtin = builtin
         self.createdById = createdById
         self.createdAt = createdAt
         self.updatedAt = updatedAt
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, description
+        case id, name, description, builtin
         case teamId = "team_id"
         case enabledByDefault = "enabled_by_default"
         case createdById = "created_by_id"
@@ -1435,6 +1439,7 @@ extension SkillEntity: Codable {
         name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
         description = try c.decodeIfPresent(String.self, forKey: .description) ?? ""
         enabledByDefault = c.decodeWireBool(forKey: .enabledByDefault, default: false)
+        builtin = c.decodeWireBool(forKey: .builtin, default: false)
         createdById = try c.decodeIfPresent(String.self, forKey: .createdById)
         createdAt = try c.decode(String.self, forKey: .createdAt)
         updatedAt = try c.decode(String.self, forKey: .updatedAt)
