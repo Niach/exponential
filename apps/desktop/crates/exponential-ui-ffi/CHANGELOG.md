@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.13.0 (2026-11-03)
+
+- No API of its own; carries the core's calendar views (VAPP-232).
+
 ## 0.12.0 (2026-11-03)
 
 - VAPP-218 (eApps U1): screens (`screens` in the package, the host paints the navigation), the `app.navigate` action and the `@media (form-factor: phone|wide)` condition (`SurfaceSettings.form_factor`).

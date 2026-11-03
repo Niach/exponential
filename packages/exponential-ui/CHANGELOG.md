@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.13.0 (2026-11-03)
+
 - VAPP-232 (eApps U3, 1/3): the calendar views of the records query. A row SPANS `by`..`until`; the month view's `month` gains `weeks` (Monday-first, padding days, lanes, "+N more" markers past `lanes`), `day` and the selected day's `agenda`; new `view=week` (`week`) and `view=timeline` (`timeline`: columns per week, month or quarter, month/year bands, rows grouped by `row`, `now`); `tone=<field>` colours each placed row `chart1`..`chart8`. JSON form: `month`/`week`/`timeline` objects, one per query. New `src/host/calendar.ts` (Rust `host::calendar`); reserved params `columns day lanes row scale start tone until view`; fixture `records-query.json`.
 - Switch gains `size` (`default` | `compact`): the compact switch is a 28×16 track under a 12px thumb (neutral + playful recipes, every renderer through the core layout; the web primitive `Switch size="compact"`). Switch and Checkbox `checked` descriptions shortened to keep the catalog prompt under budget.
 

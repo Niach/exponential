@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.13.0 (2026-11-03)
+
+- Switch gains `size` (`default` | `compact`): the compact switch is a 28×16 track under a 12px thumb, as on the other renderers (#1853).
+
 ## 0.12.0 (2026-11-03)
 
 - No changes of its own; released with the SDK (U1 screens, R8 client migrations and R7 components() landed in the core).

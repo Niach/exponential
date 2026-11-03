@@ -5,6 +5,10 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.13.0 (2026-11-03)
+
+- VAPP-232 (eApps U3, 1/3): calendar views in the records query (`host::calendar`): month weeks + lanes for spanning rows, week and timeline.
+
 ## 0.12.0 (2026-11-03)
 
 - VAPP-218 (eApps U1): screens (`screens` in the package, the host paints the navigation), the `app.navigate` action and the `@media (form-factor: phone|wide)` condition (`SurfaceSettings.form_factor`).
