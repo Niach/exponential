@@ -637,6 +637,36 @@
       "error": "dateAdd needs a string, got number"
     },
     {
+      "name": "dateAdd a huge whole number of years is out of range (fuzz: TS wrote 0NaN-NaN-NaN)",
+      "expr": "dateAdd('2026-01-01', 1.7976931348623157e308, 'year')",
+      "error": "date out of range"
+    },
+    {
+      "name": "dateAdd a huge number of weeks is out of range (fuzz: Rust overflowed)",
+      "expr": "dateAdd('2026-11-02', 1e300, 'week')",
+      "error": "date out of range"
+    },
+    {
+      "name": "dateAdd a huge number of hours to a timestamp is out of range (fuzz: Rust overflowed)",
+      "expr": "dateAdd('2026-11-02T09:30:00Z', 1e300, 'hour')",
+      "error": "date out of range"
+    },
+    {
+      "name": "dateAdd a huge negative number of months to a timestamp is out of range",
+      "expr": "dateAdd('2026-11-02T09:30:00Z', -1e21, 'month')",
+      "error": "date out of range"
+    },
+    {
+      "name": "dateAdd the last representable day",
+      "expr": "dateAdd('9999-12-30', 1, 'day')",
+      "value": "9999-12-31"
+    },
+    {
+      "name": "dateAdd one day past 9999-12-31",
+      "expr": "dateAdd('9999-12-31', 1, 'day')",
+      "error": "date out of range"
+    },
+    {
       "name": "not a date",
       "expr": "dateAdd('nope', 1, 'day')",
       "error": "not a date: nope"
