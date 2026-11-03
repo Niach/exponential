@@ -10,6 +10,8 @@ const WIDGET = {
 type WidgetApi = { q?: unknown[][]; init(opts: Record<string, unknown>): void; setCustomData(data: Record<string, unknown>): void }
 
 export function initWidget(): void {
+  // The key is bound to exponential.at: previews, CI and localhost get a 403.
+  if (location.hostname !== `exponential.at`) return
   const w = window as unknown as { ExponentialWidget?: WidgetApi }
   if (w.ExponentialWidget) return
   const q: unknown[][] = []
