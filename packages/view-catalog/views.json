@@ -75,6 +75,10 @@
   ],
   "excludedRoutes": [
     {
+      "route": "/t/$teamSlug/apps/$appSlug/$screen",
+      "reason": "An app's deep link to one of its screens (VAPP-218): the same page as the app view, with that screen open; the app view photographs it."
+    },
+    {
       "route": "/",
       "reason": "Bare root is a resolver, not a view: it forwards to the last-visited team, the oldest membership, or onboarding."
     },
