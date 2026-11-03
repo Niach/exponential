@@ -32,6 +32,8 @@ object VoiceCall {
         const val SPEAKER_OFF = "Speaker off"
         const val END_CALL = "End call"
         const val CANCEL = "Cancel"
+        /** EXP-1681: the phone surface's minimize button. */
+        const val MINIMIZE = "Minimize"
         const val QUEUED = "{count} queued · {text}"
 
         /** What the device says once answered, by language (`en` the fallback). */
@@ -89,6 +91,7 @@ object VoiceCall {
         const val SPEAKER = "call-speaker"
         const val SPEAKER_OFF = "call-speaker-off"
         const val END = "call-end"
+        const val MINIMIZE = "ui-chevron-down"
     }
 
     object TestIds {
@@ -100,6 +103,7 @@ object VoiceCall {
         const val PANEL = "voice-call-panel"
         const val PILL = "voice-call-pill"
         const val TIMER = "voice-call-timer"
+        const val MINIMIZE = "voice-call-minimize"
     }
 
     object Constants {
@@ -131,11 +135,13 @@ object VoiceCall {
         const val IDLE_TIMEOUT_MS = 30_000
     }
 
-    /** The desktop's floating call pill (`pill`; phones never show it). */
+    /** The floating call pill (`pill`): the desktop's, EXP-1681 the phones' minimized call. */
     object Pill {
         const val WIDTH = 320
         const val HEIGHT = 56
         const val MARGIN_PX = 24
+        /** The phone pill's default bottom edge above the safe area's. */
+        const val PHONE_BOTTOM_PX = 96
     }
 
     /**

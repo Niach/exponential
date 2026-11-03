@@ -7089,6 +7089,36 @@
       }
     },
     {
+      "id": "call-pill",
+      "group": "coding",
+      "title": "Call pill",
+      "blurb": "THE floating call pill (EXP-1681, voice-call.json `pill`): a running call small and floating, one per `surfaceSpecimens` row: drag handle, avatar sm, name over timer (ringing: the status), VoiceWave sm, mute, red end. The desktop shows it while no IDE window is focused, the phones while a call is minimized.",
+      "order": 60,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=call-pill",
+        "anchor": {
+          "testId": "voice-call-pill-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:call-pill"
+        },
+        "anchorDelayMs": 1500
+      },
+      "notes": {
+        "web": "The DEV-ONLY `?dev=call-pill`: `@exp/ui` `VoiceCallPillSpecimen` (the styleguide entry's specimen). Web itself never shows a pill: its call is the full-height overlay.",
+        "ios": "The phone pill (a minimized call) lands with EXP-1681's iOS PR; until then the desktop twin is the picture.",
+        "android": "See ios.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:call-pill`: the IDE styleguide twin drawn full-window.",
+        "web-mobile": "Inherits web."
+      }
+    },
+    {
       "id": "voice-call-overlay",
       "group": "coding",
       "title": "Voice overlay",
