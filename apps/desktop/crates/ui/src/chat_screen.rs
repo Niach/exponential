@@ -2486,6 +2486,16 @@ impl ChatScreenView {
             launch.set_mcp_servers(mcp);
             launch.set_skills(team_id.as_deref(), skills);
         }
+        // #EXP-1660 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=skills`): open the
+        // Skills picker once the team's skills and the + are there.
+        if matches!(self.presentation, Presentation::Page)
+            && self.plus_tool_bounds.get().size.width > px(0.)
+            && self.launch.as_ref().is_some_and(|launch| !launch.skills_menu().0.is_empty())
+            && !self.to_agent(cx)
+            && crate::screens::take_dev_skills_picker()
+        {
+            self.open_picker = Some(ComposerPicker::Skills);
+        }
 
         let blocker = self.launch_blocker(cx);
         // EXP-1196: a device/agent failure renders as THE failing readiness

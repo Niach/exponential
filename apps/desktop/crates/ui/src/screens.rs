@@ -1011,8 +1011,17 @@ fn dev_composer_menu_wanted(value: Option<&str>, dialog: bool) -> bool {
 pub(crate) fn dev_composer_menu_temporary() -> bool {
     static TEMPORARY: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *TEMPORARY.get_or_init(|| {
-        std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref() == Some("temporary")
+        matches!(std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref(), Some("temporary" | "skills"))
     })
+}
+
+/// #EXP-1660 — `EXP_DEV_COMPOSER_MENU=skills`: Home starts on Temporary
+/// session and opens "+" › Skills (THE skills picker, anchored to the +)
+/// once, the `composer-skills-menu` capture. Taken once.
+pub(crate) fn take_dev_skills_picker() -> bool {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static TAKEN: AtomicBool = AtomicBool::new(false);
+    std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref() == Some("skills") && !TAKEN.swap(true, Ordering::SeqCst)
 }
 
 /// EXP-1557 — `EXP_DEV_COMPOSER_TEXT=<text>` types `<text>` into Home's

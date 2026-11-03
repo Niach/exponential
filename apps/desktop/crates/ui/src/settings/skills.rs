@@ -31,7 +31,7 @@ use gpui_component::{
 
 use domain::skills::{self as spec, SkillField};
 
-use crate::controls::{glass_input, WebControl as _};
+use crate::controls::{glass_input, PointerMenuButtonExt as _, WebControl as _};
 use crate::icons::registry;
 use crate::native_dialog::{self, AlertSpec};
 use crate::navigation::{active_team_id, navigate, Navigation, Screen};
@@ -59,13 +59,55 @@ pub(crate) fn skill_icon() -> Icon {
 // The list
 // ---------------------------------------------------------------------------
 
+/// The owners' row "…" menu (web `SkillsListBand`): Edit, then the
+/// destructive Delete behind THE Prompt. The wrapper keeps its click off the
+/// row (which opens the page).
+fn row_menu(id: &str, name: &str, cx: &App) -> gpui::AnyElement {
+    let (edit_id, delete_id) = (id.to_string(), id.to_string());
+    let button = crate::controls::ghost_icon_button(
+        SharedString::from(format!("skill-menu-{id}")),
+        Icon::new(registry::UI_MORE),
+        cx,
+    )
+    .tooltip(SharedString::from(format!("Skill menu for {name}")))
+    .pointer_menu(move |menu, _window, cx| {
+        let (edit_id, delete_id) = (edit_id.clone(), delete_id.clone());
+        menu.item(
+            crate::controls::pointer_label_item("Edit", false)
+                .icon(Icon::new(registry::UI_EDIT))
+                .on_click(move |_, window, cx| open_skill_page(window, cx, edit_id.clone())),
+        )
+        .separator()
+        .item(
+            crate::controls::danger_menu_item(spec::DELETE_CONFIRM, Icon::new(registry::UI_DELETE), cx)
+                .on_click(move |_, window, cx| confirm_delete(delete_id.clone(), window, cx)),
+        )
+    });
+    div()
+        .id(SharedString::from(format!("skill-menu-wrap-{id}")))
+        .flex_shrink_0()
+        .on_click(|_, _, cx| cx.stop_propagation())
+        .child(button)
+        .into_any_element()
+}
+
+/// Delete behind THE Prompt (skills.json `page.deleteConfirm`).
+fn confirm_delete(skill_id: String, window: &mut Window, cx: &mut App) {
+    let alert = AlertSpec::from_prompt(spec::DELETE_LABEL, &spec::delete_confirm()).on_ok(move |_, cx| {
+        spawn_skill_delete(cx, skill_id.clone());
+        true
+    });
+    native_dialog::open_alert(window, cx, alert);
+}
+
 /// One list row: glyph, name + the Default pill, the description caption
-/// (the MCP server row's layout).
+/// and the owners' "…" menu (the MCP server row's layout).
 pub(crate) fn skill_row(
     id: &str,
     name: &str,
     description: &str,
     default: bool,
+    owner: bool,
     cx: &App,
 ) -> gpui::Stateful<gpui::Div> {
     let muted = cx.theme().muted_foreground;
@@ -106,6 +148,7 @@ pub(crate) fn skill_row(
                     .child(SharedString::from(description.to_string())),
             ),
         )
+        .when(owner, |row| row.child(row_menu(id, name, cx)))
 }
 
 /// The Skills band (web `SkillsListBand`).
@@ -167,7 +210,7 @@ impl Render for SkillsPane {
         for skill in skills {
             let open_id = skill.id.clone();
             list = list.child(crate::surface::list_row(
-                skill_row(&skill.id, &skill.name, &skill.description, skill.enabled_by_default, cx).on_click(
+                skill_row(&skill.id, &skill.name, &skill.description, skill.enabled_by_default, owner, cx).on_click(
                     move |_: &ClickEvent, window, cx| {
                         open_skill_page(window, cx, open_id.clone());
                     },
@@ -478,11 +521,7 @@ impl SkillPage {
         let Some(skill_id) = self.skill_id.clone() else {
             return;
         };
-        let spec = AlertSpec::from_prompt(spec::DELETE_LABEL, &spec::delete_confirm()).on_ok(move |_, cx| {
-            spawn_skill_delete(cx, skill_id.clone());
-            true
-        });
-        native_dialog::open_alert(window, cx, spec);
+        confirm_delete(skill_id, window, cx);
     }
 
     /// The inline error under `field`, once it may show.
@@ -533,12 +572,15 @@ impl Render for SkillPage {
                 glass_input(&self.name, window, cx).appearance(false).h_auto().px_0().py_0().disabled(read_only),
             ),
         );
-        let description_row = crate::surface::glass_row_shell().child(
+        // The description is a grouped field row of its own (web
+        // `GROUPED_FIELD_ROW`): the prompt body's insets, so its text lines
+        // up with the body below.
+        let description_row = div().w_full().child(
             Textarea::new(&self.description)
                 .appearance(false)
                 .w_full()
-                .px_0()
-                .py_0()
+                .px_4()
+                .py_3()
                 .text_sm()
                 .disabled(read_only),
         );

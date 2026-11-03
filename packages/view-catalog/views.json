@@ -2072,11 +2072,17 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "skills"
+        }
+      },
       "notes": {
         "web": "The demo team's four skills (release-notes and db-migration on by default, shots, incident-triage; seed-screenshots.ts seeds them). Members see the same list without New skill and the row menus.",
         "ios": "#EXP-1661: the iOS Skills page lands with the mobile PR; no capture wired yet.",
         "android": "#EXP-1661: the Android Skills page lands with the mobile PR; no capture wired yet.",
-        "desktop": "#EXP-1660: the desktop Skills page lands with the desktop PR; no capture wired yet."
+        "desktop": "#EXP-1660: `EXP_DEV_SETTINGS=skills`, the seeded demo team's four skills (the owner's view: New skill and the row menus)."
       }
     },
     {
@@ -2094,11 +2100,17 @@
         "settleMs": 800
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "settings",
+          "value": "skill:3f6b2a1d-8c4e-4d7a-9b2f-5e1c7a9d0b63"
+        }
+      },
       "notes": {
         "web": "`$skillId` resolves to DEMO_SKILL_ID, the seeded db-migration skill (on by default). The body is server-only (`skills.get`), so the anchor waits for the editor.",
         "ios": "#EXP-1661: the iOS Skills page lands with the mobile PR; no capture wired yet.",
         "android": "#EXP-1661: the Android Skills page lands with the mobile PR; no capture wired yet.",
-        "desktop": "#EXP-1660: the desktop Skills page lands with the desktop PR; no capture wired yet."
+        "desktop": "#EXP-1660: `EXP_DEV_SETTINGS=skill:<DEMO_SKILL_ID>` (the seeded db-migration skill; the id is the constant screenshot-demo.ts pins), its body fetched by `skills.get`."
       }
     },
     {
@@ -5300,11 +5312,21 @@
         "settleMs": 600
       },
       "webMobile": "inherit",
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "chat"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_COMPOSER_MENU": "skills"
+        }
+      },
       "notes": {
         "web": "`openComposerSkillsMenu` = `openComposerMenuTemporary`, then the Skills row: the submenu opens to the side at md+, as a pushed page on phones.",
         "ios": "#EXP-1661: the iOS Skills page lands with the mobile PR; no capture wired yet.",
         "android": "#EXP-1661: the Android Skills page lands with the mobile PR; no capture wired yet.",
-        "desktop": "#EXP-1660: the desktop Skills page lands with the desktop PR; no capture wired yet."
+        "desktop": "#EXP-1660: `EXP_DEV_COMPOSER_MENU=skills` starts Home on Temporary session and opens + › Skills (THE skills multi picker anchored to the +, like MCP servers) once the team's skills synced."
       }
     },
     {

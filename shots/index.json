@@ -1027,6 +1027,15 @@
         "sha256": "9bc52e946317c5c1a28bbc0c4440d8e5499ce5d83b9e8950795ad3d04756d24a"
       }
     },
+    "composer-skills-menu": {
+      "desktop": {
+        "file": "shots/composer-skills-menu/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 34958,
+        "sha256": "2f9fc77fad1a3e98f4c09f92c671ad5bb44b75737d4041fe42189616ebd8b214"
+      }
+    },
     "composer-slash-menu": {
       "android": {
         "file": "shots/composer-slash-menu/android.webp",
@@ -5819,6 +5828,24 @@
         "sha256": "bce41aa4c6244fe06459dd7d56b380cca27717a72469908f2bd3a59b4b4b2c3f"
       }
     },
+    "settings-skill": {
+      "desktop": {
+        "file": "shots/settings-skill/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 46902,
+        "sha256": "ccf00acdc176c6818e85d2a5ad0abdf9c5ed28310d8d21967518ccf899070d79"
+      }
+    },
+    "settings-skills": {
+      "desktop": {
+        "file": "shots/settings-skills/desktop.webp",
+        "width": 1800,
+        "height": 1125,
+        "bytes": 36326,
+        "sha256": "69112dee51a4d5f4a2228081542b2a25fd8358dd0a04d13aa03f7d1b305a5e39"
+      }
+    },
     "settings-statuses": {
       "desktop": {
         "file": "shots/settings-statuses/desktop.webp",
@@ -5892,9 +5919,9 @@
       "desktop": {
         "file": "shots/settings-team-agent/desktop.webp",
         "width": 1800,
-        "height": 1126,
-        "bytes": 38442,
-        "sha256": "8201ed9d9e66c2ae171b1f3aad7f117e52e90e9338a9b149bef6946ac9afa449"
+        "height": 1125,
+        "bytes": 40180,
+        "sha256": "9e1f8e2f706ace8f644f817809cea86711ad352bca10f06612a2a658d0c7fa5f"
       },
       "ios": {
         "file": "shots/settings-team-agent/ios.webp",
