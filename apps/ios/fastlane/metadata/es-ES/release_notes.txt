@@ -35,3 +35,5 @@
 - La acción de una app guarda todos sus registros juntos o ninguno
 - Las apps muestran su propio valor de reserva donde falta un valor
 - Gráficos, listas, campos desactivados e imágenes en las apps se ven igual que en las demás apps
+- Habilidades del equipo: elige en el menú + las habilidades de una sesión
+- Las apps tienen una pestaña Datos que sigue la regla de registros de cada tipo

@@ -35,3 +35,5 @@
 - En apps åtgärd sparar alla sina poster tillsammans, eller ingen av dem
 - Appar visar sitt eget reservvärde där ett värde saknas
 - Diagram, listor, inaktiverade fält och bilder i appar ser ut som i de andra apparna
+- Teamfärdigheter: välj i +-menyn färdigheterna en session körs med
+- Appar har en Data-flik som följer varje typs postregel

@@ -35,3 +35,5 @@
 - Eine App-Aktion speichert alle ihre Einträge gemeinsam oder keinen davon
 - Apps zeigen ihren eigenen Ersatzwert, wo ein Wert fehlt
 - Diagramme, Listen, deaktivierte Felder und Bilder in Apps sehen aus wie in den anderen Apps
+- Team-Skills: wähle im +-Menü die Skills, mit denen eine Sitzung läuft
+- Apps haben einen Daten-Tab, der der Datensatzregel jeder Art folgt

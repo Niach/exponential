@@ -35,3 +35,5 @@
 - Egy app művelete az összes rekordját együtt menti, vagy egyiket sem
 - Az appok saját tartalékértéket mutatnak, ahol egy érték hiányzik
 - Az appok diagramjai, listái, letiltott mezői és képei ugyanúgy néznek ki, mint a többi alkalmazásban
+- Csapatkészségek: a + menüben válaszd ki egy munkamenet készségeit
+- Az appok Adatok lapja követi az egyes fajták rekordszabályát

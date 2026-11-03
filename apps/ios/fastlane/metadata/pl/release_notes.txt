@@ -35,3 +35,5 @@
 - Akcja aplikacji zapisuje wszystkie swoje rekordy razem albo żadnego
 - Aplikacje pokazują własną wartość zastępczą tam, gdzie brakuje wartości
 - Wykresy, listy, wyłączone pola i obrazy w aplikacjach wyglądają tak samo jak w pozostałych aplikacjach
+- Umiejętności zespołu: wybierz w menu + umiejętności, z którymi działa sesja
+- Aplikacje mają kartę Dane zgodną z regułą rekordów każdego rodzaju

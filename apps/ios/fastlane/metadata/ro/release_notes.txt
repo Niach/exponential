@@ -35,3 +35,5 @@
 - Acțiunea unei aplicații salvează toate înregistrările împreună sau niciuna
 - Aplicațiile afișează propria valoare de rezervă acolo unde lipsește o valoare
 - Graficele, listele, câmpurile dezactivate și imaginile din aplicații arată la fel ca în celelalte aplicații
+- Abilități de echipă: alege din meniul + abilitățile unei sesiuni
+- Aplicațiile au o filă Date care urmează regula înregistrărilor fiecărui tip
