@@ -177,6 +177,8 @@ pub mod session_kind;
 pub mod session_title;
 // EXP-1294: the session tree's views (card, thread, Threads page, Agents), fixture-locked ×4.
 pub mod session_tree;
+// #EXP-1660: team skills (fixtures/skills.json), fixture-locked ×4.
+pub mod skills;
 // N-12: THE stack geometry (the toasts and the Dock pile), fixture-locked ×4.
 pub mod stack;
 pub mod statuses;

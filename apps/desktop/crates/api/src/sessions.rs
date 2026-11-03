@@ -65,6 +65,10 @@ pub struct SendInput {
     pub ultracode: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mcp_server_ids: Option<Vec<String>>,
+    /// #EXP-1656: the team skills a new session runs with (the "+" menu's
+    /// Skills pick; omitted while empty, at most 20).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skill_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

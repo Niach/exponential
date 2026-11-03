@@ -44,6 +44,10 @@ pub struct Agent {
     pub account: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
+    /// #EXP-1656: the skills every run of the agent starts with (`null` =
+    /// none).
+    #[serde(default)]
+    pub skill_ids: Option<Vec<String>>,
     #[serde(default)]
     pub owner_id: Option<String>,
     #[serde(default)]
@@ -159,6 +163,9 @@ pub struct UpdateInput {
     pub account: Option<Option<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<Option<String>>,
+    /// #EXP-1660: the agent page's Skills pick (`Some(vec![])` = none).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skill_ids: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sort_order: Option<f64>,
 }
