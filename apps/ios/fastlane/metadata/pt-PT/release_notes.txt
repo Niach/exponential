@@ -43,3 +43,4 @@
 - Anule alterações de registos durante 10 segundos; cada registo guarda um histórico restaurável
 - As apps podem calcular campos e ligar registos entre si
 - As alterações feitas offline são enviadas quando voltar a estar online
+- As apps podem ter vários ecrãs e importar uma folha de cálculo

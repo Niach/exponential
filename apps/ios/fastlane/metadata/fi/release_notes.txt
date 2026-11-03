@@ -43,3 +43,4 @@
 - Kumoa sovelluksen tietuemuutokset 10 sekunnin ajan; jokaisella tietueella on palautettava historia
 - Sovellukset voivat laskea kenttiä ja linkittää tietueita
 - Offline-tilassa tehdyt muutokset lähetetään, kun olet taas verkossa
+- Sovelluksissa voi olla useita näkymiä ja ne voivat tuoda taulukon

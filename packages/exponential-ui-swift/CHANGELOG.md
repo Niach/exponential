@@ -5,6 +5,8 @@ release together from a `eui-v<version>` tag (`packages/exponential-ui/release/R
 
 ## Unreleased
 
+## 0.12.0 (2026-11-03)
+
 - VAPP-233: `RecordMigrations.migrate(package:version:kind:data:)` / `.refusal(before:after:)`; `RecordMigrationsTests` replays `record-migrations.json`.
 
 ## 0.11.0 (2026-11-03)

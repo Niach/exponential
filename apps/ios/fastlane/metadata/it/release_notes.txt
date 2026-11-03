@@ -43,3 +43,4 @@
 - Annulla le modifiche ai record per 10 secondi; ogni record conserva una cronologia ripristinabile
 - Le app possono calcolare campi e collegare i record tra loro
 - Le modifiche fatte offline vengono inviate quando torni online
+- Le app possono avere più schermate e importare un foglio di calcolo

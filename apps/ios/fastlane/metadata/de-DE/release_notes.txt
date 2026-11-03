@@ -43,3 +43,4 @@
 - Änderungen an App-Einträgen 10 Sekunden lang rückgängig machen; jeder Eintrag hat einen wiederherstellbaren Verlauf
 - Apps können Felder berechnen und Einträge miteinander verknüpfen
 - Offline gemachte App-Änderungen werden gesendet, sobald du wieder online bist
+- Apps können mehrere Bildschirme haben und eine Tabelle als Einträge importieren

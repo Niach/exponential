@@ -43,3 +43,4 @@
 - Angre endringer i app-poster i 10 sekunder; hver post har en historikk du kan gjenopprette fra
 - Apper kan beregne felt og koble poster til hverandre
 - Endringer gjort offline sendes når du er på nett igjen
+- Apper kan ha flere skjermer og importere et regneark
