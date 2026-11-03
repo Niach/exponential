@@ -1,4 +1,4 @@
 dist/
 .astro/
-# Generated from docs/*.md by scripts/sync-reference.ts
-src/content/docs/docs/libraries/motion/reference.md
+# Reference pages generated from repo markdown (scripts/sync-reference.ts)
+*.gen.md
